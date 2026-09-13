@@ -1,0 +1,1529 @@
+@page "/tools/fusion-cam"
+@implements IDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject FusionPakketten Pakketten
+@inject ComponentZoeker Zoeker
+@inject IEcComponentRepository EcRepo
+@inject IJlcComponentRepository JlcRepo
+@inject JlcOnderdelen JlcParts
+
+@* Fusion CAM-output omzetten naar de bestanden van een PCB-fabrikant.
+   Sleep de zip die Fusion exporteert (manufacturing output) in het vak;
+   de server pakt hem uit, draait de omzetting en geeft het pakket terug
+   als download. Eurocircuits: Services/EurocircuitsExport.cs (geport uit
+   de Windows-tool FusionToCam). JLCPCB: Services/JlcpcbExport.cs (zelfde
+   Gerber-zip; CPL en BOM in het JLCPCB-kolomformaat). PCBWay komt later. *@
+
+<PageTitle>Fusion → PCB-fabrikant — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Fusion → PCB-fabrikant</h1>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @* ---------- stap 1: fabrikant kiezen en de zip erin ---------- *@
+    <div class="btngroup fusion-fabrikanten">
+        <label>Fabrikant:</label>
+        <button class="klein @(_fabrikant == "Eurocircuits" ? "actief" : "")"
+                @onclick='() => KiesFabrikant("Eurocircuits")'>Eurocircuits</button>
+        <button class="klein @(_fabrikant == "JLCPCB" ? "actief" : "")"
+                @onclick='() => KiesFabrikant("JLCPCB")'>JLCPCB</button>
+        <button class="klein" disabled title="Komt later">PCBWay</button>
+    </div>
+
+    <div class="sleepzone factuur-sleep fusion-sleep @(_sleep ? "actief" : "")"
+         @ondragenter="() => _sleep = true"
+         @ondragleave="() => _sleep = false"
+         @ondrop="() => _sleep = false">
+        @if (_uploadBezig)
+        {
+            <text>Bezig met uitpakken en converteren…</text>
+        }
+        else
+        {
+            <text>Sleep de zip-file van 'manufacturing output' hierin.</text>
+        }
+        <InputFile OnChange="ZipGekozen" accept=".zip" disabled="@_uploadBezig" @key="_uploadRonde" />
+    </div>
+
+    @* ---------- stap 2: wat er is ingelezen ---------- *@
+    @if (_inleesInfo.Length > 0)
+    {
+        <p class="uitleg fusion-inlees">@_inleesInfo</p>
+    }
+
+    @* ---------- het resultaat ---------- *@
+    @if (_resultaten.Count > 0)
+    {
+        <h3 class="wn-kop">Resultaat</h3>
+        <table class="kiezer-tabel smal-tabel">
+            <tbody>
+                @foreach (var r in _resultaten)
+                {
+                    <tr @key="r.StepName">
+                        <td style="width:2.5rem" class="c">@(r.Success ? "✔" : "✕")</td>
+                        <td style="width:8rem"><b>@r.StepName</b></td>
+                        <td class="@(r.Success ? "" : "factuur-credit")">@r.Message</td>
+                        <td style="width:6.5rem" class="c">
+                            @if (KanBekijken(r))
+                            {
+                                <button class="klein" @onclick="() => Bekijk(r)">Bekijken</button>
+                            }
+                            else if (r.StepName == "Gerber zip" && r.Success && _wortel is not null)
+                            {
+                                <button class="klein" @onclick="BekijkGerber">Bekijken</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+    }
+
+    @* ---------- stap 3: exporteren ---------- *@
+    @if (_wortel is not null)
+    {
+        <div class="btngroup">
+            <button class="primair" disabled="@_exportBezig" @onclick="MaakExport">
+                @(_exportBezig ? "Bezig met converteren…" : $"⚙ Maak {_fabrikant}-export")
+            </button>
+        </div>
+    }
+</div>
+
+@* Detail van een Eurocircuits-standaardcomponent, geopend vanuit de
+   Eurocircuits-kolom in de BOM-kijker. *@
+@if (_ecDetail is not null)
+{
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker ec-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>@_ecDetail.Gpn</b>
+                <span class="zij-extra">standaardcomponent Eurocircuits</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _ecDetail = null">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <table class="kiezer-tabel smal-tabel ec-detail">
+                    <tbody>
+                        <tr><td>Soort</td><td>@_ecDetail.SoortNaam</td></tr>
+                        <tr><td>Grootte</td><td>@_ecDetail.Grootte</td></tr>
+                        <tr><td>Waarde</td><td>@_ecDetail.WaardeTekst</td></tr>
+                        @if (_ecDetail.Tolerantie is not null)
+                        {
+                            <tr><td>Tolerantie</td><td>@_ecDetail.Tolerantie</td></tr>
+                        }
+                        @if (_ecDetail.Vermogen is not null)
+                        {
+                            <tr><td>Vermogen</td><td>@_ecDetail.Vermogen</td></tr>
+                        }
+                        @if (_ecDetail.Spanning is not null)
+                        {
+                            <tr><td>Spanning</td><td>@_ecDetail.Spanning</td></tr>
+                        }
+                        @if (_ecDetail.Dielectricum is not null)
+                        {
+                            <tr><td>Diëlektricum</td><td>@_ecDetail.Dielectricum</td></tr>
+                        }
+                        @if (_ecDetail.Omschrijving is not null)
+                        {
+                            <tr><td>Omschrijving</td><td class="ec-detail-oms">@_ecDetail.Omschrijving</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@* Gerber-weergave: de print zoals hij eruit komt te zien, gerenderd in de
+   browser met tracespace/pcb-stackup vanuit de map GerberFiles. *@
+@if (_gerberOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker gerber-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>Gerber-weergave</b>
+                <span class="zij-extra">gerenderd met tracespace</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _gerberOpen = false">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-balk">
+                <button class="klein @(_gerberZijde == "top" ? "actief" : "")"
+                        @onclick='() => KiesGerberZijde("top")'>Boven</button>
+                <button class="klein @(_gerberZijde == "bottom" ? "actief" : "")"
+                        @onclick='() => KiesGerberZijde("bottom")'>Onder</button>
+                <span class="zij-extra">·</span>
+                <button class="klein" title="Inzoomen" @onclick='() => Zoom(1.25)'>＋</button>
+                <button class="klein" title="Uitzoomen" @onclick='() => Zoom(0.8)'>－</button>
+                <button class="klein" title="Zoom terugzetten" @onclick="ZoomReset">1:1</button>
+                <span class="zij-extra">scrollen = zoomen · slepen = verschuiven</span>
+            </div>
+            <div class="fusion-kijker-inhoud gerber-tweeluik">
+                <div class="gerber-lagen">
+                    <div class="gerber-lagen-kop">
+                        Lagen
+                        <button class="klein" @onclick="() => AlleGerberLagen(true)">alles</button>
+                        <button class="klein" @onclick="() => AlleGerberLagen(false)">niets</button>
+                    </div>
+                    @for (var i = 0; i < _gerberLagen.Count; i++)
+                    {
+                        var ii = i;
+                        <label class="gerber-laag">
+                            <input type="checkbox" checked="@_gerberKeuze[ii]"
+                                   @onchange="e => GerberLaagVink(ii, e.Value is bool b && b)" />
+                            @_gerberLagen[ii]
+                        </label>
+                    }
+                </div>
+                <div class="gerber-rechts">
+                    @if (_gerberBezig)
+                    {
+                        <p class="uitleg">Lagen renderen…</p>
+                    }
+                    @if (_gerberFout is not null)
+                    {
+                        <p class="uitleg">@_gerberFout</p>
+                    }
+                    <div id="gerber-doel" class="gerber-doel"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Detail van een JLCPCB-onderdeel: voorraad en prijsstaffels, live
+   opgehaald bij het platform (getComponentDetailByCode). *@
+@if (_jlcDetailCode is not null)
+{
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker ec-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>@_jlcDetailCode</b>
+                <span class="zij-extra">JLCPCB-onderdeel</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _jlcDetailCode = null">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                @if (_jlcDetailBezig)
+                {
+                    <p class="uitleg">Opvragen bij JLCPCB…</p>
+                }
+                else if (_jlcDetailFout is not null)
+                {
+                    <p class="uitleg">@_jlcDetailFout</p>
+                }
+                else if (_jlcDetail is not null)
+                {
+                    <table class="kiezer-tabel smal-tabel ec-detail">
+                        <tbody>
+                            <tr><td>MPN</td><td>@_jlcDetail.Mpn</td></tr>
+                            <tr><td>Fabrikant</td><td>@_jlcDetail.Merk</td></tr>
+                            <tr><td>Behuizing</td><td>@_jlcDetail.Specificatie</td></tr>
+                            <tr><td>Categorie</td><td>@_jlcDetail.Categorie</td></tr>
+                            <tr><td>Voorraad</td><td>@_jlcDetail.Voorraad</td></tr>
+                            <tr><td>Bibliotheek</td><td>@_jlcDetail.Bibliotheek</td></tr>
+                            @if (_jlcDetail.Prijzen.Count > 0)
+                            {
+                                <tr>
+                                    <td>Prijs</td>
+                                    <td>@string.Join(" · ", _jlcDetail.Prijzen.Select(p => $"vanaf {p.Vanaf}: {p.Stukprijs:0.####}"))</td>
+                                </tr>
+                            }
+                            @if (_jlcDetail.Omschrijving.Length > 0)
+                            {
+                                <tr><td>Omschrijving</td><td class="ec-detail-oms">@_jlcDetail.Omschrijving</td></tr>
+                            }
+                            @if (_jlcDetail.Datasheet.Length > 0)
+                            {
+                                <tr><td>Datasheet</td>
+                                    <td><a href="@_jlcDetail.Datasheet" target="_blank" rel="noopener">openen</a></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* MPN opzoeken: treffers uit de onderdelendatabase van Mouser, om de
+   waarde/omschrijving in de BOM te double-checken. *@
+@if (_zoekMpn is not null)
+{
+    @* laag2: dit venster opent bóven op de CSV-kijker (zelfde z-index zou
+       erachter vallen omdat de kijker later in de opmaak staat) *@
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker mpn-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>@_zoekMpn</b>
+                <span class="zij-extra">onderdelendatabase (Mouser)</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _zoekMpn = null">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                @if (_zoekBezig)
+                {
+                    <p class="uitleg">Zoeken…</p>
+                }
+                else if (_zoekFout is not null)
+                {
+                    <p class="uitleg">@_zoekFout</p>
+                }
+                @if (_zoekTreffers.Count > 0)
+                {
+                    <table class="kiezer-tabel smal-tabel">
+                        <thead>
+                            <tr>
+                                <th>MPN</th>
+                                <th>Fabrikant</th>
+                                <th>Omschrijving</th>
+                                <th>Categorie</th>
+                                <th>Voorraad</th>
+                                <th>Prijs</th>
+                                <th style="width:10rem">Links</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in _zoekTreffers)
+                            {
+                                <tr @key="t">
+                                    <td><b>@t.Mpn</b></td>
+                                    <td>@t.Fabrikant</td>
+                                    <td class="mpn-omschrijving">@t.Omschrijving</td>
+                                    <td>@t.Categorie</td>
+                                    <td>@t.Voorraad</td>
+                                    <td>@t.Prijs</td>
+                                    <td>
+                                        @if (t.Datasheet.Length > 0)
+                                        {
+                                            <a href="@t.Datasheet" target="_blank" rel="noopener">datasheet</a>
+                                        }
+                                        @if (t.Pagina.Length > 0)
+                                        {
+                                            <text> · </text>
+                                            <a href="@t.Pagina" target="_blank" rel="noopener">Mouser</a>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* CSV-kijker: laat het bestand zien zoals het echt is — als tekst, in een
+   tabel. Excel maakt van waardes zonder letters wetenschappelijke getallen;
+   hier zie je wat er werkelijk naar de fabrikant gaat. *@
+@if (_kijkNaam is not null)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>@_kijkNaam</b>
+                <span class="zij-extra">@_kijkData.Count regel(s)</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _kijkNaam = null">✕ Sluiten</button>
+            </div>
+            @if (_kijkMpnKolom >= 0)
+            {
+                <div class="fusion-kijker-balk">
+                    <button class="klein" disabled="@_controleBezig" @onclick="Controleer">
+                        @(_controleBezig ? _controleStand : "✓ Controleer waardes & prijs (Mouser)")
+                    </button>
+                    <label>Aantal prints
+                        <input type="number" min="1" max="1000" style="width:4.5rem" @bind="_prints" />
+                    </label>
+                    @* De check hoort bij de fabrikant van deze weergave:
+                       Eurocircuits-conversie krijgt de standaardcheck,
+                       JLCPCB-conversie de C-nummercheck. *@
+                    @if (EcRepo.Beschikbaar && _geconverteerd == "Eurocircuits")
+                    {
+                        <button class="klein" disabled="@_ecBezig" @onclick="CheckEurocircuits"
+                                title="Elke R en C vergelijken met de standaardcomponenten van Eurocircuits">
+                            @(_ecBezig ? "bezig…" : "▦ Check Eurocircuits-standaard")
+                        </button>
+                    }
+                    @if (JlcRepo.Beschikbaar && _geconverteerd == "JLCPCB")
+                    {
+                        <button class="klein" disabled="@_jlcCheckBezig" @onclick="CheckJlc"
+                                title="Per MPN het C-nummer opzoeken in de lokale JLCPCB-bibliotheek">
+                            @(_jlcCheckBezig ? "bezig…" : "▦ Check JLCPCB-parts")
+                        </button>
+                    }
+                    @if (_totaalTekst.Length > 0)
+                    {
+                        <b>@_totaalTekst</b>
+                    }
+                </div>
+            }
+            <div class="fusion-kijker-inhoud">
+                <table class="kiezer-tabel smal-tabel">
+                    <thead>
+                        <tr>
+                            @for (var k = 0; k < _kijkKop.Length; k++)
+                            {
+                                var kolom = k;
+                                <th style="cursor:pointer" title="Klik om te sorteren"
+                                    @onclick="() => Sorteer(kolom)">
+                                    @_kijkKop[kolom]@(_sortKolom == kolom ? _sortOplopend ? " ▲" : " ▼" : "")
+                                </th>
+                            }
+                            @if (_kijkMaten.Count > 0)
+                            {
+                                <th>Maat</th>
+                            }
+                            @if (_kijkGpnKolom < 0 && _kijkGpns.Count > 0)
+                            {
+                                <th>GPN</th>
+                            }
+                            @if (_controles.Count > 0)
+                            {
+                                <th>Controle</th>
+                                <th class="r">Prijs</th>
+                            }
+                            @if (_ecChecks.Count > 0)
+                            {
+                                <th>Eurocircuits</th>
+                            }
+                            @if (_jlcChecks.Count > 0)
+                            {
+                                <th>JLCPCB</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var regel in _kijkData)
+                        {
+                            <tr class="@RijKlasse(regel)">
+                                @for (var k = 0; k < regel.Length; k++)
+                                {
+                                    var veld = regel[k];
+                                    <td>
+                                        @if (k == _kijkMpnKolom && veld.Length > 0 &&
+                                             veld.Equals(_kijkGpns.GetValueOrDefault(regel),
+                                                         StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            @* het bestand draagt hier het GPN; toon de echte MPN
+                                               uit de bron (cursief), of anders het GPN zelf *@
+                                            @if (_kijkBronMpns.GetValueOrDefault(regel) is { } eigenlijkeMpn)
+                                            {
+                                                <button class="mpn-link mpn-bron"
+                                                        title="In het bestand staat hier het GPN; dit is de MPN uit de bron-BOM"
+                                                        @onclick="() => ZoekMpn(eigenlijkeMpn)">@eigenlijkeMpn</button>
+                                            }
+                                            else
+                                            {
+                                                <button class="mpn-link" title="GPN (standaardcomponent)"
+                                                        @onclick="() => ToonGpn(veld)">@veld</button>
+                                            }
+                                        }
+                                        else if (k == _kijkMpnKolom && veld.Length > 0)
+                                        {
+                                            <button class="mpn-link" title="Gegevens opzoeken bij Mouser"
+                                                    @onclick="() => ZoekMpn(veld)">@veld</button>
+                                        }
+                                        else if (k == _kijkMpnKolom &&
+                                                 _kijkBronMpns.GetValueOrDefault(regel) is { } bronMpn)
+                                        {
+                                            <button class="mpn-link mpn-bron"
+                                                    title="Niet in het bestand (GPN gevuld); dit is de MPN uit de bron-BOM"
+                                                    @onclick="() => ZoekMpn(bronMpn)">@bronMpn</button>
+                                        }
+                                        else if (k == _kijkGpnKolom && veld.Length > 0)
+                                        {
+                                            <button class="mpn-link" title="Gegevens van dit standaardcomponent tonen"
+                                                    @onclick="() => ToonGpn(veld)">@veld</button>
+                                        }
+                                        else if (k == _kijkJlcKolom && veld.Length > 0)
+                                        {
+                                            <button class="mpn-link" title="Voorraad en prijs opvragen bij JLCPCB"
+                                                    @onclick="() => ToonJlc(veld)">@veld</button>
+                                        }
+                                        else
+                                        {
+                                            @veld
+                                        }
+                                    </td>
+                                }
+                                @if (_kijkMaten.Count > 0)
+                                {
+                                    <td>@_kijkMaten.GetValueOrDefault(regel)</td>
+                                }
+                                @if (_kijkGpnKolom < 0 && _kijkGpns.Count > 0)
+                                {
+                                    var rijGpn = _kijkGpns.GetValueOrDefault(regel);
+                                    <td>
+                                        @if (rijGpn is not null)
+                                        {
+                                            <button class="mpn-link" title="Gegevens van dit standaardcomponent tonen"
+                                                    @onclick="() => ToonGpn(rijGpn)">@rijGpn</button>
+                                        }
+                                    </td>
+                                }
+                                @if (_controles.Count > 0)
+                                {
+                                    var c = _controles.GetValueOrDefault(regel);
+                                    <td>@(c?.Tekst)</td>
+                                    <td class="r" style="white-space:nowrap">@(c?.Prijs)</td>
+                                }
+                                @if (_ecChecks.Count > 0)
+                                {
+                                    var ec = _ecChecks.GetValueOrDefault(regel);
+                                    <td style="white-space:nowrap">
+                                        @ec.Voor
+                                        @if (ec.Lijst is not null)
+                                        {
+                                            @foreach (var t in ec.Lijst.Take(4))
+                                            {
+                                                <button class="mpn-link ec-link" title="Alle gegevens tonen"
+                                                        @onclick="() => _ecDetail = t">@t.Gpn (@t.Grootte)</button>
+                                            }
+                                            @if (ec.Lijst.Count > 4)
+                                            {
+                                                <span class="zij-extra">+@(ec.Lijst.Count - 4)</span>
+                                            }
+                                        }
+                                    </td>
+                                }
+                                @if (_jlcChecks.Count > 0)
+                                {
+                                    var jc = _jlcChecks.GetValueOrDefault(regel);
+                                    <td style="white-space:nowrap">
+                                        @jc.Voor
+                                        @if (jc.Lijst is not null)
+                                        {
+                                            @foreach (var k in jc.Lijst.Take(4))
+                                            {
+                                                <button class="mpn-link ec-link"
+                                                        title="Voorraad en prijs opvragen bij JLCPCB"
+                                                        @onclick="() => ToonJlc(k.Code)">@k.Code</button>
+                                            }
+                                            @if (jc.Lijst.Count > 4)
+                                            {
+                                                <span class="zij-extra">+@(jc.Lijst.Count - 4)</span>
+                                            }
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De gekozen fabrikant. Eurocircuits en JLCPCB werken;
+    /// PCBWay krijgt later zijn eigen omzetting en komt dan hierbij.</summary>
+    private string _fabrikant = "Eurocircuits";
+
+    private bool _sleep;
+    private bool _uploadBezig;
+    private bool _exportBezig;
+    private int _uploadRonde;
+
+    /// <summary>De uitgepakte zip blijft staan tot de export gemaakt is (of
+    /// langer: fabrikant wisselen en opnieuw exporteren kan gewoon).</summary>
+    private string? _werkmap;
+    private string? _wortel;
+    private string _inleesInfo = "";
+
+    private List<EurocircuitsExport.ExportResult> _resultaten = new();
+
+    /// <summary>De uitkomsten in het geheugen; hieruit wordt het pakket gebouwd.</summary>
+    private List<(string Naam, byte[] Inhoud)> _uitBestanden = new();
+
+    /// <summary>Alles-in-één-zip met de fabrikant in de naam; de link wijst
+    /// naar /api/fusion-pakket/{id} (zie Services/FusionPakketten.cs).</summary>
+    private string _pakketNaam = "";
+    private string? _pakketUrl;
+
+    private string? _melding;
+    private bool _fout;
+
+    /// <summary>
+    /// De gezipte CAM-map is binnengekomen: uitpakken in een tijdelijke map op
+    /// de server, de omzetting draaien, en het resultaat als download teruggeven.
+    /// De tijdelijke map wordt altijd weer opgeruimd.
+    /// </summary>
+    private async Task ZipGekozen(InputFileChangeEventArgs e)
+    {
+        _sleep = false;
+        var bestand = e.File;
+
+        if (!bestand.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            Toon("Alleen een .zip-bestand kan hier verwerkt worden.", true);
+            _uploadRonde++;
+            return;
+        }
+        if (bestand.Size > 300_000_000)
+        {
+            Toon($"De zip is {bestand.Size / 1024 / 1024} MB; er kan 300 MB in.", true);
+            _uploadRonde++;
+            return;
+        }
+
+        _uploadBezig = true;
+        _resultaten = new();
+        _uitBestanden = new();
+        _pakketUrl = null;
+        _pakketNaam = "";
+        _inleesInfo = "";
+        RuimOp();   // de vorige uitgepakte zip mag weg
+
+        try
+        {
+            _werkmap = Path.Combine(Path.GetTempPath(), "mde-fusioncam", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_werkmap);
+
+            // Eerst naar schijf (streamend, niet in het geheugen), dan uitpakken.
+            var zipPad = Path.Combine(_werkmap, "upload.zip");
+            await using (var doel = File.Create(zipPad))
+            await using (var bron = bestand.OpenReadStream(maxAllowedSize: 300_000_000))
+                await bron.CopyToAsync(doel);
+
+            var uitpak = Path.Combine(_werkmap, "inhoud");
+            System.IO.Compression.ZipFile.ExtractToDirectory(zipPad, uitpak);
+
+            // De CAM-map kan de zip-wortel zelf zijn of dieper genest liggen;
+            // we zoeken hem op, dus hoe Fusion hem ook inpakt: het werkt.
+            _wortel = ZoekCamWortel(uitpak);
+            if (_wortel is null)
+            {
+                Toon($"In de zip is geen map met '{EurocircuitsExport.GerberFolderName}' of " +
+                     $"'{EurocircuitsExport.AssemblyFolderName}' te vinden.", true);
+                RuimOp();
+                return;
+            }
+
+            // De behuizingsmaat (Package_Size) per designator uit de bron-BOM
+            // bewaren: de output-CSV's hebben die kolom niet meer, maar de
+            // kijker toont hem wél en de Eurocircuits-check filtert erop.
+            LeesBronExtra(_wortel);
+
+            _inleesInfo = InleesSamenvatting(_wortel);
+
+            // Meteen converteren zodat het resultaat te bekijken is; de
+            // export-zip zelf komt pas met de knop onderaan.
+            await Converteer();
+            Toon("Zip ingelezen — bekijk het resultaat hieronder; " +
+                 "'Maak export' onderaan bouwt de zip voor de gekozen fabrikant.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Inlezen mislukt: " + ex.Message, true);
+            RuimOp();
+        }
+        finally
+        {
+            _uploadBezig = false;
+            _uploadRonde++;
+        }
+    }
+
+    /// <summary>Wat er in de ingelezen zip is aangetroffen, in één regel.</summary>
+    private string InleesSamenvatting(string wortel)
+    {
+        var project = EurocircuitsExport.GetProjectName(wortel);
+
+        var gerberDir = Path.Combine(wortel, EurocircuitsExport.GerberFolderName);
+        var gerbers = Directory.Exists(gerberDir)
+            ? Directory.GetFiles(gerberDir, "*", SearchOption.AllDirectories).Length : 0;
+
+        var assemblyDir = Path.Combine(wortel, EurocircuitsExport.AssemblyFolderName);
+        var bom = Directory.Exists(assemblyDir)
+            ? Path.GetFileName(EurocircuitsExport.FindBomFile(assemblyDir) ?? "") : "";
+        var front = Directory.Exists(assemblyDir) && EurocircuitsExport.FindCplFile(assemblyDir, "front") is not null;
+        var back = Directory.Exists(assemblyDir) && EurocircuitsExport.FindCplFile(assemblyDir, "back") is not null;
+        var cpl = front && back ? "front + back" : front ? "alleen front" : back ? "alleen back" : "geen";
+
+        return $"{project} — Gerber: {gerbers} bestand(en) · BOM: {(bom.Length > 0 ? bom : "geen")} · " +
+               $"CPL: {cpl} · maat bekend voor {_bronMaten.Count} designator(s)";
+    }
+
+    /// <summary>Voor welke fabrikant het getoonde resultaat is geconverteerd.</summary>
+    private string? _geconverteerd;
+
+    /// <summary>Converteert de ingelezen zip voor de gekozen fabrikant en
+    /// vult de resultatentabel (met kijker); maakt nog geen pakket.</summary>
+    private async Task Converteer()
+    {
+        if (_wortel is null) return;
+
+        var fabrikant = _fabrikant;   // vastpinnen; de knoppen blijven klikbaar
+        var jlcCodes = fabrikant == "JLCPCB" ? await ZoekJlcCodes() : null;
+        _resultaten = await Task.Run(() => fabrikant == "JLCPCB"
+            ? JlcpcbExport.RunAll(_wortel, jlcCodes)
+            : EurocircuitsExport.RunAll(_wortel));
+        await LeesUitBestanden();
+        _geconverteerd = fabrikant;
+    }
+
+    // ===== JLCPCB-check in de kijker =====
+
+    private bool _jlcCheckBezig;
+    private readonly Dictionary<string[], (string Voor, List<JlcComponent>? Lijst)> _jlcChecks = new();
+
+    /// <summary>De echte MPN van een regel: uit de bron (cursief getoond)
+    /// of uit de MPN-kolom — maar nooit het GPN dat daar kan staan.</summary>
+    private string? RijMpn(string[] regel)
+    {
+        if (_kijkBronMpns.GetValueOrDefault(regel) is { } bron) return bron;
+        if (_kijkMpnKolom >= 0 && _kijkMpnKolom < regel.Length)
+        {
+            var veld = regel[_kijkMpnKolom];
+            if (veld.Length > 0 &&
+                !veld.Equals(_kijkGpns.GetValueOrDefault(regel), StringComparison.OrdinalIgnoreCase))
+                return veld;
+        }
+        return null;
+    }
+
+    /// <summary>Zoekt per regel het JLCPCB C-nummer bij de MPN, uit de lokale
+    /// bibliotheek — net als de Eurocircuits-check, met de behuizingsmaat als
+    /// scheidsrechter wanneer één MPN meerdere C-nummers heeft.</summary>
+    private async Task CheckJlc()
+    {
+        if (_kijkMpnKolom < 0 || _jlcCheckBezig) return;
+        _jlcCheckBezig = true;
+        try
+        {
+            _jlcChecks.Clear();
+            var mpns = _kijkData.Select(RijMpn).Where(m => m is not null).Cast<string>().ToList();
+            var per = await JlcRepo.ZoekOpModellenAsync(mpns);
+
+            if (per.Count == 0 && await JlcRepo.AantalAsync() == 0)
+            {
+                Toon("De JLCPCB-bibliotheek is nog leeg — druk eerst bovenaan op " +
+                     "'Onderdelenbibliotheek verversen'.", true);
+                return;
+            }
+
+            // Heeft de weergave een 'JLCPCB Part #'-kolom (de JLCPCB-BOM),
+            // dan vullen we de gevonden C-nummers dáár in — geen extra kolom.
+            if (_kijkJlcKolom >= 0)
+            {
+                int ingevuld = 0, alGevuld = 0, nietGevonden = 0, dubbelzinnig = 0;
+                foreach (var regel in _kijkData)
+                {
+                    if (_kijkJlcKolom >= regel.Length) continue;
+                    if (regel[_kijkJlcKolom].Length > 0) { alGevuld++; continue; }
+
+                    var mpn = RijMpn(regel);
+                    if (mpn is null) continue;
+                    if (!per.TryGetValue(mpn, out var kandidaten) || kandidaten.Count == 0)
+                    {
+                        nietGevonden++;
+                        continue;
+                    }
+
+                    var maat = _kijkMaten.GetValueOrDefault(regel);
+                    if (maat is not null && kandidaten.Count > 1)
+                    {
+                        var inMaat = kandidaten
+                            .Where(k => k.Specification?.Contains(maat, StringComparison.OrdinalIgnoreCase) ?? false)
+                            .ToList();
+                        if (inMaat.Count > 0) kandidaten = inMaat;
+                    }
+
+                    if (kandidaten.Count == 1)
+                    {
+                        regel[_kijkJlcKolom] = kandidaten[0].Code;
+                        ingevuld++;
+                    }
+                    else
+                    {
+                        dubbelzinnig++;
+                    }
+                }
+
+                Toon($"C-nummers: {ingevuld} ingevuld" +
+                     (alGevuld > 0 ? $", {alGevuld} stonden er al" : "") +
+                     (nietGevonden > 0 ? $", {nietGevonden} niet in de bibliotheek" : "") +
+                     (dubbelzinnig > 0 ? $", {dubbelzinnig} dubbelzinnig (meerdere C-nummers)" : "") +
+                     (ingevuld > 0 ? ". Druk op 'Maak export' om ze ook in het bestand te zetten." : "."),
+                     false);
+                return;
+            }
+
+            foreach (var regel in _kijkData)
+            {
+                var mpn = RijMpn(regel);
+                if (mpn is null)
+                {
+                    _jlcChecks[regel] = ("–", null);
+                    continue;
+                }
+                if (!per.TryGetValue(mpn, out var kandidaten) || kandidaten.Count == 0)
+                {
+                    _jlcChecks[regel] = ("✕ niet in de bibliotheek", null);
+                    continue;
+                }
+
+                var maat = _kijkMaten.GetValueOrDefault(regel);
+                if (maat is not null && kandidaten.Count > 1)
+                {
+                    var inMaat = kandidaten
+                        .Where(k => k.Specification?.Contains(maat, StringComparison.OrdinalIgnoreCase) ?? false)
+                        .ToList();
+                    if (inMaat.Count > 0) kandidaten = inMaat;
+                }
+                _jlcChecks[regel] = ("✔ ", kandidaten);
+            }
+        }
+        catch (Exception ex) { Toon("JLCPCB-check mislukt: " + ex.Message, true); }
+        finally { _jlcCheckBezig = false; }
+    }
+
+    // ---- detailpopup: voorraad en prijs live bij JLCPCB ----
+
+    private string? _jlcDetailCode;
+    private bool _jlcDetailBezig;
+    private string? _jlcDetailFout;
+    private JlcDetail? _jlcDetail;
+    private readonly Dictionary<string, JlcDetail> _jlcDetailCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task ToonJlc(string code)
+    {
+        _jlcDetailCode = code;
+        _jlcDetailFout = null;
+        _jlcDetail = _jlcDetailCache.GetValueOrDefault(code);
+        if (_jlcDetail is not null) return;
+
+        _jlcDetailBezig = true;
+        StateHasChanged();
+        var (detail, fout) = await JlcParts.DetailAsync(code);
+        if (_jlcDetailCode != code) return;   // ondertussen gesloten
+        _jlcDetail = detail;
+        _jlcDetailFout = fout;
+        if (detail is not null) _jlcDetailCache[code] = detail;
+        _jlcDetailBezig = false;
+    }
+
+    // ===== JLCPCB: C-nummers uit de lokale bibliotheek =====
+    // (verversen van de bibliotheek gebeurt op Tools ▸ Fusion ▸ JLCPCB)
+
+    /// <summary>
+    /// MPN → C-nummer voor alle bron-MPN's, uit de lokale bibliotheek.
+    /// Bestaan er meerdere C-nummers voor één MPN, dan is de behuizingsmaat
+    /// de scheidsrechter; blijft het dubbelzinnig, dan blijft de kolom leeg.
+    /// </summary>
+    private async Task<Dictionary<string, string>?> ZoekJlcCodes()
+    {
+        if (!JlcRepo.Beschikbaar || _bronMpns.Count == 0) return null;
+        try
+        {
+            // De maat per MPN (via de designators) voor het beslechten van dubbelen
+            var maatPerMpn = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (designator, mpn) in _bronMpns)
+                if (!maatPerMpn.ContainsKey(mpn) && _bronMaten.TryGetValue(designator, out var maat))
+                    maatPerMpn[mpn] = maat;
+
+            var per = await JlcRepo.ZoekOpModellenAsync(_bronMpns.Values);
+            var codes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (model, kandidaten) in per)
+            {
+                var keuze = kandidaten.Count == 1 ? kandidaten[0] : null;
+                if (keuze is null && maatPerMpn.TryGetValue(model, out var maat))
+                {
+                    var inMaat = kandidaten
+                        .Where(k => k.Specification is not null &&
+                                    k.Specification.Contains(maat, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    if (inMaat.Count == 1) keuze = inMaat[0];
+                }
+                if (keuze is not null) codes[model] = keuze.Code;
+            }
+            return codes;
+        }
+        catch { return null; /* geen lookup is geen reden de conversie te blokkeren */ }
+    }
+
+    /// <summary>Andere fabrikant gekozen: meteen herconverteren, zodat het
+    /// getoonde resultaat altijd bij de keuze hoort. De oude downloadlink
+    /// vervalt — die was van de andere fabrikant.</summary>
+    private async Task KiesFabrikant(string fabrikant)
+    {
+        _fabrikant = fabrikant;
+        if (_wortel is null || _exportBezig) return;
+        _pakketUrl = null;
+        _pakketNaam = "";
+        await Converteer();
+    }
+
+    /// <summary>
+    /// De export-zip maken voor de gekozen fabrikant, op de eerder ingelezen
+    /// zip. Wisselen van fabrikant en opnieuw drukken kan zo vaak als je wilt.
+    /// </summary>
+    private async Task MaakExport()
+    {
+        if (_wortel is null || _exportBezig) return;
+        _exportBezig = true;
+        _pakketUrl = null;
+
+        try
+        {
+            // Altijd vers converteren: dan zitten ook net gevonden C-nummers
+            // uit de bibliotheek gegarandeerd in het bestand.
+            await Converteer();
+            MaakPakket(EurocircuitsExport.GetProjectName(_wortel!), _geconverteerd!);
+
+            var gelukt = _resultaten.Count(r => r.Success);
+            Toon(gelukt == _resultaten.Count
+                ? $"Klaar — {_pakketNaam} wordt gedownload."
+                : $"{gelukt} van de {_resultaten.Count} stappen gelukt; zie het resultaat hierboven.",
+                gelukt != _resultaten.Count);
+
+            // Meteen downloaden: geen blob of JavaScript, maar een echte
+            // navigatie naar het pakket-adres. De server antwoordt met een
+            // bijlage, dus de browser downloadt en de pagina blijft staan.
+            if (_pakketUrl is not null)
+                Nav.NavigateTo(_pakketUrl, forceLoad: true);
+        }
+        catch (Exception ex) { Toon("Converteren mislukt: " + ex.Message, true); }
+        finally { _exportBezig = false; }
+    }
+
+    /// <summary>Ruimt de uitgepakte zip op; die blijft anders staan tot de
+    /// volgende upload of het sluiten van de pagina.</summary>
+    private void RuimOp()
+    {
+        if (_werkmap is not null)
+            try { Directory.Delete(_werkmap, recursive: true); } catch { /* opruimwerk */ }
+        _werkmap = null;
+        _wortel = null;
+    }
+
+    public void Dispose() => RuimOp();
+
+    /// <summary>Zoekt in de uitgepakte zip de map die GerberFiles of Assembly bevat.</summary>
+    private static string? ZoekCamWortel(string basis)
+    {
+        static bool Heeft(string map)
+            => Directory.Exists(Path.Combine(map, EurocircuitsExport.GerberFolderName))
+            || Directory.Exists(Path.Combine(map, EurocircuitsExport.AssemblyFolderName));
+
+        if (Heeft(basis)) return basis;
+
+        return Directory.GetDirectories(basis, "*", SearchOption.AllDirectories)
+                        .OrderBy(d => d.Length)     // de minst diepe eerst
+                        .FirstOrDefault(Heeft);
+    }
+
+    /// <summary>Leest de gelukte uitkomsten in het geheugen, zodat ze als losse
+    /// downloads aangeboden kunnen worden nadat de bronmap is opgeruimd.</summary>
+    private async Task LeesUitBestanden()
+    {
+        _uitBestanden = new();
+        foreach (var r in _resultaten.Where(x => x.Success && x.OutputPath.Length > 0))
+        {
+            try
+            {
+                _uitBestanden.Add((Path.GetFileName(r.OutputPath),
+                                   await File.ReadAllBytesAsync(r.OutputPath)));
+            }
+            catch { /* dan ontbreekt die ene knop; de melding staat er al */ }
+        }
+    }
+
+    /// <summary>Bundelt de uitkomsten tot één zip: "&lt;project&gt; &lt;fabrikant&gt;.zip".</summary>
+    private void MaakPakket(string project, string fabrikant)
+    {
+        _pakketUrl = null;
+        _pakketNaam = "";
+        if (_uitBestanden.Count == 0) return;
+
+        using var geheugen = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(
+                   geheugen, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (naam, inhoud) in _uitBestanden)
+            {
+                var invoer = zip.CreateEntry(naam, System.IO.Compression.CompressionLevel.Optimal);
+                using var stroom = invoer.Open();
+                stroom.Write(inhoud);
+            }
+        }
+
+        _pakketNaam = $"{project} {fabrikant}.zip";
+        _pakketUrl = "api/fusion-pakket/" + Pakketten.Bewaar(_pakketNaam, geheugen.ToArray());
+    }
+
+    // ===== de Gerber-weergave =====
+
+    private bool _gerberOpen;
+    private bool _gerberBezig;
+    private string? _gerberFout;
+    private string _gerberZijde = "top";
+    private List<string> _gerberLagen = new();
+    private bool[] _gerberKeuze = Array.Empty<bool>();
+
+    private async Task BekijkGerber()
+    {
+        if (_wortel is null || _gerberBezig) return;
+        _gerberOpen = true;
+        _gerberFout = null;
+        _gerberZijde = "top";
+        _gerberBezig = true;
+        StateHasChanged();
+        await Task.Delay(100);   // de popup (met het weergavevak) eerst laten tekenen
+
+        try
+        {
+            var map = Path.Combine(_wortel, EurocircuitsExport.GerberFolderName);
+            var lagen = Directory.GetFiles(map, "*", SearchOption.AllDirectories)
+                .Where(f => new FileInfo(f).Length < 10_000_000)
+                .Select(f => new { naam = Path.GetFileName(f), inhoud = File.ReadAllText(f) })
+                .ToArray();
+            _gerberLagen = lagen.Select(l => l.naam).ToList();
+            _gerberKeuze = Enumerable.Repeat(true, _gerberLagen.Count).ToArray();
+
+            _gerberFout = await JS.InvokeAsync<string?>("mdeGerber.laad", "gerber-doel", (object)lagen);
+        }
+        catch (Exception ex) { _gerberFout = "Gerber laden mislukt: " + ex.Message; }
+        finally { _gerberBezig = false; }
+    }
+
+    private async Task KiesGerberZijde(string zijde)
+    {
+        _gerberZijde = zijde;
+        try { _gerberFout = await JS.InvokeAsync<string?>("mdeGerber.zetZijde", zijde); }
+        catch (Exception ex) { _gerberFout = "Weergave wisselen mislukt: " + ex.Message; }
+    }
+
+    private async Task GerberLaagVink(int index, bool aan)
+    {
+        if (index >= 0 && index < _gerberKeuze.Length) _gerberKeuze[index] = aan;
+        await StuurGerberKeuze();
+    }
+
+    private async Task AlleGerberLagen(bool aan)
+    {
+        for (var i = 0; i < _gerberKeuze.Length; i++) _gerberKeuze[i] = aan;
+        await StuurGerberKeuze();
+    }
+
+    private async Task StuurGerberKeuze()
+    {
+        var indices = _gerberKeuze.Select((aan, i) => (aan, i))
+                                  .Where(x => x.aan).Select(x => x.i).ToArray();
+        try { _gerberFout = await JS.InvokeAsync<string?>("mdeGerber.zetLagen", (object)indices); }
+        catch (Exception ex) { _gerberFout = "Weergave wisselen mislukt: " + ex.Message; }
+    }
+
+    private async Task Zoom(double factor)
+    {
+        try { await JS.InvokeVoidAsync("mdeGerber.zoomStap", factor); } catch { }
+    }
+
+    private async Task ZoomReset()
+    {
+        try { await JS.InvokeVoidAsync("mdeGerber.zoomReset"); } catch { }
+    }
+
+    // ===== de CSV-kijker =====
+    private string? _kijkNaam;
+    private string[] _kijkKop = Array.Empty<string>();
+    private List<string[]> _kijkData = new();
+    private int _sortKolom = -1;
+    private bool _sortOplopend = true;
+    private int _kijkMpnKolom = -1;
+    private int _kijkGpnKolom = -1;
+    private int _kijkJlcKolom = -1;
+
+    // ===== MPN opzoeken in de onderdelendatabase =====
+    private string? _zoekMpn;
+    private bool _zoekBezig;
+    private string? _zoekFout;
+    private List<OnderdeelTref> _zoekTreffers = new();
+
+    private async Task ZoekMpn(string mpn)
+    {
+        _zoekMpn = mpn;
+        _zoekBezig = true;
+        _zoekFout = null;
+        _zoekTreffers = new();
+        StateHasChanged();
+
+        var (treffers, fout) = await Zoeker.ZoekAsync(mpn);
+
+        // Ondertussen gesloten of iets anders aangeklikt? Dan niets doen.
+        if (_zoekMpn != mpn) return;
+        _zoekTreffers = treffers;
+        _zoekFout = fout;
+        _zoekBezig = false;
+    }
+
+    /// <summary>Alleen gelukte CSV-stappen zijn in te zien; de Gerber-zip niet.</summary>
+    private bool KanBekijken(EurocircuitsExport.ExportResult r)
+        => r.Success
+        && r.OutputPath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+        && _uitBestanden.Any(b => b.Naam == Path.GetFileName(r.OutputPath));
+
+    private void Bekijk(EurocircuitsExport.ExportResult r)
+    {
+        var naam = Path.GetFileName(r.OutputPath);
+        var bestand = _uitBestanden.FirstOrDefault(b => b.Naam == naam);
+        if (bestand.Inhoud is null) return;
+
+        var tekst = System.Text.Encoding.UTF8.GetString(bestand.Inhoud);
+        var regels = tekst.Split('\n')
+                          .Select(l => l.TrimEnd('\r'))
+                          .Where(l => l.Length > 0)
+                          .Select(l => EurocircuitsExport.SplitsCsv(l, ',')
+                                                         .Select(EurocircuitsExport.Kaal)
+                                                         .ToArray())
+                          .ToList();
+        _kijkKop = regels.FirstOrDefault() ?? Array.Empty<string>();
+        _kijkData = regels.Skip(1).ToList();
+        _sortKolom = -1;
+        _sortOplopend = true;
+        _kijkMpnKolom = Array.FindIndex(_kijkKop,
+            k => k.Equals("MPN", StringComparison.OrdinalIgnoreCase));
+        _kijkGpnKolom = Array.FindIndex(_kijkKop,
+            k => k.Equals("GPN", StringComparison.OrdinalIgnoreCase));
+        _kijkJlcKolom = Array.FindIndex(_kijkKop,
+            k => k.StartsWith("JLCPCB", StringComparison.OrdinalIgnoreCase));
+
+        // In de JLCPCB-BOM heet de MPN-kolom 'Comment'; alle MPN-functies
+        // (Mouser-link, checks) werken dan gewoon op die kolom.
+        if (_kijkMpnKolom < 0 && _kijkJlcKolom >= 0)
+            _kijkMpnKolom = Array.FindIndex(_kijkKop,
+                k => k.Equals("Comment", StringComparison.OrdinalIgnoreCase));
+        _controles.Clear();
+        _totaalTekst = "";
+        _ecChecks.Clear();
+        _jlcChecks.Clear();
+
+        // De behuizingsmaat en het GPN per regel. Heeft het bestand zelf een
+        // GPN-kolom (de Eurocircuits-BOM sinds kort), dan komt het GPN daar
+        // vandaan en is er geen extra kolom nodig; anders via de designator
+        // uit de bron-BOM.
+        _kijkMaten.Clear();
+        _kijkGpns.Clear();
+        _kijkBronMpns.Clear();
+        if (_kijkGpnKolom >= 0)
+        {
+            foreach (var regel in _kijkData)
+                if (_kijkGpnKolom < regel.Length && regel[_kijkGpnKolom].Length > 0)
+                    _kijkGpns[regel] = regel[_kijkGpnKolom];
+        }
+        if (_kijkMpnKolom >= 0 &&
+            (_bronMaten.Count > 0 || _bronGpns.Count > 0 || _bronMpns.Count > 0))
+        {
+            var iRef = Array.FindIndex(_kijkKop,
+                k => k.Equals("Reference Designator", StringComparison.OrdinalIgnoreCase)
+                  || k.Equals("Designator", StringComparison.OrdinalIgnoreCase));
+            if (iRef >= 0)
+                foreach (var regel in _kijkData)
+                {
+                    if (iRef >= regel.Length) continue;
+                    var eerste = regel[iRef]
+                        .Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                        .FirstOrDefault();
+                    if (eerste is null) continue;
+                    if (_bronMaten.TryGetValue(eerste, out var maat)) _kijkMaten[regel] = maat;
+                    if (_kijkGpnKolom < 0 && _bronGpns.TryGetValue(eerste, out var gpn))
+                        _kijkGpns[regel] = gpn;
+
+                    // Bevat de MPN-cel in het bestand geen echte MPN (leeg, of
+                    // het GPN — Eurocircuits wil het GPN namelijk in de
+                    // MPN-kolom), dan tonen we de MPN uit de bron, cursief.
+                    if (_kijkMpnKolom < regel.Length &&
+                        (regel[_kijkMpnKolom].Length == 0 ||
+                         regel[_kijkMpnKolom].Equals(_kijkGpns.GetValueOrDefault(regel),
+                                                     StringComparison.OrdinalIgnoreCase)) &&
+                        _bronMpns.TryGetValue(eerste, out var bronMpn))
+                        _kijkBronMpns[regel] = bronMpn;
+                }
+        }
+
+        _kijkNaam = naam;
+    }
+
+    /// <summary>Package_Size en GPN per designator uit de bron-BOM (vóór het
+    /// opruimen van de tijdelijke map gelezen). Het GPN is het Eurocircuits-
+    /// standaardcomponent dat de ontwerper in Fusion al koos; het MPN blijft
+    /// zo vrij voor bestellen bij een andere leverancier.</summary>
+    private Dictionary<string, string> _bronMaten = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _bronGpns = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _bronMpns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string[], string> _kijkMaten = new();
+    private readonly Dictionary<string[], string> _kijkGpns = new();
+
+    /// <summary>De oorspronkelijke MPN uit de bron, voor regels waar het
+    /// bestand hem bewust leeg laat (GPN gevuld) — de kijker toont hem dan
+    /// alsnog, cursief.</summary>
+    private readonly Dictionary<string[], string> _kijkBronMpns = new();
+
+    private void LeesBronExtra(string wortel)
+    {
+        _bronMaten = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _bronGpns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _bronMpns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var assemblyDir = Path.Combine(wortel, EurocircuitsExport.AssemblyFolderName);
+            if (!Directory.Exists(assemblyDir)) return;
+            var bomFile = EurocircuitsExport.FindBomFile(assemblyDir);
+            if (bomFile is null) return;
+            var bom = EurocircuitsExport.LeesBom(bomFile);
+            if (bom is null) return;
+
+            var (kop, rijen) = bom.Value;
+            // De designatorkolom heet 'Parts' (oude export) of 'Reference
+            // Designator' (nieuwe export).
+            var iParts = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "Parts"));
+            if (iParts < 0)
+                iParts = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "Reference Designator"));
+            var iMaat = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "Package Size"));
+            if (iMaat < 0)   // ook "Package_Size (inch)" en dergelijke meepakken
+                iMaat = kop.FindIndex(k => k.Replace('_', ' ')
+                                            .Contains("package size", StringComparison.OrdinalIgnoreCase));
+            var iGpn = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "GPN"));
+            var iMpn = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "Manufacturer Part Number"));
+            if (iMpn < 0)
+                iMpn = kop.FindIndex(k => EurocircuitsExport.KolomGelijk(k, "MPN"));
+            if (iParts < 0) return;
+
+            foreach (var velden in rijen)
+            {
+                if (iParts >= velden.Count) continue;
+
+                var maat = iMaat >= 0 && iMaat < velden.Count ? velden[iMaat].Trim() : "";
+                // Fusion schrijft de maat als getal ("402"); Eurocircuits als
+                // "0402" — aanvullen tot vier cijfers zodat ze op elkaar passen.
+                if (maat.Length == 3 && maat.All(char.IsDigit)) maat = "0" + maat;
+
+                var gpn = iGpn >= 0 && iGpn < velden.Count ? velden[iGpn].Trim() : "";
+                var mpn = iMpn >= 0 && iMpn < velden.Count ? velden[iMpn].Trim() : "";
+
+                foreach (var d in velden[iParts]
+                             .Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (maat.Length > 0) _bronMaten[d] = maat;
+                    if (gpn.Length > 0) _bronGpns[d] = gpn;
+                    if (mpn.Length > 0) _bronMpns[d] = mpn;
+                }
+            }
+        }
+        catch { /* geen extra's is geen ramp; de kolommen blijven dan gewoon weg */ }
+    }
+
+    // ===== check tegen de standaardcomponenten van Eurocircuits =====
+
+    private readonly Dictionary<string[], (string Voor, List<EcComponent>? Lijst, bool Fout)> _ecChecks = new();
+    private bool _ecBezig;
+    private List<EcComponent>? _ecTabel;
+
+    /// <summary>De standaardcomponent waarvan de detailpopup openstaat.</summary>
+    private EcComponent? _ecDetail;
+
+    /// <summary>Detailpopup openen vanuit de GPN-kolom; laadt zo nodig eerst
+    /// de standaardtabel.</summary>
+    private async Task ToonGpn(string gpn)
+    {
+        try
+        {
+            _ecTabel ??= await EcRepo.GetAllesAsync();
+            var bekend = _ecTabel.FirstOrDefault(
+                c => c.Gpn.Equals(gpn, StringComparison.OrdinalIgnoreCase));
+            if (bekend is null)
+                Toon($"GPN '{gpn}' staat niet in de standaardtabel — verouderd of een typefout?", true);
+            else
+                _ecDetail = bekend;
+        }
+        catch (Exception ex) { Toon("Opzoeken mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Vergelijkt elke regel met een leesbare R- of C-waarde met de tabel
+    /// EurocircuitsComponenten: staat de waarde erin, dan toont de kolom de
+    /// GPN('s) met hun grootte — dan kan er een standaardcomponent gekozen
+    /// worden en blijven prijs en levertijd laag.
+    /// </summary>
+    private async Task CheckEurocircuits()
+    {
+        if (_ecBezig) return;
+        _ecBezig = true;
+        try
+        {
+            _ecTabel ??= await EcRepo.GetAllesAsync();
+            if (_ecTabel.Count == 0)
+            {
+                Toon("De tabel met standaardcomponenten is nog leeg — importeer eerst de " +
+                     "CSV's onder Tools ▸ Fusion ▸ Standaardcomponenten.", true);
+                return;
+            }
+
+            _ecChecks.Clear();
+            var iValue = Array.FindIndex(_kijkKop, k => k.Equals("Value", StringComparison.OrdinalIgnoreCase));
+
+            foreach (var regel in _kijkData)
+            {
+                // Heeft de ontwerper in Fusion al een standaardcomponent
+                // gekozen (GPN-kolom gevuld), dan valt er niets voor te
+                // stellen — alleen bevestigen dat het GPN klopt.
+                if (_kijkGpns.TryGetValue(regel, out var bronGpn))
+                {
+                    var bekend = _ecTabel.FirstOrDefault(
+                        c => c.Gpn.Equals(bronGpn, StringComparison.OrdinalIgnoreCase));
+                    _ecChecks[regel] = bekend is not null
+                        ? ("✔ al standaard: ", new List<EcComponent> { bekend }, false)
+                        : ($"✕ GPN '{bronGpn}' staat niet in de standaardtabel", null, true);
+                    continue;
+                }
+
+                // Oudere ontwerpen: het GPN kan ook in de MPN-kolom staan.
+                var mpn = _kijkMpnKolom < regel.Length ? regel[_kijkMpnKolom] : "";
+                if (mpn.Length > 0 &&
+                    _ecTabel.FirstOrDefault(c => c.Gpn.Equals(mpn, StringComparison.OrdinalIgnoreCase))
+                        is { } alStandaard)
+                {
+                    _ecChecks[regel] = ("✔ al standaard: ", new List<EcComponent> { alStandaard }, false);
+                    continue;
+                }
+
+                var value = iValue >= 0 && iValue < regel.Length ? regel[iValue] : "";
+                var w = WaardeCheck.Waarde(value);
+                if (w is null || w.Value.Eenheid == 'H')
+                {
+                    _ecChecks[regel] = ("–", null, false);
+                    continue;
+                }
+
+                var soort = w.Value.Eenheid == 'R' ? 'R' : 'C';
+                var treffers = _ecTabel
+                    .Where(c => c.Soort == soort &&
+                                Math.Abs(c.WaardeBasis - w.Value.Waarde)
+                                    <= 0.005 * Math.Max(c.WaardeBasis, w.Value.Waarde))
+                    .ToList();
+
+                // Condensatoren: de spanning in de BOM-Value ("100nF 100V X7R")
+                // is een ondergrens — een standaardcomponent met een lagere
+                // spanning is geen geldig voorstel.
+                if (soort == 'C' && treffers.Count > 0 &&
+                    WaardeCheck.SpanningUit(value) is { } bomSpanning)
+                {
+                    var geschikt = treffers
+                        .Where(t => WaardeCheck.SpanningUit(t.Spanning ?? "") is { } s
+                                    && s >= bomSpanning - 0.001)
+                        .ToList();
+                    if (geschikt.Count == 0)
+                    {
+                        // Geen fout: de waarde bestaat wel, maar niet met deze
+                        // spanning — dan is het gewoon een bestelcomponent.
+                        _ecChecks[regel] = ($"geen standaard met ≥ {bomSpanning:0.#}V (bestelcomponent)", null, false);
+                        continue;
+                    }
+                    treffers = geschikt;
+                }
+
+                // Weerstanden: het vermogen in de BOM-Value ("4k7 1/4w") is op
+                // dezelfde manier een ondergrens.
+                if (soort == 'R' && treffers.Count > 0 &&
+                    WaardeCheck.VermogenUit(value) is { } bomVermogen)
+                {
+                    var sterk = treffers
+                        .Where(t => WaardeCheck.VermogenUit(t.Vermogen ?? "") is { } p
+                                    && p >= bomVermogen - 0.0001)
+                        .ToList();
+                    if (sterk.Count == 0)
+                    {
+                        var eis = bomVermogen < 1 ? $"{bomVermogen * 1000:0.#}mW" : $"{bomVermogen:0.#}W";
+                        _ecChecks[regel] = ($"✕ waarde bestaat, maar niet met ≥ {eis}", null, true);
+                        continue;
+                    }
+                    treffers = sterk;
+                }
+
+                // Is de behuizingsmaat bekend (kolom Maat), dan telt alleen die
+                // maat als échte treffer; andere maten worden apart benoemd.
+                var maat = _kijkMaten.GetValueOrDefault(regel);
+                if (treffers.Count == 0)
+                {
+                    // Geen standaardwaarde is geen fout: zulke componenten
+                    // bestelt Eurocircuits gewoon op aanvraag.
+                    _ecChecks[regel] = ("geen standaardwaarde", null, false);
+                }
+                else if (maat is null)
+                {
+                    _ecChecks[regel] = ("✔ ", treffers, false);
+                }
+                else
+                {
+                    // De maat ligt vast (de print is al ontworpen), dus een
+                    // andere maat is geen alternatief maar een afkeuring —
+                    // we tonen wel wat er in andere maten bestaat, ter info.
+                    var inMaat = treffers.Where(t => t.Grootte == maat).ToList();
+                    _ecChecks[regel] = inMaat.Count > 0
+                        ? ("✔ ", inMaat, false)
+                        : ($"✕ niet in {maat}; wel: ", treffers, true);
+                }
+            }
+        }
+        catch (Exception ex) { Toon("Eurocircuits-check mislukt: " + ex.Message, true); }
+        finally { _ecBezig = false; }
+    }
+
+    // ===== waardes controleren en totaalprijs (Mouser) =====
+
+    private sealed record RegelControle(string Klasse, string Tekst, string Prijs);
+
+    /// <summary>Uitkomst per regel, op de regel zelf gesleuteld — sorteren
+    /// verplaatst de regels, maar de verwijzing blijft dezelfde.</summary>
+    private readonly Dictionary<string[], RegelControle> _controles = new();
+    private bool _controleBezig;
+    private string _controleStand = "";
+    private string _totaalTekst = "";
+    private int _prints = 1;
+
+    private string RijKlasse(string[] regel)
+    {
+        var klasse = _controles.TryGetValue(regel, out var c) ? c.Klasse : "";
+        if (_ecChecks.TryGetValue(regel, out var ec) && ec.Fout) klasse += " ec-fout";
+        return klasse;
+    }
+
+    /// <summary>
+    /// Loopt alle regels met een MPN langs: waarde vergelijken met de
+    /// Mouser-omschrijving (groen = bevestigd, oranje = wijkt af, grijs =
+    /// niet te vergelijken) en de regelprijs bepalen op de juiste staffel.
+    /// Eén zoekopdracht per unieke MPN; antwoorden worden onthouden.
+    /// </summary>
+    private async Task Controleer()
+    {
+        if (_kijkMpnKolom < 0 || _controleBezig) return;
+        _controleBezig = true;
+        _controles.Clear();
+        _totaalTekst = "";
+
+        var iValue = Array.FindIndex(_kijkKop, k => k.Equals("Value", StringComparison.OrdinalIgnoreCase));
+        var iAantal = Array.FindIndex(_kijkKop, k => k.Equals("Quantity", StringComparison.OrdinalIgnoreCase)
+                                                  || k.Equals("Qty", StringComparison.OrdinalIgnoreCase));
+        var prints = Math.Clamp(_prints, 1, 1000);
+
+        decimal totaal = 0;
+        var geprijsd = 0;
+        var valuta = "";
+
+        try
+        {
+            var groepen = _kijkData.Where(r => _kijkMpnKolom < r.Length && r[_kijkMpnKolom].Length > 0)
+                                   .GroupBy(r => r[_kijkMpnKolom], StringComparer.OrdinalIgnoreCase)
+                                   .ToList();
+            var teller = 0;
+            foreach (var groep in groepen)
+            {
+                _controleStand = $"bezig… {++teller} van {groepen.Count}";
+                StateHasChanged();
+
+                var (treffers, fout) = await Zoeker.ZoekAsync(groep.Key);
+                var tref = treffers.FirstOrDefault(t => t.Mpn.Equals(groep.Key, StringComparison.OrdinalIgnoreCase))
+                           ?? treffers.FirstOrDefault();
+
+                foreach (var regel in groep)
+                {
+                    if (tref is null)
+                    {
+                        _controles[regel] = new RegelControle("bom-grijs", fout ?? "niet gevonden", "");
+                        continue;
+                    }
+
+                    var value = iValue >= 0 && iValue < regel.Length ? regel[iValue] : "";
+                    var (stand, tekst) = WaardeCheck.Vergelijk(value, tref.Omschrijving);
+
+                    var aantal = iAantal >= 0 && iAantal < regel.Length &&
+                                 int.TryParse(regel[iAantal], out var a) && a > 0 ? a : 1;
+                    var nodig = aantal * prints;
+                    var stuk = ComponentZoeker.PrijsVoor(tref, nodig);
+                    var prijsTekst = "";
+                    if (stuk is not null)
+                    {
+                        var lijn = stuk.Value * nodig;
+                        totaal += lijn;
+                        geprijsd++;
+                        if (valuta.Length == 0) valuta = tref.Valuta;
+                        prijsTekst = $"{lijn:0.00} ({nodig} × {stuk.Value:0.0000})";
+                    }
+
+                    var klasse = stand switch
+                    {
+                        "ok" => "bom-ok",
+                        "anders" => "bom-anders",
+                        _ => "bom-grijs",
+                    };
+                    _controles[regel] = new RegelControle(klasse, tekst, prijsTekst);
+                }
+            }
+
+            _totaalTekst = $"Componenten voor {prints} print{(prints == 1 ? "" : "s")}: " +
+                           $"{totaal:0.00} {valuta} · {geprijsd} van de {_kijkData.Count} regels geprijsd";
+        }
+        finally
+        {
+            _controleStand = "";
+            _controleBezig = false;
+        }
+    }
+
+    /// <summary>Sorteert op de aangeklikte kolom; nog een klik draait de volgorde om.</summary>
+    private void Sorteer(int kolom)
+    {
+        _sortOplopend = _sortKolom != kolom || !_sortOplopend;
+        _sortKolom = kolom;
+        _kijkData.Sort((a, b) =>
+        {
+            var va = kolom < a.Length ? a[kolom] : "";
+            var vb = kolom < b.Length ? b[kolom] : "";
+            var uitkomst = VergelijkNatuurlijk(va, vb);
+            return _sortOplopend ? uitkomst : -uitkomst;
+        });
+    }
+
+    /// <summary>
+    /// 'Natuurlijk' vergelijken: cijferreeksen als getal, de rest als tekst.
+    /// Zo komt C2 vóór C10, en sorteert '95.0518mm' onder '106.4056mm'.
+    /// </summary>
+    private static int VergelijkNatuurlijk(string a, string b)
+    {
+        int i = 0, j = 0;
+        while (i < a.Length && j < b.Length)
+        {
+            if (char.IsDigit(a[i]) && char.IsDigit(b[j]))
+            {
+                int si = i, sj = j;
+                while (i < a.Length && char.IsDigit(a[i])) i++;
+                while (j < b.Length && char.IsDigit(b[j])) j++;
+                var na = a[si..i].TrimStart('0');
+                var nb = b[sj..j].TrimStart('0');
+                if (na.Length != nb.Length) return na.Length - nb.Length;
+                var c = string.CompareOrdinal(na, nb);
+                if (c != 0) return c;
+            }
+            else
+            {
+                var c = char.ToUpperInvariant(a[i]).CompareTo(char.ToUpperInvariant(b[j]));
+                if (c != 0) return c;
+                i++; j++;
+            }
+        }
+        return (a.Length - i) - (b.Length - j);
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

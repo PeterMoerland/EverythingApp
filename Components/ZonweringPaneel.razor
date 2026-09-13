@@ -1,0 +1,47 @@
+@inject IPlc Plc
+
+@* De zonweringsbediening zelf, zonder paginakop — gedeeld door de
+   desktop-pagina (/gebouw/zonwering) en de mobiele pagina (/mobiel/zonwering). *@
+
+@if (_melding is not null)
+{
+    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+}
+
+<div class="hmi zonwering">
+    @foreach (var zonwering in Gebouw.Zonweringen)
+    {
+        <div class="hmi-kolom">
+            <h3 class="hmi-kop">@zonwering.Ruimte</h3>
+            @foreach (var commando in Gebouw.ZonweringCommandos)
+            {
+                var tag = Gebouw.ZonweringTag(zonwering, commando);
+                <button class="hmi-knop @commando.Kleur @(_bezig == tag ? "bezig" : "")"
+                        @key="tag" title="@tag" @onclick="() => Tik(zonwering, commando)">
+                    <span class="hmi-naam">@commando.Naam</span>
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string? _bezig;
+    private string? _melding;
+    private bool _fout;
+
+    private async Task Tik(Gebouw.Zonwering zonwering, Gebouw.ZonweringKnop commando)
+    {
+        var tag = Gebouw.ZonweringTag(zonwering, commando);
+        _bezig = tag;
+        try
+        {
+            await Plc.PulsAsync(tag);
+            Toon($"{zonwering.Ruimte}: {commando.Naam.ToLowerInvariant()}.", false);
+        }
+        catch (Exception ex) { Toon("Bedienen mislukt: " + ex.Message, true); }
+        finally { _bezig = null; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

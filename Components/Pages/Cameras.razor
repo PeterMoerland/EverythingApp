@@ -1,0 +1,159 @@
+@page "/gebouw/cameras"
+@* De service heet hier CameraBron: een lid van een klasse mag niet dezelfde naam
+   hebben als de klasse zelf, en die heet naar dit bestand Cameras. *@
+@inject CameraService CameraBron
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="page">
+    <header class="topbar">
+        <h1>Camera's</h1>
+        @if (CameraBron.Beschikbaar)
+        {
+            <span class="weeklabel">@CameraBron.Cameras.Count camera's</span>
+
+            <label class="doc-filter">
+                Verversen
+                <select value="@_tempo" @onchange="TempoGewijzigd">
+                    <option value="1000">elke seconde</option>
+                    <option value="2000">elke 2 seconden</option>
+                    <option value="5000">elke 5 seconden</option>
+                    <option value="15000">elke 15 seconden</option>
+                </select>
+            </label>
+        }
+    </header>
+
+    @if (!CameraBron.Beschikbaar)
+    {
+        <section class="module-placeholder">
+            <p>Er zijn nog geen camera's ingesteld.</p>
+            <p class="uitleg">
+                Zet ze in <code>appsettings.json</code> onder <code>Cameras</code>, met per camera
+                een naam, het adres (host en poort) en de inloggegevens. Het wachtwoord blijft
+                op de server: de app haalt de beelden op en stuurt ze door naar het scherm.
+            </p>
+        </section>
+    }
+    else
+    {
+        @* Één groot beeld, of alle beelden naast elkaar *@
+        @if (_groot is int nr)
+        {
+            <div class="cam-groot">
+                <div class="cam-balk">
+                    <button class="klein" @onclick="() => _groot = null">‹ Alle camera's</button>
+                    <strong>@CameraBron.Cameras[nr].Naam</strong>
+                </div>
+                <img data-cam="@Adres(nr)" alt="@CameraBron.Cameras[nr].Naam" @key="@("groot" + nr)" />
+            </div>
+        }
+        else
+        {
+            <div class="cam-raster">
+                @for (var i = 0; i < CameraBron.Cameras.Count; i++)
+                {
+                    var nummer = i;   // eigen kopie voor de klik
+                    <button class="cam-tegel" @key="nummer" @onclick="() => _groot = nummer"
+                            title="Groot bekijken">
+                        <img data-cam="@Adres(nummer)" alt="@CameraBron.Cameras[nummer].Naam" />
+                        <span class="cam-naam">@CameraBron.Cameras[nummer].Naam</span>
+                    </button>
+                }
+            </div>
+        }
+
+        <p class="uitleg">
+            De beelden zijn stilstaande foto's die zichzelf verversen. Reageert een camera
+            niet, dan blijft het laatste beeld staan en vervaagt het; zodra hij weer
+            antwoordt loopt het vanzelf door.
+        </p>
+
+        <div class="btngroup">
+            <button class="klein" @onclick="Diagnose">Waarom geen beeld?</button>
+        </div>
+
+        @if (_diagnose is not null)
+        {
+            <pre class="dymodiagnose">@_diagnose</pre>
+        }
+    }
+</div>
+
+@code {
+    private int? _groot;
+    private int _tempo = 2000;
+    private bool _draait;
+    private string? _diagnose;
+
+    /// <summary>
+    /// Vraagt per camera welke adressen zijn geprobeerd en wat eruit kwam. Zo is
+    /// in één oogopslag te zien of het aan het pad, de poort of het wachtwoord ligt.
+    /// </summary>
+    private async Task Diagnose()
+    {
+        _diagnose = "Bezig met proberen…";
+        var alles = new System.Text.StringBuilder();
+
+        for (var i = 0; i < CameraBron.Cameras.Count; i++)
+        {
+            try
+            {
+                alles.AppendLine(await JS.InvokeAsync<string>(
+                    "mdeHaalTekst", $"camera/{i}/beeld?uitleg=true"));
+            }
+            catch (Exception ex) { alles.AppendLine($"Camera {i}: opvragen mislukt — {ex.Message}"); }
+            alles.AppendLine();
+        }
+
+        _diagnose = alles.ToString();
+    }
+
+    /// <summary>Het adres waar de browser het beeld van deze camera ophaalt.</summary>
+    private static string Adres(int nummer) => $"camera/{nummer}/beeld";
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!CameraBron.Beschikbaar) return;
+
+        if (eerste)
+        {
+            // het gekozen tempo van deze pc terughalen
+            try
+            {
+                var bewaard = await JS.InvokeAsync<string?>("mdeOpslag.lees", "cameraTempo");
+                if (int.TryParse(bewaard, out var ms) && ms >= 1000) _tempo = ms;
+            }
+            catch { }
+        }
+
+        // Na elke tekening opnieuw aanhaken: bij het wisselen tussen het raster en
+        // één groot beeld zijn het andere <img>-elementen geworden.
+        await Herstart();
+    }
+
+    private async Task Herstart()
+    {
+        try
+        {
+            await JS.InvokeAsync<int>("mdeCamera.start", _tempo);
+            _draait = true;
+        }
+        catch { _draait = false; }
+    }
+
+    private async Task TempoGewijzigd(ChangeEventArgs e)
+    {
+        _tempo = int.TryParse((string?)e.Value, out var ms) ? ms : 2000;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "cameraTempo", _tempo.ToString()); }
+        catch { }
+        await Herstart();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Zonder dit blijft de browser beelden ophalen nadat je weg bent geklikt.
+        if (!_draait) return;
+        try { await JS.InvokeVoidAsync("mdeCamera.stop"); } catch { }
+    }
+}

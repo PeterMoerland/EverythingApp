@@ -1,0 +1,327 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject IUrenRepository Repo
+@inject RecentPagesService Recent
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+<div class="shell @(_kiosk ? "kiosk" : "")">
+    <aside class="sidebar">
+        <a href="" class="logo" title="MDE Automation">MDE Automation</a>
+        <nav>
+            <div class="navkop">Snel</div>
+            <NavLink href="" Match="NavLinkMatch.All">Ureningave</NavLink>
+            <NavLink href="mail">Mail</NavLink>
+            <NavLink href="agenda">Agenda</NavLink>
+
+            <div class="navkop">Modules</div>
+            @foreach (var m in Menu.Modules.Where(ModuleZichtbaar))
+            {
+                @if (m.HeeftOnder)
+                {
+                    @* Klapper: geen eigen pagina, maar de onderliggende pakketten *@
+                    <button class="navklapper @(Open_(m) ? "open" : "")" @onclick="() => Klap(m)">
+                        @m.Naam
+                        <span class="navpijl">@(Open_(m) ? "▾" : "▸")</span>
+                    </button>
+                    @if (Open_(m))
+                    {
+                        @foreach (var onder in m.Onder.Where(ModuleZichtbaar))
+                        {
+                            <NavLink class="navonder" href="@onder.Adres">@onder.Naam</NavLink>
+                        }
+                    }
+                }
+                else
+                {
+                    <NavLink href="@m.Adres">@m.Naam</NavLink>
+                }
+            }
+
+            @if (Recent.Items.Count > 1)
+            {
+                <div class="navkop">Recent</div>
+                @foreach (var r in Recent.Items.Skip(1).Take(4))
+                {
+                    <a href="@r.Url">@r.Titel</a>
+                }
+            }
+        </nav>
+    </aside>
+    <div class="hoofdvlak">
+        <header class="shell-top">
+            <button id="cmdk-open" class="zoekknop" @onclick="Open">
+                <span>Zoeken in MDE…</span><kbd>Ctrl+K</kbd>
+            </button>
+            <button class="kioskknop" title="Volledig scherm" @onclick="KioskAan">⛶ Volledig scherm</button>
+            <button class="themaknop" @onclick="WisselThema"
+                    title="@(_donker ? "Naar lichte weergave" : "Naar donkere weergave")">
+                @(_donker ? "☀" : "☾")
+            </button>
+            @if (Ik.Ingelogd)
+            {
+                <span class="gebruiker" title="@Ik.Email">
+                    @Ik.Naam
+                    @if (!Ik.Gekoppeld)
+                    {
+                        <span class="waarschuwing" title="Dit Google-account is niet aan een werknemer gekoppeld">(niet gekoppeld)</span>
+                    }
+                </span>
+                <a class="uitlogknop" href="logout" title="Uitloggen">Uitloggen</a>
+            }
+            else
+            {
+                <span class="gebruiker">niet ingelogd</span>
+                <a class="uitlogknop" href="login" title="Inloggen met Google">Inloggen</a>
+            }
+        </header>
+        @* Waarschuwing voor de directie als de Vault-backup hapert; onzichtbaar
+           zolang alles klopt (en voor iedereen zonder directierecht). *@
+        <VaultBackupBalk />
+        <main class="inhoud">@Body</main>
+    </div>
+</div>
+
+@* Opstartmelding: verjaardagen en jubilea, één keer per dag *@
+<MijlpaalPopup />
+
+@* Op een telefoon: één keer vragen of je in de mobiele weergave verder wilt.
+   De keuze staat in localStorage van dat toestel (mdeMobiel in App.razor). *@
+@if (_mobielVraag)
+{
+    <div class="cmdk-overlay midden">
+        <div class="mobiel-vraag">
+            <b>Je opent MDE op een telefoon</b>
+            <p>Wil je verder in de mobiele weergave? Die is gemaakt voor onderweg,
+               met grote knoppen en alleen de functies die op een telefoon handig zijn.</p>
+            <div class="btngroup">
+                <button class="primair" @onclick="() => KiesMobiel(true)">Ja, mobiel verder</button>
+                <button @onclick="() => KiesMobiel(false)">Nee, volledige app</button>
+            </div>
+            <p class="mobiel-klein">Je keuze wordt op dit toestel onthouden. Wisselen kan
+               altijd: via 'Volledige app gebruiken' op het mobiele startscherm, of door
+               zelf naar /mobiel te gaan.</p>
+        </div>
+    </div>
+}
+
+@if (_kiosk)
+{
+    <button class="kiosk-exit" title="Volledig scherm verlaten (Esc)" @onclick="KioskUit">✕ Verlaten</button>
+    <button id="kiosk-exit-sync" style="display:none" @onclick="KioskSync"></button>
+}
+
+@if (_open)
+{
+    <div class="cmdk-overlay" @onclick="Sluit">
+        <div class="cmdk" @onclick:stopPropagation>
+            <input placeholder="Zoek een pagina, werkorder of werknemer…"
+                   value="@_zoek" @oninput="ZoekInput" @onkeydown="Toets" autofocus />
+            <div class="cmdk-lijst">
+                @foreach (var groep in Resultaten().GroupBy(r => r.Categorie))
+                {
+                    <div class="cmdk-groep">@groep.Key</div>
+                    @foreach (var r in groep.Take(6))
+                    {
+                        <button class="cmdk-item" @onclick="() => Ga(r)">@r.Label</button>
+                    }
+                }
+            </div>
+            <button id="cmdk-close" style="display:none" @onclick="Sluit"></button>
+        </div>
+    </div>
+}
+
+@code {
+    private record Doel(string Categorie, string Label, string Url);
+
+    private bool _open;
+    private bool _kiosk;
+    private string _zoek = "";
+    private List<Doel> _alles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += LocatieGewijzigd;
+        await Ik.ZorgGeladenAsync();
+
+        // Werkende schermen uit het menu
+        foreach (var (module, item) in Menu.WerkendeItems())
+            _alles.Add(new("Schermen", $"{item.Label} ({module})", item.Url.TrimStart('/')));
+
+        // De modules zelf (overzichtspagina's)
+        foreach (var m in Menu.Modules)
+            _alles.Add(new("Modules", m.Naam, $"module/{m.Sleutel}"));
+
+        // live data in het zoekpalet — dit kan Access niet
+        foreach (var wo in await Repo.GetOpenWorkordersAsync())
+            _alles.Add(new("Werkorders", wo.VolledigeTekst, "planning"));
+        foreach (var wn in await Repo.GetWerknemersAsync())
+            _alles.Add(new("Werknemers", wn.Naam, ""));
+
+        Registreer(); // huidige pagina
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        await LeesThema();
+        await MobielCheck();
+        StateHasChanged();
+    }
+
+    // ===== mobiele weergave =====
+    private bool _mobielVraag;
+
+    /// <summary>
+    /// Op een telefoon: koos deze gebruiker al eerder voor mobiel, dan gaat het
+    /// startscherm meteen door naar /mobiel (alleen de wortel — wie bewust een
+    /// diepe link opent, zoals /scannen, blijft daar gewoon). Is er nog geen
+    /// keuze, dan verschijnt de vraag.
+    /// </summary>
+    private async Task MobielCheck()
+    {
+        try
+        {
+            var stand = await JS.InvokeAsync<string>("mdeMobiel.stand");
+            if (stand == "ja")
+            {
+                var pad = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+                if (pad.Length == 0) Nav.NavigateTo("mobiel");
+            }
+            else if (stand == "vraag")
+            {
+                _mobielVraag = true;
+            }
+        }
+        catch { /* geen browser of oude cache: dan gewoon de volledige app */ }
+    }
+
+    private async Task KiesMobiel(bool mobiel)
+    {
+        _mobielVraag = false;
+        try { await JS.InvokeVoidAsync("mdeMobiel.kies", mobiel); } catch { }
+        if (mobiel) Nav.NavigateTo("mobiel");
+    }
+
+    /// <summary>
+    /// Module tonen? Alleen als er minstens één item is waar deze gebruiker recht op heeft.
+    /// Zolang er geen rechten in de database staan, is alles zichtbaar behalve Beheer.
+    /// </summary>
+    private bool ModuleZichtbaar(MenuModule m)
+    {
+        if (m.Sleutel == "beheer")
+            return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
+
+        // Een klapper is zichtbaar als er tenminste één pakket eronder zichtbaar is.
+        if (m.HeeftOnder) return m.Onder.Any(ModuleZichtbaar);
+
+        // Een module met een eigen adres heeft geen tegels om aan af te lezen
+        if (!string.IsNullOrWhiteSpace(m.Url)) return true;
+
+        return m.Groepen.SelectMany(g => g.Items)
+                        .Any(i => i.Recht is null || Ik.Mag(i.Recht));
+    }
+
+    // ===== uitklapbare modules in de zijbalk =====
+    private readonly HashSet<string> _openKlappers = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Staat deze klapper open? Ook automatisch als je op een pagina eronder staat.</summary>
+    private bool Open_(MenuModule m)
+    {
+        if (_openKlappers.Contains(m.Sleutel)) return true;
+
+        var pad = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+        if (!pad.StartsWith("module/")) return false;
+
+        var sleutel = pad.Substring(7);
+        return m.Onder.Any(o => string.Equals(o.Sleutel, sleutel, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void Klap(MenuModule m)
+    {
+        if (!_openKlappers.Remove(m.Sleutel)) _openKlappers.Add(m.Sleutel);
+    }
+
+    private void LocatieGewijzigd(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        Registreer();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Registreer()
+    {
+        var pad = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+        var titel = pad == "" ? "Ureningave"
+            : pad == "planning" ? "Projectplanning"
+            : pad == "viewer" ? "3D-viewer"
+            : pad == "mail" ? "Mail"
+            : pad == "agenda" ? "Agenda"
+            : pad.StartsWith("module/") ? (Menu.Zoek(pad.Substring(7))?.Naam ?? pad)
+            : pad;
+        Recent.Voeg(pad, titel);
+    }
+
+    // ===== licht of donker =====
+    // De browser heeft het thema al gezet vóórdat de pagina werd getekend; hier
+    // halen we alleen op wat het geworden is, zodat het knopje het juiste
+    // symbooltje toont.
+    private bool _donker;
+
+    private async Task LeesThema()
+    {
+        try { _donker = await JS.InvokeAsync<string>("mdeThema.huidig") == "donker"; }
+        catch { /* nog geen browser: dan blijft het lichte symbool staan */ }
+    }
+
+    private async Task WisselThema()
+    {
+        try { _donker = await JS.InvokeAsync<string>("mdeThema.wissel") == "donker"; }
+        catch { }
+    }
+
+    // ===== volledig scherm (kiosk) =====
+    private async Task KioskAan()
+    {
+        _kiosk = true;
+        try { await JS.InvokeVoidAsync("mdeVolledig.aan"); } catch { /* fullscreen niet beschikbaar */ }
+    }
+
+    private async Task KioskUit()
+    {
+        _kiosk = false;
+        try { await JS.InvokeVoidAsync("mdeVolledig.uit"); } catch { }
+    }
+
+    // browser verliet fullscreen (bijv. via Esc) → layout terugzetten
+    private void KioskSync() => _kiosk = false;
+
+    // ===== zoekpalet =====
+    private void Open() { _open = true; _zoek = ""; }
+    private void Sluit() { _open = false; }
+    private void ZoekInput(ChangeEventArgs e) => _zoek = (string?)e.Value ?? "";
+
+    private IEnumerable<Doel> Resultaten() =>
+        string.IsNullOrWhiteSpace(_zoek)
+            ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
+            : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase));
+
+    private void Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Sluit();
+        else if (e.Key == "Enter")
+        {
+            var eerste = Resultaten().FirstOrDefault();
+            if (eerste is not null) Ga(eerste);
+        }
+    }
+
+    private void Ga(Doel d)
+    {
+        Sluit();
+        Nav.NavigateTo(d.Url);
+    }
+
+    public void Dispose() => Nav.LocationChanged -= LocatieGewijzigd;
+}

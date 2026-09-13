@@ -1,0 +1,1100 @@
+@page "/bestellingen"
+@inject IBestelRepository Repo
+@inject IUrenRepository Uren
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>@Titel</h1>
+        <span class="weeklabel">
+            @if (_orderId is not null)
+            {
+                <span class="po-totaal">Totaal @Bedrag(_regels.Sum(r => r.Regeltotaal))</span>
+            }
+            else
+            {
+                @($"{_lijst.Count} bestellingen")
+            }
+        </span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: zoeken ---------- *@
+            <aside class="wn-lijst bestel-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="PO-nummer, leverancier, omschrijving…" value="@_zoek"
+                               @onchange="ZoekGewijzigd" />
+                        <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="zoekregel">
+                        <select value="@StatusFilterTekst" @onchange="StatusFilterGewijzigd">
+                            <option value="">Alle statussen</option>
+                            @foreach (var s in _statussen)
+                            {
+                                <option value="@s.Id">@s.Omschrijving</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="zoekregel">
+                        <select value="@BesteldDoorTekst" @onchange="BesteldDoorGewijzigd">
+                            <option value="">Besteld door iedereen</option>
+                            @foreach (var w in Lijst("Werknemer"))
+                            {
+                                <option value="@w.Id">@w.Naam</option>
+                            }
+                        </select>
+                        <button class="klein" title="Alleen mijn bestellingen"
+                                disabled="@(Ik.WerknemerId is null)" @onclick="AlleenIk">Ik</button>
+                    </div>
+                    <div class="btngroup">
+                        <button class="klein" @onclick="OpenNieuw">+ Nieuwe bestelling</button>
+                    </div>
+                </div>
+
+                @if (_nieuwOpen)
+                {
+                    <div class="nieuw-blok">
+                        <div class="wn-veld">
+                            <label>Leverancier</label>
+                            <select value="@NieuwLeverancierTekst" @onchange="NieuwLeverancierGewijzigd">
+                                <option value="">— kies —</option>
+                                @foreach (var l in _leveranciers)
+                                {
+                                    <option value="@l.Id">@l.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Werkorder</label>
+                            <select value="@NieuwWerkorderTekst" @onchange="NieuwWerkorderGewijzigd">
+                                <option value="">— kies —</option>
+                                @foreach (var w in _werkorders)
+                                {
+                                    <option value="@w.Id">@w.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="btngroup">
+                            <button class="primair" @onclick="MaakBestelling">Aanmaken</button>
+                            <button class="klein" @onclick="SluitNieuw">Annuleren</button>
+                        </div>
+                    </div>
+                }
+
+                @* tabindex maakt de lijst zelf bereikbaar, zodat de pijltjestoetsen
+                   hier binnenkomen in plaats van bij de losse knoppen *@
+                <div id="bestellijst" class="wn-namen" tabindex="0"
+                     @onkeydown="Toetsen" @onkeydown:preventDefault="_pijltje">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                    else
+                    {
+                        @foreach (var b in _lijst)
+                        {
+                            <button class="wn-naam @(b.Id == _orderId ? "actief" : "")"
+                                    @key="b.Id" @onclick="() => Kies(b)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">@b.Nummer · @b.Leverancier</span>
+                                    <span class="nda-onder @StatusKleur(b.StatusNaam)">
+                                        @b.StatusNaam
+                                        @if (b.Totaal > 0)
+                                        {
+                                            <text> · @Bedrag(b.Totaal)</text>
+                                        }
+                                    </span>
+                                </span>
+                            </button>
+                        }
+                    }
+                </div>
+                <p class="uitleg toetsuitleg">Klik in de lijst en blader met ↑ en ↓.</p>
+            </aside>
+
+            @* ---------- rechts: de bestelling ---------- *@
+            <section class="wn-detail">
+                @if (_orderId is null)
+                {
+                    <div class="kiezer-info">Kies links een bestelling, of maak een nieuwe aan.</div>
+                }
+                else
+                {
+                    @* statusbalk: waar staat deze bestelling? *@
+                    <div class="statusbalk">
+                        @foreach (var s in _statussen)
+                        {
+                            <button class="stap @(s.Id == _status ? "nu" : "") @(s.Id < _status ? "gehad" : "")"
+                                    @key="s.Id" @onclick="() => ZetStatus(s)">
+                                @s.Omschrijving
+                            </button>
+                        }
+                    </div>
+
+                    <div class="wn-tabs">
+                        @foreach (var tab in BestelVelden.Tabs)
+                        {
+                            <button class="@(tab.Naam == _tab ? "actief" : "")"
+                                    @onclick="() => _tab = tab.Naam">@tab.Naam</button>
+                        }
+                        <button class="@("Documenten" == _tab ? "actief" : "")"
+                                @onclick="KiesDocumenten">Documenten (@_documenten.Count)</button>
+                    </div>
+
+                    @if (_tab == "Documenten")
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Bestand</th>
+                                    <th style="width:10rem">Toegevoegd</th>
+                                    <th style="width:11rem">Door</th>
+                                    <th style="width:6rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in _documenten)
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d)">@d.Bestandsnaam</button>
+                                        </td>
+                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td>@d.ToegevoegdDoor</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⭳</a>
+                                            <button class="klein rood" @onclick="() => VerwijderDocument(d)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_documenten.Count == 0)
+                                {
+                                    <tr><td colspan="4" class="kiezer-info">Nog geen documenten.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                             @ondragenter="() => _sleepActief = true"
+                             @ondragleave="() => _sleepActief = false"
+                             @ondragover:preventDefault="true">
+                            <span>Sleep hier een bestand, of klik om te kiezen</span>
+                            <InputFile OnChange="BestandenGekozen" multiple />
+                        </div>
+                    }
+                    else
+                    {
+                        <DetailMetZij>
+                            <Hoofd>
+                                <VeldRaster Tab="HuidigeTab" Kolommen="_kolommen" Velden="_velden"
+                                            Lijsten="_lijsten" OpSlaan="Bewaar" />
+                            </Hoofd>
+                            <Zij>
+                                <ZijBlok Titel="Leverancier" Leeg="@(LeverancierNaam() is null)"
+                                         LeegTekst="Nog geen leverancier gekozen.">
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@LeverancierNaam()</span>
+                                        <span class="zij-extra">@ContactNaam()</span>
+                                    </div>
+                                </ZijBlok>
+
+                                <ZijBlok Titel="Regels" Aantal="_regels.Count"
+                                         Leeg="@(_regels.Count == 0)" LeegTekst="Nog geen regels.">
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@Bedrag(_regels.Sum(r => r.Regeltotaal))</span>
+                                        <span class="zij-extra">
+                                            @_regels.Count(r => r.Compleet) van @_regels.Count geleverd
+                                        </span>
+                                    </div>
+                                </ZijBlok>
+                            </Zij>
+                        </DetailMetZij>
+                    }
+
+                    @* ---------- de regels ---------- *@
+                    <h3 class="wn-kop">Regels</h3>
+                    <div class="regels-omhulsel">
+                        <table class="kiezer-tabel regels">
+                            <thead>
+                                <tr>
+                                    <th style="width:4.5rem" class="r">Aantal</th>
+                                    <th style="width:5rem">Eenheid</th>
+                                    <th style="width:11rem">Artikelcode</th>
+                                    <th>Omschrijving</th>
+                                    <th style="width:6rem">MDE</th>
+                                    <th style="width:7.5rem">Leverdatum</th>
+                                    <th style="width:6rem" class="r">Prijs</th>
+                                    <th style="width:4.5rem" class="r">Korting</th>
+                                    <th style="width:7rem" class="r">Totaal</th>
+                                    <th style="width:5rem" class="c" title="Geleverd">Gelev.</th>
+                                    <th style="width:6rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var regel in _regels)
+                                {
+                                    <tr @key="regel.Id" class="@(regel.Compleet ? "geleverd" : "")">
+                                        <td><input class="r" value="@regel.Aantal"
+                                                   @onchange="e => ZetGetal(regel, v => regel.Aantal = v, e)" /></td>
+                                        <td>
+                                            <select value="@EenheidTekst(regel)" @onchange="e => ZetEenheid(regel, e)">
+                                                <option value="">—</option>
+                                                @foreach (var ve in _eenheden)
+                                                {
+                                                    <option value="@ve.Id">@ve.Naam</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input value="@regel.Artikelcode" maxlength="100"
+                                                   @onchange="e => Zet(regel, v => regel.Artikelcode = v, e)" /></td>
+                                        <td><input value="@regel.Omschrijving" maxlength="400"
+                                                   @onchange="e => Zet(regel, v => regel.Omschrijving = v, e)" /></td>
+                                        @* Het MDE-nummer blijft te wijzigen; staat er een geldig
+                                           nummer, dan opent het knopje de artikelgegevens. *@
+                                        <td>
+                                            <div class="mde-cel">
+                                                <input value="@regel.MdeCode"
+                                                       @onchange="e => Zet(regel, v => regel.MdeCode = v, e)" />
+                                                @if (MdeNummer(regel.MdeCode) is int nr)
+                                                {
+                                                    <button class="klein" title="Gegevens van dit artikel"
+                                                            @onclick="() => _bekeken = nr">🔍</button>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td><NlDatum Waarde="regel.Leverdatum"
+                                                     WaardeChanged="d => ZetDatum(regel, d)" /></td>
+                                        <td><input class="r" value="@Getal(regel.Prijs)"
+                                                   @onchange="e => ZetBedrag(regel, v => regel.Prijs = v, e)" /></td>
+                                        <td><input class="r" value="@Getal(regel.KortingProcent)" title="Korting in procenten"
+                                                   @onchange="e => ZetKorting(regel, e)" /></td>
+                                        <td class="r">@Bedrag(regel.Regeltotaal)</td>
+                                        <td class="c" title="@(regel.Geleverd + " van " + regel.Aantal)">
+                                            @(regel.Geleverd > 0 ? regel.Geleverd.ToString("0.##") : "")
+                                        </td>
+                                        <td class="c">
+                                            <button class="klein @(regel.Bijlagen > 0 ? "metbijlage" : "")"
+                                                    title="Bijlagen bij deze regel"
+                                                    @onclick="() => OpenBijlagen(regel)">
+                                                📎@(regel.Bijlagen > 0 ? regel.Bijlagen.ToString() : "")
+                                            </button>
+                                            <button class="klein rood" title="Regel verwijderen"
+                                                    @onclick="() => VerwijderRegel(regel)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_regels.Count == 0)
+                                {
+                                    <tr><td colspan="11" class="kiezer-info">Nog geen regels op deze bestelling.</td></tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="8" class="r"><b>Totaal</b></td>
+                                    <td class="r"><b>@Bedrag(_regels.Sum(r => r.Regeltotaal))</b></td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="btngroup">
+                        <button class="klein" @onclick="NieuweRegel">+ Regel toevoegen</button>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Offertes aanvragen, het officiële orderformulier en het mailen naar de leverancier
+        volgen later; daarvoor gebruik je voorlopig Access.
+    </footer>
+</div>
+
+@* ===== bijlagen bij een orderregel ===== *@
+@if (_bijlageRegel is not null)
+{
+    <div class="cmdk-overlay" @onclick="SluitBijlagen">
+        <div class="bijlagevenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Bijlagen bij regel @_bijlageRegel.Artikelcode</h2>
+                <button class="klein" @onclick="SluitBijlagen">✕</button>
+            </header>
+
+            <div class="bijlage-boven">
+                <div class="bijlage-samenvatting">
+                    <span><b>Aantal</b> @_bijlageRegel.Aantal</span>
+                    <span><b>Artikel</b> @_bijlageRegel.Artikelcode</span>
+                    <span><b>Omschrijving</b> @_bijlageRegel.Omschrijving</span>
+                    <span><b>MDE-code</b> @_bijlageRegel.MdeCode</span>
+                    <span><b>Leverdatum</b> @(_bijlageRegel.Leverdatum?.ToString("dd-MM-yyyy") ?? "")</span>
+                    <span><b>Totaal</b> @Bedrag(_bijlageRegel.Regeltotaal)</span>
+                </div>
+
+                @* rechtsboven de artikelfoto uit de oude fotomap *@
+                <div class="bijlage-beeld">
+                    @if (ArtikelNummer() is int nr)
+                    {
+                        @* onload zet de foto weer zichtbaar: het element wordt hergebruikt
+                           tussen orderregels, en anders blijft 'hidden' van een regel
+                           zonder foto staan. *@
+                        <img class="artikelfoto" src="@($"artikelfoto/{nr}")" alt="" @key="nr"
+                             onload="this.style.visibility=''"
+                             onerror="this.style.visibility='hidden'" />
+                    }
+                </div>
+            </div>
+
+            <div class="bijlage-kolommen">
+                @* links: wat er bij het artikel hoort *@
+                <section class="bijlage-kolom">
+                    <h3>Artikeldocumentatie (laatste versie)</h3>
+                    @if (string.IsNullOrWhiteSpace(_bijlageRegel.MdeCode))
+                    {
+                        <p class="uitleg">Deze regel heeft geen MDE-code, dus er is geen artikeldocumentatie.</p>
+                    }
+                    else if (_artikelDocs.Count == 0)
+                    {
+                        <p class="uitleg">Geen documentatie gevonden bij artikel @_bijlageRegel.MdeCode.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr><th>Bestand</th><th style="width:5rem" class="r">Dagen</th><th style="width:3rem"></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in _artikelDocs)
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d)">@d.Bestandsnaam</button>
+                                        </td>
+                                        <td class="r">@DagenOud(d)</td>
+                                        <td class="c">
+                                            <button class="klein" title="Overnemen als bijlage bij deze regel"
+                                                    @onclick="() => NeemOver(d)">»</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
+
+                @* rechts: de bijlagen van deze regel *@
+                <section class="bijlage-kolom">
+                    <h3>Bijlagen</h3>
+                    @if (_regelBijlagen.Count == 0)
+                    {
+                        <p class="uitleg">Nog geen bijlagen bij deze regel.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr><th>Bestand</th><th style="width:5rem" class="r">Dagen</th><th style="width:5rem"></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in _regelBijlagen)
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d)">@d.Bestandsnaam</button>
+                                        </td>
+                                        <td class="r">@DagenOud(d)</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⭳</a>
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderBijlage(d)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    <div class="sleepzone @(_sleepBijlage ? "actief" : "")"
+                         @ondragenter="() => _sleepBijlage = true"
+                         @ondragleave="() => _sleepBijlage = false"
+                         @ondragover:preventDefault="true">
+                        <span>Sleep een werktekening, of klik om te kiezen</span>
+                        <InputFile OnChange="BijlagenGekozen" multiple />
+                    </div>
+                </section>
+            </div>
+
+            <footer class="bijlagevoet">
+                <button class="primair" @onclick="SluitBijlagen">Klaar</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@* voorbeeld van één bestand: 3D, PDF, Word/Excel of afbeelding *@
+<BestandVoorbeeld Id="_voorbeeld?.FileStoreId" Naam="@(_voorbeeld?.Bestandsnaam ?? "")"
+                  Sluiten="SluitVoorbeeld" />
+
+@* de gegevens van het artikel achter een orderregel *@
+<ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
+
+@code {
+    private List<BestelRegel> _lijst = new();
+    private List<Bestelstatus> _statussen = new();
+    private string _zoek = "";
+    private int? _statusFilter;
+    private int? _besteldDoor;
+
+    private int? _orderId;
+    private BestelRegel? _bestelling;
+    private int _status;
+    private string _tab = "Algemeen";
+
+    private HashSet<string> _kolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, List<Keuze>> _lijsten = new();
+    private static readonly List<Keuze> GeenLijst = new();
+
+    private List<Orderregel> _regels = new();
+    private List<Keuze> _eenheden = new();
+    private List<Keuze> _leveranciers = new();
+    private List<Keuze> _werkorders = new();
+
+    private List<Bestand> _documenten = new();
+    private bool _sleepActief;
+
+    private bool _nieuwOpen;
+    private int? _nieuwLeverancier;
+    private int? _nieuwWerkorder;
+
+    private string? _melding;
+    private bool _fout;
+
+    private string Titel => _bestelling is null ? "Bestellingen"
+                          : $"{_bestelling.Nummer} · {_bestelling.Leverancier}";
+
+    private VeldTab HuidigeTab
+        => BestelVelden.Tabs.FirstOrDefault(t => t.Naam == _tab) ?? BestelVelden.Tabs[0];
+
+    private string StatusFilterTekst => _statusFilter is int s ? s.ToString() : "";
+    private string BesteldDoorTekst => _besteldDoor is int d ? d.ToString() : "";
+    private string NieuwLeverancierTekst => _nieuwLeverancier is int l ? l.ToString() : "";
+    private string NieuwWerkorderTekst => _nieuwWerkorder is int w ? w.ToString() : "";
+
+    private List<Keuze> Lijst(string naam) => _lijsten.TryGetValue(naam, out var l) ? l : GeenLijst;
+
+    private static string BekijkUrl(int id) => "bestand/" + id;
+    private static string DownloadUrl(int id) => "bestand/" + id + "/download";
+
+    private static string Bedrag(decimal waarde) => waarde.ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+
+    /// <summary>
+    /// Kleur van de onderregel, afgeleid van de statusnaam zelf. Dat is steviger
+    /// dan werken met nummers: verandert er iets in OrderState, dan blijft dit werken.
+    /// Groen = klaar, oranje = loopt en we wachten ergens op, grijs = eraf.
+    /// </summary>
+    private static string StatusKleur(string? status)
+    {
+        var s = (status ?? "").ToLowerInvariant();
+
+        if (s.Contains("gereed") || s.Contains("afgehandeld") || s.Contains("compleet")) return "st-groen";
+        if (s.Contains("annul") || s.Contains("vervallen")) return "st-grijs";
+        if (s.Contains("levering") || s.Contains("bestell") || s.Contains("besteld")) return "st-oranje";
+
+        return "";
+    }
+    private static string Getal(decimal? waarde) => waarde is null ? "" : waarde.Value.ToString("0.##");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            _kolommen = await Repo.KolommenAsync();
+            try { _statussen = await Repo.GetStatussenAsync(); } catch { }
+            try { _eenheden = await Repo.GetEenhedenAsync(); } catch { }
+            try { _leveranciers = await Repo.GetLeveranciersAsync(); } catch { }
+            try
+            {
+                var open = await Uren.GetOpenWorkordersAsync();
+                _werkorders = open.Select(w => new Keuze(w.WerkbonId, $"{w.Nummer} · {w.Omschrijving}")).ToList();
+            }
+            catch { }
+
+            _lijsten["Leverancier"] = _leveranciers;
+            _lijsten["Werkorder"] = _werkorders;
+            _lijsten["Taal"] = await Repo.GetTalenAsync();
+            try
+            {
+                var wn = await Uren.GetWerknemersAsync();
+                _lijsten["Werknemer"] = wn.Select(w => new Keuze(w.WerknemerId, w.Naam)).ToList();
+            }
+            catch { _lijsten["Werknemer"] = new List<Keuze>(); }
+            _lijsten["Contact"] = new List<Keuze>();
+
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Laad(bool kiesBijEen = false)
+    {
+        try { _lijst = await Repo.ZoekAsync(_zoek, _statusFilter, null, _besteldDoor, 100); }
+        catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        if (kiesBijEen && _lijst.Count == 1) { await Kies(_lijst[0]); return; }
+        if (kiesBijEen) Leegmaken();
+    }
+
+    private void Leegmaken()
+    {
+        _orderId = null;
+        _bestelling = null;
+        _velden = new(StringComparer.OrdinalIgnoreCase);
+        _regels = new();
+        _documenten = new();
+        _tab = "Algemeen";
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Laad(kiesBijEen: true);
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        _statusFilter = null;
+        _besteldDoor = null;
+        Leegmaken();
+        await Laad();
+    }
+
+    private async Task StatusFilterGewijzigd(ChangeEventArgs e)
+    {
+        _statusFilter = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad(kiesBijEen: true);
+    }
+
+    private async Task BesteldDoorGewijzigd(ChangeEventArgs e)
+    {
+        _besteldDoor = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad(kiesBijEen: true);
+    }
+
+    /// <summary>Snelknop: alleen wat ik zelf besteld heb, of weer alles.</summary>
+    private async Task AlleenIk()
+    {
+        _besteldDoor = _besteldDoor == Ik.WerknemerId ? null : Ik.WerknemerId;
+        await Laad(kiesBijEen: true);
+    }
+
+    // ================================================================
+    //  Bladeren met het toetsenbord
+    //  De kop verspringt meteen; de rest (regels, documenten) wordt pas geladen
+    //  als je even stilstaat, zodat doorhouden van de pijltjestoets de database
+    //  niet plat legt.
+    // ================================================================
+    private bool _pijltje;
+    private int _laadteller;
+
+    private async Task Toetsen(KeyboardEventArgs e)
+    {
+        if (_lijst.Count == 0) return;
+
+        var huidig = _lijst.FindIndex(b => b.Id == _orderId);
+        var nieuw = e.Key switch
+        {
+            "ArrowDown" => huidig + 1,
+            "ArrowUp" => huidig - 1,
+            "PageDown" => huidig + 10,
+            "PageUp" => huidig - 10,
+            "Home" => 0,
+            "End" => _lijst.Count - 1,
+            _ => -1,
+        };
+
+        // Andere toetsen (Tab, letters) gewoon hun gang laten gaan
+        _pijltje = nieuw >= -1 && e.Key.StartsWith("Arrow") || e.Key is "PageDown" or "PageUp" or "Home" or "End";
+        if (nieuw == -1 && !_pijltje) return;
+
+        nieuw = Math.Clamp(nieuw, 0, _lijst.Count - 1);
+        if (nieuw == huidig) return;
+
+        var gekozen = _lijst[nieuw];
+
+        // meteen zichtbaar: markering en kop
+        _orderId = gekozen.Id;
+        _bestelling = gekozen;
+        _status = gekozen.Status;
+        _regels = new();
+        _documenten = new();
+        StateHasChanged();
+
+        try { await JS.InvokeVoidAsync("mdeLijst.naarActief", "bestellijst"); } catch { }
+
+        // en na een korte stilte de rest erbij
+        var teller = ++_laadteller;
+        await Task.Delay(180);
+        if (teller != _laadteller) return;
+
+        await Kies(gekozen);
+        StateHasChanged();
+    }
+
+    private async Task Kies(BestelRegel b)
+    {
+        _orderId = b.Id;
+        _bestelling = b;
+        _status = b.Status;
+        _laadteller++;          // een klik annuleert een lopende toetsenbordronde
+
+        try { _velden = await Repo.GetVeldenAsync(b.Id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+
+        await LaadContacten();
+        await LaadRegels();
+        await LaadDocumenten();
+    }
+
+    /// <summary>De contactpersonen horen bij de gekozen leverancier.</summary>
+    private async Task LaadContacten()
+    {
+        var leverancier = Nummer("Supplier");
+        try { _lijsten["Contact"] = await Repo.GetContactenAsync(leverancier); }
+        catch { _lijsten["Contact"] = new List<Keuze>(); }
+    }
+
+    private async Task LaadRegels()
+    {
+        if (_orderId is null) { _regels = new(); return; }
+        try { _regels = await Repo.GetRegelsAsync(_orderId.Value); }
+        catch (Exception ex) { _regels = new(); Toon("Regels ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private int? Nummer(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return null;
+        return int.TryParse(v.ToString(), out var n) ? n : null;
+    }
+
+    private string? LeverancierNaam()
+    {
+        var id = Nummer("Supplier");
+        return id is null ? null : _leveranciers.FirstOrDefault(l => l.Id == id)?.Naam;
+    }
+
+    private string? ContactNaam()
+    {
+        var id = Nummer("Contact");
+        return id is null ? "" : Lijst("Contact").FirstOrDefault(c => c.Id == id)?.Naam ?? "";
+    }
+
+    // ================================================================
+    //  Kop opslaan
+    // ================================================================
+    private async Task Bewaar((string Kolom, object? Waarde) wijziging)
+    {
+        if (_orderId is null) return;
+        try
+        {
+            var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
+            await Repo.UpdateVeldAsync(_orderId.Value, wijziging.Kolom, opslaan);
+            _velden[wijziging.Kolom] = opslaan;
+
+            // andere leverancier betekent andere contactpersonen
+            if (wijziging.Kolom.Equals("Supplier", StringComparison.OrdinalIgnoreCase))
+            {
+                await Repo.UpdateVeldAsync(_orderId.Value, "Contact", null);
+                _velden["Contact"] = null;
+                await LaadContacten();
+                await Laad();
+            }
+            else if (wijziging.Kolom.Equals("Description", StringComparison.OrdinalIgnoreCase))
+                await Laad();
+
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetStatus(Bestelstatus s)
+    {
+        if (_orderId is null || s.Id == _status) return;
+
+        if (!await Bevestig($"Deze bestelling op '{s.Omschrijving}' zetten?")) return;
+
+        try
+        {
+            await Repo.ZetStatusAsync(_orderId.Value, _status, s.Id, Ik.WerknemerId);
+            _status = s.Id;
+            _velden = await Repo.GetVeldenAsync(_orderId.Value);
+            await Laad();
+            Toon($"Status staat nu op {s.Omschrijving}.", false);
+        }
+        catch (Exception ex) { Toon("Status wijzigen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Nieuwe bestelling
+    // ================================================================
+    private void OpenNieuw()
+    {
+        _nieuwOpen = true;
+        _nieuwLeverancier = null;
+        _nieuwWerkorder = null;
+    }
+
+    private void SluitNieuw() => _nieuwOpen = false;
+
+    private void NieuwLeverancierGewijzigd(ChangeEventArgs e)
+        => _nieuwLeverancier = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private void NieuwWerkorderGewijzigd(ChangeEventArgs e)
+        => _nieuwWerkorder = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private async Task MaakBestelling()
+    {
+        if (_nieuwLeverancier is null) { Toon("Kies eerst een leverancier.", true); return; }
+
+        try
+        {
+            var id = await Repo.NieuweBestellingAsync(_nieuwLeverancier, _nieuwWerkorder, Ik.WerknemerId);
+            _nieuwOpen = false;
+            await Laad();
+            var nieuw = _lijst.FirstOrDefault(b => b.Id == id);
+            if (nieuw is not null) await Kies(nieuw);
+            Toon($"PO-{id} aangemaakt.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Regels
+    // ================================================================
+    private string EenheidTekst(Orderregel r) => r.EenheidId is int id ? id.ToString() : "";
+
+    private async Task BewaarRegel(Orderregel regel)
+    {
+        try
+        {
+            regel.Id = await Repo.BewaarRegelAsync(regel);
+            await LaadRegels();
+            await Laad();          // het totaal in de lijst links klopt dan ook weer
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Zet(Orderregel regel, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarRegel(regel);
+    }
+
+    /// <summary>Nederlandse invoer: punt is duizendtal, komma is decimaal.</summary>
+    private static string Schoon(object? waarde)
+        => ((string?)waarde ?? "").Replace(".", "").Replace(',', '.').Trim();
+
+    private async Task ZetGetal(Orderregel regel, Action<double> zet, ChangeEventArgs e)
+    {
+        zet(double.TryParse(Schoon(e.Value), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0);
+        await BewaarRegel(regel);
+    }
+
+    /// <summary>
+    /// De gebruiker typt procenten, de database bewaart een breuk: 15 wordt 0,15.
+    /// </summary>
+    private async Task ZetKorting(Orderregel regel, ChangeEventArgs e)
+    {
+        var tekst = Schoon(e.Value);
+        if (string.IsNullOrWhiteSpace(tekst)) regel.KortingProcent = null;
+        else regel.KortingProcent = decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
+                                                     System.Globalization.CultureInfo.InvariantCulture,
+                                                     out var v) ? v : null;
+        await BewaarRegel(regel);
+    }
+
+    private async Task ZetBedrag(Orderregel regel, Action<decimal?> zet, ChangeEventArgs e)
+    {
+        var tekst = Schoon(e.Value);
+        if (string.IsNullOrWhiteSpace(tekst)) zet(null);
+        else zet(decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
+                                  System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null);
+        await BewaarRegel(regel);
+    }
+
+    private async Task ZetEenheid(Orderregel regel, ChangeEventArgs e)
+    {
+        regel.EenheidId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await BewaarRegel(regel);
+    }
+
+    private async Task ZetDatum(Orderregel regel, DateOnly? datum)
+    {
+        regel.Leverdatum = datum;
+        await BewaarRegel(regel);
+    }
+
+    private async Task NieuweRegel()
+    {
+        if (_orderId is null) return;
+        try
+        {
+            var standaard = _velden.TryGetValue("DefaultLeverDatum", out var d) && d is DateTime dt
+                ? DateOnly.FromDateTime(dt) : (DateOnly?)null;
+
+            await Repo.BewaarRegelAsync(new Orderregel
+            {
+                OrderId = _orderId.Value,
+                Aantal = 1,
+                EenheidId = 2,          // stuks, net als de standaard in Access
+                Leverdatum = standaard,
+            });
+            await LaadRegels();
+        }
+        catch (Exception ex) { Toon("Regel toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderRegel(Orderregel regel)
+    {
+        var wat = string.IsNullOrWhiteSpace(regel.Artikelcode) ? "deze regel" : regel.Artikelcode;
+        if (!await Bevestig($"'{wat}' van deze bestelling verwijderen?")) return;
+
+        try
+        {
+            await Repo.VerwijderRegelAsync(regel.Id);
+            await LaadRegels();
+            await Laad();
+            Toon("Regel verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Bijlagen per orderregel (de popup 'Orderitems_bijlage' uit Access)
+    //
+    //  Links de documentatie die bij het artikel hoort (StoreType 2, op MDE-code),
+    //  rechts de bijlagen van deze regel (StoreType 3, op Orderitem-id). Met » neem
+    //  je een artikeldocument over als bijlage — dat is wat de leverancier meekrijgt.
+    // ================================================================
+    private const int StoreTypeArtikel = 2;
+
+    private Orderregel? _bijlageRegel;
+    private List<Bestand> _artikelDocs = new();
+    private List<Bestand> _regelBijlagen = new();
+    private bool _sleepBijlage;
+
+    private static string DagenOud(Bestand d)
+        => d.Toegevoegd is null ? "" : ((int)(DateTime.Today - d.Toegevoegd.Value.Date).TotalDays).ToString();
+
+    private async Task OpenBijlagen(Orderregel regel)
+    {
+        _bijlageRegel = regel;
+        _artikelDocs = new();
+        _regelBijlagen = new();
+        _voorbeeld = null;
+        await LaadBijlagen();
+    }
+
+    private void SluitBijlagen()
+    {
+        _bijlageRegel = null;
+        _artikelDocs = new();
+        _regelBijlagen = new();
+        _voorbeeld = null;
+    }
+
+    // ---- voorbeeld van één bestand ----
+    private Bestand? _voorbeeld;
+
+    private void ToonVoorbeeld(Bestand d) => _voorbeeld = d;
+
+    private void SluitVoorbeeld() => _voorbeeld = null;
+
+    /// <summary>Het artikelnummer voor de foto: de MDE-code van deze regel.</summary>
+    private int? ArtikelNummer() => MdeNummer(_bijlageRegel?.MdeCode);
+
+    /// <summary>Een MDE-code als getal, of null als er niets bruikbaars staat.</summary>
+    private static int? MdeNummer(string? mdeCode)
+        => int.TryParse(mdeCode, out var nr) && nr > 0 ? nr : null;
+
+    /// <summary>Het artikel waarvan het gegevensvenster openstaat.</summary>
+    private int? _bekeken;
+
+
+    private async Task LaadBijlagen()
+    {
+        if (_bijlageRegel is null || !WnRepo.Beschikbaar) return;
+
+        try { _regelBijlagen = await WnRepo.GetBestandenAsync(BestelVelden.StoreTypeOrderregel, _bijlageRegel.Id); }
+        catch { _regelBijlagen = new(); }
+
+        if (int.TryParse(_bijlageRegel.MdeCode, out var artikel))
+        {
+            try
+            {
+                var alles = await WnRepo.GetBestandenAsync(StoreTypeArtikel, artikel);
+
+                // alleen de nieuwste versie per bestandsnaam, zoals in Access
+                _artikelDocs = alles
+                    .GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).First())
+                    .OrderBy(d => d.Bestandsnaam)
+                    .ToList();
+            }
+            catch { _artikelDocs = new(); }
+        }
+    }
+
+    /// <summary>Neemt een artikeldocument over als bijlage bij deze regel.</summary>
+    private async Task NeemOver(Bestand doc)
+    {
+        if (_bijlageRegel is null) return;
+        try
+        {
+            var gevonden = await Store.ZoekAsync(doc.FileStoreId);
+            if (gevonden is null) { Toon("Het bestand is niet gevonden in de filestore.", true); return; }
+
+            await using var bron = File.OpenRead(gevonden.Value.Pad);
+            await Store.ToevoegenAsync(bron, gevonden.Value.Naam, BestelVelden.StoreTypeOrderregel,
+                                       _bijlageRegel.Id, Ik.WerknemerId ?? 0);
+
+            await LaadBijlagen();
+            await LaadRegels();
+            Toon($"'{doc.Bestandsnaam}' toegevoegd aan deze regel.", false);
+        }
+        catch (Exception ex) { Toon("Overnemen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task BijlagenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepBijlage = false;
+        if (_bijlageRegel is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, BestelVelden.StoreTypeOrderregel,
+                                           _bijlageRegel.Id, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true); }
+        }
+
+        await LaadBijlagen();
+        await LaadRegels();
+        if (gelukt > 0) Toon($"{gelukt} bijlage(n) toegevoegd.", false);
+    }
+
+    private async Task VerwijderBijlage(Bestand d)
+    {
+        if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.")) return;
+
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            await LaadBijlagen();
+            await LaadRegels();
+            Toon("Bijlage verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Documenten
+    // ================================================================
+    private async Task KiesDocumenten()
+    {
+        _tab = "Documenten";
+        await LaadDocumenten();
+    }
+
+    private async Task LaadDocumenten()
+    {
+        if (_orderId is null || !WnRepo.Beschikbaar) { _documenten = new(); return; }
+        try { _documenten = await WnRepo.GetBestandenAsync(BestelVelden.StoreTypeOrder, _orderId.Value); }
+        catch { _documenten = new(); }
+    }
+
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepActief = false;
+        if (_orderId is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, BestelVelden.StoreTypeOrder,
+                                           _orderId.Value, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true); }
+        }
+
+        await LaadDocumenten();
+        if (gelukt > 0) Toon($"{gelukt} bestand(en) toegevoegd.", false);
+    }
+
+    private async Task VerwijderDocument(Bestand d)
+    {
+        if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.")) return;
+
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            await LaadDocumenten();
+            Toon("Document verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }
+    }
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

@@ -1,0 +1,268 @@
+@inject IPlc Plc
+@inject UNiiKoppeling Unii
+@inject IConfiguration Config
+@implements IDisposable
+
+@* De alarmweergave zelf, zonder paginakop — gedeeld door de desktop-pagina
+   (/gebouw/alarm) en de mobiele pagina (/mobiel/alarm). Leest het UNii-paneel
+   elke tien seconden uit; lukt dat niet, dan valt hij terug op de PLC-ingang. *@
+
+@if (!Unii.Beschikbaar && Tag.Length == 0)
+{
+    <section class="module-placeholder">
+        <p>
+            De koppeling met het paneel is er, maar de gedeelde sleutel is nog niet
+            ingesteld. Zet <code>Alarm:Sleutel</code> (de sleutel uit de
+            API-instellingen van het paneel) in <code>appsettings.json</code> — of
+            netter, als omgevingsvariabele <code>Alarm__Sleutel</code> op het
+            serviceaccount. Adres en poort (@Host:6502) staan er al goed in.
+        </p>
+    </section>
+}
+else
+{
+    @if (_gelezen is not null)
+    {
+        <div class="hmi-stand-regel">bijgewerkt @_gelezen.Value.ToString("HH:mm:ss") · ververst vanzelf</div>
+    }
+
+    @* Groot en van een afstand leesbaar: dit is het enige wat je wilt weten. *@
+    <div class="alarm-stand @Stijl">
+        <div class="alarm-teken">@Teken</div>
+        <div class="alarm-tekst">
+            <strong>@Kop</strong>
+            <span>@Onder</span>
+        </div>
+    </div>
+
+    @* Per sectie de stand, rechtstreeks uit het paneel. *@
+    @if (_stand is not null && _stand.Secties.Count > 0)
+    {
+        <table class="kiezer-tabel smal-tabel alarm-secties">
+            <thead>
+                <tr>
+                    <th style="width:4rem" class="r">Nr</th>
+                    <th>Sectie</th>
+                    <th style="width:10rem">Stand</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sectie in _stand.Secties)
+                {
+                    <tr @key="sectie.Nummer" class="@(sectie.Alarm ? "factuur-telaat" : "")">
+                        <td class="r">@sectie.Nummer</td>
+                        <td>@sectie.Naam</td>
+                        <td>
+                            <span class="stand-chip @(sectie.Alarm ? "s-rood" : sectie.Ingeschakeld ? "s-groen" : "s-oranje")">
+                                @(sectie.Alarm ? "⚠ ALARM" : sectie.Ingeschakeld ? "🔒 ingeschakeld" : "🔓 uit")
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @* De sensoren (ingangen): naam en actuele stand. Klapt vanzelf open
+       zodra er iets is dat aandacht vraagt (sabotage, afgedekt, storing). *@
+    @if (_stand is not null && _stand.Ingangen.Count > 0)
+    {
+        <details class="alarm-meer" open="@_stand.Ingangen.Any(Ernstig)">
+            <summary>
+                Sensoren (@_stand.Ingangen.Count)
+                @if (_stand.Ingangen.Any(Ernstig))
+                {
+                    <text> — ⚠ let op</text>
+                }
+            </summary>
+            <table class="kiezer-tabel smal-tabel alarm-secties">
+                <thead>
+                    <tr>
+                        <th style="width:4rem" class="r">Nr</th>
+                        <th>Sensor</th>
+                        <th style="width:16rem">Stand</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var ingang in _stand.Ingangen)
+                    {
+                        <tr @key="ingang.Nummer" class="@(Ernstig(ingang) ? "factuur-telaat" : "")">
+                            <td class="r">@ingang.Nummer</td>
+                            <td>@ingang.Naam</td>
+                            <td>
+                                <span class="stand-chip @StandStijl(ingang)">
+                                    @(Ernstig(ingang) ? "⚠ " : "")@ingang.Stand
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </details>
+    }
+}
+
+<details class="alarm-meer">
+    <summary>Over de koppeling</summary>
+
+    <p class="uitleg">
+        Het paneel is een <b>Alphatronics UNii</b> op <b>@Host</b>, uitgelezen via de
+        versleutelde Generieke Interface (poort 6502, "basic encryption"). De app
+        verbindt elke tien seconden kort, vraagt de secties op en sluit weer af.
+        @if (Tag.Length > 0)
+        {
+            <text>Lukt dat niet, dan valt hij terug op de PLC-ingang (@Tag).</text>
+        }
+    </p>
+
+</details>
+
+@code {
+    private bool? _aan;
+    private bool _deels;      // een deel van de secties staat aan
+    private bool _alarm;      // er is een sectie in alarm
+    private UNiiStand? _stand;
+    private DateTime? _gelezen;
+    private string _leesfout = "";
+
+    private Timer? _klok;
+
+    /// <summary>Nooit twee uitlezingen tegelijk: het paneel wil ~1 seconde rust
+    /// tussen twee verbindingen, anders geeft hij een communicatiefout.</summary>
+    private int _leesBezig;
+
+    /// <summary>De PLC-ingang waarop het alarm is aangesloten; leeg = nog niet aangesloten.</summary>
+    private string Tag => Config["Alarm:PlcTag"] ?? "";
+
+    /// <summary>
+    /// Sommige panelen geven juist spanning als het alarm ÚIT staat. Dan zet je
+    /// Alarm:PlcOmgekeerd op true in plaats van de bedrading aan te passen.
+    /// </summary>
+    private bool Omgekeerd => bool.TryParse(Config["Alarm:PlcOmgekeerd"], out var v) && v;
+
+    private string Host => Config["Alarm:Adres"] ?? "172.16.3.4";
+
+    // ---- wat er groot in beeld staat ----
+    private string Stijl => _alarm ? "alarm"
+        : _leesfout.Length > 0 ? "onbekend"
+        : _aan switch
+        {
+            true => "aan",
+            false => _deels ? "aan" : "uit",
+            _ => "onbekend",
+        };
+
+    private string Teken => _alarm ? "🚨" : _leesfout.Length > 0 ? "?" : _aan switch
+    {
+        true => "🔒",
+        false => _deels ? "🔏" : "🔓",
+        _ => "?",
+    };
+
+    private string Kop => _alarm ? "ALARM!"
+        : _leesfout.Length > 0 ? "Niet te lezen"
+        : _aan switch
+        {
+            true => "Alarm staat AAN",
+            false => _deels ? "Alarm staat DEELS aan" : "Alarm staat UIT",
+            _ => "Nog niet gelezen",
+        };
+
+    private string Onder => _alarm
+        ? "Er is een sectie in alarm — zie de lijst hieronder."
+        : _leesfout.Length > 0 ? _leesfout
+        : _aan switch
+        {
+            true => "Alle secties zijn ingeschakeld.",
+            false => _deels ? "Een deel van de secties is ingeschakeld." : "Het pand is niet ingeschakeld.",
+            _ => "Even geduld…",
+        };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Lees();
+
+        // Elke tien seconden bijwerken; je hebt dit scherm open om te kijken,
+        // niet om te verversen.
+        _klok = new Timer(async _ =>
+        {
+            await Lees();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task Lees()
+    {
+        // Loopt er al een uitlezing, dan slaan we deze beurt over in plaats
+        // van het paneel een tweede verbinding op te dringen.
+        if (Interlocked.Exchange(ref _leesBezig, 1) == 1) return;
+        try
+        {
+            await LeesEcht();
+        }
+        finally { _leesBezig = 0; }
+    }
+
+    private async Task LeesEcht()
+    {
+        // Eerst de echte koppeling met het paneel; die weet het per sectie.
+        if (Unii.Beschikbaar)
+        {
+            var (stand, fout) = await Unii.LeesAsync();
+            if (stand is not null)
+            {
+                _stand = stand;
+                _leesfout = "";
+                _gelezen = stand.Gelezen;
+                _alarm = stand.Secties.Any(s => s.Alarm);
+                var aanTal = stand.Secties.Count(s => s.Ingeschakeld);
+                _aan = stand.Secties.Count > 0 && aanTal == stand.Secties.Count;
+                _deels = aanTal > 0 && aanTal < stand.Secties.Count;
+                return;
+            }
+
+            // Paneel niet bereikbaar: melden, en zo mogelijk terugvallen op de PLC.
+            _leesfout = fout;
+            _stand = null;
+            _aan = null;
+            _deels = false;
+            _alarm = false;
+            if (Tag.Length == 0) return;
+        }
+
+        if (Tag.Length == 0) return;
+
+        try
+        {
+            var waarde = await Plc.LeesAsync(Tag);
+            _aan = Omgekeerd ? !waarde : waarde;
+            _gelezen = DateTime.Now;
+            _leesfout = "";
+        }
+        catch (Exception ex)
+        {
+            _leesfout = "De PLC antwoordt niet: " + ex.Message;
+            _aan = null;
+        }
+    }
+
+    /// <summary>De kleur van een sensorstand: groen = gesloten, oranje = open,
+    /// blauw = overbrugd, rood = alles wat echt aandacht vraagt.</summary>
+    private static string StandStijl(UNiiIngang ingang)
+    {
+        if (Ernstig(ingang)) return "s-rood";
+        if (ingang.Stand.Contains("overbrugd", StringComparison.OrdinalIgnoreCase)) return "s-blauw";
+        if (ingang.Stand.StartsWith("open", StringComparison.OrdinalIgnoreCase)) return "s-oranje";
+        return "s-groen";
+    }
+
+    /// <summary>Sabotage, afdekking, storing of een lege batterij: dat is nooit
+    /// normaal, ook niet met het alarm uit.</summary>
+    private static bool Ernstig(UNiiIngang ingang)
+        => ingang.Stand.Contains("sabotage", StringComparison.OrdinalIgnoreCase)
+        || ingang.Stand.Contains("afgedekt", StringComparison.OrdinalIgnoreCase)
+        || ingang.Stand.Contains("storing", StringComparison.OrdinalIgnoreCase)
+        || ingang.Stand.Contains("batterij", StringComparison.OrdinalIgnoreCase);
+
+    public void Dispose() => _klok?.Dispose();
+}

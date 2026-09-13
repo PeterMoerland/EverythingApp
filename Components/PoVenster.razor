@@ -1,0 +1,184 @@
+@* Eén inkooporder groot in beeld — het 'groene PO-klikje' uit Access.
+   Alleen-lezen: kop, orderregels en de facturen die eraan hangen.
+
+   Gebruik: <PoVenster OrderId="_bekijkPo" Sluiten="() => _bekijkPo = null" />
+   en zet OrderId op een Order-id om het venster te openen. *@
+
+@inject IFactuurRepository Repo
+
+@if (OrderId is not null)
+{
+    <div class="cmdk-overlay voorbeeld-laag midden" @onmousedown="() => _overlayDruk = true"
+         @onclick="OverlayGeklikt">
+        <div class="povenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>
+                    PO @(_po?.Nummer is { Length: > 0 } n ? n : "#" + OrderId)
+                    <span class="artikel-id">#@OrderId</span>
+                </h2>
+                <button class="klein" @onclick="Dicht">✕</button>
+            </header>
+
+            <div class="povenster-inhoud">
+                @if (_bezig)
+                {
+                    <p class="uitleg">Bezig met ophalen…</p>
+                }
+                else if (_po is null)
+                {
+                    <p class="uitleg">Deze inkooporder is niet gevonden.</p>
+                }
+                else
+                {
+                    <div class="po-kop">
+                        <div class="zij-regel">
+                            <span class="zij-naam">@_po.Leverancier</span>
+                            <span class="zij-extra">
+                                @_po.Project @(_po.Werkorder.Length > 0 ? "— " + _po.Werkorder : "")
+                            </span>
+                        </div>
+                        <div class="zij-regel">
+                            <span class="zij-extra">
+                                @_po.StatusTekst
+                                @if (_po.Aangemaakt is DateTime d)
+                                {
+                                    <text> · aangemaakt @d.ToString("dd-MM-yyyy")</text>
+                                }
+                                @if (_po.AangemaaktDoor.Length > 0)
+                                {
+                                    <text> door @_po.AangemaaktDoor</text>
+                                }
+                            </span>
+                        </div>
+                        @if (_po.Omschrijving.Length > 0)
+                        {
+                            <div class="zij-regel"><span class="zij-extra">@_po.Omschrijving</span></div>
+                        }
+                        @if (_po.BetalingenGeblokkeerd)
+                        {
+                            <div class="factuur-waarschuwing">
+                                Op deze PO staan betalingen geblokkeerd (Block payments).
+                            </div>
+                        }
+                    </div>
+
+                    <h3 class="wn-kop">Orderregels</h3>
+                    @if (_po.Regels.Count == 0)
+                    {
+                        <p class="uitleg">Geen orderregels.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:4.5rem" class="r">Aantal</th>
+                                    <th style="width:5rem">Eenheid</th>
+                                    <th>Omschrijving</th>
+                                    <th style="width:9rem">Artikelcode</th>
+                                    <th style="width:7rem" class="r">Prijs/eenh</th>
+                                    <th style="width:5rem" class="r">Korting</th>
+                                    <th style="width:8rem" class="r">Totaal</th>
+                                    <th style="width:4rem">Voor</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var regel in _po.Regels)
+                                {
+                                    <tr>
+                                        <td class="r">@regel.Aantal.ToString("0.##", Nl)</td>
+                                        <td>@regel.Eenheid</td>
+                                        <td class="omschrijving" title="@regel.Omschrijving">@regel.Omschrijving</td>
+                                        <td>@regel.Artikelcode</td>
+                                        <td class="r">@Geld(regel.PrijsPerEenheid)</td>
+                                        <td class="r">@(regel.Korting != 0 ? regel.Korting.ToString("0.##", Nl) + "%" : "")</td>
+                                        <td class="r">@Geld(regel.Totaal)</td>
+                                        <td>@regel.Voor</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="6" class="r"><b>Totaal ex btw</b></td>
+                                    <td class="r"><b>@Geld(_po.Totaal)</b></td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    }
+
+                    <h3 class="wn-kop">Gekoppelde facturen</h3>
+                    @if (_po.Facturen.Count == 0)
+                    {
+                        <p class="uitleg">Nog geen factuur aan deze PO gekoppeld.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:12rem">Factuurnummer</th>
+                                    <th style="width:8rem" class="r">Bedrag</th>
+                                    <th style="width:6rem" class="c">Betaald</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in _po.Facturen)
+                                {
+                                    <tr @key="f.FactuurId">
+                                        <td>@f.Factuurnummer</td>
+                                        <td class="r">@Geld(f.Bedrag)</td>
+                                        <td class="c">@(f.Betaald ? "✔" : "")</td>
+                                        <td></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Order-id van de te tonen PO; null betekent: venster dicht.</summary>
+    [Parameter] public int? OrderId { get; set; }
+
+    [Parameter] public EventCallback Sluiten { get; set; }
+
+    private PoInfo? _po;
+    private bool _bezig;
+    private int? _geladenVoor = -1;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OrderId == _geladenVoor) return;
+        _geladenVoor = OrderId;
+        _po = null;
+
+        if (OrderId is not int id) return;
+
+        _bezig = true;
+        try { _po = await Repo.GetPoAsync(id); }
+        catch { _po = null; }
+        finally { _bezig = false; }
+    }
+
+    private Task Dicht() => Sluiten.InvokeAsync();
+
+    /// <summary>Sluit alleen als de klik ook op de achtergrond begón; anders zou
+    /// het venster verdwijnen wanneer je hem versleept en buiten loslaat.</summary>
+    private bool _overlayDruk;
+
+    private async Task OverlayGeklikt()
+    {
+        var begonOpAchtergrond = _overlayDruk;
+        _overlayDruk = false;
+        if (begonOpAchtergrond) await Dicht();
+    }
+}

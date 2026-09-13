@@ -1,0 +1,97 @@
+@page "/relaties/nda/import"
+@inject NdaImportService Import
+@inject INdaRepository Repo
+@inject HuidigeGebruiker Ik
+
+<div class="page">
+    <header class="topbar">
+        <h1>NDA's overnemen uit de oude app</h1>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit werkt alleen met de live database.</p></section>
+    }
+    else if (!MagSchrijven)
+    {
+        <section class="module-placeholder"><p>Hiervoor heb je het NDA-recht nodig.</p></section>
+    }
+    else
+    {
+        <p class="uitleg">
+            Dit leest <code>nda_register.json</code> uit <code>@Import.OudePad</code>, koppelt elke NDA
+            aan de bijbehorende relatie en zet de documenten in de filestore. Je kunt het zonder
+            bezwaar twee keer doen: wat er al staat wordt overgeslagen.
+        </p>
+
+        @if (!Import.Klaar)
+        {
+            <div class="melding fout">
+                Het register is niet gevonden in @Import.OudePad.
+                Zet het juiste pad in appsettings.json onder <code>Nda:OudePad</code>.
+            </div>
+        }
+
+        <div class="btngroup">
+            <button class="primair" disabled="@(_bezig || !Import.Klaar)" @onclick="Start">
+                @(_bezig ? "Bezig…" : "Overnemen starten")
+            </button>
+        </div>
+
+        @if (_uitkomst is not null)
+        {
+            <h3 class="wn-kop">Resultaat</h3>
+            <table class="kiezer-tabel">
+                <thead>
+                    <tr>
+                        <th>Relatie</th>
+                        <th style="width:6rem">Gekoppeld</th>
+                        <th style="width:6rem">Bestanden</th>
+                        <th>Opmerking</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _uitkomst)
+                    {
+                        <tr class="@(r.Gekoppeld ? "" : "vervallen")">
+                            <td>@r.Relatie</td>
+                            <td class="c">@(r.Gekoppeld ? "ja" : "nee")</td>
+                            <td class="r">@r.Bestanden</td>
+                            <td>@r.Opmerking</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <p class="uitleg">
+                Niet gekoppelde NDA's staan er wel in, maar zonder relatie. Open ze in het
+                NDA-scherm en kies daar de juiste relatie — of laat me weten welke namen het zijn,
+                dan koppel ik ze in één keer.
+            </p>
+            <a class="knopje" href="relaties/nda">Naar de NDA's</a>
+        }
+    }
+</div>
+
+@code {
+    private bool _bezig;
+    private List<ImportRegel>? _uitkomst;
+
+    private bool MagSchrijven => !Ik.Gekoppeld || Ik.Mag("NDA") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+
+    private async Task Start()
+    {
+        _bezig = true;
+        try { _uitkomst = await Import.ImporteerAsync(Ik.WerknemerId); }
+        catch (Exception ex)
+        {
+            _uitkomst = new List<ImportRegel>
+            {
+                new("—", false, 0, 0, "Mislukt: " + ex.Message)
+            };
+        }
+        finally { _bezig = false; }
+    }
+}

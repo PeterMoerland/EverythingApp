@@ -1,0 +1,107 @@
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Opstartmelding: verjaardagen en jubilea, één keer per dag per pc.
+   Vervangt het splashscreen uit de Access-versie. *@
+
+@if (_meldingen.Count > 0)
+{
+    <div class="cmdk-overlay" @onclick="Sluit">
+        <div class="mijlpaal-venster" @onclick:stopPropagation>
+            <div class="mijlpaal-kop">
+                <b>@Kop</b>
+                <button class="klein" title="Sluiten" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="mijlpaal-lijst">
+                @foreach (var m in _meldingen)
+                {
+                    <div class="mijlpaal @(m.Datum == Vandaag ? "vandaag" : "")" @key="m.WerknemerId">
+                        <img src="@($"werknemerfoto/{m.WerknemerId}")" alt="@m.Naam"
+                             onload="this.style.visibility=''"
+                             onerror="this.style.visibility='hidden'" />
+                        <div class="mijlpaal-tekst">
+                            <div class="mijlpaal-naam">@m.Naam</div>
+                            <div class="mijlpaal-regel">@Regel(m)</div>
+                            <div class="mijlpaal-wanneer">@m.Wanneer — @m.Datum.ToString("dd-MM-yyyy")</div>
+                        </div>
+                        <div class="mijlpaal-getal">
+                            @m.Jaren
+                            <span>@(m.IsJubileum ? "jaar in dienst" : "jaar")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="mijlpaal-voet">
+                <span class="klein-info">
+                    Deze melding verschijnt één keer per dag.
+                    @if (Vooruitkijken)
+                    {
+                        <text>Als HRM zie je ook wat er de komende week aankomt.</text>
+                    }
+                </span>
+                <a class="knopje" href="werknemers/kalender/verjaardagen" @onclick="Sluit">Kalender</a>
+                <button class="primair" @onclick="Sluit">Sluiten</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string Sleutel = "mdeMijlpalenGezien";
+
+    private List<Mijlpaalmelding> _meldingen = new();
+    private bool _gecontroleerd;
+
+    private static DateOnly Vandaag => DateOnly.FromDateTime(DateTime.Today);
+    private bool Vooruitkijken => !Ik.Gekoppeld || Ik.Mag("HRM") || Ik.Mag("Directie");
+
+    private string Kop => _meldingen.Any(m => m.Datum == Vandaag && !m.IsJubileum)
+        ? "Er is iemand jarig!"
+        : _meldingen.Any(m => m.Datum == Vandaag)
+            ? "Er is iets te vieren"
+            : "Verjaardagen en jubilea";
+
+    private static string Regel(Mijlpaalmelding m) => m.IsJubileum
+        ? (m.Wanneer == "vandaag"
+            ? $"is vandaag {m.Jaren} jaar in dienst"
+            : $"was {m.Wanneer} {m.Jaren} jaar in dienst")
+        : (m.Wanneer == "vandaag"
+            ? $"is vandaag {m.Jaren} jaar geworden"
+            : m.Datum > Vandaag
+                ? $"wordt {m.Wanneer} {m.Jaren} jaar"
+                : $"is {m.Wanneer} {m.Jaren} jaar geworden");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _gecontroleerd) return;
+        _gecontroleerd = true;
+
+        if (!WnRepo.Beschikbaar) return;
+
+        try
+        {
+            // Al gehad vandaag? Dan niets doen.
+            var gezien = await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel);
+            var vandaagTekst = Vandaag.ToString("yyyy-MM-dd");
+            if (gezien == vandaagTekst) return;
+
+            await Ik.ZorgGeladenAsync();
+            var mensen = await WnRepo.GetMijlpalenAsync();
+            _meldingen = Mijlpaalmeldingen.Bepaal(mensen, Vandaag, Vooruitkijken);
+
+            // Ook zonder meldingen vastleggen dat we vandaag gekeken hebben.
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel, vandaagTekst);
+
+            if (_meldingen.Count > 0) StateHasChanged();
+        }
+        catch
+        {
+            _meldingen = new();   // geen opslag of database: stil overslaan
+        }
+    }
+
+    private void Sluit() => _meldingen = new();
+}

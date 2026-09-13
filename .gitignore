@@ -1,0 +1,22 @@
+# Buildresultaten
+bin/
+obj/
+publish/
+
+# Visual Studio / editors
+.vs/
+*.user
+*.suo
+
+# Testdata die niet in de repo hoort (grote bestanden)
+TempFileStore/
+
+# Geheimen: appsettings.json bevat wachtwoorden en API-sleutels en blijft
+# daarom buiten Git. Zie appsettings.voorbeeld.json voor de structuur;
+# op de server staat de echte naast de app.
+appsettings.json
+appsettings.Development.json
+
+# Logs en tijdelijke bestanden
+*.log
+*.tmp

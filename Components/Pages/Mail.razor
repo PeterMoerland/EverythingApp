@@ -1,0 +1,453 @@
+@page "/mail"
+@inject MailService Post
+@inject MailPostbussen Postbussen
+@inject FilestoreService Store
+@inject IRelatieRepository RelatieRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>Mail</h1>
+        <span class="weeklabel">
+            @if (_postbus is not null)
+            {
+                @_postbus.Adres
+            }
+        </span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+    }
+
+    <div class="wn-scherm">
+        @* ---------- links: postbus, mappen en berichten ---------- *@
+        <aside class="wn-lijst mail-lijst">
+            <div class="wn-filters">
+                <div class="zoekregel">
+                    <select value="@_postbusSleutel" @onchange="PostbusGewijzigd">
+                        @foreach (var p in _postbussen)
+                        {
+                            <option value="@p.Sleutel">@p.Naam</option>
+                        }
+                    </select>
+                </div>
+                <div class="zoekregel">
+                    <select value="@_map" @onchange="MapGewijzigd">
+                        @foreach (var m in Mappen)
+                        {
+                            <option value="@m.Vraag">@m.Naam</option>
+                        }
+                    </select>
+                </div>
+                <div class="zoekregel">
+                    <input placeholder="Zoeken in deze postbus…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                    <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
+                            @onclick="WisZoek">✕</button>
+                </div>
+                <div class="btngroup">
+                    <button class="klein" disabled="@_bezig" @onclick="Verversen">
+                        @(_bezig ? "Bezig…" : "↻ Verversen")
+                    </button>
+                    <button class="klein" disabled="@(_berichten.Count == 0)" @onclick="AllesAanUit">
+                        @(_gekozen.Count == _berichten.Count && _berichten.Count > 0 ? "Geen" : "Alles")
+                    </button>
+                </div>
+
+                @if (_gekozen.Count > 0)
+                {
+                    <div class="btngroup opruimen">
+                        <button class="klein rood" @onclick="NaarPrullenbak"
+                                title="Naar de prullenbak van Gmail; daar blijft het 30 dagen staan">
+                            🗑 Wissen (@_gekozen.Count)
+                        </button>
+                        <button class="klein" @onclick="Archiveer" title="Uit het postvak IN, wel bewaren">
+                            📥 Archiveren
+                        </button>
+                        <button class="klein" @onclick="MarkeerGelezen">Gelezen</button>
+                    </div>
+                }
+            </div>
+
+            <div class="wn-namen mail-namen">
+                @if (_berichten.Count == 0)
+                {
+                    <div class="kiezer-info">@(_bezig ? "Bezig met ophalen…" : "Geen berichten.")</div>
+                }
+                else
+                {
+                    @foreach (var b in _berichten)
+                    {
+                        <div class="mail-regel @(b.Id == _gekozenId ? "actief" : "")" @key="b.Id">
+                            <input type="checkbox" title="Selecteren om op te ruimen"
+                                   checked="@_gekozen.Contains(b.Id)"
+                                   @onchange="e => Vink(b, e)" />
+                            <button class="wn-naam @(b.Ongelezen ? "vet" : "")" @onclick="() => Kies(b)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">@b.VanKort</span>
+                                    <span class="mail-onderwerp-kort">@b.Onderwerp</span>
+                                    <span class="nda-onder">
+                                        @(b.Datum?.ToString("dd-MM-yyyy HH:mm") ?? "")
+                                        @if (b.Bijlagen.Count > 0)
+                                        {
+                                            <span class="mail-clip">📎 @b.Bijlagen.Count</span>
+                                        }
+                                    </span>
+                                </span>
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        </aside>
+
+        @* ---------- rechts: het bericht ---------- *@
+        <section class="wn-detail mail-detail">
+            @if (_inhoud is null)
+            {
+                <div class="kiezer-info">Kies links een bericht.</div>
+            }
+            else
+            {
+                <h3 class="mail-kop">@_inhoud.Bericht.Onderwerp</h3>
+                <div class="mail-koppen">
+                    <div><b>Van</b> @_inhoud.Bericht.Van</div>
+                    <div><b>Aan</b> @_inhoud.Bericht.Naar</div>
+                    <div><b>Datum</b> @(_inhoud.Bericht.Datum?.ToString("dddd d MMMM yyyy HH:mm") ?? "")</div>
+                </div>
+
+                <div class="tl-balk">
+                    <button class="klein rood" @onclick="WisDitBericht"
+                            title="Naar de prullenbak van Gmail">🗑 Wissen</button>
+                    <button class="klein" @onclick="ArchiveerDitBericht">📥 Archiveren</button>
+                    @if (_postbus?.Eigen == true)
+                    {
+                        @* Alleen bij je eigen postbus: in de browser ben je op dát account
+                           ingelogd. Een gedeelde postbus leest de app via het serviceaccount. *@
+                        <a class="knopje" href="@GmailLink()" target="_blank">In Gmail openen</a>
+                    }
+                    @if (_inhoud.Bericht.Bijlagen.Count > 0)
+                    {
+                        <span class="uitleg">Bijlage opslaan bij een relatie:</span>
+                        <input class="mail-relatie" placeholder="zoek relatie…" value="@_relatieZoek"
+                               @onchange="RelatieZoekGewijzigd" />
+                        <select value="@RelatieTekst" @onchange="RelatieGewijzigd">
+                            <option value="">— kies relatie —</option>
+                            @foreach (var r in _relaties)
+                            {
+                                <option value="@r.Id">@r.Naam</option>
+                            }
+                        </select>
+                    }
+                </div>
+
+                @if (_inhoud.Bericht.Bijlagen.Count > 0)
+                {
+                    <div class="mail-bijlagen">
+                        @foreach (var bijlage in _inhoud.Bericht.Bijlagen)
+                        {
+                            <button class="klein" disabled="@(_relatieId is null)"
+                                    title="Opslaan in de filestore bij de gekozen relatie"
+                                    @onclick="() => BewaarBijlage(bijlage)">
+                                📎 @bijlage.Naam (@Kilobytes(bijlage.Grootte))
+                            </button>
+                        }
+                    </div>
+                }
+
+                <pre class="mail-tekst">@_inhoud.Tekst</pre>
+            }
+        </section>
+    </div>
+
+    <footer class="voet">
+        Je eigen postbus werkt met je Google-inlog. Gedeelde postbussen lopen via een
+        serviceaccount, zodat iedereen met het juiste recht hetzelfde ziet.
+    </footer>
+</div>
+
+@code {
+    private record MailMap(string Naam, string Vraag);
+
+    private static readonly MailMap[] Mappen =
+    {
+        new("Postvak IN", "in:inbox"),
+        new("Ongelezen", "in:inbox is:unread"),
+        new("Met bijlage", "in:inbox has:attachment"),
+        new("Verzonden", "in:sent"),
+        new("Laatste 30 dagen", "newer_than:30d"),
+        new("Alles", "in:anywhere"),
+    };
+
+    private List<MailPostbus> _postbussen = new();
+    private MailPostbus? _postbus;
+    private string _postbusSleutel = "eigen";
+
+    private string _map = "in:inbox";
+    private string _zoek = "";
+
+    private List<MailBericht> _berichten = new();
+    private string? _gekozenId;
+    private MailInhoud? _inhoud;
+    private bool _bezig;
+
+    private string? _melding;
+    private bool _fout;
+
+    // bijlage opslaan bij een relatie
+    private string _relatieZoek = "";
+    private List<Keuze> _relaties = new();
+    private int? _relatieId;
+
+    private string RelatieTekst => _relatieId is int id ? id.ToString() : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        _postbussen = Postbussen.Voor(Ik);
+        _postbus = _postbussen.FirstOrDefault();
+        _postbusSleutel = _postbus?.Sleutel ?? "eigen";
+        await Ophalen();
+    }
+
+    private string Vraag => string.IsNullOrWhiteSpace(_zoek) ? _map : $"{_map} {_zoek.Trim()}";
+
+    private async Task Ophalen()
+    {
+        if (_postbus is null) return;
+
+        _bezig = true;
+        _berichten = new();
+        _gekozenId = null;
+        _inhoud = null;
+        _gekozen.Clear();
+        VergeetRelatie();
+        StateHasChanged();          // knop op "Bezig…" zetten vóór de wachttijd
+
+        try
+        {
+            _berichten = await Post.ZoekAsync(_postbus, Vraag, 25);
+            if (_berichten.Count == 0) Toon("Geen berichten gevonden.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private Task Verversen() => Ophalen();
+
+    private async Task PostbusGewijzigd(ChangeEventArgs e)
+    {
+        _postbusSleutel = (string?)e.Value ?? "eigen";
+        _postbus = _postbussen.FirstOrDefault(p => p.Sleutel == _postbusSleutel) ?? _postbussen.FirstOrDefault();
+        await Ophalen();
+    }
+
+    private async Task MapGewijzigd(ChangeEventArgs e)
+    {
+        _map = (string?)e.Value ?? "in:inbox";
+        await Ophalen();
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Ophalen();
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        await Ophalen();
+    }
+
+    private async Task Kies(MailBericht bericht)
+    {
+        if (_postbus is null) return;
+        _gekozenId = bericht.Id;
+        VergeetRelatie();       // niet per ongeluk bij de vorige relatie opslaan
+
+        try
+        {
+            _inhoud = await Post.InhoudAsync(_postbus, bericht.Id);
+            if (_inhoud is null) Toon("Dit bericht kon niet worden opgehaald.", true);
+        }
+        catch (Exception ex) { _inhoud = null; Toon(ex.Message, true); }
+    }
+
+    private void VergeetRelatie()
+    {
+        _relatieId = null;
+        _relaties = new();
+        _relatieZoek = "";
+    }
+
+    // ================================================================
+    //  Opruimen
+    //  Wissen betekent: naar de prullenbak van Gmail. Daar blijft het dertig
+    //  dagen staan, dus een misklik kun je daar terughalen.
+    // ================================================================
+    private readonly HashSet<string> _gekozen = new();
+
+    private void Vink(MailBericht bericht, ChangeEventArgs e)
+    {
+        if (e.Value is bool aan && aan) _gekozen.Add(bericht.Id);
+        else _gekozen.Remove(bericht.Id);
+    }
+
+    private void AllesAanUit()
+    {
+        if (_gekozen.Count == _berichten.Count) _gekozen.Clear();
+        else foreach (var b in _berichten) _gekozen.Add(b.Id);
+    }
+
+    private async Task NaarPrullenbak()
+    {
+        if (_postbus is null || _gekozen.Count == 0) return;
+
+        var aantal = _gekozen.Count;
+        var zeker = await Bevestig(
+            $"{aantal} bericht(en) naar de prullenbak?\n\n" +
+            "Ze verdwijnen uit de lijst en blijven 30 dagen in de prullenbak van Gmail staan.");
+        if (!zeker) return;
+
+        try
+        {
+            var gedaan = await Post.NaarPrullenbakAsync(_postbus, _gekozen);
+            VerwijderUitLijst();
+            Toon($"{gedaan} bericht(en) naar de prullenbak.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task Archiveer()
+    {
+        if (_postbus is null || _gekozen.Count == 0) return;
+        try
+        {
+            var aantal = _gekozen.Count;
+            await Post.ArchiveerAsync(_postbus, _gekozen);
+            VerwijderUitLijst();
+            Toon($"{aantal} bericht(en) gearchiveerd.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task MarkeerGelezen()
+    {
+        if (_postbus is null || _gekozen.Count == 0) return;
+        try
+        {
+            var aantal = _gekozen.Count;
+            await Post.MarkeerGelezenAsync(_postbus, _gekozen);
+
+            // in beeld ook meteen niet meer vet
+            _berichten = _berichten
+                .Select(b => _gekozen.Contains(b.Id) ? b with { Ongelezen = false } : b)
+                .ToList();
+            _gekozen.Clear();
+            Toon($"{aantal} bericht(en) als gelezen gemarkeerd.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    /// <summary>Haalt de behandelde berichten uit de lijst zonder alles opnieuw op te halen.</summary>
+    private void VerwijderUitLijst()
+    {
+        _berichten = _berichten.Where(b => !_gekozen.Contains(b.Id)).ToList();
+        if (_gekozenId is not null && _gekozen.Contains(_gekozenId))
+        {
+            _gekozenId = null;
+            _inhoud = null;
+        }
+        _gekozen.Clear();
+    }
+
+    // ---- het bericht dat open staat ----
+    private async Task WisDitBericht()
+    {
+        if (_postbus is null || _inhoud is null) return;
+
+        var zeker = await Bevestig($"'{_inhoud.Bericht.Onderwerp}' naar de prullenbak?");
+        if (!zeker) return;
+
+        _gekozen.Clear();
+        _gekozen.Add(_inhoud.Bericht.Id);
+        try
+        {
+            await Post.NaarPrullenbakAsync(_postbus, _gekozen);
+            VerwijderUitLijst();
+            Toon("Naar de prullenbak.", false);
+        }
+        catch (Exception ex) { _gekozen.Clear(); Toon(ex.Message, true); }
+    }
+
+    private async Task ArchiveerDitBericht()
+    {
+        if (_postbus is null || _inhoud is null) return;
+
+        _gekozen.Clear();
+        _gekozen.Add(_inhoud.Bericht.Id);
+        try
+        {
+            await Post.ArchiveerAsync(_postbus, _gekozen);
+            VerwijderUitLijst();
+            Toon("Gearchiveerd.", false);
+        }
+        catch (Exception ex) { _gekozen.Clear(); Toon(ex.Message, true); }
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }
+    }
+
+    private string GmailLink()
+        => _postbus is null || _inhoud is null ? "#" : MailService.GmailLink(_postbus, _inhoud.Bericht);
+
+    private static string Kilobytes(long bytes)
+        => bytes < 1024 ? $"{bytes} B"
+         : bytes < 1024 * 1024 ? $"{bytes / 1024} kB"
+         : $"{bytes / (1024 * 1024)} MB";
+
+    // ---- bijlage opslaan bij een relatie ----
+    private async Task RelatieZoekGewijzigd(ChangeEventArgs e)
+    {
+        _relatieZoek = (string?)e.Value ?? "";
+        if (_relatieZoek.Trim().Length < 2) { _relaties = new(); return; }
+        try { _relaties = await RelatieRepo.ZoekAsync(_relatieZoek, false, false, 0, 15); }
+        catch (Exception ex) { Toon("Relaties zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private void RelatieGewijzigd(ChangeEventArgs e)
+        => _relatieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private async Task BewaarBijlage(MailBijlage bijlage)
+    {
+        if (_postbus is null || _inhoud is null || _relatieId is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        try
+        {
+            var inhoud = await Post.BijlageAsync(_postbus, _inhoud.Bericht.Id, bijlage.Id);
+            if (inhoud is null || inhoud.Length == 0) { Toon("De bijlage was leeg.", true); return; }
+
+            await using var stroom = new MemoryStream(inhoud);
+            await Store.ToevoegenAsync(stroom, bijlage.Naam, FilestoreService.StoreTypeRelatie,
+                                       _relatieId.Value, Ik.WerknemerId ?? 0);
+
+            var naam = _relaties.FirstOrDefault(r => r.Id == _relatieId)?.Naam ?? "de relatie";
+            Toon($"'{bijlage.Naam}' opgeslagen bij {naam}.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

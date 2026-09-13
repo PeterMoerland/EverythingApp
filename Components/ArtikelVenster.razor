@@ -1,0 +1,196 @@
+@* Toont de gegevens van één artikel in een venster: foto, omschrijving, prijzen,
+   voorraad, kenmerken en de groepen waar het in zit.
+
+   Overal te gebruiken waar een artikelnummer in beeld staat — zet het onderaan
+   de pagina neer en geef het een ArtikelId; null betekent dicht:
+
+       <ArtikelVenster ArtikelId="_bekekenArtikel" Sluiten="() => _bekekenArtikel = null" />
+*@
+@inject IArtikelRepository Repo
+
+@if (ArtikelId is not null)
+{
+    <div class="cmdk-overlay" @onclick="Dicht">
+        <div class="artikelvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@(_artikel?.Code ?? "Artikel") <span class="artikel-id">#@ArtikelId</span></h2>
+                <button class="klein" @onclick="Dicht">✕</button>
+            </header>
+
+            <div class="artikelvenster-inhoud">
+                @if (_bezig)
+                {
+                    <p class="uitleg">Bezig met ophalen…</p>
+                }
+                else if (_artikel is null)
+                {
+                    <p class="uitleg">Dit artikel is niet gevonden.</p>
+                }
+                else
+                {
+                    <div class="av-boven">
+                        <div class="av-foto">
+                            <img src="@($"artikelfoto/{ArtikelId}")" alt="" @key="ArtikelId"
+                                 onload="this.style.display=''" onerror="this.style.display='none'" />
+                        </div>
+
+                        <div class="av-kern">
+                            <div class="av-oms">@_artikel.OmschrijvingNl</div>
+                            @if (_artikel.Merk.Length > 0 || _artikel.CodeFabrikant.Length > 0)
+                            {
+                                <div class="av-merk">
+                                    @_artikel.Merk
+                                    @if (_artikel.CodeFabrikant.Length > 0)
+                                    {
+                                        <span class="av-fab">@_artikel.CodeFabrikant</span>
+                                    }
+                                </div>
+                            }
+                            @if (_artikel.Opmerking.Length > 0)
+                            {
+                                <p class="av-opmerking">@_artikel.Opmerking</p>
+                            }
+                            @if (Kenmerken().Length > 0)
+                            {
+                                <div class="av-kenmerken">@Kenmerken()</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="av-blokken">
+                        <div class="av-blok">
+                            <h4>Prijzen</h4>
+                            <div class="av-regel"><span>Kostprijs</span><b>@Bedrag(_artikel.Kostprijs)</b></div>
+                            <div class="av-regel"><span>Verkoop project</span><b>@Bedrag(_artikel.VerkoopprijsProject)</b></div>
+                            <div class="av-regel"><span>Verkoop webshop</span><b>@Bedrag(_artikel.VerkoopprijsWebshop)</b></div>
+                            <div class="av-regel"><span>Schatting</span><b>@Bedrag(_artikel.Schattingsprijs)</b></div>
+                        </div>
+
+                        <div class="av-blok">
+                            <h4>Voorraad</h4>
+                            <div class="av-regel">
+                                <span>Aanwezig</span>
+                                <b class="@(OnderMinimum() ? "av-laag" : "")">
+                                    @Getal(_artikel.AantalInVoorraad) @_artikel.Eenheid
+                                </b>
+                            </div>
+                            <div class="av-regel"><span>Minimum</span><b>@Getal(_artikel.MinimumVoorraad)</b></div>
+                            <div class="av-regel"><span>Bestellen per</span><b>@Getal(_artikel.Bestelhoeveelheid)</b></div>
+                            @if (_artikel.Gewicht is not null)
+                            {
+                                <div class="av-regel"><span>Gewicht</span><b>@Getal(_artikel.Gewicht) kg</b></div>
+                            }
+                        </div>
+
+                        <div class="av-blok">
+                            <h4>Codes</h4>
+                            <div class="av-regel"><span>MDE</span><b>@_artikel.Code</b></div>
+                            @if (_artikel.Ean.Length > 0)
+                            {
+                                <div class="av-regel"><span>EAN</span><b>@_artikel.Ean</b></div>
+                            }
+                            @if (_artikel.OcCodeOmron.Length > 0)
+                            {
+                                <div class="av-regel"><span>OC Omron</span><b>@_artikel.OcCodeOmron</b></div>
+                            }
+                            @if (_artikel.Materiaal.Length > 0)
+                            {
+                                <div class="av-regel"><span>Materiaal</span><b>@_artikel.Materiaal</b></div>
+                            }
+                        </div>
+
+                        @if (_groepen.Count > 0)
+                        {
+                            <div class="av-blok av-breed">
+                                <h4>Groepen</h4>
+                                @foreach (var g in _groepen)
+                                {
+                                    <div class="av-groep" @key="g.Id">@g.Volledig</div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="btngroup av-voet">
+                        <a class="knopje" href="@($"artikelen?nr={ArtikelId}")" target="_blank">
+                            Openen in Artikelen
+                        </a>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Het artikel dat getoond wordt; null = venster dicht.</summary>
+    [Parameter] public int? ArtikelId { get; set; }
+
+    [Parameter] public EventCallback Sluiten { get; set; }
+
+    private Artikel? _artikel;
+    private List<ArtikelGroep> _groepen = new();
+    private bool _bezig;
+    private int? _geladenVoor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // alleen ophalen als er echt een ander artikel gevraagd wordt
+        if (ArtikelId == _geladenVoor) return;
+        _geladenVoor = ArtikelId;
+
+        _artikel = null;
+        _groepen = new();
+        if (ArtikelId is null) return;
+
+        var gevraagd = ArtikelId.Value;
+        _bezig = true;
+
+        Artikel? artikel = null;
+        List<ArtikelGroep> groepen = new();
+
+        // Los ophalen: gaat alleen de groepenvraag mis, dan hoeft het artikel
+        // zelf niet te verdwijnen.
+        try { artikel = await Repo.GetAsync(gevraagd); } catch { }
+        try { groepen = await Repo.GetGroepenAsync(gevraagd); } catch { }
+
+        // Is er intussen een ánder artikel aangeklikt, dan hoort dit antwoord
+        // niet meer bij wat er op het scherm staat.
+        if (_geladenVoor != gevraagd) return;
+
+        _artikel = artikel;
+        _groepen = groepen;
+        _bezig = false;
+    }
+
+    private Task Dicht() => Sluiten.InvokeAsync();
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    private static string Bedrag(decimal? waarde)
+        => waarde is null or 0 ? "—" : waarde.Value.ToString("C2", Nl);
+
+    private static string Getal(double? waarde) => waarde is null ? "—" : waarde.Value.ToString("0.##");
+
+    /// <summary>Onder het minimum? Dan valt het voorraadgetal rood op.</summary>
+    private bool OnderMinimum()
+        => _artikel?.AantalInVoorraad is double v && _artikel.MinimumVoorraad is double m
+           && m > 0 && v < m;
+
+    /// <summary>De vinkjes van het artikel als één leesbare regel.</summary>
+    private string Kenmerken()
+    {
+        if (_artikel is null) return "";
+
+        var lijst = new List<string>();
+        if (_artikel.Samenstelling) lijst.Add("samenstelling");
+        if (_artikel.Voorraadartikel) lijst.Add("voorraadartikel");
+        if (_artikel.Standaard) lijst.Add("standaard");
+        if (_artikel.Maakdeel) lijst.Add("maakdeel");
+        if (_artikel.IsProduct) lijst.Add("product");
+        if (_artikel.Webshop) lijst.Add("webshop");
+        if (_artikel.Uitleenbaar) lijst.Add("uitleenbaar");
+        if (_artikel.CheckNodig) lijst.Add("check nodig");
+        return string.Join(" · ", lijst);
+    }
+}

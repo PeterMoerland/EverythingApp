@@ -1,0 +1,35 @@
+@* Standaardindeling voor detailschermen: het formulier links op een leesbare
+   breedte, en daarnaast een zijpaneel met de dingen waar je bij dit record
+   meestal naar zoekt. Wordt het venster te smal, dan schuift het zijpaneel
+   onder het formulier.
+
+   Gebruik:
+       <DetailMetZij>
+           <Hoofd> ...velden... </Hoofd>
+           <Zij>
+               <ZijBlok Titel="Contactpersonen" Aantal="@_contacten.Count" Meer="Open">
+                   ...
+               </ZijBlok>
+           </Zij>
+       </DetailMetZij>
+
+   Laat je Zij weg, dan gebruikt het formulier de volle breedte. *@
+
+<div class="detail-met-zij">
+    <div class="detail-hoofd">@Hoofd</div>
+    @if (Zij is not null && ZijTonen)
+    {
+        <aside class="detail-zij">@Zij</aside>
+    }
+</div>
+
+@code {
+    [Parameter] public RenderFragment? Hoofd { get; set; }
+    [Parameter] public RenderFragment? Zij { get; set; }
+
+    /// <summary>
+    /// Op false blijft het zijpaneel weg en gebruikt het hoofddeel de volle breedte.
+    /// Handig op tabbladen zonder velden, waar het paneel er los bij zou hangen.
+    /// </summary>
+    [Parameter] public bool ZijTonen { get; set; } = true;
+}

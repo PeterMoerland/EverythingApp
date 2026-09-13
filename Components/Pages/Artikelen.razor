@@ -1,0 +1,1346 @@
+@page "/artikelen"
+@inject IArtikelRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject IInstellingRepository Instellingen
+@inject LabelService Labels
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+<div class="page">
+    <header class="topbar">
+        <h1>@(_artikel is null ? "Artikelen" : _artikel.Code)</h1>
+        <span class="weeklabel">@_lijst.Count gevonden</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: zoeken ---------- *@
+            <aside class="wn-lijst artikel-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Steekwoorden, bijv. PLC NX 1100" value="@_zoek"
+                               @onchange="ZoekGewijzigd" />
+                        <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="zoekregel">
+                        <input placeholder="Groep, bijv. Elektro/PLC" value="@_groep" @onchange="GroepGewijzigd" />
+                        <button class="klein" title="Door de groepen bladeren"
+                                @onclick="OpenGroepFilter">🗂</button>
+                        <button class="klein" disabled="@(_groep.Length == 0 && _groepIds.Count == 0)"
+                                @onclick="WisGroep">✕</button>
+                    </div>
+                    <p class="toetsuitleg">
+                        Elk woord moet ergens voorkomen: in de code, de omschrijving,
+                        het merk of de groep.
+                    </p>
+                </div>
+
+                <div class="wn-namen artikel-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">
+                            @(_gezocht ? "Niets gevonden." : "Typ een paar steekwoorden.")
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var a in _lijst)
+                        {
+                            <button class="wn-naam @(a.Id == _artikelId ? "actief" : "")"
+                                    @key="a.Id" @onclick="() => Kies(a)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">
+                                        <span class="artikel-id">@a.Id</span>@a.Code
+                                    </span>
+                                    <span class="nda-onder">@a.Omschrijving</span>
+                                </span>
+                            </button>
+                        }
+                    }
+                </div>
+            </aside>
+
+            @* ---------- rechts: het artikel ---------- *@
+            <section class="wn-detail">
+                @if (_artikel is null)
+                {
+                    <div class="kiezer-info">Kies links een artikel.</div>
+                }
+                else
+                {
+                    <div class="wn-tabs">
+                        @foreach (var tab in Tabs)
+                        {
+                            <button class="@(tab == _tab ? "actief" : "")" @onclick="() => _tab = tab">@tab</button>
+                        }
+                        @* Alleen bij een samenstelling: de stuklijst eronder *@
+                        @if (_artikel.Samenstelling || _stuklijst.Count > 0)
+                        {
+                            <button class="@("Samenstelling" == _tab ? "actief" : "")"
+                                    @onclick="KiesSamenstelling">Samenstelling (@_stuklijst.Count)</button>
+                        }
+                    </div>
+
+                    @if (_tab == "Samenstelling")
+                    {
+                        <p class="uitleg">
+                            Een onderdeel met een pijltje is zelf een samenstelling; klik erop om
+                            de stuklijst daaronder te zien.
+                        </p>
+
+                        <div class="stuklijst">
+                            <div class="stuk-regel kop">
+                                <span class="stuk-pijl leeg"></span>
+                                <span class="stuk-aantal">Aantal</span>
+                                <span class="stuk-nummer">MDE#</span>
+                                <span class="stuk-code">Partnumber</span>
+                                <span class="stuk-oms">Omschrijving</span>
+                                <span class="stuk-opm">Opmerking</span>
+                                <span class="stuk-prijs">Kostprijs</span>
+                                <span class="stuk-totaal">Totaal</span>
+                            </div>
+
+                            @foreach (var regel in _stuklijst)
+                            {
+                                <SamenstellingTak Regel="regel" Niveau="0" Ophalen="Onderdelen"
+                                                  Ouder="_artikel.Id" OpSlaan="BewaarRegel"
+                                                  OpVerwijderen="VerwijderRegel" OpPrijs="VraagPrijs"
+                                                  @key="regel.Id" />
+                            }
+
+                            @if (_stuklijst.Count == 0)
+                            {
+                                <div class="kiezer-info">Geen onderdelen vastgelegd.</div>
+                            }
+                            else
+                            {
+                                <div class="stuk-regel som">
+                                    <span class="stuk-pijl leeg"></span>
+                                    <span class="stuk-aantal"></span>
+                                    <span class="stuk-nummer"></span>
+                                    <span class="stuk-code"></span>
+                                    <span class="stuk-oms"></span>
+                                    <span class="stuk-opm">Kostprijs totaal</span>
+                                    <span class="stuk-prijs"></span>
+                                    <span class="stuk-totaal">@BedragOf(_stuklijst.Sum(r => r.Totaal))</span>
+                                    <span class="stuk-weg"></span>
+                                </div>
+                            }
+                        </div>
+
+                        @* onderdeel toevoegen: eerst het artikel zoeken *@
+                        <div class="tl-balk">
+                            <input class="mail-zoek" placeholder="Onderdeel zoeken om toe te voegen…"
+                                   value="@_onderdeelZoek" @onchange="OnderdeelZoekGewijzigd" />
+                        </div>
+                        @if (_kandidaten.Count > 0)
+                        {
+                            <div class="wn-namen kort">
+                                @foreach (var k in _kandidaten)
+                                {
+                                    <button class="wn-naam" @key="k.Id" @onclick="() => VoegOnderdeelToe(k)">
+                                        <span class="artikel-id">@k.Id</span>@k.Code — @k.Omschrijving
+                                    </button>
+                                }
+                            </div>
+                        }
+                        <p class="uitleg">
+                            Onderdelen voeg je toe aan het artikel dat je nu bekijkt. Hoort er iets
+                            in een onderliggende samenstelling, open dan dát artikel — zo blijft de
+                            stuklijst van elk artikel op één plek staan.
+                        </p>
+                    }
+
+                    @if (_tab == "Info")
+                    {
+                        <DetailMetZij>
+                            <Hoofd>
+                                @* Bewerken staat standaard uit: de meeste mensen komen kijken,
+                                   niet wijzigen. Wie mag wijzigen zet het met de knop aan. *@
+                                <div class="bewerkbalk">
+                                    @if (!_bewerken)
+                                    {
+                                        <button class="klein" disabled="@(!MagBewerken)"
+                                                @onclick="StartBewerken">✎ Bewerken</button>
+                                        @if (!MagBewerken)
+                                        {
+                                            <span class="uitleg">Je hebt geen recht om artikelen te wijzigen.</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button class="primair" disabled="@_bewaren" @onclick="BewaarArtikel">
+                                            @(_bewaren ? "Bezig…" : "Opslaan")
+                                        </button>
+                                        <button class="klein" @onclick="StopBewerken">Annuleren</button>
+                                        <span class="uitleg">Wijzigingen gaan pas naar de database als je opslaat.</span>
+                                    }
+                                </div>
+
+                                <div class="wn-velden een-kolom">
+                                    <div class="wn-veld">
+                                        <label>Artikelcode</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.Code" @onchange="e => _artikel.Code = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.Code</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld breed">
+                                        <label>Omschrijving</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.OmschrijvingNl"
+                                                   @onchange="e => _artikel.OmschrijvingNl = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.OmschrijvingNl</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld"><label>MDE artikel-ID</label><span class="alleen-lezen">@_artikel.Id</span></div>
+
+                                    <div class="wn-veld">
+                                        <label>Merk</label>
+                                        @if (_bewerken && _merken.Count > 0)
+                                        {
+                                            <select value="@(_artikel.MerkId?.ToString() ?? "")"
+                                                    @onchange="MerkGewijzigd">
+                                                <option value="">—</option>
+                                                @foreach (var m in _merken)
+                                                {
+                                                    <option value="@m.Id">@m.Naam</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.Merk</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Code fabrikant</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.CodeFabrikant"
+                                                   @onchange="e => _artikel.CodeFabrikant = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.CodeFabrikant</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld breed">
+                                        <label>Opmerking</label>
+                                        @if (_bewerken)
+                                        {
+                                            <textarea rows="3" value="@_artikel.Opmerking"
+                                                      @onchange="e => _artikel.Opmerking = Tekst(e)"></textarea>
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.Opmerking</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld"><label>Eenheid</label><span class="alleen-lezen">@_artikel.Eenheid</span></div>
+
+                                    <div class="wn-veld">
+                                        <label>EAN-code</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.Ean" @onchange="e => _artikel.Ean = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.Ean</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>OC-code Omron</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.OcCodeOmron"
+                                                   @onchange="e => _artikel.OcCodeOmron = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.OcCodeOmron</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Materiaal</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input value="@_artikel.Materiaal"
+                                                   @onchange="e => _artikel.Materiaal = Tekst(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@_artikel.Materiaal</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Gewicht (kg)</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoergetal(_artikel.Gewicht)"
+                                                   @onchange="e => _artikel.Gewicht = Komma(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Getal(_artikel.Gewicht)</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Plaatdikte (mm)</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoergetal(_artikel.PlaatdikteMm)"
+                                                   @onchange="e => _artikel.PlaatdikteMm = Komma(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Getal(_artikel.PlaatdikteMm)</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Minimum voorraad</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoergetal(_artikel.MinimumVoorraad)"
+                                                   @onchange="e => _artikel.MinimumVoorraad = Komma(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Getal(_artikel.MinimumVoorraad)</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Bestellen per</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoergetal(_artikel.Bestelhoeveelheid)"
+                                                   @onchange="e => _artikel.Bestelhoeveelheid = Komma(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Getal(_artikel.Bestelhoeveelheid)</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Schattingsprijs</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoerbedrag(_artikel.Schattingsprijs)"
+                                                   @onchange="e => _artikel.Schattingsprijs = Bedragvan(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Bedrag(_artikel.Schattingsprijs)</span>
+                                        }
+                                    </div>
+
+                                    <div class="wn-veld">
+                                        <label>Verkoopprijs webshop</label>
+                                        @if (_bewerken)
+                                        {
+                                            <input class="r smal" value="@Invoerbedrag(_artikel.VerkoopprijsWebshop)"
+                                                   @onchange="e => _artikel.VerkoopprijsWebshop = Bedragvan(e)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="alleen-lezen">@Bedrag(_artikel.VerkoopprijsWebshop)</span>
+                                        }
+                                    </div>
+
+                                    @if (!_bewerken)
+                                    {
+                                        <div class="wn-veld"><label>Kenmerken</label><span class="alleen-lezen">@Kenmerken()</span></div>
+                                    }
+
+                                    <div class="wn-veld">
+                                        <label>Samenstelling</label>
+                                        @* Dit vinkje slaat meteen op: er hangt een heel tabblad
+                                           aan vast, dus wachten op 'Opslaan' zou verwarren. Wel
+                                           alleen als er verder niets openstaat te bewerken. *@
+                                        <input type="checkbox" checked="@_artikel.Samenstelling"
+                                               disabled="@(!MagBewerken || _bewerken)"
+                                               @onchange="SamenstellingGewijzigd" />
+                                    </div>
+                                </div>
+
+                                @if (_bewerken)
+                                {
+                                    @* De losse ja/nee-velden bij elkaar; los van elkaar in het
+                                       raster kosten ze veel ruimte voor één vinkje. *@
+                                    <div class="vinkrij">
+                                        @foreach (var v in Vinkjes())
+                                        {
+                                            <label class="vinkje" @key="v.Label">
+                                                <input type="checkbox" checked="@v.Aan()"
+                                                       @onchange="e => v.Zet(Vink(e))" />
+                                                @v.Label
+                                            </label>
+                                        }
+                                    </div>
+                                }
+
+                                <h3 class="wn-kop">Label printen</h3>
+                                <div class="labelbalk">
+                                    <select value="@_labelsoort" @onchange="LabelsoortGewijzigd">
+                                        <option value="klein">Klein — 12 × 50 mm (99017)</option>
+                                        <option value="groot">Groot — 41 × 89 mm (11356)</option>
+                                    </select>
+
+                                    @if (_printers.Count > 0)
+                                    {
+                                        <select value="@_printer" @onchange="PrinterGewijzigd">
+                                            @foreach (var p in _printers)
+                                            {
+                                                <option value="@p">@p</option>
+                                            }
+                                        </select>
+                                        @* Een Twin Turbo heeft twee rollen; welke welk
+                                           label heeft weet alleen de gebruiker. *@
+                                        @if (_printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <select value="@_rol" @onchange="RolGewijzigd">
+                                                <option value="Auto">Rol: vanzelf</option>
+                                                <option value="Left">Rol: links</option>
+                                                <option value="Right">Rol: rechts</option>
+                                            </select>
+                                        }
+
+                                        <input class="aantal" type="number" min="1" max="20"
+                                               value="@_labelAantal" @onchange="LabelAantalGewijzigd" />
+                                        <button class="primair" disabled="@_printBezig" @onclick="PrintLabel">
+                                            @(_printBezig ? "Bezig…" : "🖨 Printen")
+                                        </button>
+                                        <button class="klein" @onclick="ZoekPrinters" title="Opnieuw zoeken">⟳</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="klein" @onclick="ZoekPrinters">Printers zoeken</button>
+                                        <button class="klein" @onclick="DymoDiagnose">Diagnose</button>
+                                        <span class="uitleg">@_dymoMelding</span>
+                                    }
+                                </div>
+
+                                @if (_printers.Count > 0 && _dymoMelding.Length > 0)
+                                {
+                                    <p class="uitleg">@_dymoMelding</p>
+                                }
+
+                                <p class="uitleg">
+                                    De opmaak komt uit een labelbestand dat in DYMO Connect is gemaakt.
+                                    Wil je iets verschuiven, open dan Templates\DymoKlein.dymo of
+                                    DymoGroot.dymo in DYMO Connect en bewaar het opnieuw.
+                                </p>
+
+                                @if (_dymoDiagnose is not null)
+                                {
+                                    <pre class="dymodiagnose">@_dymoDiagnose</pre>
+                                }
+
+                                <div class="btngroup">
+                                    <a class="knopje" href="@GoogleUrl()" target="_blank">Zoek op Google</a>
+                                    @if (!string.IsNullOrWhiteSpace(_artikel.Ean))
+                                    {
+                                        <a class="knopje" href="@EanUrl()" target="_blank">EAN opzoeken</a>
+                                    }
+                                </div>
+                            </Hoofd>
+                            <Zij>
+                                <ZijBlok Titel="Foto">
+                                    @* Uit de aparte fotomap van de artikelen. Is er geen foto,
+                                       dan verbergt de browser het plaatje en blijft de tekst staan.
+                                       De @key dwingt een vers element af per artikel: anders blijft
+                                       het 'display:none' van een artikel zonder foto plakken en
+                                       lijkt de foto daarna bij élk artikel te ontbreken. *@
+                                    <div class="artikelfoto-vak" @key="_artikelId">
+                                        <img class="artikelfoto-groot" src="@ArtikelFoto()" alt=""
+                                             title="@_artikel.Code"
+                                             onload="this.style.display='';
+                                                     this.nextElementSibling.style.display='none'"
+                                             onerror="this.style.display='none';
+                                                      this.nextElementSibling.style.display='block'" />
+                                        <span class="geen-foto">Geen foto bij dit artikel.</span>
+                                    </div>
+                                </ZijBlok>
+
+                                <ZijBlok Titel="Prijzen">
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@Bedrag(_artikel.Kostprijs)</span>
+                                        <span class="zij-extra">vastgestelde kostprijs</span>
+                                    </div>
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@Bedrag(_artikel.VerkoopprijsProject)</span>
+                                        <span class="zij-extra">verkoopprijs project</span>
+                                    </div>
+                                </ZijBlok>
+
+                                <ZijBlok Titel="Voorraad">
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@Getal(_artikel.AantalInVoorraad) @_artikel.Eenheid</span>
+                                        <span class="zij-extra">
+                                            minimum @Getal(_artikel.MinimumVoorraad) ·
+                                            bestellen per @Getal(_artikel.Bestelhoeveelheid)
+                                        </span>
+                                    </div>
+                                </ZijBlok>
+
+                                <ZijBlok Titel="Groepen" Aantal="_groepen.Count"
+                                         Leeg="@(_groepen.Count == 0 && !MagBewerken)"
+                                         LeegTekst="Nog in geen enkele groep.">
+                                    @foreach (var g in _groepen)
+                                    {
+                                        <div class="zij-regel" @key="g.Id">
+                                            <span class="zij-naam">@g.Volledig</span>
+                                            @if (MagBewerken)
+                                            {
+                                                <button class="zij-weg" title="Uit deze groep halen"
+                                                        @onclick="() => HaalUitGroep(g)">✕</button>
+                                            }
+                                        </div>
+                                    }
+                                    @if (MagBewerken)
+                                    {
+                                        <button class="klein" @onclick="OpenGroepToevoegen">＋ In een groep zetten</button>
+                                    }
+                                </ZijBlok>
+                            </Zij>
+                        </DetailMetZij>
+                    }
+
+                    @if (_tab == "Documenten")
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Bestand</th>
+                                    <th style="width:10rem">Toegevoegd</th>
+                                    <th style="width:5rem" class="r">Dagen</th>
+                                    <th style="width:11rem">Door</th>
+                                    <th style="width:4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in Nieuwste())
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                                @d.Bestandsnaam
+                                            </button>
+                                        </td>
+                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td class="r">@DagenOud(d)</td>
+                                        <td>@d.ToegevoegdDoor</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@("bestand/" + d.FileStoreId + "/download")"
+                                               title="Downloaden">⭳</a>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (Nieuwste().Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">Geen documentatie bij dit artikel.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        <label class="vink">
+                            <input type="checkbox" checked="@_alleenNieuwste" @onchange="NieuwsteGewijzigd" />
+                            Alleen nieuwste versies weergeven
+                        </label>
+                    }
+
+                    @if (_tab == "Groepen")
+                    {
+                        @if (_groepen.Count == 0)
+                        {
+                            <p class="uitleg">Dit artikel zit nog in geen enkele groep.</p>
+                        }
+                        else
+                        {
+                            <ul class="groeplijst">
+                                @foreach (var g in _groepen)
+                                {
+                                    <li @key="g.Id">@g.Volledig</li>
+                                }
+                            </ul>
+                        }
+                    }
+
+                    @if (_tab == "Alias")
+                    {
+                        <p class="uitleg">
+                            Deze lijst wordt gebruikt bij het importeren uit SEE Electrical en Inventor.
+                            Aliassen ontstaan tijdens dat importeren.
+                        </p>
+                        <table class="kiezer-tabel smal-tabel">
+                            <thead><tr><th>Alias</th><th style="width:8rem">Bron</th></tr></thead>
+                            <tbody>
+                                @foreach (var a in _aliassen)
+                                {
+                                    <tr><td>@a.Alias</td><td>@a.Bron</td></tr>
+                                }
+                                @if (_aliassen.Count == 0)
+                                {
+                                    <tr><td colspan="2" class="kiezer-info">Geen aliassen.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @if (_tab == "Overigen")
+                    {
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld"><label>Toegevoegd</label>
+                                <span class="alleen-lezen">
+                                    @(_artikel.Toegevoegd?.ToString("dd-MM-yyyy") ?? "") @_artikel.ToegevoegdDoor
+                                </span>
+                            </div>
+                            <div class="wn-veld"><label>Laatst gewijzigd</label>
+                                <span class="alleen-lezen">
+                                    @(_artikel.Gewijzigd?.ToString("dd-MM-yyyy HH:mm") ?? "") @_artikel.GewijzigdDoor
+                                </span>
+                            </div>
+                            <div class="wn-veld"><label>Gewicht</label><span class="alleen-lezen">@Getal(_artikel.Gewicht)</span></div>
+                            <div class="wn-veld"><label>Uitgeleend</label><span class="alleen-lezen">@_artikel.AantalUitgeleend</span></div>
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Wijzigen, leveranciers, prijshistorie en voorraadmutaties volgen later;
+        daarvoor gebruik je voorlopig Access.
+    </footer>
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+
+@* ===== boom met artikelgroepen =====
+   Dezelfde popup voor twee dingen: de zoeklijst filteren, en het artikel dat
+   je bekijkt in een groep zetten. *@
+<GroepenKiezer Open="@(_groepKiezer is not null)" Titel="@GroepTitel"
+               Filteren="@(_groepKiezer == "filter")" ToonWissen="@(_groepKiezer == "filter")"
+               Gekozen="@(_groepKiezer == "filter" ? _groep : null)"
+               OpKeuze="GroepGekozen" OpSluiten="SluitGroepKiezer" />
+
+@* ===== inkoopprijs van een onderdeel ===== *@
+@if (_prijsRegel is not null)
+{
+    <div class="cmdk-overlay" @onclick="SluitPrijs">
+        <div class="prijsvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Inkoopprijs — @_prijsRegel.Code</h2>
+                <button class="klein" @onclick="SluitPrijs">✕</button>
+            </header>
+
+            <div class="prijs-inhoud">
+                <p class="uitleg">@_prijsRegel.Omschrijving</p>
+
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Inkoopprijs per stuk</label>
+                        <input class="r" value="@_prijsInvoer" @onchange="PrijsInvoerGewijzigd" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Toeslag</label>
+                        <span class="alleen-lezen">@_toeslag.ToString("0.##") %</span>
+                    </div>
+                    <div class="wn-veld">
+                        <label>Wordt verkoopprijs</label>
+                        <span class="alleen-lezen groot-bedrag">@BedragOf(Verkoop())</span>
+                    </div>
+                </div>
+
+                <div class="btngroup">
+                    <button class="primair" @onclick="BewaarPrijs">Vastleggen</button>
+                    <button class="klein" @onclick="SluitPrijs">Annuleren</button>
+                </div>
+
+                <p class="uitleg">
+                    De verkoopprijs wordt berekend met de toeslag uit de algemene
+                    instellingen. Klopt dat percentage niet, pas het dan daar aan.
+                </p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] Tabs = { "Info", "Documenten", "Groepen", "Alias", "Overigen" };
+    private const int StoreTypeArtikel = 2;
+
+    private string _zoek = "";
+    private string _groep = "";
+    private bool _gezocht;
+
+    private List<ArtikelRegel> _lijst = new();
+    private int? _artikelId;
+    private Artikel? _artikel;
+    private List<ArtikelGroep> _groepen = new();
+    private List<(string Alias, string Bron)> _aliassen = new();
+    private List<Bestand> _documenten = new();
+    private List<Samenstellingregel> _stuklijst = new();
+    private bool _alleenNieuwste = true;
+
+    private string _tab = "Info";
+    private string? _melding;
+    private bool _fout;
+
+    /// <summary>
+    /// Met ?nr=12345 opent dit scherm meteen dat artikel. Zo kan er vanuit
+    /// andere schermen (bestellingen, orderbatch) naartoe worden gelinkt.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "nr")]
+    public int? Nummer { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+
+        if (Nummer is int nr && nr > 0)
+        {
+            _zoek = "#" + nr;
+            await Laad();
+        }
+    }
+
+    /// <summary>Na het eerste tekenen kijken of er een Dymo aan deze pc hangt.</summary>
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        await ZoekPrintersStil();
+        StateHasChanged();
+    }
+
+    private async Task Laad()
+    {
+        _gezocht = _zoek.Trim().Length > 0 || _groep.Trim().Length > 0 || _groepIds.Count > 0;
+        if (!_gezocht) { _lijst = new(); return; }
+
+        try { _lijst = await Repo.ZoekAsync(_zoek, ZoekPad(), maakdelen: false, 200, _groepIds); }
+        catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        if (_lijst.Count == 1) await Kies(_lijst[0]);
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Laad();
+    }
+
+    private async Task GroepGewijzigd(ChangeEventArgs e)
+    {
+        // zelf getypt: dan geldt de tekst, niet meer de keuze uit de boom
+        _groep = (string?)e.Value ?? "";
+        _groepIds = new();
+        await Laad();
+    }
+
+    private async Task WisZoek() { _zoek = ""; await Laad(); }
+    private async Task WisGroep() { _groep = ""; _groepIds = new(); await Laad(); }
+
+    /// <summary>
+    /// Komt de groep uit de boom, dan zoeken we op de id's en niet op de tekst —
+    /// het pad dat wij tonen hoeft niet letterlijk zo in de tabel te staan.
+    /// </summary>
+    private string? ZoekPad() => _groepIds.Count > 0 ? null : _groep;
+
+    private async Task Kies(ArtikelRegel a)
+    {
+        if (_bewerken)
+        {
+            // hetzelfde artikel nog eens aanklikken mag het typewerk niet wissen
+            if (a.Id == _artikelId) return;
+
+            var door = await Vraag("Je wijzigingen zijn nog niet opgeslagen. "
+                                 + "Toch een ander artikel openen?");
+            if (!door) return;
+        }
+
+        _bewerken = false;
+        _origineel = null;
+
+        Artikel? gevonden;
+        try { gevonden = await Repo.GetAsync(a.Id); }
+        catch (Exception ex) { Leeg(); Toon("Ophalen mislukt: " + ex.Message, true); return; }
+
+        if (gevonden is null) { Leeg(); Toon("Artikel niet gevonden.", true); return; }
+
+        // pas nu omschakelen: anders wijst het scherm naar A terwijl het B toont
+        _artikel = gevonden;
+        _artikelId = a.Id;
+
+        try { _groepen = await Repo.GetGroepenAsync(a.Id); } catch { _groepen = new(); }
+        try { _aliassen = await Repo.GetAliassenAsync(a.Id); } catch { _aliassen = new(); }
+        try { _stuklijst = await Repo.GetSamenstellingAsync(a.Id); } catch { _stuklijst = new(); }
+
+        if (_tab == "Samenstelling" && _stuklijst.Count == 0) _tab = "Info";
+
+        if (WnRepo.Beschikbaar)
+        {
+            try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeArtikel, a.Id); }
+            catch { _documenten = new(); }
+        }
+    }
+
+    /// <summary>Alles leegmaken als er geen artikel (meer) is.</summary>
+    private void Leeg()
+    {
+        _artikel = null;
+        _artikelId = null;
+        _groepen = new();
+        _aliassen = new();
+        _stuklijst = new();
+        _documenten = new();
+    }
+
+    /// <summary>Een ja/nee-vraag aan de gebruiker; bij twijfel: niet doorgaan.</summary>
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", tekst); }
+        catch { return true; }   // lukt de vraag niet, dan de gebruiker niet blokkeren
+    }
+
+    // ---- hulpjes ----
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    private static string Bedrag(decimal? waarde)
+        => waarde is null ? "—" : waarde.Value.ToString("C2", Nl);
+
+    private static string Getal(double? waarde) => waarde is null ? "0" : waarde.Value.ToString("0.##");
+
+    /// <summary>Een bedrag zoals het in een invoervak hoort: zonder euroteken.</summary>
+    private static string Invoerbedrag(decimal? waarde) => waarde?.ToString("0.00", Nl) ?? "";
+
+    /// <summary>
+    /// Een getal in een invoervak. Anders dan bij het tonen blijft leeg hier écht
+    /// leeg; een "0" zou suggereren dat er iets staat.
+    /// </summary>
+    private static string Invoergetal(double? waarde) => waarde?.ToString("0.##", Nl) ?? "";
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    /// <summary>
+    /// Een getal uit een invoervak. Nederlandse invoer met een komma hoort er
+    /// gewoon in te kunnen; leeg betekent 'niet ingevuld', niet nul.
+    /// </summary>
+    private static double? Komma(ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Trim();
+        if (tekst.Length == 0) return null;
+        return double.TryParse(tekst.Replace('.', ','), System.Globalization.NumberStyles.Any, Nl, out var v)
+            ? v : null;
+    }
+
+    private static decimal? Bedragvan(ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Trim().Replace("€", "").Trim();
+        if (tekst.Length == 0) return null;
+        return decimal.TryParse(tekst.Replace('.', ','), System.Globalization.NumberStyles.Any, Nl, out var v)
+            ? v : null;
+    }
+
+    // ================================================================
+    //  Artikel bewerken
+    // ================================================================
+    private bool MagBewerken => !Ik.Gekoppeld || Ik.Mag("Inkoop") || Ik.Mag("Beheer") || Ik.Mag("Directie");
+
+    private bool _bewerken;
+    private bool _bewaren;
+    private Artikel? _origineel;
+    private List<(int Id, string Naam)> _merken = new();
+
+    private async Task StartBewerken()
+    {
+        if (_artikel is null || !MagBewerken) return;
+
+        // een kopie bewaren, zodat 'Annuleren' echt terug kan
+        _origineel = Kopie(_artikel);
+        _bewerken = true;
+
+        if (_merken.Count == 0)
+        {
+            try { _merken = await Repo.GetMerkenAsync(); } catch { _merken = new(); }
+        }
+    }
+
+    private void StopBewerken()
+    {
+        if (_origineel is not null) _artikel = _origineel;
+        _origineel = null;
+        _bewerken = false;
+    }
+
+    private async Task BewaarArtikel()
+    {
+        if (_artikel is null) return;
+
+        _bewaren = true;
+        try
+        {
+            await Repo.BewaarArtikelAsync(_artikel, Ik.WerknemerId);
+            _bewerken = false;
+            _origineel = null;
+
+            // opnieuw ophalen: de merknaam en de datum komen van de database
+            _artikel = await Repo.GetAsync(_artikel.Id) ?? _artikel;
+            await HerlaadLijst();
+            Toon("Artikel opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bewaren = false; }
+    }
+
+    private void MerkGewijzigd(ChangeEventArgs e)
+    {
+        var artikel = _artikel;
+        if (artikel is null) return;
+
+        var waarde = (string?)e.Value ?? "";
+        artikel.MerkId = int.TryParse(waarde, out var id) ? id : null;
+
+        var gevonden = _merken.FirstOrDefault(m => m.Id == artikel.MerkId);
+        artikel.Merk = gevonden.Id == 0 ? "" : gevonden.Naam;
+    }
+
+    /// <summary>De ja/nee-velden als één rij, zodat de opsomming maar op één plek staat.</summary>
+    private List<(string Label, Func<bool> Aan, Action<bool> Zet)> Vinkjes()
+    {
+        var a = _artikel!;
+        return new List<(string, Func<bool>, Action<bool>)>
+        {
+            ("Voorraadartikel", () => a.Voorraadartikel, v => a.Voorraadartikel = v),
+            ("Standaard",       () => a.Standaard,       v => a.Standaard = v),
+            ("Product",         () => a.IsProduct,       v => a.IsProduct = v),
+            ("Webshop",         () => a.Webshop,         v => a.Webshop = v),
+            ("Uitleenbaar",     () => a.Uitleenbaar,     v => a.Uitleenbaar = v),
+            ("Check nodig",     () => a.CheckNodig,      v => a.CheckNodig = v),
+            ("Inventor-inkoopdeel", () => a.InventorInkoopdeel, v =>
+                {
+                    // Kenmerken() leest dezelfde kolom onder een andere naam;
+                    // die moet dus mee, anders lopen de twee uit elkaar.
+                    a.InventorInkoopdeel = v;
+                    a.InventorPart = v;
+                }),
+        };
+    }
+
+    private static Artikel Kopie(Artikel a) => new()
+    {
+        Id = a.Id, Code = a.Code, CodeFabrikant = a.CodeFabrikant, Merk = a.Merk, MerkId = a.MerkId,
+        OmschrijvingNl = a.OmschrijvingNl, OmschrijvingEn = a.OmschrijvingEn,
+        OmschrijvingFr = a.OmschrijvingFr, Opmerking = a.Opmerking,
+        Eenheid = a.Eenheid, Ean = a.Ean, OcCodeOmron = a.OcCodeOmron,
+        Samenstelling = a.Samenstelling, Voorraadartikel = a.Voorraadartikel, Standaard = a.Standaard,
+        InventorPart = a.InventorPart, IsProduct = a.IsProduct, Webshop = a.Webshop,
+        Uitleenbaar = a.Uitleenbaar, CheckNodig = a.CheckNodig,
+        Kostprijs = a.Kostprijs, VerkoopprijsProject = a.VerkoopprijsProject,
+        VerkoopprijsWebshop = a.VerkoopprijsWebshop, Schattingsprijs = a.Schattingsprijs,
+        MinimumVoorraad = a.MinimumVoorraad, Bestelhoeveelheid = a.Bestelhoeveelheid,
+        AantalInVoorraad = a.AantalInVoorraad, Gewicht = a.Gewicht, AantalUitgeleend = a.AantalUitgeleend,
+        Maakdeel = a.Maakdeel, Bewerking1 = a.Bewerking1, Bewerking2 = a.Bewerking2,
+        Bewerking3 = a.Bewerking3, PlaatdikteMm = a.PlaatdikteMm, Materiaal = a.Materiaal,
+        InventorReferentie = a.InventorReferentie, InventorBestand = a.InventorBestand,
+        InventorInkoopdeel = a.InventorInkoopdeel,
+        Toegevoegd = a.Toegevoegd, ToegevoegdDoor = a.ToegevoegdDoor,
+        Gewijzigd = a.Gewijzigd, GewijzigdDoor = a.GewijzigdDoor,
+    };
+
+    /// <summary>De lijst links bijwerken zonder de keuze kwijt te raken.</summary>
+    private async Task HerlaadLijst()
+    {
+        if (!_gezocht) return;
+        try { _lijst = await Repo.ZoekAsync(_zoek, ZoekPad(), maakdelen: false, 200, _groepIds); } catch { }
+    }
+
+    // ================================================================
+    //  Groepenboom
+    //  '_groepKiezer' zegt waarvoor de popup openstaat: "filter" om de zoeklijst
+    //  te beperken, "artikel" om dit artikel in een groep te zetten.
+    // ================================================================
+    private string? _groepKiezer;
+
+    /// <summary>De gekozen groep plus alles eronder; leeg = niet op groep filteren.</summary>
+    private List<int> _groepIds = new();
+
+    private string GroepTitel => _groepKiezer == "filter"
+        ? "Zoeken binnen een groep"
+        : "In welke groep hoort dit artikel?";
+
+    private void OpenGroepFilter() => _groepKiezer = "filter";
+    private void OpenGroepToevoegen() => _groepKiezer = "artikel";
+    private void SluitGroepKiezer() => _groepKiezer = null;
+
+    private async Task GroepGekozen(Groepknoop? knoop)
+    {
+        var waarvoor = _groepKiezer;
+        _groepKiezer = null;
+
+        if (waarvoor == "filter")
+        {
+            _groep = knoop?.Pad ?? "";
+            _groepIds = new();
+            if (knoop is not null) VerzamelIds(knoop, _groepIds);
+            await Laad();
+            return;
+        }
+
+        if (knoop is null || _artikel is null) return;
+
+        try
+        {
+            await Repo.ZetGroepAsync(_artikel.Id, knoop.Id, true);
+            _groepen = await Repo.GetGroepenAsync(_artikel.Id);
+            Toon($"Toegevoegd aan {knoop.Pad}.", false);
+        }
+        catch (Exception ex) { Toon("Koppelen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Kies je 'Elektro', dan horen de artikelen uit 'Elektro \ 24VDC' er ook bij.
+    /// Daarom nemen we de hele tak mee.
+    /// </summary>
+    private static void VerzamelIds(Groepknoop knoop, List<int> ids)
+    {
+        if (knoop.Id > 0) ids.Add(knoop.Id);
+        foreach (var kind in knoop.Kinderen) VerzamelIds(kind, ids);
+    }
+
+    private async Task HaalUitGroep(ArtikelGroep groep)
+    {
+        if (_artikel is null) return;
+
+        try
+        {
+            await Repo.ZetGroepAsync(_artikel.Id, groep.Id, false);
+            _groepen = await Repo.GetGroepenAsync(_artikel.Id);
+            Toon($"Uit {groep.Volledig} gehaald.", false);
+        }
+        catch (Exception ex) { Toon("Loskoppelen mislukt: " + ex.Message, true); }
+    }
+
+    private static string BedragOf(decimal waarde) => waarde.ToString("C2", Nl);
+
+    private void KiesSamenstelling() => _tab = "Samenstelling";
+
+    /// <summary>Wordt door de boom gebruikt om een tak uit te klappen.</summary>
+    private Task<List<Samenstellingregel>> Onderdelen(int artikelId)
+        => Repo.GetSamenstellingAsync(artikelId);
+
+    // ---- stuklijst wijzigen ----
+    private async Task BewaarRegel((int Ouder, Samenstellingregel Regel) wijziging)
+    {
+        try
+        {
+            await Repo.BewaarSamenstellingregelAsync(wijziging.Ouder, wijziging.Regel);
+            await HerlaadStuklijst();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderRegel(Samenstellingregel regel)
+    {
+        try
+        {
+            await Repo.VerwijderSamenstellingregelAsync(regel.Id);
+            await HerlaadStuklijst();
+            Toon($"{regel.Code} verwijderd uit de samenstelling.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task HerlaadStuklijst()
+    {
+        if (_artikelId is null) return;
+        try { _stuklijst = await Repo.GetSamenstellingAsync(_artikelId.Value); } catch { }
+    }
+
+    /// <summary>De vlag 'samenstelling' op het artikel zelf.</summary>
+    private async Task SamenstellingGewijzigd(ChangeEventArgs e)
+    {
+        if (_artikel is null) return;
+        var aan = e.Value is bool b && b;
+
+        try
+        {
+            await Repo.ZetSamenstellingAsync(_artikel.Id, aan);
+            _artikel.Samenstelling = aan;
+            if (aan) _tab = "Samenstelling";
+            Toon(aan ? "Dit artikel is nu een samenstelling." : "Vlag samenstelling uitgezet.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Labels printen op de Dymo
+    //  Welke printer en welk label je gebruikt hoort bij de werkplek, niet bij
+    //  de opdracht — dus dat onthoudt de browser per pc.
+    // ================================================================
+    private List<string> _printers = new();
+    private string _printer = "";
+    private string _labelsoort = "klein";
+    private int _labelAantal = 1;
+    private string _rol = "Auto";
+    private bool _printBezig;
+    private string _dymoMelding = "Nog niet gezocht.";
+
+    private async Task ZoekPrintersStil()
+    {
+        try
+        {
+            var aan = await JS.InvokeAsync<bool>("mdeDymo.beschikbaar");
+            if (!aan)
+            {
+                var waarom = await JS.InvokeAsync<string>("mdeDymo.uitleg");
+                _dymoMelding = "DYMO Connect is niet gevonden op deze pc. "
+                             + "Draait het wel, gebruik dan Chrome of Edge — Firefox vertrouwt "
+                             + "het certificaat van DYMO niet. " + waarom;
+                return;
+            }
+
+            _printers = (await JS.InvokeAsync<string[]>("mdeDymo.printers")).ToList();
+            if (_printers.Count == 0)
+            {
+                _dymoMelding = await JS.InvokeAsync<string>("mdeDymo.uitleg");
+                return;
+            }
+
+            // vorige keuze van deze pc terughalen
+            var bewaard = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoPrinter");
+            _printer = _printers.Contains(bewaard ?? "") ? bewaard! : _printers[0];
+
+            var soort = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoLabel");
+            if (soort is "klein" or "groot") _labelsoort = soort;
+
+            var rol = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoRol");
+            if (rol is "Auto" or "Left" or "Right") _rol = rol;
+        }
+        catch (Exception ex) { _dymoMelding = "DYMO Connect niet bereikbaar: " + ex.Message; }
+    }
+
+    private async Task ZoekPrinters()
+    {
+        await ZoekPrintersStil();
+        if (_printers.Count == 0) Toon(_dymoMelding, true);
+    }
+
+    private string? _dymoDiagnose;
+
+    /// <summary>
+    /// Laat zien wat de webservice van DYMO op elk adres antwoordt. Handig om te
+    /// kunnen zien waar het misgaat zonder in de browserconsole te hoeven kijken.
+    /// </summary>
+    private async Task DymoDiagnose()
+    {
+        _dymoDiagnose = "Bezig…";
+        try { _dymoDiagnose = await JS.InvokeAsync<string>("mdeDymo.diagnose"); }
+        catch (Exception ex) { _dymoDiagnose = "Diagnose mislukt: " + ex.Message; }
+    }
+
+    private async Task PrinterGewijzigd(ChangeEventArgs e)
+    {
+        _printer = (string?)e.Value ?? "";
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "dymoPrinter", _printer); } catch { }
+    }
+
+    private async Task RolGewijzigd(ChangeEventArgs e)
+    {
+        _rol = (string?)e.Value ?? "Auto";
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "dymoRol", _rol); } catch { }
+    }
+
+    private async Task LabelsoortGewijzigd(ChangeEventArgs e)
+    {
+        _labelsoort = (string?)e.Value ?? "klein";
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "dymoLabel", _labelsoort); } catch { }
+    }
+
+    // Niet meteen bijsturen tijdens het typen: als we hier de waarde veranderen ziet
+    // Blazor geen verschil met de vorige tekening en blijft het vakje staan op wat de
+    // gebruiker typte. Het begrenzen gebeurt daarom pas bij het printen.
+    private void LabelAantalGewijzigd(ChangeEventArgs e)
+        => _labelAantal = int.TryParse((string?)e.Value, out var v) ? v : 1;
+
+    private async Task PrintLabel()
+    {
+        if (_artikelId is null || string.IsNullOrWhiteSpace(_printer)) return;
+
+        var aantal = Math.Clamp(_labelAantal, 1, 20);
+
+        _printBezig = true;
+        try
+        {
+            // de tekening wordt hier gemaakt en gaat als tekst naar DYMO Connect
+            var xml = await Labels.ArtikelLabelAsync(_artikelId.Value, _artikel?.Code ?? "",
+                                                     _artikel?.OmschrijvingNl ?? "",
+                                                     _labelsoort == "groot");
+            await JS.InvokeVoidAsync("mdeDymo.print", _printer, xml, aantal, _rol);
+            Toon($"{aantal} label(s) naar {_printer}.", false);
+        }
+        catch (Exception ex) { Toon("Printen mislukt: " + ex.Message, true); }
+        finally { _printBezig = false; }
+    }
+
+    // ---- inkoopprijs van een onderdeel ----
+    private Samenstellingregel? _prijsRegel;
+    private string _prijsInvoer = "";
+    private decimal _toeslag;
+
+    private async Task VraagPrijs(Samenstellingregel regel)
+    {
+        _prijsRegel = regel;
+        _prijsInvoer = regel.Kostprijs is null or 0 ? "" : regel.Kostprijs.Value.ToString("0.00");
+
+        try { _toeslag = await Instellingen.ToeslagAsync(); }
+        catch { _toeslag = 0; }
+    }
+
+    private void SluitPrijs() => _prijsRegel = null;
+
+    private void PrijsInvoerGewijzigd(ChangeEventArgs e) => _prijsInvoer = (string?)e.Value ?? "";
+
+    private decimal Ingevoerd()
+    {
+        var tekst = _prijsInvoer.Replace(".", "").Replace(',', '.').Trim();
+        return decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+    }
+
+    private decimal Verkoop() => Math.Round(Ingevoerd() * (1 + _toeslag / 100m), 2);
+
+    private async Task BewaarPrijs()
+    {
+        if (_prijsRegel is null) return;
+
+        try
+        {
+            await Repo.ZetKostprijsAsync(_prijsRegel.ArtikelId, Ingevoerd(), _toeslag);
+            var code = _prijsRegel.Code;
+            _prijsRegel = null;
+
+            await HerlaadStuklijst();
+            if (_artikelId is not null) _artikel = await Repo.GetAsync(_artikelId.Value);
+
+            Toon($"Prijs van {code} vastgelegd; verkoopprijs berekend met {_toeslag:0.##} %.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ---- onderdeel toevoegen ----
+    private string _onderdeelZoek = "";
+    private List<ArtikelRegel> _kandidaten = new();
+
+    private async Task OnderdeelZoekGewijzigd(ChangeEventArgs e)
+    {
+        _onderdeelZoek = (string?)e.Value ?? "";
+        if (_onderdeelZoek.Trim().Length < 2) { _kandidaten = new(); return; }
+
+        try { _kandidaten = await Repo.ZoekAsync(_onderdeelZoek, null, maakdelen: false, 15); }
+        catch { _kandidaten = new(); }
+    }
+
+    private async Task VoegOnderdeelToe(ArtikelRegel k)
+    {
+        if (_artikel is null) return;
+        if (k.Id == _artikel.Id) { Toon("Een artikel kan niet in zichzelf zitten.", true); return; }
+
+        try
+        {
+            await Repo.BewaarSamenstellingregelAsync(_artikel.Id,
+                new Samenstellingregel { ArtikelId = k.Id, Aantal = 1 });
+
+            _onderdeelZoek = "";
+            _kandidaten = new();
+            await HerlaadStuklijst();
+            Toon($"{k.Code} toegevoegd.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private string Kenmerken()
+    {
+        if (_artikel is null) return "";
+        var uit = new List<string>();
+        if (_artikel.Samenstelling) uit.Add("samenstelling");
+        if (_artikel.Voorraadartikel) uit.Add("voorraadartikel");
+        if (_artikel.Standaard) uit.Add("standaard");
+        if (_artikel.InventorPart) uit.Add("Inventor-onderdeel");
+        if (_artikel.IsProduct) uit.Add("product");
+        if (_artikel.Webshop) uit.Add("webshop");
+        if (_artikel.Uitleenbaar) uit.Add("uitleenbaar");
+        if (_artikel.CheckNodig) uit.Add("check nodig");
+        return uit.Count == 0 ? "—" : string.Join(", ", uit);
+    }
+
+    private string GoogleUrl()
+        => "https://www.google.com/search?q=" +
+           Uri.EscapeDataString($"{_artikel?.Merk} {_artikel?.CodeFabrikant}".Trim());
+
+    private string EanUrl() => "https://www.ean-search.org/?q=" + Uri.EscapeDataString(_artikel?.Ean ?? "");
+
+    private string ArtikelFoto() => _artikelId is int id ? $"artikelfoto/{id}" : "";
+
+    // De diagnose van de fotomap heeft geen knop meer, maar blijft bereikbaar
+    // via het adres artikelfoto/{nummer}?uitleg=true (en voor het label
+    // dymolabel/{nummer}?uitleg=true) — voor als het ooit weer nodig is.
+
+    private void NieuwsteGewijzigd(ChangeEventArgs e) => _alleenNieuwste = e.Value is bool b && b;
+
+    private List<Bestand> Nieuwste()
+        => !_alleenNieuwste
+            ? _documenten
+            : _documenten
+                .GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).First())
+                .OrderBy(d => d.Bestandsnaam)
+                .ToList();
+
+    private static string DagenOud(Bestand d)
+        => d.Toegevoegd is null ? "" : ((int)(DateTime.Today - d.Toegevoegd.Value.Date).TotalDays).ToString();
+
+    // ---- voorbeeld ----
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private void ToonVoorbeeld(int id, string naam) { _voorbeeldId = id; _voorbeeldNaam = naam; }
+    private void SluitVoorbeeld() => _voorbeeldId = null;
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

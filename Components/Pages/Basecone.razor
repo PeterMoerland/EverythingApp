@@ -1,0 +1,292 @@
+@page "/financien/basecone"
+@inject IBaseconeRepository Repo
+@inject IFactuurRepository Facturen
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Filestore
+@inject MailService Mail
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Het Access-formulier 'BaseconeVerzenden': facturen die nog naar Basecone
+   moeten, aanvinken en mailen. Per factuur gaat er één mail naar het
+   Basecone-adres van de BV (Relations.BaseconeEmailAdres), met de documenten
+   uit de filestore als bijlage; daarna gaat de vlag om op de factuur.
+   Access mailde via Outlook; hier gaat het via de Gmail-postbus van degene
+   die op de knop drukt. Welke facturen kandidaat zijn bepalen de twee
+   databaseviews @@BaseconeKlaarzettenInkomend/-Uitgaand, net als toen. *@
+
+<PageTitle>Basecone — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Basecone verzenden</h1>
+        <span class="weeklabel">@Zichtbaar.Count() te verzenden · @Gekozen.Count() aangevinkt</span>
+        <button class="klein" disabled="@_bezig" @onclick="Laad">⟳ Ververs lijst</button>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!MagVerzenden)
+    {
+        <section class="module-placeholder"><p>Hiervoor is het recht Financial (of Directie) nodig.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @foreach (var fout in _viewFouten)
+        {
+            <div class="melding fout" @key="fout">@fout</div>
+        }
+
+        @* ---------- filters ---------- *@
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Type</span>
+                <select value="@_typeFilter" @onchange="e => _typeFilter = (string?)e.Value ?? string.Empty">
+                    <option value="">Alles</option>
+                    <option value="INK">Inkoop</option>
+                    <option value="VRK">Verkoop</option>
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>BV</span>
+                <select value="@_bvFilter" @onchange="e => _bvFilter = (string?)e.Value ?? string.Empty">
+                    <option value="">Alle</option>
+                    @foreach (var bv in _regels.Select(r => r.BvNaam).Where(b => b.Length > 0)
+                                               .Distinct().OrderBy(b => b))
+                    {
+                        <option value="@bv">@bv</option>
+                    }
+                </select>
+            </label>
+        </div>
+
+        @* ---------- de lijst ---------- *@
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel banktabel">
+                <thead>
+                    <tr>
+                        <th style="width:2.6rem" class="c">Sel</th>
+                        <th style="width:4rem">Type</th>
+                        <th style="width:16rem">Leverancier / klant</th>
+                        <th style="width:8rem" class="r">Bedrag (excl)</th>
+                        <th style="width:4rem" class="c">BV</th>
+                        <th>Omschrijving</th>
+                        <th style="width:8rem">Opmerking</th>
+                        <th style="width:7rem">Factuurdatum</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var regel in Zichtbaar)
+                    {
+                        <tr @key="(regel.Soort, regel.BronId)"
+                            class="@(regel.FileStoreId is null ? "factuur-telaat" : "")"
+                            @onclick="() => Vink(regel)">
+                            <td class="c">
+                                <input type="checkbox" checked="@regel.Geselecteerd"
+                                       disabled="@(regel.FileStoreId is null)"
+                                       @onclick:stopPropagation
+                                       @onchange="e => regel.Geselecteerd = e.Value is bool b && b" />
+                            </td>
+                            <td>@(regel.Soort == "INK" ? "Inkoop" : "Verkoop")</td>
+                            <td class="omschrijving" title="@regel.Naam">@regel.Naam</td>
+                            <td class="r">@Geld(regel.Bedrag)</td>
+                            <td class="c">@regel.BvNaam</td>
+                            <td class="omschrijving">@regel.Omschrijving</td>
+                            <td>@(regel.FileStoreId is null ? "Document ontbreekt" : "")</td>
+                            <td>@(regel.Factuurdatum?.ToString("dd-MM-yyyy") ?? "")</td>
+                        </tr>
+                    }
+                    @if (!Zichtbaar.Any())
+                    {
+                        <tr><td colspan="8" class="kiezer-info">Niets te verzenden binnen dit filter.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @* ---------- de knoppen ---------- *@
+        <div class="btngroup basecone-voet">
+            <button class="klein" @onclick="() => AllesZetten(true)">Selecteer alles</button>
+            <button class="klein" @onclick="() => AllesZetten(false)">Deselecteer alles</button>
+            <span class="basecone-stand zij-extra">@_stand</span>
+            <button class="primair" disabled="@(_bezig || !Gekozen.Any())" @onclick="Verzenden">
+                @(_bezig ? "Bezig met verzenden…" : $"Facturen verzenden naar Basecone ({Gekozen.Count()})")
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<BaseconeRegel> _regels = new();
+    private List<string> _viewFouten = new();
+    private string _typeFilter = "";
+    private string _bvFilter = "";
+    private bool _bezig;
+    private string _stand = "";
+    private string? _melding;
+    private bool _fout;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+
+    private bool MagVerzenden => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private IEnumerable<BaseconeRegel> Zichtbaar => _regels
+        .Where(r => _typeFilter.Length == 0 || r.Soort == _typeFilter)
+        .Where(r => _bvFilter.Length == 0 || r.BvNaam == _bvFilter);
+
+    /// <summary>Wat er echt verstuurd gaat worden: aangevinkt, mét document.
+    /// Bewust alle aangevinkte regels, ook als een filter ze nu verbergt —
+    /// de teller op de knop laat altijd het echte aantal zien.</summary>
+    private IEnumerable<BaseconeRegel> Gekozen
+        => _regels.Where(r => r.Geselecteerd && r.FileStoreId is not null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Repo.Beschikbaar && MagVerzenden) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            (_regels, _viewFouten) = await Repo.GetKandidatenAsync();
+            _stand = "";
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void Vink(BaseconeRegel regel)
+    {
+        if (regel.FileStoreId is null) return;
+        regel.Geselecteerd = !regel.Geselecteerd;
+    }
+
+    /// <summary>Alles aan of uit — binnen het huidige filter, zoals Access.</summary>
+    private void AllesZetten(bool aan)
+    {
+        foreach (var regel in Zichtbaar.Where(r => r.FileStoreId is not null))
+            regel.Geselecteerd = aan;
+    }
+
+    private async Task Verzenden()
+    {
+        var lijst = Gekozen.ToList();
+        if (lijst.Count == 0) return;
+
+        try
+        {
+            var zeker = await JS.InvokeAsync<bool>("confirm",
+                $"{lijst.Count} factu(u)r(en) mailen naar Basecone, vanuit jouw postbus ({Ik.Email})?");
+            if (!zeker) return;
+        }
+        catch { return; }
+
+        _bezig = true;
+        var verzonden = 0;
+        var fouten = new List<string>();
+        var eigenPostbus = new MailPostbus("Mijn mail", Ik.Email, null, Eigen: true);
+        var adressen = new Dictionary<int, string>();   // Basecone-adres per BV
+
+        try
+        {
+            foreach (var regel in lijst)
+            {
+                var wie = $"{regel.Naam} ({regel.Omschrijving})";
+                _stand = $"Bezig: {wie}…";
+                StateHasChanged();
+
+                try
+                {
+                    // -- Het Basecone-adres van de BV --------------------------
+                    if (regel.AdminId is not int admin)
+                    {
+                        fouten.Add($"{wie}: geen BV op de factuur.");
+                        continue;
+                    }
+                    if (!adressen.TryGetValue(admin, out var adres))
+                        adressen[admin] = adres = await Repo.GetBaseconeAdresAsync(admin);
+                    if (adres.Length == 0)
+                    {
+                        fouten.Add($"{wie}: geen Basecone-mailadres bekend voor {regel.BvNaam}; " +
+                                   "stel het in bij Relaties.");
+                        continue;
+                    }
+
+                    // -- De documenten uit de filestore ------------------------
+                    // StoreType 1 = inkomende facturen, 5 = verkoopfacturen,
+                    // exact zoals de Access-code ze zocht. Er kunnen er meerdere
+                    // zijn (factuur + bijlagen uit de mail); alles gaat mee.
+                    var soort = regel.Soort == "INK" ? 1 : 5;
+                    var documenten = await WnRepo.GetBestandenAsync(soort, regel.BronId);
+                    if (documenten.Count == 0)
+                    {
+                        fouten.Add($"{wie}: geen document in de filestore.");
+                        continue;
+                    }
+
+                    var bijlagen = new List<(string Naam, byte[] Inhoud)>();
+                    var compleet = true;
+                    foreach (var doc in documenten)
+                    {
+                        var gevonden = await Filestore.ZoekAsync(doc.FileStoreId);
+                        if (gevonden is null || !File.Exists(gevonden.Value.Pad))
+                        {
+                            fouten.Add($"{wie}: bestand {doc.Bestandsnaam} staat niet (meer) op schijf.");
+                            compleet = false;
+                            break;
+                        }
+                        bijlagen.Add((doc.Bestandsnaam, await File.ReadAllBytesAsync(gevonden.Value.Pad)));
+                    }
+                    // Zoals Access: is één bijlage zoek, dan gaat de hele factuur
+                    // niet — half versturen is erger dan wachten.
+                    if (!compleet) continue;
+
+                    // -- De mail, met dezelfde kop en inhoud als vroeger --------
+                    var onderwerp = $"[{regel.Soort}] {regel.Naam} " +
+                                    $"{regel.Factuurdatum:d-M-yyyy} {regel.Omschrijving}".Trim();
+                    var tekst = (regel.Soort == "INK" ? "Inkoopfactuur" : "Verkoopfactuur") + "\r\n" +
+                                (regel.Soort == "INK" ? "Leverancier: " : "Klant: ") + regel.Naam + "\r\n" +
+                                $"Factuurdatum: {regel.Factuurdatum:d-M-yyyy}\r\n" +
+                                $"Omschrijving: {regel.Omschrijving}\r\n" +
+                                $"Bedrag(ex): {Geld(regel.Bedrag)}";
+
+                    await Mail.VerstuurAsync(eigenPostbus, adres, onderwerp, tekst, bijlagen);
+
+                    // -- Pas ná een gelukte mail gaat de vlag om ---------------
+                    if (regel.Soort == "INK")
+                        await Facturen.ZetVlagAsync(regel.BronId, FactuurVlag.Basecone, true, Ik.WerknemerId);
+                    else
+                        await Repo.ZetVerzondenUitgaandAsync(regel.BronId, Ik.WerknemerId);
+
+                    verzonden++;
+                }
+                catch (Exception ex)
+                {
+                    fouten.Add($"{wie}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _bezig = false;
+            _stand = "";
+        }
+
+        await Laad();
+        Toon(fouten.Count == 0
+            ? $"{verzonden} factu(u)r(en) naar Basecone gemaild."
+            : $"{verzonden} gelukt, {fouten.Count} niet: {string.Join(" — ", fouten.Take(5))}"
+              + (fouten.Count > 5 ? $" (en nog {fouten.Count - 5})" : ""),
+            fouten.Count > 0);
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

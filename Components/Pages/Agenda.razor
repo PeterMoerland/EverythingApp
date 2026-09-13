@@ -1,0 +1,229 @@
+@page "/agenda"
+@inject HuidigeGebruiker Ik
+@inject AgendaService Api
+
+<div class="page">
+    <header class="topbar">
+        <h1>Agenda</h1>
+        <span class="weeklabel">@(string.IsNullOrWhiteSpace(Ik.Email) ? "niet ingelogd" : Ik.Email)</span>
+    </header>
+
+    @if (string.IsNullOrWhiteSpace(Ik.Email))
+    {
+        <section class="module-placeholder">
+            <p><b>Nog niet ingelogd met Google.</b></p>
+            <p>De agenda hoort bij je Google-account. Log in om hem hier te zien.</p>
+        </section>
+    }
+    else if (!Api.Beschikbaar(Ik.Email))
+    {
+        <section class="module-placeholder">
+            <p><b>Nog geen toegang tot je agenda.</b></p>
+            <p>
+                De app heeft eenmalig jouw toestemming nodig om in de agenda te kijken.
+                Log opnieuw in; Google vraagt dan om die toestemming.
+            </p>
+            <p><a class="knopje" href="logout">Uitloggen en opnieuw inloggen</a></p>
+        </section>
+    }
+    else
+    {
+        <section class="toolbar">
+            <div class="btngroup">
+                <button @onclick="() => Verschuif(-7)">« week</button>
+                <button class="today" @onclick="Vandaag">Vandaag</button>
+                <button @onclick="() => Verschuif(7)">week »</button>
+            </div>
+            <label>Periode:</label>
+            <select @onchange="DagenGewijzigd">
+                @foreach (var n in new[] { 7, 14, 31 })
+                {
+                    <option value="@n" selected="@(n == _dagen)">@n dagen</option>
+                }
+            </select>
+            <button @onclick="() => _nieuw = _nieuw is null ? LeegAfspraak() : null">+ Afspraak</button>
+            <a class="knopje" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">
+                Openen in Google Agenda
+            </a>
+        </section>
+
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @if (_nieuw is not null)
+        {
+            <div class="editpaneel">
+                <b>Nieuwe afspraak</b>
+                <input placeholder="waar gaat het over" @bind="_nieuw.Titel" style="min-width:16rem" />
+                <label>datum</label>
+                <NlDatum Waarde="_nieuw.Datum" WaardeChanged="d => _nieuw.Datum = d ?? _nieuw.Datum" />
+                <label>van</label>
+                <input class="tijd" maxlength="5" placeholder="uu:mm" value="@_nieuw.Van" @onchange="ZetVan" />
+                <label>tot</label>
+                <input class="tijd" maxlength="5" placeholder="uu:mm" value="@_nieuw.Tot" @onchange="ZetTot" />
+                <input placeholder="locatie" @bind="_nieuw.Locatie" />
+                <input placeholder="genodigden (e-mail, met komma's)" @bind="_nieuw.Genodigden" style="min-width:14rem" />
+                <button class="primair" @onclick="Bewaar">In agenda zetten</button>
+                <button @onclick="() => _nieuw = null">Annuleren</button>
+            </div>
+        }
+
+        @if (_bezig)
+        {
+            <div class="kiezer-info">Agenda ophalen…</div>
+        }
+        else if (_items.Count == 0)
+        {
+            <div class="kiezer-info">Geen afspraken in deze periode.</div>
+        }
+        else
+        {
+            <div class="agenda-lijst">
+                @foreach (var dag in _items.GroupBy(i => i.Start.Date).OrderBy(g => g.Key))
+                {
+                    <div class="agenda-dag @(dag.Key == DateTime.Today ? "vandaag" : "")">
+                        <div class="agenda-datum">
+                            <span class="dagnaam">@dag.Key.ToString("ddd", _nl)</span>
+                            <span class="dagnr">@dag.Key.Day</span>
+                            <span class="maand">@dag.Key.ToString("MMM", _nl)</span>
+                        </div>
+                        <div class="agenda-items">
+                            @foreach (var i in dag.OrderBy(x => x.HeleDag ? 0 : 1).ThenBy(x => x.Start))
+                            {
+                                <div class="agenda-item">
+                                    <span class="agenda-tijd">
+                                        @(i.HeleDag ? "hele dag" : $"{i.Start:HH:mm} – {i.Eind:HH:mm}")
+                                    </span>
+                                    <span class="agenda-titel">
+                                        @if (i.Link is not null)
+                                        {
+                                            <a href="@i.Link" target="_blank" rel="noopener">@i.Titel</a>
+                                        }
+                                        else
+                                        {
+                                            @i.Titel
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(i.Locatie))
+                                    {
+                                        <span class="agenda-locatie">@i.Locatie</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <footer class="voet">
+        Dit is je eigen Google-agenda, opgehaald via Google zelf. Afspraken die je hier
+        maakt komen direct in je agenda te staan — genodigden krijgen een uitnodiging.
+    </footer>
+</div>
+
+@code {
+    private static readonly System.Globalization.CultureInfo _nl = new("nl-NL");
+
+    private class NieuweAfspraak
+    {
+        public string Titel { get; set; } = "";
+        public DateOnly Datum { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public string Van { get; set; } = "09:00";
+        public string Tot { get; set; } = "10:00";
+        public string Locatie { get; set; } = "";
+        public string Genodigden { get; set; } = "";
+    }
+
+    private List<AgendaItem> _items = new();
+    private DateTime _begin = DateTime.Today;
+    private int _dagen = 7;
+    private bool _bezig;
+    private NieuweAfspraak? _nieuw;
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        await Laad();
+    }
+
+    private static NieuweAfspraak LeegAfspraak() => new();
+
+    private void ZetVan(ChangeEventArgs e)
+    {
+        if (_nieuw is null) return;
+        var t = UrenService.ParseTijd((string?)e.Value);
+        _nieuw.Van = t?.ToString("HH\\:mm") ?? string.Empty;
+    }
+
+    private void ZetTot(ChangeEventArgs e)
+    {
+        if (_nieuw is null) return;
+        var t = UrenService.ParseTijd((string?)e.Value);
+        _nieuw.Tot = t?.ToString("HH\\:mm") ?? string.Empty;
+    }
+
+    private async Task Laad()
+    {
+        if (!Api.Beschikbaar(Ik.Email)) return;
+        _bezig = true;
+        try
+        {
+            _items = await Api.AfsprakenAsync(Ik.Email, _begin.Date, _begin.Date.AddDays(_dagen));
+        }
+        catch (Exception ex)
+        {
+            _items = new();
+            Toon("Agenda ophalen mislukt: " + ex.Message, true);
+        }
+        _bezig = false;
+    }
+
+    private async Task Verschuif(int dagen) { _begin = _begin.AddDays(dagen); await Laad(); }
+    private async Task Vandaag() { _begin = DateTime.Today; await Laad(); }
+
+    private async Task DagenGewijzigd(ChangeEventArgs e)
+    {
+        _dagen = int.TryParse((string?)e.Value, out var n) ? n : 7;
+        await Laad();
+    }
+
+    private async Task Bewaar()
+    {
+        if (_nieuw is null) return;
+        if (string.IsNullOrWhiteSpace(_nieuw.Titel)) { Toon("Geef de afspraak een naam.", true); return; }
+
+        var van = UrenService.ParseTijd(_nieuw.Van);
+        var tot = UrenService.ParseTijd(_nieuw.Tot);
+        if (van is null || tot is null) { Toon("Vul de tijden in als uu:mm.", true); return; }
+
+        var start = _nieuw.Datum.ToDateTime(van.Value);
+        var eind = _nieuw.Datum.ToDateTime(tot.Value);
+        if (eind <= start) eind = start.AddHours(1);
+
+        var gasten = _nieuw.Genodigden
+            .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(g => g.Contains('@'));
+
+        try
+        {
+            var link = await Api.MaakAfspraakAsync(Ik.Email, _nieuw.Titel, start, eind,
+                                                  _nieuw.Locatie, null, gasten);
+            _nieuw = null;
+            _begin = start.Date;
+            await Laad();
+            Toon(link is null ? "Afspraak toegevoegd." : "Afspraak toegevoegd aan je agenda.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Afspraak maken mislukt: " + ex.Message, true);
+        }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

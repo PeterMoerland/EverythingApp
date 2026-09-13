@@ -1,0 +1,494 @@
+@page "/beheer/instellingen"
+@inject IInstellingRepository Repo
+@inject IUrenRepository Uren
+@inject HuidigeGebruiker Ik
+
+<div class="page">
+    <header class="topbar">
+        <h1>Algemene instellingen</h1>
+        <span class="weeklabel">geldt voor de hele app</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!Mag)
+    {
+        <section class="module-placeholder">
+            <p>Deze instellingen zijn voor beheer en directie.</p>
+        </section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-tabs">
+            @foreach (var tab in Tabs)
+            {
+                <button class="@(tab == _tab ? "actief" : "")" @onclick="() => _tab = tab">@tab</button>
+            }
+        </div>
+
+        @* ===== INKOOP / VERKOOP ===== *@
+        @if (_tab == "Inkoop en verkoop")
+        {
+            <div class="wn-velden een-kolom">
+                @foreach (var veld in Getalvelden)
+                {
+                    <div class="wn-veld" @key="veld.Kolom">
+                        <label>@veld.Label</label>
+                        <input class="r smal" value="@Tekst(veld.Kolom)"
+                               @onchange="e => BewaarGetal(veld.Kolom, e)" />
+                    </div>
+                }
+            </div>
+
+            <p class="uitleg">
+                De toeslag bepaalt de verkoopprijs van een artikel: bij @Toeslag() %
+                wordt een inkoopprijs van € 100,00 een verkoopprijs van @Voorbeeld().
+                Dit wordt gebruikt zodra je in een stuklijst een inkoopprijs invoert.
+            </p>
+        }
+
+        @* ===== FACTUREN ===== *@
+        @if (_tab == "Facturen")
+        {
+            <div class="wn-velden een-kolom">
+                @foreach (var veld in Factuurvelden)
+                {
+                    <div class="wn-veld breed" @key="veld.Kolom">
+                        <label>@veld.Label</label>
+                        <textarea rows="7" value="@Tekst(veld.Kolom)"
+                                  @onchange="e => Bewaar(veld.Kolom, e)"></textarea>
+                    </div>
+                }
+            </div>
+            <p class="uitleg"><code>{fn}</code> in de tekst wordt vervangen door het factuurnummer.</p>
+        }
+
+        @* ===== OFFERTES ===== *@
+        @if (_tab == "Offertes")
+        {
+            <div class="wn-velden een-kolom">
+                @foreach (var veld in Offertevelden)
+                {
+                    <div class="wn-veld breed" @key="veld.Kolom">
+                        <label>@veld.Label</label>
+                        <textarea rows="6" value="@Tekst(veld.Kolom)"
+                                  @onchange="e => Bewaar(veld.Kolom, e)"></textarea>
+                    </div>
+                }
+                @foreach (var veld in Bijlagevelden)
+                {
+                    <div class="wn-veld breed" @key="veld.Kolom">
+                        <label>@veld.Label</label>
+                        <input value="@Tekst(veld.Kolom)" @onchange="e => Bewaar(veld.Kolom, e)" />
+                    </div>
+                }
+            </div>
+            <p class="uitleg"><code>{of}</code> wordt vervangen door het offertenummer.</p>
+        }
+
+        @* ===== WERKORDERS ===== *@
+        @if (_tab == "Werkorders")
+        {
+            <div class="wn-velden een-kolom">
+                @foreach (var veld in Ordervelden)
+                {
+                    <div class="wn-veld" @key="veld.Kolom">
+                        <label>@veld.Label</label>
+                        <select value="@Tekst(veld.Kolom)" @onchange="e => BewaarGetal(veld.Kolom, e)">
+                            <option value="">—</option>
+                            @foreach (var w in _werkorders)
+                            {
+                                <option value="@w.Id">@w.Naam</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+
+            <h3 class="wn-kop">Speciale uren</h3>
+            <table class="kiezer-tabel instel-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:13rem">Omschrijving</th>
+                        <th style="width:22rem">Werkorder</th>
+                        <th>Opmerking</th>
+                        <th style="width:3rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var u in _specialeUren)
+                    {
+                        <tr @key="u.Id">
+                            <td><input value="@u.Omschrijving" maxlength="20"
+                                       @onchange="e => ZetUur(u, v => u.Omschrijving = v, e)" /></td>
+                            <td>
+                                <select value="@(u.WerkorderId?.ToString() ?? "")"
+                                        @onchange="e => ZetUurOrder(u, e)">
+                                    <option value="">—</option>
+                                    @foreach (var w in _werkorders)
+                                    {
+                                        <option value="@w.Id">@w.Naam</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input value="@u.Opmerking" maxlength="200"
+                                       @onchange="e => ZetUur(u, v => u.Opmerking = v, e)" /></td>
+                            <td class="c">
+                                <button class="klein rood" @onclick="() => WisUur(u)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="btngroup"><button class="klein" @onclick="NieuwUur">+ Regel</button></div>
+        }
+
+        @* ===== KEYWORDS ===== *@
+        @if (_tab == "Sleutelwoorden")
+        {
+            <p class="uitleg">
+                Hiermee herkent de app de kolomkoppen bij het plakken van een stuk Excel.
+                Meerdere woorden scheiden met een komma; hoofdletters maken niet uit.
+            </p>
+            <div class="wn-velden">
+                @foreach (var (kolom, label) in Sleutelvelden)
+                {
+                    <div class="wn-veld breed" @key="kolom">
+                        <label>@label</label>
+                        <textarea rows="2" value="@Tekst(kolom)" @onchange="e => Bewaar(kolom, e)"></textarea>
+                    </div>
+                }
+            </div>
+        }
+
+        @* ===== VOORRAADORDERS ===== *@
+        @if (_tab == "Voorraadorders")
+        {
+            <table class="kiezer-tabel instel-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:13rem">Omschrijving</th>
+                        <th style="width:22rem">Werkorder</th>
+                        <th>Toelichting</th>
+                        <th style="width:6rem" title="De voorraadorder die de scanner op de telefoon standaard kiest">Standaard</th>
+                        <th style="width:3rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var v in _voorraadOrders)
+                    {
+                        <tr @key="v.Id">
+                            <td><input value="@v.Omschrijving" maxlength="45"
+                                       @onchange="e => ZetVoorraad(v, x => v.Omschrijving = x, e)" /></td>
+                            <td>
+                                <select value="@(v.OrderId?.ToString() ?? "")"
+                                        @onchange="e => ZetVoorraadOrder(v, e)">
+                                    <option value="">—</option>
+                                    @foreach (var w in _werkorders)
+                                    {
+                                        <option value="@w.Id">@w.Naam</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input value="@v.Help" maxlength="200"
+                                       @onchange="e => ZetVoorraad(v, x => v.Help = x, e)" /></td>
+                            <td class="c">
+                                <input type="checkbox" checked="@v.Standaard"
+                                       @onchange="e => ZetVoorraadStandaard(v, e)" />
+                            </td>
+                            <td class="c">
+                                <button class="klein rood" @onclick="() => WisVoorraad(v)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="btngroup"><button class="klein" @onclick="NieuwVoorraad">+ Regel</button></div>
+        }
+
+        @* ===== MIJLPALEN ===== *@
+        @if (_tab == "Mijlpalen")
+        {
+            <table class="kiezer-tabel instel-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:14rem">Mijlpaal</th>
+                        <th>Opmerking</th>
+                        <th style="width:8rem" class="c">Per werkorder</th>
+                        <th style="width:3rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in _mijlpalen)
+                    {
+                        <tr @key="m.Id">
+                            <td><input value="@m.Naam" maxlength="45"
+                                       @onchange="e => ZetMijlpaal(m, v => m.Naam = v, e)" /></td>
+                            <td><input value="@m.Opmerking" maxlength="250"
+                                       @onchange="e => ZetMijlpaal(m, v => m.Opmerking = v, e)" /></td>
+                            <td class="c">
+                                <input type="checkbox" checked="@m.PerWerkorder"
+                                       @onchange="e => ZetMijlpaalVlag(m, e)" />
+                            </td>
+                            <td class="c">
+                                <button class="klein rood" @onclick="() => WisMijlpaal(m)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="btngroup"><button class="klein" @onclick="NieuweMijlpaal">+ Regel</button></div>
+        }
+    }
+
+    <footer class="voet">
+        Elke wijziging wordt meteen opgeslagen. Wat hier staat geldt voor iedereen.
+    </footer>
+</div>
+
+@code {
+    private static readonly string[] Tabs =
+    {
+        "Inkoop en verkoop", "Facturen", "Offertes", "Werkorders", "Sleutelwoorden",
+        "Voorraadorders", "Mijlpalen",
+    };
+
+    private static readonly (string Kolom, string Label)[] Getalvelden =
+    {
+        ("ToeslagInkoopVerkoop", "Toeslag inkoop → verkoop (%)"),
+        ("Kilometervergoedingprive", "Privé kilometervergoeding"),
+    };
+
+    private static readonly (string Kolom, string Label)[] Factuurvelden =
+    {
+        ("eInvoiceMailTekst_NL", "E-invoice tekst Nederlands"),
+        ("eInvoiceMailTekst_EN", "E-invoice tekst Engels"),
+    };
+
+    private static readonly (string Kolom, string Label)[] Offertevelden =
+    {
+        ("eOfferteMailTekst_NL", "E-offerte tekst Nederlands"),
+        ("eOfferteMailTekst_EN", "E-offerte tekst Engels"),
+    };
+
+    private static readonly (string Kolom, string Label)[] Bijlagevelden =
+    {
+        ("FileMetaalunieNL", "Metaalunie bijlage NL (pdf)"),
+        ("FileMetaalUnieEN", "Metaalunie bijlage EN (pdf)"),
+    };
+
+    private static readonly (string Kolom, string Label)[] Ordervelden =
+    {
+        ("ManagementKilometerOrder", "Management kilometerorder"),
+        ("VrijOrder", "Vrije order"),
+    };
+
+    private static readonly (string Kolom, string Label)[] Sleutelvelden =
+    {
+        ("KeywordAantal", "Aantal"),
+        ("KeywordPartNumber", "Artikelcode"),
+        ("KeywordDescription", "Omschrijving"),
+        ("KeywordEAN", "EAN-code"),
+        ("KeywordStukprijs", "Stukprijs"),
+        ("KeywordNettoprijs", "Nettoprijs"),
+    };
+
+    private string _tab = "Inkoop en verkoop";
+    private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
+    private List<Keuze> _werkorders = new();
+    private List<SpeciaalUur> _specialeUren = new();
+    private List<VoorraadOrder> _voorraadOrders = new();
+    private List<Mijlpaal> _mijlpalen = new();
+
+    private string? _melding;
+    private bool _fout;
+
+    private bool Mag => !Ik.Gekoppeld || Ik.Mag("Beheer") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar || !Mag) return;
+
+        try
+        {
+            _velden = await Repo.GetAsync();
+            try
+            {
+                var open = await Uren.GetOpenWorkordersAsync();
+                _werkorders = open.Select(w => new Keuze(w.WerkbonId, $"{w.Nummer} · {w.Omschrijving}")).ToList();
+            }
+            catch { }
+
+            _specialeUren = await Repo.GetSpecialeUrenAsync();
+            _voorraadOrders = await Repo.GetVoorraadOrdersAsync();
+            _mijlpalen = await Repo.GetMijlpalenAsync();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private string Tekst(string kolom)
+        => _velden.TryGetValue(kolom, out var v) && v is not null ? v.ToString() ?? "" : "";
+
+    private decimal Toeslag()
+        => decimal.TryParse(Tekst("ToeslagInkoopVerkoop"), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+
+    private string Voorbeeld()
+        => (100m * (1 + Toeslag() / 100m)).ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+
+    private async Task Bewaar(string kolom, ChangeEventArgs e)
+    {
+        var waarde = (string?)e.Value ?? "";
+        try
+        {
+            await Repo.ZetAsync(kolom, waarde);
+            _velden[kolom] = waarde;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task BewaarGetal(string kolom, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace(".", "").Replace(',', '.').Trim();
+        object? waarde = null;
+        if (tekst.Length > 0 && decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
+                                                 System.Globalization.CultureInfo.InvariantCulture, out var v))
+            waarde = v;
+
+        try
+        {
+            await Repo.ZetAsync(kolom, waarde);
+            _velden[kolom] = waarde;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ---- speciale uren ----
+    private async Task ZetUur(SpeciaalUur u, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarUur(u);
+    }
+
+    private async Task ZetUurOrder(SpeciaalUur u, ChangeEventArgs e)
+    {
+        u.WerkorderId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await BewaarUur(u);
+    }
+
+    private async Task BewaarUur(SpeciaalUur u)
+    {
+        try { u.Id = await Repo.BewaarSpeciaalUurAsync(u); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuwUur()
+    {
+        var nieuw = new SpeciaalUur { Omschrijving = "Nieuw" };
+        nieuw.Id = await Repo.BewaarSpeciaalUurAsync(nieuw);
+        _specialeUren = await Repo.GetSpecialeUrenAsync();
+    }
+
+    private async Task WisUur(SpeciaalUur u)
+    {
+        await Repo.VerwijderSpeciaalUurAsync(u.Id);
+        _specialeUren = await Repo.GetSpecialeUrenAsync();
+    }
+
+    // ---- voorraadorders ----
+    private async Task ZetVoorraad(VoorraadOrder v, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarVoorraad(v);
+    }
+
+    private async Task ZetVoorraadOrder(VoorraadOrder v, ChangeEventArgs e)
+    {
+        v.OrderId = int.TryParse((string?)e.Value, out var n) ? n : null;
+        await BewaarVoorraad(v);
+    }
+
+    /// <summary>
+    /// Er is maar één standaard: zet je hem hier aan, dan gaat hij bij de
+    /// andere regels uit — anders zou de scanner moeten raden.
+    /// </summary>
+    private async Task ZetVoorraadStandaard(VoorraadOrder v, ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+        v.Standaard = aan;
+        await BewaarVoorraad(v);
+
+        if (aan)
+        {
+            foreach (var ander in _voorraadOrders.Where(x => x.Id != v.Id && x.Standaard))
+            {
+                ander.Standaard = false;
+                await BewaarVoorraad(ander);
+            }
+        }
+    }
+
+    private async Task BewaarVoorraad(VoorraadOrder v)
+    {
+        try { v.Id = await Repo.BewaarVoorraadOrderAsync(v); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuwVoorraad()
+    {
+        var nieuw = new VoorraadOrder { Omschrijving = "Nieuw" };
+        nieuw.Id = await Repo.BewaarVoorraadOrderAsync(nieuw);
+        _voorraadOrders = await Repo.GetVoorraadOrdersAsync();
+    }
+
+    private async Task WisVoorraad(VoorraadOrder v)
+    {
+        await Repo.VerwijderVoorraadOrderAsync(v.Id);
+        _voorraadOrders = await Repo.GetVoorraadOrdersAsync();
+    }
+
+    // ---- mijlpalen ----
+    private async Task ZetMijlpaal(Mijlpaal m, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarMijlpaal(m);
+    }
+
+    private async Task ZetMijlpaalVlag(Mijlpaal m, ChangeEventArgs e)
+    {
+        m.PerWerkorder = e.Value is bool b && b;
+        await BewaarMijlpaal(m);
+    }
+
+    private async Task BewaarMijlpaal(Mijlpaal m)
+    {
+        try { m.Id = await Repo.BewaarMijlpaalAsync(m); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuweMijlpaal()
+    {
+        var nieuw = new Mijlpaal { Naam = "Nieuw" };
+        nieuw.Id = await Repo.BewaarMijlpaalAsync(nieuw);
+        _mijlpalen = await Repo.GetMijlpalenAsync();
+    }
+
+    private async Task WisMijlpaal(Mijlpaal m)
+    {
+        await Repo.VerwijderMijlpaalAsync(m.Id);
+        _mijlpalen = await Repo.GetMijlpalenAsync();
+    }
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

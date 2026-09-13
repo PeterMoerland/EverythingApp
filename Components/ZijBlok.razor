@@ -1,0 +1,40 @@
+@* Eén blokje in het zijpaneel: een kop met eventueel een aantal dat doorklikt
+   naar het volledige overzicht, en daaronder de regels. Is er niets, dan komt
+   er een rustige melding in plaats van een leeg vak. *@
+
+<div class="zij-blok">
+    <h4>
+        @Titel
+        @if (Aantal is not null && Meer.HasDelegate)
+        {
+            <button class="klein" title="Alles bekijken" @onclick="() => Meer.InvokeAsync()">@Aantal ↗</button>
+        }
+        else if (Aantal is not null)
+        {
+            <span class="zij-aantal">@Aantal</span>
+        }
+    </h4>
+
+    @if (Leeg)
+    {
+        <p class="zij-leeg">@LeegTekst</p>
+    }
+    else
+    {
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Titel { get; set; } = "";
+
+    /// <summary>Aantal achter de kop; laat weg als een teller niets toevoegt.</summary>
+    [Parameter] public int? Aantal { get; set; }
+
+    /// <summary>Ingevuld = het aantal wordt een knop naar het volledige overzicht.</summary>
+    [Parameter] public EventCallback Meer { get; set; }
+
+    [Parameter] public bool Leeg { get; set; }
+    [Parameter] public string LeegTekst { get; set; } = "Nog niets.";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

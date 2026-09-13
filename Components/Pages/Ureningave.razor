@@ -1,0 +1,590 @@
+@page "/"
+@inject IUrenRepository Repo
+@inject UrenService Service
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+<div class="page">
+    <header class="topbar">
+        <h1>Ureningave</h1>
+        <span class="weeklabel">Week @_week — @_datum.ToString("dddd d MMMM yyyy", new System.Globalization.CultureInfo("nl-NL"))</span>
+        <nav class="paginanav"><a href="." class="actief">Ureningave</a> <a href="planning">Planning</a></nav>
+    </header>
+
+    <section class="toolbar">
+        <label>Werknemer:</label>
+        <select @onchange="WerknemerGewijzigd">
+            @foreach (var w in _werknemers)
+            {
+                <option value="@w.WerknemerId" selected="@(w.WerknemerId == _werknemerId)">@w.Naam</option>
+            }
+        </select>
+
+        @* VBA: cmdMe_Click — terug naar de eigen uren *@
+        <button class="@(IkBenActief ? "primair" : "")"
+                disabled="@(_ikId is null || _ikId == _werknemerId)"
+                title="@(_ikId is null ? "Nog niet ingesteld — kies je eigen naam en klik ‘dit ben ik’" : $"Naar mijn eigen uren ({IkNaam})")"
+                @onclick="NaarMijzelf">Me</button>
+
+        @* Alleen nodig zolang er geen login is (of het account niet aan een werknemer hangt) *@
+        @if (_ikId is null || !_ingelogd)
+        {
+            <button class="klein" title="Onthoud de gekozen werknemer als mijzelf (op deze pc)"
+                    @onclick="DitBenIk">dit ben ik</button>
+        }
+
+        <input type="date" value="@_datum.ToString("yyyy-MM-dd")" @onchange="DatumGewijzigd" />
+
+        <div class="btngroup">
+            <button title="Vorige week" @onclick="() => VerschuifDagen(-7)">« week</button>
+            <button title="Vorige dag" @onclick="() => VerschuifDagen(-1)">‹ dag</button>
+            <button class="today" @onclick="Vandaag">Vandaag</button>
+            <button title="Volgende dag" @onclick="() => VerschuifDagen(1)">dag ›</button>
+            <button title="Volgende week" @onclick="() => VerschuifDagen(7)">week »</button>
+        </div>
+
+        <div class="btngroup">
+            <button @onclick="KopieerDag">Kopieer dag</button>
+            <button disabled="@(_kopieerDatum is null)" @onclick="PlakDag">Plak dag</button>
+        </div>
+
+        @if (_huidigeWerknemer?.Directie == true)
+        {
+            <button class="woonwerk" @onclick="BoekWoonWerk">Woon-werk km</button>
+        }
+
+        <div class="btngroup">
+            <select @bind="_specialOrderId">
+                <option value="0">— vrije uren —</option>
+                @foreach (var s in _specialOrders)
+                {
+                    <option value="@s.Id">@s.Remark</option>
+                }
+            </select>
+            <button @onclick="BoekVrijeUren">Boek 8 uur</button>
+        </div>
+    </section>
+
+    <section class="weekoverzicht">
+        @for (int i = 1; i <= 7; i++)
+        {
+            var dagnr = i;
+            var dagDatum = UrenService.DatumVanJaarWeekDag(_jaar, _week, dagnr);
+            var uren = _weekUren[dagnr - 1];
+            <button class="dagblok @DagCss(dagnr, dagDatum, uren)" @onclick="() => SelecteerDag(dagnr)">
+                <span class="dagnaam">@_dagNamen[dagnr - 1] (@dagDatum.Day-@dagDatum.Month)</span>
+                <span class="daguren">@(uren.HasValue ? $"{uren:0.##} uren" : "—")</span>
+            </button>
+        }
+    </section>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_meldingIsFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    <section class="grid">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:13rem">Werkorder</th>
+                    <th>Omschrijving</th>
+                    <th style="width:4.2rem">Start</th>
+                    <th style="width:4.2rem">Eind</th>
+                    <th style="width:3.8rem">Uren</th>
+                    <th style="width:8rem">Tarief</th>
+                    <th style="width:10rem">Activiteit</th>
+                    <th style="width:4rem">KM</th>
+                    <th style="width:5.5rem"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @* Alle bestaande regels zijn direct bewerkbaar (zoals een doorlopend
+                   Access-subformulier): typen in een veld en wegklikken slaat op. *@
+                @foreach (var e in _dagEntries)
+                {
+                    <tr @key="e.UrenId">@RegelRij(e)</tr>
+                }
+                @if (_bewerkt is not null && _bewerkt.UrenId == 0)
+                {
+                    <tr class="editing">@EditRow(_bewerkt)</tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" class="r"><b>Totaal:</b></td>
+                    <td class="r"><b>@_dagEntries.Sum(x => x.Uren).ToString("0.##")</b></td>
+                    <td colspan="4">
+                        @if (_bewerkt is null)
+                        {
+                            <button @onclick="NieuweRegel">+ Nieuwe regel</button>
+                        }
+                        else
+                        {
+                            <button class="primair" @onclick="Opslaan">Opslaan</button>
+                            <button @onclick="AnnuleerBewerken">Annuleren</button>
+                        }
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </section>
+
+    <footer class="voet">Vervangt het Access-formulier “Ureningave”.</footer>
+</div>
+
+<WerkorderKiezer Open="_kiezerOpen"
+                 WerknemerId="_werknemerId"
+                 OpGekozen="WerkorderGekozen"
+                 OpGesloten="() => _kiezerOpen = false" />
+
+@code {
+    private RenderFragment EditRow(UrenEntry e) => __builder =>
+    {
+        <td>
+            <div class="wo-cel">
+                <span class="wo-tekst" title="@WerkorderTekst(e.Werkorder)">
+                    @(e.Werkorder is null ? "— kies werkorder —" : WerkorderTekst(e.Werkorder))
+                </span>
+                <button class="klein" title="Werkorder zoeken" @onclick="() => ZoekVoor(e)">🔍</button>
+            </div>
+        </td>
+        <td><input @bind="e.Omschrijving" placeholder="omschrijving" /></td>
+        @* Tekstveld i.p.v. type=time: altijd 24-uurs (uu:mm), ongeacht de browsertaal.
+           Snel typen mag: 8 / 830 / 8:30 / 0830 *@
+        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+                   value="@e.StartTijd?.ToString("HH\\:mm")" @onchange="ev => StartGewijzigd(e, ev)" /></td>
+        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+                   value="@e.EindTijd?.ToString("HH\\:mm")" @onchange="ev => EindGewijzigd(e, ev)" /></td>
+        <td><input class="r" value="@e.Uren.ToString("0.##")" @onchange="ev => UrenGewijzigd(e, ev)" /></td>
+        <td>
+            <select @bind="e.TariefsoortId">
+                <option value="0">—</option>
+                @foreach (var t in _tariefsoorten)
+                {
+                    <option value="@t.TariefsoortId">@t.Naam</option>
+                }
+            </select>
+        </td>
+        <td>
+            <select @bind="e.UrenActiviteitId">
+                <option value="">—</option>
+                @foreach (var a in _activiteiten)
+                {
+                    <option value="@a.UrenActiviteitId">@a.Naam</option>
+                }
+            </select>
+        </td>
+        <td><input class="r" @bind="e.Kilometers" /></td>
+        <td class="c">
+            <button class="klein primair" @onclick="Opslaan">✔</button>
+            <button class="klein" @onclick="AnnuleerBewerken">✕</button>
+        </td>;
+    };
+
+    /// <summary>
+    /// Bestaande regel: alle velden direct bewerkbaar. Elke wijziging wordt gecontroleerd
+    /// en meteen opgeslagen (zoals Form_BeforeUpdate in de Access-versie).
+    /// </summary>
+    private RenderFragment RegelRij(UrenEntry e) => __builder =>
+    {
+        <td>
+            <div class="wo-cel">
+                <span class="wo-tekst" title="@WerkorderTekst(e.Werkorder)">@WerkorderTekst(e.Werkorder)</span>
+                <button class="klein" title="Werkorder zoeken" @onclick="() => ZoekVoor(e)">🔍</button>
+            </div>
+        </td>
+        <td><input value="@e.Omschrijving" placeholder="omschrijving" @onchange="ev => ZetOmschrijving(e, ev)" /></td>
+        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+                   value="@e.StartTijd?.ToString("HH\\:mm")" @onchange="ev => ZetStart(e, ev)" /></td>
+        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+                   value="@e.EindTijd?.ToString("HH\\:mm")" @onchange="ev => ZetEind(e, ev)" /></td>
+        <td><input class="r" value="@(e.Uren == 0 ? "" : e.Uren.ToString("0.##"))" @onchange="ev => ZetUren(e, ev)" /></td>
+        <td>
+            <select value="@e.TariefsoortId" @onchange="ev => ZetTarief(e, ev)">
+                <option value="0">—</option>
+                @foreach (var t in _tariefsoorten)
+                {
+                    <option value="@t.TariefsoortId">@t.Naam</option>
+                }
+            </select>
+        </td>
+        <td>
+            <select value="@e.UrenActiviteitId" @onchange="ev => ZetActiviteit(e, ev)">
+                <option value="">—</option>
+                @foreach (var a in _activiteiten)
+                {
+                    <option value="@a.UrenActiviteitId">@a.Naam</option>
+                }
+            </select>
+        </td>
+        <td><input class="r" value="@(e.Kilometers == 0 ? "" : e.Kilometers.ToString("0.#"))" @onchange="ev => ZetKm(e, ev)" /></td>
+        <td class="c">
+            <button class="klein rood" title="Regel verwijderen" @onclick="() => Verwijder(e)">✕</button>
+        </td>;
+    };
+
+    private readonly string[] _dagNamen = { "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag" };
+
+    private List<Werknemer> _werknemers = new();
+    private List<Workorder> _workorders = new();
+    private List<Tariefsoort> _tariefsoorten = new();
+    private List<UrenActiviteit> _activiteiten = new();
+    private List<SpecialOrder> _specialOrders = new();
+
+    private int _werknemerId = 1;
+    private Werknemer? _huidigeWerknemer;
+    private DateOnly _datum = DateOnly.FromDateTime(DateTime.Today);
+    private int _jaar, _week, _dagnummer;
+    private decimal?[] _weekUren = new decimal?[7];
+    private List<UrenEntry> _dagEntries = new();
+
+    private UrenEntry? _bewerkt;
+    private string? _melding;
+    private bool _meldingIsFout;
+
+    // VBA: SetSetting "KopieerDatum"/"KopieerWerknemer"
+    private DateOnly? _kopieerDatum;
+    private int _kopieerWerknemer;
+    private int _specialOrderId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Eerst (synchroon) week/jaar vullen: bij een echte database tekent Blazor de
+        // pagina al één keer vóórdat de data terug is, en dan moeten deze waarden geldig zijn.
+        (_jaar, _week, _dagnummer) = UrenService.WeekInfo(_datum);
+
+        _werknemers = await Repo.GetWerknemersAsync();
+        _workorders = await Repo.GetOpenWorkordersAsync();
+        _tariefsoorten = await Repo.GetTariefsoortenAsync();
+        _activiteiten = await Repo.GetActiviteitenAsync();
+        _specialOrders = await Repo.GetSpecialOrdersAsync();
+
+        // Werknemerkeuze: eerste bestaande werknemer i.p.v. hard 1
+        if (_werknemers.Count > 0 && _werknemers.All(w => w.WerknemerId != _werknemerId))
+            _werknemerId = _werknemers[0].WerknemerId;
+
+        // Ingelogd via Google? Dan is dát mijn werknemer (VBA: Get_user_id).
+        await BepaalIkUitLogin();
+
+        await Ververs(); // VBA: RefreshScreen
+    }
+
+    // === VBA: RefreshScreen + UpdateWeekoverzicht ===
+    private async Task Ververs()
+    {
+        (_jaar, _week, _dagnummer) = UrenService.WeekInfo(_datum);
+        _huidigeWerknemer = await Repo.GetWerknemerAsync(_werknemerId);
+        _weekUren = await Service.UrenPerDagVanWeek(_werknemerId, _jaar, _week);
+        // Automatisch gegenereerde regels (GeneratedByRule) niet tonen — zoals in het
+        // weekoverzicht van de VBA-versie (HaalUrenOp filterde daar ook op).
+        _dagEntries = (await Repo.GetUrenVanDagAsync(_werknemerId, _datum))
+            .Where(u => !u.GeneratedByRule)
+            .ToList();
+        _bewerkt = null;
+    }
+
+    private string DagCss(int dagnr, DateOnly dagDatum, decimal? uren)
+    {
+        if (dagnr == _dagnummer) return "geselecteerd";
+        // VBA: rood als werkdag in het verleden zonder uren
+        if (uren is null && dagnr <= 5 && dagDatum < DateOnly.FromDateTime(DateTime.Today)) return "leeg-verleden";
+        if (dagnr >= 6) return "weekend";
+        return "";
+    }
+
+    private async Task WerknemerGewijzigd(ChangeEventArgs e)
+    {
+        _werknemerId = int.Parse((string)e.Value!);
+        await Ververs();
+    }
+
+    // ================================================================
+    //  "Wie ben ik" (VBA: Get_user_id / cmdMe_Click)
+    //
+    //  _ikId          = mijn eigen werknemer-id
+    //  _werknemerId   = de werknemer wiens uren nu in beeld staan
+    //                   (mag een ander zijn: uren van collega's bekijken)
+    //
+    //  In Access stond dit per pc in PersonalSettings.mdb
+    //  ([Personal_Setting].[user]). Tot er een login is, onthouden we het
+    //  per pc in de browser. Zodra Google-login/Windows-login werkt, wordt
+    //  _ikId daaruit gevuld en verdwijnt de knop 'dit ben ik'.
+    // ================================================================
+    private int? _ikId;
+    private bool _ingelogd;
+    private bool _gebruikerGelezen;
+
+    /// <summary>Bepaalt _ikId uit het ingelogde Google-account (VBA: Get_user_id).</summary>
+    private async Task BepaalIkUitLogin()
+    {
+        await Ik.ZorgGeladenAsync();
+        _ingelogd = Ik.Ingelogd;
+
+        if (Ik.WerknemerId is int id && _werknemers.Any(w => w.WerknemerId == id))
+        {
+            _ikId = id;
+            _werknemerId = id;
+        }
+    }
+
+    private bool IkBenActief => _ikId is not null && _ikId == _werknemerId;
+    private string IkNaam => _werknemers.FirstOrDefault(w => w.WerknemerId == _ikId)?.Naam ?? "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _gebruikerGelezen) return;
+        _gebruikerGelezen = true;
+        if (_ikId is not null) return;   // al bekend via de login
+        try
+        {
+            var opgeslagen = await JS.InvokeAsync<string?>("mdeOpslag.lees", "mdeIkId");
+            if (int.TryParse(opgeslagen, out var id) && _werknemers.Any(w => w.WerknemerId == id))
+            {
+                _ikId = id;
+                if (id != _werknemerId)
+                {
+                    _werknemerId = id;          // bij openen: eigen uren tonen
+                    await Ververs();
+                }
+                StateHasChanged();
+            }
+        }
+        catch { /* geen opslag beschikbaar: gewoon de standaardkeuze houden */ }
+    }
+
+    // VBA: cmdMe_Click
+    private async Task NaarMijzelf()
+    {
+        if (_ikId is null) return;
+        _werknemerId = _ikId.Value;
+        await Ververs();
+    }
+
+    private async Task DitBenIk()
+    {
+        _ikId = _werknemerId;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "mdeIkId", _werknemerId.ToString()); }
+        catch { }
+        Toon($"Onthouden: jij bent {IkNaam}. De knop ‘Me’ brengt je nu altijd terug naar je eigen uren.", fout: false);
+    }
+
+    private async Task DatumGewijzigd(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse((string?)e.Value, out var d)) { _datum = d; await Ververs(); }
+    }
+
+    private async Task VerschuifDagen(int n) { _datum = _datum.AddDays(n); await Ververs(); }
+    private async Task Vandaag() { _datum = DateOnly.FromDateTime(DateTime.Today); await Ververs(); }
+    private async Task SelecteerDag(int dagnr) { _datum = UrenService.DatumVanJaarWeekDag(_jaar, _week, dagnr); await Ververs(); }
+
+    // === VBA: btnKopieer_Click / btnPlak_Click ===
+    private void KopieerDag()
+    {
+        _kopieerDatum = _datum;
+        _kopieerWerknemer = _werknemerId;
+        Toon($"Dag gekopieerd: {_datum:dd-MM-yyyy}. Kies nu een andere dag of werknemer en klik ‘Plak dag’.", fout: false);
+    }
+
+    private async Task PlakDag()
+    {
+        if (_kopieerDatum is null) { Toon("Plakken niet mogelijk. Jammer joh.", fout: true); return; }
+        var n = await Service.PlakDagAsync(_kopieerWerknemer, _kopieerDatum.Value, _werknemerId, _datum);
+        Toon($"{n} regels geplakt.", fout: false);
+        await Ververs();
+    }
+
+    // === VBA: WoonWerk_Click ===
+    private async Task BoekWoonWerk()
+    {
+        var geboekt = await Service.BoekWoonWerkAsync(_werknemerId, _datum);
+        Toon(geboekt ? "Woon-werk kilometers geboekt (heen en terug)." : "Woon-werk kilometers staan al geboekt op deze dag.", fout: !geboekt);
+        await Ververs();
+    }
+
+    // === VBA: KnopVrijeUrenInboeken_Click ===
+    private async Task BoekVrijeUren()
+    {
+        if (_specialOrderId == 0) return;
+        await Service.BoekVrijeUrenAsync(_werknemerId, _datum, _specialOrderId);
+        _specialOrderId = 0;
+        await Ververs();
+    }
+
+    // === Grid bewerken (Access continuous subform) ===
+    private void NieuweRegel()
+    {
+        _bewerkt = new UrenEntry
+        {
+            StartDatum = _datum,
+            EindDatum = _datum,
+            WerknemerId = _werknemerId,
+            TariefsoortId = 2, // Normaal (VBA-dubbelklik zette ook 2)
+            Werkorder = _laatsteWerkorder,   // VBA: Storedproject — vorige werkorder vooringevuld
+            UrenActiviteitId = _huidigeWerknemer?.Hoofdactiviteit, // VBA: defaultActiviteit
+            FixedTypeId = 0
+        };
+    }
+
+    private void AnnuleerBewerken() => _bewerkt = null;
+
+    private void StartGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    {
+        var t = UrenService.ParseTijd((string?)ev.Value);
+        e.StartTijd = t is null ? null : UrenService.OpKwartier(t.Value);
+        UrenService.BerekenUren(e); // VBA: StartTijd_AfterUpdate → berekenuren
+    }
+
+    private void EindGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    {
+        var t = UrenService.ParseTijd((string?)ev.Value);
+        e.EindTijd = t is null ? null : UrenService.OpKwartier(t.Value);
+        UrenService.BerekenUren(e); // VBA: Eindtijd_AfterUpdate → berekenuren
+    }
+
+    // ================================================================
+    //  Direct bewerken van bestaande regels (Access-stijl)
+    //  Elk veld: waarde bijwerken -> controleren -> opslaan.
+    // ================================================================
+    private async Task BewaarRegel(UrenEntry e)
+    {
+        if (e.UrenId == 0) return;                 // nieuwe regel gaat via Opslaan()
+
+        var fout = await Service.ValideerAsync(e);
+        if (fout is not null) { Toon(fout, fout: true); return; }
+
+        UrenService.CheckMidnight(e);
+        await Repo.UpdateAsync(e);
+        _melding = null;
+
+        // dag- en weektotalen bijwerken zonder de rij te verversen (behoudt de cursor)
+        _weekUren = await Service.UrenPerDagVanWeek(_werknemerId, _jaar, _week);
+    }
+
+    // ---- werkorder kiezen via het zoekvenster ----
+    private bool _kiezerOpen;
+    private UrenEntry? _kiezerVoor;
+
+    private void ZoekVoor(UrenEntry e)
+    {
+        _kiezerVoor = e;
+        _kiezerOpen = true;
+    }
+
+    private async Task WerkorderGekozen(Workorder w)
+    {
+        _kiezerOpen = false;
+        if (_kiezerVoor is null) return;
+
+        _kiezerVoor.Werkorder = w.WerkbonId;
+
+        // Gekozen werkorder ook in de lijst zetten, zodat de tekst direct klopt
+        if (_workorders.All(x => x.WerkbonId != w.WerkbonId)) _workorders.Add(w);
+
+        // VBA: Werkorder_AfterUpdate onthield de order als 'Storedproject'
+        _laatsteWerkorder = w.WerkbonId;
+
+        await BewaarRegel(_kiezerVoor);
+    }
+
+    /// <summary>Laatst gekozen werkorder (VBA: Storedproject / Ctrl+A).</summary>
+    private int? _laatsteWerkorder;
+
+    private async Task ZetOmschrijving(UrenEntry e, ChangeEventArgs ev)
+    {
+        e.Omschrijving = (string?)ev.Value ?? "";
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetStart(UrenEntry e, ChangeEventArgs ev)
+    {
+        StartGewijzigd(e, ev);
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetEind(UrenEntry e, ChangeEventArgs ev)
+    {
+        EindGewijzigd(e, ev);
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetUren(UrenEntry e, ChangeEventArgs ev)
+    {
+        UrenGewijzigd(e, ev);
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetTarief(UrenEntry e, ChangeEventArgs ev)
+    {
+        e.TariefsoortId = int.TryParse((string?)ev.Value, out var v) ? v : 0;
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetActiviteit(UrenEntry e, ChangeEventArgs ev)
+    {
+        e.UrenActiviteitId = int.TryParse((string?)ev.Value, out var v) ? v : null;
+        await BewaarRegel(e);
+    }
+
+    private async Task ZetKm(UrenEntry e, ChangeEventArgs ev)
+    {
+        e.Kilometers = decimal.TryParse(((string?)ev.Value)?.Replace(',', '.'),
+            System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+        await BewaarRegel(e);
+    }
+
+    private void UrenGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    {
+        if (decimal.TryParse(((string?)ev.Value)?.Replace(',', '.'),
+            System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var u))
+        {
+            e.Uren = Math.Round(u * 4, MidpointRounding.AwayFromZero) / 4;  // op kwartieren
+            UrenService.BerekenEindtijd(e); // VBA: uren_AfterUpdate
+        }
+    }
+
+    private async Task Opslaan()
+    {
+        if (_bewerkt is null) return;
+
+        // VBA: Form_BeforeUpdate — identieke controles en meldingen
+        var fout = await Service.ValideerAsync(_bewerkt);
+        if (fout is not null) { Toon(fout, fout: true); return; }
+
+        UrenService.CheckMidnight(_bewerkt);
+        if (_bewerkt.UrenId == 0) await Repo.AddAsync(_bewerkt);
+        else await Repo.UpdateAsync(_bewerkt);
+        await Ververs();
+    }
+
+    // VBA: KnopVerwijderRecord_Click ("Weet je het zeker?")
+    // VBA: KnopVerwijderRecord_Click — "Weet je het zeker?"
+    private async Task Verwijder(UrenEntry e)
+    {
+        var wat = string.IsNullOrWhiteSpace(e.Omschrijving)
+            ? $"{e.Uren:0.##} uur"
+            : $"{e.Uren:0.##} uur — {e.Omschrijving}";
+
+        bool zeker;
+        try { zeker = await JS.InvokeAsync<bool>("confirm", $"Deze regel verwijderen?\n\n{wat}\n\nWeet je het zeker?"); }
+        catch { zeker = true; }
+        if (!zeker) return;
+
+        await Repo.DeleteAsync(e.UrenId);
+        await Ververs();
+    }
+
+    private string WerkorderTekst(int? id)
+    {
+        if (id is null) return "";
+        var wo = _workorders.FirstOrDefault(w => w.WerkbonId == id);
+        return wo is null ? id.ToString()! : wo.VolledigeTekst;
+    }
+
+    private void Toon(string tekst, bool fout)
+    {
+        _melding = tekst;
+        _meldingIsFout = fout;
+    }
+}

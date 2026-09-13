@@ -1,0 +1,45 @@
+@page "/mobiel"
+@layout MobielLayout
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* Het mobiele startscherm: alleen de functies die op een telefoon zinvol
+   zijn, als grote tegels. Komt er een functie bij, dan is dat hier één
+   tegel extra (en zo nodig een /mobiel/...-pagina met het paneel erin). *@
+
+<PageTitle>MDE mobiel</PageTitle>
+
+<h2 class="mobiel-kop">Waar wil je heen?</h2>
+
+<div class="mobiel-tegels">
+    <a class="mobiel-tegel" href="mobiel/licht">
+        <span class="ikoon">💡</span>Verlichting
+    </a>
+    <a class="mobiel-tegel" href="mobiel/zonwering">
+        <span class="ikoon">⛅</span>Zonwering
+    </a>
+    <a class="mobiel-tegel" href="mobiel/compressor">
+        <span class="ikoon">💨</span>Compressor
+    </a>
+    <a class="mobiel-tegel" href="mobiel/alarm">
+        <span class="ikoon">🚨</span>Alarm
+    </a>
+    <a class="mobiel-tegel" href="scannen">
+        <span class="ikoon">📦</span>Scannen
+    </a>
+</div>
+
+<div class="mobiel-voet">
+    <span class="mobiel-klein">Meer functies komen hier later bij.</span>
+    <button class="knopje" @onclick="VolledigeApp">Volledige app gebruiken</button>
+</div>
+
+@code {
+    /// <summary>Terug naar de volledige app; de keuze wordt op dit toestel
+    /// onthouden, dus de vraag komt niet opnieuw.</summary>
+    private async Task VolledigeApp()
+    {
+        try { await JS.InvokeVoidAsync("mdeMobiel.kies", false); } catch { }
+        Nav.NavigateTo("");
+    }
+}

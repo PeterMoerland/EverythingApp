@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- De publicatiemap ligt in de projectmap. Zonder deze regel ziet het
+         project die map als eigen inhoud en kopieert hij bij elke publicatie de
+         vorige publicatie in zichzelf: publish\publish\publish\... tot Windows
+         over de maximale padlengte gaat en de publicatie half mislukt. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="publish\**" />
+    <Content Remove="publish\**" />
+    <None Remove="publish\**" />
+    <EmbeddedResource Remove="publish\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SQL Server repository is excluded from compilation until you add the
+         Microsoft.Data.SqlClient package. See README.md, step "Switch to live SQL Server". -->
+    <Compile Remove="SqlServer\**" />
+    <None Include="SqlServer\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MySQL-driver (moderne, open-source client; werkt ook met MariaDB).
+         Wordt bij de eerste 'dotnet run' van nuget.org opgehaald (internet nodig). -->
+    <PackageReference Include="MySqlConnector" Version="2.*" />
+    <!-- Laat de app als Windows-service draaien. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.*" />
+    <!-- Inloggen met Google (Google Workspace). -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="8.*" />
+    <!-- Word-documenten maken (NDA uit het bestaande .docx-sjabloon). -->
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.*" />
+    <!-- DataMatrix-code op het typeplaatje. Alleen de encoder; het tekenen doen we zelf. -->
+    <PackageReference Include="ZXing.Net" Version="0.16.*" />
+    <!-- EtherNet/IP naar de gebouw-PLC (Omron NJ). Bevat de native bibliotheek voor Windows. -->
+    <PackageReference Include="libplctag" Version="1.*" />
+    <!-- Foto's verkleinen voor op het Dymo-label. Werkt alleen op Windows,
+         en daar draait de app. -->
+    <PackageReference Include="System.Drawing.Common" Version="8.*" />
+    <!-- Tekst uit een PDF halen (facturen uitlezen). Zuiver .NET, geen externe
+         programma's nodig; werkt alleen als de PDF een tekstlaag heeft. -->
+    <PackageReference Include="PdfPig" Version="0.1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Het NDA-sjabloon gaat mee naar de publish-map. Wil je de tekst wijzigen,
+         pas dan dit bestand aan (of zet Nda:TemplatePad in appsettings.json). -->
+    <None Update="Templates\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

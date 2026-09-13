@@ -1,0 +1,74 @@
+@implements IDisposable
+@inject IPlc Plc
+
+@* De compressorbediening zelf, zonder paginakop — gedeeld door de
+   desktop-pagina (/gebouw/compressor) en de mobiele pagina (/mobiel/compressor). *@
+
+@if (_melding is not null)
+{
+    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+}
+
+<div class="hmi-stand-regel">@(_draait ? "draait" : "staat stil")</div>
+
+<div class="compressor">
+    <div class="signaal @(_draait ? "brandt" : "")" title="@(_draait ? "De compressor draait" : "De compressor staat stil")"></div>
+    <p class="uitleg">
+        Buiten werktijd slaat de compressor af. Met 'Start overwerk' blijft hij doorlopen;
+        het lampje hierboven toont wat de PLC terugmeldt.
+    </p>
+
+    <div class="hmi-kolom breed">
+        @foreach (var knop in Gebouw.Compressor)
+        {
+            <button class="hmi-knop @knop.Kleur" @key="knop.Tag" @onclick="() => Klik(knop)">
+                <span class="hmi-naam">@knop.Naam</span>
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _draait;
+    private Timer? _klok;
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Verversen();
+
+        _klok = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await Verversen();
+            StateHasChanged();
+        }), null, 5000, 5000);
+    }
+
+    private async Task Verversen()
+    {
+        try { _draait = await Plc.LeesAsync(Gebouw.CompressorDraaitTag); }
+        catch (Exception ex) { Toon("Stand ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Klik(Knop knop)
+    {
+        try
+        {
+            await Plc.PulsAsync(knop.Tag);
+
+            // in de demostand meteen zichtbaar maken wat er gebeurt
+            if (!Plc.Echt)
+                await Plc.SchrijfAsync(Gebouw.CompressorDraaitTag,
+                                       knop.Tag.Contains("Start", StringComparison.OrdinalIgnoreCase));
+
+            await Verversen();
+            Toon($"{knop.Naam} aangetikt.", false);
+        }
+        catch (Exception ex) { Toon("Bedienen mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    public void Dispose() => _klok?.Dispose();
+}

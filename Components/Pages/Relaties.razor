@@ -1,0 +1,962 @@
+@page "/relaties"
+@using Microsoft.AspNetCore.WebUtilities
+@inject IRelatieRepository Repo
+@inject FilestoreService Store
+@inject MailService Post
+@inject MailPostbussen Postbussen
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="page">
+    <header class="topbar">
+        <h1>@(_gekozenNaam ?? "Relaties")</h1>
+        <span class="weeklabel">@_aantal gevonden</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: zoeken ---------- *@
+            <aside class="wn-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Zoek naam of alias…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
+                                @onclick="WisZoek">✕</button>
+                    </div>
+                    <label class="vink">
+                        <input type="checkbox" checked="@_alleenKlanten" @onchange="KlantenGewijzigd" />
+                        Alleen klanten
+                    </label>
+                    <label class="vink">
+                        <input type="checkbox" checked="@_alleenLeveranciers" @onchange="LeveranciersGewijzigd" />
+                        Alleen leveranciers
+                    </label>
+                    <div class="btngroup">
+                        <button class="klein" @onclick="Nieuw">+ Nieuw</button>
+                        <button class="klein rood" disabled="@(_gekozenId is null)"
+                                title="Geselecteerde relatie verwijderen" @onclick="VerwijderRelatie">✕ Wissen</button>
+                    </div>
+                </div>
+                <div class="wn-namen">
+                    @if (_aantal == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                    else
+                    {
+                        @* Laadt tijdens scrollen telkens een blokje bij *@
+                        <Virtualize @ref="_virtualize" ItemsProvider="Ophalen" ItemSize="29" OverscanCount="12"
+                                    Context="r" TItem="Keuze">
+                            <ItemContent>
+                                <button class="wn-naam @(r.Id == _gekozenId ? "actief" : "")"
+                                        @onclick="() => Kies(r)">@r.Naam</button>
+                            </ItemContent>
+                            <Placeholder>
+                                <div class="wn-naam laden">…</div>
+                            </Placeholder>
+                        </Virtualize>
+                    }
+                </div>
+            </aside>
+
+            @* ---------- rechts: tabbladen ---------- *@
+            <section class="wn-detail">
+                @if (_gekozenId is null)
+                {
+                    <div class="kiezer-info">Kies links een relatie, of zoek er een.</div>
+                }
+                else
+                {
+                    <div class="wn-tabs">
+                        @foreach (var tab in RelatieVelden.Tabs)
+                        {
+                            <button class="@(tab.Naam == _tab ? "actief" : "")" @onclick="() => _tab = tab.Naam">@tab.Naam</button>
+                        }
+                        <button class="@("Contactpersonen" == _tab ? "actief" : "")"
+                                @onclick="KiesContactpersonen">Contactpersonen (@_contacten.Count)</button>
+                        <button class="@("Documenten" == _tab ? "actief" : "")"
+                                @onclick="KiesDocumenten">Documenten (@_documenten.Count)</button>
+                        <button class="@("Mail" == _tab ? "actief" : "")"
+                                @onclick="KiesMail">Mail</button>
+                    </div>
+
+                    @if (_tab == "Contactpersonen")
+                    {
+                        <div class="tl-balk">
+                            <button class="primair" @onclick="NieuwContact">+ Contactpersoon toevoegen</button>
+                            <label class="vink">
+                                <input type="checkbox" checked="@_toonUitDienst" @onchange="UitDienstGewijzigd" />
+                                Ook niet meer werkzaam tonen
+                            </label>
+                        </div>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:1.4rem"></th>
+                                    <th style="width:4.5rem">Titel</th>
+                                    <th>Naam</th>
+                                    <th style="width:8.5rem">Telefoon</th>
+                                    <th style="width:8.5rem">Mobiel</th>
+                                    <th style="width:4rem" title="Geen persoon (afdeling of algemeen adres)">Geen&nbsp;pers.</th>
+                                    <th style="width:4rem" title="Niet meer werkzaam">Weg</th>
+                                    <th style="width:3rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in _contacten)
+                                {
+                                    <tr @key="c.Id" class="@(c.Id == _contactId ? "gekozen-rij" : "") @(c.UitDienst ? "vervallen" : "")"
+                                        @onclick="() => _contactId = c.Id">
+                                        <td class="c wijzer" title="Deze regel openen">@(c.Id == _contactId ? "▸" : "")</td>
+                                        <td><input value="@c.Titel" @onchange="e => ZetContact(c, v => c.Titel = v, e)" /></td>
+                                        <td><input value="@c.Naam" @onchange="e => ZetContact(c, v => c.Naam = v, e)" /></td>
+                                        <td><input value="@c.Telefoon" @onchange="e => ZetContact(c, v => c.Telefoon = v, e)" /></td>
+                                        <td><input value="@c.Mobiel" @onchange="e => ZetContact(c, v => c.Mobiel = v, e)" /></td>
+                                        <td class="c"><input type="checkbox" checked="@c.GeenPersoon"
+                                                             @onchange="e => ZetContactVlag(c, b => c.GeenPersoon = b, e)" /></td>
+                                        <td class="c"><input type="checkbox" checked="@c.UitDienst"
+                                                             @onchange="e => ZetContactVlag(c, b => c.UitDienst = b, e)" /></td>
+                                        <td class="c">
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderContact(c)" @onclick:stopPropagation>✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_contacten.Count == 0)
+                                {
+                                    <tr><td colspan="8" class="kiezer-info">Nog geen contactpersonen.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        @if (_contact is null)
+                        {
+                            <p class="uitleg">Klik een contactpersoon aan om afdeling, functie, aanhef en opmerking te zien.</p>
+                        }
+                        else
+                        {
+                            <h3 class="wn-kop">@(string.IsNullOrWhiteSpace(_contact.Naam) ? "Contactpersoon" : _contact.Naam)</h3>
+                            <div class="wn-velden">
+                                <div class="wn-veld">
+                                    <label>Afdeling</label>
+                                    <input value="@_contact.Afdeling" @onchange="e => ZetContact(_contact, v => _contact.Afdeling = v, e)" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Functie</label>
+                                    <input value="@_contact.Functie" @onchange="e => ZetContact(_contact, v => _contact.Functie = v, e)" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>E-mail</label>
+                                    <input value="@_contact.Mail" @onchange="e => ZetContact(_contact, v => _contact.Mail = v, e)" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Aanhef</label>
+                                    <input value="@_contact.Aanhef" @onchange="e => ZetContact(_contact, v => _contact.Aanhef = v, e)" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Fax</label>
+                                    <input value="@_contact.Fax" @onchange="e => ZetContact(_contact, v => _contact.Fax = v, e)" />
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Opmerking</label>
+                                    <textarea rows="3" value="@_contact.Opmerking"
+                                              @onchange="e => ZetContact(_contact, v => _contact.Opmerking = v, e)"></textarea>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    @if (_tab == "Mail")
+                    {
+                        <div class="tl-balk">
+                            <select value="@_mailPostbus" @onchange="MailPostbusGewijzigd">
+                                @foreach (var p in _mailPostbussen)
+                                {
+                                    <option value="@p.Sleutel">@p.Naam</option>
+                                }
+                            </select>
+                            <input class="mail-zoek" placeholder="Gmail-zoekopdracht…" value="@_mailZoek"
+                                   @onchange="MailZoekGewijzigd" />
+                            <button class="primair" disabled="@_mailBezig" @onclick="ZoekMail">
+                                @(_mailBezig ? "Zoeken…" : "Zoeken")
+                            </button>
+                        </div>
+                        <p class="uitleg">
+                            Zoekt in de gekozen postbus met de zoektaal van Gmail. De opdracht is
+                            opgebouwd uit de e-mailadressen van deze relatie; je kunt hem aanpassen,
+                            bijvoorbeeld door <code>after:2026/01/01</code> toe te voegen.
+                            Staat er een gedeelde postbus in de lijst, dan zie je daar de correspondentie
+                            van iedereen — handig bij een leverancier via inkoop.
+                        </p>
+
+                        @if (_mails.Count == 0)
+                        {
+                            <div class="kiezer-info">
+                                @(_mailBezig ? "Bezig met zoeken…" : "Geen berichten gevonden.")
+                            </div>
+                        }
+                        else
+                        {
+                            <table class="kiezer-tabel">
+                                <thead>
+                                    <tr>
+                                        <th style="width:9rem">Datum</th>
+                                        <th style="width:12rem">Van</th>
+                                        <th>Onderwerp</th>
+                                        <th style="width:4rem"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var m in _mails)
+                                    {
+                                        <tr @key="m.Id" class="@(m.Ongelezen ? "ongelezen" : "")">
+                                            <td>@(m.Datum?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                            <td title="@m.Van">@m.VanKort</td>
+                                            <td>
+                                                <span class="mail-onderwerp">@m.Onderwerp</span>
+                                                <span class="mail-snippet">@m.Samenvatting</span>
+                                                @if (m.Bijlagen.Count > 0)
+                                                {
+                                                    <span class="mail-bijlagen">
+                                                        @foreach (var b in m.Bijlagen)
+                                                        {
+                                                            <button class="klein" title="Opslaan bij deze relatie"
+                                                                    @onclick="() => BewaarBijlage(m, b)">
+                                                                📎 @b.Naam
+                                                            </button>
+                                                        }
+                                                    </span>
+                                                }
+                                            </td>
+                                            <td class="c">
+                                                @if (HuidigePostbus.Eigen)
+                                                {
+                                                    <a class="knopje" href="@GmailLink(m)" target="_blank"
+                                                       title="In Gmail openen">↗</a>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    }
+                    else if (_tab == "Documenten")
+                    {
+                        <div class="tl-balk">
+                            <label class="doc-filter">
+                                Soort
+                                <select value="@_docSoort" @onchange="DocSoortGewijzigd">
+                                    <option value="">Alles (@_documenten.Count)</option>
+                                    @foreach (var soort in DocSoorten())
+                                    {
+                                        <option value="@soort.Naam">@soort.Naam (@soort.Aantal)</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (_docSoort.Length > 0)
+                            {
+                                <button class="klein" @onclick="WisDocSoort">✕ filter wissen</button>
+                            }
+                        </div>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:9rem">Waar</th>
+                                    <th>Bestand</th>
+                                    <th style="width:9rem">Toegevoegd</th>
+                                    <th style="width:11rem">Door</th>
+                                    <th style="width:6rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in ZichtbareDocumenten())
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>@d.Waar</td>
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                                @d.Bestandsnaam
+                                            </button>
+                                        </td>
+                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td>@d.ToegevoegdDoor</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)"
+                                               title="Downloaden">⭳</a>
+                                            @if (d.StoreType == 311)
+                                            {
+                                                <button class="klein rood" title="Verwijderen"
+                                                        @onclick="() => VerwijderDocument(d)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (ZichtbareDocumenten().Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="5" class="kiezer-info">
+                                            @(_documenten.Count == 0
+                                                ? "Nog geen documenten bij deze relatie."
+                                                : "Geen documenten van dit soort.")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                             @ondragenter="() => _sleepActief = true"
+                             @ondragleave="() => _sleepActief = false"
+                             @ondragover:preventDefault="true">
+                            <span>Sleep hier een bestand, of klik om te kiezen</span>
+                            <InputFile OnChange="DocumentenGekozen" multiple />
+                        </div>
+                        <p class="uitleg">
+                            Documenten die aan een order, factuur of NDA van deze relatie hangen staan
+                            er automatisch bij; alleen wat je hier zelf toevoegt kun je ook weer wissen.
+                        </p>
+                    }
+                    else if (_tab != "Contactpersonen" && _tab != "Mail")
+                    {
+                        var huidig = RelatieVelden.Tabs.FirstOrDefault(t => t.Naam == _tab) ?? RelatieVelden.Tabs[0];
+                        <DetailMetZij>
+                        <Hoofd>
+                        <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")">
+                            @foreach (var veld in huidig.Velden)
+                            {
+                                var kolom = Kolom(veld);
+                                @if (kolom is not null)
+                                {
+                                    <div class="wn-veld @(veld.Type == VeldType.Meerregelig ? "breed" : "")">
+                                        <label>@veld.Label</label>
+                                        @if (veld.Type == VeldType.JaNee)
+                                        {
+                                            <input type="checkbox" checked="@Waar(kolom)"
+                                                   @onchange="e => Bewaar(kolom, Vink(e) ? 1 : 0)" />
+                                        }
+                                        else if (veld.Type == VeldType.Meerregelig)
+                                        {
+                                            <textarea rows="4" value="@Tekst(kolom)"
+                                                      @onchange="e => Bewaar(kolom, (string?)e.Value)"></textarea>
+                                        }
+                                        else if (veld.Type == VeldType.Keuze && _landen.Count > 0)
+                                        {
+                                            <select value="@Tekst(kolom)" @onchange="e => Bewaar(kolom, (string?)e.Value)">
+                                                <option value="">—</option>
+                                                @foreach (var l in _landen)
+                                                {
+                                                    <option value="@l.Id">@l.Naam</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input value="@Tekst(kolom)"
+                                                   class="@(veld.Type is VeldType.Getal or VeldType.Bedrag ? "r smal" : "")"
+                                                   @onchange="e => Bewaar(kolom, (string?)e.Value)" />
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                        </Hoofd>
+
+                        @* Naast het formulier: waar je bij een relatie meestal naar zoekt. *@
+                        <Zij>
+                            <ZijBlok Titel="Contactpersonen" Aantal="_contacten.Count" Meer="KiesContactpersonen"
+                                     Leeg="_contacten.Count == 0" LeegTekst="Nog geen contactpersonen.">
+                                @foreach (var c in _contacten.Take(6))
+                                {
+                                    <div class="zij-regel" @key="c.Id">
+                                        <span class="zij-naam">@c.Naam</span>
+                                        @if (!string.IsNullOrWhiteSpace(c.Functie))
+                                        {
+                                            <span class="zij-extra">@c.Functie</span>
+                                        }
+                                        <span class="zij-extra">
+                                            @Telefoonvan(c)
+                                            @if (!string.IsNullOrWhiteSpace(c.Mail))
+                                            {
+                                                <a href="@("mailto:" + c.Mail)">@c.Mail</a>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                                @if (_contacten.Count > 6)
+                                {
+                                    <p class="zij-leeg">en nog @(_contacten.Count - 6)…</p>
+                                }
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Laatste documenten" Aantal="_documenten.Count" Meer="KiesDocumenten"
+                                     Leeg="_documenten.Count == 0" LeegTekst="Nog geen documenten.">
+                                @foreach (var d in _documenten.Take(5))
+                                {
+                                    <div class="zij-regel" @key="d.FileStoreId">
+                                        <button class="zij-naam zij-knop"
+                                                @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                            @d.Bestandsnaam
+                                        </button>
+                                        <span class="zij-extra">
+                                            @d.Waar · @(d.Toegevoegd?.ToString("dd-MM-yyyy") ?? "")
+                                        </span>
+                                    </div>
+                                }
+                            </ZijBlok>
+                        </Zij>
+                        </DetailMetZij>
+                    }
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Logins en activiteiten volgen als aparte lijsten bij de relatie.
+    </footer>
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+
+@code {
+    private int _aantal;
+    private Virtualize<Keuze>? _virtualize;
+    private int? _gekozenId;
+    private string? _gekozenNaam;
+    private string _tab = "Adres";
+
+    private string _zoek = "";
+    private bool _alleenKlanten;
+    private bool _alleenLeveranciers;
+
+    private HashSet<string> _kolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
+    private List<Keuze> _landen = new();
+
+    /// <summary>StoreType voor bestanden die rechtstreeks bij een relatie horen.</summary>
+    private const int StoreTypeRelatie = FilestoreService.StoreTypeRelatie;
+
+    private List<RelatieDocument> _documenten = new();
+    private bool _sleepActief;
+
+    /// <summary>Leeg = alle soorten tonen.</summary>
+    private string _docSoort = "";
+
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _kolommen = await Repo.KolommenAsync();
+            try { _landen = await Repo.GetLandenAsync(); } catch { }
+            await Laad();
+
+            // ?id=123 — bijvoorbeeld terug vanuit het NDA-scherm
+            var vraag = QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+            if (vraag.TryGetValue("id", out var waarde) && int.TryParse(waarde, out var id))
+            {
+                var velden = await Repo.GetVeldenAsync(id);
+                var naam = velden.TryGetValue("name", out var n) ? n?.ToString() ?? "" : "";
+                await Kies(new Keuze(id, string.IsNullOrWhiteSpace(naam) ? $"#{id}" : naam));
+            }
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Documenten uit de filestore
+    // ================================================================
+    private static string BekijkUrl(int fileStoreId) => "bestand/" + fileStoreId;
+    private static string DownloadUrl(int fileStoreId) => "bestand/" + fileStoreId + "/download";
+
+    // ---- bestand groot in beeld ----
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private void ToonVoorbeeld(int fileStoreId, string naam)
+    {
+        _voorbeeldId = fileStoreId;
+        _voorbeeldNaam = naam;
+    }
+
+    private void SluitVoorbeeld() => _voorbeeldId = null;
+
+    private async Task LaadDocumenten()
+    {
+        if (_gekozenId is null) { _documenten = new(); return; }
+        try { _documenten = await Repo.GetDocumentenAsync(_gekozenId.Value); }
+        catch (Exception ex) { _documenten = new(); Toon("Documenten ophalen mislukt: " + ex.Message, true); }
+
+        // Filter laten vallen als dit soort bij deze relatie niet voorkomt,
+        // anders lijkt het lijstje leeg terwijl er documenten zijn.
+        if (_docSoort.Length > 0 && !_documenten.Any(d => d.Waar == _docSoort)) _docSoort = "";
+    }
+
+    /// <summary>De soorten die bij deze relatie echt voorkomen, met aantal.</summary>
+    private List<(string Naam, int Aantal)> DocSoorten()
+        => _documenten
+            .GroupBy(d => d.Waar)
+            .Select(g => (Naam: g.Key, Aantal: g.Count()))
+            .OrderByDescending(s => s.Aantal)
+            .ThenBy(s => s.Naam)
+            .ToList();
+
+    private List<RelatieDocument> ZichtbareDocumenten()
+        => _docSoort.Length == 0
+            ? _documenten
+            : _documenten.Where(d => d.Waar == _docSoort).ToList();
+
+    private void DocSoortGewijzigd(ChangeEventArgs e) => _docSoort = (string?)e.Value ?? "";
+
+    private void WisDocSoort() => _docSoort = "";
+
+    // ================================================================
+    //  Mail (Gmail van de ingelogde gebruiker)
+    // ================================================================
+    private List<MailBericht> _mails = new();
+    private string _mailZoek = "";
+    private bool _mailBezig;
+
+    private List<MailPostbus> _mailPostbussen = new();
+    private string _mailPostbus = "eigen";
+
+    private MailPostbus HuidigePostbus
+        => _mailPostbussen.FirstOrDefault(p => p.Sleutel == _mailPostbus)
+           ?? MailService.Eigen(Ik.Email);
+
+    private async Task KiesMail()
+    {
+        _tab = "Mail";
+        if (_mailPostbussen.Count == 0) _mailPostbussen = Postbussen.Voor(Ik);
+
+        if (_mails.Count == 0 && !_mailBezig)
+        {
+            _mailZoek = MailZoekopdracht();
+            if (_mailZoek.Length > 0) await ZoekMail();
+        }
+    }
+
+    private void MailZoekGewijzigd(ChangeEventArgs e) => _mailZoek = (string?)e.Value ?? "";
+
+    private async Task MailPostbusGewijzigd(ChangeEventArgs e)
+    {
+        _mailPostbus = (string?)e.Value ?? "eigen";
+        await ZoekMail();
+    }
+
+    private string GmailLink(MailBericht bericht) => MailService.GmailLink(HuidigePostbus, bericht);
+
+    /// <summary>
+    /// Bouwt de zoekopdracht uit de domeinen van deze relatie: het algemene
+    /// e-mailadres en dat van de contactpersonen. Zo vind je ook mail van een
+    /// collega bij die klant die zelf niet in de contactpersonen staat.
+    /// </summary>
+    private string MailZoekopdracht()
+    {
+        var domeinen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Voeg(string? adres)
+        {
+            if (string.IsNullOrWhiteSpace(adres)) return;
+            var apenstaartje = adres.LastIndexOf('@');
+            if (apenstaartje < 0 || apenstaartje == adres.Length - 1) return;
+            var domein = adres[(apenstaartje + 1)..].Trim().Trim('>', ',', ';');
+            if (domein.Length > 3) domeinen.Add(domein);
+        }
+
+        Voeg(Tekst("email"));
+        foreach (var c in _contacten) Voeg(c.Mail);
+
+        if (domeinen.Count == 0) return "";
+
+        var delen = domeinen.SelectMany(d => new[] { "from:" + d, "to:" + d });
+        return "(" + string.Join(" OR ", delen) + ")";
+    }
+
+    private async Task ZoekMail()
+    {
+        if (string.IsNullOrWhiteSpace(_mailZoek))
+        {
+            Toon("Bij deze relatie is geen e-mailadres bekend, dus ik weet niet waarop ik moet zoeken.", true);
+            return;
+        }
+
+        _mailBezig = true;
+        StateHasChanged();          // knop op "Zoeken…" zetten vóór de wachttijd
+        try
+        {
+            _mails = await Post.ZoekAsync(HuidigePostbus, _mailZoek, 20);
+            if (_mails.Count == 0) Toon("Geen berichten gevonden.", false);
+        }
+        catch (Exception ex) { _mails = new(); Toon(ex.Message, true); }
+        finally { _mailBezig = false; }
+    }
+
+    /// <summary>Bijlage uit een mail rechtstreeks in de filestore onder deze relatie.</summary>
+    private async Task BewaarBijlage(MailBericht bericht, MailBijlage bijlage)
+    {
+        if (_gekozenId is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        try
+        {
+            var inhoud = await Post.BijlageAsync(HuidigePostbus, bericht.Id, bijlage.Id);
+            if (inhoud is null || inhoud.Length == 0) { Toon("De bijlage was leeg.", true); return; }
+
+            await using var stroom = new MemoryStream(inhoud);
+            await Store.ToevoegenAsync(stroom, bijlage.Naam, StoreTypeRelatie,
+                                       _gekozenId.Value, Ik.WerknemerId ?? 0);
+            await LaadDocumenten();
+            Toon($"'{bijlage.Naam}' opgeslagen bij deze relatie.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Mobiel als die er is, anders het vaste nummer.</summary>
+    private static string Telefoonvan(Contactpersoon c)
+        => !string.IsNullOrWhiteSpace(c.Mobiel) ? c.Mobiel
+         : !string.IsNullOrWhiteSpace(c.Telefoon) ? c.Telefoon
+         : "";
+
+    private async Task KiesDocumenten()
+    {
+        _tab = "Documenten";
+        await LaadDocumenten();
+    }
+
+    private async Task DocumentenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepActief = false;
+        if (_gekozenId is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, StoreTypeRelatie,
+                                           _gekozenId.Value, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex)
+            {
+                Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true);
+            }
+        }
+
+        await LaadDocumenten();
+        if (gelukt > 0) Toon($"{gelukt} bestand(en) toegevoegd.", false);
+    }
+
+    private async Task VerwijderDocument(RelatieDocument d)
+    {
+        bool zeker;
+        try
+        {
+            zeker = await JS.InvokeAsync<bool>("confirm",
+                $"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.");
+        }
+        catch { zeker = true; }
+        if (!zeker) return;
+
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            await LaadDocumenten();
+            Toon("Document verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Laad(bool kiesBijEenResultaat = false)
+    {
+        try { _aantal = await Repo.TelAsync(_zoek, _alleenKlanten, _alleenLeveranciers); }
+        catch (Exception ex) { _aantal = 0; Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        // De lijst opnieuw laten ophalen vanaf het begin
+        if (_virtualize is not null)
+        {
+            try { await _virtualize.RefreshDataAsync(); } catch { }
+        }
+
+        // Precies één treffer? Die meteen openen — scheelt een klik.
+        if (kiesBijEenResultaat && _aantal == 1)
+        {
+            var enige = await Repo.ZoekAsync(_zoek, _alleenKlanten, _alleenLeveranciers, 0, 1);
+            if (enige.Count == 1) { await Kies(enige[0]); return; }
+        }
+
+        // Meerdere (of geen) treffers: detailscherm leegmaken, zodat er geen
+        // gegevens van een vorige relatie blijven staan.
+        if (kiesBijEenResultaat) Leegmaken();
+    }
+
+    /// <summary>Levert het gevraagde blok relaties aan de virtualisatie.</summary>
+    private async ValueTask<ItemsProviderResult<Keuze>> Ophalen(ItemsProviderRequest verzoek)
+    {
+        try
+        {
+            var blok = await Repo.ZoekAsync(_zoek, _alleenKlanten, _alleenLeveranciers,
+                                            verzoek.StartIndex, verzoek.Count);
+            return new ItemsProviderResult<Keuze>(blok, _aantal);
+        }
+        catch
+        {
+            return new ItemsProviderResult<Keuze>(Array.Empty<Keuze>(), 0);
+        }
+    }
+
+    private void Leegmaken()
+    {
+        _gekozenId = null;
+        _gekozenNaam = null;
+        _velden = new();
+        _contacten = new();
+        _contactId = null;
+        _documenten = new();
+        _mails = new();
+        _mailZoek = "";
+        _melding = null;
+    }
+
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        Leegmaken();       // ook de selectie los: de lijst is afgekapt, dus die zou
+        await Laad();      // buiten beeld kunnen vallen en dat is verwarrend
+    }
+
+    private async Task KlantenGewijzigd(ChangeEventArgs e)
+    {
+        _alleenKlanten = Vink(e);
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task LeveranciersGewijzigd(ChangeEventArgs e)
+    {
+        _alleenLeveranciers = Vink(e);
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task Kies(Keuze r)
+    {
+        _gekozenId = r.Id;
+        _gekozenNaam = r.Naam;
+        _contactId = null;
+        try { _velden = await Repo.GetVeldenAsync(r.Id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+        await LaadContacten();
+        await LaadDocumenten();
+        _mails = new();          // mail hoort bij de vorige relatie
+        _mailZoek = "";
+        if (_tab == "Mail") await KiesMail();      // meteen opnieuw zoeken voor deze relatie
+    }
+
+    private async Task VerwijderRelatie()
+    {
+        if (_gekozenId is null) return;
+        var naam = _gekozenNaam ?? "deze relatie";
+
+        try
+        {
+            var reden = await Repo.RelatieInGebruikAsync(_gekozenId.Value);
+            if (reden is not null)
+            {
+                Toon($"'{naam}' kan niet worden verwijderd. {reden} " +
+                     "Zet in plaats daarvan 'Verbergen in lijsten' aan op het tabblad Kenmerken.", true);
+                return;
+            }
+
+            bool zeker;
+            try
+            {
+                zeker = await JS.InvokeAsync<bool>("confirm",
+                    $"'{naam}' verwijderen?\n\nDe contactpersonen van deze relatie gaan ook weg.\nWeet je het zeker?");
+            }
+            catch { zeker = true; }
+            if (!zeker) return;
+
+            await Repo.VerwijderRelatieAsync(_gekozenId.Value);
+            _gekozenId = null;
+            _gekozenNaam = null;
+            _velden = new();
+            _contacten = new();
+            await Laad();
+            Toon($"'{naam}' verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Contactpersonen
+    // ================================================================
+    private List<Contactpersoon> _contacten = new();
+    private int? _contactId;
+    private bool _toonUitDienst;
+
+    private Contactpersoon? _contact => _contacten.FirstOrDefault(c => c.Id == _contactId);
+
+    private async Task LaadContacten()
+    {
+        if (_gekozenId is null) { _contacten = new(); return; }
+        try
+        {
+            _contacten = await Repo.GetContactpersonenAsync(_gekozenId.Value, _toonUitDienst);
+
+            // Eerste contactpersoon meteen openen, zodat het detailpaneel zichtbaar is
+            if (_contactId is null || _contacten.All(c => c.Id != _contactId))
+                _contactId = _contacten.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex) { _contacten = new(); Toon("Contactpersonen ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KiesContactpersonen()
+    {
+        _tab = "Contactpersonen";
+        await LaadContacten();
+    }
+
+    private async Task UitDienstGewijzigd(ChangeEventArgs e)
+    {
+        _toonUitDienst = Vink(e);
+        await LaadContacten();
+    }
+
+    private async Task NieuwContact()
+    {
+        if (_gekozenId is null) return;
+        try
+        {
+            var id = await Repo.BewaarContactpersoonAsync(new Contactpersoon
+            {
+                RelatieId = _gekozenId.Value,
+                Naam = "(nieuwe contactpersoon)"
+            });
+            await LaadContacten();
+            _contactId = id;
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Tekstveld bijwerken en de hele regel opslaan.</summary>
+    private async Task ZetContact(Contactpersoon c, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarContact(c);
+    }
+
+    private async Task ZetContactVlag(Contactpersoon c, Action<bool> zet, ChangeEventArgs e)
+    {
+        zet(Vink(e));
+        await BewaarContact(c);
+        if (c.UitDienst && !_toonUitDienst) await LaadContacten();   // verdwijnt uit de lijst
+    }
+
+    private async Task BewaarContact(Contactpersoon c)
+    {
+        try
+        {
+            await Repo.BewaarContactpersoonAsync(c);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderContact(Contactpersoon c)
+    {
+        try
+        {
+            await Repo.VerwijderContactpersoonAsync(c.Id);
+            if (_contactId == c.Id) _contactId = null;
+            await LaadContacten();
+            Toon("Contactpersoon verwijderd.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Verwijderen mislukt: " + ex.Message +
+                 " — is deze persoon nog ergens in gebruik? Zet dan 'niet meer werkzaam' aan.", true);
+        }
+    }
+
+    private async Task Nieuw()
+    {
+        var naam = string.IsNullOrWhiteSpace(_zoek) ? "Nieuwe relatie" : _zoek.Trim();
+        try
+        {
+            var id = await Repo.NieuweRelatieAsync(naam);
+            await Laad();
+            await Kies(new Keuze(id, naam));
+            Toon($"'{naam}' aangemaakt. Vul de gegevens aan.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private string? Kolom(Veld veld) => veld.Kolommen.FirstOrDefault(k => _kolommen.Contains(k));
+
+    private string Tekst(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return "";
+        if (v is DateTime dt) return dt.ToString("dd-MM-yyyy");
+        if (v is byte[]) return "(bestand)";
+        return v.ToString() ?? "";
+    }
+
+    private bool Waar(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return false;
+        if (v is bool b) return b;
+        try { return Convert.ToInt64(v) != 0; } catch { return false; }
+    }
+
+    private async Task Bewaar(string kolom, object? waarde)
+    {
+        if (_gekozenId is null) return;
+        try
+        {
+            var opslaan = waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
+            await Repo.UpdateVeldAsync(_gekozenId.Value, kolom, opslaan);
+            _velden[kolom] = opslaan;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

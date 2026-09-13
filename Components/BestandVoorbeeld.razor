@@ -1,0 +1,99 @@
+@* Toont één bestand groot in beeld: 3D-model, PDF, Word/Excel (omgezet naar PDF)
+   of een afbeelding. Downloaden kan met de knop rechtsboven.
+
+   Gebruik op een pagina:
+       <BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+   en zet Id op een FileStoreID om het venster te openen. *@
+
+@inject IJSRuntime JS
+
+@if (Id is int bestandId)
+{
+    <div class="cmdk-overlay voorbeeld-laag" @onclick="Dicht">
+        <div class="voorbeeldvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@Naam</h2>
+                <span class="btngroup">
+                    <a class="knopje" href="@("bestand/" + bestandId + "/download")"
+                       title="Downloaden">⭳ Downloaden</a>
+                    <button class="klein" @onclick="Dicht">✕</button>
+                </span>
+            </header>
+
+            <div class="voorbeeld-inhoud">
+                @switch (Soort)
+                {
+                    case "3d":
+                        <div id="@_viewerId" class="viewer3d groot"></div>
+                        <span id="viewer3d-status" class="viewerstatus"></span>
+                        break;
+
+                    case "pdf":
+                    case "office":
+                        <iframe class="pdf-venster" src="@("voorbeeld/" + bestandId)" title="@Naam"></iframe>
+                        break;
+
+                    case "afbeelding":
+                        <img class="voorbeeld-afbeelding" src="@("bestand/" + bestandId)" alt="" />
+                        break;
+
+                    default:
+                        <p class="uitleg">
+                            Dit bestandstype kan ik niet in beeld tonen. Gebruik de downloadknop
+                            om het te openen met het programma dat erbij hoort.
+                        </p>
+                        break;
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>FileStoreID van het bestand; null betekent: venster dicht.</summary>
+    [Parameter] public int? Id { get; set; }
+
+    [Parameter] public string Naam { get; set; } = "";
+
+    [Parameter] public EventCallback Sluiten { get; set; }
+
+    private const string _viewerId = "viewer3d-voorbeeld";
+    private int? _getoond;
+
+    private string Soort
+    {
+        get
+        {
+            var n = (Naam ?? "").ToLowerInvariant();
+            if (n.EndsWith(".stp") || n.EndsWith(".step") || n.EndsWith(".stl")) return "3d";
+            if (n.EndsWith(".pdf")) return "pdf";
+            if (n.EndsWith(".jpg") || n.EndsWith(".jpeg") || n.EndsWith(".png") || n.EndsWith(".gif"))
+                return "afbeelding";
+            if (VoorbeeldService.MoetOmgezet(Naam ?? "")) return "office";
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Een 3D-model wordt pas geladen als het element er staat, dus dat gebeurt
+    /// na het tekenen — en maar één keer per bestand.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (Id is not int bestandId || Soort != "3d" || _getoond == bestandId) return;
+        _getoond = bestandId;
+
+        try
+        {
+            await JS.InvokeVoidAsync("viewer3d.init", _viewerId);
+            await JS.InvokeVoidAsync("viewer3d.openUrl", $"bestand/{bestandId}", Naam);
+        }
+        catch { /* zonder internet geen 3D; de melding staat in de viewer zelf */ }
+    }
+
+    private async Task Dicht()
+    {
+        _getoond = null;
+        await Sluiten.InvokeAsync();
+    }
+}

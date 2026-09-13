@@ -1,0 +1,147 @@
+@page "/werknemers/kalender/{Soort?}"
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+
+<div class="page">
+    <header class="topbar">
+        <h1>@(IsJubilea ? "Jubilea" : "Verjaardagen")</h1>
+        <span class="weeklabel">@_metDatum.Count van @_alle.Count werknemers</span>
+    </header>
+
+    <div class="tl-balk">
+        <div class="btngroup">
+            <a class="knopje @(IsJubilea ? "" : "actief")" href="werknemers/kalender/verjaardagen">Verjaardagen</a>
+            <a class="knopje @(IsJubilea ? "actief" : "")" href="werknemers/kalender/jubilea">Jubilea</a>
+        </div>
+    </div>
+
+    @if (_fout is not null)
+    {
+        <div class="melding fout">@_fout</div>
+    }
+
+    @if (!WnRepo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit overzicht werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        <table class="kiezer-tabel">
+            <thead>
+                <tr>
+                    <th>Naam</th>
+                    <th>@(IsJubilea ? "In dienst" : "Geboortedatum")</th>
+                    <th>Volgende</th>
+                    <th class="r">@(IsJubilea ? "Dienstjaren" : "Wordt")</th>
+                    <th>Nachtjes slapen</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _metDatum)
+                {
+                    <tr class="@(r.Dagen == 0 ? "vandaag-rij" : "")">
+                        <td>@r.Naam</td>
+                        <td>@r.Datum.ToString("dd-MM-yyyy")</td>
+                        <td>@r.Volgende.ToString("dd-MM")</td>
+                        <td class="r">@r.Wordt</td>
+                        <td>@Nachtjes(r.Dagen)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (_zonderDatum.Count > 0)
+        {
+            <h3 class="wn-kop">Datum onbekend (@_zonderDatum.Count)</h3>
+            <table class="kiezer-tabel">
+                <tbody>
+                    @foreach (var naam in _zonderDatum)
+                    {
+                        <tr><td>@naam</td><td class="onbekend">geen @(IsJubilea ? "datum in dienst" : "geboortedatum") bekend</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+
+    <footer class="voet">
+        Alleen werknemers in dienst (geen ingeleenden). Gesorteerd op wie het eerst aan de beurt is.
+    </footer>
+</div>
+
+@code {
+    [Parameter] public string? Soort { get; set; }
+
+    private bool IsJubilea => string.Equals(Soort, "jubilea", StringComparison.OrdinalIgnoreCase);
+
+    private record Regel(string Naam, DateOnly Datum, DateOnly Volgende, int Dagen, string Wordt);
+
+    private List<Mijlpalen> _alle = new();
+    private List<Regel> _metDatum = new();
+    private List<string> _zonderDatum = new();
+
+    private string? _fout;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _fout = null;
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            _alle = await WnRepo.GetMijlpalenAsync();
+        }
+        catch (Exception ex)
+        {
+            _alle = new();
+            _fout = "Ophalen mislukt: " + ex.Message;
+        }
+        Bereken();
+    }
+
+    private void Bereken()
+    {
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        var regels = new List<Regel>();
+        var zonder = new List<string>();
+
+        foreach (var w in _alle)
+        {
+            var datum = IsJubilea ? w.InDienst : w.Geboortedatum;
+            if (datum is null || datum.Value.Year < 1900) { zonder.Add(w.Naam); continue; }
+
+            try
+            {
+                var d = datum.Value;
+                var jaar = vandaag.Year;
+                var dag = Math.Min(d.Day, DateTime.DaysInMonth(jaar, d.Month));
+                var volgende = new DateOnly(jaar, d.Month, dag);
+
+                if (volgende < vandaag)
+                {
+                    jaar++;
+                    dag = Math.Min(d.Day, DateTime.DaysInMonth(jaar, d.Month));
+                    volgende = new DateOnly(jaar, d.Month, dag);
+                }
+
+                var jaren = jaar - d.Year;
+                var dagen = volgende.DayNumber - vandaag.DayNumber;
+                var wordt = IsJubilea ? $"{jaren} jaar" : jaren.ToString();
+                regels.Add(new Regel(w.Naam, d, volgende, dagen, wordt));
+            }
+            catch
+            {
+                zonder.Add(w.Naam);   // onmogelijke datum: bij 'onbekend' zetten
+            }
+        }
+
+        _metDatum = regels.OrderBy(r => r.Dagen).ThenBy(r => r.Naam).ToList();
+        _zonderDatum = zonder.OrderBy(n => n).ToList();
+    }
+
+    private static string Nachtjes(int dagen) => dagen switch
+    {
+        0 => "vandaag!",
+        1 => "1 nachtje",
+        _ => $"{dagen} nachtjes"
+    };
+}

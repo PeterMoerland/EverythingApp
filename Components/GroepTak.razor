@@ -1,0 +1,55 @@
+@* Eén tak in de boom met artikelgroepen. Roept zichzelf aan voor de takken eronder. *@
+
+<li class="grtak">
+    <div class="grrij @(Gekozen == Knoop.Pad ? "gekozen" : "")">
+        @if (Knoop.Kinderen.Count > 0)
+        {
+            <button class="grpijl" @onclick="Klap" title="@(Open ? "Dichtklappen" : "Openklappen")">
+                @(Open ? "▾" : "▸")
+            </button>
+        }
+        else
+        {
+            <span class="grpijl leeg"></span>
+        }
+
+        <button class="grnaam" @onclick="Kies">@Knoop.Naam</button>
+
+        @if (Knoop.Aantal > 0)
+        {
+            <span class="graantal">@Knoop.Aantal</span>
+        }
+    </div>
+
+    @if (Open && Knoop.Kinderen.Count > 0)
+    {
+        <ul class="grlijst">
+            @foreach (var kind in Knoop.Kinderen)
+            {
+                <GroepTak @key="kind.Pad" Knoop="kind" Gekozen="@Gekozen"
+                          OpenPaden="OpenPaden" OpKeuze="OpKeuze" OpKlap="OpKlap" />
+            }
+        </ul>
+    }
+</li>
+
+@code {
+    [Parameter, EditorRequired] public Groepknoop Knoop { get; set; } = new();
+
+    /// <summary>Het pad dat nu geselecteerd is; die tak lichten we op.</summary>
+    [Parameter] public string? Gekozen { get; set; }
+
+    /// <summary>
+    /// Welke takken openstaan. Dit houdt het scherm bij, niet de tak zelf — dan
+    /// blijft de boom open zoals hij was, ook na een zoekopdracht.
+    /// </summary>
+    [Parameter, EditorRequired] public HashSet<string> OpenPaden { get; set; } = new();
+
+    [Parameter] public EventCallback<Groepknoop> OpKeuze { get; set; }
+    [Parameter] public EventCallback<string> OpKlap { get; set; }
+
+    private bool Open => OpenPaden.Contains(Knoop.Pad);
+
+    private Task Klap() => OpKlap.InvokeAsync(Knoop.Pad);
+    private Task Kies() => OpKeuze.InvokeAsync(Knoop);
+}

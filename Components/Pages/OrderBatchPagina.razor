@@ -1,0 +1,341 @@
+@page "/orderbatch"
+@inject IOrderBatchRepository Repo
+@inject IUrenRepository Uren
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@inject BatchBel Bel
+@implements IDisposable
+
+<div class="page">
+    <header class="topbar">
+        <h1>Orderbatch</h1>
+        <span class="weeklabel">@_regels.Count regels · @Bedrag(_regels.Sum(x => x.Totaal)) indicatie</span>
+        <a class="knopje" href="scannen">📷 Scannen met de telefoon</a>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- filters, zoals de twee combo's in Access ---------- *@
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Leverancier</span>
+                <select value="@(_leverancierId?.ToString() ?? "")" @onchange="LeverancierGewijzigd">
+                    <option value="">Alle</option>
+                    @foreach (var l in Leveranciers())
+                    {
+                        <option value="@l.Id">@l.Naam</option>
+                    }
+                </select>
+            </label>
+
+            <label class="bankveld">
+                <span>Werkorder</span>
+                <select value="@(_orderId?.ToString() ?? "")" @onchange="OrderGewijzigd">
+                    <option value="">Alle</option>
+                    @foreach (var o in Orders())
+                    {
+                        <option value="@o.Id">@o.Naam</option>
+                    }
+                </select>
+            </label>
+
+            <div class="btngroup">
+                <button class="klein rood" disabled="@(_regels.Count == 0)"
+                        @onclick="WisZichtbaar">Wis alle zichtbare regels</button>
+            </div>
+
+            <span class="klein-info">
+                Aantallen en opmerkingen zijn hier direct te wijzigen; een regel
+                wissen kan met ✕.
+            </span>
+        </div>
+
+        @* ---------- de regels ---------- *@
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel banktabel batchtabel">
+                <thead>
+                    <tr>
+                        <th style="width:5.5rem" class="r">Aantal</th>
+                        <th style="width:10rem">Artikel</th>
+                        <th>Omschrijving</th>
+                        <th style="width:14rem">Leverancier</th>
+                        <th style="width:7rem">Werkorder</th>
+                        <th style="width:11rem">Door</th>
+                        <th style="width:12rem">Opmerking</th>
+                        <th style="width:7rem" class="r">Totaal</th>
+                        <th style="width:3rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var regel in _regels)
+                    {
+                        <tr @key="regel.Id">
+                            <td class="r">
+                                <input class="aantal" inputmode="numeric" value="@regel.Aantal"
+                                       @onchange="e => ZetAantal(regel, e)" />
+                            </td>
+                            <td>
+                                <button class="bestandnaam" title="Gegevens van dit artikel"
+                                        @onclick="() => _bekeken = regel.ArtikelId">
+                                    <span class="artikel-id">@regel.ArtikelId</span>@regel.Code
+                                </button>
+                            </td>
+                            <td class="omschrijving" title="@regel.Omschrijving">@regel.Omschrijving</td>
+                            <td>@regel.Leverancier</td>
+                            <td>@Werkorder(regel.OrderId)</td>
+                            <td>
+                                @regel.ToegevoegdDoor
+                                @if (regel.ViaScanner)
+                                {
+                                    <span title="Via de scanner toegevoegd"> 📷</span>
+                                }
+                                <span class="klein-info"> @regel.ToegevoegdOp?.ToString("dd-MM")</span>
+                            </td>
+                            <td>
+                                <input value="@regel.Opmerking" maxlength="200"
+                                       @onchange="e => ZetOpmerking(regel, e)" />
+                            </td>
+                            <td class="r">@(regel.StuksPrijs is null ? "—" : Bedrag(regel.Totaal))</td>
+                            <td class="c">
+                                <button class="klein rood" title="Regel wissen"
+                                        @onclick="() => Wis(regel)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (_regels.Count == 0)
+                    {
+                        <tr><td colspan="9" class="kiezer-info">
+                            De batch is leeg. Scan artikelen met de telefoon, of voeg ze toe
+                            vanuit Access.
+                        </td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @* ---------- onderaan, altijd in beeld ---------- *@
+        <div class="banktotalen">
+            <span><b>Regels</b> @_regels.Count</span>
+            <span><b>Totaal (indicatie)</b> @Bedrag(_regels.Sum(x => x.Totaal))</span>
+            <span class="klein-info">
+                Het totaal rekent met de vastgestelde kostprijs; de werkelijke
+                inkoopprijs volgt op de inkooporder.
+            </span>
+            <button class="primair" disabled="@(_regels.Count == 0)" @onclick="Aanmaken">
+                Inkooporders aanmaken…
+            </button>
+        </div>
+    }
+</div>
+
+<ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
+
+@code {
+    private List<OrderBatchRegel> _alles = new();
+    private List<OrderBatchRegel> _regels = new();
+    private Dictionary<int, string> _werkorders = new();
+
+    private int? _leverancierId;
+    private int? _orderId;
+    private int? _bekeken;        // het artikel waarvan het venster openstaat
+    private string? _melding;
+    private bool _fout;
+
+    private static string Bedrag(decimal waarde)
+        => waarde.ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            var open = await Uren.GetOpenWorkordersAsync();
+            _werkorders = open.GroupBy(w => w.WerkbonId)
+                              .ToDictionary(g => g.Key, g => g.First().Nummer);
+        }
+        catch { }
+
+        await Laad();
+
+        // Meebewegen met de rest: zodra iemand (de scanner, een collega op
+        // dit scherm) de batch wijzigt, halen we de lijst opnieuw op.
+        Bel.Gewijzigd += BijWijziging;
+    }
+
+    // Komt binnen op een willekeurige draad; InvokeAsync brengt het werk
+    // netjes naar de eigen Blazor-draad van dit scherm.
+    private void BijWijziging() => _ = InvokeAsync(Herlaad);
+
+    private bool _herlaadBezig;
+    private bool _herlaadNodig;
+
+    /// <summary>Herladen, maar nooit twee tegelijk: komen er meldingen binnen
+    /// terwijl we al bezig zijn, dan volstaat één extra ronde na afloop.</summary>
+    private async Task Herlaad()
+    {
+        if (_herlaadBezig) { _herlaadNodig = true; return; }
+        _herlaadBezig = true;
+        try
+        {
+            do
+            {
+                _herlaadNodig = false;
+                await Laad();
+            } while (_herlaadNodig);
+        }
+        finally { _herlaadBezig = false; }
+        StateHasChanged();
+    }
+
+    public void Dispose() => Bel.Gewijzigd -= BijWijziging;
+
+    private async Task Laad()
+    {
+        try
+        {
+            _alles = await Repo.GetRegelsAsync(null, null);
+            Filter();
+
+            // Werkorders die inmiddels gesloten zijn staan niet in de open lijst;
+            // die halen we alsnog één voor één op, zodat de kolom nooit leeg is.
+            foreach (var id in _alles.Where(x => x.OrderId is int o && !_werkorders.ContainsKey(o))
+                                     .Select(x => x.OrderId!.Value).Distinct().Take(50))
+            {
+                try
+                {
+                    var wo = await Uren.GetWorkorderAsync(id);
+                    _werkorders[id] = wo?.Nummer ?? ("#" + id);
+                }
+                catch { _werkorders[id] = "#" + id; }
+            }
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void Filter()
+        => _regels = _alles
+            .Where(x => _leverancierId is null || x.LeverancierId == _leverancierId)
+            .Where(x => _orderId is null || x.OrderId == _orderId)
+            .ToList();
+
+    private string Werkorder(int? orderId)
+        => orderId is int id
+            ? (_werkorders.TryGetValue(id, out var n) && n.Length > 0 ? n : "#" + id)
+            : "";
+
+    // De keuzes in de filters komen uit de batch zelf: alleen wat er echt in zit.
+    private IEnumerable<(int Id, string Naam)> Leveranciers()
+        => _alles.Where(x => x.LeverancierId is not null)
+                 .GroupBy(x => x.LeverancierId!.Value)
+                 .Select(g => (g.Key, g.First().Leverancier))
+                 .OrderBy(x => x.Item2);
+
+    private IEnumerable<(int Id, string Naam)> Orders()
+        => _alles.Where(x => x.OrderId is not null)
+                 .GroupBy(x => x.OrderId!.Value)
+                 .Select(g => (g.Key, Werkorder(g.Key)))
+                 .OrderBy(x => x.Item2);
+
+    private void LeverancierGewijzigd(ChangeEventArgs e)
+    {
+        _leverancierId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        Filter();
+    }
+
+    private void OrderGewijzigd(ChangeEventArgs e)
+    {
+        _orderId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        Filter();
+    }
+
+    // ---- wijzigen ----
+    private async Task ZetAantal(OrderBatchRegel regel, ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var aantal) || aantal < 1) return;
+
+        regel.Aantal = aantal;
+        try
+        {
+            await Repo.ZetAantalAsync(regel.Id, aantal);
+            Toon("Opgeslagen.", false);
+            Bel.Meld();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetOpmerking(OrderBatchRegel regel, ChangeEventArgs e)
+    {
+        regel.Opmerking = (string?)e.Value ?? "";
+        try
+        {
+            await Repo.ZetOpmerkingAsync(regel.Id, regel.Opmerking);
+            Toon("Opgeslagen.", false);
+            Bel.Meld();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis(OrderBatchRegel regel)
+    {
+        try
+        {
+            var zeker = await JS.InvokeAsync<bool>("confirm",
+                $"{regel.Code} ({regel.Aantal}×) uit de batch halen?");
+            if (!zeker) return;
+        }
+        catch { return; }
+
+        try
+        {
+            await Repo.VerwijderAsync(regel.Id);
+            _alles.Remove(regel);
+            Filter();
+            Toon($"{regel.Code} uit de batch gehaald.", false);
+            Bel.Meld();
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisZichtbaar()
+    {
+        var ids = _regels.Select(x => x.Id).ToList();
+        if (ids.Count == 0) return;
+
+        // De batch is gedeeld met iedereen (ook Access) en wissen is onomkeerbaar,
+        // dus eerst even zeker weten — precies zoals het Access-scherm dat vroeg.
+        try
+        {
+            var zeker = await JS.InvokeAsync<bool>("confirm",
+                $"Alle {ids.Count} zichtbare regels uit de batch wissen? Dit geldt voor iedereen.");
+            if (!zeker) return;
+        }
+        catch { return; }
+
+        try
+        {
+            await Repo.VerwijderAsync(ids);
+            _alles.RemoveAll(x => ids.Contains(x.Id));
+            Filter();
+            Toon($"{ids.Count} regels gewist.", false);
+            Bel.Meld();
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private void Aanmaken()
+        => Toon("Het maken van inkooporders uit de batch volgt als volgende stap; " +
+                "tot die tijd doe je dat nog in Access. De batch is daar gewoon zichtbaar.", false);
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

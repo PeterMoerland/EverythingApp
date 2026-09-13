@@ -1,0 +1,232 @@
+@page "/tools/jlc-componenten"
+@inject IJlcComponentRepository Repo
+@inject JlcOnderdelen JlcParts
+
+@* De lokale kopie van de JLCPCB-onderdelenbibliotheek: C-nummer, MPN en
+   behuizing. De verversknop haalt de hele bibliotheek op via het JLCPCB
+   Open Platform (cursor met lastKey); bestaande C-nummers worden bijgewerkt.
+   Deze tabel vult bij de JLCPCB-export automatisch de kolom 'JLCPCB Part #'
+   en voedt de JLCPCB-check in de BOM-kijker. *@
+
+<PageTitle>JLCPCB-componenten — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>JLCPCB-componenten</h1>
+        <span class="weeklabel">@_aantal.ToString("N0") componenten in de bibliotheek</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="btngroup">
+            <button class="primair" disabled="@(_syncBezig || !JlcParts.Beschikbaar)" @onclick="Ververs">
+                @(_syncBezig ? _syncStand : "⟳ Bibliotheek verversen bij JLCPCB")
+            </button>
+            @if (!JlcParts.Beschikbaar)
+            {
+                <span class="zij-extra">De JLCPCB-sleutels zijn nog niet ingesteld (Jlcpcb:AppId, AccessKey, SecretKey).</span>
+            }
+        </div>
+
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Zoeken</span>
+                <input value="@_zoek" placeholder="MPN of C-nummer…" @onchange="ZoekGewijzigd" />
+            </label>
+        </div>
+
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel banktabel">
+                <thead>
+                    <tr>
+                        <th style="width:9rem">C-nummer</th>
+                        <th style="width:24rem">MPN</th>
+                        <th>Behuizing</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _lijst)
+                    {
+                        <tr @key="c.Code">
+                            <td>
+                                <button class="mpn-link" title="Voorraad en prijs opvragen bij JLCPCB"
+                                        @onclick="() => ToonDetail(c.Code)">@c.Code</button>
+                            </td>
+                            <td class="nummer">@c.Model</td>
+                            <td>@c.Specification</td>
+                        </tr>
+                    }
+                    @if (_lijst.Count == 0)
+                    {
+                        <tr><td colspan="3" class="kiezer-info">
+                            @(_aantal == 0 ? "De bibliotheek is nog leeg — druk op de verversknop hierboven."
+                                           : "Niets gevonden.")
+                        </td></tr>
+                    }
+                    @if (_lijst.Count >= 500)
+                    {
+                        <tr><td colspan="3" class="kiezer-info">
+                            De eerste 500 worden getoond; verfijn de zoekopdracht voor de rest.
+                        </td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <footer class="voet">
+            Bron: het JLCPCB Open Platform. Verversen werkt bestaande C-nummers bij;
+            er ontstaan geen dubbelen. Klik op een C-nummer voor actuele voorraad en prijs.
+        </footer>
+    }
+</div>
+
+@* Detailpopup: voorraad en prijsstaffels, live opgehaald bij JLCPCB. *@
+@if (_detailCode is not null)
+{
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker ec-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>@_detailCode</b>
+                <span class="zij-extra">JLCPCB-onderdeel</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _detailCode = null">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                @if (_detailBezig)
+                {
+                    <p class="uitleg">Opvragen bij JLCPCB…</p>
+                }
+                else if (_detailFout is not null)
+                {
+                    <p class="uitleg">@_detailFout</p>
+                }
+                else if (_detail is not null)
+                {
+                    <table class="kiezer-tabel smal-tabel ec-detail">
+                        <tbody>
+                            <tr><td>MPN</td><td>@_detail.Mpn</td></tr>
+                            <tr><td>Fabrikant</td><td>@_detail.Merk</td></tr>
+                            <tr><td>Behuizing</td><td>@_detail.Specificatie</td></tr>
+                            <tr><td>Categorie</td><td>@_detail.Categorie</td></tr>
+                            <tr><td>Voorraad</td><td>@_detail.Voorraad</td></tr>
+                            <tr><td>Bibliotheek</td><td>@_detail.Bibliotheek</td></tr>
+                            @if (_detail.Prijzen.Count > 0)
+                            {
+                                <tr>
+                                    <td>Prijs</td>
+                                    <td>@string.Join(" · ", _detail.Prijzen.Select(p => $"vanaf {p.Vanaf}: {p.Stukprijs:0.####}"))</td>
+                                </tr>
+                            }
+                            @if (_detail.Omschrijving.Length > 0)
+                            {
+                                <tr><td>Omschrijving</td><td class="ec-detail-oms">@_detail.Omschrijving</td></tr>
+                            }
+                            @if (_detail.Datasheet.Length > 0)
+                            {
+                                <tr><td>Datasheet</td>
+                                    <td><a href="@_detail.Datasheet" target="_blank" rel="noopener">openen</a></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private int _aantal;
+    private string _zoek = "";
+    private List<JlcComponent> _lijst = new();
+    private bool _syncBezig;
+    private string _syncStand = "";
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Repo.Beschikbaar) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _aantal = await Repo.AantalAsync();
+            _lijst = await Repo.ZoekAsync(_zoek, 500);
+        }
+        catch (Exception ex)
+        {
+            _lijst = new();
+            Toon("Ophalen mislukt — bestaat de tabel al? Draai anders eerst " +
+                 "JlcComponenten_MariaDB.sql. (" + ex.Message + ")", true);
+        }
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        await Laad();
+    }
+
+    private async Task Ververs()
+    {
+        if (_syncBezig) return;
+        _syncBezig = true;
+        _syncStand = "bezig…";
+        try
+        {
+            var voortgang = new Progress<string>(s =>
+            {
+                _syncStand = s;
+                InvokeAsync(StateHasChanged);
+            });
+            var (totaal, fout) = await JlcParts.SyncAsync(voortgang);
+            Toon(fout is null
+                ? $"Bibliotheek ververst: {totaal:N0} componenten verwerkt."
+                : $"Verversen strandde na {totaal:N0} componenten: {fout}", fout is not null);
+            await Laad();
+        }
+        finally
+        {
+            _syncBezig = false;
+            _syncStand = "";
+        }
+    }
+
+    // ---- detailpopup ----
+
+    private string? _detailCode;
+    private bool _detailBezig;
+    private string? _detailFout;
+    private JlcDetail? _detail;
+    private readonly Dictionary<string, JlcDetail> _detailCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task ToonDetail(string code)
+    {
+        _detailCode = code;
+        _detailFout = null;
+        _detail = _detailCache.GetValueOrDefault(code);
+        if (_detail is not null) return;
+
+        _detailBezig = true;
+        StateHasChanged();
+        var (detail, fout) = await JlcParts.DetailAsync(code);
+        if (_detailCode != code) return;
+        _detail = detail;
+        _detailFout = fout;
+        if (detail is not null) _detailCache[code] = detail;
+        _detailBezig = false;
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

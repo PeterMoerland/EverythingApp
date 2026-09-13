@@ -1,0 +1,21 @@
+@page "/gebouw/compressor"
+@inject IPlc Plc
+@inject HuidigeGebruiker Ik
+
+@* De bediening zelf zit in CompressorPaneel, gedeeld met /mobiel/compressor. *@
+
+<PageTitle>Compressor — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Compressor</h1>
+    </header>
+
+    <CompressorPaneel />
+
+    <footer class="voet">@Plc.Beschrijf()</footer>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+}

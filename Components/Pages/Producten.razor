@@ -1,0 +1,1623 @@
+@page "/producten"
+@inject IProductRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject IUrenRepository Uren
+@inject IRelatieRepository RelatieRepo
+@inject FilestoreService Store
+@inject LabelService Labels
+@inject AltecPrinter Altec
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>@Titel</h1>
+        <span class="weeklabel">
+            @if (_naam is not null)
+            {
+                @($"{_producten.Count} exemplaar" + (_producten.Count == 1 ? "" : "en"))
+            }
+        </span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: types en exemplaren ---------- *@
+            <aside class="wn-lijst product-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Zoek type of omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="zoekregel">
+                        @* @key laat Blazor het veld vervangen, zodat de gescande tekst
+                           er na het springen niet in blijft staan *@
+                        <input @key="_scanTeller" placeholder="Serienummer of scan (PN…)"
+                               value="@_scan" @onchange="ScanGewijzigd" />
+                    </div>
+                    <div class="zoekregel">
+                        <select value="@TypeTekst" @onchange="TypeGewijzigd">
+                            <option value="">Alle producttypes</option>
+                            @foreach (var t in _types)
+                            {
+                                <option value="@t.Id">@t.Naam</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="wn-namen product-namen">
+                    @if (_namen.Count == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                    else
+                    {
+                        @foreach (var n in _namen)
+                        {
+                            <button class="wn-naam @(n.Id == _naamId ? "actief" : "")"
+                                    @key="n.Id" @onclick="() => KiesNaam(n)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">@n.Naam</span>
+                                    <span class="nda-onder">
+                                        @if (!string.IsNullOrWhiteSpace(n.TypeCode))
+                                        {
+                                            <span class="type-code">@n.TypeCode</span>
+                                        }
+                                        @n.Omschrijving
+                                    </span>
+                                </span>
+                            </button>
+                        }
+                    }
+                </div>
+                <div class="btngroep-rand">
+                    <button class="klein" @onclick="NieuwType">+ Type</button>
+                    <button class="klein rood" disabled="@(_naamId is null)" @onclick="WisType">✕ Type wissen</button>
+                </div>
+
+                <h3 class="wn-kop">Exemplaren</h3>
+                <label class="vink randlabel">
+                    <input type="checkbox" checked="@_inclGewist" @onchange="GewistGewijzigd" />
+                    Inclusief gewist
+                </label>
+                <div class="wn-namen kort">
+                    @if (_naamId is null)
+                    {
+                        <div class="kiezer-info">Kies eerst een producttype.</div>
+                    }
+                    else if (_producten.Count == 0)
+                    {
+                        <div class="kiezer-info">Nog geen exemplaren.</div>
+                    }
+                    else
+                    {
+                        @foreach (var p in _producten)
+                        {
+                            <div class="mail-regel @(p.Id == _productId ? "actief" : "")" @key="p.Id">
+                                <input type="checkbox" title="Selecteren voor een groepsbewerking"
+                                       checked="@_gekozen.Contains(p.Id)" @onchange="e => Vink(p, e)" />
+                                <button class="wn-naam @(p.Gewist ? "vervallen" : "")"
+                                        @onclick="() => KiesProduct(p)">
+                                    <span class="nummer">@p.Serienummer</span>
+                                    <span class="stat">@p.StatusKort</span>
+                                    @p.Klant
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="btngroep-rand">
+                    <button class="klein" disabled="@(_naamId is null)" @onclick="NieuwProduct">+ Exemplaar</button>
+                    <input class="aantal" type="number" min="1" max="100" title="Hoeveel exemplaren"
+                           value="@_nieuwAantal" @onchange="AantalGewijzigd" />
+                    @if (_product is not null && _product.Gewist)
+                    {
+                        <button class="klein" @onclick="Terugzetten">↺ Terugzetten</button>
+                    }
+                    else
+                    {
+                        <button class="klein rood" disabled="@(_productId is null)" @onclick="WisProduct">✕ Wissen</button>
+                    }
+                </div>
+
+                @if (_producten.Count > 0)
+                {
+                    <div class="btngroep-rand">
+                        <button class="klein" @onclick="AllesAanUit">
+                            @(_gekozen.Count == _producten.Count ? "Geen" : "Alles")
+                        </button>
+                        @if (_gekozen.Count > 0)
+                        {
+                            <span class="uitleg">@_gekozen.Count geselecteerd</span>
+                        }
+                    </div>
+                }
+
+                @if (_gekozen.Count > 0)
+                {
+                    <div class="groepsblok">
+                        <div class="wn-veld">
+                            <label>Status</label>
+                            <select @key="_groepTeller" value="" @onchange="GroepStatus">
+                                <option value="">— wijzig naar —</option>
+                                @foreach (var s in Lijst("Status"))
+                                {
+                                    <option value="@s.Id">@s.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Klant</label>
+                            <select @key="_groepTeller" value="" @onchange="GroepKlant">
+                                <option value="">— wijzig naar —</option>
+                                @foreach (var k in Lijst("Klant"))
+                                {
+                                    <option value="@k.Id">@k.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Werkorder</label>
+                            <select @key="_groepTeller" value="" @onchange="GroepWerkorder">
+                                <option value="">— koppel aan —</option>
+                                @foreach (var w in Lijst("Werkorder"))
+                                {
+                                    <option value="@w.Id">@w.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="GroepLabels">🏷 Labels naar de laser</button>
+                            <button class="klein rood" @onclick="GroepWissen">✕ Wissen</button>
+                        </div>
+                    </div>
+                }
+            </aside>
+
+            @* ---------- rechts: type of exemplaar ---------- *@
+            <section class="wn-detail">
+                @if (_naamId is null)
+                {
+                    <div class="kiezer-info">Kies links een producttype, of scan een serienummer.</div>
+                }
+                else
+                {
+                    <div class="wn-tabs">
+                        @if (_productId is not null)
+                        {
+                            <button class="terug" title="Terug naar het producttype" @onclick="TerugNaarType">↩ Type</button>
+                        }
+                        @foreach (var tab in Tabs)
+                        {
+                            <button class="@(tab == _tab ? "actief" : "")" @onclick="() => _tab = tab">@tab</button>
+                        }
+                    </div>
+
+                    @* ===== ALGEMEEN ===== *@
+                    @if (_tab == "Algemeen")
+                    {
+                        <DetailMetZij>
+                            <Hoofd>
+                                @if (_productId is null)
+                                {
+                                    @* het producttype zelf *@
+                                    <div class="wn-velden een-kolom">
+                                        <div class="wn-veld">
+                                            <label>Producttype</label>
+                                            <select value="@NaamTypeTekst" @onchange="NaamTypeGewijzigd">
+                                                <option value="">—</option>
+                                                @foreach (var t in _types)
+                                                {
+                                                    <option value="@t.Id">@t.Naam</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="wn-veld">
+                                            <label>Naam</label>
+                                            <input value="@_naamNaam" maxlength="15" @onchange="NaamNaamGewijzigd" />
+                                        </div>
+                                        <div class="wn-veld">
+                                            <label>Omschrijving</label>
+                                            <input value="@_naamOms" maxlength="100" @onchange="NaamOmsGewijzigd" />
+                                        </div>
+                                    </div>
+                                    <p class="uitleg">
+                                        Dit is het producttype. Kies links een serienummer om een exemplaar
+                                        te zien, met zijn eigen status, werkorder en historie.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <VeldRaster Tab="ProductVelden.Tabs[0]" Kolommen="_kolommen" Velden="_velden"
+                                                Lijsten="_lijsten" OpSlaan="Bewaar" />
+
+                                    <h3 class="wn-kop">Typeplaatje</h3>
+                                    <div class="label-blok">
+                                        <img class="label-voorbeeld" src="@LabelUrl()" alt="Typeplaatje" />
+                                        <div class="btngroup">
+                                            <a class="knopje" href="@LabelUrl()" target="_blank">Bekijken</a>
+                                            <a class="knopje" href="@LabelPdfUrl()" target="_blank">PDF openen</a>
+                                            <button class="primair" disabled="@_laserBezig" @onclick="ExporteerLaser">
+                                                @(_laserBezig ? "Bezig…" : "Naar de laser")
+                                            </button>
+                                            @if (Altec.Beschikbaar)
+                                            {
+                                                <input type="number" min="1" max="100" style="width:4rem"
+                                                       title="Aantal labels" @bind="_altecAantal" />
+                                                <button class="primair" disabled="@_altecBezig" @onclick="PrintAltec">
+                                                    @(_altecBezig ? "Bezig…" : "Print label (Altec)")
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </Hoofd>
+                            <Zij>
+                                @if (_productId is null)
+                                {
+                                    <ZijBlok Titel="Exemplaren" Aantal="_producten.Count"
+                                             Leeg="@(_producten.Count == 0)" LeegTekst="Nog geen exemplaren.">
+                                        @foreach (var p in _producten.Take(6))
+                                        {
+                                            <div class="zij-regel" @key="p.Id">
+                                                <button class="zij-naam zij-knop" @onclick="() => KiesProduct(p)">
+                                                    @p.Serienummer @p.Klant
+                                                </button>
+                                                <span class="zij-extra">@p.StatusKort @p.Opmerking</span>
+                                            </div>
+                                        }
+                                    </ZijBlok>
+                                    <ZijBlok Titel="Standaardattributen" Aantal="_typeAttributen.Count"
+                                             Meer="NaarAttributen"
+                                             Leeg="@(_typeAttributen.Count == 0)" LeegTekst="Nog geen attributen.">
+                                        @foreach (var a in _typeAttributen.Take(8))
+                                        {
+                                            <div class="zij-regel" @key="a.Id">
+                                                <span class="zij-naam">@a.Attribuut</span>
+                                                <span class="zij-extra">
+                                                    @a.Eenheid
+                                                    @if (a.Verplicht) { <text> · verplicht</text> }
+                                                </span>
+                                            </div>
+                                        }
+                                    </ZijBlok>
+                                }
+                                else
+                                {
+                                    <ZijBlok Titel="Laatste historie" Aantal="_historie.Count" Meer="NaarHistorie"
+                                             Leeg="@(_historie.Count == 0)" LeegTekst="Nog geen historie.">
+                                        @foreach (var h in _historie.Take(6))
+                                        {
+                                            <div class="zij-regel" @key="h.Id">
+                                                <span class="zij-naam">@h.Event</span>
+                                                <span class="zij-extra">
+                                                    @(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")
+                                                    @if (!string.IsNullOrWhiteSpace(h.Door)) { <text> · @h.Door</text> }
+                                                </span>
+                                            </div>
+                                        }
+                                    </ZijBlok>
+                                    <ZijBlok Titel="Attributen" Aantal="_attributen.Count"
+                                             Leeg="@(_attributen.Count == 0)" LeegTekst="Geen attributen.">
+                                        @foreach (var a in _attributen.Take(10))
+                                        {
+                                            <div class="zij-regel" @key="a.Id">
+                                                <span class="zij-naam">@a.Attribuut</span>
+                                                <span class="zij-extra">
+                                                    @(string.IsNullOrWhiteSpace(a.Waarde) ? "—" : a.Waarde) @a.Eenheid
+                                                </span>
+                                            </div>
+                                        }
+                                    </ZijBlok>
+                                }
+                            </Zij>
+                        </DetailMetZij>
+                    }
+
+                    @* ===== HISTORIE (alleen bij een exemplaar) ===== *@
+                    @if (_tab == "Historie")
+                    {
+                        <div class="tl-balk">
+                            <input class="mail-zoek" placeholder="Wat is er gebeurd?" value="@_nieuwEvent"
+                                   @onchange="NieuwEventGewijzigd" />
+                            <select value="@HistorieSoortTekst" @onchange="HistorieSoortGewijzigd">
+                                <option value="">— soort —</option>
+                                @foreach (var s in _historieSoorten)
+                                {
+                                    <option value="@s.Id">@s.Naam</option>
+                                }
+                            </select>
+                            <button class="primair" @onclick="VoegHistorieToe">+ Toevoegen</button>
+                        </div>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:10rem">Wanneer</th>
+                                    <th style="width:10rem">Soort</th>
+                                    <th>Gebeurtenis</th>
+                                    <th style="width:11rem">Door</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var h in _historie)
+                                {
+                                    <tr @key="h.Id">
+                                        <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td>@h.Soort</td>
+                                        <td>@h.Event</td>
+                                        <td>@h.Door</td>
+                                    </tr>
+                                }
+                                @if (_historie.Count == 0)
+                                {
+                                    <tr><td colspan="4" class="kiezer-info">Nog geen historie.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @* ===== DOCUMENTEN ===== *@
+                    @if (_tab == "Documenten")
+                    {
+                        <div class="tl-balk">
+                            <label class="vink">
+                                <input type="checkbox" checked="@_alleenNieuwste" @onchange="NieuwsteGewijzigd" />
+                                Alleen nieuwste versies weergeven
+                            </label>
+                        </div>
+                        <p class="uitleg">
+                            @(_productId is null
+                                ? "Documentatie van dit producttype — geldt voor alle exemplaren."
+                                : "Documenten van dit exemplaar. De documentatie van het type staat op het tabblad van het producttype.")
+                        </p>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Bestand</th>
+                                    <th style="width:10rem">Toegevoegd</th>
+                                    <th style="width:6rem" class="r">Dagen</th>
+                                    <th style="width:11rem">Door</th>
+                                    <th style="width:6rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in ZichtbareDocumenten())
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                                @d.Bestandsnaam
+                                            </button>
+                                        </td>
+                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td class="r">@DagenOud(d)</td>
+                                        <td>@d.ToegevoegdDoor</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)"
+                                               title="Downloaden">⭳</a>
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderDocument(d)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (ZichtbareDocumenten().Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">Nog geen documenten.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                             @ondragenter="() => _sleepActief = true"
+                             @ondragleave="() => _sleepActief = false"
+                             @ondragover:preventDefault="true">
+                            <span>Sleep hier een bestand, of klik om te kiezen</span>
+                            <InputFile OnChange="BestandenGekozen" multiple />
+                        </div>
+                    }
+
+                    @* ===== SAMENSTELLING (alleen bij een exemplaar) ===== *@
+                    @if (_tab == "Samenstelling")
+                    {
+                        <h3 class="wn-kop">Gebruikt</h3>
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:11rem">Type</th>
+                                    <th style="width:7rem">SN</th>
+                                    <th>Omschrijving</th>
+                                    <th style="width:8rem">Soort</th>
+                                    <th style="width:7rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var o in _onderdelen)
+                                {
+                                    <tr @key="o.ProductId">
+                                        <td>@o.Code</td>
+                                        <td>@o.Serienummer</td>
+                                        <td>@o.Omschrijving</td>
+                                        <td>@o.TypeCode</td>
+                                        <td class="c">
+                                            <button class="klein" title="Naar dit product springen"
+                                                    @onclick="() => GaNaar(o)">↗ Goto</button>
+                                            <button class="klein rood" title="Uit de samenstelling halen"
+                                                    @onclick="() => Ontkoppel(o)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_onderdelen.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">Nog geen onderdelen.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="tl-balk">
+                            <input class="mail-zoek" placeholder="Zoek een vrij exemplaar om toe te voegen…"
+                                   value="@_vrijZoek" @onchange="VrijZoekGewijzigd" />
+                        </div>
+                        @if (_vrije.Count > 0)
+                        {
+                            <div class="wn-namen kort">
+                                @foreach (var v in _vrije)
+                                {
+                                    <button class="wn-naam" @key="v.ProductId" @onclick="() => Koppel(v)">
+                                        <span class="nummer">@v.Serienummer</span>
+                                        <span class="stat">@v.Code</span>
+                                        @v.Omschrijving
+                                    </button>
+                                }
+                            </div>
+                        }
+
+                        <h3 class="wn-kop">Wordt gebruikt in</h3>
+                        @if (_gebruiktIn is null)
+                        {
+                            <p class="uitleg">Dit exemplaar zit niet in een ander product.</p>
+                        }
+                        else
+                        {
+                            <table class="kiezer-tabel">
+                                <tbody>
+                                    <tr>
+                                        <td style="width:11rem">@_gebruiktIn.Code</td>
+                                        <td style="width:7rem">@_gebruiktIn.Serienummer</td>
+                                        <td>@_gebruiktIn.Omschrijving</td>
+                                        <td style="width:8rem">@_gebruiktIn.TypeCode</td>
+                                        <td class="c" style="width:7rem">
+                                            <button class="klein" @onclick="NaarOuder">↗ Goto</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        }
+                    }
+
+                    @* ===== ATTRIBUTEN van een exemplaar: met waarde ===== *@
+                    @if (_tab == "Attributen" && _productId is not null)
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Attribuut</th>
+                                    <th style="width:12rem">Waarde</th>
+                                    <th style="width:6rem">Eenheid</th>
+                                    <th>Opmerking</th>
+                                    <th style="width:3rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var a in _attributen)
+                                {
+                                    <tr @key="a.Id" class="@(a.Verplicht && string.IsNullOrWhiteSpace(a.Waarde) ? "ontbreekt" : "")">
+                                        <td>
+                                            @a.Attribuut
+                                            @if (a.Verplicht) { <span class="tl-vlag">verplicht</span> }
+                                        </td>
+                                        <td>
+                                            <input value="@a.Waarde" maxlength="45"
+                                                   @onchange="e => ZetWaarde(a, e)" />
+                                        </td>
+                                        <td>@a.Eenheid</td>
+                                        <td>@a.Opmerking</td>
+                                        <td class="c">
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderProductAttribuut(a)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_attributen.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">Geen attributen bij dit exemplaar.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="btngroup">
+                            <button class="klein" @onclick="SyncAttributen"
+                                    title="Attributen die het producttype inmiddels heeft erbij halen">
+                                ↻ Sync met producttype
+                            </button>
+                        </div>
+                    }
+
+                    @* ===== ATTRIBUTEN van een producttype: de standaardlijst ===== *@
+                    @if (_tab == "Attributen" && _productId is null)
+                    {
+                        <p class="uitleg">
+                            Deze attributen horen bij het producttype. Bij het aanmaken van een nieuw
+                            exemplaar worden ze meegegeven, zodat je de waarden per exemplaar kunt vullen.
+                        </p>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Attribuut</th>
+                                    <th style="width:6rem">Eenheid</th>
+                                    <th>Opmerking</th>
+                                    <th style="width:5rem">Verplicht</th>
+                                    <th style="width:7rem" title="Wordt gevraagd bij het aanmaken">Bij aanmaak</th>
+                                    <th style="width:3rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var a in _typeAttributen)
+                                {
+                                    <tr @key="a.Id">
+                                        <td><input value="@a.Attribuut" maxlength="45" @onchange="e => ZetAttribuut(a, v => a.Attribuut = v, e)" /></td>
+                                        <td><input value="@a.Eenheid" maxlength="10" @onchange="e => ZetAttribuut(a, v => a.Eenheid = v, e)" /></td>
+                                        <td><input value="@a.Opmerking" maxlength="500" @onchange="e => ZetAttribuut(a, v => a.Opmerking = v, e)" /></td>
+                                        <td class="c"><input type="checkbox" checked="@a.Verplicht"
+                                                             @onchange="e => ZetAttribuutVlag(a, b => a.Verplicht = b, e)" /></td>
+                                        <td class="c"><input type="checkbox" checked="@a.VraagBijAanmaak"
+                                                             @onchange="e => ZetAttribuutVlag(a, b => a.VraagBijAanmaak = b, e)" /></td>
+                                        <td class="c">
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderAttribuut(a)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_typeAttributen.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="kiezer-info">Nog geen attributen.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="btngroup">
+                            <button class="klein" @onclick="NieuwAttribuut">+ Attribuut toevoegen</button>
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Het opbouwscherm volgt later; daarvoor gebruik je voorlopig Access.
+        Beide werken op dezelfde database.
+    </footer>
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+
+@code {
+    // ---- lijst links ----
+    private string _zoek = "";
+    private string _scan = "";
+    private int _scanTeller;
+    private int? _typeId;
+    private List<Keuze> _types = new();
+    private List<ProductNaam> _namen = new();
+
+    // ---- gekozen producttype ----
+    private int? _naamId;
+    private ProductNaam? _naam;
+    private string _naamNaam = "";
+    private string _naamOms = "";
+    private int? _naamTypeId;
+    private List<ProductAttribuut> _typeAttributen = new();
+
+    // ---- gekozen exemplaar ----
+    private bool _inclGewist;
+    private List<ProductRegel> _producten = new();
+    private int? _productId;
+    private ProductRegel? _product;
+    private HashSet<string> _kolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
+    private List<ProductGebeurtenis> _historie = new();
+    private List<ProductAttribuut> _attributen = new();
+
+    // ---- samenstelling ----
+    private List<SamenstellingRegel> _onderdelen = new();
+    private SamenstellingRegel? _gebruiktIn;
+    private string _vrijZoek = "";
+    private List<SamenstellingRegel> _vrije = new();
+
+    // ---- documenten ----
+    private List<Bestand> _documenten = new();
+    private bool _alleenNieuwste = true;
+    private bool _sleepActief;
+
+    // ---- overig ----
+    private Dictionary<string, List<Keuze>> _lijsten = new();
+    private static readonly List<Keuze> GeenLijst = new();
+    private List<Keuze> _historieSoorten = new();
+    private string _tab = "Algemeen";
+    private string _nieuwEvent = "";
+    private int _nieuwAantal = 1;
+    private int? _historieSoortId;
+    private string? _melding;
+    private bool _fout;
+
+    private List<Keuze> Lijst(string naam) => _lijsten.TryGetValue(naam, out var l) ? l : GeenLijst;
+
+    /// <summary>
+    /// Bij een producttype drie tabbladen (zoals in Access), bij een exemplaar vijf.
+    /// </summary>
+    private string[] Tabs => _productId is null
+        ? new[] { "Algemeen", "Documenten", "Attributen" }
+        : new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen" };
+
+    private string Titel
+    {
+        get
+        {
+            if (_naam is null) return "Producten";
+            if (_product is null) return _naam.Volledig;
+            return $"{_naam.Naam} · {_product.Serienummer}";
+        }
+    }
+
+    private string TypeTekst => _typeId is int t ? t.ToString() : "";
+    private string NaamTypeTekst => _naamTypeId is int t ? t.ToString() : "";
+    private string HistorieSoortTekst => _historieSoortId is int s ? s.ToString() : "";
+
+    private static string BekijkUrl(int id) => "bestand/" + id;
+    private static string DownloadUrl(int id) => "bestand/" + id + "/download";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            _kolommen = await Repo.KolommenAsync();
+
+            await Vul("Status", Repo.GetStatussenAsync);
+            await Vul("Artikel", Repo.GetArtikelenAsync);
+            await Vul("Klant", Repo.GetKlantenAsync);
+            await Vul("Werkorder", WerkordersAsync);
+            await Vul("ProductNaam", ProductnamenLijstAsync);
+
+            try { _types = await Repo.GetProducttypesAsync(); } catch { }
+            try { _historieSoorten = await Repo.GetHistorieSoortenAsync(); } catch { }
+
+            await LaadNamen();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Vul(string naam, Func<Task<List<Keuze>>> ophalen)
+    {
+        try { _lijsten[naam] = await ophalen(); }
+        catch { _lijsten[naam] = new List<Keuze>(); }
+    }
+
+    // ================================================================
+    //  Groepsbewerkingen
+    //  Elke wijziging schrijft per exemplaar een eigen historieregel, zodat je
+    //  later bij dat ene product ziet wat er is gebeurd — niet alleen dat er
+    //  ooit een groep is bijgewerkt.
+    // ================================================================
+    private readonly HashSet<int> _gekozen = new();
+
+    /// <summary>Loopt op na elke groepskeuze, zodat de keuzelijst weer op '—' springt.</summary>
+    private int _groepTeller;
+
+    private void Vink(ProductRegel p, ChangeEventArgs e)
+    {
+        if (e.Value is bool aan && aan) _gekozen.Add(p.Id);
+        else _gekozen.Remove(p.Id);
+    }
+
+    private void AllesAanUit()
+    {
+        if (_gekozen.Count == _producten.Count) _gekozen.Clear();
+        else foreach (var p in _producten) _gekozen.Add(p.Id);
+    }
+
+    private void AantalGewijzigd(ChangeEventArgs e)
+        => _nieuwAantal = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 1, 100) : 1;
+
+    /// <summary>Serienummers van de selectie, voor de bevestigingsvraag.</summary>
+    private string GekozenTekst()
+    {
+        var nummers = _producten.Where(p => _gekozen.Contains(p.Id))
+                                .Select(p => p.Serienummer)
+                                .ToList();
+        return nummers.Count <= 6
+            ? string.Join(", ", nummers)
+            : string.Join(", ", nummers.Take(6)) + $" en nog {nummers.Count - 6}";
+    }
+
+    private async Task GroepStatus(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var statusId)) return;
+        _groepTeller++;
+        var naam = Lijst("Status").FirstOrDefault(s => s.Id == statusId)?.Naam ?? statusId.ToString();
+
+        if (!await Bevestig($"Status van {_gekozen.Count} exemplaar/exemplaren op '{naam}' zetten?\n\n"
+                            + GekozenTekst())) return;
+
+        await GroepVeld("ProductStatusID", statusId, $"Status gewijzigd naar {naam}.");
+    }
+
+    private async Task GroepKlant(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var klantId)) return;
+        _groepTeller++;
+        var naam = Lijst("Klant").FirstOrDefault(k => k.Id == klantId)?.Naam ?? klantId.ToString();
+
+        if (!await Bevestig($"Klant van {_gekozen.Count} exemplaar/exemplaren op '{naam}' zetten?\n\n"
+                            + GekozenTekst())) return;
+
+        await GroepVeld("KlantID", klantId, $"Klant gewijzigd naar {naam}.");
+    }
+
+    private async Task GroepWerkorder(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var werkorderId)) return;
+        _groepTeller++;
+        var naam = Lijst("Werkorder").FirstOrDefault(w => w.Id == werkorderId)?.Naam ?? werkorderId.ToString();
+
+        if (!await Bevestig($"{_gekozen.Count} exemplaar/exemplaren koppelen aan {naam}?\n\n"
+                            + GekozenTekst())) return;
+
+        await GroepVeld("WorkorderID", werkorderId, $"Gekoppeld aan werkorder {naam}.");
+    }
+
+    private async Task GroepVeld(string kolom, object waarde, string historie)
+    {
+        try
+        {
+            var ids = _gekozen.ToList();
+            await Repo.WijzigVeldVoorAsync(ids, kolom, waarde);
+
+            foreach (var id in ids)
+                await Repo.VoegHistorieToeAsync(id, historie, ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+
+            _gekozen.Clear();
+            await LaadProducten();
+
+            if (_productId is not null)
+            {
+                _velden = await Repo.GetVeldenAsync(_productId.Value);
+                _historie = await Repo.GetHistorieAsync(_productId.Value);
+            }
+            Toon($"{ids.Count} exemplaar/exemplaren bijgewerkt.", false);
+        }
+        catch (Exception ex) { Toon("Bijwerken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task GroepWissen()
+    {
+        if (!await Bevestig($"{_gekozen.Count} exemplaar/exemplaren wissen?\n\n" + GekozenTekst() +
+                            "\n\nZe verdwijnen uit de lijst maar blijven met historie bewaard.")) return;
+
+        try
+        {
+            // al gewiste exemplaren overslaan: anders krijgen ze een tweede regel
+            var ids = _producten.Where(p => _gekozen.Contains(p.Id) && !p.Gewist)
+                                .Select(p => p.Id).ToList();
+            if (ids.Count == 0) { Toon("Er staat niets in de selectie dat nog gewist kan worden.", true); return; }
+
+            foreach (var id in ids)
+            {
+                await Repo.ZetGewistAsync(id, true);
+                await Repo.VoegHistorieToeAsync(id, "Product gewist.",
+                                                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            }
+
+            _gekozen.Clear();
+            if (_productId is not null && ids.Contains(_productId.Value)) LeegmakenProduct();
+            await LaadProducten();
+            await LaadDocumenten();
+            Toon($"{ids.Count} exemplaar/exemplaren gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Alle geselecteerde typeplaatjes op één vel naar de laser.</summary>
+    private async Task GroepLabels()
+    {
+        try
+        {
+            var labels = new List<(string Type, string Serienummer, string Bouwjaar, string Code)>();
+            foreach (var id in _gekozen.OrderBy(i => i))
+            {
+                var g = await Repo.GetLabelGegevensAsync(id);
+                if (g is null) continue;
+                labels.Add((g.Value.Type, g.Value.Serienummer, g.Value.Bouwjaar, LabelService.CodeVoor(id)));
+            }
+
+            if (labels.Count == 0) { Toon("Geen gegevens gevonden voor deze exemplaren.", true); return; }
+
+            var pad = await Labels.ExporteerAsync(Labels.MaakVelSvg(labels));
+
+            foreach (var id in _gekozen)
+                await Repo.VoegHistorieToeAsync(id, "Typeplaatje geëxporteerd naar de laser.",
+                                                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+
+            if (_productId is not null) _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon($"{labels.Count} typeplaatjes klaargezet: {pad}", false);
+        }
+        catch (Exception ex) { Toon("Exporteren mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Open werkorders voor de keuzelijst, met het nummer vooraan.</summary>
+    private async Task<List<Keuze>> WerkordersAsync()
+    {
+        var lijst = await Uren.GetOpenWorkordersAsync();
+        return lijst.Select(w => new Keuze(w.WerkbonId, $"{w.Nummer} · {w.Omschrijving}")).ToList();
+    }
+
+    private async Task<List<Keuze>> ProductnamenLijstAsync()
+    {
+        var lijst = await Repo.ZoekProductnamenAsync(null, null);
+        return lijst.Select(n => new Keuze(n.Id, n.Volledig)).ToList();
+    }
+
+    // ================================================================
+    //  Lijst links
+    // ================================================================
+    private async Task LaadNamen(bool kiesBijEen = false)
+    {
+        try { _namen = await Repo.ZoekProductnamenAsync(_zoek, _typeId); }
+        catch (Exception ex) { _namen = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        if (kiesBijEen && _namen.Count == 1) { await KiesNaam(_namen[0]); return; }
+        if (kiesBijEen) Leegmaken();
+    }
+
+    private void Leegmaken()
+    {
+        _naamId = null;
+        _naam = null;
+        _naamNaam = "";
+        _naamOms = "";
+        _naamTypeId = null;
+        _typeAttributen = new();
+        _producten = new();
+        _gekozen.Clear();
+        LeegmakenProduct();
+        _documenten = new();
+        _tab = "Algemeen";
+    }
+
+    private void LeegmakenProduct()
+    {
+        _productId = null;
+        _product = null;
+        _velden = new(StringComparer.OrdinalIgnoreCase);
+        _historie = new();
+        _attributen = new();
+        _onderdelen = new();
+        _gebruiktIn = null;
+        _vrije = new();
+        _vrijZoek = "";
+
+        // Tabbladen verschillen per stand; sta je op een tabblad dat nu niet
+        // bestaat, dan terug naar Algemeen.
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await LaadNamen(kiesBijEen: true);
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        Leegmaken();
+        await LaadNamen();
+    }
+
+    private async Task TypeGewijzigd(ChangeEventArgs e)
+    {
+        _typeId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await LaadNamen(kiesBijEen: true);
+    }
+
+    /// <summary>Serienummer scannen of typen: zoekt het exemplaar op en opent het.</summary>
+    private async Task ScanGewijzigd(ChangeEventArgs e)
+    {
+        _scan = (string?)e.Value ?? "";
+        if (string.IsNullOrWhiteSpace(_scan)) return;
+
+        try
+        {
+            var gevonden = await Repo.ZoekOpSerienummerAsync(_scan);
+            if (gevonden is null) { Toon($"Geen product met serienummer '{_scan}'.", true); return; }
+
+            var naam = _namen.FirstOrDefault(n => n.Id == gevonden.Value.ProductNameId);
+            if (naam is null)
+            {
+                // buiten het huidige filter: filters wissen en opnieuw zoeken
+                _zoek = "";
+                _typeId = null;
+                await LaadNamen();
+                naam = _namen.FirstOrDefault(n => n.Id == gevonden.Value.ProductNameId);
+            }
+            if (naam is null) { Toon("Het producttype van dit exemplaar is niet gevonden.", true); return; }
+
+            await KiesNaam(naam);
+
+            var regel = _producten.FirstOrDefault(p => p.Id == gevonden.Value.ProductId);
+            if (regel is null)
+            {
+                // het exemplaar staat op gewist: dan ook die tonen
+                _inclGewist = true;
+                await LaadProducten();
+                regel = _producten.FirstOrDefault(p => p.Id == gevonden.Value.ProductId);
+            }
+
+            if (regel is null) { Toon("Het exemplaar is niet gevonden.", true); return; }
+            await KiesProduct(regel);
+            _scan = "";
+            _scanTeller++;      // veld leegmaken in de browser
+        }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task GewistGewijzigd(ChangeEventArgs e)
+    {
+        _inclGewist = e.Value is bool b && b;
+        await LaadProducten();
+    }
+
+    // ================================================================
+    //  Producttype
+    // ================================================================
+    private async Task KiesNaam(ProductNaam n)
+    {
+        _naamId = n.Id;
+        _naam = n;
+        _naamNaam = n.Naam;
+        _naamOms = n.Omschrijving;
+        _naamTypeId = n.TypeId;
+        _gekozen.Clear();          // selectie hoort bij het vorige type
+        LeegmakenProduct();
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+
+        try { _typeAttributen = await Repo.GetTypeAttributenAsync(n.Id); }
+        catch { _typeAttributen = new(); }
+
+        await LaadProducten();
+        await LaadDocumenten();
+    }
+
+    private async Task TerugNaarType()
+    {
+        LeegmakenProduct();
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        await LaadDocumenten();
+    }
+
+    private async Task BewaarNaam()
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Repo.BewaarProductnaamAsync(_naamId.Value, _naamNaam, _naamOms, _naamTypeId);
+            await LaadNamen();
+            _naam = _namen.FirstOrDefault(n => n.Id == _naamId);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NaamNaamGewijzigd(ChangeEventArgs e)
+    {
+        _naamNaam = (string?)e.Value ?? "";
+        await BewaarNaam();
+    }
+
+    private async Task NaamOmsGewijzigd(ChangeEventArgs e)
+    {
+        _naamOms = (string?)e.Value ?? "";
+        await BewaarNaam();
+    }
+
+    private async Task NaamTypeGewijzigd(ChangeEventArgs e)
+    {
+        _naamTypeId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await BewaarNaam();
+    }
+
+    private async Task NieuwType()
+    {
+        // ProductName is varchar(15), dus afkappen in plaats van een SQL-fout
+        var naam = string.IsNullOrWhiteSpace(_zoek)
+            ? "NIEUW"
+            : new string(_zoek.Trim().Take(15).ToArray());
+        try
+        {
+            var id = await Repo.NieuwProductnaamAsync(naam, "", _typeId);
+            _zoek = "";
+            await LaadNamen();
+            var nieuw = _namen.FirstOrDefault(n => n.Id == id);
+            if (nieuw is not null) await KiesNaam(nieuw);
+            Toon("Producttype aangemaakt. Vul de naam en omschrijving aan.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisType()
+    {
+        if (_naamId is null || _naam is null) return;
+        try
+        {
+            var reden = await Repo.ProductnaamInGebruikAsync(_naamId.Value);
+            if (reden is not null)
+            {
+                Toon($"'{_naam.Naam}' kan niet worden verwijderd. {reden}", true);
+                return;
+            }
+
+            if (!await Bevestig($"Producttype '{_naam.Naam}' verwijderen?\n\n" +
+                                "De standaardattributen van dit type gaan ook weg.")) return;
+
+            await Repo.VerwijderProductnaamAsync(_naamId.Value);
+            Leegmaken();
+            await LaadNamen();
+            Toon("Producttype verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Exemplaren
+    // ================================================================
+    private async Task LaadProducten()
+    {
+        if (_naamId is null) { _producten = new(); return; }
+        try { _producten = await Repo.GetProductenAsync(_naamId.Value, _inclGewist); }
+        catch (Exception ex) { _producten = new(); Toon("Exemplaren ophalen mislukt: " + ex.Message, true); }
+
+        // Aangevinkte exemplaren die niet meer in de lijst staan (bijvoorbeeld nadat
+        // 'Inclusief gewist' uitging) uit de selectie halen — anders werkt een
+        // groepsbewerking op iets dat je niet ziet.
+        _gekozen.RemoveWhere(id => _producten.All(p => p.Id != id));
+
+        if (_productId is null) return;
+
+        _product = _producten.FirstOrDefault(p => p.Id == _productId);
+
+        // Uit de lijst gevallen (bijvoorbeeld 'Inclusief gewist' uitgezet)?
+        // Dan ook de rechterkant vrijgeven, anders klopt het scherm niet meer.
+        if (_product is null) LeegmakenProduct();
+    }
+
+    private async Task KiesProduct(ProductRegel p)
+    {
+        _productId = p.Id;
+        _product = p;
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+
+        try { _velden = await Repo.GetVeldenAsync(p.Id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+
+        try { _historie = await Repo.GetHistorieAsync(p.Id); } catch { _historie = new(); }
+        try { _attributen = await Repo.GetAttributenAsync(p.Id); } catch { _attributen = new(); }
+        await LaadSamenstelling();
+        await LaadDocumenten();
+    }
+
+    private async Task LaadSamenstelling()
+    {
+        if (_productId is null) { _onderdelen = new(); _gebruiktIn = null; return; }
+        try { _onderdelen = await Repo.GetOnderdelenAsync(_productId.Value); } catch { _onderdelen = new(); }
+        try { _gebruiktIn = await Repo.GetGebruiktInAsync(_productId.Value); } catch { _gebruiktIn = null; }
+    }
+
+    private async Task Bewaar((string Kolom, object? Waarde) wijziging)
+    {
+        if (_productId is null) return;
+        try
+        {
+            var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
+            await Repo.UpdateVeldAsync(_productId.Value, wijziging.Kolom, opslaan);
+            _velden[wijziging.Kolom] = opslaan;
+
+            // Serienummer, status of klant gewijzigd? dan klopt de lijst links niet meer
+            if (wijziging.Kolom.Equals("ProductNameID", StringComparison.OrdinalIgnoreCase))
+            {
+                // Het exemplaar hangt nu onder een ander type: selectie vrijgeven,
+                // anders staat links iets anders dan rechts.
+                LeegmakenProduct();
+                await LaadProducten();
+                Toon("Verplaatst naar het andere producttype.", false);
+                return;
+            }
+
+            // serienummer of bouwjaar staan op het typeplaatje
+            if (wijziging.Kolom.StartsWith("Serie", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("Bouwjaar", StringComparison.OrdinalIgnoreCase))
+                _labelVersie++;
+
+            if (wijziging.Kolom.StartsWith("Serie", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("ProductStatusID", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("KlantID", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("Opmerking", StringComparison.OrdinalIgnoreCase))
+                await LaadProducten();
+
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuwProduct()
+    {
+        if (_naamId is null) return;
+        try
+        {
+            var ids = await Repo.NieuweProductenAsync(_naamId.Value, _nieuwAantal, null, null, Ik.WerknemerId);
+            if (ids.Count == 0) { Toon("Er is niets aangemaakt.", true); return; }
+
+            await LaadProducten();
+
+            // bij één stuk meteen openen, bij meer de nieuwe alvast aanvinken
+            if (ids.Count == 1)
+            {
+                var nieuw = _producten.FirstOrDefault(p => p.Id == ids[0]);
+                if (nieuw is not null) await KiesProduct(nieuw);
+                Toon($"Exemplaar {nieuw?.Serienummer} aangemaakt.", false);
+            }
+            else
+            {
+                _gekozen.Clear();
+                foreach (var id in ids) _gekozen.Add(id);
+                Toon($"{ids.Count} exemplaren aangemaakt en aangevinkt, klaar voor een groepsbewerking.", false);
+            }
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisProduct()
+    {
+        if (_productId is null || _product is null) return;
+        var sn = string.IsNullOrWhiteSpace(_product.Serienummer) ? "dit exemplaar" : _product.Serienummer;
+
+        if (!await Bevestig($"Serienummer {sn} wissen?\n\n" +
+                            "Het verdwijnt uit de lijst maar blijft met historie bewaard; " +
+                            "met 'Inclusief gewist' kun je het terugzetten.")) return;
+
+        try
+        {
+            await Repo.ZetGewistAsync(_productId.Value, true);
+            await Repo.VoegHistorieToeAsync(_productId.Value, "Product gewist.",
+                                            ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            LeegmakenProduct();
+            await LaadProducten();
+            await LaadDocumenten();     // nu weer de documenten van het producttype
+            Toon("Exemplaar gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Terugzetten()
+    {
+        if (_productId is null) return;
+        try
+        {
+            await Repo.ZetGewistAsync(_productId.Value, false);
+            await Repo.VoegHistorieToeAsync(_productId.Value, "Product teruggezet.",
+                                            ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            await LaadProducten();
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon("Exemplaar teruggezet.", false);
+        }
+        catch (Exception ex) { Toon("Terugzetten mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Historie
+    // ================================================================
+    private void NaarHistorie() => _tab = "Historie";
+    private void NaarAttributen() => _tab = "Attributen";
+
+    private void NieuwEventGewijzigd(ChangeEventArgs e) => _nieuwEvent = (string?)e.Value ?? "";
+
+    private void HistorieSoortGewijzigd(ChangeEventArgs e)
+        => _historieSoortId = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private async Task VoegHistorieToe()
+    {
+        if (_productId is null) return;
+        if (string.IsNullOrWhiteSpace(_nieuwEvent))
+        {
+            Toon("Vul in wat er gebeurd is.", true);
+            return;
+        }
+
+        try
+        {
+            await Repo.VoegHistorieToeAsync(_productId.Value, _nieuwEvent.Trim(),
+                                            _historieSoortId, Ik.WerknemerId);
+            _nieuwEvent = "";
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon("Toegevoegd aan de historie.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Typeplaatje
+    // ================================================================
+    private bool _laserBezig;
+
+    /// <summary>?v= verandert mee met de gegevens, zodat het voorbeeld ververst.</summary>
+    private string LabelUrl() => $"label/{_productId}?v={_labelVersie}";
+    private string LabelPdfUrl() => $"label/{_productId}/pdf?v={_labelVersie}";
+    private int _labelVersie;
+
+    private async Task ExporteerLaser()
+    {
+        if (_productId is null) return;
+
+        _laserBezig = true;
+        StateHasChanged();
+        try
+        {
+            var gegevens = await Repo.GetLabelGegevensAsync(_productId.Value);
+            if (gegevens is null) { Toon("Product niet gevonden.", true); return; }
+
+            var svg = Labels.MaakSvg(gegevens.Value.Type, gegevens.Value.Serienummer,
+                                     gegevens.Value.Bouwjaar, LabelService.CodeVoor(_productId.Value));
+            var pad = await Labels.ExporteerAsync(svg);
+
+            await Repo.VoegHistorieToeAsync(_productId.Value, "Typeplaatje geëxporteerd naar de laser.",
+                                            ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon($"Klaargezet voor de laser: {pad}", false);
+        }
+        catch (Exception ex) { Toon("Exporteren mislukt: " + ex.Message, true); }
+        finally { _laserBezig = false; }
+    }
+
+    // ================================================================
+    //  Serienummerlabel naar de Altec-labelprinter
+    // ================================================================
+
+    private bool _altecBezig;
+    private int _altecAantal = 1;
+
+    private async Task PrintAltec()
+    {
+        if (_productId is null) return;
+
+        _altecBezig = true;
+        StateHasChanged();
+        try
+        {
+            var gegevens = await Repo.GetLabelGegevensAsync(_productId.Value);
+            if (gegevens is null) { Toon("Product niet gevonden.", true); return; }
+
+            var aantal = Math.Clamp(_altecAantal, 1, 100);
+            await Altec.PrintSerienummerAsync(gegevens.Value.Serienummer, aantal);
+
+            await Repo.VoegHistorieToeAsync(_productId.Value,
+                $"Serienummerlabel geprint op de Altec ({aantal}×).",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon($"{aantal} label{(aantal == 1 ? "" : "s")} naar de labelprinter gestuurd.", false);
+        }
+        catch (Exception ex) { Toon("Printen mislukt: " + ex.Message, true); }
+        finally { _altecBezig = false; }
+    }
+
+    // ================================================================
+    //  Samenstelling
+    // ================================================================
+
+    /// <summary>Springt naar een ander exemplaar; links wordt de selectie meegenomen.</summary>
+    private async Task GaNaar(SamenstellingRegel regel)
+    {
+        var naam = _namen.FirstOrDefault(n => n.Id == regel.ProductNameId);
+        if (naam is null)
+        {
+            // buiten het huidige filter: filters wissen en opnieuw zoeken
+            _zoek = "";
+            _typeId = null;
+            await LaadNamen();
+            naam = _namen.FirstOrDefault(n => n.Id == regel.ProductNameId);
+        }
+        if (naam is null) { Toon("Het producttype van dat exemplaar is niet gevonden.", true); return; }
+
+        await KiesNaam(naam);
+
+        var doel = _producten.FirstOrDefault(p => p.Id == regel.ProductId);
+        if (doel is null)
+        {
+            // staat misschien op gewist
+            _inclGewist = true;
+            await LaadProducten();
+            doel = _producten.FirstOrDefault(p => p.Id == regel.ProductId);
+        }
+        if (doel is null) { Toon("Dat exemplaar is niet gevonden.", true); return; }
+
+        await KiesProduct(doel);
+        _tab = "Samenstelling";
+    }
+
+    private async Task NaarOuder()
+    {
+        if (_gebruiktIn is not null) await GaNaar(_gebruiktIn);
+    }
+
+    private async Task VrijZoekGewijzigd(ChangeEventArgs e)
+    {
+        _vrijZoek = (string?)e.Value ?? "";
+        if (_vrijZoek.Trim().Length < 2) { _vrije = new(); return; }
+        try { _vrije = await Repo.ZoekVrijeExemplarenAsync(_vrijZoek, 15); }
+        catch (Exception ex) { _vrije = new(); Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Koppel(SamenstellingRegel v)
+    {
+        if (_productId is null) return;
+        if (v.ProductId == _productId) { Toon("Een product kan niet in zichzelf zitten.", true); return; }
+
+        try
+        {
+            await Repo.KoppelAsync(v.ProductId, _productId);
+            await Repo.VoegHistorieToeAsync(_productId.Value,
+                $"Product {v.Serienummer} aan samenstelling toegevoegd",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            await Repo.VoegHistorieToeAsync(v.ProductId,
+                $"Toegevoegd aan samenstelling van {_product?.Serienummer}",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+
+            _vrijZoek = "";
+            _vrije = new();
+            await LaadSamenstelling();
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon($"{v.Serienummer} toegevoegd aan de samenstelling.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Ontkoppel(SamenstellingRegel o)
+    {
+        if (_productId is null) return;
+        if (!await Bevestig($"{o.Serienummer} uit de samenstelling halen?\n\n" +
+                            "Het exemplaar blijft bestaan, het hangt alleen niet meer hieronder.")) return;
+
+        try
+        {
+            await Repo.KoppelAsync(o.ProductId, null);
+            await Repo.VoegHistorieToeAsync(_productId.Value,
+                $"Product {o.Serienummer} uit samenstelling gehaald",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            await LaadSamenstelling();
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon($"{o.Serienummer} uit de samenstelling gehaald.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Attributen van een exemplaar
+    // ================================================================
+    private async Task ZetWaarde(ProductAttribuut a, ChangeEventArgs e)
+    {
+        if (_productId is null) return;
+        a.Waarde = (string?)e.Value ?? "";
+        try
+        {
+            await Repo.BewaarAttribuutAsync(_productId.Value, a, Ik.WerknemerId);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderProductAttribuut(ProductAttribuut a)
+    {
+        if (_productId is null) return;
+        if (!await Bevestig($"Attribuut '{a.Attribuut}' van dit exemplaar verwijderen?")) return;
+
+        try
+        {
+            await Repo.VerwijderAttribuutAsync(a.Id);
+            _attributen = await Repo.GetAttributenAsync(_productId.Value);
+            Toon("Attribuut verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task SyncAttributen()
+    {
+        if (_productId is null || _naamId is null) return;
+        try
+        {
+            var aantal = await Repo.SyncAttributenAsync(_productId.Value, _naamId.Value, Ik.WerknemerId);
+            _attributen = await Repo.GetAttributenAsync(_productId.Value);
+            Toon(aantal == 0
+                ? "Alles was al bij: geen nieuwe attributen."
+                : $"{aantal} attribuut/attributen toegevoegd.", false);
+        }
+        catch (Exception ex) { Toon("Sync mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Documenten
+    // ================================================================
+    private void NieuwsteGewijzigd(ChangeEventArgs e) => _alleenNieuwste = e.Value is bool b && b;
+
+    /// <summary>
+    /// Met 'alleen nieuwste versies' blijft per bestandsnaam de nieuwste over —
+    /// dezelfde bedoeling als de procedure die Access daarvoor gebruikte.
+    /// </summary>
+    private List<Bestand> ZichtbareDocumenten()
+        => !_alleenNieuwste
+            ? _documenten
+            : _documenten
+                .GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).First())
+                .OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue)
+                .ToList();
+
+    private static string DagenOud(Bestand d)
+        => d.Toegevoegd is null ? "" : ((int)(DateTime.Today - d.Toegevoegd.Value.Date).TotalDays).ToString();
+
+    // ---- bestand groot in beeld ----
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private void ToonVoorbeeld(int fileStoreId, string naam)
+    {
+        _voorbeeldId = fileStoreId;
+        _voorbeeldNaam = naam;
+    }
+
+    private void SluitVoorbeeld() => _voorbeeldId = null;
+    private int HuidigStoreType => _productId is null
+        ? ProductVelden.StoreTypeProductgroep
+        : ProductVelden.StoreTypeProduct;
+
+    private int? HuidigMasterId => _productId ?? _naamId;
+
+    private async Task LaadDocumenten()
+    {
+        if (HuidigMasterId is null || !WnRepo.Beschikbaar) { _documenten = new(); return; }
+        try { _documenten = await WnRepo.GetBestandenAsync(HuidigStoreType, HuidigMasterId.Value); }
+        catch { _documenten = new(); }
+    }
+
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepActief = false;
+        if (HuidigMasterId is null) return;
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, HuidigStoreType,
+                                           HuidigMasterId.Value, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true); }
+        }
+
+        await LaadDocumenten();
+        if (gelukt > 0)
+        {
+            if (_productId is not null)
+                await Repo.VoegHistorieToeAsync(_productId.Value,
+                    $"{gelukt} document(en) toegevoegd.", null, Ik.WerknemerId);
+            Toon($"{gelukt} bestand(en) toegevoegd.", false);
+        }
+    }
+
+    private async Task VerwijderDocument(Bestand d)
+    {
+        if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.")) return;
+
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            await LaadDocumenten();
+            Toon("Document verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Attributen van het producttype
+    // ================================================================
+    private async Task NieuwAttribuut()
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Repo.BewaarTypeAttribuutAsync(_naamId.Value,
+                new ProductAttribuut { Attribuut = "(nieuw attribuut)" }, Ik.WerknemerId);
+            _typeAttributen = await Repo.GetTypeAttributenAsync(_naamId.Value);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetAttribuut(ProductAttribuut a, Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await BewaarAttribuut(a);
+    }
+
+    private async Task ZetAttribuutVlag(ProductAttribuut a, Action<bool> zet, ChangeEventArgs e)
+    {
+        zet(e.Value is bool b && b);
+        await BewaarAttribuut(a);
+    }
+
+    private async Task BewaarAttribuut(ProductAttribuut a)
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Repo.BewaarTypeAttribuutAsync(_naamId.Value, a, Ik.WerknemerId);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderAttribuut(ProductAttribuut a)
+    {
+        if (_naamId is null) return;
+        if (!await Bevestig($"Attribuut '{a.Attribuut}' verwijderen uit dit producttype?")) return;
+
+        try
+        {
+            await Repo.VerwijderTypeAttribuutAsync(a.Id);
+            _typeAttributen = await Repo.GetTypeAttributenAsync(_naamId.Value);
+            Toon("Attribuut verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }
+    }
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

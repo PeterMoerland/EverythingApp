@@ -1,0 +1,211 @@
+@inject IUrenRepository Repo
+
+@* ============================================================================
+   Werkorder zoeken — vervangt de Access-popups 'Projectreg_zoek_naar_workorder'
+   en 'SelectRecentWorkorder'. Drie tabbladen:
+     Zoeken      – op nummer, project, klant of omschrijving
+     Recent      – waarop deze werknemer de laatste maand uren boekte
+     Persoonlijk – eigen lijst (tabel Personal_Orders)
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay" @onclick="Sluit">
+        <div class="kiezer" @onclick:stopPropagation>
+            <div class="kiezer-kop">
+                <b>Werkorder zoeken</b>
+                <div class="tabs">
+                    <button class="@(_tab == Tab.Zoeken ? "actief" : "")" @onclick="() => KiesTab(Tab.Zoeken)">Zoeken</button>
+                    <button class="@(_tab == Tab.Recent ? "actief" : "")" @onclick="() => KiesTab(Tab.Recent)">Recent</button>
+                    <button class="@(_tab == Tab.Persoonlijk ? "actief" : "")" @onclick="() => KiesTab(Tab.Persoonlijk)">Persoonlijk</button>
+                </div>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            @if (_tab == Tab.Zoeken)
+            {
+                <div class="kiezer-filter">
+                    <input @ref="_zoekveld" placeholder="Nummer, project, klant of omschrijving…"
+                           value="@_zoek" @oninput="ZoekInput" @onkeydown="Toets" />
+                    <label class="vink">
+                        <input type="checkbox" checked="@_alleenOpen" @onchange="AlleenOpenGewijzigd" />
+                        Alleen open werkorders
+                    </label>
+                </div>
+            }
+
+            <div class="kiezer-lijst">
+                @if (_bezig)
+                {
+                    <div class="kiezer-info">Zoeken…</div>
+                }
+                else if (_resultaat.Count == 0)
+                {
+                    <div class="kiezer-info">
+                        @(_tab switch
+                        {
+                            Tab.Recent => "Geen werkorders waarop je de laatste maand uren boekte.",
+                            Tab.Persoonlijk => "Je persoonlijke lijst is leeg. Voeg werkorders toe met het ☆-teken.",
+                            _ => string.IsNullOrWhiteSpace(_zoek) ? "Typ om te zoeken." : "Niets gevonden."
+                        })
+                    </div>
+                }
+                else
+                {
+                    <table class="kiezer-tabel">
+                        <tbody>
+                            @foreach (var w in _resultaat)
+                            {
+                                <tr @ondblclick="() => Kies(w)">
+                                    <td class="nr">@w.Weergave</td>
+                                    <td>@w.Project</td>
+                                    <td>@w.Omschrijving</td>
+                                    <td class="klant">@w.Klant</td>
+                                    <td class="c">@(w.WorkorderStatus == 0 ? "gesloten" : "open")</td>
+                                    <td class="c">
+                                        <button class="klein" title="@(_persoonlijkeIds.Contains(w.WerkbonId) ? "Uit persoonlijke lijst halen" : "Aan persoonlijke lijst toevoegen")"
+                                                @onclick="() => WisselPersoonlijk(w)" @onclick:stopPropagation>
+                                            @(_persoonlijkeIds.Contains(w.WerkbonId) ? "★" : "☆")
+                                        </button>
+                                        <button class="klein primair" @onclick="() => Kies(w)" @onclick:stopPropagation>Kies</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+
+            <div class="kiezer-voet">
+                <span class="klein-info">Dubbelklik op een regel om te kiezen. ☆ zet een werkorder in je persoonlijke lijst.</span>
+                <button @onclick="Sluit">Annuleren</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum Tab { Zoeken, Recent, Persoonlijk }
+
+    /// <summary>Is het venster open?</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Voor wie zoeken we (bepaalt 'Recent' en 'Persoonlijk').</summary>
+    [Parameter] public int WerknemerId { get; set; }
+
+    /// <summary>Wordt aangeroepen met de gekozen werkorder.</summary>
+    [Parameter] public EventCallback<Workorder> OpGekozen { get; set; }
+
+    /// <summary>Wordt aangeroepen bij sluiten/annuleren.</summary>
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private Tab _tab = Tab.Recent;      // begin bij 'Recent': meestal de snelste route
+    private string _zoek = "";
+    private bool _alleenOpen = true;
+    private bool _bezig;
+    private List<Workorder> _resultaat = new();
+    private HashSet<int> _persoonlijkeIds = new();
+    private ElementReference _zoekveld;
+    private bool _wasOpen;
+    private CancellationTokenSource? _typPauze;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)          // net geopend
+        {
+            _wasOpen = true;
+            _zoek = "";
+            _tab = Tab.Recent;
+            await LaadPersoonlijkeIds();
+            await Laad();
+        }
+        else if (!Open && _wasOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private async Task LaadPersoonlijkeIds()
+    {
+        try
+        {
+            var lijst = await Repo.PersoonlijkeWerkordersAsync(WerknemerId);
+            _persoonlijkeIds = lijst.Select(w => w.WerkbonId).ToHashSet();
+        }
+        catch { _persoonlijkeIds = new HashSet<int>(); }
+    }
+
+    private async Task KiesTab(Tab tab)
+    {
+        _tab = tab;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _bezig = true;
+        StateHasChanged();
+        try
+        {
+            _resultaat = _tab switch
+            {
+                Tab.Recent => await Repo.RecentGebruikteWerkordersAsync(WerknemerId, 31, 40),
+                Tab.Persoonlijk => await Repo.PersoonlijkeWerkordersAsync(WerknemerId),
+                _ => string.IsNullOrWhiteSpace(_zoek)
+                        ? new List<Workorder>()
+                        : await Repo.ZoekWerkordersAsync(_zoek, _alleenOpen, 100)
+            };
+        }
+        catch
+        {
+            _resultaat = new List<Workorder>();
+        }
+        _bezig = false;
+    }
+
+    // Zoeken terwijl je typt, met korte pauze zodat niet elke toetsaanslag de database raakt
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _tab = Tab.Zoeken;
+
+        _typPauze?.Cancel();
+        _typPauze = new CancellationTokenSource();
+        var token = _typPauze.Token;
+        try
+        {
+            await Task.Delay(250, token);
+            if (!token.IsCancellationRequested) await Laad();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task AlleenOpenGewijzigd(ChangeEventArgs e)
+    {
+        _alleenOpen = e.Value is bool b && b;
+        await Laad();
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await Sluit();
+        else if (e.Key == "Enter" && _resultaat.Count > 0) await Kies(_resultaat[0]);
+    }
+
+    private async Task Kies(Workorder w) => await OpGekozen.InvokeAsync(w);
+
+    private async Task Sluit() => await OpGesloten.InvokeAsync();
+
+    private async Task WisselPersoonlijk(Workorder w)
+    {
+        var erin = _persoonlijkeIds.Contains(w.WerkbonId);
+        try
+        {
+            await Repo.ZetPersoonlijkeWerkorderAsync(WerknemerId, w.WerkbonId, !erin);
+            if (erin) _persoonlijkeIds.Remove(w.WerkbonId);
+            else _persoonlijkeIds.Add(w.WerkbonId);
+            if (_tab == Tab.Persoonlijk) await Laad();
+        }
+        catch { /* tabel Personal_Orders niet gevonden */ }
+    }
+}

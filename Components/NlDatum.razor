@@ -1,0 +1,25 @@
+@* Datumveld in Nederlandse notatie (dd-mm-jjjj), onafhankelijk van de browsertaal.
+   Typen mag kort: 1-2 · 1-2-26 · 01022026 *@
+
+<input class="datumveld @Klasse" inputmode="numeric" maxlength="10" placeholder="dd-mm-jjjj"
+       value="@DatumHulp.Tekst(Waarde)" @onchange="Gewijzigd" title="dd-mm-jjjj" />
+
+@code {
+    [Parameter] public DateOnly? Waarde { get; set; }
+    [Parameter] public EventCallback<DateOnly?> WaardeChanged { get; set; }
+    [Parameter] public string? Klasse { get; set; }
+
+    private async Task Gewijzigd(ChangeEventArgs e)
+    {
+        var tekst = (string?)e.Value;
+        var nieuw = DatumHulp.Parse(tekst);
+
+        // Onleesbare invoer: veld terugzetten op de vorige waarde
+        if (nieuw is null && !string.IsNullOrWhiteSpace(tekst))
+        {
+            await WaardeChanged.InvokeAsync(Waarde);
+            return;
+        }
+        await WaardeChanged.InvokeAsync(nieuw);
+    }
+}

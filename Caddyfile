@@ -1,0 +1,82 @@
+# --- MDE - Caddyfile ---------------------------------------------------------
+# Plaats: C:\Caddy\Caddyfile
+# Wijziging doorvoeren zonder onderbreking:
+#   C:\Caddy\caddy.exe reload --config C:\Caddy\Caddyfile
+#
+# Nieuw ten opzichte van de oude versie: een https-kant op
+# everything.mde-automation.nl met een eigen certificaat (tls internal).
+# Elke pc/telefoon moet het basiscertificaat een keer vertrouwen; dat is op
+# te halen via http://everything.mde-automation.nl/mde-root.crt
+# (zie https-aanzetten.bat voor het klaarzetten daarvan).
+#
+# Http blijft gewoon werken, dus de overgang kan geleidelijk.
+# ------------------------------------------------------------------------------
+
+{
+    # Certificaten en de eigen CA op een vaste, vindbare plek in plaats van
+    # in het profiel van het account waaronder Caddy toevallig draait.
+    storage file_system {
+        root C:\Caddy\data
+    }
+}
+
+# --- de apps, een keer gedefinieerd, gebruikt door http en https --------------
+(apps) {
+    encode gzip
+
+    # Basiscertificaat voor nieuwe apparaten (gevuld door https-aanzetten.bat)
+    handle /mde-root.crt {
+        root * C:\Caddy\publiek
+        file_server
+    }
+
+    # -- NDA-app - pad-prefix /MDE/nda/, poort 5100 --
+    handle_path /MDE/nda/* {
+        reverse_proxy 127.0.0.1:5100 {
+            header_up X-Forwarded-Prefix "/MDE/nda"
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # -- UreningavePoC (.NET Blazor Server) - pad-prefix /mde/, poort 5010 --
+    handle_path /mde/* {
+        reverse_proxy 127.0.0.1:5010 {
+            header_up X-Forwarded-Prefix "/mde"
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # -- Volgende apps: kopieer het patroon hierboven --
+    # handle_path /MDE/<naam>/* {
+    #     reverse_proxy 127.0.0.1:<poort> {
+    #         header_up X-Forwarded-Prefix "/MDE/<naam>"
+    #         header_up X-Forwarded-Host {host}
+    #         header_up X-Forwarded-Proto {scheme}
+    #     }
+    # }
+
+    # Tijdelijke landingspagina op de root
+    handle {
+        respond "MDE Everything komt hier. Ga voorlopig naar /mde/" 200
+    }
+}
+
+# --- https: hiervoor is dit allemaal begonnen (camera op de telefoon) ---------
+everything.mde-automation.nl {
+    # Eigen certificaat van Caddy's ingebouwde CA; geen internet nodig.
+    tls internal
+    import apps
+}
+
+# --- http: blijft werken zoals het was ----------------------------------------
+# Bewust geen doorsturing naar https: eerst moeten de apparaten het
+# certificaat vertrouwen, anders krijgt iedereen waarschuwingen. Zodra dat
+# rond is, kan dit blok vervangen worden door:
+#   :80 {
+#       redir https://everything.mde-automation.nl{uri}
+#   }
+:80 {
+    import apps
+}

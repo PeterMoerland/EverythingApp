@@ -1,0 +1,1092 @@
+@page "/werknemers"
+@inject IUrenRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>Werknemers</h1>
+        <span class="weeklabel">@_lijst.Count in de lijst</span>
+    </header>
+
+    <div class="wn-scherm">
+        @* ---------- linkerkolom: filters + lijst ---------- *@
+        <aside class="wn-lijst">
+            <div class="wn-filters">
+                <label class="vink">
+                    <input type="checkbox" checked="@_inclIngeleend" @onchange="IngeleendGewijzigd" />
+                    Inclusief ingeleend
+                </label>
+                <label class="vink">
+                    <input type="checkbox" checked="@_inclUitDienst" @onchange="UitDienstGewijzigd" />
+                    Inclusief uit dienst
+                </label>
+                <label class="vink">
+                    <input type="checkbox" checked="@_alleenPersonen" @onchange="PersonenGewijzigd" />
+                    Alleen personen
+                </label>
+                <div class="zoekregel">
+                    <input placeholder="Zoek op naam…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                    <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
+                            @onclick="WisZoek">✕</button>
+                </div>
+            </div>
+
+            <div class="wn-namen">
+                @foreach (var w in _lijst)
+                {
+                    <button class="wn-naam @(w.WerknemerId == _gekozenId ? "actief" : "")"
+                            @onclick="() => Kies(w.WerknemerId)">@w.Naam</button>
+                }
+                @if (_lijst.Count == 0)
+                {
+                    <div class="kiezer-info">Niemand gevonden met deze filters.</div>
+                }
+            </div>
+        </aside>
+
+        @* ---------- rechterkolom: tabbladen ---------- *@
+        <section class="wn-detail">
+            @if (_gekozenId is null)
+            {
+                <div class="kiezer-info">Kies links een werknemer.</div>
+            }
+            else
+            {
+                <div class="wn-tabs">
+                    @foreach (var tab in ZichtbareTabs)
+                    {
+                        <button class="@(tab.Naam == _tab ? "actief" : "")" @onclick="() => _tab = tab.Naam">@tab.Naam</button>
+                    }
+                </div>
+
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+
+                var huidig = ZichtbareTabs.FirstOrDefault(t => t.Naam == _tab) ?? ZichtbareTabs.FirstOrDefault();
+
+                @if (huidig is not null)
+                {
+                    <DetailMetZij ZijTonen="@(huidig.Velden.Length > 0)">
+                    <Hoofd>
+                    <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")">
+                        @foreach (var veld in huidig.Velden)
+                        {
+                            var kolom = Kolom(veld);
+                            @if (kolom is not null)
+                            {
+                                <div class="wn-veld @(veld.Type == VeldType.Meerregelig ? "breed" : "")">
+                                    <label>@veld.Label</label>
+                                    @if (veld.AlleenLezen)
+                                    {
+                                        <span class="wn-vast">@Tekst(kolom)</span>
+                                    }
+                                    else if (veld.Type == VeldType.JaNee)
+                                    {
+                                        <input type="checkbox" checked="@Waar(kolom)"
+                                               @onchange="e => Bewaar(kolom, Vink(e) ? 1 : 0)" />
+                                    }
+                                    else if (veld.Type == VeldType.Meerregelig)
+                                    {
+                                        <textarea rows="4" value="@Tekst(kolom)"
+                                                  @onchange="e => Bewaar(kolom, (string?)e.Value)"></textarea>
+                                    }
+                                    else if (veld.Type == VeldType.Fotopad)
+                                    {
+                                        <div class="afbeelding-veld">
+                                            @if (HeeftFoto(kolom))
+                                            {
+                                                <img class="pasfoto" src="@($"werknemerfoto/{_gekozenId}?v={_fotoVersie}")"
+                                                     alt="Pasfoto" />
+                                            }
+                                            else
+                                            {
+                                                <span class="geen-afbeelding">geen foto</span>
+                                            }
+
+                                            @if (_fotos.Count > 0)
+                                            {
+                                                <div class="fotorij">
+                                                    @foreach (var f in _fotos)
+                                                    {
+                                                        <div class="fotokaart @(f.FileStoreId == HoofdfotoId ? "gekozen" : "")">
+                                                            <button class="fotokeuze" title="Als hoofdfoto gebruiken"
+                                                                    @onclick="() => ZetHoofdfoto(f)">
+                                                                <img src="@($"bestand/{f.FileStoreId}")" alt="@f.Bestandsnaam" />
+                                                            </button>
+                                                            <button class="fotowis" title="Foto verwijderen"
+                                                                    @onclick="() => VerwijderFoto(f)">✕</button>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+
+                                            @if (OudPad(kolom) is string oudpad)
+                                            {
+                                                <span class="pad-info" title="@oudpad">oud pad: @oudpad</span>
+                                            }
+                                            <div class="sleepzone klein-zone @(_sleepAfbeelding == kolom ? "actief" : "")"
+                                                 @ondragenter="() => _sleepAfbeelding = kolom"
+                                                 @ondragleave="() => _sleepAfbeelding = null"
+                                                 @ondragover:preventDefault="true">
+                                                <span>Nieuwe foto: slepen of klikken (gaat naar de filestore)</span>
+                                                <InputFile OnChange="e => PasfotoGekozen(e, kolom)" accept="image/*" />
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (veld.Type == VeldType.Afbeelding)
+                                    {
+                                        <div class="afbeelding-veld">
+                                            @{
+                                                var bron = AfbeeldingHulp.DataAdres(_velden.TryGetValue(kolom, out var av) ? av : null);
+                                            }
+                                            @if (bron is not null)
+                                            {
+                                                <img src="@bron" alt="@veld.Label" />
+                                            }
+                                            else
+                                            {
+                                                <span class="geen-afbeelding">geen @veld.Label.ToLower()</span>
+                                                @if (_velden.TryGetValue(kolom, out var rv) && rv is byte[])
+                                                {
+                                                    <span class="pad-info">@AfbeeldingHulp.Beschrijf(rv)</span>
+                                                }
+                                            }
+                                            <div class="sleepzone klein-zone @(_sleepAfbeelding == kolom ? "actief" : "")"
+                                                 @ondragenter="() => _sleepAfbeelding = kolom"
+                                                 @ondragleave="() => _sleepAfbeelding = null"
+                                                 @ondragover:preventDefault="true">
+                                                <span>Sleep een afbeelding, of klik</span>
+                                                <InputFile OnChange="e => AfbeeldingGekozen(e, kolom)" accept="image/*" />
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (veld.Type == VeldType.Keuze)
+                                    {
+                                        <select value="@Tekst(kolom)" @onchange="e => BewaarKeuze(kolom, (string?)e.Value)">
+                                            <option value="">—</option>
+                                            @foreach (var k in Lijst(veld.Lijst))
+                                            {
+                                                <option value="@k.Id">@k.Naam</option>
+                                            }
+                                        </select>
+                                    }
+                                    else if (veld.Type == VeldType.Datum)
+                                    {
+                                        <span class="datum-met-extra">
+                                            <NlDatum Waarde="@DatumWaarde(kolom)"
+                                                     WaardeChanged="d => BewaarDatumWaarde(kolom, d)" />
+                                            @if (veld.ToonLeeftijd && Leeftijd(kolom) is int jaren)
+                                            {
+                                                <span class="leeftijd">@jaren jaar</span>
+                                            }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <input value="@Tekst(kolom)" @onchange="e => Bewaar(kolom, (string?)e.Value)" />
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                    </Hoofd>
+
+                    @* Naast het formulier: wie het is, wat hij doet, wat er speelde. *@
+                    <Zij>
+                        @if (_fotos.Count > 0 && HoofdfotoId is not null)
+                        {
+                            <ZijBlok Titel="Pasfoto">
+                                <img class="zij-foto" src="@($"werknemerfoto/{_gekozenId}?v={_fotoVersie}")"
+                                     alt="Pasfoto" />
+                            </ZijBlok>
+                        }
+
+                        <ZijBlok Titel="Nu" Leeg="@(HuidigeFunctie() is null && DienstSinds() is null)"
+                                 LeegTekst="Geen functie of datum in dienst bekend.">
+                            @if (HuidigeFunctie() is string functie)
+                            {
+                                <div class="zij-regel">
+                                    <span class="zij-naam">@functie</span>
+                                    <span class="zij-extra">functie</span>
+                                </div>
+                            }
+                            @if (DienstSinds() is DateTime sinds)
+                            {
+                                <div class="zij-regel">
+                                    <span class="zij-naam">@sinds.ToString("dd-MM-yyyy")</span>
+                                    <span class="zij-extra">in dienst, @Dienstjaren(sinds) jaar</span>
+                                </div>
+                            }
+                        </ZijBlok>
+
+                        <ZijBlok Titel="Laatste gebeurtenissen" Aantal="_tijdlijn.Count" Meer="NaarLoopbaan"
+                                 Leeg="_tijdlijn.Count == 0" LeegTekst="Nog geen loopbaangebeurtenissen.">
+                            @foreach (var g in _tijdlijn.Take(5))
+                            {
+                                <div class="zij-regel" @key="g.Id">
+                                    <span class="zij-naam">@(string.IsNullOrWhiteSpace(g.Soort) ? "Gebeurtenis" : g.Soort)</span>
+                                    <span class="zij-extra">
+                                        @g.Moment.ToString("dd-MM-yyyy")
+                                        @if (!string.IsNullOrWhiteSpace(g.Toelichting))
+                                        {
+                                            <text> · @g.Toelichting</text>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </ZijBlok>
+                    </Zij>
+                    </DetailMetZij>
+                }
+
+                @if (_tab == "Financieel" && WnRepo.Beschikbaar)
+                {
+                    <h3 class="wn-kop">Passen</h3>
+                    <div class="tl-balk">
+                        <button @onclick="NieuwePas">+ Pas toevoegen</button>
+                        <label class="vink">
+                            <input type="checkbox" checked="@_toonOpgeheven" @onchange="OpgehevenGewijzigd" />
+                            Ook opgeheven passen tonen
+                        </label>
+                    </div>
+
+                    @if (_pas is not null)
+                    {
+                        <div class="editpaneel">
+                            <b>@(_pas.Id == 0 ? "Nieuwe pas" : "Pas wijzigen")</b>
+                            <select @bind="_pas.PasTypeId">
+                                <option value="0">— soort pas —</option>
+                                @foreach (var t in _pasTypes)
+                                {
+                                    <option value="@t.Id">@t.Naam</option>
+                                }
+                            </select>
+                            <input placeholder="pasnummer" @bind="_pas.Pasnummer" />
+                            <select @bind="_pas.BankrekeningId">
+                                <option value="">— bankrekening —</option>
+                                @foreach (var b in _bankrekeningen)
+                                {
+                                    <option value="@b.Id">@b.Naam</option>
+                                }
+                            </select>
+                            <label class="vink">
+                                <input type="checkbox" checked="@_pas.Opgeheven"
+                                       @onchange="e => _pas.Opgeheven = Vink(e)" />
+                                opgeheven
+                            </label>
+                            <button class="primair" @onclick="BewaarPas">Opslaan</button>
+                            <button @onclick="() => _pas = null">Annuleren</button>
+                        </div>
+                    }
+
+                    @if (_passen.Count == 0)
+                    {
+                        <div class="kiezer-info">Geen passen geregistreerd.</div>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr><th>Soort</th><th>Pasnummer</th><th>Werkmaatschappij</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in _passen)
+                                {
+                                    <tr class="@(p.Opgeheven ? "vervallen" : "")">
+                                        <td>@p.Soort</td>
+                                        <td>@p.Pasnummer</td>
+                                        <td>@p.BV</td>
+                                        <td class="c">
+                                            @if (p.Opgeheven)
+                                            {
+                                                <span>opgeheven</span>
+                                            }
+                                            else
+                                            {
+                                                <button class="klein" title="Pas opheffen" @onclick="() => HefPasOp(p)">opheffen</button>
+                                            }
+                                            <button class="klein" title="Wijzigen" @onclick="() => BewerkPas(p)">✎</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+
+                @if (_tab == "Loopbaan")
+                {
+                    @if (!WnRepo.Beschikbaar)
+                    {
+                        <div class="module-placeholder">
+                            <p>De tijdlijn werkt alleen met de live database.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="tl-balk">
+                            <button class="primair" @onclick="NieuweGebeurtenis">+ Gebeurtenis toevoegen</button>
+                            @if (MagPrive)
+                            {
+                                <label class="vink">
+                                    <input type="checkbox" checked="@_toonPrive" @onchange="PriveGewijzigd" />
+                                    Privé-gebeurtenissen tonen
+                                </label>
+                            }
+                        </div>
+
+                        @if (_gebeurtenis is not null)
+                        {
+                            <div class="editpaneel">
+                                <b>@(_gebeurtenis.Id == 0 ? "Nieuwe gebeurtenis" : "Gebeurtenis wijzigen")</b>
+                                <select @bind="_gebeurtenis.SoortId">
+                                    @foreach (var s in _soorten)
+                                    {
+                                        <option value="@s.Id">@s.Groep — @s.Naam</option>
+                                    }
+                                </select>
+                                <label>datum</label>
+                                <NlDatum Waarde="DateOnly.FromDateTime(_gebeurtenis.Moment)"
+                                         WaardeChanged="MomentGewijzigd" />
+                                <label>functie</label>
+                                <select @bind="_gebeurtenis.FunctieId">
+                                    <option value="">— ongewijzigd —</option>
+                                    @foreach (var f in _functies)
+                                    {
+                                        <option value="@f.Id">@f.Naam</option>
+                                    }
+                                </select>
+                                <input placeholder="toelichting" @bind="_gebeurtenis.Toelichting" style="min-width:16rem" />
+                                <label>uren</label>
+                                <input class="r smal" @bind="_gebeurtenis.Contracturen" />
+                                <label>t/m</label>
+                                <NlDatum Waarde="_gebeurtenis.TotDatum" WaardeChanged="TotDatumGewijzigd" />
+                                @if (MagPrive)
+                                {
+                                    <label>bruto/mnd €</label>
+                                    <input class="r smal" @bind="_gebeurtenis.BrutoSalaris" />
+                                    <label class="vink">
+                                        <input type="checkbox" checked="@(_gebeurtenis.DertiendeMaand == true)"
+                                               @onchange="e => _gebeurtenis.DertiendeMaand = Vink(e)" />
+                                        13e maand
+                                    </label>
+                                    <label>vrije dagen</label>
+                                    <input class="r smal" @bind="_gebeurtenis.VrijeDagen" />
+                                    <label>ATV-dagen</label>
+                                    <input class="r smal" @bind="_gebeurtenis.AtvDagen" />
+                                }
+                                <label class="vink">
+                                    <input type="checkbox" checked="@_gebeurtenis.Prive"
+                                           @onchange="e => _gebeurtenis.Prive = Vink(e)" />
+                                    privé
+                                </label>
+                                <button class="primair" @onclick="BewaarGebeurtenis">Opslaan</button>
+                                <button @onclick="() => _gebeurtenis = null">Annuleren</button>
+                                @if (_gebeurtenis.Id != 0)
+                                {
+                                    <button class="rood" @onclick="VerwijderGebeurtenis">Verwijderen</button>
+                                }
+                            </div>
+                        }
+
+                        @if (_tijdlijn.Count == 0)
+                        {
+                            <div class="kiezer-info">Nog geen gebeurtenissen vastgelegd.</div>
+                        }
+                        else
+                        {
+                            <ol class="tijdlijn">
+                                @foreach (var g in _tijdlijn)
+                                {
+                                    <li class="tl-item @(g.Prive ? "prive" : "")">
+                                        <div class="tl-datum">@g.Moment.ToString("dd-MM-yyyy")</div>
+                                        <div class="tl-inhoud">
+                                            <span class="tl-soort">@g.Soort</span>
+                                            @if (g.Prive)
+                                            {
+                                                <span class="tl-vlag">privé</span>
+                                            }
+                                            @if (FunctieNaam(g.FunctieId) is string fn)
+                                            {
+                                                <span class="tl-functie">@fn</span>
+                                            }
+                                            @if (g.Contracturen is not null)
+                                            {
+                                                <span class="tl-extra">@g.Contracturen uur/week</span>
+                                            }
+                                            @if (g.TotDatum is not null)
+                                            {
+                                                <span class="tl-extra">t/m @g.TotDatum.Value.ToString("dd-MM-yyyy")</span>
+                                            }
+                                            @if (g.BrutoSalaris is not null && MagPrive)
+                                            {
+                                                <span class="tl-extra">€ @g.BrutoSalaris.Value.ToString("N2") bruto</span>
+                                            }
+                                            @if (g.VrijeDagen is not null)
+                                            {
+                                                <span class="tl-extra">@g.VrijeDagen vrije dagen</span>
+                                            }
+                                            @if (g.AtvDagen is not null)
+                                            {
+                                                <span class="tl-extra">@g.AtvDagen ATV</span>
+                                            }
+                                            @if (g.DertiendeMaand == true)
+                                            {
+                                                <span class="tl-extra">13e maand</span>
+                                            }
+                                            @if (g.AantalDocumenten > 0)
+                                            {
+                                                <span class="tl-extra">@g.AantalDocumenten document(en)</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(g.Toelichting))
+                                            {
+                                                <div class="tl-toel">@g.Toelichting</div>
+                                            }
+                                            @if (_documentenVoor == g.Id)
+                                            {
+                                                <div class="docs">
+                                                    @foreach (var b in _documenten)
+                                                    {
+                                                        <div class="docrij">
+                                                            <a class="doc" href="@($"bestand/{b.FileStoreId}")" target="_blank"
+                                                               title="Bekijken">@b.Bestandsnaam</a>
+                                                            <span class="doc-info">@b.Toegevoegd?.ToString("dd-MM-yyyy") @b.ToegevoegdDoor</span>
+                                                            <a class="klein docknop" title="Downloaden"
+                                                               href="@($"bestand/{b.FileStoreId}/download")">⭳</a>
+                                                            <button class="klein docknop rood" title="Verwijderen"
+                                                                    @onclick="() => VerwijderDocument(b, g.Id)">✕</button>
+                                                        </div>
+                                                    }
+
+                                                    <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                                                         @ondragenter="() => _sleepActief = true"
+                                                         @ondragleave="() => _sleepActief = false"
+                                                         @ondragover:preventDefault="true">
+                                                        <span>Sleep hier een bestand, of klik om te kiezen</span>
+                                                        <InputFile OnChange="e => BestandenGekozen(e, g.Id)" multiple />
+                                                    </div>
+                                                    @if (_uploadMelding is not null)
+                                                    {
+                                                        <div class="doc-melding">@_uploadMelding</div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                        <button class="klein" title="Documenten" @onclick="() => ToonDocumenten(g)">📎</button>
+                                        <button class="klein" title="Wijzigen" @onclick="() => BewerkGebeurtenis(g)">✎</button>
+                                    </li>
+                                }
+                            </ol>
+                        }
+                    }
+                }
+            }
+        </section>
+    </div>
+
+    <footer class="voet">
+        Kopie van het Access-formulier 'Werknemers'. Velden die in de database niet
+        bestaan worden overgeslagen. Wijzigingen worden per veld direct opgeslagen.
+    </footer>
+</div>
+
+@code {
+    private List<Werknemer> _lijst = new();
+    private int? _gekozenId;
+    private string _tab = "Basisgegevens";
+
+    private bool _inclIngeleend;
+    private bool _inclUitDienst;
+    private bool _alleenPersonen = true;
+    private string _zoek = "";
+
+    private HashSet<string> _kolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
+    private string? _melding;
+    private bool _meldingFout;
+
+    private VeldTab[] ZichtbareTabs =>
+        WerknemerVelden.Tabs
+            .Concat(new[] { new VeldTab("Loopbaan", null) })
+            .Where(t => t.Recht is null || !Ik.Gekoppeld || Ik.Mag(t.Recht) || Ik.Mag("Directie"))
+            .ToArray();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        try { _kolommen = await Repo.WerknemerKolommenAsync(); } catch { }
+        await LaadKeuzelijsten();
+        await Laad();
+        if (_gekozenId is null && Ik.WerknemerId is not null) await Kies(Ik.WerknemerId.Value);
+    }
+
+    private async Task Laad(bool naFilter = false)
+    {
+        try
+        {
+            _lijst = await Repo.ZoekWerknemersAsync(_inclIngeleend, _inclUitDienst, _alleenPersonen, _zoek);
+        }
+        catch (Exception ex)
+        {
+            _lijst = new List<Werknemer>();
+            Toon("Lijst ophalen mislukt: " + ex.Message, true);
+            return;
+        }
+
+        if (!naFilter) return;
+
+        // Precies één treffer? Die meteen openen — scheelt een klik.
+        if (_lijst.Count == 1)
+        {
+            await Kies(_lijst[0].WerknemerId);
+            return;
+        }
+
+        // Staat de gekozen werknemer niet meer in de lijst? Detailscherm leegmaken,
+        // zodat je nooit onbedoeld iemand bewerkt die je niet ziet staan.
+        if (_gekozenId is not null && _lijst.All(w => w.WerknemerId != _gekozenId))
+            Leegmaken();
+    }
+
+    private void Leegmaken()
+    {
+        _gekozenId = null;
+        _velden = new(StringComparer.OrdinalIgnoreCase);
+        _tijdlijn = new();
+        _gebeurtenis = null;
+        _passen = new();
+        _pas = null;
+        _fotos = new();
+        HoofdfotoId = null;
+        _documentenVoor = null;
+        _documenten = new();
+        _melding = null;
+    }
+
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    private async Task IngeleendGewijzigd(ChangeEventArgs e) { _inclIngeleend = Vink(e); await Laad(naFilter: true); }
+    private async Task UitDienstGewijzigd(ChangeEventArgs e) { _inclUitDienst = Vink(e); await Laad(naFilter: true); }
+    private async Task PersonenGewijzigd(ChangeEventArgs e) { _alleenPersonen = Vink(e); await Laad(naFilter: true); }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? string.Empty;
+        await Laad(naFilter: true);
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = string.Empty;
+        Leegmaken();       // ook de selectie los, zodat er geen details blijven staan
+        await Laad();
+    }
+
+    private async Task Kies(int id)
+    {
+        _gekozenId = id;
+        _gebeurtenis = null;
+        try { _velden = await Repo.GetWerknemerVeldenAsync(id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+        await LaadTijdlijn();
+        await LaadPassen();
+        await LaadFotos();
+        _fotoVersie++;
+    }
+
+    // ---- passen (Financieel) ----
+    private List<Pas> _passen = new();
+    private bool _toonOpgeheven;
+
+    private async Task LaadPassen()
+    {
+        if (_gekozenId is null || !WnRepo.Beschikbaar) { _passen = new(); return; }
+        try { _passen = await WnRepo.GetPassenAsync(_gekozenId.Value, _toonOpgeheven); }
+        catch { _passen = new(); }
+    }
+
+    private async Task OpgehevenGewijzigd(ChangeEventArgs e)
+    {
+        _toonOpgeheven = Vink(e);
+        await LaadPassen();
+    }
+
+    private Pas? _pas;
+    private List<Keuze> _pasTypes = new();
+    private List<Keuze> _bankrekeningen = new();
+
+    private void NieuwePas() => _pas = new Pas { WerknemerId = _gekozenId ?? 0 };
+
+    private void BewerkPas(Pas p) => _pas = new Pas
+    {
+        Id = p.Id,
+        // valt terug op de gekozen werknemer, zodat de pas nooit bij nummer 0 belandt
+        WerknemerId = p.WerknemerId != 0 ? p.WerknemerId : (_gekozenId ?? 0),
+        PasTypeId = p.PasTypeId,
+        BankrekeningId = p.BankrekeningId,
+        Pasnummer = p.Pasnummer,
+        Opgeheven = p.Opgeheven
+    };
+
+    private async Task BewaarPas()
+    {
+        if (_pas is null) return;
+        if (_pas.PasTypeId == 0) { Toon("Kies eerst een soort pas.", true); return; }
+        try
+        {
+            await WnRepo.BewaarPasAsync(_pas);
+            _pas = null;
+            await LaadPassen();
+            Toon("Pas opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task HefPasOp(Pas p)
+    {
+        try
+        {
+            p.Opgeheven = true;
+            await WnRepo.BewaarPasAsync(p);
+            await LaadPassen();
+            Toon("Pas opgeheven.", false);
+        }
+        catch (Exception ex) { Toon("Opheffen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Loopbaan / tijdlijn
+    // ================================================================
+    private List<GebeurtenisSoort> _soorten = new();
+    private List<Gebeurtenis> _tijdlijn = new();
+    private Gebeurtenis? _gebeurtenis;
+    private bool _toonPrive = true;
+
+    private bool MagPrive => !Ik.Gekoppeld || Ik.Mag("HRM") || Ik.Mag("Directie");
+
+    private async Task LaadTijdlijn()
+    {
+        if (_gekozenId is null || !WnRepo.Beschikbaar) { _tijdlijn = new(); return; }
+        try
+        {
+            if (_soorten.Count == 0) _soorten = await WnRepo.GetSoortenAsync();
+            _tijdlijn = await WnRepo.GetTijdlijnAsync(_gekozenId.Value, MagPrive && _toonPrive);
+        }
+        catch (Exception ex)
+        {
+            _tijdlijn = new();
+            Toon("Tijdlijn ophalen mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task PriveGewijzigd(ChangeEventArgs e)
+    {
+        _toonPrive = Vink(e);
+        await LaadTijdlijn();
+    }
+
+    private void NieuweGebeurtenis()
+    {
+        var eerste = _soorten.FirstOrDefault();
+        _gebeurtenis = new Gebeurtenis
+        {
+            WerknemerId = _gekozenId ?? 0,
+            SoortId = eerste?.Id ?? 0,
+            Moment = DateTime.Today,
+            Prive = eerste?.StandaardPrive ?? false
+        };
+    }
+
+    private void BewerkGebeurtenis(Gebeurtenis g) => _gebeurtenis = new Gebeurtenis
+    {
+        Id = g.Id, WerknemerId = g.WerknemerId, SoortId = g.SoortId, Moment = g.Moment,
+        Toelichting = g.Toelichting, FunctieId = g.FunctieId, Contracturen = g.Contracturen,
+        WerkzaamBij = g.WerkzaamBij, Bedrag = g.Bedrag, TotDatum = g.TotDatum, Prive = g.Prive,
+        // ook de arbeidsvoorwaarden meenemen, anders worden ze bij opslaan leeggemaakt
+        BrutoSalaris = g.BrutoSalaris, DertiendeMaand = g.DertiendeMaand,
+        VrijeDagen = g.VrijeDagen, AtvDagen = g.AtvDagen
+    };
+
+    private void MomentGewijzigd(DateOnly? d)
+    {
+        if (_gebeurtenis is not null && d is not null)
+            _gebeurtenis.Moment = d.Value.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private void TotDatumGewijzigd(DateOnly? d)
+    {
+        if (_gebeurtenis is not null) _gebeurtenis.TotDatum = d;
+    }
+
+    /// <summary>Naam van een functie uit Werknemers_functie, of null.</summary>
+    private string? FunctieNaam(int? id) =>
+        id is null ? null : _functies.FirstOrDefault(f => f.Id == id)?.Naam;
+
+    private async Task BewaarGebeurtenis()
+    {
+        if (_gebeurtenis is null) return;
+        try
+        {
+            var functie = _gebeurtenis.FunctieId;
+            var moment = _gebeurtenis.Moment;
+            var werknemer = _gebeurtenis.WerknemerId;
+
+            await WnRepo.BewaarGebeurtenisAsync(_gebeurtenis);
+
+            // Is de functie gewijzigd en geldt dat nu al? Dan ook de huidige functie in
+            // Werknemers bijwerken, zodat Access hetzelfde ziet zolang beide systemen draaien.
+            if (functie is not null && moment.Date <= DateTime.Today && _kolommen.Contains("id_functie"))
+            {
+                try
+                {
+                    await Repo.UpdateWerknemerVeldAsync(werknemer, "id_functie", functie);
+                    _velden["id_functie"] = functie;
+                }
+                catch { /* kolom ontbreekt of geen rechten: tijdlijn blijft leidend */ }
+            }
+
+            _gebeurtenis = null;
+            await LaadTijdlijn();
+            Toon("Gebeurtenis opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ---- documenten bij een gebeurtenis ----
+    private int? _documentenVoor;
+    private List<Bestand> _documenten = new();
+    private bool _sleepActief;
+    private string? _uploadMelding;
+
+    private async Task ToonDocumenten(Gebeurtenis g)
+    {
+        _uploadMelding = null;
+        if (_documentenVoor == g.Id) { _documentenVoor = null; return; }   // dichtklappen
+        _documentenVoor = g.Id;
+        await LaadDocumenten(g.Id);
+    }
+
+    private async Task LaadDocumenten(int gebeurtenisId)
+    {
+        try { _documenten = await WnRepo.GetBestandenAsync(301, gebeurtenisId); }
+        catch { _documenten = new(); }
+    }
+
+    /// <summary>Ja/nee-vraag, zoals MsgBox in de Access-versie.</summary>
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }   // geen dialoog beschikbaar: niet blokkeren
+    }
+
+    private async Task VerwijderDocument(Bestand b, int gebeurtenisId)
+    {
+        if (!await Bevestig($"'{b.Bestandsnaam}' verwijderen?\n\nHet bestand wordt ook van schijf gehaald. Weet je het zeker?"))
+            return;
+        try
+        {
+            await Store.VerwijderAsync(b.FileStoreId);
+            await LaadDocumenten(gebeurtenisId);
+            await LaadTijdlijn();
+            _uploadMelding = $"'{b.Bestandsnaam}' verwijderd.";
+        }
+        catch (Exception ex)
+        {
+            _uploadMelding = "Verwijderen mislukt: " + ex.Message;
+        }
+    }
+
+    private async Task BestandenGekozen(InputFileChangeEventArgs e, int gebeurtenisId)
+    {
+        _sleepActief = false;
+        if (!Store.Beschikbaar)
+        {
+            _uploadMelding = "De filestore is niet ingesteld (Filestore:Pad in appsettings.json).";
+            return;
+        }
+
+        var toegevoegd = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);   // max 50 MB
+                await Store.ToevoegenAsync(stroom, bestand.Name, 301, gebeurtenisId, Ik.WerknemerId ?? 0);
+                toegevoegd++;
+            }
+            catch (Exception ex)
+            {
+                _uploadMelding = $"'{bestand.Name}' mislukt: {ex.Message}";
+            }
+        }
+
+        if (toegevoegd > 0) _uploadMelding = $"{toegevoegd} bestand(en) toegevoegd.";
+        await LaadDocumenten(gebeurtenisId);
+        await LaadTijdlijn();
+    }
+
+    private async Task VerwijderGebeurtenis()
+    {
+        if (_gebeurtenis is null || _gebeurtenis.Id == 0) return;
+        if (!await Bevestig("Deze gebeurtenis verwijderen? Weet je het zeker?")) return;
+        try
+        {
+            await WnRepo.VerwijderGebeurtenisAsync(_gebeurtenis.Id);
+            _gebeurtenis = null;
+            await LaadTijdlijn();
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Eerste kandidaat-kolom die in de database bestaat.</summary>
+    private string? Kolom(Veld veld) => veld.Kolommen.FirstOrDefault(k => _kolommen.Contains(k));
+
+    private string Tekst(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return "";
+        if (v is DateTime dt) return dt.ToString("dd-MM-yyyy");
+        return v.ToString() ?? "";
+    }
+
+    private DateOnly? DatumWaarde(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return null;
+        if (v is DateTime dt) return DateOnly.FromDateTime(dt);
+        return DateTime.TryParse(v.ToString(), out var d) ? DateOnly.FromDateTime(d) : null;
+    }
+
+    /// <summary>Leeftijd in hele jaren, of null als er geen datum staat.</summary>
+    private int? Leeftijd(string kolom)
+    {
+        var d = DatumWaarde(kolom);
+        if (d is null) return null;
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        var jaren = vandaag.Year - d.Value.Year;
+        if (d.Value.AddYears(jaren) > vandaag) jaren--;   // verjaardag nog niet gehad
+        return jaren is >= 0 and < 130 ? jaren : null;
+    }
+
+    private async Task BewaarDatumWaarde(string kolom, DateOnly? d) =>
+        await Bewaar(kolom, d is null ? null : d.Value.ToDateTime(TimeOnly.MinValue));
+
+    private bool Waar(string kolom)
+    {
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return false;
+        if (v is bool b) return b;
+        try { return Convert.ToInt64(v) != 0; } catch { return false; }
+    }
+
+    private async Task Bewaar(string kolom, object? waarde)
+    {
+        if (_gekozenId is null) return;
+        try
+        {
+            var opslaan = waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
+            await Repo.UpdateWerknemerVeldAsync(_gekozenId.Value, kolom, opslaan);
+            _velden[kolom] = opslaan;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    // ---- afbeeldingsvelden (handtekening, foto) ----
+    private string? _sleepAfbeelding;
+    private int _fotoVersie;                 // dwingt de browser de foto opnieuw te laden
+    private List<Bestand> _fotos = new();    // alle foto's van deze werknemer (StoreType 302)
+
+    // ================================================================
+    //  Zijpaneel
+    // ================================================================
+
+    /// <summary>Naam van de huidige functie, of null als die niet bekend is.</summary>
+    private string? HuidigeFunctie()
+    {
+        var kolom = new[] { "id_functie", "Id_functie", "functie_id" }.FirstOrDefault(_kolommen.Contains);
+        if (kolom is null || !_velden.TryGetValue(kolom, out var v) || v is null) return null;
+        if (!int.TryParse(v.ToString(), out var id)) return null;
+        return _functies.FirstOrDefault(f => f.Id == id)?.Naam;
+    }
+
+    private DateTime? DienstSinds()
+    {
+        var kolom = new[] { "in dienst", "In dienst", "Datum in-dienst", "DatumInDienst", "datum_in_dienst" }
+            .FirstOrDefault(_kolommen.Contains);
+        if (kolom is null || !_velden.TryGetValue(kolom, out var v) || v is null) return null;
+        return v is DateTime dt ? dt : DateTime.TryParse(v.ToString(), out var d) ? d : null;
+    }
+
+    private static int Dienstjaren(DateTime sinds)
+    {
+        var jaren = DateTime.Today.Year - sinds.Year;
+        if (sinds.Date > DateTime.Today.AddYears(-jaren)) jaren--;
+        return Math.Max(jaren, 0);
+    }
+
+    private void NaarLoopbaan() => _tab = "Loopbaan";
+
+    private const int StoreTypeFoto = 302;
+
+    /// <summary>Is er een foto: in de filestore, of in de oude kolom (bytes of pad)?</summary>
+    private bool HeeftFoto(string kolom)
+    {
+        if (_fotos.Count > 0) return true;
+        if (!_velden.TryGetValue(kolom, out var v) || v is null) return false;
+        if (v is byte[] b) return b.Length > 8;
+        return v is string s && !string.IsNullOrWhiteSpace(s);
+    }
+
+    /// <summary>Alleen het oude pad teruggeven als het écht tekst is (geen bytes).</summary>
+    private string? OudPad(string kolom)
+    {
+        if (_fotos.Count > 0) return null;      // al overgezet naar de filestore
+        if (!_velden.TryGetValue(kolom, out var v)) return null;
+        return v is string s && !string.IsNullOrWhiteSpace(s) ? s : null;
+    }
+
+    private int? HoofdfotoId { get; set; }
+
+    private async Task LaadFotos()
+    {
+        if (_gekozenId is null || !WnRepo.Beschikbaar) { _fotos = new(); HoofdfotoId = null; return; }
+        try
+        {
+            _fotos = await WnRepo.GetBestandenAsync(StoreTypeFoto, _gekozenId.Value);
+            var gekozen = await WnRepo.GetHoofdfotoAsync(_gekozenId.Value);
+            // Geen keuze gemaakt (of die foto is weg)? Dan is de nieuwste de hoofdfoto.
+            HoofdfotoId = _fotos.Any(f => f.FileStoreId == gekozen) ? gekozen : _fotos.FirstOrDefault()?.FileStoreId;
+        }
+        catch { _fotos = new(); HoofdfotoId = null; }
+    }
+
+    private async Task ZetHoofdfoto(Bestand f)
+    {
+        if (_gekozenId is null) return;
+        try
+        {
+            await WnRepo.ZetHoofdfotoAsync(_gekozenId.Value, f.FileStoreId);
+            HoofdfotoId = f.FileStoreId;
+            _fotoVersie++;
+            Toon("Hoofdfoto gewijzigd.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Hoofdfoto instellen mislukt: " + ex.Message +
+                 " — bestaat de tabel Werknemer_Hoofdfoto al?", true);
+        }
+    }
+
+    private async Task VerwijderFoto(Bestand f)
+    {
+        if (!await Bevestig("Deze foto verwijderen? Weet je het zeker?")) return;
+        try
+        {
+            await Store.VerwijderAsync(f.FileStoreId);
+            await LaadFotos();
+            _fotoVersie++;
+            Toon("Foto verwijderd.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Verwijderen mislukt: " + ex.Message, true);
+        }
+    }
+
+    /// <summary>Nieuwe pasfoto: gaat naar de filestore (302), niet meer als pad in de tabel.</summary>
+    private async Task PasfotoGekozen(InputFileChangeEventArgs e, string kolom)
+    {
+        _sleepAfbeelding = null;
+        var bestand = e.File;
+        if (bestand is null || _gekozenId is null) return;
+
+        if (!Store.Beschikbaar)
+        {
+            Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true);
+            return;
+        }
+
+        try
+        {
+            await using var stroom = bestand.OpenReadStream(10 * 1024 * 1024);   // max 10 MB
+            await Store.ToevoegenAsync(stroom, bestand.Name, StoreTypeFoto,
+                                       _gekozenId.Value, Ik.WerknemerId ?? 0);
+            _fotoVersie++;
+            await LaadFotos();
+            Toon("Foto toegevoegd aan de filestore.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Foto opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task AfbeeldingGekozen(InputFileChangeEventArgs e, string kolom)
+    {
+        _sleepAfbeelding = null;
+        var bestand = e.File;
+        if (bestand is null || _gekozenId is null) return;
+        try
+        {
+            await using var stroom = bestand.OpenReadStream(4 * 1024 * 1024);   // max 4 MB
+            using var geheugen = new MemoryStream();
+            await stroom.CopyToAsync(geheugen);
+            await Bewaar(kolom, geheugen.ToArray());
+        }
+        catch (Exception ex)
+        {
+            Toon("Afbeelding opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    // ---- keuzelijsten (Status-tabblad) ----
+    private List<Keuze> _bvs = new();
+    private List<Keuze> _functies = new();
+    private List<Keuze> _activiteiten = new();
+
+    private List<Keuze> Lijst(string? naam) => naam switch
+    {
+        "BV" => _bvs,
+        "Functie" => _functies,
+        "Activiteit" => _activiteiten,
+        _ => new List<Keuze>()
+    };
+
+    private async Task LaadKeuzelijsten()
+    {
+        if (!WnRepo.Beschikbaar) return;
+        try
+        {
+            _bvs = await WnRepo.GetBVsAsync();
+            _functies = await WnRepo.GetFunctiesAsync();
+            _activiteiten = await WnRepo.GetActiviteitenLijstAsync();
+            _pasTypes = await WnRepo.GetPasTypesAsync();
+            _bankrekeningen = await WnRepo.GetBankrekeningenAsync();
+        }
+        catch { /* lijsten blijven leeg */ }
+    }
+
+    private async Task BewaarKeuze(string kolom, string? waarde)
+    {
+        if (string.IsNullOrWhiteSpace(waarde)) { await Bewaar(kolom, null); return; }
+        await Bewaar(kolom, int.TryParse(waarde, out var id) ? id : null);
+    }
+
+    private async Task BewaarDatum(string kolom, string? waarde)
+    {
+        if (string.IsNullOrWhiteSpace(waarde)) { await Bewaar(kolom, null); return; }
+        await Bewaar(kolom, DateTime.TryParse(waarde, out var d) ? d : null);
+    }
+
+    private void Toon(string tekst, bool fout)
+    {
+        _melding = tekst;
+        _meldingFout = fout;
+    }
+}

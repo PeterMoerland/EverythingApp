@@ -1,0 +1,254 @@
+@page "/beheer/tabel/{Sleutel}"
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (_def is null)
+{
+    <div class="page">
+        <header class="topbar"><h1>Onbekende tabel</h1></header>
+        <section class="module-placeholder"><p>Kies een tabel in de zijbalk onder Beheer.</p></section>
+    </div>
+}
+else
+{
+    <div class="page">
+        <header class="topbar">
+            <h1>@_def.Titel</h1>
+            <span class="weeklabel">@_rijen.Count regels · tabel @_def.Tabel</span>
+        </header>
+
+        @if (!WnRepo.Beschikbaar)
+        {
+            <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+        }
+        else
+        {
+            @if (_def.Uitleg is not null)
+            {
+                <p class="uitleg">@_def.Uitleg</p>
+            }
+            @if (_melding is not null)
+            {
+                <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+            }
+
+            <div class="tl-balk">
+                <button class="primair" @onclick="Nieuw">+ Regel toevoegen</button>
+            </div>
+
+            @if (_bewerkt is not null)
+            {
+                <div class="editpaneel">
+                    <b>@(_bewerktId == 0 ? "Nieuwe regel" : "Regel wijzigen")</b>
+                    @foreach (var veld in _def.Velden)
+                    {
+                        <label>@veld.Label</label>
+                        @if (veld.Type == VeldType.JaNee)
+                        {
+                            <input type="checkbox" checked="@Waar(_bewerkt, veld.Kolom)"
+                                   @onchange="e => Zet(veld.Kolom, Vink(e) ? 1 : 0)" />
+                        }
+                        else if (veld.Type == VeldType.Getal)
+                        {
+                            <input class="r smal" value="@Tekst(_bewerkt, veld.Kolom)"
+                                   @onchange="e => ZetGetal(veld.Kolom, (string?)e.Value)" />
+                        }
+                        else
+                        {
+                            <input value="@Tekst(_bewerkt, veld.Kolom)"
+                                   style="@(veld.Breed ? "min-width:14rem" : "")"
+                                   @onchange="e => Zet(veld.Kolom, (string?)e.Value)" />
+                        }
+                    }
+                    <button class="primair" @onclick="Bewaar">Opslaan</button>
+                    <button @onclick="() => _bewerkt = null">Annuleren</button>
+                </div>
+            }
+
+            <table class="kiezer-tabel">
+                <thead>
+                    <tr>
+                        @foreach (var veld in _def.Velden)
+                        {
+                            <th class="@(veld.Type == VeldType.Getal ? "r" : "")">@veld.Label</th>
+                        }
+                        <th style="width:6rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var rij in _rijen)
+                    {
+                        var id = Id(rij);
+                        <tr>
+                            @foreach (var veld in _def.Velden)
+                            {
+                                <td class="@(veld.Type == VeldType.Getal ? "r" : "")">
+                                    @if (veld.Type == VeldType.JaNee)
+                                    {
+                                        @(Waar(rij, veld.Kolom) ? "ja" : "")
+                                    }
+                                    else
+                                    {
+                                        @Tekst(rij, veld.Kolom)
+                                    }
+                                </td>
+                            }
+                            <td class="c">
+                                <button class="klein" title="Wijzigen" @onclick="() => Bewerk(rij)">✎</button>
+                                <button class="klein rood" title="Verwijderen" @onclick="() => Verwijder(rij)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (_rijen.Count == 0)
+                    {
+                        <tr><td colspan="@(_def.Velden.Length + 1)" class="kiezer-info">Nog geen regels.</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <footer class="voet">
+            Een regel kan alleen worden verwijderd als er niets meer naar verwijst.
+        </footer>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Sleutel { get; set; }
+
+    private BeheerTabel? _def;
+    private List<Dictionary<string, object?>> _rijen = new();
+    private Dictionary<string, object?>? _bewerkt;
+    private int _bewerktId;
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        var nieuw = BeheerTabellen.Zoek(Sleutel);
+        if (nieuw != _def)
+        {
+            _def = nieuw;
+            _bewerkt = null;
+            _melding = null;
+            await Laad();
+        }
+    }
+
+    private async Task Laad()
+    {
+        if (_def is null || !WnRepo.Beschikbaar) { _rijen = new(); return; }
+        try
+        {
+            _rijen = await WnRepo.LeesBeheerTabelAsync(_def);
+            var eerste = _def.Velden.FirstOrDefault()?.Kolom;
+            if (eerste is not null)
+                _rijen = _rijen.OrderBy(r => Tekst(r, eerste)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _rijen = new();
+            Toon("Ophalen mislukt: " + ex.Message, true);
+        }
+    }
+
+    private int Id(Dictionary<string, object?> rij) =>
+        _def is not null && rij.TryGetValue(_def.IdKolom, out var v) && v is not null
+            ? Convert.ToInt32(v) : 0;
+
+    private static string Tekst(Dictionary<string, object?> rij, string kolom)
+    {
+        if (!rij.TryGetValue(kolom, out var v) || v is null) return "";
+        if (v is DateTime dt) return dt.ToString("dd-MM-yyyy");
+        return v.ToString() ?? "";
+    }
+
+    private static bool Waar(Dictionary<string, object?> rij, string kolom)
+    {
+        if (!rij.TryGetValue(kolom, out var v) || v is null) return false;
+        if (v is bool b) return b;
+        try { return Convert.ToInt64(v) != 0; } catch { return false; }
+    }
+
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    private void Nieuw()
+    {
+        _bewerktId = 0;
+        _bewerkt = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void Bewerk(Dictionary<string, object?> rij)
+    {
+        _bewerktId = Id(rij);
+        _bewerkt = new Dictionary<string, object?>(rij, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void Zet(string kolom, object? waarde)
+    {
+        if (_bewerkt is null) return;
+        _bewerkt[kolom] = waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
+    }
+
+    private void ZetGetal(string kolom, string? waarde)
+    {
+        if (_bewerkt is null) return;
+        _bewerkt[kolom] = int.TryParse(waarde, out var v) ? v : null;
+    }
+
+    private async Task Bewaar()
+    {
+        if (_def is null || _bewerkt is null) return;
+
+        var eerste = _def.Velden.First().Kolom;
+        if (string.IsNullOrWhiteSpace(Tekst(_bewerkt, eerste)))
+        {
+            Toon($"Vul '{_def.Velden.First().Label}' in.", true);
+            return;
+        }
+
+        try
+        {
+            await WnRepo.BewaarBeheerRijAsync(_def, _bewerktId, _bewerkt);
+            _bewerkt = null;
+            await Laad();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder(Dictionary<string, object?> rij)
+    {
+        if (_def is null) return;
+        var id = Id(rij);
+        var naam = Tekst(rij, _def.Velden.First().Kolom);
+
+        try
+        {
+            var reden = await WnRepo.BeheerRijInGebruikAsync(_def, id);
+            if (reden is not null)
+            {
+                Toon($"'{naam}' kan niet worden verwijderd. {reden}", true);
+                return;
+            }
+
+            bool zeker;
+            try { zeker = await JS.InvokeAsync<bool>("confirm", $"'{naam}' verwijderen? Weet je het zeker?"); }
+            catch { zeker = true; }
+            if (!zeker) return;
+
+            await WnRepo.VerwijderBeheerRijAsync(_def, id);
+            await Laad();
+            Toon("Verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout)
+    {
+        _melding = tekst;
+        _fout = fout;
+    }
+}

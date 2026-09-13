@@ -1,0 +1,724 @@
+@page "/relaties/nda"
+@using Microsoft.AspNetCore.WebUtilities
+@inject INdaRepository Repo
+@inject IRelatieRepository RelatieRepo
+@inject NdaService Dienst
+@inject MailService Post
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="page">
+    <header class="topbar">
+        <h1>Geheimhoudingsovereenkomsten</h1>
+        <span class="weeklabel">
+            @_lijst.Count(n => n.Status == NdaStatus.Concept) concept ·
+            @_lijst.Count(n => n.Status == NdaStatus.Verzonden) verzonden ·
+            @_lijst.Count(n => n.Status == NdaStatus.Ondertekend) ondertekend
+            @if (_lijst.Any(n => n.Verlopen))
+            {
+                <span class="verlopen-telling"> · @_lijst.Count(n => n.Verlopen) verlopen</span>
+            }
+        </span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: lijst ---------- *@
+            <aside class="wn-lijst nda-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Zoek relatie, project…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
+                                @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="zoekregel">
+                        <select value="@_status" @onchange="StatusFilterGewijzigd">
+                            <option value="">Alle statussen</option>
+                            @foreach (var s in NdaStatus.Alle)
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_relatieFilter is not null)
+                    {
+                        <label class="vink">
+                            <input type="checkbox" checked="@_alleenRelatie" @onchange="AlleenRelatieGewijzigd" />
+                            Alleen @_relatieFilterNaam
+                        </label>
+                    }
+                    @if (MagSchrijven)
+                    {
+                        <div class="btngroup">
+                            <button class="klein" @onclick="OpenNieuw">+ Nieuwe NDA</button>
+                        </div>
+                    }
+                </div>
+
+                @if (_nieuwOpen)
+                {
+                    <div class="nieuw-blok">
+                        <div class="wn-veld">
+                            <label>Relatie</label>
+                            <input placeholder="Zoek relatie…" value="@_nieuwZoek" @onchange="NieuwZoekGewijzigd" />
+                        </div>
+                        @if (_nieuwKandidaten.Count > 0)
+                        {
+                            <div class="wn-namen kort">
+                                @foreach (var k in _nieuwKandidaten)
+                                {
+                                    <button class="wn-naam" @key="k.Id" @onclick="() => MaakVoorRelatie(k)">@k.Naam</button>
+                                }
+                            </div>
+                        }
+                        <div class="btngroup">
+                            <button class="klein" @onclick="SluitNieuw">Annuleren</button>
+                        </div>
+                    </div>
+                }
+
+                <div class="wn-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                    else
+                    {
+                        @foreach (var n in _lijst)
+                        {
+                            <button class="wn-naam @(n.Id == _gekozenId ? "actief" : "")"
+                                    @key="n.Id" @onclick="() => Kies(n)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">@Naam(n)</span>
+                                    <span class="nda-onder">
+                                        @n.Status
+                                        @if (n.Verlopen) { <span class="nda-verlopen">verlopen</span> }
+                                        else if (n.DagenTotEinde is int d && d <= 60) { <span class="nda-bijna">@d dagen</span> }
+                                    </span>
+                                </span>
+                            </button>
+                        }
+                    }
+                </div>
+            </aside>
+
+            @* ---------- rechts: detail ---------- *@
+            <section class="wn-detail">
+                @if (_nda is null)
+                {
+                    <div class="kiezer-info">Kies links een NDA, of maak een nieuwe aan.</div>
+                }
+                else
+                {
+                    <div class="tl-balk">
+                        <span class="badge status-@_nda.Status.ToLowerInvariant()">@_nda.Status</span>
+                        <span class="badge">@Geldigheid(_nda)</span>
+                        @if (MagSchrijven)
+                        {
+                            <button class="primair" @onclick="MaakVersie">
+                                @(_nda.Bestanden.Count == 0 ? "Document maken" : "Nieuwe versie maken")
+                            </button>
+                            @if (_nda.Status == NdaStatus.Concept && _nda.Bestanden.Count > 0)
+                            {
+                                <button class="klein" @onclick="MarkeerVerzonden">Markeer als verzonden</button>
+                            }
+                            <button class="klein" @onclick="ToonMail">Conceptmail</button>
+                            <button class="klein rood" @onclick="Verwijder">✕ NDA verwijderen</button>
+                        }
+                    </div>
+
+                    @if (_mail is not null)
+                    {
+                        <div class="mail-blok">
+                            <label>Onderwerp</label>
+                            <input readonly value="@_mail.Value.Onderwerp" />
+                            <label>Bericht</label>
+                            <textarea rows="9" readonly>@_mail.Value.Tekst</textarea>
+                            <div class="wn-veld">
+                                <label>Aan</label>
+                                <input value="@_mailNaar" @onchange="MailNaarGewijzigd" />
+                            </div>
+                            <div class="btngroup">
+                                <button class="primair" disabled="@_mailBezig" @onclick="VerstuurMail">
+                                    @(_mailBezig ? "Versturen…" : "Versturen met de PDF erbij")
+                                </button>
+                                <a class="knopje" href="@MailAdres()">Openen in mijn e-mailprogramma</a>
+                                <button class="klein" @onclick="SluitMail">Sluiten</button>
+                            </div>
+                            <p class="uitleg">
+                                Versturen gaat via je eigen Gmail, dus de mail staat daarna ook in je
+                                map Verzonden. De nieuwste PDF van deze NDA gaat als bijlage mee;
+                                is er nog geen PDF, dan het Word-bestand.
+                            </p>
+                        </div>
+                    }
+
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>Relatie</label>
+                            <span class="alleen-lezen">
+                                @(string.IsNullOrWhiteSpace(_nda.RelatieNu) ? _nda.RelatieNaam : _nda.RelatieNu)
+                                @if (_nda.RelatieId is not null)
+                                {
+                                    <button class="klein" title="Naar de relatie" @onclick="NaarRelatie">↗</button>
+                                }
+                            </span>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Naam in het document</label>
+                            <input value="@_nda.RelatieNaam" disabled="@(!MagSchrijven)" @onchange="NaamGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Rechtsvorm</label>
+                            <input value="@_nda.Rechtsvorm" disabled="@(!MagSchrijven)" @onchange="VormGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Adres</label>
+                            <input value="@_nda.Adres" disabled="@(!MagSchrijven)" @onchange="AdresGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>KvK-nummer</label>
+                            <input class="smal" value="@_nda.KvK" disabled="@(!MagSchrijven)" @onchange="KvkGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Ondertekenaar wederpartij</label>
+                            <select value="@ContactTekst" disabled="@(!MagSchrijven)" @onchange="ContactGewijzigd">
+                                <option value="">—</option>
+                                @foreach (var c in _contacten)
+                                {
+                                    <option value="@c.Id">@c.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Toepasselijk recht</label>
+                            <input value="@_nda.ToepasselijkRecht" disabled="@(!MagSchrijven)" @onchange="RechtGewijzigd" />
+                        </div>
+                    </div>
+
+                    <h3 class="wn-kop">Waarvoor</h3>
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>Projectomschrijving</label>
+                            <input value="@_nda.Projectomschrijving" disabled="@(!MagSchrijven)"
+                                   @onchange="ProjectomschrijvingGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Projectnummer</label>
+                            <input class="smal" value="@_nda.Projectnummer" disabled="@(!MagSchrijven)"
+                                   @onchange="ProjectnummerGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Datum document</label>
+                            <NlDatum Waarde="_nda.DatumDocument" WaardeChanged="DatumGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Geldig voor onbepaalde tijd</label>
+                            <input type="checkbox" checked="@_nda.Onbepaald" disabled="@(!MagSchrijven)"
+                                   @onchange="OnbepaaldGewijzigd" />
+                        </div>
+                        @if (!_nda.Onbepaald)
+                        {
+                            <div class="wn-veld">
+                                <label>Einddatum</label>
+                                <NlDatum Waarde="_nda.Einddatum" WaardeChanged="EinddatumGewijzigd" />
+                            </div>
+                        }
+                        <div class="wn-veld">
+                            <label>Status</label>
+                            <select value="@_nda.Status" disabled="@(!MagSchrijven)" @onchange="StatusGewijzigd">
+                                @foreach (var s in NdaStatus.Alle)
+                                {
+                                    <option value="@s">@s</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Notities</label>
+                            <textarea rows="3" value="@_nda.Notities" disabled="@(!MagSchrijven)"
+                                      @onchange="NotitiesGewijzigd"></textarea>
+                        </div>
+                    </div>
+
+                    <h3 class="wn-kop">Documenten</h3>
+                    <table class="kiezer-tabel">
+                        <thead>
+                            <tr>
+                                <th style="width:5rem">Versie</th>
+                                <th style="width:6rem">Soort</th>
+                                <th style="width:9rem">Datum</th>
+                                <th>Bestand</th>
+                                <th style="width:6rem"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in _nda.Bestanden)
+                            {
+                                <tr @key="b.Id">
+                                    <td>@b.Versie</td>
+                                    <td>@b.Soort</td>
+                                    <td>@(b.Datum?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                    <td>
+                                        @if (b.FileStoreId is int bid)
+                                        {
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(bid, b.Bestandsnaam)">
+                                                @b.Bestandsnaam
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            @b.Bestandsnaam
+                                        }
+                                    </td>
+                                    <td class="c">
+                                        @if (b.FileStoreId is int id)
+                                        {
+                                            <a class="knopje" href="@DownloadUrl(id)" title="Downloaden">⭳</a>
+                                        }
+                                        @if (MagSchrijven)
+                                        {
+                                            <button class="klein rood" title="Verwijderen"
+                                                    @onclick="() => VerwijderBestand(b)">✕</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (_nda.Bestanden.Count == 0)
+                            {
+                                <tr><td colspan="5" class="kiezer-info">Nog geen document gemaakt.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    @if (MagSchrijven)
+                    {
+                        <div class="upload-blok">
+                            <label>Ondertekend exemplaar toevoegen (PDF of scan)</label>
+                            <InputFile OnChange="GetekendGekozen" />
+                            @if (!Dienst.PdfMogelijk)
+                            {
+                                <p class="uitleg">
+                                    PDF's maken kan nu niet: LibreOffice is niet gevonden op de server.
+                                    De NDA wordt als Word-bestand opgeslagen.
+                                </p>
+                            }
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+
+@code {
+    // ---- bestand groot in beeld ----
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private void ToonVoorbeeld(int fileStoreId, string naam)
+    {
+        _voorbeeldId = fileStoreId;
+        _voorbeeldNaam = naam;
+    }
+
+    private void SluitVoorbeeld() => _voorbeeldId = null;
+
+    private List<Nda> _lijst = new();
+    private Nda? _nda;
+    private int? _gekozenId;
+    private List<Contactpersoon> _contacten = new();
+
+    private string _zoek = "";
+    private string _status = "";
+    private int? _relatieFilter;
+    private string _relatieFilterNaam = "";
+    private bool _alleenRelatie;
+
+    private bool _nieuwOpen;
+    private string _nieuwZoek = "";
+    private List<Keuze> _nieuwKandidaten = new();
+
+    private (string Onderwerp, string Tekst)? _mail;
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagSchrijven => !Ik.Gekoppeld || Ik.Mag("NDA") || Ik.Mag("Directie");
+
+    private string ContactTekst => _nda?.ContactpersoonId is int id ? id.ToString() : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        // ?relatie=123 vanuit het relatiescherm
+        var vraag = QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (vraag.TryGetValue("relatie", out var waarde) && int.TryParse(waarde, out var rel))
+        {
+            _relatieFilter = rel;
+            _alleenRelatie = true;
+            var gegevens = await Repo.GetRelatieGegevensAsync(rel);
+            _relatieFilterNaam = gegevens?.Naam ?? "deze relatie";
+        }
+
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lijst = await Repo.ZoekAsync(_zoek,
+                                          _alleenRelatie ? _relatieFilter : null,
+                                          string.IsNullOrWhiteSpace(_status) ? null : _status);
+
+            // Eén treffer bij een relatie? Meteen openen.
+            if (_nda is null && _lijst.Count == 1) await Kies(_lijst[0]);
+            else if (_gekozenId is not null)
+            {
+                var opnieuw = _lijst.FirstOrDefault(n => n.Id == _gekozenId);
+                if (opnieuw is not null) _nda = opnieuw;
+            }
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private static string BekijkUrl(int fileStoreId) => "bestand/" + fileStoreId;
+    private static string DownloadUrl(int fileStoreId) => "bestand/" + fileStoreId + "/download";
+
+    private static string Naam(Nda n)
+        => string.IsNullOrWhiteSpace(n.RelatieNu) ? n.RelatieNaam : n.RelatieNu;
+
+    private static string Geldigheid(Nda n)
+    {
+        if (n.Onbepaald) return "Onbepaalde tijd";
+        if (n.Einddatum is null) return "Einddatum niet ingesteld";
+        var dagen = n.DagenTotEinde ?? 0;
+        var datum = n.Einddatum.Value.ToString("dd-MM-yyyy");
+        if (dagen < 0) return $"Verlopen op {datum}";
+        if (dagen <= 60) return $"Verloopt {datum} ({dagen} dagen)";
+        return $"Geldig tot {datum}";
+    }
+
+    private async Task Kies(Nda n)
+    {
+        _nda = n;
+        _gekozenId = n.Id;
+        _mail = null;
+        await LaadContacten();
+    }
+
+    private async Task LaadContacten()
+    {
+        _contacten = new();
+        if (_nda?.RelatieId is not int rel) return;
+        try { _contacten = await RelatieRepo.GetContactpersonenAsync(rel, false); }
+        catch { }
+    }
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    // ---------- filters ----------
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Laad();
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        await Laad();
+    }
+
+    private async Task StatusFilterGewijzigd(ChangeEventArgs e)
+    {
+        _status = (string?)e.Value ?? "";
+        await Laad();
+    }
+
+    private async Task AlleenRelatieGewijzigd(ChangeEventArgs e)
+    {
+        _alleenRelatie = e.Value is bool b && b;
+        await Laad();
+    }
+
+    // ---------- nieuw ----------
+    private void OpenNieuw()
+    {
+        _nieuwOpen = true;
+        _nieuwZoek = _relatieFilterNaam;
+        _nieuwKandidaten = new();
+        if (_relatieFilter is int rel) _nieuwKandidaten = new List<Keuze> { new(rel, _relatieFilterNaam) };
+    }
+
+    private void SluitNieuw()
+    {
+        _nieuwOpen = false;
+        _nieuwKandidaten = new();
+    }
+
+    private async Task NieuwZoekGewijzigd(ChangeEventArgs e)
+    {
+        _nieuwZoek = (string?)e.Value ?? "";
+        if (_nieuwZoek.Trim().Length < 2) { _nieuwKandidaten = new(); return; }
+        try { _nieuwKandidaten = await RelatieRepo.ZoekAsync(_nieuwZoek, false, false, 0, 15); }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task MaakVoorRelatie(Keuze relatie)
+    {
+        try
+        {
+            var nieuw = await Dienst.NieuwVoorRelatieAsync(relatie.Id);
+            if (string.IsNullOrWhiteSpace(nieuw.RelatieNaam)) nieuw.RelatieNaam = relatie.Naam;
+
+            var id = await Repo.BewaarAsync(nieuw, Ik.WerknemerId);
+            _nieuwOpen = false;
+            _nieuwKandidaten = new();
+            _gekozenId = id;
+            _nda = null;
+            await Laad();
+            var gemaakt = _lijst.FirstOrDefault(n => n.Id == id);
+            if (gemaakt is not null) await Kies(gemaakt);
+            Toon("NDA aangemaakt. Vul de projectgegevens aan en maak dan het document.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    // ---------- velden ----------
+    private async Task Bewaar()
+    {
+        if (_nda is null) return;
+        try
+        {
+            await Repo.BewaarAsync(_nda, Ik.WerknemerId);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private static string Tekst(ChangeEventArgs e) => (string?)e.Value ?? "";
+
+    private async Task NaamGewijzigd(ChangeEventArgs e) { _nda!.RelatieNaam = Tekst(e); await Bewaar(); }
+    private async Task VormGewijzigd(ChangeEventArgs e) { _nda!.Rechtsvorm = Tekst(e); await Bewaar(); }
+    private async Task AdresGewijzigd(ChangeEventArgs e) { _nda!.Adres = Tekst(e); await Bewaar(); }
+    private async Task KvkGewijzigd(ChangeEventArgs e) { _nda!.KvK = Tekst(e); await Bewaar(); }
+    private async Task RechtGewijzigd(ChangeEventArgs e) { _nda!.ToepasselijkRecht = Tekst(e); await Bewaar(); }
+    private async Task ProjectomschrijvingGewijzigd(ChangeEventArgs e) { _nda!.Projectomschrijving = Tekst(e); await Bewaar(); }
+    private async Task ProjectnummerGewijzigd(ChangeEventArgs e) { _nda!.Projectnummer = Tekst(e); await Bewaar(); }
+    private async Task NotitiesGewijzigd(ChangeEventArgs e) { _nda!.Notities = Tekst(e); await Bewaar(); }
+
+    private async Task ContactGewijzigd(ChangeEventArgs e)
+    {
+        _nda!.ContactpersoonId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Bewaar();
+    }
+
+    private async Task DatumGewijzigd(DateOnly? datum)
+    {
+        _nda!.DatumDocument = datum;
+        await Bewaar();
+    }
+
+    private async Task EinddatumGewijzigd(DateOnly? datum)
+    {
+        _nda!.Einddatum = datum;
+        await Bewaar();
+    }
+
+    private async Task OnbepaaldGewijzigd(ChangeEventArgs e)
+    {
+        _nda!.Onbepaald = e.Value is bool b && b;
+        if (_nda.Onbepaald) _nda.Einddatum = null;
+        await Bewaar();
+    }
+
+    private async Task StatusGewijzigd(ChangeEventArgs e)
+    {
+        _nda!.Status = (string?)e.Value ?? NdaStatus.Concept;
+        if (_nda.Status == NdaStatus.Verzonden) _nda.DatumVerzonden ??= DateTime.Now;
+        if (_nda.Status == NdaStatus.Ondertekend) _nda.DatumOndertekend ??= DateTime.Now;
+        await Bewaar();
+    }
+
+    private async Task MarkeerVerzonden()
+    {
+        if (_nda is null) return;
+        _nda.Status = NdaStatus.Verzonden;
+        _nda.DatumVerzonden ??= DateTime.Now;
+        await Bewaar();
+    }
+
+    // ---------- document ----------
+    private async Task MaakVersie()
+    {
+        if (_nda is null) return;
+        if (string.IsNullOrWhiteSpace(_nda.RelatieNaam))
+        {
+            Toon("Vul eerst de naam van de wederpartij in.", true);
+            return;
+        }
+
+        try
+        {
+            var versie = await Dienst.MaakVersieAsync(_nda, Ik.WerknemerId, "Aangemaakt in MDE");
+            await Laad();
+            Toon($"Versie {versie} gemaakt en in de filestore opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Document maken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task GetekendGekozen(InputFileChangeEventArgs e)
+    {
+        if (_nda is null) return;
+        try
+        {
+            var bestand = e.File;
+            await using var stroom = bestand.OpenReadStream(30 * 1024 * 1024);
+            await Dienst.VoegGetekendToeAsync(_nda, stroom, bestand.Name, Ik.WerknemerId);
+            await Laad();
+            Toon("Ondertekend exemplaar opgeslagen. Status staat nu op Ondertekend.", false);
+        }
+        catch (Exception ex) { Toon("Uploaden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderBestand(NdaBestand b)
+    {
+        var zeker = await Bevestig($"Bestand '{b.Versie} ({b.Soort})' verwijderen?");
+        if (!zeker) return;
+
+        try
+        {
+            await Repo.VerwijderBestandAsync(b.Id);
+            await Laad();
+            Toon("Bestand verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder()
+    {
+        if (_nda is null) return;
+        var zeker = await Bevestig(
+            $"NDA van '{Naam(_nda)}' verwijderen?\n\nDe documenten blijven in de filestore staan.");
+        if (!zeker) return;
+
+        try
+        {
+            await Repo.VerwijderAsync(_nda.Id);
+            _nda = null;
+            _gekozenId = null;
+            await Laad();
+            Toon("NDA verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ---------- mail ----------
+    private string _mailNaar = "";
+    private bool _mailBezig;
+
+    private async Task ToonMail()
+    {
+        if (_nda is null) return;
+        try
+        {
+            _mail = await Dienst.ConceptmailAsync(_nda);
+            _mailNaar = _contacten.FirstOrDefault(c => c.Id == _nda.ContactpersoonId)?.Mail
+                        ?? _contacten.Select(c => c.Mail).FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+                        ?? "";
+        }
+        catch (Exception ex) { Toon("Conceptmail maken mislukt: " + ex.Message, true); }
+    }
+
+    private void SluitMail() => _mail = null;
+
+    private void MailNaarGewijzigd(ChangeEventArgs e) => _mailNaar = (string?)e.Value ?? "";
+
+    /// <summary>Verstuurt de NDA met het nieuwste document als bijlage via Gmail.</summary>
+    private async Task VerstuurMail()
+    {
+        if (_nda is null || _mail is null) return;
+        if (string.IsNullOrWhiteSpace(_mailNaar))
+        {
+            Toon("Vul een e-mailadres in bij 'Aan'.", true);
+            return;
+        }
+
+        _mailBezig = true;
+        try
+        {
+            // Nieuwste PDF, anders het Word-bestand
+            var bestand = _nda.Bestanden.FirstOrDefault(b => b.Soort == "pdf")
+                          ?? _nda.Bestanden.FirstOrDefault(b => b.Soort == "word");
+
+            var bijlagen = new List<(string Naam, byte[] Inhoud)>();
+            if (bestand?.FileStoreId is int id)
+            {
+                var gevonden = await Store.ZoekAsync(id);
+                if (gevonden is not null)
+                    bijlagen.Add((gevonden.Value.Naam, await File.ReadAllBytesAsync(gevonden.Value.Pad)));
+            }
+
+            if (bijlagen.Count == 0)
+            {
+                Toon("Er is nog geen document om mee te sturen. Maak eerst het document.", true);
+                return;
+            }
+
+            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _mailNaar,
+                                     _mail.Value.Onderwerp, _mail.Value.Tekst, bijlagen);
+
+            // Verstuurd: status en datum bijwerken
+            if (_nda.Status == NdaStatus.Concept)
+            {
+                _nda.Status = NdaStatus.Verzonden;
+                _nda.DatumVerzonden ??= DateTime.Now;
+                await Repo.BewaarAsync(_nda, Ik.WerknemerId);
+            }
+
+            _mail = null;
+            await Laad();
+            Toon($"Verstuurd naar {_mailNaar}. De NDA staat nu op Verzonden.", false);
+        }
+        catch (Exception ex) { Toon("Versturen mislukt: " + ex.Message, true); }
+        finally { _mailBezig = false; }
+    }
+
+    private string MailAdres()
+    {
+        if (_mail is null) return "#";
+        var naar = _contacten.FirstOrDefault(c => c.Id == _nda?.ContactpersoonId)?.Mail ?? "";
+        return $"mailto:{Uri.EscapeDataString(naar)}" +
+               $"?subject={Uri.EscapeDataString(_mail.Value.Onderwerp)}" +
+               $"&body={Uri.EscapeDataString(_mail.Value.Tekst)}";
+    }
+
+    private void NaarRelatie()
+    {
+        if (_nda?.RelatieId is int rel) Nav.NavigateTo($"relaties?id={rel}");
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }
+    }
+}

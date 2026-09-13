@@ -1,0 +1,99 @@
+@page "/module/{Sleutel}"
+@inject HuidigeGebruiker Ik
+
+@if (_module is null)
+{
+    <div class="page">
+        <header class="topbar"><h1>Onbekende module</h1></header>
+        <section class="module-placeholder">
+            <p>Deze module bestaat niet. Kies er een in de zijbalk.</p>
+        </section>
+    </div>
+}
+else
+{
+    <div class="page">
+        <header class="topbar">
+            <h1>
+                @if (_boven is not null)
+                {
+                    <span class="kruimel">@_boven.Naam ▸</span>
+                }
+                @_module.Naam
+            </h1>
+            <span class="weeklabel">@Gemigreerd van @Totaal schermen gemigreerd</span>
+        </header>
+
+        @* Een klapper zoals Tools heeft zelf geen schermen: dan de pakketten als tegels *@
+        @if (_module.HeeftOnder)
+        {
+            <section class="groep">
+                <h2>Pakketten</h2>
+                <div class="groep-items">
+                    @foreach (var onder in _module.Onder)
+                    {
+                        <a class="tegel klaar" href="@onder.Adres">
+                            <span class="tegel-label">@onder.Naam</span>
+                        </a>
+                    }
+                </div>
+            </section>
+        }
+
+        <div class="groepen">
+            @foreach (var groep in _module.Groepen)
+            {
+                var items = groep.Items.Where(Zichtbaar).ToList();
+                @if (items.Count > 0)
+                {
+                    <section class="groep">
+                        <h2>@groep.Naam</h2>
+                        <div class="groep-items">
+                            @foreach (var item in items)
+                            {
+                                @if (item.Klaar)
+                                {
+                                    <a class="tegel klaar" href="@item.Url.TrimStart('/')">
+                                        <span class="tegel-label">@item.Label</span>
+                                    </a>
+                                }
+                                else
+                                {
+                                    <span class="tegel nog-niet" title="Nog niet gemigreerd — gebruik hiervoor voorlopig Access">
+                                        <span class="tegel-label">@item.Label</span>
+                                        <span class="tegel-status">in Access</span>
+                                    </span>
+                                }
+                            }
+                        </div>
+                    </section>
+                }
+            }
+        </div>
+
+        <footer class="voet">
+            Grijze knoppen zijn nog niet gemigreerd; daarvoor gebruik je voorlopig Access.
+            Beide werken op dezelfde database.
+        </footer>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Sleutel { get; set; }
+
+    private MenuModule? _module;
+    private MenuModule? _boven;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        _module = Menu.Zoek(Sleutel);
+        _boven = Menu.Boven(Sleutel);
+    }
+
+    // Zolang er geen rechten in de database staan, alles laten zien.
+    private bool Zichtbaar(MenuItem item) => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht);
+
+    private int Totaal => _module?.Groepen.SelectMany(g => g.Items).Count(Zichtbaar) ?? 0;
+    private int Gemigreerd => _module?.Groepen.SelectMany(g => g.Items).Count(i => Zichtbaar(i) && i.Klaar) ?? 0;
+}

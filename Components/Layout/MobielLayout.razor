@@ -1,0 +1,36 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+
+@* De mobiele schil: geen zijbalk, geen zoekpalet — alleen een smalle kopbalk
+   met het logo (terug naar het mobiele startscherm) en de themaknop.
+   Welke functies mobiel beschikbaar zijn bepaalt Pages/Mobiel.razor. *@
+
+<div class="mobiel-schil">
+    <header class="mobiel-top">
+        <a class="mobiel-logo" href="mobiel" title="Mobiel startscherm">MDE</a>
+        <span class="mobiel-vulling"></span>
+        <button class="themaknop" @onclick="WisselThema"
+                title="@(_donker ? "Naar lichte weergave" : "Naar donkere weergave")">
+            @(_donker ? "☀" : "☾")
+        </button>
+    </header>
+    <main class="mobiel-inhoud">@Body</main>
+</div>
+
+@code {
+    private bool _donker;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        try { _donker = await JS.InvokeAsync<string>("mdeThema.huidig") == "donker"; }
+        catch { }
+        StateHasChanged();
+    }
+
+    private async Task WisselThema()
+    {
+        try { _donker = await JS.InvokeAsync<string>("mdeThema.wissel") == "donker"; }
+        catch { }
+    }
+}

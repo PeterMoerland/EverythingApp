@@ -1,0 +1,124 @@
+@implements IDisposable
+@inject IPlc Plc
+
+@* De verlichtingsbediening zelf, zonder paginakop — zo gebruiken de
+   desktop-pagina (/gebouw/verlichting) en de mobiele pagina (/mobiel/licht)
+   exact dezelfde knoppen en logica. *@
+
+@if (_melding is not null)
+{
+    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+}
+
+<div class="hmi-stand-regel">@_aan van @_totaal aan</div>
+
+<div class="hmi">
+    @foreach (var kolom in Gebouw.Verlichting)
+    {
+        <div class="hmi-kolom">
+            @foreach (var knop in kolom.Knoppen)
+            {
+                <button class="hmi-knop @knop.Kleur @(Aan(knop) ? "aan" : "")"
+                        @key="knop.Tag" title="@knop.Tag" @onclick="() => Klik(knop)">
+                    <span class="hmi-naam">
+                        @knop.Naam
+                        @if (!string.IsNullOrWhiteSpace(knop.Toelichting))
+                        {
+                            <span class="hmi-toelichting">@knop.Toelichting</span>
+                        }
+                    </span>
+                    @if (knop.HeeftLampje)
+                    {
+                        <span class="hmi-lampje @(Aan(knop) ? "brandt" : "")"></span>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private Dictionary<string, bool> _standen = new(StringComparer.OrdinalIgnoreCase);
+    private Timer? _klok;
+    private string? _melding;
+    private bool _fout;
+
+    private int _totaal;
+    private int _aan;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Verversen();
+
+        // De PLC kan ook vanaf een schakelaar aan de muur veranderen, dus we
+        // kijken elke twee seconden of de standen nog kloppen. De statussen worden
+        // naast elkaar gelezen, dus dat is één korte ronde.
+        _klok = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await Verversen();
+            StateHasChanged();
+        }), null, 2000, 2000);
+    }
+
+    private async Task Verversen()
+    {
+        try
+        {
+            _standen = await Plc.LeesAsync(Gebouw.VerlichtingTags);
+            _totaal = _standen.Count;
+            _aan = _standen.Count(s => s.Value);
+        }
+        catch (Exception ex) { Toon("Standen ophalen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>De stand komt uit de terugmelding van de PLC, niet uit het commando.</summary>
+    private bool Aan(Knop knop)
+        => _standen.TryGetValue(knop.Terugmelding, out var aan) && aan;
+
+    private async Task Klik(Knop knop)
+    {
+        try
+        {
+            // 1. Het lampje meteen omzetten. De PLC is de baas, dus als het anders
+            //    blijkt te zijn corrigeert de eerstvolgende uitlezing dit vanzelf —
+            //    maar de knop voelt nu direct.
+            if (knop.HeeftLampje) _standen[knop.Terugmelding] = !Aan(knop);
+            _aan = _standen.Count(s => s.Value);
+            StateHasChanged();
+
+            if (knop.Soort == KnopSoort.Puls)
+            {
+                // 2. De bit gaat hoog; de PLC reageert op die flank. We wachten niet
+                //    tot de puls is afgelopen, want dan zou je 300 ms naar een oude
+                //    stand kijken. De puls loopt door terwijl we al uitlezen.
+                var puls = Plc.PulsAsync(knop.Tag);
+
+                await Task.Delay(120);
+                await Verversen();
+                StateHasChanged();
+
+                await puls;             // fouten van de puls alsnog afvangen
+                Toon($"{knop.Naam} aangetikt.", false);
+            }
+            else
+            {
+                var nieuw = Aan(knop);
+                await Plc.SchrijfAsync(knop.Tag, nieuw);
+                Toon($"{knop.Naam} {(nieuw ? "aan" : "uit")}.", false);
+                await Task.Delay(120);
+            }
+
+            // 3. Nog één keer, zodat de werkelijke stand het laatste woord heeft
+            await Verversen();
+        }
+        catch (Exception ex)
+        {
+            Toon("Schakelen mislukt: " + ex.Message, true);
+            await Verversen();          // scherm terug op de echte stand
+        }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    public void Dispose() => _klok?.Dispose();
+}

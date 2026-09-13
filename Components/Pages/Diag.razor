@@ -1,0 +1,142 @@
+@page "/diag"
+@using Microsoft.Extensions.Configuration
+@using MySqlConnector
+@inject IConfiguration Config
+
+<div class="page">
+    <header class="topbar">
+        <h1>Verbinding &amp; schema</h1>
+        <span class="weeklabel">MySQL-diagnose</span>
+    </header>
+
+    <section class="module-placeholder">
+        <p><b>Connection string:</b> <code>@Gemaskeerd</code></p>
+        <p>@_status</p>
+        @if (_fout != null)
+        {
+            <p style="color:#b00">Fout: @_fout</p>
+        }
+        <button @onclick="Test">Opnieuw testen</button>
+    </section>
+
+    @if (_tabellen.Count > 0)
+    {
+        <section style="display:flex; gap:1rem; margin-top:1rem; align-items:flex-start;">
+            <div style="min-width:16rem;">
+                <b>Tabellen (@_tabellen.Count)</b>
+                <div class="cmdk-lijst" style="max-height:60vh; border:1px solid #ddd; border-radius:6px; background:#fff;">
+                    @foreach (var t in _tabellen)
+                    {
+                        <button class="cmdk-item" @onclick="() => Kolommen(t)">@t</button>
+                    }
+                </div>
+            </div>
+            <div style="flex:1;">
+                @if (_gekozen != null)
+                {
+                    <b>Kolommen van <code>@_gekozen</code></b>
+                    <table style="margin-top:.4rem;">
+                        <thead><tr><th>Kolom</th><th>Type</th><th>Null?</th></tr></thead>
+                        <tbody>
+                            @foreach (var k in _kolommen)
+                            {
+                                <tr><td>@k.Naam</td><td>@k.Type</td><td>@k.Nullable</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <p style="color:#666;">Klik links op een tabel om de kolommen te zien.</p>
+                }
+            </div>
+        </section>
+    }
+
+    <footer class="voet">
+        Deze pagina helpt de koppeling te controleren. Werken de dropdowns in Ureningave niet,
+        kijk dan hier of de tabellen Uren / Werknemers / Workorders bestaan en welke kolomnamen ze hebben.
+    </footer>
+</div>
+
+@code {
+    private string? _cs;
+    private string _status = "";
+    private string? _fout;
+    private readonly List<string> _tabellen = new();
+    private string? _gekozen;
+    private readonly List<(string Naam, string Type, string Nullable)> _kolommen = new();
+
+    private string Gemaskeerd
+    {
+        get
+        {
+            var cs = _cs ?? "(geen)";
+            return System.Text.RegularExpressions.Regex.Replace(cs, @"(?i)(password)=[^;]*", "$1=****");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cs = Config.GetConnectionString("MDE");
+        await Test();
+    }
+
+    private async Task Test()
+    {
+        _fout = null;
+        _tabellen.Clear();
+        _gekozen = null;
+        _kolommen.Clear();
+
+        if (string.IsNullOrWhiteSpace(_cs) || _cs!.Contains("REPLACE_"))
+        {
+            _status = "Nog geen echte gegevens ingevuld in appsettings.json — de app draait nu op demo-data.";
+            return;
+        }
+
+        try
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            string? versie;
+            await using (var c = new MySqlCommand("SELECT VERSION()", cn))
+                versie = (await c.ExecuteScalarAsync())?.ToString();
+
+            await using (var c = new MySqlCommand(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name", cn))
+            await using (var r = await c.ExecuteReaderAsync())
+                while (await r.ReadAsync()) _tabellen.Add(r.GetString(0));
+
+            _status = $"Verbonden. MySQL {versie} — {_tabellen.Count} tabellen gevonden.";
+        }
+        catch (Exception ex)
+        {
+            _status = "Verbinding mislukt.";
+            _fout = ex.Message;
+        }
+    }
+
+    private async Task Kolommen(string tabel)
+    {
+        _gekozen = tabel;
+        _kolommen.Clear();
+        _fout = null;
+        try
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var c = new MySqlCommand(
+                "SELECT column_name, data_type, is_nullable FROM information_schema.columns " +
+                "WHERE table_schema = DATABASE() AND table_name = @t ORDER BY ordinal_position", cn);
+            c.Parameters.AddWithValue("@t", tabel);
+            await using var r = await c.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                _kolommen.Add((r.GetString(0), r.GetString(1), r.GetString(2)));
+        }
+        catch (Exception ex)
+        {
+            _fout = ex.Message;
+        }
+    }
+}

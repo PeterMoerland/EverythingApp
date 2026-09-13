@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="nl">
+
+@inject IHttpContextAccessor HttpContextAccessor
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Dynamisch pad-voorvoegsel: leeg bij standalone draaien, "/mde/" wanneer
+         deze app via Caddy achter dat pad wordt aangeboden (zie Program.cs,
+         UsePathBase). Alle relatieve links/scripts hieronder werken hierdoor
+         in beide gevallen correct. -->
+    <base href="@BaseHref" />
+    <!-- Het thema wordt hier gezet, vóór de stijl wordt geladen. Zou dat later
+         gebeuren, dan zie je bij elke pagina eerst even een wit scherm. -->
+    <script>
+        (function () {
+            // De opslag apart afvangen: kan de browser er niet bij, dan volgen we
+            // alsnog de instelling van Windows in plaats van altijd licht te tonen.
+            var keuze = '';
+            try { keuze = localStorage.getItem('thema') || ''; } catch (e) { }
+
+            if (!keuze || keuze === 'systeem') {
+                keuze = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                    ? 'donker' : 'licht';
+            }
+            document.documentElement.dataset.thema = keuze;
+        })();
+    </script>
+    <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="app.css?v=117" />
+    <title>MDE</title>
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    @* autostart=false: hieronder starten we Blazor zelf, met ruimere
+       herverbind-instellingen. Standaard geeft hij het na ~30 seconden op en
+       moet je zelf op 'opnieuw proberen' klikken; nu probeert hij het twee
+       minuten lang elke 2 seconden — een VPN- of wifi-hikje herstelt dan
+       vrijwel altijd vanzelf. *@
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script>
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 60,
+                    retryIntervalMilliseconds: 2000
+                }
+            }
+        });
+    </script>
+    @* ?v= verhogen na een wijziging in het script, net als bij de stijl *@
+    <script src="viewer3d.js?v=2"></script>
+    <script src="dymo.js?v=4"></script>
+    <script src="scan.js?v=9"></script>
+    <script src="camera.js?v=1"></script>
+    <script>
+        // Ctrl+K opent het zoekpalet, Escape sluit het (klikt de Blazor-knoppen aan)
+        document.addEventListener('keydown', function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                var b = document.getElementById('cmdk-open');
+                if (b) b.click();
+            }
+            if (e.key === 'Escape') {
+                var c = document.getElementById('cmdk-close');
+                if (c) c.click();
+            }
+        });
+
+        // Houdt de gemarkeerde regel in beeld bij het bladeren met de pijltjestoetsen
+        window.mdeLijst = {
+            naarActief: function (lijstId) {
+                var lijst = document.getElementById(lijstId);
+                if (!lijst) return;
+                var regel = lijst.querySelector('.actief');
+                if (regel && regel.scrollIntoView) regel.scrollIntoView({ block: 'nearest' });
+            }
+        };
+
+        // Kleine opslag in de browser (onthoudt o.a. "ik ben" per pc)
+        window.mdeOpslag = {
+            lees: function (sleutel) { try { return localStorage.getItem(sleutel); } catch (e) { return null; } },
+            schrijf: function (sleutel, waarde) { try { localStorage.setItem(sleutel, waarde); } catch (e) { } }
+        };
+
+        // Popups verplaatsen aan hun kop, zoals in Access. Werkt voor elk venster
+        // met de klasse 'verplaatsbaar' waarvan de kop 'sleepkop' heeft; geen
+        // koppeling per venster nodig. Knoppen in de kop blijven gewoon knoppen.
+        (function () {
+            let doel = null, dx = 0, dy = 0;
+            document.addEventListener('pointerdown', function (e) {
+                const kop = e.target.closest('.sleepkop');
+                if (!kop || e.target.closest('button, a, input, select')) return;
+                doel = kop.closest('.verplaatsbaar');
+                if (!doel) return;
+                const r = doel.getBoundingClientRect();
+                // Vanaf de eerste beweging vast op het scherm, los van de centrering
+                doel.style.position = 'fixed';
+                doel.style.left = r.left + 'px';
+                doel.style.top = r.top + 'px';
+                doel.style.margin = '0';
+                dx = e.clientX - r.left;
+                dy = e.clientY - r.top;
+                e.preventDefault();
+            });
+            document.addEventListener('pointermove', function (e) {
+                if (!doel) return;
+                doel.style.left = Math.min(Math.max(0, e.clientX - dx), window.innerWidth - 80) + 'px';
+                doel.style.top = Math.min(Math.max(0, e.clientY - dy), window.innerHeight - 40) + 'px';
+            });
+            document.addEventListener('pointerup', function () { doel = null; });
+        })();
+
+        // Balken van de planning verschuiven: de balk volgt de muis (per dag
+        // vastklikkend op het raster), de rij eronder licht op, en pas bij het
+        // loslaten gaat er één melding naar Blazor. Veel soepeler dan het
+        // ingebouwde HTML5-slepen, dat alleen een spookplaatje geeft.
+        window.mdePlan = {
+            doel: null,
+            koppel: function (dotnet) { window.mdePlan.doel = dotnet; },
+            los: function () { window.mdePlan.doel = null; }
+        };
+        (function () {
+            let balk = null, id = 0, beginX = 0, beginY = 0;
+            let dagBreedte = 1, balkBreedte = 0, bewogen = false, richtRij = null;
+            let modus = 0;   // 0 = verplaatsen, 1 = linkerrand trekken, 2 = rechterrand
+
+            function herstel(b) {
+                b.style.transform = '';
+                b.style.width = '';
+                b.style.pointerEvents = '';
+                b.classList.remove('slepend');
+            }
+
+            document.addEventListener('pointerdown', function (e) {
+                if (e.button !== 0 || !window.mdePlan.doel) return;
+                const b = e.target.closest('.g-bar[data-plan]');
+                if (!b) return;
+                const cellen = b.closest('.g-cellen');
+                const lichaam = b.closest('.g-lichaam');
+                if (!cellen || !lichaam) return;
+
+                balk = b;
+                id = parseInt(b.dataset.plan);
+                const dagen = parseInt(lichaam.dataset.dagen) || 1;
+                dagBreedte = cellen.getBoundingClientRect().width / dagen;
+
+                // Aan de rand gepakt = verlengen/inkorten, in het midden = verplaatsen.
+                const r = b.getBoundingClientRect();
+                balkBreedte = r.width;
+                const zone = Math.min(9, r.width / 4);
+                modus = (e.clientX - r.left) <= zone ? 1
+                      : (r.right - e.clientX) <= zone ? 2 : 0;
+
+                beginX = e.clientX;
+                beginY = e.clientY;
+                bewogen = false;
+                e.preventDefault();
+            });
+
+            document.addEventListener('pointermove', function (e) {
+                if (!balk) return;
+                const dx = e.clientX - beginX, dy = e.clientY - beginY;
+                if (!bewogen && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+                if (!bewogen) {
+                    bewogen = true;
+                    balk.classList.add('slepend');
+                    // De balk mag zijn eigen landingsplek niet afdekken.
+                    balk.style.pointerEvents = 'none';
+                }
+
+                const stap = Math.round(dx / dagBreedte) * dagBreedte;
+
+                if (modus === 2) {
+                    // rechterrand: alleen de breedte verandert, minstens één dag
+                    balk.style.width = Math.max(dagBreedte * 0.7, balkBreedte + stap) + 'px';
+                    return;
+                }
+                if (modus === 1) {
+                    // linkerrand: begin schuift op, einde blijft liggen
+                    const begrensd = Math.min(stap, balkBreedte - dagBreedte * 0.7);
+                    balk.style.transform = 'translateX(' + begrensd + 'px)';
+                    balk.style.width = (balkBreedte - begrensd) + 'px';
+                    return;
+                }
+
+                balk.style.transform = 'translate(' + stap + 'px,' + dy + 'px)';
+                const onder = document.elementFromPoint(e.clientX, e.clientY);
+                const rij = onder && onder.closest ? onder.closest('.g-rij[data-groep]') : null;
+                if (richtRij && richtRij !== rij) richtRij.classList.remove('g-richtrij');
+                if (rij) rij.classList.add('g-richtrij');
+                richtRij = rij;
+            });
+
+            document.addEventListener('pointerup', function (e) {
+                if (!balk) return;
+                const b = balk; balk = null;
+                herstel(b);
+                const rij = richtRij;
+                if (richtRij) { richtRij.classList.remove('g-richtrij'); richtRij = null; }
+
+                if (!bewogen) return;   // gewone klik: Blazor's eigen onclick doet zijn werk
+
+                // De klik die op het loslaten volgt zou het bewerkpaneel openen; opeten.
+                window.addEventListener('click',
+                    function (ev) { ev.stopPropagation(); ev.preventDefault(); },
+                    { capture: true, once: true });
+
+                const dagDelta = Math.round((e.clientX - beginX) / dagBreedte);
+                if (!window.mdePlan.doel) return;
+
+                if (modus !== 0) {
+                    window.mdePlan.doel.invokeMethodAsync('VeranderRand', id, modus === 1, dagDelta);
+                    return;
+                }
+
+                const groep = rij ? parseInt(rij.dataset.groep) : NaN;
+                window.mdePlan.doel.invokeMethodAsync('Versleep', id, dagDelta,
+                    isNaN(groep) ? null : groep);
+            });
+
+            // Onderbroken aanraking: alles terugzetten, niets doorvoeren.
+            document.addEventListener('pointercancel', function () {
+                if (!balk) return;
+                herstel(balk);
+                if (richtRij) richtRij.classList.remove('g-richtrij');
+                balk = null;
+                richtRij = null;
+            });
+        })();
+
+        // Werkorders verhangen in de boom: pak een regel (data-tak) en laat hem
+        // op een andere regel vallen om er een kind van te worden, of op het
+        // element met data-wortel om hem terug op het bovenste niveau te zetten.
+        window.mdeBoom = {
+            doel: null,
+            koppel: function (dotnet) { window.mdeBoom.doel = dotnet; },
+            los: function () { window.mdeBoom.doel = null; }
+        };
+        (function () {
+            let tak = null, id = 0, beginX = 0, beginY = 0, bewogen = false, richt = null;
+
+            document.addEventListener('pointerdown', function (e) {
+                if (e.button !== 0 || !window.mdeBoom.doel) return;
+                const t = e.target.closest('.boom-sleep [data-tak]');
+                if (!t) return;
+                tak = t;
+                id = parseInt(t.dataset.tak);
+                beginX = e.clientX;
+                beginY = e.clientY;
+                bewogen = false;
+                e.preventDefault();   // geen tekstselectie tijdens het slepen
+            });
+
+            document.addEventListener('pointermove', function (e) {
+                if (!tak) return;
+                const dx = e.clientX - beginX, dy = e.clientY - beginY;
+                if (!bewogen && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+                if (!bewogen) {
+                    bewogen = true;
+                    tak.classList.add('slepend');
+                    tak.style.pointerEvents = 'none';
+                }
+                tak.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+
+                const onder = document.elementFromPoint(e.clientX, e.clientY);
+                const doelEl = onder && onder.closest
+                    ? onder.closest('.boom-sleep [data-tak], [data-wortel]') : null;
+                if (richt && richt !== doelEl) richt.classList.remove('boom-richt');
+                if (doelEl) doelEl.classList.add('boom-richt');
+                richt = doelEl;
+            });
+
+            document.addEventListener('pointerup', function () {
+                if (!tak) return;
+                const t = tak; tak = null;
+                t.style.transform = '';
+                t.style.pointerEvents = '';
+                t.classList.remove('slepend');
+                const doelEl = richt;
+                if (richt) { richt.classList.remove('boom-richt'); richt = null; }
+
+                if (!bewogen || !doelEl) return;
+
+                // De klik die op het loslaten volgt zou de werkorder openen; opeten.
+                window.addEventListener('click',
+                    function (ev) { ev.stopPropagation(); ev.preventDefault(); },
+                    { capture: true, once: true });
+
+                const naarWortel = doelEl.hasAttribute('data-wortel');
+                const doelId = naarWortel ? null : parseInt(doelEl.dataset.tak);
+                if (!naarWortel && doelId === id) return;
+                if (window.mdeBoom.doel)
+                    window.mdeBoom.doel.invokeMethodAsync('VerhangWerkorder', id, doelId, naarWortel);
+            });
+
+            // Wordt de aanraking onderbroken (pen, ander venster), dan alles
+            // netjes terugzetten — anders zou de eerstvolgende muisklik als
+            // 'loslaten' tellen en per ongeluk verhangen.
+            document.addEventListener('pointercancel', function () {
+                if (!tak) return;
+                tak.style.transform = '';
+                tak.style.pointerEvents = '';
+                tak.classList.remove('slepend');
+                if (richt) richt.classList.remove('boom-richt');
+                tak = null;
+                richt = null;
+            });
+        })();
+
+        // Een bestand uit Blazor als download aanbieden (Fusion → Eurocircuits).
+        window.mdeBestand = {
+            download: function (naam, bytes) {
+                const url = URL.createObjectURL(new Blob([bytes]));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = naam;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+            }
+        };
+
+        // Bytes uit Blazor omzetten in een tijdelijk browser-adres, zodat een
+        // nog niet opgeslagen PDF of foto toch getoond kan worden (factuurvenster).
+        window.mdeBlob = {
+            maak: function (bytes, soort) {
+                return URL.createObjectURL(new Blob([bytes], { type: soort }));
+            },
+            weg: function (adres) { try { URL.revokeObjectURL(adres); } catch (e) { } }
+        };
+
+        // Een adres van de app zelf ophalen als platte tekst. Gebruikt voor de
+        // diagnoseknoppen; het antwoord komt als tekst terug naar het scherm.
+        window.mdeHaalTekst = async function (adres) {
+            try {
+                var antwoord = await fetch(adres);
+                return await antwoord.text();
+            } catch (e) {
+                return "Opvragen mislukt: " + (e && e.message ? e.message : e);
+            }
+        };
+
+        // Licht of donker. De keuze hoort bij de werkplek, niet bij de gebruiker,
+        // dus die blijft in deze browser staan.
+        window.mdeThema = {
+            huidig: function () { return document.documentElement.dataset.thema || 'licht'; },
+            zet: function (thema) {
+                document.documentElement.dataset.thema = thema;
+                try { localStorage.setItem('thema', thema); } catch (e) { }
+                return thema;
+            },
+            wissel: function () {
+                return window.mdeThema.zet(window.mdeThema.huidig() === 'donker' ? 'licht' : 'donker');
+            }
+        };
+
+        // Gerber-weergave: rendert de aangevinkte lagen met tracespace
+        // (pcb-stackup), dus altijd netjes uitgelijnd, per zijde één beeld.
+        // Met zoomen (scrollwiel of knoppen) en verschuiven (slepen).
+        window.mdeGerber = {
+            _doel: null, _lagen: null, _cache: {}, _zijde: 'top', _keuze: [],
+            _s: 1, _tx: 0, _ty: 0,
+
+            _script: function (adres) {
+                return new Promise(function (ok, nee) {
+                    const s = document.createElement('script');
+                    s.src = adres;
+                    s.onload = ok;
+                    s.onerror = function () { nee(new Error('bibliotheek laden mislukt (geen internet?)')); };
+                    document.head.appendChild(s);
+                });
+            },
+
+            laad: async function (doelId, lagen) {
+                try {
+                    if (!window.pcbStackup)
+                        await this._script('https://unpkg.com/pcb-stackup@4.2.8/dist/pcb-stackup.min.js');
+                    this._doel = doelId;
+                    this._lagen = lagen;
+                    this._cache = {};
+                    this._zijde = 'top';
+                    this._keuze = lagen.map(function (_, i) { return i; });
+                    this._s = 1; this._tx = 0; this._ty = 0;
+                    this._bind();
+                    return await this._render();
+                } catch (e) {
+                    return 'Renderen mislukt: ' + (e && e.message ? e.message : e);
+                }
+            },
+
+            zetZijde: async function (zijde) { this._zijde = zijde; return await this._render(); },
+            zetLagen: async function (indices) { this._keuze = indices || []; return await this._render(); },
+
+            _render: async function () {
+                const doel = document.getElementById(this._doel || '');
+                if (!doel || !this._lagen) return 'nog niet geladen';
+                try {
+                    if (this._keuze.length === 0) {
+                        doel.innerHTML = '<p style="padding:1rem">Geen lagen aangevinkt.</p>';
+                        return null;
+                    }
+                    const sleutel = this._keuze.slice().sort(function (a, b) { return a - b; }).join(',');
+                    if (!this._cache[sleutel]) {
+                        const lagen = this._lagen;
+                        this._cache[sleutel] = await window.pcbStackup(
+                            this._keuze.map(function (i) {
+                                return { filename: lagen[i].naam, gerber: lagen[i].inhoud };
+                            }));
+                    }
+                    const stackup = this._cache[sleutel];
+                    doel.innerHTML = '<div class="gerber-zoom">' +
+                        (this._zijde === 'bottom' ? stackup.bottom.svg : stackup.top.svg) + '</div>';
+                    this._pasToe();
+                    return null;
+                } catch (e) {
+                    return 'Renderen mislukt: ' + (e && e.message ? e.message : e);
+                }
+            },
+
+            // ---- zoomen en verschuiven ----
+            _pasToe: function () {
+                const doel = document.getElementById(this._doel || '');
+                const vlak = doel ? doel.querySelector('.gerber-zoom') : null;
+                if (vlak) vlak.style.transform =
+                    'translate(' + this._tx + 'px,' + this._ty + 'px) scale(' + this._s + ')';
+            },
+
+            zoomStap: function (factor) {
+                this._s = Math.min(30, Math.max(0.2, this._s * factor));
+                this._pasToe();
+            },
+
+            zoomReset: function () { this._s = 1; this._tx = 0; this._ty = 0; this._pasToe(); },
+
+            _bind: function () {
+                const doel = document.getElementById(this._doel || '');
+                if (!doel || doel.dataset.gerberKlaar) return;
+                doel.dataset.gerberKlaar = '1';
+                const zelf = this;
+
+                doel.addEventListener('wheel', function (e) {
+                    e.preventDefault();
+                    const oud = zelf._s;
+                    zelf._s = Math.min(30, Math.max(0.2, oud * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+                    // zoomen om de cursor heen
+                    const r = doel.getBoundingClientRect();
+                    const x = e.clientX - r.left, y = e.clientY - r.top;
+                    zelf._tx = x - (x - zelf._tx) * (zelf._s / oud);
+                    zelf._ty = y - (y - zelf._ty) * (zelf._s / oud);
+                    zelf._pasToe();
+                }, { passive: false });
+
+                let pan = null;
+                doel.addEventListener('pointerdown', function (e) {
+                    pan = { x: e.clientX - zelf._tx, y: e.clientY - zelf._ty };
+                    doel.setPointerCapture(e.pointerId);
+                });
+                doel.addEventListener('pointermove', function (e) {
+                    if (!pan) return;
+                    zelf._tx = e.clientX - pan.x;
+                    zelf._ty = e.clientY - pan.y;
+                    zelf._pasToe();
+                });
+                doel.addEventListener('pointerup', function () { pan = null; });
+                doel.addEventListener('pointercancel', function () { pan = null; });
+            }
+        };
+
+        // mobiele weergave: is dit een telefoon, en wat koos de gebruiker?
+        // De keuze staat in localStorage en geldt dus per toestel — precies
+        // wat je wilt: op je telefoon mobiel, op je pc de volledige app.
+        window.mdeMobiel = {
+            telefoon: function () {
+                try {
+                    return window.matchMedia('(pointer: coarse)').matches
+                        && Math.min(window.screen.width, window.screen.height) < 700;
+                } catch (e) { return false; }
+            },
+            stand: function () {
+                if (!window.mdeMobiel.telefoon()) return 'geen-telefoon';
+                try { return localStorage.getItem('mde-mobiel') || 'vraag'; }
+                catch (e) { return 'vraag'; }
+            },
+            kies: function (mobiel) {
+                try { localStorage.setItem('mde-mobiel', mobiel ? 'ja' : 'nee'); } catch (e) { }
+            }
+        };
+
+        // volledig scherm (kiosk-modus)
+        window.mdeVolledig = {
+            aan: function () {
+                var el = document.documentElement;
+                if (el.requestFullscreen) el.requestFullscreen();
+            },
+            uit: function () {
+                if (document.fullscreenElement) document.exitFullscreen();
+            }
+        };
+        // browser verlaat fullscreen (bijv. Esc) → Blazor-layout laten terugzetten
+        document.addEventListener('fullscreenchange', function () {
+            if (!document.fullscreenElement) {
+                var b = document.getElementById('kiosk-exit-sync');
+                if (b) b.click();
+            }
+        });
+    </script>
+</body>
+
+</html>
+
+@code {
+    // Bouwt de <base href> op basis van het pad-voorvoegsel dat Program.cs
+    // (via UsePathBase) op dit request heeft gezet. Leeg PathBase => "/".
+    private string BaseHref => (HttpContextAccessor.HttpContext?.Request.PathBase.Value ?? "") + "/";
+}

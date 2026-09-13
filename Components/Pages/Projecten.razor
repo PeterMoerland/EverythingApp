@@ -1,0 +1,791 @@
+@page "/projecten"
+@inject IProjectRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="page">
+    <header class="topbar">
+        <h1>@Titel</h1>
+        <span class="weeklabel">@_aantal project@(_aantal == 1 ? "" : "en")</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: zoeken, projecten en werkorders ---------- *@
+            <aside class="wn-lijst project-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Klant…" value="@_klant" @onchange="KlantGewijzigd" />
+                        <button class="klein" title="Filters wissen"
+                                disabled="@(_klant.Length == 0 && _project.Length == 0)"
+                                @onclick="WisFilters">✕</button>
+                    </div>
+                    <div class="zoekregel">
+                        <input placeholder="Project of nummer…" value="@_project" @onchange="ProjectGewijzigd" />
+                    </div>
+                    <div class="zoekregel">
+                        <select value="@StatusTekst" @onchange="StatusGewijzigd">
+                            <option value="">Alle statussen</option>
+                            @foreach (var s in ProjectVelden.ProjectStatussen)
+                            {
+                                <option value="@s.Id">@s.Naam</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="btngroup">
+                        <button class="klein" @onclick="OpenNieuwProject">+ Nieuw project</button>
+                        <button class="klein rood" disabled="@(_projectId is null)"
+                                title="Geselecteerd project verwijderen" @onclick="VerwijderProject">✕ Wissen</button>
+                    </div>
+                </div>
+
+                @if (_nieuwOpen)
+                {
+                    <div class="nieuw-blok">
+                        <div class="wn-veld">
+                            <label>Projectnummer</label>
+                            <input class="r smal" value="@_nieuwNummer" @onchange="NieuwNummerGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Omschrijving</label>
+                            <input value="@_nieuwOms" @onchange="NieuwOmsGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Klant</label>
+                            <select value="@NieuwKlantTekst" @onchange="NieuwKlantGewijzigd">
+                                <option value="">—</option>
+                                @foreach (var k in Lijst("Klant"))
+                                {
+                                    <option value="@k.Id">@k.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="btngroup">
+                            <button class="primair" @onclick="MaakProject">Aanmaken</button>
+                            <button class="klein" @onclick="SluitNieuwProject">Annuleren</button>
+                        </div>
+                    </div>
+                }
+
+                <div class="wn-namen">
+                    @if (_aantal == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                    else
+                    {
+                        <Virtualize @ref="_virtualize" ItemsProvider="Ophalen" ItemSize="29" OverscanCount="12"
+                                    Context="p" TItem="ProjectRegel">
+                            <ItemContent>
+                                <button class="wn-naam @(p.Id == _projectId ? "actief" : "")"
+                                        @onclick="() => KiesProject(p)">
+                                    <span class="nummer">@p.Nummer</span> @p.Omschrijving
+                                </button>
+                            </ItemContent>
+                            <Placeholder>
+                                <div class="wn-naam laden">…</div>
+                            </Placeholder>
+                        </Virtualize>
+                    }
+                </div>
+
+                @* werkorders van het gekozen project, als boom. Slepen op een
+                   andere werkorder = daaronder hangen; slepen op het kopje
+                   hieronder = terug naar het bovenste niveau. *@
+                <h3 class="wn-kop" data-wortel
+                    title="Sleep een werkorder hierheen om hem op het bovenste niveau te zetten">
+                    Werkorders
+                </h3>
+                <div class="wn-namen kort boom-sleep">
+                    @if (_projectId is null)
+                    {
+                        <div class="kiezer-info">Kies eerst een project.</div>
+                    }
+                    else if (_werkorders.Count == 0)
+                    {
+                        <div class="kiezer-info">Nog geen werkorders.</div>
+                    }
+                    else
+                    {
+                        @foreach (var tak in _boom)
+                        {
+                            <button class="wn-naam @(tak.W.Id == _werkbonId ? "actief" : "") @(tak.W.Gesloten ? "vervallen" : "")"
+                                    style="@TakInsprong(tak.Diepte)"
+                                    data-tak="@tak.W.Id"
+                                    title="@(tak.W.Nummer + " " + tak.W.Omschrijving + " — sleep op een andere werkorder om te verhangen")"
+                                    @key="tak.W.Id" @onclick="() => KiesWerkorder(tak.W)">
+                                @(tak.Diepte > 0 ? "└ " : "")<span class="nummer">@tak.W.Nummer</span> @tak.W.Omschrijving
+                            </button>
+                        }
+                    }
+                </div>
+                <div class="btngroup">
+                    <button class="klein" disabled="@(_projectId is null)" @onclick="MaakWerkorder">+ Toevoegen</button>
+                    <button class="klein rood" disabled="@(_werkbonId is null)" @onclick="VerwijderWerkorder">✕ Wissen</button>
+                </div>
+            </aside>
+
+            @* ---------- rechts: project- of werkorderdetail ---------- *@
+            <section class="wn-detail">
+                @if (_projectId is null)
+                {
+                    <div class="kiezer-info">Kies links een project, of zoek er een.</div>
+                }
+                else if (_werkbonId is null)
+                {
+                    <div class="wn-tabs">
+                        @foreach (var tab in ProjectVelden.ProjectTabs)
+                        {
+                            <button class="@(tab.Naam == _tabProject ? "actief" : "")"
+                                    @onclick="() => _tabProject = tab.Naam">@tab.Naam</button>
+                        }
+                    </div>
+
+                    <DetailMetZij>
+                        <Hoofd>
+                            <VeldRaster Tab="HuidigProjectTab" Kolommen="_projectKolommen" Velden="_projectVelden"
+                                        Lijsten="_lijsten" OpSlaan="BewaarProject" />
+                            <p class="uitleg">@Aangemaakt(_projectVelden, "Created at", "Created by")</p>
+                        </Hoofd>
+                        <Zij>
+                            <ZijBlok Titel="Werkorders" Aantal="_werkorders.Count"
+                                     Leeg="_werkorders.Count == 0" LeegTekst="Nog geen werkorders.">
+                                @foreach (var w in _werkorders)
+                                {
+                                    <div class="zij-regel" @key="w.Id">
+                                        <button class="zij-naam zij-knop" @onclick="() => KiesWerkorder(w)">
+                                            @w.Nummer @w.Omschrijving
+                                        </button>
+                                        <span class="zij-extra">
+                                            @(w.Gesloten ? "gesloten" : "open")
+                                            @if (w.Deadline is DateTime deadline)
+                                            {
+                                                <text> · deadline @deadline.ToString("dd-MM-yyyy")</text>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Klant" Leeg="@(KlantNaam() is null)"
+                                     LeegTekst="Geen klant gekozen.">
+                                <div class="zij-regel">
+                                    <span class="zij-naam">@KlantNaam()</span>
+                                    <span class="zij-extra">@ProjectleiderNaam()</span>
+                                </div>
+                            </ZijBlok>
+                        </Zij>
+                    </DetailMetZij>
+                }
+                else
+                {
+                    <div class="wn-tabs">
+                        <button class="terug" title="Terug naar het project" @onclick="TerugNaarProject">↩ Project</button>
+                        @foreach (var tab in ProjectVelden.WerkorderTabs)
+                        {
+                            <button class="@(tab.Naam == _tabWerkorder ? "actief" : "")"
+                                    @onclick="() => _tabWerkorder = tab.Naam">@tab.Naam</button>
+                        }
+                    </div>
+
+                    <DetailMetZij>
+                        <Hoofd>
+                            <VeldRaster Tab="HuidigWerkorderTab" Kolommen="_werkorderKolommen" Velden="_werkorderVelden"
+                                        Lijsten="_lijsten" OpSlaan="BewaarWerkorder" />
+                        </Hoofd>
+                        <Zij>
+                            <ZijBlok Titel="Project">
+                                <div class="zij-regel">
+                                    <button class="zij-naam zij-knop" @onclick="TerugNaarProject">
+                                        @_projectNummer @_projectOms
+                                    </button>
+                                    <span class="zij-extra">@KlantNaam() @ProjectleiderNaam()</span>
+                                </div>
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Andere werkorders" Aantal="_werkorders.Count"
+                                     Leeg="@(_werkorders.Count <= 1)" LeegTekst="Dit is de enige werkorder.">
+                                @foreach (var w in _werkorders.Where(x => x.Id != _werkbonId))
+                                {
+                                    <div class="zij-regel" @key="w.Id">
+                                        <button class="zij-naam zij-knop" @onclick="() => KiesWerkorder(w)">
+                                            @w.Nummer @w.Omschrijving
+                                        </button>
+                                        <span class="zij-extra">
+                                            @(w.Gesloten ? "gesloten" : "open")
+                                            @if (w.Deadline is DateTime deadline)
+                                            {
+                                                <text> · deadline @deadline.ToString("dd-MM-yyyy")</text>
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </ZijBlok>
+                        </Zij>
+                    </DetailMetZij>
+
+                    @if (_tabWerkorder == "Doorbelasting")
+                    {
+                        <h3 class="wn-kop">Afspraak met de klant</h3>
+                        @if (_afspraak.Uren is null && _afspraak.Expenses is null && _afspraak.Materialen is null)
+                        {
+                            <p class="uitleg">
+                                Voor de klant van dit project staat geen geldige tariefafspraak met
+                                standaardtoeslagen. Die vul je in bij Relaties ▸ Tariefafspraken.
+                            </p>
+                        }
+                        else
+                        {
+                            <table class="kiezer-tabel smal-tabel">
+                                <thead>
+                                    <tr><th></th><th class="r">Afspraak</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Uren</td><td class="r">@Procent(_afspraak.Uren)</td><td></td></tr>
+                                    <tr><td>Expenses</td><td class="r">@Procent(_afspraak.Expenses)</td><td></td></tr>
+                                    <tr><td>Materialen</td><td class="r">@Procent(_afspraak.Materialen)</td><td></td></tr>
+                                </tbody>
+                            </table>
+                            <button class="klein" title="De afgesproken percentages overnemen in deze werkorder"
+                                    @onclick="NeemAfspraakOver">« Overnemen</button>
+                        }
+                    }
+
+                    <p class="uitleg">@Aangemaakt(_werkorderVelden, "Aangemaakt", "Aangemaakt_door")</p>
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Budget, budgetverdeling, documenten, milestones, team en activiteiten volgen als
+        aparte tabbladen — die hangen elk aan hun eigen tabel.
+    </footer>
+</div>
+
+@code {
+    // ---- lijst en filters ----
+    private int _aantal;
+    private Virtualize<ProjectRegel>? _virtualize;
+    private string _klant = "";
+    private string _project = "";
+    private int? _status = ProjectVelden.ProjectStatussen[0].Id;    // begin bij Open, net als Access
+
+    // ---- project ----
+    private int? _projectId;
+    private int? _projectNummer;
+    private string _projectOms = "";
+    private string _tabProject = ProjectVelden.ProjectTabs[0].Naam;
+    private HashSet<string> _projectKolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _projectVelden = new(StringComparer.OrdinalIgnoreCase);
+
+    // ---- werkorder ----
+    private List<WerkorderRegel> _werkorders = new();
+
+    /// <summary>De werkorders als boom: diepte-eerst, met insprongniveau.</summary>
+    private List<(WerkorderRegel W, int Diepte)> _boom = new();
+    private int? _werkbonId;
+    private string _werkbonNummer = "";
+    private string _tabWerkorder = ProjectVelden.WerkorderTabs[0].Naam;
+    private HashSet<string> _werkorderKolommen = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, object?> _werkorderVelden = new(StringComparer.OrdinalIgnoreCase);
+    private KlantAfspraak _afspraak = new(null, null, null);
+
+    // ---- keuzelijsten en meldingen ----
+    private Dictionary<string, List<Keuze>> _lijsten = new();
+    private static readonly List<Keuze> GeenLijst = new();
+    private string? _melding;
+    private bool _fout;
+
+    // ---- nieuw project ----
+    private bool _nieuwOpen;
+    private string _nieuwNummer = "";
+    private string _nieuwOms = "";
+    private int? _nieuwKlant;
+
+    private VeldTab HuidigProjectTab
+        => ProjectVelden.ProjectTabs.FirstOrDefault(t => t.Naam == _tabProject) ?? ProjectVelden.ProjectTabs[0];
+
+    private VeldTab HuidigWerkorderTab
+        => ProjectVelden.WerkorderTabs.FirstOrDefault(t => t.Naam == _tabWerkorder) ?? ProjectVelden.WerkorderTabs[0];
+
+    private string Titel
+    {
+        get
+        {
+            if (_projectId is null) return "Projecten";
+            var kop = $"{_projectNummer} {_projectOms}".Trim();
+            return _werkbonId is null ? kop : $"{_werkbonNummer} — {Tekst(_werkorderVelden, "Werkbonomschrijving")}";
+        }
+    }
+
+    private List<Keuze> Lijst(string naam) => _lijsten.TryGetValue(naam, out var l) ? l : GeenLijst;
+
+    private string StatusTekst => _status is null ? "" : _status.Value.ToString();
+    private string NieuwKlantTekst => _nieuwKlant is null ? "" : _nieuwKlant.Value.ToString();
+
+    // ---- koppeling met het verhang-slepen (mdeBoom in App.razor) ----
+    private DotNetObjectReference<Projecten>? _zelf;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste || !Repo.Beschikbaar) return;
+        _zelf = DotNetObjectReference.Create(this);
+        try { await JS.InvokeVoidAsync("mdeBoom.koppel", _zelf); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdeBoom.los"); } catch { }
+        _zelf?.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            _projectKolommen = await Repo.ProjectKolommenAsync();
+            _werkorderKolommen = await Repo.WerkorderKolommenAsync();
+
+            // vaste lijstjes uit de definitie
+            _lijsten["ProjectStatus"] = ProjectVelden.ProjectStatussen.ToList();
+            _lijsten["DoorbelastBasis"] = ProjectVelden.DoorbelastBasis.ToList();
+            _lijsten["WerkorderStatus"] = ProjectVelden.WerkorderStatussen.ToList();
+
+            // lijsten uit de database; elk apart, zodat één missende tabel de rest niet meesleept
+            await Vul("BV", Repo.GetWerkmaatschappijenAsync);
+            await Vul("Klant", Repo.GetKlantenAsync);
+            await Vul("Werknemer", Repo.GetWerknemersAsync);
+            await Vul("ProjectType", Repo.GetProjectsoortenAsync);
+            await Vul("WerkorderType", Repo.GetWerkordersoortenAsync);
+
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Vul(string naam, Func<Task<List<Keuze>>> ophalen)
+    {
+        try { _lijsten[naam] = await ophalen(); }
+        catch { _lijsten[naam] = new List<Keuze>(); }
+    }
+
+    private async Task Laad(bool kiesBijEenResultaat = false)
+    {
+        try { _aantal = await Repo.TelProjectenAsync(_klant, _project, _status); }
+        catch (Exception ex) { _aantal = 0; Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        if (_virtualize is not null)
+        {
+            try { await _virtualize.RefreshDataAsync(); } catch { }
+        }
+
+        // Eén treffer? Meteen openen — scheelt een klik.
+        if (kiesBijEenResultaat && _aantal == 1)
+        {
+            var enige = await Repo.ZoekProjectenAsync(_klant, _project, _status, 0, 1);
+            if (enige.Count == 1) { await KiesProject(enige[0]); return; }
+        }
+
+        if (kiesBijEenResultaat) Leegmaken();
+    }
+
+    private async ValueTask<ItemsProviderResult<ProjectRegel>> Ophalen(ItemsProviderRequest verzoek)
+    {
+        try
+        {
+            var blok = await Repo.ZoekProjectenAsync(_klant, _project, _status,
+                                                     verzoek.StartIndex, verzoek.Count);
+            return new ItemsProviderResult<ProjectRegel>(blok, _aantal);
+        }
+        catch
+        {
+            return new ItemsProviderResult<ProjectRegel>(Array.Empty<ProjectRegel>(), 0);
+        }
+    }
+
+    private void Leegmaken()
+    {
+        _projectId = null;
+        _projectNummer = null;
+        _projectOms = "";
+        _projectVelden = new(StringComparer.OrdinalIgnoreCase);
+        _werkorders = new();
+        LeegmakenWerkorder();
+        _melding = null;
+    }
+
+    private void LeegmakenWerkorder()
+    {
+        _werkbonId = null;
+        _werkbonNummer = "";
+        _werkorderVelden = new(StringComparer.OrdinalIgnoreCase);
+        _afspraak = new(null, null, null);
+    }
+
+    private void SluitMelding() => _melding = null;
+
+    // ================================================================
+    //  Filters
+    // ================================================================
+    private async Task KlantGewijzigd(ChangeEventArgs e)
+    {
+        _klant = (string?)e.Value ?? "";
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task ProjectGewijzigd(ChangeEventArgs e)
+    {
+        _project = (string?)e.Value ?? "";
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task StatusGewijzigd(ChangeEventArgs e)
+    {
+        _status = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad(kiesBijEenResultaat: true);
+    }
+
+    private async Task WisFilters()
+    {
+        _klant = "";
+        _project = "";
+        Leegmaken();
+        await Laad();
+    }
+
+    // ================================================================
+    //  Project kiezen en opslaan
+    // ================================================================
+    private async Task KiesProject(ProjectRegel p)
+    {
+        _projectId = p.Id;
+        _projectNummer = p.Nummer;
+        _projectOms = p.Omschrijving;
+        LeegmakenWerkorder();
+
+        try { _projectVelden = await Repo.GetProjectVeldenAsync(p.Id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+
+        await LaadWerkorders();
+    }
+
+    private void TerugNaarProject() => LeegmakenWerkorder();
+
+    private async Task BewaarProject((string Kolom, object? Waarde) wijziging)
+    {
+        if (_projectId is null) return;
+        try
+        {
+            var opslaan = Schoon(wijziging.Waarde);
+            await Repo.UpdateProjectVeldAsync(_projectId.Value, wijziging.Kolom, opslaan);
+            _projectVelden[wijziging.Kolom] = opslaan;
+
+            // nummer of omschrijving gewijzigd? dan klopt de lijst niet meer
+            if (wijziging.Kolom.Equals("Projectnumber", StringComparison.OrdinalIgnoreCase))
+            {
+                _projectNummer = opslaan is null ? null : Convert.ToInt32(opslaan);
+                await Laad();
+                await LaadWerkorders();      // het werkordernummer begint met het projectnummer
+            }
+            else if (wijziging.Kolom.Equals("Projectdescription", StringComparison.OrdinalIgnoreCase))
+            {
+                _projectOms = opslaan?.ToString() ?? "";
+                await Laad();
+            }
+
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Nieuw project
+    // ================================================================
+    private async Task OpenNieuwProject()
+    {
+        _nieuwOms = _project.Trim();
+        _nieuwKlant = null;
+        try { _nieuwNummer = (await Repo.VolgendProjectnummerAsync()).ToString(); }
+        catch { _nieuwNummer = ""; }
+        _nieuwOpen = true;
+    }
+
+    private void SluitNieuwProject() => _nieuwOpen = false;
+    private void NieuwNummerGewijzigd(ChangeEventArgs e) => _nieuwNummer = (string?)e.Value ?? "";
+    private void NieuwOmsGewijzigd(ChangeEventArgs e) => _nieuwOms = (string?)e.Value ?? "";
+    private void NieuwKlantGewijzigd(ChangeEventArgs e)
+        => _nieuwKlant = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private async Task MaakProject()
+    {
+        if (!int.TryParse(_nieuwNummer, out var nummer))
+        {
+            Toon("Vul een geldig projectnummer in.", true);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_nieuwOms))
+        {
+            Toon("Vul een omschrijving in.", true);
+            return;
+        }
+
+        try
+        {
+            var id = await Repo.NieuwProjectAsync(nummer, _nieuwOms.Trim(), _nieuwKlant, Ik.WerknemerId);
+            _nieuwOpen = false;
+            await Laad();
+            await KiesProject(new ProjectRegel(id, nummer, _nieuwOms.Trim()));
+            Toon($"Project {nummer} aangemaakt. Vul de gegevens aan.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderProject()
+    {
+        if (_projectId is null) return;
+        var naam = $"{_projectNummer} {_projectOms}".Trim();
+
+        try
+        {
+            var reden = await Repo.ProjectInGebruikAsync(_projectId.Value);
+            if (reden is not null)
+            {
+                Toon($"'{naam}' kan niet worden verwijderd. {reden} " +
+                     "Zet het project in plaats daarvan op Gesloten.", true);
+                return;
+            }
+
+            if (!await Bevestig($"Project '{naam}' verwijderen?\n\nWeet je het zeker?")) return;
+
+            await Repo.VerwijderProjectAsync(_projectId.Value);
+            Leegmaken();
+            await Laad();
+            Toon($"'{naam}' verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Werkorders
+    // ================================================================
+    private async Task LaadWerkorders()
+    {
+        if (_projectId is null) { _werkorders = new(); _boom = new(); return; }
+        try { _werkorders = await Repo.GetWerkordersAsync(_projectId.Value); }
+        catch (Exception ex) { _werkorders = new(); Toon("Werkorders ophalen mislukt: " + ex.Message, true); }
+        BouwBoom();
+    }
+
+    // ================================================================
+    //  De boom
+    // ================================================================
+    private void BouwBoom()
+    {
+        _boom = new();
+        Hang(null, 0);
+
+        // Wat door een kring of verweesde verwijzing niet bereikt is, komt
+        // alsnog onderaan op het bovenste niveau — niets mag zoekraken.
+        foreach (var w in _werkorders.Where(w => _boom.All(t => t.W.Id != w.Id)))
+            _boom.Add((w, 0));
+    }
+
+    private void Hang(int? ouder, int diepte)
+    {
+        if (diepte > 8) return;   // dieper is vrijwel zeker een kring in de data
+
+        foreach (var w in _werkorders.Where(x => Genormaliseerd(x) == ouder)
+                                     .OrderBy(x => x.Nummer, StringComparer.OrdinalIgnoreCase))
+        {
+            _boom.Add((w, diepte));
+            Hang(w.Id, diepte + 1);
+        }
+    }
+
+    /// <summary>Wijst de ouder alleen aan als die in dit project bestaat; een
+    /// verwijzing naar een verdwenen werkorder telt als bovenste niveau.</summary>
+    private int? Genormaliseerd(WerkorderRegel w)
+        => w.Ouder is int o && _werkorders.Any(x => x.Id == o) ? o : null;
+
+    private static string TakInsprong(int diepte)
+        => diepte == 0 ? "" : FormattableString.Invariant($"padding-left: {0.5 + diepte * 1.0:0.0}rem");
+
+    /// <summary>Vanuit de browser: werkorder losgelaten op een andere (of op de wortel).</summary>
+    [JSInvokable]
+    public async Task VerhangWerkorder(int id, int? doelId, bool naarWortel)
+    {
+        if (!naarWortel && doelId is null) return;
+
+        // Al op die plek? Dan valt er niets te doen. Bewust tegen de ruwe
+        // Ouder-waarde: een verwijzing naar een verdwenen werkorder moet je
+        // juist kúnnen opruimen door naar de wortel te slepen.
+        var huidig = _werkorders.FirstOrDefault(w => w.Id == id);
+        if (huidig is null) return;
+        var nieuweOuder = naarWortel ? (int?)null : doelId;
+        if (huidig.Ouder == nieuweOuder) return;
+
+        try
+        {
+            await Repo.ZetWerkorderOuderAsync(id, nieuweOuder);
+            await LaadWerkorders();
+            Toon(nieuweOuder is null
+                ? "Werkorder terug op het bovenste niveau gezet."
+                : "Werkorder verhangen.", false);
+        }
+        catch (Exception ex) { Toon("Verhangen mislukt: " + ex.Message, true); }
+        StateHasChanged();
+    }
+
+    private async Task KiesWerkorder(WerkorderRegel w)
+    {
+        _werkbonId = w.Id;
+        _werkbonNummer = w.Nummer;
+        try { _werkorderVelden = await Repo.GetWerkorderVeldenAsync(w.Id); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+
+        try { _afspraak = await Repo.GetKlantAfspraakAsync(_projectId ?? 0); }
+        catch { _afspraak = new(null, null, null); }
+    }
+
+    private async Task BewaarWerkorder((string Kolom, object? Waarde) wijziging)
+    {
+        if (_werkbonId is null) return;
+        try
+        {
+            var opslaan = Schoon(wijziging.Waarde);
+            await Repo.UpdateWerkorderVeldAsync(_werkbonId.Value, wijziging.Kolom, opslaan);
+            _werkorderVelden[wijziging.Kolom] = opslaan;
+
+            // omschrijving of status gewijzigd? dan de lijst links bijwerken
+            if (wijziging.Kolom.Equals("Werkbonomschrijving", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("WorkOrderStatus", StringComparison.OrdinalIgnoreCase))
+                await LaadWerkorders();
+
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task MaakWerkorder()
+    {
+        if (_projectId is null) return;
+        try
+        {
+            var id = await Repo.NieuweWerkorderAsync(_projectId.Value, "(nieuwe werkorder)", Ik.WerknemerId);
+            await LaadWerkorders();
+            var nieuw = _werkorders.FirstOrDefault(w => w.Id == id);
+            if (nieuw is not null) await KiesWerkorder(nieuw);
+            Toon("Werkorder toegevoegd. Vul de omschrijving aan.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderWerkorder()
+    {
+        if (_werkbonId is null) return;
+        var naam = _werkbonNummer;
+
+        if (!await Bevestig($"Werkorder '{naam}' verwijderen?\n\n" +
+                            "De werkorder verdwijnt uit de lijsten; geboekte uren blijven bewaard.")) return;
+
+        try
+        {
+            await Repo.VerwijderWerkorderAsync(_werkbonId.Value, Ik.WerknemerId);
+            LeegmakenWerkorder();
+            await LaadWerkorders();
+            Toon($"Werkorder '{naam}' verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Neemt de afgesproken percentages van de klant over in deze werkorder.</summary>
+    private async Task NeemAfspraakOver()
+    {
+        if (_werkbonId is null) return;
+
+        var paren = new (string Kolom, decimal? Waarde)[]
+        {
+            ("Doorbelast deel", _afspraak.Uren),
+            ("Doorbelast_deel_expense_claims", _afspraak.Expenses),
+            ("Doorbelast_deel_materials", _afspraak.Materialen),
+        };
+
+        try
+        {
+            foreach (var (kolom, waarde) in paren)
+            {
+                if (waarde is null || !_werkorderKolommen.Contains(kolom)) continue;
+                var afgerond = (int)Math.Round(waarde.Value);
+                await Repo.UpdateWerkorderVeldAsync(_werkbonId.Value, kolom, afgerond);
+                _werkorderVelden[kolom] = afgerond;
+            }
+            Toon("Percentages overgenomen.", false);
+        }
+        catch (Exception ex) { Toon("Overnemen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Hulpjes
+    // ================================================================
+    private static object? Schoon(object? waarde)
+        => waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
+
+    private static string Tekst(Dictionary<string, object?> velden, string kolom)
+        => velden.TryGetValue(kolom, out var v) && v is not null ? v.ToString() ?? "" : "";
+
+    private static string Procent(decimal? waarde)
+        => waarde is null ? "—" : waarde.Value.ToString("0.##") + " %";
+
+    /// <summary>Naam uit een keuzelijst bij de waarde die in een kolom staat.</summary>
+    private string? UitLijst(Dictionary<string, object?> velden, string kolom, string lijst)
+    {
+        if (!velden.TryGetValue(kolom, out var v) || v is null) return null;
+        if (!int.TryParse(v.ToString(), out var id)) return null;
+        return Lijst(lijst).FirstOrDefault(k => k.Id == id)?.Naam;
+    }
+
+    private string? KlantNaam() => UitLijst(_projectVelden, "Customer-id", "Klant");
+
+    private string? ProjectleiderNaam()
+    {
+        var naam = UitLijst(_projectVelden, "ProjectResponsible", "Werknemer");
+        return naam is null ? "" : "· " + naam;
+    }
+
+    /// <summary>Regeltje 'Aangemaakt op … door …' onder het formulier.</summary>
+    private string Aangemaakt(Dictionary<string, object?> velden, string datumKolom, string doorKolom)
+    {
+        if (!velden.TryGetValue(datumKolom, out var d) || d is null) return "";
+        var wanneer = d is DateTime dt ? dt.ToString("dddd d MMMM yyyy") : d.ToString();
+
+        var wie = "";
+        if (velden.TryGetValue(doorKolom, out var w) && w is not null
+            && int.TryParse(w.ToString(), out var id))
+            wie = Lijst("Werknemer").FirstOrDefault(k => k.Id == id)?.Naam ?? $"#{id}";
+
+        return string.IsNullOrEmpty(wie) ? $"Aangemaakt op {wanneer}." : $"Aangemaakt op {wanneer} door {wie}.";
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        catch { return true; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

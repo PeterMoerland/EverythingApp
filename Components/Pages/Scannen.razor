@@ -1,0 +1,357 @@
+@page "/scannen"
+@layout ScanLayout
+@inject IOrderBatchRepository Repo
+@inject IUrenRepository Uren
+@inject IInstellingRepository Instellingen
+@inject HuidigeGebruiker Ik
+@inject BatchBel Bel
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Scannen — MDE</PageTitle>
+
+@if (!Repo.Beschikbaar)
+{
+    <div class="scan-melding">Dit scherm werkt alleen met de live database.</div>
+}
+else
+{
+    <div class="scan-kop">
+        <a class="scan-terug" href="orderbatch">‹ Batch</a>
+        <strong>Bestellen</strong>
+        <span class="scan-wie">@(Ik.Naam.Length > 0 ? Ik.Naam : "?")</span>
+    </div>
+
+    @* ---------- de camera ---------- *@
+    <div class="scan-camera @(_cameraAan ? "" : "uit")">
+        <video id="scanvideo" muted playsinline></video>
+        @if (!_cameraAan)
+        {
+            <button class="scan-groot" @onclick="StartCamera">📷 Camera aanzetten</button>
+        }
+    </div>
+
+    @if (_cameraFout.Length > 0)
+    {
+        <div class="scan-melding">@_cameraFout</div>
+    }
+    @if (_cameraAan && _cameraInfo.Length > 0)
+    {
+        <div class="scan-camera-info">camera: @_cameraInfo</div>
+    }
+
+    @* ---------- of typen: alleen als de camera niet loopt ----------
+       Draait de camera, dan is dit veld overbodige drukte; zonder camera
+       (geen toestemming, oude browser) is het de reserve-ingang. Een
+       bluetooth-scanner gedraagt zich als toetsenbord en gebruikt dit
+       veld dan ook. *@
+    @if (!_cameraAan)
+    {
+        <div class="scan-typen">
+            <input inputmode="numeric" placeholder="Of typ het artikelnummer…"
+                   value="@_invoer" @onchange="InvoerGewijzigd" />
+            <button @onclick="ZoekInvoer">Zoek</button>
+        </div>
+    }
+
+    @* ---------- het gescande artikel ---------- *@
+    @if (_artikel is not null)
+    {
+        @* aantal eerst: dat is na het scannen de eerstvolgende handeling,
+           dus die knoppen horen bovenaan, direct onder de duim. *@
+        <div class="scan-aantal">
+            <button class="scan-groot" @onclick="Minder">−</button>
+            <input inputmode="numeric" value="@_aantal" @onchange="AantalGewijzigd" />
+            <button class="scan-groot" @onclick="Meer">＋</button>
+        </div>
+
+        <div class="scan-artikel">
+            <img src="@($"artikelfoto/{_artikel.Id}")" alt="" @key="_artikel.Id"
+                 onload="this.style.display=''" onerror="this.style.display='none'" />
+            <div class="scan-info">
+                <div class="scan-code">@_artikel.Code <span class="scan-nr">#@_artikel.Id</span></div>
+                <div class="scan-oms">@_artikel.Omschrijving</div>
+                <div class="scan-lev">
+                    @if (_artikel.Leverancier.Length > 0)
+                    {
+                        <span>@_artikel.Leverancier</span>
+                    }
+                    @if (_artikel.PerVerpakking > 1)
+                    {
+                        <span> · per @_artikel.PerVerpakking</span>
+                    }
+                    @if (_artikel.Voorraad is not null)
+                    {
+                        <span> · voorraad @_artikel.Voorraad</span>
+                    }
+                </div>
+                @if (_artikel.Samenstelling)
+                {
+                    <div class="scan-let-op">
+                        Samenstelling: de onderdelen komen los in de batch.
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* De bestelling gaat standaard op de standaard-voorraadorder; wie iets
+           anders wil kiest een andere voorraadorder of zoekt in alle orders. *@
+        <div class="scan-werkorder">
+            <label>Op werkorder</label>
+            <div class="scan-orderregel">
+                <span class="scan-order">@_orderTekst</span>
+                <button title="Kies een voorraadorder" @onclick="OpenVoorraadKeuze">📦</button>
+                <button title="Zoeken in alle orders" @onclick="OpenOrderZoeken">🔍</button>
+            </div>
+        </div>
+
+        <button class="scan-groot scan-toevoegen" disabled="@(_bezig || _orderId == 0)"
+                @onclick="Toevoegen">
+            @(_bezig ? "Bezig…" : $"In de batch ({_aantal})")
+        </button>
+    }
+
+    @if (_melding.Length > 0)
+    {
+        <div class="scan-melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = string.Empty">
+            @_melding
+        </div>
+    }
+
+    @* ---------- keuze: voorraadorders ---------- *@
+    @if (_kiesVoorraad)
+    {
+        <div class="scan-keuzelaag" @onclick="SluitKeuze">
+            <div class="scan-keuze" @onclick:stopPropagation>
+                <strong>Voorraadorders</strong>
+                @foreach (var vo in _voorraadOrders)
+                {
+                    <button class="scan-keuzeregel" @onclick="() => KiesVoorraadOrder(vo)">
+                        <span class="scan-keuzenaam">
+                            @vo.Omschrijving
+                            @if (vo.Standaard)
+                            {
+                                <span class="scan-standaard">standaard</span>
+                            }
+                        </span>
+                        @if (vo.Help.Length > 0)
+                        {
+                            <span class="scan-keuzehulp">@vo.Help</span>
+                        }
+                    </button>
+                }
+                @if (_voorraadOrders.Count == 0)
+                {
+                    <p class="scan-keuzehulp">Er zijn geen voorraadorders ingericht (Beheer &gt; Instellingen).</p>
+                }
+            </div>
+        </div>
+    }
+
+    @* ---------- keuze: zoeken in alle orders ---------- *@
+    @if (_kiesOrder)
+    {
+        <div class="scan-keuzelaag" @onclick="SluitKeuze">
+            <div class="scan-keuze" @onclick:stopPropagation>
+                <strong>Zoek een order</strong>
+                <input placeholder="Nummer, omschrijving of klant…" value="@_orderZoek"
+                       @oninput="OrderZoekGewijzigd" />
+                @foreach (var wo in GevondenOrders())
+                {
+                    <button class="scan-keuzeregel" @onclick="() => KiesOrder(wo)">
+                        <span class="scan-keuzenaam">@wo.VolledigeTekst</span>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private ScanArtikel? _artikel;
+    private int _aantal = 1;
+    private string _invoer = "";
+    private bool _cameraAan;
+    private string _cameraFout = "";
+    private string _cameraInfo = "";
+    private bool _bezig;
+    private string _melding = "";
+    private bool _fout;
+
+    private List<Workorder> _werkorders = new();
+    private List<VoorraadOrder> _voorraadOrders = new();
+    private int _orderId;
+    private string _orderTekst = "";
+    private bool _kiesVoorraad;
+    private bool _kiesOrder;
+    private string _orderZoek = "";
+
+    private DotNetObjectReference<Scannen>? _zelf;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try { _werkorders = await Uren.GetOpenWorkordersAsync(); } catch { _werkorders = new(); }
+        try { _voorraadOrders = await Instellingen.GetVoorraadOrdersAsync(); } catch { _voorraadOrders = new(); }
+
+        // Standaard bestel je op de standaard-voorraadorder (Default in de tabel).
+        // Is die er niet, dan de eerste voorraadorder; anders blijft het leeg en
+        // moet er eerst gekozen worden.
+        var standaard = _voorraadOrders.FirstOrDefault(v => v.Standaard && v.OrderId is not null)
+                     ?? _voorraadOrders.FirstOrDefault(v => v.OrderId is not null);
+        if (standaard is not null) ZetOrder(standaard.OrderId!.Value, standaard.Omschrijving);
+    }
+
+    // ---- camera ----
+    private async Task StartCamera()
+    {
+        _zelf ??= DotNetObjectReference.Create(this);
+        try
+        {
+            _cameraFout = await JS.InvokeAsync<string>("mdeScan.start", "scanvideo", _zelf);
+            _cameraAan = _cameraFout.Length == 0;
+        }
+        catch (Exception ex) { _cameraFout = "Camera starten mislukt: " + ex.Message; }
+    }
+
+    /// <summary>De echte cameraresolutie, gemeld vanuit scan.js. Ter controle
+    /// of het verzoek om HD ook gehonoreerd wordt.</summary>
+    [JSInvokable]
+    public void CameraInfo(string tekst)
+    {
+        _cameraInfo = tekst;
+        StateHasChanged();
+    }
+
+    /// <summary>Wordt vanuit scan.js aangeroepen zodra er een barcode in beeld is.</summary>
+    [JSInvokable]
+    public async Task Gescand(string code)
+    {
+        await ZoekCode(code);
+        StateHasChanged();
+    }
+
+    // ---- typen ----
+    private void InvoerGewijzigd(ChangeEventArgs e) => _invoer = (string?)e.Value ?? "";
+
+    private async Task ZoekInvoer() => await ZoekCode(_invoer);
+
+    /// <summary>
+    /// Van barcode naar artikel. Op de labels staat MDE12345; kaal 12345 of
+    /// #12345 mag ook, voor wie typt.
+    /// </summary>
+    private async Task ZoekCode(string code)
+    {
+        code = code.Trim();
+        if (code.StartsWith("MDE", StringComparison.OrdinalIgnoreCase)) code = code[3..];
+        code = code.TrimStart('#').Trim();
+
+        if (!int.TryParse(code, out var artikelId))
+        {
+            Toon($"'{code}' is geen artikelnummer.", true);
+            return;
+        }
+
+        try
+        {
+            var gevonden = await Repo.GetScanArtikelAsync(artikelId);
+            if (gevonden is null)
+            {
+                Toon($"Artikel {artikelId} bestaat niet.", true);
+                return;
+            }
+
+            _artikel = gevonden;
+            _aantal = Math.Max(1, _artikel.PerVerpakking);
+            _melding = "";
+            _invoer = "";
+        }
+        catch (Exception ex) { Toon("Opzoeken mislukt: " + ex.Message, true); }
+    }
+
+    // ---- aantal ----
+    private int Stap => Math.Max(1, _artikel?.PerVerpakking ?? 1);
+
+    private void Meer() => _aantal += Stap;
+
+    private void Minder() => _aantal = Math.Max(Stap, _aantal - Stap);
+
+    private void AantalGewijzigd(ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var v) && v > 0) _aantal = v;
+    }
+
+    // ---- werkorder kiezen ----
+    private void ZetOrder(int orderId, string tekst)
+    {
+        _orderId = orderId;
+        _orderTekst = tekst;
+    }
+
+    private void OpenVoorraadKeuze() { _kiesVoorraad = true; _kiesOrder = false; }
+    private void OpenOrderZoeken() { _kiesOrder = true; _kiesVoorraad = false; _orderZoek = ""; }
+    private void SluitKeuze() { _kiesVoorraad = false; _kiesOrder = false; }
+
+    private void KiesVoorraadOrder(VoorraadOrder vo)
+    {
+        if (vo.OrderId is int id) ZetOrder(id, vo.Omschrijving);
+        else Toon($"'{vo.Omschrijving}' heeft geen order gekoppeld (Beheer > Instellingen).", true);
+        SluitKeuze();
+    }
+
+    private void KiesOrder(Workorder wo)
+    {
+        ZetOrder(wo.WerkbonId, wo.VolledigeTekst);
+        SluitKeuze();
+    }
+
+    private void OrderZoekGewijzigd(ChangeEventArgs e) => _orderZoek = (string?)e.Value ?? "";
+
+    /// <summary>Zoekt in nummer, omschrijving en klant; hooguit tien in beeld.</summary>
+    private IEnumerable<Workorder> GevondenOrders()
+    {
+        var tekst = _orderZoek.Trim();
+        var bron = tekst.Length == 0
+            ? _werkorders
+            : _werkorders.Where(w => w.VolledigeTekst.Contains(tekst, StringComparison.OrdinalIgnoreCase));
+        return bron.Take(10);
+    }
+
+    // ---- toevoegen ----
+    private async Task Toevoegen()
+    {
+        if (_artikel is null || _orderId == 0) return;
+
+        _bezig = true;
+        try
+        {
+            var regels = await Repo.VoegToeAsync(_artikel.Id, _aantal, _orderId,
+                                                 Ik.WerknemerId, viaScanner: true, "");
+            if (regels == 0)
+            {
+                Toon($"Er is niets toegevoegd: {_artikel.Code} is een samenstelling zonder onderdelen.", true);
+                return;
+            }
+
+            Toon(_artikel.Samenstelling
+                ? $"{regels} onderdelen van {_artikel.Code} staan in de batch."
+                : $"{_artikel.Code} ({_aantal}) staat in de batch.", false);
+
+            _artikel = null;   // klaar voor de volgende scan
+            _aantal = 1;
+            Bel.Meld();        // open Orderbatch-schermen verversen zichzelf
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdeScan.stop"); } catch { }
+        _zelf?.Dispose();
+    }
+}

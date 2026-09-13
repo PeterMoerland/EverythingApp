@@ -1,0 +1,53 @@
+@* De opvolger van de Access-melding bij het opstarten: is er iets mis met de
+   Vault-backup (geen backup vannacht, verdacht klein exemplaar, map niet te
+   lezen), dan ziet de directie deze balk bovenin de app. Is alles in orde,
+   dan is hij er simpelweg niet — geen nieuws is goed nieuws.
+
+   Staat in MainLayout, dus hij doet op elke pagina mee. *@
+
+@inject VaultBackupWaker Waker
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+@if (Tonen)
+{
+    <div class="vault-balk">
+        <span class="vault-teken">⚠</span>
+        <span class="vault-tekst">
+            <b>Vault-backup:</b> @Waker.Stand!.Probleem
+            <span class="zij-extra">
+                (@Waker.Stand.Aantal in de map@(Waker.Stand.Nieuwste is DateTime n
+                    ? $", nieuwste {n:dd-MM HH:mm}" : ""))
+            </span>
+        </span>
+        <button class="klein" title="Voor vandaag gezien" @onclick="Weg">✕</button>
+    </div>
+}
+
+@code {
+    /// <summary>Weggeklikt voor vandaag; morgen (of bij een nieuw probleem) komt
+    /// hij vanzelf terug — net als de dagelijkse melding in Access.</summary>
+    private DateOnly? _wegGedrukt;
+    private string _wegGedruktVoor = "";
+
+    private bool Tonen =>
+        Waker.Beschikbaar
+        && Waker.Stand is { Probleem.Length: > 0 } stand
+        && Ik.Mag("Directie")
+        && !(_wegGedrukt == DateOnly.FromDateTime(DateTime.Today)
+             && _wegGedruktVoor == stand.Probleem);
+
+    private void Weg()
+    {
+        _wegGedrukt = DateOnly.FromDateTime(DateTime.Today);
+        _wegGedruktVoor = Waker.Stand?.Probleem ?? "";
+    }
+
+    // De waker kijkt elk half uur; als er dan iets verandert, hertekent de
+    // balk zichzelf — ook op schermen die al open stonden.
+    protected override void OnInitialized() => Waker.Gewijzigd += BijWijziging;
+
+    private void BijWijziging() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Waker.Gewijzigd -= BijWijziging;
+}

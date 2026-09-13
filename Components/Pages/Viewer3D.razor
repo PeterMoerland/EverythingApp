@@ -1,0 +1,35 @@
+@page "/viewer"
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>3D-viewer</h1>
+        <span class="weeklabel">STEP · STL — zonder CAD-licentie</span>
+    </header>
+
+    <section class="toolbar">
+        <label class="bestandknop">
+            Open bestand (.step / .stp / .stl)…
+            <input id="viewer3d-file" type="file" accept=".stl,.step,.stp" />
+        </label>
+        <span id="viewer3d-status" class="viewerstatus"></span>
+    </section>
+
+    <div id="viewer3d" class="viewer3d"></div>
+
+    <footer class="voet">
+        Demo: STEP wordt in de browser geparsed met OpenCascade (WebAssembly).
+        In productie gekoppeld aan de filestore — 3D-modellen bij artikelen en werkorders,
+        met server-side voorconversie naar glTF voor grote assemblies.
+    </footer>
+</div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await JS.InvokeVoidAsync("viewer3d.init"); } catch { }
+        }
+    }
+}

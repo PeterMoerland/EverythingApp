@@ -1,0 +1,209 @@
+@* Popup om een artikelgroep te kiezen. Zoeken filtert de boom; wat overblijft
+   staat meteen opengeklapt, zodat je ziet waar de treffer zit. *@
+@inject IArtikelRepository Repo
+
+@if (Open)
+{
+    <div class="cmdk-overlay" @onclick="Sluit">
+        <div class="grvenster" @onclick:stopPropagation="true">
+            <div class="grkop">
+                <strong>@Titel</strong>
+                <button class="klein" @onclick="Sluit">Sluiten</button>
+            </div>
+
+            <input class="grzoek" placeholder="Zoek in de groepen…" value="@_filter"
+                   @oninput="Filter" @onkeydown="Toets" />
+
+            @if (_bezig)
+            {
+                <p class="uitleg">Bezig met ophalen…</p>
+            }
+            else if (_zichtbaar.Count == 0)
+            {
+                <p class="uitleg">Geen groepen gevonden.</p>
+            }
+            else
+            {
+                <ul class="grlijst wortel">
+                    @foreach (var knoop in _zichtbaar)
+                    {
+                        <GroepTak @key="knoop.Pad" Knoop="knoop" Gekozen="@Gekozen"
+                                  OpenPaden="_open" OpKeuze="Kies" OpKlap="Klap" />
+                    }
+                </ul>
+            }
+
+            <div class="grvoet">
+                @if (ToonWissen)
+                {
+                    <button class="klein" @onclick="Wis">Geen groep</button>
+                }
+                <span class="uitleg">
+                    Het getal achter een groep is het aantal artikelen erin.
+                    <span class="grbron">Structuur uit @Repo.GroepenHerkomst.</span>
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public string Titel { get; set; } = "Kies een groep";
+
+    /// <summary>Het pad dat nu geldt, zodat de boom laat zien waar je staat.</summary>
+    [Parameter] public string? Gekozen { get; set; }
+
+    /// <summary>
+    /// Bij het filteren van een lijst mag ook een tussenniveau worden gekozen —
+    /// dan zoek je op het pad. Bij het koppelen van een artikel kan dat niet:
+    /// een tussenniveau zonder eigen rij bestaat niet in de database.
+    /// </summary>
+    [Parameter] public bool Filteren { get; set; }
+
+    /// <summary>Toont de knop 'Geen groep'; alleen zinvol bij het filteren.</summary>
+    [Parameter] public bool ToonWissen { get; set; }
+
+    /// <summary>Geeft de gekozen groep door; null betekent 'geen groep'.</summary>
+    [Parameter] public EventCallback<Groepknoop?> OpKeuze { get; set; }
+
+    [Parameter] public EventCallback OpSluiten { get; set; }
+
+    private List<Groepknoop> _boom = new();
+    private List<Groepknoop> _zichtbaar = new();
+
+    /// <summary>Takken die de gebruiker zelf heeft opengeklapt.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.OrdinalIgnoreCase);
+
+    private string _filter = "";
+    private bool _bezig;
+    private bool _geladen;
+    private bool _wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // alleen reageren op het moment dat de popup open- of dichtgaat
+        if (Open == _wasOpen) return;
+        _wasOpen = Open;
+
+        if (!Open) { _filter = ""; return; }
+
+        if (!_geladen)
+        {
+            _bezig = true;
+            try
+            {
+                _boom = await Repo.GetGroepenBoomAsync();
+                // pas onthouden als het ook echt gelukt is; anders blijft de popup
+                // voor de rest van de sessie leeg
+                _geladen = _boom.Count > 0;
+            }
+            catch { _boom = new(); }
+            finally { _bezig = false; }
+        }
+
+        _open.Clear();
+        ZetZichtbaar();
+        ZetOpenBijGekozen();
+    }
+
+    private void Filter(ChangeEventArgs e)
+    {
+        _filter = (string?)e.Value ?? "";
+        ZetZichtbaar();
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await Sluit();
+    }
+
+    private void Klap(string pad)
+    {
+        if (!_open.Remove(pad)) _open.Add(pad);
+    }
+
+    private async Task Kies(Groepknoop knoop)
+    {
+        // Bij het koppelen kan een tussenniveau niet: daar hoort geen rij bij.
+        // Een klik erop klapt dan alleen open of dicht.
+        if (knoop.Id == 0 && !Filteren) { Klap(knoop.Pad); return; }
+
+        await OpKeuze.InvokeAsync(knoop);
+        await Sluit();
+    }
+
+    private async Task Wis()
+    {
+        await OpKeuze.InvokeAsync(null);
+        await Sluit();
+    }
+
+    private async Task Sluit() => await OpSluiten.InvokeAsync();
+
+    /// <summary>
+    /// Bouwt de zichtbare boom. Zonder filter is dat de hele boom; met filter
+    /// blijven alleen takken over waarin de tekst voorkomt, inclusief de weg
+    /// erheen, en die staan meteen open.
+    /// </summary>
+    private void ZetZichtbaar()
+    {
+        var tekst = _filter.Trim();
+        if (tekst.Length == 0)
+        {
+            _zichtbaar = _boom;
+            _open.Clear();
+            ZetOpenBijGekozen();
+            return;
+        }
+
+        _open.Clear();
+        _zichtbaar = _boom.Select(k => Filterboom(k, tekst))
+                          .Where(k => k is not null)
+                          .Select(k => k!)
+                          .ToList();
+    }
+
+    private Groepknoop? Filterboom(Groepknoop knoop, string tekst)
+    {
+        var raak = knoop.Naam.Contains(tekst, StringComparison.OrdinalIgnoreCase);
+
+        // Raakt de naam zelf, dan hoort alles eronder erbij; anders alleen de
+        // takken waarin verderop nog een treffer zit.
+        var kinderen = raak
+            ? knoop.Kinderen
+            : knoop.Kinderen.Select(k => Filterboom(k, tekst))
+                            .Where(k => k is not null)
+                            .Select(k => k!)
+                            .ToList();
+
+        if (!raak && kinderen.Count == 0) return null;
+
+        // een kopie, want de echte boom mag niet worden uitgedund
+        var kopie = new Groepknoop
+        {
+            Id = knoop.Id,
+            Naam = knoop.Naam,
+            Pad = knoop.Pad,
+            OuderId = knoop.OuderId,
+            Aantal = knoop.Aantal,
+        };
+        foreach (var kind in kinderen) kopie.Kinderen.Add(kind);
+
+        if (kopie.Kinderen.Count > 0) _open.Add(kopie.Pad);
+        return kopie;
+    }
+
+    /// <summary>Klapt de boom open tot waar de huidige keuze staat.</summary>
+    private void ZetOpenBijGekozen()
+    {
+        if (string.IsNullOrWhiteSpace(Gekozen)) return;
+
+        // De scheider verschilt per database, dus we kijken naar alle tekens die
+        // in de opgehaalde paden als scheider voorkomen.
+        var scheiders = new[] { '\\', '/', '>', '|' };
+        var pad = Gekozen!;
+        for (var i = 0; i < pad.Length; i++)
+            if (scheiders.Contains(pad[i])) _open.Add(pad[..i].Trim());
+    }
+}

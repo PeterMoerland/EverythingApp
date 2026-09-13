@@ -1,0 +1,368 @@
+@* De 'Link toevoegen' uit Access: een factuur(deel) koppelen aan een bestaande
+   PO van de leverancier, óf aan een werkorder — in dat laatste geval maakt de
+   app zelf een PO aan met één orderregel voor het bedrag.
+
+   Dit venster kiest alleen; het echte wegschrijven doet de eigenaar
+   (FactuurVenster), want bij een nieuwe factuur is er nog geen id. *@
+
+@inject IFactuurRepository Repo
+
+@if (Open)
+{
+    <div class="cmdk-overlay voorbeeld-laag midden" @onmousedown="() => _overlayDruk = true"
+         @onclick="OverlayGeklikt">
+        <div class="povenster koppelvenster verplaatsbaar" @onclick:stopPropagation
+             @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>Koppelen aan een inkooporder</h2>
+                <button class="klein" @onclick="() => Sluiten.InvokeAsync()">✕</button>
+            </header>
+
+            <div class="povenster-inhoud">
+                @if (_melding.Length > 0)
+                {
+                    <div class="melding fout" @onclick="() => _melding = string.Empty">@_melding</div>
+                }
+
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Koppelen met</label>
+                        <span class="btngroup">
+                            <button class="klein @(_modus == 1 ? "actief" : "")"
+                                    @onclick="() => ZetModus(1)">PO-nummer</button>
+                            <button class="klein @(_modus == 2 ? "actief" : "")"
+                                    @onclick="() => ZetModus(2)">Werkorder (nieuwe PO)</button>
+                        </span>
+                    </div>
+
+                    <div class="wn-veld">
+                        <label>Te koppelen bedrag</label>
+                        <span class="factuur-termijn">
+                            <input class="r smal" value="@_bedragTekst"
+                                   @onchange="e => _bedragTekst = ((string?)e.Value ?? string.Empty).Trim()" />
+                            <span class="zij-extra">van @Geld(Restant) nog te verdelen</span>
+                        </span>
+                    </div>
+                </div>
+
+                @if (_modus == 1)
+                {
+                    @* ---------- bestaande PO van de leverancier ---------- *@
+                    <div class="wn-veld breed">
+                        <label>Zoek een PO van @LeverancierNaam</label>
+                        <span class="zoekregel">
+                            <input placeholder="12345, PO-12345 of omschrijving…" value="@_zoek"
+                                   @onchange="ZoekGewijzigd" />
+                            <button class="klein" @onclick="() => ZoekPos()">Zoeken</button>
+                        </span>
+                    </div>
+
+                    <div class="koppel-tweeluik">
+                        <div class="koppel-lijst">
+                            @if (_posGeladen && _pos.Count == 0)
+                            {
+                                <p class="uitleg">
+                                    Geen inkooporders gevonden bij deze leverancier.
+                                    Gebruik dan de werkorder-knop hierboven.
+                                </p>
+                            }
+                            @foreach (var po in _pos)
+                            {
+                                <button class="koppel-regel @(_gekozenPo?.OrderId == po.OrderId ? "gekozen" : "")"
+                                        @key="po.OrderId" @onclick="() => KiesPo(po)">
+                                    <span class="koppel-nummer">@(po.Nummer.Length > 0 ? po.Nummer : "#" + po.OrderId)</span>
+                                    <span class="koppel-oms" title="@(po.Omschrijving + " " + po.Werkorder)">
+                                        @(po.Omschrijving.Length > 0 ? po.Omschrijving : po.Werkorder)
+                                    </span>
+                                    <span class="koppel-bedrag">@Geld(po.Totaal)</span>
+                                </button>
+                            }
+                        </div>
+
+                        <div class="koppel-detail">
+                            @if (_detail is null)
+                            {
+                                <p class="uitleg">Kies links een PO; de regels verschijnen hier.</p>
+                            }
+                            else
+                            {
+                                <strong>@_detail.Nummer · @_detail.StatusTekst</strong>
+                                <table class="kiezer-tabel">
+                                    <tbody>
+                                        @foreach (var regel in _detail.Regels)
+                                        {
+                                            <tr>
+                                                <td class="r" style="width:3.5rem">@regel.Aantal.ToString("0.##", Nl)</td>
+                                                <td class="omschrijving" title="@regel.Omschrijving">@regel.Omschrijving</td>
+                                                <td class="r" style="width:7rem">@Geld(regel.Totaal)</td>
+                                            </tr>
+                                        }
+                                        <tr>
+                                            <td></td>
+                                            <td class="r"><b>Totaal ex btw</b></td>
+                                            <td class="r"><b>@Geld(_detail.Totaal)</b></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                @if (_detail.Facturen.Count > 0)
+                                {
+                                    <span class="zij-extra">
+                                        Al gekoppeld: @string.Join(", ",
+                                            _detail.Facturen.Select(f => $"{f.Factuurnummer} ({Geld(f.Bedrag)})"))
+                                        — samen @Geld(_detail.Facturen.Sum(f => f.Bedrag))
+                                    </span>
+                                }
+                                @if (_detail.BetalingenGeblokkeerd)
+                                {
+                                    <span class="factuur-waarschuwing">
+                                        Op deze PO staan betalingen geblokkeerd; de factuur
+                                        komt op hold te staan.
+                                    </span>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @* ---------- werkorder: er wordt een PO aangemaakt ---------- *@
+                    <div class="wn-veld breed">
+                        <label>Zoek een werkorder</label>
+                        <span class="zoekregel">
+                            <input placeholder="Projectnummer, project of omschrijving…" value="@_zoek"
+                                   @onchange="ZoekGewijzigd" />
+                            <button class="klein" @onclick="() => ZoekWerkorders()">Zoeken</button>
+                        </span>
+                    </div>
+                    <label class="vinkje">
+                        <input type="checkbox" checked="@_alleenOpen"
+                               @onchange="async e => { _alleenOpen = e.Value is bool b && b; await ZoekWerkorders(); }" />
+                        Alleen open werkorders
+                    </label>
+                    <p class="uitleg">Alleen werkorders waarop ingekocht mag worden.</p>
+
+                    <div class="koppel-lijst hoog">
+                        @if (_wosGeladen && _wos.Count == 0)
+                        {
+                            <p class="uitleg">Geen werkorders gevonden.</p>
+                        }
+                        @foreach (var wo in _wos)
+                        {
+                            <button class="koppel-regel @(_gekozenWo?.WerkbonId == wo.WerkbonId ? "gekozen" : "")"
+                                    @key="wo.WerkbonId" @onclick="() => _gekozenWo = wo">
+                                <span class="koppel-nummer">@wo.Nummer</span>
+                                <span class="koppel-oms" title="@(wo.Project + " — " + wo.Omschrijving)">
+                                    @wo.Project — @wo.Omschrijving
+                                </span>
+                                <span class="koppel-bedrag">@(wo.Open ? "" : "gesloten")</span>
+                            </button>
+                        }
+                    </div>
+
+                    @if (_gekozenWo is not null)
+                    {
+                        <p class="uitleg">
+                            Er wordt een PO aangemaakt onder @_gekozenWo.Nummer met één regel:
+                            "Automatisch gegenereerd op basis van factuur @Factuurnummer".
+                        </p>
+                    }
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="() => Sluiten.InvokeAsync()">Annuleren</button>
+                <button class="primair" disabled="@_bezig" @onclick="Kies">
+                    @(_bezig ? "Bezig…" : "Koppelen")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Wat er gekozen is: een bestaande PO…</summary>
+    public record PoUit(int OrderId, string Nummer, decimal Bedrag);
+
+    /// <summary>…of een werkorder waar een PO onder aangemaakt moet worden.</summary>
+    public record WerkorderUit(int WerkbonId, string Nummer, decimal Bedrag);
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int LeverancierId { get; set; }
+    [Parameter] public string LeverancierNaam { get; set; } = "";
+
+    /// <summary>Nog te verdelen bedrag; wordt voorgesteld als koppelbedrag.</summary>
+    [Parameter] public decimal Restant { get; set; }
+
+    /// <summary>Factuurnummer, voor de omschrijving van de automatische PO-regel.</summary>
+    [Parameter] public string Factuurnummer { get; set; } = "";
+
+    /// <summary>PO-verwijzing die op de factuur zelf gevonden is (AI); wordt
+    /// voorgezocht en, bij één duidelijke treffer, alvast gekozen.</summary>
+    [Parameter] public string PoHint { get; set; } = "";
+
+    [Parameter] public EventCallback Sluiten { get; set; }
+    [Parameter] public EventCallback<PoUit> PoGekozen { get; set; }
+    [Parameter] public EventCallback<WerkorderUit> WerkorderGekozen { get; set; }
+
+    /// <summary>Sluit alleen als de klik ook op de achtergrond begón; anders zou
+    /// het venster verdwijnen wanneer je hem versleept en buiten loslaat.</summary>
+    private bool _overlayDruk;
+
+    private async Task OverlayGeklikt()
+    {
+        var begonOpAchtergrond = _overlayDruk;
+        _overlayDruk = false;
+        if (begonOpAchtergrond) await Sluiten.InvokeAsync();
+    }
+
+    private bool _wasOpen;
+    private int _modus = 1;
+    private string _bedragTekst = "";
+    private string _zoek = "";
+    private string _melding = "";
+    private bool _bezig;
+
+    private List<PoKeuze> _pos = new();
+    private bool _posGeladen;
+    private PoKeuze? _gekozenPo;
+    private PoInfo? _detail;
+
+    private List<WerkorderKeuze> _wos = new();
+    private bool _wosGeladen;
+    private WerkorderKeuze? _gekozenWo;
+    private bool _alleenOpen = true;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open == _wasOpen) return;
+        _wasOpen = Open;
+        if (!Open) return;
+
+        // Schoon beginnen bij elk openen.
+        _modus = 1;
+        _bedragTekst = Restant.ToString("0.##", Nl);
+        _zoek = PoHint;
+        _melding = "";
+        _pos = new(); _posGeladen = false; _gekozenPo = null; _detail = null;
+        _wos = new(); _wosGeladen = false; _gekozenWo = null; _alleenOpen = true;
+
+        await ZoekPos();
+
+        // Wees de hint naar precies één PO, dan is die alvast gekozen.
+        // PO12345, PO-12345 en 12345 tellen allemaal als hetzelfde nummer.
+        if (PoHint.Length > 0 && _pos.Count > 0)
+        {
+            var kaal = MySqlFactuurRepository.KaalPoNummer(PoHint);
+            var treffer = _pos.FirstOrDefault(p =>
+                p.Nummer.Equals(PoHint, StringComparison.OrdinalIgnoreCase)
+                || p.Nummer.Equals(kaal, StringComparison.OrdinalIgnoreCase)
+                || p.OrderId.ToString() == kaal);
+            if (treffer is not null || _pos.Count == 1)
+                await KiesPo(treffer ?? _pos[0]);
+        }
+    }
+
+    private async Task ZetModus(int modus)
+    {
+        if (_modus == modus) return;
+        _modus = modus;
+        _zoek = "";
+        // Beide kanten vers laden bij het wisselen; anders blijft er een oud
+        // (hint-)filter onder een lege zoekbalk hangen.
+        if (modus == 1) await ZoekPos();
+        else await ZoekWerkorders();
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        if (_modus == 1) await ZoekPos();
+        else await ZoekWerkorders();
+    }
+
+    private async Task ZoekPos()
+    {
+        try
+        {
+            _pos = await Repo.ZoekPosAsync(LeverancierId, _zoek, 50);
+            _posGeladen = true;
+        }
+        catch (Exception ex) { _melding = "Zoeken mislukt: " + ex.Message; }
+    }
+
+    private async Task ZoekWerkorders()
+    {
+        try
+        {
+            _wos = await Repo.ZoekInkoopWerkordersAsync(_zoek, _alleenOpen, 50);
+            _wosGeladen = true;
+        }
+        catch (Exception ex) { _melding = "Zoeken mislukt: " + ex.Message; }
+    }
+
+    private async Task KiesPo(PoKeuze po)
+    {
+        _gekozenPo = po;
+        _detail = null;
+        try { _detail = await Repo.GetPoAsync(po.OrderId); }
+        catch { /* de lijst weet genoeg; het detail is extra */ }
+    }
+
+    /// <summary>Leest het bedrag; komma of punt, allebei goed.</summary>
+    private decimal? Bedrag()
+    {
+        var tekst = _bedragTekst.Replace("€", "").Trim();
+        if (decimal.TryParse(tekst, System.Globalization.NumberStyles.Number, Nl, out var nl)) return nl;
+        if (decimal.TryParse(tekst, System.Globalization.NumberStyles.Number,
+                             System.Globalization.CultureInfo.InvariantCulture, out var inv)) return inv;
+        return null;
+    }
+
+    private async Task Kies()
+    {
+        // Dubbelklik zou twee koppelingen maken; de disabled-toestand komt pas
+        // ná deze handler in beeld.
+        if (_bezig) return;
+
+        if (Bedrag() is not decimal bedrag)
+        {
+            _melding = $"'{_bedragTekst}' is geen bedrag.";
+            return;
+        }
+
+        // Zelfde grens als Access: nooit meer koppelen dan er te verdelen is.
+        // Een creditfactuur werkt gespiegeld (negatieve bedragen).
+        if (Restant >= 0 && (bedrag <= 0 || bedrag > Restant + 0.005m))
+        {
+            _melding = $"Het bedrag moet tussen € 0,01 en {Geld(Restant)} liggen.";
+            return;
+        }
+        if (Restant < 0 && (bedrag >= 0 || bedrag < Restant - 0.005m))
+        {
+            _melding = $"Bij een creditfactuur hoort een negatief bedrag, tot {Geld(Restant)}.";
+            return;
+        }
+
+        _bezig = true;
+        try
+        {
+            if (_modus == 1)
+            {
+                if (_gekozenPo is null) { _melding = "Kies eerst een PO."; return; }
+                await PoGekozen.InvokeAsync(new PoUit(_gekozenPo.OrderId,
+                    _gekozenPo.Nummer.Length > 0 ? _gekozenPo.Nummer : "#" + _gekozenPo.OrderId, bedrag));
+            }
+            else
+            {
+                if (_gekozenWo is null) { _melding = "Kies eerst een werkorder."; return; }
+                await WerkorderGekozen.InvokeAsync(new WerkorderUit(_gekozenWo.WerkbonId,
+                    _gekozenWo.Nummer, bedrag));
+            }
+        }
+        finally { _bezig = false; }
+    }
+}

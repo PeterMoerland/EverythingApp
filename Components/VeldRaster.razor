@@ -1,0 +1,120 @@
+@* Toont de velden van één tabblad, op basis van een velddefinitie en een
+   woordenboek met waarden. Velden waarvan de kolom niet in de tabel bestaat
+   worden overgeslagen. Elke wijziging gaat direct naar OpSlaan. *@
+
+<div class="wn-velden @(Tab.EenKolom ? "een-kolom" : "")">
+    @foreach (var veld in Tab.Velden)
+    {
+        var kolom = Kolom(veld);
+        @if (kolom is not null)
+        {
+            <div class="wn-veld @(veld.Type == VeldType.Meerregelig ? "breed" : "")">
+                <label>@veld.Label</label>
+                @if (veld.AlleenLezen)
+                {
+                    <span class="alleen-lezen">@Tekst(kolom)</span>
+                }
+                else if (veld.Type == VeldType.JaNee)
+                {
+                    <input type="checkbox" checked="@Waar(kolom)"
+                           @onchange="e => Zet(kolom, Vink(e) ? 1 : 0)" />
+                }
+                else if (veld.Type == VeldType.Meerregelig)
+                {
+                    <textarea rows="4" value="@Tekst(kolom)"
+                              @onchange="e => Zet(kolom, (string?)e.Value)"></textarea>
+                }
+                else if (veld.Type == VeldType.Datum)
+                {
+                    <NlDatum Waarde="Datum(kolom)" WaardeChanged="d => ZetDatum(kolom, d)" />
+                }
+                else if (veld.Type == VeldType.Keuze && Opties(veld).Count > 0)
+                {
+                    <select value="@Tekst(kolom)" @onchange="e => Zet(kolom, (string?)e.Value)">
+                        <option value="">—</option>
+                        @foreach (var optie in Opties(veld))
+                        {
+                            <option value="@optie.Id">@optie.Naam</option>
+                        }
+                    </select>
+                }
+                else if (veld.Type is VeldType.Getal or VeldType.Bedrag)
+                {
+                    <input value="@Tekst(kolom)" class="r smal"
+                           @onchange="e => ZetGetal(kolom, (string?)e.Value)" />
+                }
+                else
+                {
+                    <input value="@Tekst(kolom)" @onchange="e => Zet(kolom, (string?)e.Value)" />
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public VeldTab Tab { get; set; } = default!;
+
+    /// <summary>Kolommen die echt in de tabel bestaan.</summary>
+    [Parameter] public HashSet<string> Kolommen { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>De huidige waarden, op kolomnaam.</summary>
+    [Parameter] public Dictionary<string, object?> Velden { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Keuzelijsten, op de naam die in de velddefinitie bij 'Lijst' staat.</summary>
+    [Parameter] public Dictionary<string, List<Keuze>> Lijsten { get; set; } = new();
+
+    [Parameter] public EventCallback<(string Kolom, object? Waarde)> OpSlaan { get; set; }
+
+    private static readonly List<Keuze> GeenOpties = new();
+
+    private string? Kolom(Veld veld) => veld.Kolommen.FirstOrDefault(Kolommen.Contains);
+
+    private List<Keuze> Opties(Veld veld)
+        => veld.Lijst is not null && Lijsten.TryGetValue(veld.Lijst, out var l) ? l : GeenOpties;
+
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    private string Tekst(string kolom)
+    {
+        if (!Velden.TryGetValue(kolom, out var v) || v is null) return "";
+        if (v is DateTime dt) return dt.ToString("dd-MM-yyyy");
+        if (v is byte[]) return "(bestand)";
+        return v.ToString() ?? "";
+    }
+
+    private bool Waar(string kolom)
+    {
+        if (!Velden.TryGetValue(kolom, out var v) || v is null) return false;
+        if (v is bool b) return b;
+        try { return Convert.ToInt64(v) != 0; } catch { return false; }
+    }
+
+    private DateOnly? Datum(string kolom)
+    {
+        if (!Velden.TryGetValue(kolom, out var v) || v is null) return null;
+        if (v is DateTime dt) return DateOnly.FromDateTime(dt);
+        return DatumHulp.Parse(v.ToString());
+    }
+
+    private Task Zet(string kolom, object? waarde) => OpSlaan.InvokeAsync((kolom, waarde));
+
+    /// <summary>
+    /// Getallen en bedragen als getal opslaan. '1500,50' met een komma zou als
+    /// tekst naar de database gaan en daar afkappen; hier wordt het een decimal.
+    /// </summary>
+    private Task ZetGetal(string kolom, string? tekst)
+    {
+        if (string.IsNullOrWhiteSpace(tekst)) return Zet(kolom, null);
+
+        var schoon = tekst.Trim().Replace(".", "").Replace(',', '.');
+        if (decimal.TryParse(schoon, System.Globalization.NumberStyles.Number,
+                             System.Globalization.CultureInfo.InvariantCulture, out var getal))
+            return Zet(kolom, getal);
+
+        return Zet(kolom, tekst.Trim());   // onleesbaar: laat de database het weigeren
+    }
+
+    private Task ZetDatum(string kolom, DateOnly? datum)
+        => OpSlaan.InvokeAsync((kolom, datum is null ? null : datum.Value.ToDateTime(TimeOnly.MinValue)));
+}

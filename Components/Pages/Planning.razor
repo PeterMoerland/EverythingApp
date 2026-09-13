@@ -1,0 +1,687 @@
+@page "/planning"
+@inject IPlanningRepository Repo
+@inject IUrenRepository Uren
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* De Gantt-planning op de tabellen Planning/PlanningSoorten/
+   PlanningAfhankelijkheden. Eén set balken, twee weergaven: per werknemer
+   (wie is wanneer weg of waarmee bezig) en per werkorder (wanneer wordt wat
+   gedaan, en door wie). De pijlen zijn de afhankelijkheden; wordt een
+   afspraak geschonden (opvolger begint te vroeg), dan kleurt de pijl rood. *@
+
+<PageTitle>Planning — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Planning</h1>
+        <span class="weeklabel">@_start.ToString("d MMM", Nl) – @Eind.ToString("d MMM yyyy", Nl)</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder">
+            <p>Dit scherm werkt alleen met de live database.</p>
+        </section>
+    }
+    else
+    {
+        <section class="toolbar">
+            <div class="btngroup">
+                <button class="klein @(_weergave == 1 ? "actief" : "")"
+                        @onclick="() => ZetWeergave(1)">Per werknemer</button>
+                <button class="klein @(_weergave == 2 ? "actief" : "")"
+                        @onclick="() => ZetWeergave(2)">Per werkorder</button>
+            </div>
+            <div class="btngroup">
+                <button @onclick="() => Verschuif(-7)">« week</button>
+                <button class="today" @onclick="Vandaag">Vandaag</button>
+                <button @onclick="() => Verschuif(7)">week »</button>
+            </div>
+            <label>Periode:</label>
+            <select @onchange="WekenGewijzigd">
+                @foreach (var n in new[] { 2, 4, 6, 8, 12 })
+                {
+                    <option value="@n" selected="@(n == _weken)">@n weken</option>
+                }
+            </select>
+            <button @onclick="Nieuw" disabled="@(_soorten.Count == 0)"
+                    title="@(_soorten.Count == 0 ? "Geen planningsoorten gevonden; draai Planning_Schema_MariaDB.sql" : "")">
+                ＋ Plannen
+            </button>
+            <span class="legenda">
+                @foreach (var s in _soorten)
+                {
+                    <span class="blokje" style="background:@s.Kleur"></span>
+                    @s.Naam
+                }
+            </span>
+        </section>
+
+        @if (_bewerkt is not null)
+        {
+            <section class="editpaneel plan-paneel">
+                <div class="plan-regel">
+                    <b>@(_bewerkt.Id == 0 ? "Nieuwe balk" : "Balk bewerken")</b>
+
+                    <select @bind="SoortKeuze" title="Soort">
+                        @foreach (var s in _soorten)
+                        {
+                            <option value="@s.Soort">@s.Naam</option>
+                        }
+                    </select>
+
+                    <select @bind="WnKeuze" title="Werknemer">
+                        <option value="">— iedereen / nog toe te wijzen —</option>
+                        @foreach (var w in _werknemers)
+                        {
+                            <option value="@w.WerknemerId">@w.Naam</option>
+                        }
+                    </select>
+
+                    <select @bind="WbKeuze" title="Werkorder">
+                        <option value="">— geen werkorder —</option>
+                        @if (_bewerkt.WerkbonId is int huidig && _workorders.All(w => w.WerkbonId != huidig))
+                        {
+                            <option value="@huidig">@WoNaam(huidig)</option>
+                        }
+                        @foreach (var wo in _workorders)
+                        {
+                            <option value="@wo.WerkbonId">@wo.Nummer — @wo.Omschrijving</option>
+                        }
+                    </select>
+
+                    <label>van</label>
+                    <input type="date" @bind="_bewerkt.Start" />
+                    <label>t/m</label>
+                    <input type="date" @bind="_bewerkt.Einde" />
+                    <label>uren</label>
+                    <input class="r smal" @bind="_urenTekst" placeholder="—" />
+                    <input class="plan-oms" placeholder="omschrijving" @bind="_bewerkt.Omschrijving" />
+
+                    <button class="primair" @onclick="Opslaan">Opslaan</button>
+                    <button @onclick="() => _bewerkt = null">Annuleren</button>
+                    @if (_bewerkt.Id != 0)
+                    {
+                        <button class="rood" @onclick="Verwijderen">Verwijderen</button>
+                    }
+                </div>
+
+                @* ---- de pijlen: waar wacht deze balk op ---- *@
+                @if (_bewerkt.Id != 0)
+                {
+                    <div class="plan-regel plan-afh">
+                        <b>Wacht op</b>
+                        @foreach (var pijl in _pijlen.Where(p => p.NaarId == _bewerkt.Id))
+                        {
+                            <span class="plan-voorganger" @key="pijl.VanId">
+                                @BalkKort(pijl.VanId)
+                                @(pijl.Speling != 0 ? $" ({pijl.Speling:+0;-0} d)" : "")
+                                <button class="klein rood" title="Pijl weghalen"
+                                        @onclick="() => PijlWeg(pijl)">✕</button>
+                            </span>
+                        }
+
+                        <select @bind="_nieuwVoorganger">
+                            <option value="">— kies een voorganger —</option>
+                            @foreach (var balk in _balken.Where(b => b.Id != _bewerkt.Id).OrderBy(b => b.Start))
+                            {
+                                <option value="@balk.Id">@BalkKort(balk.Id)</option>
+                            }
+                        </select>
+                        <label>speling</label>
+                        <input class="r smal" @bind="_nieuwSpeling" />
+                        <label>dagen</label>
+                        <button class="klein" @onclick="PijlErbij">→ Pijl leggen</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="plan-regel plan-afh">
+                        <span class="zij-extra">Pijlen (afhankelijkheden) kun je leggen zodra de balk is opgeslagen.</span>
+                    </div>
+                }
+            </section>
+        }
+
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <section class="gantt" style="--dagen:@_dagen">
+            @* kopregel: weeknummers *@
+            <div class="g-rij g-weken">
+                <div class="g-label"></div>
+                <div class="g-cellen">
+                    @for (var wk = 0; wk < _weken; wk++)
+                    {
+                        var maandag = _start.AddDays(wk * 7);
+                        <div class="g-week" style="grid-column: @(wk * 7 + 1) / span 7">
+                            Week @System.Globalization.ISOWeek.GetWeekOfYear(maandag.ToDateTime(TimeOnly.MinValue))
+                        </div>
+                    }
+                </div>
+            </div>
+            @* kopregel: dagen *@
+            <div class="g-rij g-dagen">
+                <div class="g-label"></div>
+                <div class="g-cellen">
+                    @for (var d = 0; d < _dagen; d++)
+                    {
+                        var datum = _start.AddDays(d);
+                        <div class="g-dag @DagCss(datum)">@datum.Day</div>
+                    }
+                </div>
+            </div>
+
+            @* het lichaam: vaste rijhoogtes, met de pijlen als laag eroverheen *@
+            <div class="g-lichaam" data-dagen="@_dagen">
+                @foreach (var rij in _rijen)
+                {
+                    <div class="g-rij g-vast @(rij.IsKop ? "g-werknemer" : "")" data-groep="@rij.Groep">
+                        <div class="g-label @(rij.IsKop ? "" : "klein-label")">@rij.Label</div>
+                        <div class="g-cellen">
+                            @AchtergrondCellen()
+                            @if (rij.Balk is { } balk)
+                            {
+                                var (kolom, span) = BarPositie(balk);
+                                if (span > 0)
+                                {
+                                    <button class="g-bar @(_conflicten.Contains(balk.Id) ? "g-conflict" : "")"
+                                            style="grid-column: @kolom / span @span; background:@KleurVan(balk.Soort)"
+                                            data-plan="@balk.Id"
+                                            title="@Titel(balk)"
+                                            @onclick="() => Bewerk(balk)">
+                                        <span class="g-bartekst">@BalkTekst(balk)</span>
+                                    </button>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_rijen.Count == 0)
+                {
+                    <p class="uitleg">Nog niets gepland in deze periode. Gebruik ＋ Plannen.</p>
+                }
+
+                @* de pijlen: einde voorganger → begin opvolger; rood = te vroeg begonnen *@
+                <svg class="g-pijlen" viewBox="0 0 @_dagen @Math.Max(1, _rijen.Count)"
+                     preserveAspectRatio="none">
+                    @foreach (var lijn in _pijlLijnen)
+                    {
+                        <path d="@lijn.Pad" class="@(lijn.Conflict ? "rood" : "")"
+                              vector-effect="non-scaling-stroke" />
+                        <polygon points="@lijn.Punt" class="@(lijn.Conflict ? "rood" : "")" />
+                    }
+                </svg>
+            </div>
+        </section>
+
+        <footer class="voet">
+            Klik op een balk om te bewerken; sleep hem naar een andere dag of rij.
+            Trek aan de linker- of rechterrand om hem in te korten of te verlengen.
+            @(_weergave == 2 ? "Balken zonder werkorder (verlof e.d.) staan alleen in de werknemer-weergave." : "")
+        </footer>
+    }
+</div>
+
+@code {
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    // ---- gegevens ----
+    private List<PlanningSoort> _soorten = new();
+    private List<PlanningBalk> _balken = new();
+    private List<PlanningPijl> _pijlen = new();
+    private List<Werknemer> _werknemers = new();
+    private List<Workorder> _workorders = new();
+    private readonly Dictionary<int, string> _woNamen = new();   // ook gesloten werkorders
+
+    // ---- venster ----
+    private DateOnly _start = DateOnly.FromDateTime(DateTime.Today)
+        .AddDays(-(((int)DateTime.Today.DayOfWeek + 6) % 7));
+    private int _weken = 4;
+    private int _dagen => _weken * 7;
+    private DateOnly Eind => _start.AddDays(_dagen - 1);
+    private int _weergave = 1;          // 1 = per werknemer, 2 = per werkorder
+
+    // ---- de getekende rijen en pijlen ----
+    private sealed record GanttRij(bool IsKop, string Label, int Groep, PlanningBalk? Balk);
+    private sealed record PijlLijn(string Pad, string Punt, bool Conflict);
+    private List<GanttRij> _rijen = new();
+    private List<PijlLijn> _pijlLijnen = new();
+    private readonly HashSet<int> _conflicten = new();
+
+    // ---- bewerken ----
+    private PlanningBalk? _bewerkt;
+    private string _urenTekst = "";
+    private string _nieuwVoorganger = "";
+    private int _nieuwSpeling;
+    private string? _melding;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            _soorten = await Repo.GetSoortenAsync();
+            _werknemers = await Uren.GetWerknemersAsync();
+            _workorders = await Uren.GetOpenWorkordersAsync();
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _balken = await Repo.GetBalkenAsync(_start, Eind);
+            _pijlen = await Repo.GetPijlenAsync();
+
+            // Namen van werkorders die niet (meer) in de open lijst staan.
+            foreach (var id in _balken.Where(b => b.WerkbonId is int w
+                                              && _workorders.All(x => x.WerkbonId != w)
+                                              && !_woNamen.ContainsKey(w))
+                                      .Select(b => b.WerkbonId!.Value).Distinct().Take(50))
+            {
+                try
+                {
+                    var wo = await Uren.GetWorkorderAsync(id);
+                    _woNamen[id] = wo is null ? "#" + id : $"{wo.Nummer} — {wo.Omschrijving}";
+                }
+                catch { _woNamen[id] = "#" + id; }
+            }
+
+            BouwRijen();
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+    }
+
+    // ============================================================
+    //  De rijen: dezelfde balken, twee manieren van groeperen
+    // ============================================================
+    private void BouwRijen()
+    {
+        _rijen = new();
+
+        if (_weergave == 1)
+        {
+            // Bovenaan alles zonder werknemer: bedrijfsbreed én nog niet toegewezen werk.
+            var los = _balken.Where(b => b.WerknemerId is null).OrderBy(b => b.Start).ToList();
+            _rijen.Add(new GanttRij(true, "Iedereen / nog toe te wijzen", -1, null));
+            foreach (var balk in los)
+                _rijen.Add(new GanttRij(false, RijLabel(balk), -1, balk));
+
+            foreach (var w in _werknemers)
+            {
+                _rijen.Add(new GanttRij(true, w.Naam, w.WerknemerId, null));
+                foreach (var balk in _balken.Where(b => b.WerknemerId == w.WerknemerId)
+                                            .OrderBy(b => b.Start))
+                    _rijen.Add(new GanttRij(false, RijLabel(balk), w.WerknemerId, balk));
+            }
+
+            // Balken van mensen die niet (meer) in de werknemerslijst staan mogen
+            // niet stil verdwijnen: die blijven zichtbaar en bewerkbaar.
+            foreach (var groep in _balken
+                         .Where(b => b.WerknemerId is int id && _werknemers.All(w => w.WerknemerId != id))
+                         .GroupBy(b => b.WerknemerId!.Value))
+            {
+                _rijen.Add(new GanttRij(true, $"#{groep.Key} (uit dienst?)", groep.Key, null));
+                foreach (var balk in groep.OrderBy(b => b.Start))
+                    _rijen.Add(new GanttRij(false, RijLabel(balk), groep.Key, balk));
+            }
+        }
+        else
+        {
+            foreach (var groep in _balken.Where(b => b.WerkbonId is not null)
+                                         .GroupBy(b => b.WerkbonId!.Value)
+                                         .OrderBy(g => g.Key))
+            {
+                _rijen.Add(new GanttRij(true, WoNaam(groep.Key), groep.Key, null));
+                foreach (var balk in groep.OrderBy(b => b.Start))
+                    _rijen.Add(new GanttRij(false, RijLabel(balk), groep.Key, balk));
+            }
+        }
+
+        HerbouwPijlen();
+    }
+
+    /// <summary>Het label links van een balkrij, passend bij de weergave.</summary>
+    private string RijLabel(PlanningBalk balk) => _weergave == 1
+        ? (balk.WerkbonId is int w ? WoNaam(w) : SoortNaam(balk.Soort))
+        : (balk.WerknemerId is int wn ? WnNaam(wn) : "nog toe te wijzen");
+
+    // ============================================================
+    //  De pijlen, getekend in dag- en rijeenheden over het grid
+    // ============================================================
+    private void HerbouwPijlen()
+    {
+        _pijlLijnen = new();
+        _conflicten.Clear();
+
+        // Waar staat elke balk (rijnummer)?
+        var rijVan = new Dictionary<int, int>();
+        for (var i = 0; i < _rijen.Count; i++)
+            if (_rijen[i].Balk is { } b) rijVan[b.Id] = i;
+
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        foreach (var pijl in _pijlen)
+        {
+            var van = _balken.FirstOrDefault(b => b.Id == pijl.VanId);
+            var naar = _balken.FirstOrDefault(b => b.Id == pijl.NaarId);
+            if (van is null || naar is null) continue;
+
+            // Te vroeg begonnen? De opvolger mag pas ná einde + speling starten.
+            var conflict = naar.Start < van.Einde.AddDays(1 + pijl.Speling);
+            if (conflict) { _conflicten.Add(van.Id); _conflicten.Add(naar.Id); }
+
+            if (!rijVan.TryGetValue(van.Id, out var r1) || !rijVan.TryGetValue(naar.Id, out var r2))
+                continue;   // een van beide staat niet in deze weergave
+
+            // Vertrek: rechterkant van de voorganger; aankomst: linkerkant opvolger.
+            var x1 = Math.Clamp(van.Einde.DayNumber - _start.DayNumber + 1, 0, _dagen);
+            var x2 = Math.Clamp(naar.Start.DayNumber - _start.DayNumber, 0, _dagen);
+            var y1 = r1 + 0.5;
+            var y2 = r2 + 0.5;
+
+            var pad = string.Format(inv, "M {0} {1} H {2} V {3} H {4}",
+                x1, y1, Math.Max(x1 + 0.4, x2 - 0.4), y2, x2);
+            var punt = string.Format(inv, "{0},{1} {2},{3} {4},{5}",
+                x2, y2, x2 - 0.45, y2 - 0.22, x2 - 0.45, y2 + 0.22);
+
+            _pijlLijnen.Add(new PijlLijn(pad, punt, conflict));
+        }
+    }
+
+    // ============================================================
+    //  Navigatie en weergave
+    // ============================================================
+    private async Task Verschuif(int dagen) { _start = _start.AddDays(dagen); await Laad(); }
+
+    private async Task Vandaag()
+    {
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        _start = vandaag.AddDays(-(((int)vandaag.DayOfWeek + 6) % 7));
+        await Laad();
+    }
+
+    private async Task WekenGewijzigd(ChangeEventArgs e)
+    {
+        _weken = int.Parse((string)e.Value!);
+        await Laad();
+    }
+
+    private void ZetWeergave(int weergave)
+    {
+        if (_weergave == weergave) return;
+        _weergave = weergave;
+        BouwRijen();
+    }
+
+    private string DagCss(DateOnly d)
+    {
+        var css = d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? "weekend " : "";
+        if (d == DateOnly.FromDateTime(DateTime.Today)) css += "vandaag";
+        return css;
+    }
+
+    private (int kolom, int span) BarPositie(PlanningBalk balk)
+    {
+        var van = balk.Start < _start ? _start : balk.Start;
+        var tot = balk.Einde > Eind ? Eind : balk.Einde;
+        if (tot < van) return (0, 0);
+        return (van.DayNumber - _start.DayNumber + 1, tot.DayNumber - van.DayNumber + 1);
+    }
+
+    // ---- namen en kleuren ----
+    private string SoortNaam(int soort) => _soorten.FirstOrDefault(s => s.Soort == soort)?.Naam ?? $"soort {soort}";
+    private string KleurVan(int soort) => _soorten.FirstOrDefault(s => s.Soort == soort)?.Kleur ?? "#4a7fb5";
+    private string WnNaam(int id) => _werknemers.FirstOrDefault(w => w.WerknemerId == id)?.Naam ?? "#" + id;
+
+    private string WoNaam(int id)
+    {
+        var wo = _workorders.FirstOrDefault(w => w.WerkbonId == id);
+        if (wo is not null) return $"{wo.Nummer} — {wo.Omschrijving}";
+        return _woNamen.TryGetValue(id, out var naam) ? naam : "#" + id;
+    }
+
+    private string BalkTekst(PlanningBalk balk)
+    {
+        var kern = _weergave == 1
+            ? (balk.WerkbonId is int w
+                ? (_workorders.FirstOrDefault(x => x.WerkbonId == w)?.Nummer ?? WoNaam(w))
+                : SoortNaam(balk.Soort))
+            : (balk.WerknemerId is int wn ? WnNaam(wn) : SoortNaam(balk.Soort));
+        return balk.Omschrijving.Length > 0 ? $"{kern} · {balk.Omschrijving}" : kern;
+    }
+
+    private string Titel(PlanningBalk balk)
+    {
+        var delen = new List<string>
+        {
+            SoortNaam(balk.Soort),
+            balk.WerknemerId is int wn ? WnNaam(wn) : "iedereen / nog toe te wijzen",
+        };
+        if (balk.WerkbonId is int w) delen.Add(WoNaam(w));
+        delen.Add($"{balk.Start:d-M} t/m {balk.Einde:d-M}");
+        if (balk.GeplandeUren is decimal uren) delen.Add(uren.ToString("0.#", Nl) + " uur");
+        if (balk.Omschrijving.Length > 0) delen.Add(balk.Omschrijving);
+        delen.Add("sleep om te verplaatsen");
+        return string.Join(" | ", delen);
+    }
+
+    /// <summary>Korte naam van een balk voor de pijl-keuzelijst.</summary>
+    private string BalkKort(int id)
+    {
+        var balk = _balken.FirstOrDefault(b => b.Id == id);
+        if (balk is null) return "#" + id;
+        return $"{BalkTekst(balk)} ({balk.Start:d-M}–{balk.Einde:d-M})";
+    }
+
+    // ============================================================
+    //  Slepen — het bewegen zelf gebeurt in de browser (zie mdePlan in
+    //  App.razor); pas bij het loslaten komt hier één melding binnen.
+    // ============================================================
+    private DotNetObjectReference<Planning>? _zelf;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste || !Repo.Beschikbaar) return;
+        _zelf = DotNetObjectReference.Create(this);
+        try { await JS.InvokeVoidAsync("mdePlan.koppel", _zelf); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdePlan.los"); } catch { }
+        _zelf?.Dispose();
+    }
+
+    /// <summary>Aan een rand getrokken: begin (links) of einde (rechts) schuift
+    /// zoveel dagen op. Een balk blijft altijd minstens één dag lang.</summary>
+    [JSInvokable]
+    public async Task VeranderRand(int id, bool links, int dagDelta)
+    {
+        var balk = _balken.FirstOrDefault(b => b.Id == id);
+        if (balk is null || dagDelta == 0) { StateHasChanged(); return; }
+
+        if (links)
+        {
+            var nieuw = balk.Start.AddDays(dagDelta);
+            balk.Start = nieuw > balk.Einde ? balk.Einde : nieuw;
+        }
+        else
+        {
+            var nieuw = balk.Einde.AddDays(dagDelta);
+            balk.Einde = nieuw < balk.Start ? balk.Start : nieuw;
+        }
+
+        try { await Repo.BewaarAsync(balk, Ik.WerknemerId); }
+        catch (Exception ex) { _melding = "Aanpassen mislukt: " + ex.Message; }
+
+        await Laad();
+        StateHasChanged();
+    }
+
+    /// <summary>Een balk is losgelaten: zoveel dagen opgeschoven, op die rij.</summary>
+    [JSInvokable]
+    public async Task Versleep(int id, int dagDelta, int? groep)
+    {
+        var balk = _balken.FirstOrDefault(b => b.Id == id);
+        if (balk is null) return;
+
+        balk.Start = balk.Start.AddDays(dagDelta);
+        balk.Einde = balk.Einde.AddDays(dagDelta);
+
+        // Op een andere rij losgelaten = anders toewijzen; wat 'anders' is
+        // hangt van de weergave af.
+        if (groep is int g)
+        {
+            if (_weergave == 1) balk.WerknemerId = g == -1 ? null : g;
+            else balk.WerkbonId = g;
+        }
+
+        try { await Repo.BewaarAsync(balk, Ik.WerknemerId); }
+        catch (Exception ex) { _melding = "Verplaatsen mislukt: " + ex.Message; }
+
+        await Laad();
+        StateHasChanged();
+    }
+
+    private RenderFragment AchtergrondCellen() => __builder =>
+    {
+        for (var d = 0; d < _dagen; d++)
+        {
+            var datum = _start.AddDays(d);
+            <div class="g-cel @DagCss(datum)"></div>
+        }
+    };
+
+    // ============================================================
+    //  Bewerken
+    // ============================================================
+    private string SoortKeuze
+    {
+        get => _bewerkt?.Soort.ToString() ?? "";
+        set { if (_bewerkt is not null && int.TryParse(value, out var v)) _bewerkt.Soort = v; }
+    }
+
+    private string WnKeuze
+    {
+        get => _bewerkt?.WerknemerId?.ToString() ?? "";
+        set { if (_bewerkt is not null) _bewerkt.WerknemerId = int.TryParse(value, out var v) ? v : null; }
+    }
+
+    private string WbKeuze
+    {
+        get => _bewerkt?.WerkbonId?.ToString() ?? "";
+        set { if (_bewerkt is not null) _bewerkt.WerkbonId = int.TryParse(value, out var v) ? v : null; }
+    }
+
+    private void Nieuw()
+    {
+        _bewerkt = new PlanningBalk
+        {
+            Soort = _soorten.FirstOrDefault(s => s.Naam.Equals("Werk", StringComparison.OrdinalIgnoreCase))
+                        ?.Soort ?? _soorten.FirstOrDefault()?.Soort ?? 1,
+            Start = _start,
+            Einde = _start.AddDays(4),
+        };
+        _urenTekst = "";
+        _nieuwVoorganger = "";
+        _nieuwSpeling = 0;
+    }
+
+    private void Bewerk(PlanningBalk balk)
+    {
+        _bewerkt = new PlanningBalk
+        {
+            Id = balk.Id, Soort = balk.Soort,
+            WerknemerId = balk.WerknemerId, WerkbonId = balk.WerkbonId,
+            Start = balk.Start, Einde = balk.Einde,
+            Omschrijving = balk.Omschrijving, GeplandeUren = balk.GeplandeUren,
+        };
+        _urenTekst = balk.GeplandeUren?.ToString("0.##", Nl) ?? "";
+        _nieuwVoorganger = "";
+        _nieuwSpeling = 0;
+    }
+
+    private async Task Opslaan()
+    {
+        if (_bewerkt is null) return;
+        if (_bewerkt.Einde < _bewerkt.Start) { _melding = "Einddatum ligt vóór startdatum."; return; }
+
+        // Zonder AllowThousands: anders leest nl-NL "1.5" als vijftien (punt =
+        // duizendtal) en komt de punt-als-komma-poging nooit aan bod.
+        const System.Globalization.NumberStyles stijl =
+            System.Globalization.NumberStyles.Number & ~System.Globalization.NumberStyles.AllowThousands;
+
+        var tekst = _urenTekst.Trim();
+        if (tekst.Length == 0) _bewerkt.GeplandeUren = null;
+        else if (decimal.TryParse(tekst, stijl, Nl, out var uren)
+              || decimal.TryParse(tekst, stijl,
+                                  System.Globalization.CultureInfo.InvariantCulture, out uren))
+            _bewerkt.GeplandeUren = uren;
+        else { _melding = $"'{tekst}' is geen aantal uren."; return; }
+
+        try
+        {
+            await Repo.BewaarAsync(_bewerkt, Ik.WerknemerId);
+            _bewerkt = null;
+            _melding = null;
+            await Laad();
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+    }
+
+    private async Task Verwijderen()
+    {
+        if (_bewerkt is null || _bewerkt.Id == 0) return;
+        try
+        {
+            var zeker = await JS.InvokeAsync<bool>("confirm", "Deze balk van de planning halen?");
+            if (!zeker) return;
+        }
+        catch { return; }
+
+        try
+        {
+            await Repo.VerwijderAsync(_bewerkt.Id);
+            _bewerkt = null;
+            await Laad();
+        }
+        catch (Exception ex) { _melding = "Verwijderen mislukt: " + ex.Message; }
+    }
+
+    // ---- de pijlen in het paneel ----
+    private async Task PijlErbij()
+    {
+        if (_bewerkt is null || !int.TryParse(_nieuwVoorganger, out var vanId)) return;
+        try
+        {
+            await Repo.VoegPijlToeAsync(vanId, _bewerkt.Id, _nieuwSpeling);
+            _nieuwVoorganger = "";
+            _nieuwSpeling = 0;
+            _pijlen = await Repo.GetPijlenAsync();
+            HerbouwPijlen();
+        }
+        catch (Exception ex) { _melding = "Pijl leggen mislukt: " + ex.Message; }
+    }
+
+    private async Task PijlWeg(PlanningPijl pijl)
+    {
+        try
+        {
+            await Repo.VerwijderPijlAsync(pijl.VanId, pijl.NaarId);
+            _pijlen = await Repo.GetPijlenAsync();
+            HerbouwPijlen();
+        }
+        catch (Exception ex) { _melding = "Pijl weghalen mislukt: " + ex.Message; }
+    }
+}

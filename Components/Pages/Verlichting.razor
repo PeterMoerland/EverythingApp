@@ -1,0 +1,23 @@
+@page "/gebouw/verlichting"
+@inject IPlc Plc
+@inject HuidigeGebruiker Ik
+
+@* De bediening zelf zit in VerlichtingPaneel, gedeeld met /mobiel/licht. *@
+
+<PageTitle>Verlichting — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Verlichting</h1>
+    </header>
+
+    <VerlichtingPaneel />
+
+    <footer class="voet">
+        @Plc.Beschrijf()
+    </footer>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+}

@@ -1,0 +1,190 @@
+@page "/beheer/functies"
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>Functies</h1>
+        <span class="weeklabel">@_functies.Count functies · tabel Werknemers_functie</span>
+    </header>
+
+    @if (!WnRepo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="tl-balk">
+            <button class="primair" @onclick="Nieuw">+ Functie toevoegen</button>
+        </div>
+
+        @if (_bewerkt is not null)
+        {
+            <div class="editpaneel">
+                <b>@(_bewerkt.Id == 0 ? "Nieuwe functie" : "Functie wijzigen")</b>
+                <input placeholder="functienaam" @bind="_bewerkt.Naam" style="min-width:14rem" />
+                <label>intern €</label>
+                <input class="r smal" @bind="_bewerkt.InternTarief" />
+                <label>extern €</label>
+                <input class="r smal" @bind="_bewerkt.ExternTarief" />
+                <label>kostprijs €</label>
+                <input class="r smal" @bind="_bewerkt.KostTarief" />
+                <button class="primair" @onclick="Bewaar">Opslaan</button>
+                <button @onclick="() => _bewerkt = null">Annuleren</button>
+            </div>
+        }
+
+        <div class="wn-scherm">
+            <div style="flex:1; min-width:0;">
+                <table class="kiezer-tabel">
+                    <thead>
+                        <tr>
+                            <th>Functie</th>
+                            <th class="r">Intern</th>
+                            <th class="r">Extern</th>
+                            <th class="r">Kostprijs</th>
+                            <th class="c">Werknemers</th>
+                            <th style="width:6rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var f in _functies)
+                        {
+                            <tr class="@(f.Id == _gekozenId ? "gekozen-rij" : "")" @onclick="() => Kies(f)">
+                                <td>@f.Naam</td>
+                                <td class="r">@Bedrag(f.InternTarief)</td>
+                                <td class="r">@Bedrag(f.ExternTarief)</td>
+                                <td class="r">@Bedrag(f.KostTarief)</td>
+                                <td class="c">@(f.AantalWerknemers == 0 ? "" : f.AantalWerknemers.ToString())</td>
+                                <td class="c">
+                                    <button class="klein" title="Wijzigen"
+                                            @onclick="() => Bewerk(f)" @onclick:stopPropagation>✎</button>
+                                    <button class="klein rood" title="Verwijderen"
+                                            @onclick="() => Verwijder(f)" @onclick:stopPropagation>✕</button>
+                                </td>
+                            </tr>
+                        }
+                        @if (_functies.Count == 0)
+                        {
+                            <tr><td colspan="6" class="kiezer-info">Nog geen functies.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <aside class="wn-lijst" style="width:19rem;">
+                <div class="wn-filters">
+                    <b>@(_gekozen?.Naam ?? "Kies een functie")</b>
+                    @if (_gekozen is not null)
+                    {
+                        <span class="klein-info">@_namen.Count werknemer(s) met deze functie</span>
+                    }
+                </div>
+                <div class="wn-namen">
+                    @foreach (var naam in _namen)
+                    {
+                        <div class="wn-naam">@naam</div>
+                    }
+                    @if (_gekozen is not null && _namen.Count == 0)
+                    {
+                        <div class="kiezer-info">Niemand met deze functie.</div>
+                    }
+                </div>
+            </aside>
+        </div>
+    }
+
+    <footer class="voet">
+        Een functie kan alleen worden verwijderd als niemand hem gebruikt en hij niet
+        in een loopbaangebeurtenis voorkomt.
+    </footer>
+</div>
+
+@code {
+    private List<Functie> _functies = new();
+    private Functie? _bewerkt;
+    private int? _gekozenId;
+    private Functie? _gekozen => _functies.FirstOrDefault(f => f.Id == _gekozenId);
+    private List<string> _namen = new();
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try { _functies = await WnRepo.GetFunctieBeheerAsync(); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private static string Bedrag(decimal? v) => v is null ? "" : v.Value.ToString("N2");
+
+    private async Task Kies(Functie f)
+    {
+        _gekozenId = f.Id;
+        try { _namen = await WnRepo.WerknemersMetFunctieAsync(f.Id); }
+        catch { _namen = new(); }
+    }
+
+    private void Nieuw() => _bewerkt = new Functie();
+
+    private void Bewerk(Functie f) => _bewerkt = new Functie
+    {
+        Id = f.Id, Naam = f.Naam, InternTarief = f.InternTarief,
+        ExternTarief = f.ExternTarief, KostTarief = f.KostTarief
+    };
+
+    private async Task Bewaar()
+    {
+        if (_bewerkt is null) return;
+        if (string.IsNullOrWhiteSpace(_bewerkt.Naam)) { Toon("Geef de functie een naam.", true); return; }
+        try
+        {
+            await WnRepo.BewaarFunctieAsync(_bewerkt);
+            _bewerkt = null;
+            await Laad();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder(Functie f)
+    {
+        try
+        {
+            var reden = await WnRepo.WissenGeblokkeerdAsync(f.Id);
+            if (reden is not null)
+            {
+                Toon($"'{f.Naam}' kan niet worden verwijderd. {reden}", true);
+                return;
+            }
+
+            bool zeker;
+            try { zeker = await JS.InvokeAsync<bool>("confirm", $"Functie '{f.Naam}' verwijderen? Weet je het zeker?"); }
+            catch { zeker = true; }
+            if (!zeker) return;
+
+            await WnRepo.VerwijderFunctieAsync(f.Id);
+            if (_gekozenId == f.Id) { _gekozenId = null; _namen = new(); }
+            await Laad();
+            Toon("Functie verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout)
+    {
+        _melding = tekst;
+        _fout = fout;
+    }
+}

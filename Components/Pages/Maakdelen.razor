@@ -1,0 +1,236 @@
+@page "/maakdelen"
+@inject IArtikelRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+
+@* Maakdelen zijn artikelen met Maakdeel = 1: onderdelen die uit Inventor komen
+   en die wij zelf (laten) maken. Bewust een eigen scherm met alleen de velden
+   die daarvoor gelden, zodat je ze nooit door elkaar krijgt met inkoopartikelen. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>@(_artikel is null ? "Maakdelen" : _artikel.Code)</h1>
+        <span class="weeklabel">@_lijst.Count gevonden</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst artikel-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Steekwoorden, bijv. beugel 3mm rvs" value="@_zoek"
+                               @onchange="ZoekGewijzigd" />
+                        <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <p class="toetsuitleg">
+                        Elk woord moet ergens voorkomen: in de code, de omschrijving of de groep.
+                    </p>
+                </div>
+
+                <div class="wn-namen artikel-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">@(_gezocht ? "Niets gevonden." : "Typ een paar steekwoorden.")</div>
+                    }
+                    else
+                    {
+                        @foreach (var a in _lijst)
+                        {
+                            <button class="wn-naam @(a.Id == _artikelId ? "actief" : "")"
+                                    @key="a.Id" @onclick="() => Kies(a)">
+                                <span class="nda-regel">
+                                    <span class="nda-naam">
+                                        <span class="artikel-id">@a.Id</span>@a.Code
+                                    </span>
+                                    <span class="nda-onder">@a.Omschrijving</span>
+                                </span>
+                            </button>
+                        }
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_artikel is null)
+                {
+                    <div class="kiezer-info">Kies links een maakdeel.</div>
+                }
+                else
+                {
+                    <DetailMetZij>
+                        <Hoofd>
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld"><label>Code</label><span class="alleen-lezen">@_artikel.Code</span></div>
+                                <div class="wn-veld breed"><label>Omschrijving</label><span class="alleen-lezen">@_artikel.OmschrijvingNl</span></div>
+                                <div class="wn-veld"><label>MDE artikel-ID</label><span class="alleen-lezen">@_artikel.Id</span></div>
+                            </div>
+
+                            <h3 class="wn-kop">Fabricage</h3>
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld"><label>Materiaal</label><span class="alleen-lezen">@Leeg(_artikel.Materiaal)</span></div>
+                                <div class="wn-veld"><label>Plaatdikte</label>
+                                    <span class="alleen-lezen">
+                                        @(_artikel.PlaatdikteMm is null ? "—" : _artikel.PlaatdikteMm.Value.ToString("0.##") + " mm")
+                                    </span>
+                                </div>
+                                <div class="wn-veld"><label>Gewicht</label>
+                                    <span class="alleen-lezen">
+                                        @(_artikel.Gewicht is null ? "—" : _artikel.Gewicht.Value.ToString("0.###") + " kg")
+                                    </span>
+                                </div>
+                                <div class="wn-veld"><label>Bewerkingen</label><span class="alleen-lezen">@Bewerkingen()</span></div>
+                            </div>
+
+                            <h3 class="wn-kop">Inventor</h3>
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld breed"><label>Referentie</label><span class="alleen-lezen">@Leeg(_artikel.InventorReferentie)</span></div>
+                                <div class="wn-veld breed"><label>Bestand</label>
+                                    <span class="alleen-lezen bestandspad">@Leeg(_artikel.InventorBestand)</span>
+                                </div>
+                                <div class="wn-veld"><label>Inkoopdeel</label>
+                                    <span class="alleen-lezen">@(_artikel.InventorInkoopdeel ? "ja" : "nee")</span>
+                                </div>
+                            </div>
+                        </Hoofd>
+                        <Zij>
+                            <ZijBlok Titel="Foto">
+                                @* De @key dwingt een vers element af per maakdeel: anders blijft
+                                   het 'display:none' van een maakdeel zonder foto plakken. *@
+                                <div class="artikelfoto-vak" @key="_artikel.Id">
+                                    <img class="artikelfoto-groot" src="@($"artikelfoto/{_artikel.Id}")" alt=""
+                                         onload="this.style.display='';
+                                                 this.nextElementSibling.style.display='none'"
+                                         onerror="this.style.display='none';
+                                                  this.nextElementSibling.style.display='block'" />
+                                    <span class="geen-foto">Geen foto bij dit maakdeel.</span>
+                                </div>
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Tekeningen" Aantal="_documenten.Count"
+                                     Leeg="@(_documenten.Count == 0)" LeegTekst="Geen tekeningen gevonden.">
+                                @foreach (var d in _documenten.Take(8))
+                                {
+                                    <div class="zij-regel" @key="d.FileStoreId">
+                                        <button class="zij-naam zij-knop"
+                                                @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                            @d.Bestandsnaam
+                                        </button>
+                                        <span class="zij-extra">@(d.Toegevoegd?.ToString("dd-MM-yyyy") ?? "")</span>
+                                    </div>
+                                }
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Voorraad">
+                                <div class="zij-regel">
+                                    <span class="zij-naam">@Getal(_artikel.AantalInVoorraad) @_artikel.Eenheid</span>
+                                    <span class="zij-extra">minimum @Getal(_artikel.MinimumVoorraad)</span>
+                                </div>
+                            </ZijBlok>
+
+                            <ZijBlok Titel="Groepen" Aantal="_groepen.Count"
+                                     Leeg="@(_groepen.Count == 0)" LeegTekst="Nog in geen enkele groep.">
+                                @foreach (var g in _groepen)
+                                {
+                                    <div class="zij-regel" @key="g.Id">
+                                        <span class="zij-naam">@g.Volledig</span>
+                                    </div>
+                                }
+                            </ZijBlok>
+                        </Zij>
+                    </DetailMetZij>
+                }
+            </section>
+        </div>
+    }
+
+    <footer class="voet">
+        Wijzigen volgt later. De bewerkingen tonen nu hun nummer; zodra ik weet in
+        welke tabel die staan, komen de namen erbij.
+    </footer>
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+
+@code {
+    private const int StoreTypeArtikel = 2;
+
+    private string _zoek = "";
+    private bool _gezocht;
+
+    private List<ArtikelRegel> _lijst = new();
+    private int? _artikelId;
+    private Artikel? _artikel;
+    private List<ArtikelGroep> _groepen = new();
+    private List<Bestand> _documenten = new();
+
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+
+    private async Task Laad()
+    {
+        _gezocht = _zoek.Trim().Length > 0;
+        if (!_gezocht) { _lijst = new(); return; }
+
+        try { _lijst = await Repo.ZoekAsync(_zoek, null, maakdelen: true, 200); }
+        catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
+
+        if (_lijst.Count == 1) await Kies(_lijst[0]);
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await Laad();
+    }
+
+    private async Task WisZoek() { _zoek = ""; await Laad(); }
+
+    private async Task Kies(ArtikelRegel a)
+    {
+        _artikelId = a.Id;
+        try { _artikel = await Repo.GetAsync(a.Id); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); return; }
+
+        try { _groepen = await Repo.GetGroepenAsync(a.Id); } catch { _groepen = new(); }
+
+        if (WnRepo.Beschikbaar)
+        {
+            try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeArtikel, a.Id); }
+            catch { _documenten = new(); }
+        }
+    }
+
+    private static string Leeg(string? tekst) => string.IsNullOrWhiteSpace(tekst) ? "—" : tekst!;
+    private static string Getal(double? waarde) => waarde is null ? "0" : waarde.Value.ToString("0.##");
+
+    private string Bewerkingen()
+    {
+        if (_artikel is null) return "—";
+        var nummers = new[] { _artikel.Bewerking1, _artikel.Bewerking2, _artikel.Bewerking3 }
+            .Where(b => b is not null and not 0)
+            .Select(b => b!.Value.ToString())
+            .ToList();
+        return nummers.Count == 0 ? "—" : string.Join(" · ", nummers);
+    }
+
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private void ToonVoorbeeld(int id, string naam) { _voorbeeldId = id; _voorbeeldNaam = naam; }
+    private void SluitVoorbeeld() => _voorbeeldId = null;
+
+    private void SluitMelding() => _melding = null;
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

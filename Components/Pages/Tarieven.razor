@@ -1,0 +1,356 @@
+@page "/relaties/tarieven"
+@inject IRelatieRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+<div class="page">
+    <header class="topbar">
+        <h1>Tariefafspraken</h1>
+        <span class="weeklabel">@(_klantNaam ?? "kies een klant")</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        <section class="toolbar">
+            <label>Klant:</label>
+            <div class="zoekregel" style="min-width:20rem">
+                <input placeholder="Zoek klant…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+            </div>
+            @if (_klanten.Count > 0)
+            {
+                <select @onchange="KlantGewijzigd">
+                    <option value="">— kies —</option>
+                    @foreach (var k in _klanten)
+                    {
+                        <option value="@k.Id" selected="@(k.Id == _klantId)">@k.Naam</option>
+                    }
+                </select>
+            }
+        </section>
+
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @if (_klantId is null)
+        {
+            <div class="kiezer-info">Zoek en kies een klant om de tariefafspraken te zien.</div>
+        }
+        else
+        {
+            <div class="wn-scherm">
+                @* ---------- links: perioden ---------- *@
+                <aside class="wn-lijst" style="width:15rem">
+                    <div class="wn-filters">
+                        <b>Periode</b>
+                        <button class="klein" @onclick="Nieuw">+ Nieuwe afspraak</button>
+                    </div>
+                    <div class="wn-namen">
+                        @foreach (var t in _afspraken)
+                        {
+                            <button class="wn-naam @(t.Id == _gekozenId ? "actief" : "")"
+                                    @onclick="() => _gekozenId = t.Id">
+                                @Datum(t.Van) — @Datum(t.Tot)
+                                @if (t.IsActueel)
+                                {
+                                    <span class="nu">nu</span>
+                                }
+                            </button>
+                        }
+                        @if (_afspraken.Count == 0)
+                        {
+                            <div class="kiezer-info">Nog geen afspraken.</div>
+                        }
+                    </div>
+                </aside>
+
+                @* ---------- rechts: de afspraak ---------- *@
+                <section class="wn-detail">
+                    @if (_afspraak is null)
+                    {
+                        <div class="kiezer-info">Kies links een periode.</div>
+                    }
+                    else
+                    {
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld">
+                                <label>Geldig van</label>
+                                <NlDatum Waarde="_afspraak.Van" WaardeChanged="d => Zet(() => _afspraak.Van = d)" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Tot en met</label>
+                                <NlDatum Waarde="_afspraak.Tot" WaardeChanged="d => Zet(() => _afspraak.Tot = d)" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Contactpersoon</label>
+                                <select value="@_afspraak.ContactpersoonId" @onchange="ContactGewijzigd">
+                                    <option value="">—</option>
+                                    @foreach (var c in _contacten)
+                                    {
+                                        <option value="@c.Id">@c.Naam</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Functie</label>
+                                <select value="@_afspraak.FunctieId" @onchange="FunctieGewijzigd">
+                                    <option value="">— alle functies —</option>
+                                    @foreach (var f in _functies)
+                                    {
+                                        <option value="@f.Id">@f.Naam</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        <h3 class="wn-kop">Tarieven</h3>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld"><label>Basistarief €</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.Basistarief)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.Basistarief = v, e)" /></div>
+                            <div class="wn-veld"><label>Laag tarief €</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.LaagTarief)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.LaagTarief = v, e)" /></div>
+                            <div class="wn-veld"><label>Minimumtarief €</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.MinimumTarief)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.MinimumTarief = v, e)" /></div>
+                            <div class="wn-veld"><label>Reistarief €</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.Reistarief)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.Reistarief = v, e)" /></div>
+                            <div class="wn-veld"><label>Kilometer €</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.Kilometer)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.Kilometer = v, e)" /></div>
+                            <div class="wn-veld"><label>Betalingstermijn (dagen)</label>
+                                <input class="r smal" value="@_afspraak.Betalingstermijn"
+                                       @onchange="e => ZetGetal(v => _afspraak.Betalingstermijn = v, e)" /></div>
+                        </div>
+
+                        <h3 class="wn-kop">Percentages</h3>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld"><label>Overwerk %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.OverwerkBasis)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.OverwerkBasis = v, e)" /></div>
+                            <div class="wn-veld"><label>Overwerk zon/feest %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.OverwerkZon)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.OverwerkZon = v, e)" /></div>
+                            <div class="wn-veld"><label>Buitenland %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.Buitenland)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.Buitenland = v, e)" /></div>
+                        </div>
+
+                        <h3 class="wn-kop">Toeslagen bij facturatie</h3>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld"><label>Toeslag uren %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagUren)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagUren = v, e)" /></div>
+                            <div class="wn-veld"><label>Toeslag expenses %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagExpenses)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagExpenses = v, e)" /></div>
+                            <div class="wn-veld"><label>Toeslag materiaal %</label>
+                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagMateriaal)"
+                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagMateriaal = v, e)" /></div>
+                        </div>
+
+                        <h3 class="wn-kop">Opmerking</h3>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld breed">
+                                <textarea rows="4" value="@_afspraak.Opmerking"
+                                          @onchange="e => ZetTekst(v => _afspraak.Opmerking = v, e)"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="tl-balk" style="margin-top:1rem">
+                            <button class="rood" @onclick="Verwijder">Afspraak verwijderen</button>
+                        </div>
+                    }
+                </section>
+            </div>
+        }
+    }
+
+    <footer class="voet">
+        Perioden mogen elkaar niet overlappen; de afspraak met 'nu' erachter geldt vandaag.
+        Wijzigingen worden per veld direct opgeslagen.
+    </footer>
+</div>
+
+@code {
+    private string _zoek = "";
+    private List<Keuze> _klanten = new();
+    private int? _klantId;
+    private string? _klantNaam;
+
+    private List<Tariefafspraak> _afspraken = new();
+    private int? _gekozenId;
+    private Tariefafspraak? _afspraak => _afspraken.FirstOrDefault(a => a.Id == _gekozenId);
+
+    private List<Contactpersoon> _contacten = new();
+    private List<Keuze> _functies = new();
+
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _functies = await WnRepo.GetFunctiesAsync(); } catch { }
+    }
+
+    private static string Datum(DateOnly? d) => d is null ? "…" : d.Value.ToString("dd-MM-yyyy");
+    private static string Bedrag(decimal? v) => v is null ? "" : v.Value.ToString("0.##");
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await ZoekKlanten();
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        _klanten = new();
+        _klantId = null;
+        _klantNaam = null;
+        _afspraken = new();
+        _gekozenId = null;
+        await Task.CompletedTask;
+    }
+
+    private async Task ZoekKlanten()
+    {
+        try
+        {
+            _klanten = await Repo.ZoekAsync(_zoek, alleenKlanten: true, alleenLeveranciers: false, 0, 50);
+            if (_klanten.Count == 1) await KiesKlant(_klanten[0]);
+        }
+        catch (Exception ex) { _klanten = new(); Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KlantGewijzigd(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var id)) { _klantId = null; _afspraken = new(); return; }
+        var klant = _klanten.FirstOrDefault(k => k.Id == id);
+        if (klant is not null) await KiesKlant(klant);
+    }
+
+    private async Task KiesKlant(Keuze klant)
+    {
+        _klantId = klant.Id;
+        _klantNaam = klant.Naam;
+        _gekozenId = null;
+        await Laad();
+        try { _contacten = await Repo.GetContactpersonenAsync(klant.Id, false); } catch { _contacten = new(); }
+    }
+
+    private async Task Laad()
+    {
+        if (_klantId is null) { _afspraken = new(); return; }
+        try
+        {
+            _afspraken = await Repo.GetTariefafsprakenAsync(_klantId.Value);
+            // de afspraak die vandaag geldt meteen openen
+            if (_gekozenId is null || _afspraken.All(a => a.Id != _gekozenId))
+                _gekozenId = (_afspraken.FirstOrDefault(a => a.IsActueel) ?? _afspraken.FirstOrDefault())?.Id;
+        }
+        catch (Exception ex) { _afspraken = new(); Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Nieuw()
+    {
+        if (_klantId is null) return;
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        try
+        {
+            var id = await Repo.BewaarTariefafspraakAsync(new Tariefafspraak
+            {
+                RelatieId = _klantId.Value,
+                Van = new DateOnly(vandaag.Year, 1, 1),
+                Tot = new DateOnly(vandaag.Year, 12, 31),
+            }, Ik.WerknemerId);
+            await Laad();
+            _gekozenId = id;
+            Toon("Afspraak toegevoegd. Vul de tarieven in.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder()
+    {
+        if (_afspraak is null) return;
+        bool zeker;
+        try
+        {
+            zeker = await JS.InvokeAsync<bool>("confirm",
+                $"Afspraak {Datum(_afspraak.Van)} — {Datum(_afspraak.Tot)} verwijderen? Weet je het zeker?");
+        }
+        catch { zeker = true; }
+        if (!zeker) return;
+
+        try
+        {
+            await Repo.VerwijderTariefafspraakAsync(_afspraak.Id);
+            _gekozenId = null;
+            await Laad();
+            Toon("Afspraak verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- veldwijzigingen: aanpassen en meteen opslaan ----
+    private async Task Bewaar()
+    {
+        if (_afspraak is null) return;
+        try
+        {
+            await Repo.BewaarTariefafspraakAsync(_afspraak, Ik.WerknemerId);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Zet(Action wijzig) { wijzig(); await Bewaar(); }
+
+    private async Task ZetBedrag(Action<decimal?> zet, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace(',', '.').Replace("€", "").Trim();
+        zet(decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
+                             System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null);
+        await Bewaar();
+    }
+
+    private async Task ZetGetal(Action<int?> zet, ChangeEventArgs e)
+    {
+        zet(int.TryParse((string?)e.Value, out var v) ? v : null);
+        await Bewaar();
+    }
+
+    private async Task ZetTekst(Action<string> zet, ChangeEventArgs e)
+    {
+        zet((string?)e.Value ?? "");
+        await Bewaar();
+    }
+
+    private async Task ContactGewijzigd(ChangeEventArgs e)
+    {
+        if (_afspraak is null) return;
+        _afspraak.ContactpersoonId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Bewaar();
+    }
+
+    private async Task FunctieGewijzigd(ChangeEventArgs e)
+    {
+        if (_afspraak is null) return;
+        _afspraak.FunctieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Bewaar();
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

@@ -1,0 +1,2004 @@
+@* Een inkomende factuur toevoegen of aanpassen.
+   FactuurId: 0 = nieuw, een getal = die factuur, null = venster dicht. *@
+@inject IFactuurRepository Repo
+@inject IRelatieRepository Relaties
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Filestore
+@inject FactuurLezer Lezer
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@implements IAsyncDisposable
+
+@if (FactuurId is not null)
+{
+    @* Sluiten alleen als de klik ook óp de achtergrond begón: wie het venster
+       versleept en buiten loslaat, 'klikt' voor de browser op de achtergrond
+       en zou anders zomaar zijn venster kwijt zijn. *@
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true"
+         @onclick="OverlayGeklikt">
+        <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation
+             @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>
+                    @(_nieuw ? "Factuur toevoegen" : $"Factuur {_factuur.Factuurnummer}")
+                    @if (!_nieuw)
+                    {
+                        <span class="artikel-id">#@_factuur.Id</span>
+                    }
+                </h2>
+                <button class="klein" @onclick="Afbreken">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_bezig)
+                {
+                    <p class="uitleg">Bezig met ophalen…</p>
+                }
+                else
+                {
+                    @if (_melding is not null)
+                    {
+                        <div class="melding @(_meldingFout ? "fout" : "ok")"
+                             @onclick="() => _melding = null">@_melding</div>
+                    }
+
+                    @* Twee kolommen: links de velden, rechts het document in beeld.
+                       Zo controleer je de ingevulde velden met het origineel ernaast. *@
+                    <div class="factuur-tweeluik">
+                    <div class="factuur-linkerkant">
+
+                    @* De AI is (nog) traag; deze balk laat zien dat er echt
+                       gewerkt wordt: de fase komt uit de lezer zelf, de teller
+                       tikt elke seconde door. *@
+                    @if (_lezen)
+                    {
+                        <div class="factuur-lezen">
+                            <span class="draaier"></span>
+                            <span class="factuur-lezen-tekst">
+                                <b>@_leesBestand</b> — @_leesStand
+                            </span>
+                            <span class="zij-extra">@((int)(DateTime.Now - _leesStart).TotalSeconds) s</span>
+                        </div>
+                    }
+
+                    @if (_aiOpmerkingen.Count > 0)
+                    {
+                        <div class="factuur-ai">
+                            <strong>Let op bij het controleren:</strong>
+                            <ul>
+                                @foreach (var o in _aiOpmerkingen)
+                                {
+                                    <li @key="o">@o</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>Administratie</label>
+                            <select value="@(_factuur.AdministratieId?.ToString() ?? "")"
+                                    @onchange="AdminGewijzigd">
+                                <option value="">— kies een BV —</option>
+                                @foreach (var a in _administraties)
+                                {
+                                    <option value="@a.Id">@a.Afkorting — @a.Naam</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Leverancier</label>
+                            <div class="factuur-leverancier">
+                                @if (_factuur.Bedrijf.Length > 0)
+                                {
+                                    <span class="factuur-gekozen @Auto("Leverancier")">@_factuur.Bedrijf</span>
+                                }
+                                else
+                                {
+                                    <span class="zij-extra">nog niet gekozen</span>
+                                }
+                                <button class="klein" title="Zoeken in de relaties"
+                                        @onclick="() => _zoekOpen = !_zoekOpen">🔍 zoeken</button>
+                            </div>
+                        </div>
+
+                        @if (_zoekOpen)
+                        {
+                            <div class="wn-veld breed">
+                                <label></label>
+                                <div class="factuur-zoekvak">
+                                    <input placeholder="Naam, plaats of IBAN…" value="@_leverancierZoek"
+                                           @oninput="LeverancierZoekGewijzigd" autofocus />
+
+                                    @if (_leverancierZoek.Trim().Length is > 0 and < 2)
+                                    {
+                                        <p class="zij-extra">Typ nog een letter…</p>
+                                    }
+                                    else if (_leveranciers.Count == 0 && _leverancierZoek.Trim().Length >= 2)
+                                    {
+                                        <p class="zij-extra">Niets gevonden. Staat hij al bij Relaties?</p>
+                                    }
+
+                                    <div class="wn-namen kort">
+                                        @foreach (var l in _leveranciers)
+                                        {
+                                            <button class="wn-naam" @key="l.Id"
+                                                    @onclick="() => KiesLeverancier(l)">@l.Naam</button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @* Vraag om te onthouden dat de naam op de factuur bij deze
+                           leverancier hoort. De volgende keer weet hij het zelf. *@
+                        @if (_aliasVraag.Length > 0)
+                        {
+                            <div class="wn-veld breed">
+                                <label></label>
+                                <div class="factuur-alias">
+                                    <span>
+                                        Op de factuur staat <b>@_aliasVraag</b>, jij koos
+                                        <b>@_factuur.Bedrijf</b>. Onthouden, zodat dit voortaan
+                                        vanzelf goed gaat?
+                                    </span>
+                                    <span class="btngroup">
+                                        <button class="primair" @onclick="OnthoudAlias">Onthouden</button>
+                                        <button class="klein" @onclick="() => _aliasVraag = string.Empty">
+                                            Nee, eenmalig
+                                        </button>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+
+                        @if (_bankWaarschuwing.Length > 0)
+                        {
+                            <div class="wn-veld breed">
+                                <label></label>
+                                <span class="factuur-waarschuwing">@_bankWaarschuwing</span>
+                            </div>
+                        }
+
+                        <div class="wn-veld">
+                            <label>Factuurdatum</label>
+                            <NlDatum Waarde="_factuur.Factuurdatum" WaardeChanged="DatumGewijzigd"
+                                     Klasse="@Auto("Factuurdatum")" />
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Factuurnummer</label>
+                            <input class="@Auto("Factuurnummer")" value="@_factuur.Factuurnummer" maxlength="45"
+                                   @onchange="FactuurnummerGewijzigd" />
+                        </div>
+
+                        <div class="wn-veld breed">
+                            <label>Omschrijving</label>
+                            <input class="@Auto("Omschrijving")" value="@_factuur.Omschrijving" maxlength="100"
+                                   @onchange="OmschrijvingGewijzigd" />
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Betalingstermijn</label>
+                            <span class="factuur-termijn">
+                                <input class="r smal @Auto("Betalingstermijn")"
+                                       value="@_factuur.Betalingstermijn" @onchange="TermijnGewijzigd" />
+                                @foreach (var dagen in new[] { 0, 14, 30, 60 })
+                                {
+                                    <button class="klein @(_factuur.Betalingstermijn == dagen ? "actief" : "")"
+                                            @key="dagen" @onclick="() => ZetTermijn(dagen)">@dagen</button>
+                                }
+                                <span class="zij-extra">
+                                    @if (_factuur.Factuurdatum is DateOnly d)
+                                    {
+                                        <text>vervalt @d.AddDays(_factuur.Betalingstermijn).ToString("dd-MM-yyyy")</text>
+                                    }
+                                </span>
+                            </span>
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Referentie MDE</label>
+                            <input value="@_factuur.ReferentieMde" maxlength="45"
+                                   @onchange="e => _factuur.ReferentieMde = Tekst(e)" />
+                        </div>
+                    </div>
+
+                    @* ---------- de bedragen ---------- *@
+                    <h3 class="wn-kop">Bedragen</h3>
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>Bedrag excl. btw</label>
+                            <input class="r smal @Auto("BedragExBtw")" value="@_exInvoer" @onchange="ExGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Btw</label>
+                            <span class="factuur-termijn">
+                                <input class="r smal @Auto("Btw")" value="@_btwInvoer" @onchange="BtwGewijzigd" />
+                                @foreach (var tarief in new[] { 21, 9, 0 })
+                                {
+                                    <button class="klein" @key="tarief"
+                                            title="@($"Btw uitrekenen met {tarief}%")"
+                                            @onclick="() => ZetTarief(tarief)">@tarief%</button>
+                                }
+                            </span>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Totaal incl. btw</label>
+                            <input class="r smal" value="@_totaalInvoer" @onchange="TotaalGewijzigd" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Doorbelasten</label>
+                            <span class="factuur-termijn">
+                                <input class="r smal" value="@_factuur.Doorbelasten.ToString("0.##", Nl)"
+                                       @onchange="DoorbelastenGewijzigd" />
+                                <span class="zij-extra">%</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    @if (_optellingFout.Length > 0)
+                    {
+                        <p class="factuur-waarschuwing">@_optellingFout</p>
+                    }
+
+                    @* ---------- stand van zaken ---------- *@
+                    <h3 class="wn-kop">Stand van zaken</h3>
+
+                    @* De keten van boven naar beneden. 'Ingevoerd' staat er als
+                       eerste stap bij, maar die zet het toevoegen zelf. Bij een
+                       bestaande factuur werken de vinkjes direct (zoals in de
+                       lijst); bij een nieuwe gaan Goedgekeurd en Betaald mee met
+                       het toevoegen — er zijn nu eenmaal facturen die al betaald
+                       binnenkomen. *@
+                    <div class="factuur-stand">
+                        <label class="factuur-standregel @(_nieuw ? "" : "ja")">
+                            <input type="checkbox" checked="@(!_nieuw)" disabled />
+                            <span>Ingevoerd</span>
+                            <span class="zij-extra">
+                                @if (_nieuw)
+                                {
+                                    <text>gebeurt bij het toevoegen</text>
+                                }
+                                else
+                                {
+                                    @Stempel(_factuur.Invoerdatum, _factuur.IngevoerdDoor)
+                                }
+                            </span>
+                        </label>
+
+                        <label class="factuur-standregel @(_factuur.Goedgekeurd ? "ja" : "")">
+                            <input type="checkbox" checked="@_factuur.Goedgekeurd" disabled="@(!MagGoedkeuren)"
+                                   @key="(1, _vlagRonde)"
+                                   @onchange="e => ZetVlagHier(FactuurVlag.Goedgekeurd, e)" />
+                            <span>Goedgekeurd</span>
+                            <span class="zij-extra">@Stempel(_factuur.GoedgekeurdOp, _factuur.GoedgekeurdDoor)</span>
+                        </label>
+
+                        <label class="factuur-standregel @(_factuur.Betaald ? "ja" : "")">
+                            <input type="checkbox" checked="@_factuur.Betaald" disabled="@(!MagInvoeren)"
+                                   @key="(2, _vlagRonde)"
+                                   @onchange="e => ZetVlagHier(FactuurVlag.Betaald, e)" />
+                            <span>Betaald</span>
+                            <span class="zij-extra">
+                                @Stempel(_factuur.BetaaldOp?.ToDateTime(TimeOnly.MinValue), _factuur.BetaaldDoor)
+                            </span>
+                        </label>
+
+                        @if (!_nieuw)
+                        {
+                            <label class="factuur-standregel @(_factuur.SepaVerzonden ? "ja" : "")">
+                                <input type="checkbox" checked="@_factuur.SepaVerzonden" disabled="@(!MagInvoeren)"
+                                       @key="(3, _vlagRonde)"
+                                       @onchange="e => ZetVlagHier(FactuurVlag.Sepa, e)" />
+                                <span>SEPA verzonden</span>
+                                <span class="zij-extra">@Stempel(_factuur.SepaOp, _factuur.SepaDoor)</span>
+                            </label>
+
+                            <label class="factuur-standregel @(_factuur.NaarBasecone ? "ja" : "")">
+                                <input type="checkbox" checked="@_factuur.NaarBasecone" disabled="@(!MagInvoeren)"
+                                       @key="(4, _vlagRonde)"
+                                       @onchange="e => ZetVlagHier(FactuurVlag.Basecone, e)" />
+                                <span>Naar Basecone</span>
+                                <span class="zij-extra">@Stempel(_factuur.BaseconeOp, "")</span>
+                            </label>
+                        }
+                    </div>
+
+                    <div class="vinkrij">
+                        <label class="vinkje">
+                            <input type="checkbox" checked="@_factuur.OpHold"
+                                   @onchange="e => _factuur.OpHold = Vink(e)" />
+                            Betaling op hold
+                        </label>
+                    </div>
+
+                    @if (!_nieuw)
+                    {
+                        <p class="uitleg">
+                            De vinkjes worden hier direct opgeslagen, net als in de lijst;
+                            wie het deed en wanneer wordt meegeschreven.
+                        </p>
+
+                        @if (_factuur.Opmerking.Length > 0)
+                        {
+                            <div class="wn-veld breed">
+                                <label>Notities van de app</label>
+                                <span class="alleen-lezen">@_factuur.Opmerking</span>
+                            </div>
+                        }
+
+                    }
+
+                    @* ---------- gekoppelde inkooporders ---------- *@
+                    <h3 class="wn-kop">Inkooporders</h3>
+
+                    @if (AlleKoppelingen == 0)
+                    {
+                        <p class="uitleg">Nog geen inkooporder gekoppeld.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:7rem" class="r">Factuurdeel</th>
+                                    <th style="width:10rem">PO</th>
+                                    <th style="width:7.5rem" class="r">PO-bedrag</th>
+                                    <th>Werkorder</th>
+                                    <th style="width:2.4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var po in _pos)
+                                {
+                                    <tr @key="(po.LinkId, _koppelRonde)">
+                                        <td class="r">
+                                            <input class="r koppelbedrag" value="@po.Bedrag.ToString("0.00", Nl)"
+                                                   disabled="@(!MagInvoeren)"
+                                                   @onchange="e => KoppelBedragGewijzigd(po, e)" />
+                                        </td>
+                                        <td>
+                                            @* Groen en klikbaar, zoals overal in Access. *@
+                                            <button class="po-knop" title="PO bekijken"
+                                                    @onclick="() => _bekijkPo = po.OrderId">@po.Nummer</button>
+                                        </td>
+                                        <td class="r">@Geld(po.PoBedrag)</td>
+                                        <td class="omschrijving" title="@(po.Project + " " + po.Werkorder)">
+                                            @po.Project @(po.Werkorder.Length > 0 ? "· " + po.Werkorder : "")
+                                        </td>
+                                        <td class="c">
+                                            @if (MagInvoeren)
+                                            {
+                                                <button class="klein rood" title="Koppeling weghalen"
+                                                        @onclick="() => Ontkoppel(po)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @foreach (var wacht in _wachtKoppelingen)
+                                {
+                                    <tr @key="wacht">
+                                        <td class="r">@Geld(wacht.Bedrag)</td>
+                                        <td>@wacht.Naam</td>
+                                        <td class="r"></td>
+                                        <td class="zij-extra">
+                                            @(wacht.WerkbonId is null
+                                                ? "wordt gekoppeld bij het toevoegen"
+                                                : "nieuwe PO; wordt aangemaakt bij het toevoegen")
+                                        </td>
+                                        <td class="c">
+                                            <button class="klein rood" title="Weghalen"
+                                                    @onclick="() => _wachtKoppelingen.Remove(wacht)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td class="r"><b>@Geld(GekoppeldTotaal)</b></td>
+                                    <td><b>Totaal</b></td>
+                                    <td class="r"><b>@Geld(_pos.Sum(p => p.PoBedrag))</b></td>
+                                    <td class="zij-extra">
+                                        verschil met PO's @Geld(GekoppeldTotaal - _pos.Sum(p => p.PoBedrag))
+                                        · nog te verdelen @Geld(KoppelRestant)
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    }
+
+                    @if (MagInvoeren)
+                    {
+                        <div class="btngroup">
+                            <button class="klein" disabled="@(!KanKoppelen)" @onclick="() => _koppelOpen = true">
+                                ＋ Koppelen aan PO of werkorder
+                            </button>
+                            @if (_factuur.BedrijfId is null)
+                            {
+                                <span class="zij-extra">kies eerst een leverancier</span>
+                            }
+                            else if (!KanKoppelen)
+                            {
+                                <span class="zij-extra">het bedrag is volledig verdeeld</span>
+                            }
+                        </div>
+                    }
+
+                    </div>
+
+                    @* ---------- rechts: de documenten en het voorbeeld ---------- *@
+                    <div class="factuur-rechterkant">
+                        @* Slepen werkt doordat het invoerveld doorzichtig over de hele
+                           zone ligt; de browser handelt het neerzetten dan zelf af. *@
+                        <div class="sleepzone factuur-sleep @(_sleep ? "actief" : "")"
+                             @ondragenter="() => _sleep = true"
+                             @ondragleave="() => _sleep = false"
+                             @ondrop="() => _sleep = false">
+                            @if (_uploadBezig)
+                            {
+                                <text>Bezig met opslaan…</text>
+                            }
+                            else
+                            {
+                                <text>
+                                    Sleep de factuur hierheen — of klik om te kiezen.
+                                    Bijlagen uit de mail mogen er in één keer bij.
+                                </text>
+                            }
+                            <InputFile OnChange="BestandenGekozen" multiple
+                                       accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.docx,.doc,.csv,.xml,.zip"
+                                       disabled="@(_lezen || _uploadBezig)" @key="_uploadRonde" />
+                        </div>
+
+                        @* Eén lijst: wat al bewaard is én wat net gekozen is. Klikken
+                           op een regel zet dat bestand groot in het voorbeeld eronder. *@
+                        <div class="factuur-bestanden">
+                            @foreach (var doc in _documenten)
+                            {
+                                <div class="factuur-bestand @(_keuzeDoc == doc.FileStoreId ? "gekozen" : "")"
+                                     @key="doc.FileStoreId" @onclick="() => KiesDoc(doc)">
+                                    <span class="factuur-bestandnaam" title="@doc.Bestandsnaam">📄 @doc.Bestandsnaam</span>
+                                    <span class="zij-extra">@(doc.Toegevoegd?.ToString("dd-MM-yyyy") ?? "")</span>
+                                    <a class="knopje" href="@("bestand/" + doc.FileStoreId + "/download")"
+                                       title="Downloaden" @onclick:stopPropagation>⭳</a>
+                                </div>
+                            }
+                            @foreach (var best in _gekozen.Where(b => !b.Bewaard))
+                            {
+                                <div class="factuur-bestand @(_keuzeLos == best ? "gekozen" : "")"
+                                     @key="best" @onclick="() => KiesLos(best)">
+                                    <span class="factuur-bestandnaam" title="@best.Naam">📄 @best.Naam</span>
+                                    <span class="zij-extra">@(best.Inhoud.Length / 1024) kB · nieuw</span>
+
+                                    @if (Lezer.Beschikbaar && best.IsLeesbaar)
+                                    {
+                                        <button class="klein" disabled="@_lezen" @onclick:stopPropagation
+                                                title="@($"De velden vullen met wat er in {best.Naam} staat")"
+                                                @onclick="() => Lees(best)">
+                                            @(_lezen ? "…" : "✨ uitlezen")
+                                        </button>
+                                    }
+                                    <button class="klein rood" title="Van de lijst halen" @onclick:stopPropagation
+                                            @onclick="() => Verwijder(best)">✕</button>
+                                </div>
+                            }
+
+                            @if (_documenten.Count == 0 && !_gekozen.Any(b => !b.Bewaard))
+                            {
+                                <span class="zij-extra">Nog geen document.</span>
+                            }
+                            @if (_gekozen.Any(b => !b.Bewaard))
+                            {
+                                <span class="zij-extra">
+                                    Nog niet opgeslagen; dat gebeurt zodra je de factuur bewaart.
+                                </span>
+                            }
+                        </div>
+
+                        @* ---------- het voorbeeld ---------- *@
+                        <div class="factuur-kijker">
+                            @if (_keuzeDoc is int kiesId)
+                            {
+                                var kiesDoc = _documenten.FirstOrDefault(d => d.FileStoreId == kiesId);
+                                var soort = SoortVan(kiesDoc?.Bestandsnaam ?? "");
+                                if (soort is "pdf" or "office")
+                                {
+                                    <iframe src="@("voorbeeld/" + kiesId)" title="@(kiesDoc?.Bestandsnaam ?? "")"></iframe>
+                                }
+                                else if (soort == "afbeelding")
+                                {
+                                    <img src="@("bestand/" + kiesId)" alt="" />
+                                }
+                                else
+                                {
+                                    <p class="uitleg">
+                                        Dit bestandstype is hier niet te tonen; gebruik de downloadknop.
+                                    </p>
+                                }
+                            }
+                            else if (_keuzeLos is not null)
+                            {
+                                var soort = SoortVan(_keuzeLos.Naam);
+                                if (_losUrl.Length > 0 && soort == "pdf")
+                                {
+                                    <iframe src="@_losUrl" title="@_keuzeLos.Naam"></iframe>
+                                }
+                                else if (_losUrl.Length > 0 && soort == "afbeelding")
+                                {
+                                    <img src="@_losUrl" alt="" />
+                                }
+                                else if (soort == "office")
+                                {
+                                    <p class="uitleg">
+                                        Word/Excel is pas te tonen nadat de factuur is opgeslagen.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p class="uitleg">Dit bestandstype is hier niet te tonen.</p>
+                                }
+                            }
+                            else
+                            {
+                                <p class="uitleg">
+                                    Sleep of kies een document; het verschijnt hier groot in beeld.
+                                </p>
+                            }
+                        </div>
+                    </div>
+                    </div>
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="Afbreken">Annuleren</button>
+                <button class="primair" disabled="@(_bewaren || _bezig)" @onclick="Bewaar">
+                    @(_bewaren ? "Bezig…" : _nieuw ? "Toevoegen" : "Opslaan")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<PoVenster OrderId="_bekijkPo" Sluiten="() => _bekijkPo = null" />
+
+<PoKoppelen Open="_koppelOpen"
+            LeverancierId="_factuur.BedrijfId ?? 0"
+            LeverancierNaam="@_factuur.Bedrijf"
+            Restant="KoppelRestant"
+            Factuurnummer="@_factuur.Factuurnummer"
+            PoHint="@_poHint"
+            Sluiten="() => _koppelOpen = false"
+            PoGekozen="PoGekozen"
+            WerkorderGekozen="WerkorderGekozen" />
+
+@code {
+    private const int StoreTypeFactuur = 1;
+
+    /// <summary>0 = nieuw, een getal = die factuur, null = dicht.</summary>
+    [Parameter] public int? FactuurId { get; set; }
+
+    /// <summary>Geeft door of er iets is gewijzigd, zodat de lijst kan verversen.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    /// <summary>
+    /// Meldt het id van een zojuist toegevoegde factuur, zodat de ouder weet dat
+    /// dit venster niet meer 'nieuw' is. Zonder dat zou de volgende hertekening
+    /// het formulier leeggooien en kun je per ongeluk een tweede factuur invoeren.
+    /// </summary>
+    [Parameter] public EventCallback<int> Toegevoegd { get; set; }
+
+    private Factuur _factuur = new();
+    private bool _nieuw;
+    private bool _bezig;
+    private bool _bewaren;
+    private bool _erIsGewijzigd;
+    private int? _geladenVoor = -1;
+
+    private List<Administratie> _administraties = new();
+    private List<Keuze> _leveranciers = new();
+    private string _leverancierZoek = "";
+    private string _bankWaarschuwing = "";
+    private bool _zoekOpen;
+
+    /// <summary>
+    /// De naam die op de factuur stond en nog niet aan een leverancier is gekoppeld.
+    /// Zolang die gevuld is, staat de vraag om hem te onthouden in beeld.
+    /// </summary>
+    private string _aliasVraag = "";
+
+    private List<FactuurPo> _pos = new();
+    private List<Bestand> _documenten = new();
+    private bool _uploadBezig;
+    private int _uploadRonde;
+
+    // ---- PO-koppelingen ----
+
+    /// <summary>Een koppeling die klaarstaat bij een nog niet opgeslagen factuur;
+    /// wordt echt gemaakt zodra de factuur is toegevoegd. Bewust een class en
+    /// geen record: twee keer hetzelfde bedrag op dezelfde PO zou als record
+    /// dezelfde @key opleveren en de rij-rendering laten omvallen.</summary>
+    private sealed class WachtKoppeling
+    {
+        public int? OrderId { get; init; }
+        public int? WerkbonId { get; init; }
+        public string Naam { get; init; } = "";
+        public decimal Bedrag { get; init; }
+    }
+
+    private readonly List<WachtKoppeling> _wachtKoppelingen = new();
+    private bool _koppelOpen;
+    private int? _bekijkPo;
+
+    /// <summary>PO-verwijzing die de AI op de factuur vond; vult het koppelscherm voor.</summary>
+    private string _poHint = "";
+
+    /// <summary>Gaat omhoog als een factuurdeel-invoer teruggedraaid moet worden.</summary>
+    private int _koppelRonde;
+
+    private int AlleKoppelingen => _pos.Count + _wachtKoppelingen.Count;
+
+    private decimal GekoppeldTotaal => _pos.Sum(p => p.Bedrag) + _wachtKoppelingen.Sum(w => w.Bedrag);
+
+    private decimal KoppelRestant => _factuur.BedragExBtw - GekoppeldTotaal;
+
+    /// <summary>Koppelen kan zolang er iets te verdelen is; bij een creditfactuur
+    /// werkt dat gespiegeld. Zelfde grens als Access' Toevoegen-knop.</summary>
+    private bool KanKoppelen => _factuur.BedrijfId is not null
+        && (_factuur.BedragExBtw < 0 ? KoppelRestant < -0.005m : KoppelRestant > 0.005m);
+
+    /// <summary>
+    /// Maakt de wachtende koppelingen echt (de factuur heeft nu een id). Wat
+    /// lukt gaat uit de rij; wat misgaat blijft staan en is in de tabel te
+    /// zien. Geeft terug of alles gelukt is.
+    /// </summary>
+    private async Task<bool> VerwerkWachtKoppelingen()
+    {
+        if (_wachtKoppelingen.Count == 0) return true;
+
+        var allesGelukt = true;
+        var holdNodig = false;
+
+        foreach (var wacht in _wachtKoppelingen.ToList())
+        {
+            try
+            {
+                if (wacht.OrderId is int poId)
+                {
+                    if (await Repo.KoppelAsync(_factuur.Id, poId, wacht.Bedrag, Ik.WerknemerId))
+                        holdNodig = true;
+                }
+                else if (wacht.WerkbonId is int wbId && _factuur.BedrijfId is int lev)
+                {
+                    await Repo.MaakPoEnKoppelAsync(_factuur.Id, _factuur.Factuurnummer, wbId,
+                                                   lev, wacht.Bedrag, Ik.WerknemerId);
+                }
+                _wachtKoppelingen.Remove(wacht);
+            }
+            catch (Exception ex)
+            {
+                allesGelukt = false;
+                Toon($"Koppelen aan {wacht.Naam} mislukte: {ex.Message}", true);
+            }
+        }
+
+        // Hing er een PO met geblokkeerde betalingen tussen, dan hoort de
+        // factuur op hold — alsnog vastleggen.
+        if (holdNodig && !_factuur.OpHold)
+        {
+            _factuur.OpHold = true;
+            try { await Repo.BewaarAsync(_factuur, Ik.WerknemerId); } catch { }
+        }
+
+        try { _pos = await Repo.GetPosAsync(_factuur.Id); } catch { }
+        return allesGelukt;
+    }
+
+    private async Task PoGekozen(PoKoppelen.PoUit uit)
+    {
+        _koppelOpen = false;
+
+        if (_factuur.Id == 0)
+        {
+            _wachtKoppelingen.Add(new WachtKoppeling
+                { OrderId = uit.OrderId, Naam = uit.Nummer, Bedrag = uit.Bedrag });
+            return;
+        }
+
+        try
+        {
+            var geblokkeerd = await Repo.KoppelAsync(_factuur.Id, uit.OrderId, uit.Bedrag, Ik.WerknemerId);
+            _erIsGewijzigd = true;
+            _pos = await Repo.GetPosAsync(_factuur.Id);
+
+            // Access zette dan het hold-vinkje op het formulier; wij ook, met uitleg.
+            if (geblokkeerd && !_factuur.OpHold)
+            {
+                _factuur.OpHold = true;
+                Toon("Gekoppeld. Op deze PO staan betalingen geblokkeerd; 'Betaling op hold' "
+                   + "is aangevinkt — vergeet niet op te slaan.", false);
+            }
+            else Toon("Gekoppeld.", false);
+        }
+        catch (Exception ex) { Toon("Koppelen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WerkorderGekozen(PoKoppelen.WerkorderUit uit)
+    {
+        _koppelOpen = false;
+
+        if (_factuur.Id == 0)
+        {
+            _wachtKoppelingen.Add(new WachtKoppeling
+                { WerkbonId = uit.WerkbonId, Naam = uit.Nummer + " (nieuwe PO)", Bedrag = uit.Bedrag });
+            return;
+        }
+
+        if (_factuur.BedrijfId is not int leverancier)
+        {
+            Toon("Kies eerst een leverancier.", true);
+            return;
+        }
+
+        try
+        {
+            await Repo.MaakPoEnKoppelAsync(_factuur.Id, _factuur.Factuurnummer, uit.WerkbonId,
+                                           leverancier, uit.Bedrag, Ik.WerknemerId);
+            _erIsGewijzigd = true;
+            _pos = await Repo.GetPosAsync(_factuur.Id);
+            Toon($"PO aangemaakt onder {uit.Nummer} en gekoppeld.", false);
+        }
+        catch (Exception ex) { Toon("PO aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Ontkoppel(FactuurPo po)
+    {
+        try
+        {
+            // Een PO die destijds automatisch uit déze factuur is ontstaan en
+            // waar verder niets aan hangt, gaat mee weg — anders blijft er een
+            // lege spook-PO achter. Een echte PO blijft altijd staan.
+            var eigen = await Repo.IsEigenAutoPoAsync(po.OrderId, _factuur.Id);
+            var vraag = eigen
+                ? $"Koppeling met {po.Nummer} weghalen? Deze PO is automatisch vanuit deze "
+                  + "factuur aangemaakt en wordt dan ook verwijderd."
+                : $"Koppeling met {po.Nummer} weghalen? De PO zelf blijft bestaan.";
+            if (!await Vraag(vraag)) return;
+
+            await Repo.OntkoppelAsync(po.LinkId, eigen);
+            _erIsGewijzigd = true;
+            _pos = await Repo.GetPosAsync(_factuur.Id);
+            Toon("Koppeling weggehaald.", false);
+        }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KoppelBedragGewijzigd(FactuurPo po, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Trim();
+        if (Getal(tekst) is not decimal bedrag)
+        {
+            _koppelRonde++;
+            Toon($"'{tekst}' is geen bedrag; het oude bedrag staat er nog.", true);
+            return;
+        }
+
+        // Samen nooit meer (of bij credit: minder) verdelen dan de factuur groot is.
+        var anderen = GekoppeldTotaal - po.Bedrag;
+        var teVeel = _factuur.BedragExBtw >= 0
+            ? bedrag <= 0 || anderen + bedrag > _factuur.BedragExBtw + 0.005m
+            : bedrag >= 0 || anderen + bedrag < _factuur.BedragExBtw - 0.005m;
+        if (teVeel)
+        {
+            _koppelRonde++;
+            Toon("Zo wordt er meer verdeeld dan het factuurbedrag; het oude bedrag staat er nog.", true);
+            return;
+        }
+
+        try
+        {
+            await Repo.ZetKoppelBedragAsync(po.LinkId, bedrag, Ik.WerknemerId);
+            po.Bedrag = bedrag;
+            _erIsGewijzigd = true;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex)
+        {
+            _koppelRonde++;
+            Toon("Opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    // ---- het voorbeeld rechts ----
+
+    /// <summary>FileStoreID van het gekozen opgeslagen document, of…</summary>
+    private int? _keuzeDoc;
+
+    /// <summary>…een net gekozen bestand dat nog alleen in het geheugen staat.</summary>
+    private GekozenBestand? _keuzeLos;
+
+    /// <summary>
+    /// Tijdelijk adres in de browser voor het geheugen-voorbeeld. De bytes gaan
+    /// één keer naar de browser en blijven daar; zo is de factuur al te zien
+    /// vóór er iets is opgeslagen.
+    /// </summary>
+    private string _losUrl = "";
+
+    private async Task KiesDoc(Bestand doc)
+    {
+        _keuzeLos = null;
+        await WisLosUrl();
+        _keuzeDoc = doc.FileStoreId;
+    }
+
+    private async Task KiesLos(GekozenBestand best)
+    {
+        if (_keuzeLos == best && _losUrl.Length > 0) return;
+        _keuzeDoc = null;
+        await WisLosUrl();
+        _keuzeLos = best;
+
+        if (MimeVan(best.Naam) is { Length: > 0 } soort)
+        {
+            try { _losUrl = await JS.InvokeAsync<string>("mdeBlob.maak", best.Inhoud, soort); }
+            catch { _losUrl = ""; }
+        }
+    }
+
+    /// <summary>Het tijdelijke adres opruimen; anders blijft het geheugen in
+    /// de browser bezet tot de pagina dichtgaat.</summary>
+    private async Task WisLosUrl()
+    {
+        if (_losUrl.Length == 0) return;
+        var url = _losUrl;
+        _losUrl = "";
+        try { await JS.InvokeVoidAsync("mdeBlob.weg", url); } catch { /* al weg */ }
+    }
+
+    private static string MimeVan(string naam) => Path.GetExtension(naam).ToLowerInvariant() switch
+    {
+        ".pdf" => "application/pdf",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif",
+        _ => ""
+    };
+
+    private static string SoortVan(string naam)
+    {
+        var ext = Path.GetExtension(naam).ToLowerInvariant();
+        if (ext == ".pdf") return "pdf";
+        if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif") return "afbeelding";
+        if (VoorbeeldService.MoetOmgezet(naam)) return "office";
+        return "";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await WisLosUrl(); } catch { /* verbinding kan al weg zijn */ }
+    }
+
+    // ---- de gekozen bestanden en het uitlezen ----
+
+    /// <summary>
+    /// Eén gekozen bestand: de factuur zelf of een bijlage uit de mail. Blijft in
+    /// het geheugen tot de factuur is opgeslagen; dan is er een id om het aan te
+    /// hangen in de filestore.
+    /// </summary>
+    private sealed class GekozenBestand
+    {
+        public string Naam { get; init; } = "";
+        public byte[] Inhoud { get; init; } = Array.Empty<byte>();
+
+        /// <summary>Al in de filestore? Dan niet nog een keer wegschrijven.</summary>
+        public bool Bewaard { get; set; }
+
+        /// <summary>Kan hier een factuur uit gelezen worden? Een zip of xml niet.</summary>
+        public bool IsLeesbaar => Path.GetExtension(Naam).ToLowerInvariant()
+            is ".pdf" or ".jpg" or ".jpeg" or ".png" or ".webp";
+    }
+
+    private readonly List<GekozenBestand> _gekozen = new();
+    private bool _sleep;
+    private bool _lezen;
+    private List<string> _aiOpmerkingen = new();
+
+    // ---- de voortgang van het uitlezen ----
+    private string _leesStand = "";
+    private string _leesBestand = "";
+    private DateTime _leesStart;
+
+    /// <summary>Roept elke seconde de meegegeven actie aan zolang hij bestaat;
+    /// houdt de secondeteller van de voortgangsbalk bij de tijd.</summary>
+    private sealed class Tikker : IAsyncDisposable
+    {
+        private readonly System.Threading.Timer _timer;
+        public Tikker(Action tik) => _timer = new System.Threading.Timer(
+            _ => tik(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        public ValueTask DisposeAsync() => _timer.DisposeAsync();
+    }
+
+    /// <summary>Velden die de AI heeft ingevuld; die kleuren tot je ze zelf aanraakt.</summary>
+    private readonly HashSet<string> _automatisch = new(StringComparer.OrdinalIgnoreCase);
+
+    private string Auto(string veld) => _automatisch.Contains(veld) ? "auto-ingevuld" : "";
+
+    /// <summary>Zelf gewijzigd? Dan is het niet meer 'door de computer ingevuld'.</summary>
+    private void Handmatig(string veld) => _automatisch.Remove(veld);
+
+    private string? _melding;
+    private bool _meldingFout;
+
+    // De bedragen als tekst: zo blijft staan wat iemand typt, ook halverwege.
+    private string _exInvoer = "";
+    private string _btwInvoer = "";
+    private string _totaalInvoer = "";
+    private string _optellingFout = "";
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (FactuurId == _geladenVoor) return;
+        _geladenVoor = FactuurId;
+
+        // Alles van de vorige factuur weg. Het venster blijft namelijk bestaan
+        // tussen twee facturen; zonder dit opruimen zou een eerder gekozen PDF
+        // aan de volgende factuur gehangen worden.
+        _melding = null;
+        _leveranciers = new();
+        _leverancierZoek = "";
+        _bankWaarschuwing = "";
+        _erIsGewijzigd = false;
+        _gekozen.Clear();
+        _sleep = false;
+        _zoekOpen = false;
+        _aliasVraag = "";
+        _ibanUitRelaties = "";
+        _aiOpmerkingen = new();
+        _automatisch.Clear();
+        _uploadRonde++;
+        _keuzeDoc = null;
+        _keuzeLos = null;
+        await WisLosUrl();
+        _wachtKoppelingen.Clear();
+        _koppelOpen = false;
+        _bekijkPo = null;
+        _poHint = "";
+
+        // Ook de factuur zelf en wat erbij hoort meteen leegmaken. Zou het
+        // ophalen hieronder mislukken, dan stonden anders de gegevens en
+        // documenten van de vórige factuur nog in beeld — en zou Opslaan
+        // die onder het oude id wegschrijven.
+        _factuur = new();
+        _documenten = new();
+        _pos = new();
+
+        if (FactuurId is null) return;
+
+        _bezig = true;
+        try
+        {
+            if (_administraties.Count == 0)
+                _administraties = await Repo.GetAdministratiesAsync();
+
+            _nieuw = FactuurId == 0;
+            if (_nieuw)
+            {
+                _factuur = new Factuur
+                {
+                    Factuurdatum = DateOnly.FromDateTime(DateTime.Today),
+                    Betalingstermijn = 30,
+                    Doorbelasten = 100,
+                };
+                _pos = new();
+                _documenten = new();
+            }
+            else
+            {
+                _factuur = await Repo.GetAsync(FactuurId.Value) ?? new Factuur();
+                try { _pos = await Repo.GetPosAsync(FactuurId.Value); } catch { _pos = new(); }
+                await LaadDocumenten();
+                await ControleerBank();     // ook bij openen: mist er een IBAN?
+            }
+
+            ZetBedragen();
+            _zoalsGeopend = Vingerafdruk();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task LaadDocumenten()
+    {
+        if (!WnRepo.Beschikbaar || _factuur.Id == 0) return;
+        try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeFactuur, _factuur.Id); }
+        catch { _documenten = new(); }
+
+        // Het voorbeeld meebewegen: een zojuist bewaard bestand staat nu in de
+        // documentenlijst, dus daar de keuze op zetten. En zonder keuze pakt
+        // het voorbeeld het eerste document — meestal is er toch maar één.
+        if (_keuzeLos is { Bewaard: true } net)
+        {
+            _keuzeLos = null;
+            await WisLosUrl();
+            // De lijst staat nieuwste-eerst, dus First pakt het net bewaarde exemplaar.
+            _keuzeDoc = _documenten
+                .FirstOrDefault(d => d.Bestandsnaam.Equals(net.Naam, StringComparison.OrdinalIgnoreCase))
+                ?.FileStoreId;
+        }
+        if (_keuzeDoc is int k && _documenten.All(d => d.FileStoreId != k)) _keuzeDoc = null;
+        if (_keuzeDoc is null && _keuzeLos is null && _documenten.Count > 0)
+            _keuzeDoc = _documenten[0].FileStoreId;
+    }
+
+    // ============================================================
+    //  Bedragen: drie velden die elkaar bijwerken
+    //  Access rekende op basis van wat het laatst is ingevuld. Dat houden we aan:
+    //  vul je het bedrag in, dan volgt de btw; vul je het totaal in, dan volgt de rest.
+    // ============================================================
+    private void ZetBedragen()
+    {
+        _exInvoer = _factuur.BedragExBtw == 0 ? "" : _factuur.BedragExBtw.ToString("0.00", Nl);
+        _btwInvoer = _factuur.Btw == 0 ? "" : _factuur.Btw.ToString("0.00", Nl);
+        _totaalInvoer = _factuur.Totaal == 0 ? "" : _factuur.Totaal.ToString("0.00", Nl);
+        Controleer();
+    }
+
+    private void OmschrijvingGewijzigd(ChangeEventArgs e)
+    {
+        _factuur.Omschrijving = Tekst(e);
+        Handmatig("Omschrijving");
+    }
+
+    private void ExGewijzigd(ChangeEventArgs e)
+    {
+        Handmatig("BedragExBtw");
+        _exInvoer = ((string?)e.Value ?? "").Trim();
+        if (Getal(_exInvoer) is decimal ex)
+        {
+            _factuur.BedragExBtw = ex;
+            _totaalInvoer = (ex + _factuur.Btw).ToString("0.00", Nl);
+        }
+        else if (_exInvoer.Length == 0) _factuur.BedragExBtw = 0;
+        Controleer();
+    }
+
+    private void BtwGewijzigd(ChangeEventArgs e)
+    {
+        Handmatig("Btw");
+        _btwInvoer = ((string?)e.Value ?? "").Trim();
+        if (Getal(_btwInvoer) is decimal btw)
+        {
+            _factuur.Btw = btw;
+            _totaalInvoer = (_factuur.BedragExBtw + btw).ToString("0.00", Nl);
+        }
+        else if (_btwInvoer.Length == 0) _factuur.Btw = 0;
+        Controleer();
+    }
+
+    /// <summary>
+    /// Totaal ingevuld. Wat er al staat blijft staan: is het bedrag bekend, dan is
+    /// het verschil de btw; is de btw bekend, dan is het verschil het bedrag. Pas
+    /// als er nog niets is, rekenen we met 21% terug — het gangbare tarief.
+    /// </summary>
+    private void TotaalGewijzigd(ChangeEventArgs e)
+    {
+        // Het totaal aanpassen herrekent bedrag of btw; die zijn dan niet meer
+        // 'door de computer ingevuld'.
+        Handmatig("BedragExBtw");
+        Handmatig("Btw");
+        _totaalInvoer = ((string?)e.Value ?? "").Trim();
+        if (Getal(_totaalInvoer) is decimal totaal)
+        {
+            if (_factuur.BedragExBtw != 0)
+            {
+                _factuur.Btw = Math.Round(totaal - _factuur.BedragExBtw, 2);
+                _btwInvoer = _factuur.Btw.ToString("0.00", Nl);
+            }
+            else if (_factuur.Btw != 0)
+            {
+                _factuur.BedragExBtw = Math.Round(totaal - _factuur.Btw, 2);
+                _exInvoer = _factuur.BedragExBtw.ToString("0.00", Nl);
+            }
+            else
+            {
+                _factuur.BedragExBtw = Math.Round(totaal / 1.21m, 2);
+                _factuur.Btw = Math.Round(totaal - _factuur.BedragExBtw, 2);
+                _exInvoer = _factuur.BedragExBtw.ToString("0.00", Nl);
+                _btwInvoer = _factuur.Btw.ToString("0.00", Nl);
+            }
+        }
+        Controleer();
+    }
+
+    /// <summary>Btw uitrekenen over het bedrag met dit tarief.</summary>
+    private void ZetTarief(int procent)
+    {
+        Handmatig("Btw");
+        _factuur.Btw = Math.Round(_factuur.BedragExBtw * procent / 100m, 2);
+        _btwInvoer = _factuur.Btw.ToString("0.00", Nl);
+        _totaalInvoer = _factuur.Totaal.ToString("0.00", Nl);
+        Controleer();
+    }
+
+    /// <summary>
+    /// Access controleerde met een timer of ex + btw wel gelijk was aan het totaal.
+    /// Hier gebeurt dat meteen bij het typen.
+    /// </summary>
+    private void Controleer()
+    {
+        // Eerst: staat er ergens iets wat geen bedrag is? Dan zou er stilletjes een
+        // oude waarde bewaard worden terwijl het scherm iets anders toont.
+        var onleesbaar = new List<string>();
+        if (_exInvoer.Length > 0 && Getal(_exInvoer) is null) onleesbaar.Add("het bedrag");
+        if (_btwInvoer.Length > 0 && Getal(_btwInvoer) is null) onleesbaar.Add("de btw");
+        if (_totaalInvoer.Length > 0 && Getal(_totaalInvoer) is null) onleesbaar.Add("het totaal");
+
+        if (onleesbaar.Count > 0)
+        {
+            _optellingFout = $"Ik kan {string.Join(" en ", onleesbaar)} niet lezen als bedrag.";
+            return;
+        }
+
+        var getypt = Getal(_totaalInvoer);
+        _optellingFout = getypt is decimal t && Math.Abs(_factuur.Totaal - t) >= 0.01m
+            ? $"De optelling klopt niet: {Geld(_factuur.BedragExBtw)} + {Geld(_factuur.Btw)} "
+              + $"is {Geld(_factuur.Totaal)}, niet {Geld(t)}."
+            : "";
+    }
+
+    /// <summary>
+    /// Een bedrag uit een invoerveld. Nederlandse notatie is de norm ("1.250,00"),
+    /// maar geplakte tekst uit een PDF staat er soms Engels in ("1,250.00").
+    /// Het láátste scheidingsteken is het decimaalteken; de rest is duizendtal.
+    ///
+    /// Blind de punt door een komma vervangen zou fataal zijn: van "1.250" wordt
+    /// dan € 1,25 in plaats van € 1250.
+    /// </summary>
+    private static decimal? Getal(string tekst)
+    {
+        var s = tekst.Replace("€", "").Replace(" ", "").Replace(" ", "").Trim();
+        if (s.Length == 0) return null;
+
+        int komma = s.LastIndexOf(','), punt = s.LastIndexOf('.');
+
+        if (komma >= 0 && punt >= 0)
+            s = komma > punt ? s.Replace(".", "").Replace(',', '.')    // 1.250,00
+                             : s.Replace(",", "");                      // 1,250.00
+        else if (komma >= 0) s = s.Replace(',', '.');
+        else if (punt >= 0)
+        {
+            // Alleen een punt: decimaalteken als er twee cijfers achter staan
+            // ("12.50"), anders een duizendtalscheiding ("1.250").
+            var achter = s.Length - punt - 1;
+            if (achter == 3 && s.Count(c => c == '.') >= 1 && punt > 0) s = s.Replace(".", "");
+        }
+
+        return decimal.TryParse(s,
+            System.Globalization.NumberStyles.AllowLeadingSign |
+            System.Globalization.NumberStyles.AllowDecimalPoint,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    // ---- overige velden ----
+    private void AdminGewijzigd(ChangeEventArgs e)
+        => _factuur.AdministratieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private void DatumGewijzigd(DateOnly? datum)
+    {
+        Handmatig("Factuurdatum");
+        _factuur.Factuurdatum = datum;
+    }
+
+    private void TermijnGewijzigd(ChangeEventArgs e)
+    {
+        Handmatig("Betalingstermijn");
+        if (int.TryParse((string?)e.Value, out var v) && v >= 0) _factuur.Betalingstermijn = v;
+    }
+
+    private void ZetTermijn(int dagen)
+    {
+        Handmatig("Betalingstermijn");
+        _factuur.Betalingstermijn = dagen;
+    }
+
+    private void DoorbelastenGewijzigd(ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace('.', ',').Trim();
+        if (double.TryParse(tekst, System.Globalization.NumberStyles.Any, Nl, out var v))
+            _factuur.Doorbelasten = Math.Clamp(v, 0, 100);
+    }
+
+    /// <summary>
+    /// SEPA laat alleen gewone tekens toe in het factuurnummer; dat controleerde
+    /// Access ook, want anders klapt de betaalopdracht er later op.
+    /// </summary>
+    private void FactuurnummerGewijzigd(ChangeEventArgs e)
+    {
+        Handmatig("Factuurnummer");
+        var waarde = Tekst(e);
+        var vreemd = waarde.Where(c => c < 32 || c > 126).Distinct().ToArray();
+
+        if (vreemd.Length > 0)
+        {
+            waarde = new string(waarde.Where(c => c >= 32 && c <= 126).ToArray());
+            Toon($"De tekens {string.Join(" ", vreemd)} zijn uit het factuurnummer gehaald: "
+               + "SEPA staat die niet toe.", true);
+        }
+        _factuur.Factuurnummer = waarde;
+    }
+
+    // ---- leverancier ----
+    private async Task LeverancierZoekGewijzigd(ChangeEventArgs e)
+    {
+        _leverancierZoek = (string?)e.Value ?? "";
+        var zoek = _leverancierZoek.Trim();
+
+        if (zoek.Length < 2) { _leveranciers = new(); return; }
+
+        try
+        {
+            _leveranciers = await Relaties.ZoekAsync(zoek, false, true, 0, 15);
+
+            // Ziet het eruit als een rekeningnummer? Dan daar ook op proberen; dat
+            // is de kortste weg naar de juiste leverancier.
+            if (_leveranciers.Count == 0 && zoek.Replace(" ", "").Length >= 15)
+            {
+                var opIban = await Repo.ZoekOpIbanAsync(zoek);
+                if (opIban is not null)
+                    _leveranciers = new List<Keuze> { new(opIban.Value.Id, opIban.Value.Naam) };
+            }
+        }
+        catch { _leveranciers = new(); }
+    }
+
+    private async Task KiesLeverancier(Keuze l)
+    {
+        Handmatig("Leverancier");
+
+        // Stond er een andere naam op de factuur? Dan is dit het moment om te
+        // vragen of de app dat verband mag onthouden.
+        var opFactuur = _leverancierZoek.Trim();
+        _aliasVraag = opFactuur.Length >= 3 && !Gelijk(opFactuur, l.Naam) ? opFactuur : "";
+
+        // Andere leverancier? Dan slaan wachtende PO-koppelingen nergens meer
+        // op — die PO's horen bij de vórige leverancier.
+        if (_factuur.BedrijfId != l.Id) WisWachtPos();
+
+        _factuur.BedrijfId = l.Id;
+        _factuur.Bedrijf = l.Naam;
+        _leveranciers = new();
+        _leverancierZoek = "";
+        _zoekOpen = false;
+
+        await ControleerBank();
+    }
+
+    /// <summary>Haalt wachtende PO-koppelingen weg na een leverancierwissel
+    /// (werkorder-koppelingen mogen blijven: die PO wordt pas straks, onder de
+    /// nieuwe leverancier, aangemaakt).</summary>
+    private void WisWachtPos()
+    {
+        var weg = _wachtKoppelingen.RemoveAll(w => w.OrderId is not null);
+        if (weg > 0)
+            Toon($"{weg} wachtende PO-koppeling(en) vervallen: die PO's horen bij de "
+               + "vorige leverancier.", true);
+    }
+
+    /// <summary>
+    /// Zonder IBAN en BIC kan de factuur straks niet betaald worden. Access weigerde
+    /// dan te bewaren; hier waarschuwen we, want de factuur mag wel bestaan.
+    /// </summary>
+    /// <summary>De IBAN die bij de leverancier in Relaties staat, voor de vergelijking.</summary>
+    private string _ibanUitRelaties = "";
+
+    /// <summary>
+    /// Vergelijkt de IBAN op de factuur met die bij de leverancier. Wijkt hij af,
+    /// dan is dat het klassieke teken van een omgeleide betaling — of gewoon een
+    /// nieuwe rekening, maar dat wil je zelf vaststellen.
+    /// </summary>
+    private void ControleerIban(FactuurUitPdf uit)
+    {
+        if (uit.Iban.Length == 0 || _ibanUitRelaties.Length == 0) return;
+
+        var opFactuur = uit.Iban.Replace(" ", "").ToUpperInvariant();
+        var bekend = _ibanUitRelaties.Replace(" ", "").ToUpperInvariant();
+
+        if (opFactuur != bekend)
+            uit.Opmerkingen.Add($"LET OP: op de factuur staat {opFactuur}, maar bij deze "
+                              + $"leverancier staat {bekend}. Controleer dit vóór je betaalt — "
+                              + "een gewijzigd rekeningnummer is de bekendste vorm van factuurfraude.");
+    }
+
+    private async Task ControleerBank()
+    {
+        _bankWaarschuwing = "";
+        if (_factuur.BedrijfId is null || _factuur.Betaald) return;
+
+        try
+        {
+            var (iban, bic) = await Repo.GetBankgegevensAsync(_factuur.BedrijfId.Value);
+            _ibanUitRelaties = iban;
+
+            var mist = new List<string>();
+            if (iban.Length == 0) mist.Add("IBAN");
+            if (bic.Length == 0) mist.Add("BIC");
+
+            if (mist.Count > 0)
+                _bankWaarschuwing = $"Van deze leverancier ontbreekt {string.Join(" en ", mist)}. "
+                                  + "Vul dat aan bij Relaties, anders kan de betaling niet klaargezet worden.";
+        }
+        catch { }
+    }
+
+    // ---- opslaan ----
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private async Task Bewaar()
+    {
+        if (!MagInvoeren)
+        {
+            Toon("Je hebt geen recht om facturen in te voeren of te wijzigen.", true);
+            return;
+        }
+
+        var fouten = new List<string>();
+        if (_factuur.AdministratieId is null) fouten.Add("kies een administratie");
+        if (_factuur.BedrijfId is null) fouten.Add("kies een leverancier");
+        if (_factuur.Factuurdatum is null) fouten.Add("vul de factuurdatum in");
+        if (_factuur.BedragExBtw == 0 && _factuur.Btw == 0) fouten.Add("vul een bedrag in");
+        if (_factuur.Factuurnummer.Trim().Length == 0) fouten.Add("vul het factuurnummer in");
+
+        // Liever een melding dan stilletjes afkappen: een half factuurnummer maakt
+        // de betaling straks onherkenbaar voor de leverancier.
+        if (_factuur.Factuurnummer.Length > 45)
+            fouten.Add($"het factuurnummer is {_factuur.Factuurnummer.Length} tekens, er passen er 45");
+        if (_factuur.Omschrijving.Length > 100)
+            fouten.Add($"de omschrijving is {_factuur.Omschrijving.Length} tekens, er passen er 100");
+
+        if (fouten.Count > 0)
+        {
+            Toon("Nog even: " + string.Join(", ", fouten) + ".", true);
+            return;
+        }
+
+        if (_optellingFout.Length > 0)
+        {
+            Toon(_optellingFout, true);
+            return;
+        }
+
+        // Dubbele invoer is de klassieke fout: zelfde dag, zelfde leverancier, zelfde bedrag.
+        try
+        {
+            if (await Repo.BestaatAlAsync(_factuur.Factuurdatum, _factuur.BedrijfId,
+                                          _factuur.BedragExBtw, _factuur.Id))
+            {
+                var door = await Vraag("Er staat al een factuur met dezelfde datum, leverancier en "
+                                     + "bedrag. Toch opslaan?");
+                if (!door) return;
+            }
+        }
+        catch { }
+
+        _bewaren = true;
+        try
+        {
+            var id = await Repo.BewaarAsync(_factuur, Ik.WerknemerId);
+            _erIsGewijzigd = true;
+
+            if (_nieuw)
+            {
+                _factuur.Id = id;
+                _nieuw = false;
+                _geladenVoor = id;
+                await Toegevoegd.InvokeAsync(id);
+
+                // Vooraf aangevinkte vlaggen (een factuur die al betaald of
+                // goedgekeurd binnenkwam) nu echt zetten, mét wie en wanneer.
+                var vlagFout = false;
+                try
+                {
+                    if (_factuur.Goedgekeurd)
+                        await Repo.ZetVlagAsync(id, FactuurVlag.Goedgekeurd, true, Ik.WerknemerId);
+                    if (_factuur.Betaald)
+                        await Repo.ZetVlagAsync(id, FactuurVlag.Betaald, true, Ik.WerknemerId);
+                }
+                catch (Exception ex)
+                {
+                    vlagFout = true;
+                    Toon("De factuur is toegevoegd, maar het vinkje zetten mislukte: "
+                       + ex.Message + " Zet het alsnog in de lijst.", true);
+                }
+
+                var koppelFout = !await VerwerkWachtKoppelingen();
+
+                // De gekozen bestanden hingen nog in het geheugen; nu is er een id
+                // om ze aan te hangen.
+                await BewaarBestanden();
+
+                // Pas nu de meetlat leggen: alles wat verwerkt is telt niet meer
+                // als te verliezen werk, wat bleef staan juist wel.
+                _zoalsGeopend = Vingerafdruk();
+
+                // Ging alles goed, dan is het venster klaar en gaat het dicht; de
+                // lijst eronder toont de nieuwe factuur. Bleef er een bestand
+                // liggen (of een vinkje of koppeling), dan blijft het venster staan.
+                if (_gekozen.All(b => b.Bewaard) && !vlagFout && !koppelFout)
+                {
+                    await Sluiten.InvokeAsync(true);
+                    return;
+                }
+
+                await LaadDocumenten();
+                // Alleen over de bestanden beginnen als dáár iets bleef liggen;
+                // anders zou deze melding de echte fout hierboven overschrijven.
+                if (_gekozen.Any(b => !b.Bewaard))
+                    Toon($"De factuur is toegevoegd, maar {_gekozen.Count(b => !b.Bewaard)} "
+                       + "bestand(en) zijn nog niet opgeslagen. Probeer het nog eens.", true);
+            }
+            else
+            {
+                // Ook hier: bestanden die er nog los bij hangen (bijvoorbeeld omdat
+                // het opslaan bij het kiezen misging) alsnog wegschrijven — de
+                // lijst belooft immers "dat gebeurt zodra je de factuur bewaart".
+                // En koppelingen die na een eerdere mislukking bleven staan, gaan
+                // hier ook alsnog mee.
+                var koppelFout = !await VerwerkWachtKoppelingen();
+                await BewaarBestanden();
+                _zoalsGeopend = Vingerafdruk();
+
+                // Alles netjes weggeschreven? Dan is het venster klaar en gaat het
+                // dicht, net als bij toevoegen. Bleef er iets liggen, dan blijft
+                // het staan zodat je het kunt oplossen.
+                if (!koppelFout && _gekozen.All(b => b.Bewaard))
+                {
+                    await Sluiten.InvokeAsync(true);
+                    return;
+                }
+
+                if (!koppelFout)
+                    Toon($"Opgeslagen, maar {_gekozen.Count(b => !b.Bewaard)} bestand(en) "
+                       + "zijn nog niet in de filestore beland. Probeer het nog eens.", true);
+            }
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bewaren = false; }
+    }
+
+    // ============================================================
+    //  De factuur erbij, en laten uitlezen
+    //
+    //  Het bestand blijft eerst in het geheugen. Zo kun je een nieuwe factuur
+    //  laten uitlezen vóórdat er iets is opgeslagen; bij het opslaan gaat het
+    //  bestand mee naar de filestore.
+    // ============================================================
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleep = false;
+
+        if (!MagInvoeren)
+        {
+            Toon("Je hebt geen recht om documenten aan facturen te hangen.", true);
+            return;
+        }
+
+        var fouten = new List<string>();
+        var erbij = 0;
+
+        // Meerdere bestanden tegelijk: de factuur en de bijlagen uit de mail.
+        // Meer dan 20 zou GetMultipleFiles laten ontploffen; dan liever een melding.
+        if (e.FileCount > 20)
+        {
+            Toon($"Dat zijn er {e.FileCount}; maximaal 20 tegelijk.", true);
+            _uploadRonde++;
+            return;
+        }
+
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            // Zelf op grootte controleren geeft een leesbare melding; de grens van
+            // de leesstroom gooit een Engelse fout met bytes erin.
+            var grens = Afbeelding(bestand.Name) ? 5_000_000 : 25_000_000;
+            if (bestand.Size > grens)
+            {
+                fouten.Add($"{bestand.Name} is {bestand.Size / 1024.0 / 1024.0:0.#} MB "
+                         + $"(maximaal {grens / 1_000_000} MB)");
+                continue;
+            }
+
+            if (_gekozen.Any(b => b.Naam.Equals(bestand.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                fouten.Add($"{bestand.Name} stond er al bij");
+                continue;
+            }
+
+            try
+            {
+                using var geheugen = new MemoryStream();
+                await bestand.OpenReadStream(maxAllowedSize: grens).CopyToAsync(geheugen);
+
+                _gekozen.Add(new GekozenBestand { Naam = bestand.Name, Inhoud = geheugen.ToArray() });
+                erbij++;
+            }
+            catch (Exception ex) { fouten.Add($"{bestand.Name}: {ex.Message}"); }
+        }
+
+        _uploadRonde++;
+
+        // Staat de factuur al in de database? Dan hangen de bestanden er meteen
+        // aan; het voorbeeld pakt het bewaarde document dan vanzelf op. Eerst
+        // een geheugen-voorbeeld maken zou de bytes voor niets naar de browser
+        // sturen.
+        if (_factuur.Id != 0 && erbij > 0) await BewaarBestanden();
+
+        // Het zojuist gekozen bestand meteen groot in beeld; meestal is dat
+        // de factuur zelf, en die wil je naast de velden zien.
+        if (erbij > 0 && _gekozen.LastOrDefault(b => !b.Bewaard) is { } nieuwste)
+            await KiesLos(nieuwste);
+        else if (erbij > 0 && _documenten.Count > 0)
+            _keuzeDoc = _documenten[0].FileStoreId;   // net bewaard; nieuwste staat voorop
+
+        if (fouten.Count > 0) Toon("Niet meegenomen: " + string.Join("; ", fouten) + ".", true);
+        else if (erbij > 0 && _factuur.Id == 0)
+            Toon(erbij == 1 ? "Bestand klaargezet." : $"{erbij} bestanden klaargezet.", false);
+    }
+
+    private async Task Verwijder(GekozenBestand best)
+    {
+        _gekozen.Remove(best);
+        _uploadRonde++;
+
+        // Stond dit bestand in het voorbeeld? Dan door naar het eerste document,
+        // of anders naar een ander nog los bestand.
+        if (_keuzeLos == best)
+        {
+            _keuzeLos = null;
+            await WisLosUrl();
+            if (_documenten.Count > 0) _keuzeDoc = _documenten[0].FileStoreId;
+            else if (_gekozen.FirstOrDefault(b => !b.Bewaard) is { } ander) await KiesLos(ander);
+        }
+    }
+
+    /// <summary>
+    /// Laat de AI de factuur lezen en vult de velden in. Er wordt niets opgeslagen:
+    /// jij kijkt ernaar en drukt daarna zelf op opslaan.
+    /// </summary>
+    private static bool Afbeelding(string naam)
+        => Path.GetExtension(naam).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif";
+
+    private async Task Lees(GekozenBestand best)
+    {
+        // Twee keer klikken zou twee keer werk kosten en de velden door elkaar zetten.
+        if (_lezen) return;
+
+        if (!MagInvoeren)
+        {
+            Toon("Je hebt geen recht om facturen te laten uitlezen.", true);
+            return;
+        }
+
+        _lezen = true;
+        _aiOpmerkingen = new();
+        _leesStand = "voorbereiden…";
+        _leesBestand = best.Naam;
+        _leesStart = DateTime.Now;
+        await KiesLos(best);    // wat gelezen wordt, staat ook in het voorbeeld
+        StateHasChanged();      // de voortgangsbalk meteen in beeld
+
+        // De lezer meldt zijn fases; het tikkertje ververst elke seconde de
+        // teller, zodat zichtbaar blijft dat er echt gewerkt wordt.
+        var voortgang = new Progress<string>(stand =>
+        {
+            _leesStand = stand;
+            _ = InvokeAsync(StateHasChanged);
+        });
+        await using var tikker = new Tikker(() => _ = InvokeAsync(StateHasChanged));
+
+        try
+        {
+            var (uit, fout) = await Lezer.LeesAsync(best.Inhoud, best.Naam, voortgang);
+            if (uit is null) { Toon(fout, true); return; }
+
+            NeemOver(uit);
+            await ZoekLeverancier(uit);
+
+            // Vond de AI een PO-verwijzing, dan zoekt het koppelscherm daar
+            // straks alvast op voor.
+            _poHint = uit.PoNummer;
+
+            _aiOpmerkingen = uit.Opmerkingen;
+            Toon(_automatisch.Count == 0
+                ? $"Er is niets bruikbaars uit de factuur gekomen ({uit.Bron}); vul hem met de hand in."
+                : $"{_automatisch.Count} velden ingevuld ({uit.Bron}) — controleer ze even; "
+                  + "ze staan geel.", false);
+        }
+        catch (Exception ex) { Toon("Uitlezen mislukt: " + ex.Message, true); }
+        finally { _lezen = false; }
+    }
+
+    /// <summary>Zet over wat er gevonden is. Wie op uitlezen drukt, vraagt om de
+    /// waarden uit het document — die vervangen dus wat er stond; alles wat de
+    /// AI invulde kleurt geel zodat het te controleren is.</summary>
+    private void NeemOver(FactuurUitPdf uit)
+    {
+        _automatisch.Clear();
+
+        if (uit.Factuurdatum is not null)
+        {
+            _factuur.Factuurdatum = uit.Factuurdatum;
+            _automatisch.Add("Factuurdatum");
+        }
+        if (uit.Factuurnummer.Length > 0)
+        {
+            _factuur.Factuurnummer = uit.Factuurnummer;
+            _automatisch.Add("Factuurnummer");
+        }
+        if (uit.Omschrijving.Length > 0)
+        {
+            _factuur.Omschrijving = uit.Omschrijving.Length > 100
+                ? uit.Omschrijving[..100] : uit.Omschrijving;
+            _automatisch.Add("Omschrijving");
+        }
+        if (uit.Betalingstermijn is int dagen)
+        {
+            _factuur.Betalingstermijn = dagen;
+            _automatisch.Add("Betalingstermijn");
+        }
+
+        // Bedragen: het bedrag en de btw zijn leidend; klopt het totaal daar niet
+        // mee, dan zegt de controleregel dat vanzelf.
+        if (uit.BedragExBtw is decimal ex)
+        {
+            _factuur.BedragExBtw = ex;
+            _automatisch.Add("BedragExBtw");
+        }
+        if (uit.Btw is decimal btw)
+        {
+            _factuur.Btw = btw;
+            _automatisch.Add("Btw");
+        }
+        else if (uit.BedragExBtw is decimal e2 && uit.Totaal is decimal t2)
+        {
+            _factuur.Btw = Math.Round(t2 - e2, 2);
+            _automatisch.Add("Btw");
+        }
+        else if (uit.Totaal is decimal t3)
+        {
+            // Alleen een totaal: dat is het normale geval bij een kassabon. Met 21%
+            // terugrekenen en dat er duidelijk bij zeggen, want het tarief kan 9 zijn.
+            _factuur.BedragExBtw = Math.Round(t3 / 1.21m, 2);
+            _factuur.Btw = Math.Round(t3 - _factuur.BedragExBtw, 2);
+            _automatisch.Add("BedragExBtw");
+            _automatisch.Add("Btw");
+            uit.Opmerkingen.Add($"Op de bon stond alleen het totaal ({t3:0.00}). Bedrag en btw "
+                              + "zijn met 21% teruggerekend — controleer of dat tarief klopt.");
+        }
+
+        ZetBedragen();
+    }
+
+    /// <summary>
+    /// Zoekt de leverancier op naam bij Relaties. Eén treffer koppelen we meteen;
+    /// bij meer laten we de keuze staan, want de verkeerde leverancier is erger
+    /// dan zelf even kiezen.
+    /// </summary>
+    /// <summary>
+    /// Zoekt de leverancier op, in de volgorde van betrouwbaar naar minder:
+    ///
+    ///   1. een eerder gekoppelde naam uit de aliastabel — die heeft iemand zelf
+    ///      goedgekeurd, dus daar is geen twijfel over;
+    ///   2. het rekeningnummer — dat verandert niet als een bedrijf van naam wisselt;
+    ///   3. de naam zoeken in de relaties.
+    ///
+    /// Blijft er twijfel, dan zetten we de zoeklijst open in plaats van te kiezen.
+    /// De verkeerde leverancier is erger dan zelf even klikken.
+    /// </summary>
+    private async Task ZoekLeverancier(FactuurUitPdf uit)
+    {
+        if (_factuur.BedrijfId is not null) return;
+
+        try
+        {
+            // 1. Kennen we deze naam al?
+            if (uit.Leverancier.Length > 0)
+            {
+                var alias = await Repo.ZoekOpAliasAsync(uit.Leverancier);
+                if (alias is not null)
+                {
+                    await ZetLeverancier(alias.Value.Id, alias.Value.Naam, uit);
+                    uit.Opmerkingen.Add($"'{uit.Leverancier}' is eerder gekoppeld aan "
+                                      + $"'{alias.Value.Naam}'; die is genomen.");
+                    return;
+                }
+            }
+
+            // 2. Het rekeningnummer is betrouwbaarder dan een naam.
+            if (uit.Iban.Length > 0)
+            {
+                var opIban = await Repo.ZoekOpIbanAsync(uit.Iban);
+                if (opIban is not null)
+                {
+                    await ZetLeverancier(opIban.Value.Id, opIban.Value.Naam, uit);
+                    uit.Opmerkingen.Add($"Gevonden op het rekeningnummer: '{opIban.Value.Naam}'. "
+                                      + $"Op de factuur staat de naam '{uit.Leverancier}'.");
+
+                    // Naam wijkt af? Dan is dit precies het geval om te onthouden.
+                    if (uit.Leverancier.Length > 0
+                        && !Gelijk(uit.Leverancier, opIban.Value.Naam)) _aliasVraag = uit.Leverancier;
+                    return;
+                }
+            }
+
+            if (uit.Leverancier.Length == 0) return;
+
+            // 3. Op naam zoeken.
+            var gevonden = await Relaties.ZoekAsync(uit.Leverancier, false, true, 0, 10);
+
+            if (gevonden.Count == 1)
+            {
+                await ZetLeverancier(gevonden[0].Id, gevonden[0].Naam, uit);
+                uit.Opmerkingen.Add($"Leverancier gekoppeld aan '{gevonden[0].Naam}' op basis van "
+                                  + $"'{uit.Leverancier}' op de factuur. Klopt dat?");
+
+                if (!Gelijk(uit.Leverancier, gevonden[0].Naam)) _aliasVraag = uit.Leverancier;
+            }
+            else
+            {
+                // Niets of meerdere treffers: laat de gebruiker kiezen, met de naam
+                // van de factuur al ingevuld en de zoeklijst open.
+                _leveranciers = gevonden;
+                _leverancierZoek = uit.Leverancier;
+                _zoekOpen = true;
+                _aliasVraag = "";
+
+                uit.Opmerkingen.Add(gevonden.Count == 0
+                    ? $"'{uit.Leverancier}' staat niet onder die naam bij Relaties. Zoek hem op — "
+                      + "na je keuze kan de app de naam onthouden voor de volgende keer."
+                    : $"Er zijn {gevonden.Count} leveranciers die op '{uit.Leverancier}' lijken; "
+                      + "kies de juiste.");
+            }
+        }
+        catch { }
+    }
+
+    private async Task ZetLeverancier(int id, string naam, FactuurUitPdf uit)
+    {
+        if (_factuur.BedrijfId != id) WisWachtPos();
+        _factuur.BedrijfId = id;
+        _factuur.Bedrijf = naam;
+        _automatisch.Add("Leverancier");
+
+        await ControleerBank();
+        ControleerIban(uit);
+    }
+
+    /// <summary>Zijn twee namen in de kern hetzelfde? Rechtsvorm en leestekens doen niet mee.</summary>
+    private static bool Gelijk(string a, string b)
+        => MySqlFactuurRepository.AliasSleutel(a) == MySqlFactuurRepository.AliasSleutel(b);
+
+    /// <summary>De naam van de factuur onthouden bij de gekozen leverancier.</summary>
+    private async Task OnthoudAlias()
+    {
+        if (_aliasVraag.Length == 0 || _factuur.BedrijfId is null) return;
+
+        var naam = _aliasVraag;
+        try
+        {
+            await Repo.BewaarAliasAsync(naam, _factuur.BedrijfId.Value, Ik.WerknemerId);
+            _aliasVraag = "";
+            Toon($"Onthouden: '{naam}' hoort bij {_factuur.Bedrijf}. "
+               + "De volgende factuur van dit bedrijf gaat vanzelf goed.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Onthouden mislukt: " + ex.Message + " — is de tabel LeverancierAlias al aangemaakt? "
+               + "Zie LeverancierAlias_MariaDB.sql.", true);
+        }
+    }
+
+    /// <summary>
+    /// Schrijft het gekozen bestand naar de filestore. Geeft terug of er iets is
+    /// weggeschreven; zonder gekozen bestand gebeurt er niets.
+    /// </summary>
+    /// <summary>
+    /// Schrijft de nog niet bewaarde bestanden naar de filestore — dezelfde plek als
+    /// Access gebruikt (soort 1, met het factuurnummer als sleutel), zodat beide
+    /// programma's dezelfde documenten zien.
+    ///
+    /// De inhoud blijft in het geheugen staan, zodat je een factuur daarna alsnog
+    /// kunt laten uitlezen.
+    /// </summary>
+    private async Task<int> BewaarBestanden()
+    {
+        var tedoen = _gekozen.Where(b => !b.Bewaard).ToList();
+        if (tedoen.Count == 0 || _factuur.Id == 0) return 0;
+
+        _uploadBezig = true;
+        var gelukt = 0;
+        var fouten = new List<string>();
+
+        try
+        {
+            foreach (var best in tedoen)
+            {
+                try
+                {
+                    using var stroom = new MemoryStream(best.Inhoud);
+                    await Filestore.ToevoegenAsync(stroom, best.Naam, StoreTypeFactuur,
+                                                   _factuur.Id, Ik.WerknemerId ?? 0);
+                    best.Bewaard = true;
+                    gelukt++;
+                }
+                catch (Exception ex) { fouten.Add($"{best.Naam}: {ex.Message}"); }
+            }
+
+            if (gelukt > 0)
+            {
+                _erIsGewijzigd = true;
+                await LaadDocumenten();
+            }
+            if (fouten.Count > 0) Toon("Niet opgeslagen: " + string.Join("; ", fouten), true);
+
+            return gelukt;
+        }
+        finally
+        {
+            _uploadBezig = false;
+            _uploadRonde++;
+        }
+    }
+
+    /// <summary>
+    /// Zoals de factuur was toen het venster openging. Daarmee weten we of er iets
+    /// te verliezen valt bij het sluiten.
+    /// </summary>
+    private string _zoalsGeopend = "";
+
+    /// <summary>
+    /// Een korte samenvatting van alles wat je kunt wijzigen. Simpeler dan veld voor
+    /// veld vergelijken, en het mist niets zolang het hier compleet is.
+    /// </summary>
+    private string Vingerafdruk() => string.Join("|",
+        _factuur.AdministratieId, _factuur.BedrijfId, _factuur.Factuurdatum,
+        _factuur.Factuurnummer, _factuur.Omschrijving, _factuur.ReferentieMde,
+        _factuur.Betalingstermijn, _factuur.BedragExBtw, _factuur.Btw,
+        _factuur.Doorbelasten, _factuur.OpHold,
+        // Alleen bij een nieuwe factuur: daar gaan de vinkjes pas mee bij het
+        // toevoegen. Bij een bestaande zijn ze al direct opgeslagen, dus die
+        // horen niet in de "ben je iets kwijt?"-vergelijking.
+        _factuur.Id == 0 && _factuur.Goedgekeurd,
+        _factuur.Id == 0 && _factuur.Betaald,
+        // Ook gekozen maar nog niet bewaarde bestanden zijn werk dat je kwijt kunt,
+        // net als koppelingen die nog in de wachtrij staan.
+        string.Join(",", _gekozen.Where(b => !b.Bewaard).Select(b => b.Naam)),
+        string.Join(",", _wachtKoppelingen.Select(w => w.Naam + w.Bedrag)));
+
+    private bool ErIsIetsGewijzigd => Vingerafdruk() != _zoalsGeopend;
+
+    /// <summary>Waar: de laatste muisdruk begon op de achtergrond zelf.</summary>
+    private bool _overlayDruk;
+
+    private async Task OverlayGeklikt()
+    {
+        var begonOpAchtergrond = _overlayDruk;
+        _overlayDruk = false;
+        if (begonOpAchtergrond) await Afbreken();
+    }
+
+    private async Task Afbreken()
+    {
+        // Werk mag niet verdwijnen door een klik naast het venster — niet bij een
+        // nieuwe factuur, en net zomin bij het bewerken van een bestaande.
+        if (ErIsIetsGewijzigd)
+        {
+            var weg = await Vraag(_nieuw
+                ? "Deze factuur is nog niet opgeslagen. Toch sluiten?"
+                : "Er zijn wijzigingen die nog niet zijn opgeslagen. Toch sluiten?");
+            if (!weg) return;
+        }
+
+        await Sluiten.InvokeAsync(_erIsGewijzigd);
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("confirm", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    // ============================================================
+    //  De vlaggen (stand van zaken)
+    // ============================================================
+
+    private bool MagGoedkeuren => Ik.Mag("MagFacturenGoedkeuren") || Ik.Mag("Directie");
+
+    /// <summary>Gaat omhoog als een vinkje moet worden teruggedraaid; zie de @@key.</summary>
+    private int _vlagRonde;
+
+    /// <summary>"12-08-2026 · Peter" — of leeg als de vlag niet gezet is.</summary>
+    private static string Stempel(DateTime? wanneer, string door)
+    {
+        var datum = wanneer?.ToString("dd-MM-yyyy") ?? "";
+        if (datum.Length == 0) return "";
+        return door.Length > 0 ? $"{datum} · {door}" : datum;
+    }
+
+    private async Task ZetVlagHier(FactuurVlag vlag, ChangeEventArgs e)
+    {
+        var aan = Vink(e);
+
+        // Zelfde controle als in de lijst; het uitgrijzen houdt niemand tegen
+        // die het echt wil.
+        var magHet = vlag == FactuurVlag.Goedgekeurd ? MagGoedkeuren : MagInvoeren;
+        if (!magHet)
+        {
+            _vlagRonde++;
+            Toon("Je hebt hier geen recht voor.", true);
+            return;
+        }
+
+        // Nieuwe factuur: nog geen id, dus alleen onthouden. De vlag wordt
+        // echt gezet (mét wie en wanneer) zodra de factuur is toegevoegd.
+        if (_factuur.Id == 0)
+        {
+            ZetVlagLokaal(vlag, aan);
+            return;
+        }
+
+        // Een factuur die al naar Basecone is, wil je niet stil terugdraaien.
+        if (vlag == FactuurVlag.Basecone && !aan
+            && !await Vraag("Deze factuur staat als 'naar Basecone'. Echt terugdraaien?"))
+        {
+            _vlagRonde++;
+            return;
+        }
+
+        try
+        {
+            await Repo.ZetVlagAsync(_factuur.Id, vlag, aan, Ik.WerknemerId);
+            ZetVlagLokaal(vlag, aan);
+            _erIsGewijzigd = true;
+        }
+        catch (Exception ex)
+        {
+            _vlagRonde++;
+            Toon("Vinkje zetten mislukt: " + ex.Message, true);
+        }
+    }
+
+    /// <summary>Houdt het scherm gelijk aan wat de database nu zegt, zonder
+    /// opnieuw op te halen. De database schrijft dezelfde stempels.</summary>
+    private void ZetVlagLokaal(FactuurVlag vlag, bool aan)
+    {
+        var nu = aan ? DateTime.Now : (DateTime?)null;
+        var wie = aan ? Ik.Naam : "";
+        switch (vlag)
+        {
+            case FactuurVlag.Goedgekeurd:
+                _factuur.Goedgekeurd = aan; _factuur.GoedgekeurdOp = nu; _factuur.GoedgekeurdDoor = wie;
+                break;
+            case FactuurVlag.Betaald:
+                _factuur.Betaald = aan;
+                _factuur.BetaaldOp = aan ? DateOnly.FromDateTime(DateTime.Today) : null;
+                _factuur.BetaaldDoor = wie;
+                break;
+            case FactuurVlag.Sepa:
+                _factuur.SepaVerzonden = aan; _factuur.SepaOp = nu; _factuur.SepaDoor = wie;
+                break;
+            case FactuurVlag.Basecone:
+                _factuur.NaarBasecone = aan; _factuur.BaseconeOp = nu;
+                break;
+        }
+    }
+}

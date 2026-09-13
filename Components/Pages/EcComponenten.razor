@@ -1,0 +1,351 @@
+@page "/tools/ec-componenten"
+@inject IEcComponentRepository Repo
+
+@* De standaardcomponenten van Eurocircuits: weerstanden en condensatoren
+   die zij standaard voeren — die zijn goedkoop en snel leverbaar, dus daar
+   ontwerp je bij voorkeur mee. De CSV-exports van Eurocircuits ("GEN RES
+   public - 0402.csv" enzovoort) sleep je hieronder naar binnen; het GPN is
+   de unieke sleutel, dus opnieuw importeren werkt bij zonder dubbelen.
+   De Fusion-add-in gaat later uit dezelfde tabel putten. *@
+
+<PageTitle>Eurocircuits-componenten — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Eurocircuits-standaardcomponenten</h1>
+        <span class="weeklabel">@Zichtbaar.Count() van @_alles.Count componenten</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- importeren ---------- *@
+        <div class="sleepzone factuur-sleep fusion-sleep @(_sleep ? "actief" : "")"
+             @ondragenter="() => _sleep = true"
+             @ondragleave="() => _sleep = false"
+             @ondrop="() => _sleep = false">
+            @if (_bezig)
+            {
+                <text>Bezig met importeren…</text>
+            }
+            else
+            {
+                <text>Sleep hier de CSV-export(s) van Eurocircuits in (mag meerdere tegelijk).</text>
+            }
+            <InputFile OnChange="BestandenGekozen" accept=".csv" multiple
+                       disabled="@_bezig" @key="_ronde" />
+        </div>
+
+        @* ---------- filters ---------- *@
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Soort</span>
+                <select value="@_soortFilter" @onchange="e => _soortFilter = (string?)e.Value ?? string.Empty">
+                    <option value="">Alles</option>
+                    <option value="R">Weerstanden</option>
+                    <option value="C">Condensatoren</option>
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Grootte</span>
+                <select value="@_grootteFilter" @onchange="e => _grootteFilter = (string?)e.Value ?? string.Empty">
+                    <option value="">Alle</option>
+                    @foreach (var g in _alles.Select(c => c.Grootte).Distinct().OrderBy(g => g))
+                    {
+                        <option value="@g">@g</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Zoeken</span>
+                <input value="@_zoek" placeholder="waarde, GPN of omschrijving…"
+                       @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            </label>
+        </div>
+
+        @* ---------- het overzicht ---------- *@
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel banktabel">
+                <thead>
+                    <tr>
+                        <th style="width:10rem">GPN</th>
+                        <th style="width:8rem">Soort</th>
+                        <th style="width:5rem">Grootte</th>
+                        <th style="width:7rem" class="r">Waarde</th>
+                        <th style="width:6rem">Tol.</th>
+                        <th style="width:6rem">Vermogen</th>
+                        <th style="width:6rem">Spanning</th>
+                        <th style="width:8rem">Diëlektricum</th>
+                        <th>Omschrijving</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in Zichtbaar.Take(500))
+                    {
+                        <tr @key="c.Id">
+                            <td class="nummer">@c.Gpn</td>
+                            <td>@c.SoortNaam</td>
+                            <td>@c.Grootte</td>
+                            <td class="r">@c.WaardeTekst</td>
+                            <td>@c.Tolerantie</td>
+                            <td>@c.Vermogen</td>
+                            <td>@c.Spanning</td>
+                            <td>@c.Dielectricum</td>
+                            <td class="omschrijving" title="@c.Omschrijving">@c.Omschrijving</td>
+                        </tr>
+                    }
+                    @if (!Zichtbaar.Any())
+                    {
+                        <tr><td colspan="9" class="kiezer-info">
+                            @(_alles.Count == 0 ? "Nog geen componenten — sleep de CSV-exports hierboven naar binnen."
+                                                : "Niets gevonden binnen dit filter.")
+                        </td></tr>
+                    }
+                    @if (Zichtbaar.Count() > 500)
+                    {
+                        <tr><td colspan="9" class="kiezer-info">
+                            … nog @(Zichtbaar.Count() - 500) meer; verfijn het filter om ze te zien.
+                        </td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <footer class="voet">
+            Bron: de CSV-exports van Eurocircuits. Opnieuw importeren werkt bestaande
+            GPN's bij; er ontstaan geen dubbelen.
+        </footer>
+    }
+</div>
+
+@code {
+    private List<EcComponent> _alles = new();
+    private string _soortFilter = "";
+    private string _grootteFilter = "";
+    private string _zoek = "";
+    private bool _sleep;
+    private bool _bezig;
+    private int _ronde;
+    private string? _melding;
+    private bool _fout;
+
+    private IEnumerable<EcComponent> Zichtbaar => _alles
+        .Where(c => _soortFilter.Length == 0 || c.Soort.ToString() == _soortFilter)
+        .Where(c => _grootteFilter.Length == 0 || c.Grootte == _grootteFilter)
+        .Where(c => _zoek.Length == 0
+                    || c.Gpn.Contains(_zoek, StringComparison.OrdinalIgnoreCase)
+                    || Compact(c.WaardeTekst).Contains(Compact(_zoek), StringComparison.OrdinalIgnoreCase)
+                    || (c.Omschrijving?.Contains(_zoek, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    /// <summary>Spaties negeren bij het zoeken op waarde: "100nf" vindt zo
+    /// ook "100 nF", en andersom.</summary>
+    private static string Compact(string s) => s.Replace(" ", "");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Repo.Beschikbaar) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try { _alles = await Repo.GetAllesAsync(); }
+        catch (Exception ex)
+        {
+            _alles = new();
+            Toon("Ophalen mislukt — bestaat de tabel al? Draai anders eerst " +
+                 "EurocircuitsComponenten_MariaDB.sql. (" + ex.Message + ")", true);
+        }
+    }
+
+    // ================================================================
+    //  Importeren
+    // ================================================================
+
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleep = false;
+        _bezig = true;
+        var uitkomsten = new List<string>();
+
+        try
+        {
+            foreach (var bestand in e.GetMultipleFiles(20))
+            {
+                try
+                {
+                    if (!bestand.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                    {
+                        uitkomsten.Add($"{bestand.Name}: geen CSV, overgeslagen");
+                        continue;
+                    }
+
+                    using var lezer = new StreamReader(
+                        bestand.OpenReadStream(maxAllowedSize: 20_000_000));
+                    var tekst = await lezer.ReadToEndAsync();
+
+                    var (componenten, fouten) = Ontleed(tekst);
+                    if (componenten.Count == 0)
+                    {
+                        uitkomsten.Add($"{bestand.Name}: niets herkend" +
+                                       (fouten.Count > 0 ? $" ({fouten[0]})" : ""));
+                        continue;
+                    }
+
+                    var (nieuw, bijgewerkt) = await Repo.ImporteerAsync(componenten);
+                    uitkomsten.Add($"{bestand.Name}: {nieuw} nieuw, {bijgewerkt} bijgewerkt" +
+                                   (fouten.Count > 0 ? $", {fouten.Count} regel(s) overgeslagen" : ""));
+                }
+                catch (Exception ex)
+                {
+                    uitkomsten.Add($"{bestand.Name}: mislukt — {ex.Message}");
+                }
+            }
+
+            await Laad();
+            Toon(string.Join(" · ", uitkomsten), uitkomsten.Any(u => u.Contains("mislukt")));
+        }
+        finally
+        {
+            _bezig = false;
+            _ronde++;
+        }
+    }
+
+    /// <summary>
+    /// Leest één Eurocircuits-export. De kopregel bepaalt de soort:
+    /// een kolom 'Resistance' betekent weerstanden, 'Capacitance'
+    /// condensatoren. De grootte (0402…) zit in het GPN.
+    /// </summary>
+    private static (List<EcComponent> Componenten, List<string> Fouten) Ontleed(string tekst)
+    {
+        var componenten = new List<EcComponent>();
+        var fouten = new List<string>();
+
+        var regels = tekst.Split('\n')
+                          .Select(l => l.TrimEnd('\r'))
+                          .Where(l => l.Length > 0)
+                          .ToList();
+        if (regels.Count < 2) { fouten.Add("bestand is leeg"); return (componenten, fouten); }
+
+        var kop = EurocircuitsExport.SplitsCsv(regels[0], ',')
+                                    .Select(EurocircuitsExport.Kaal).ToList();
+
+        int Kolom(params string[] namen)
+        {
+            foreach (var naam in namen)
+            {
+                var i = kop.FindIndex(k => k.Equals(naam, StringComparison.OrdinalIgnoreCase)
+                                        || k.StartsWith(naam, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+            }
+            return -1;
+        }
+
+        var iWaarde = Kolom("Values", "Value");
+        var iEenheidR = Kolom("Resistance");
+        var iEenheidC = Kolom("Capacitance");
+        var iGpn = Kolom("GPN");
+        var iTol = Kolom("Tol");
+        var iVermogen = Kolom("Power");
+        var iSpanning = Kolom("Voltage");
+        var iDiel = Kolom("Dielectric");
+        var iOms = Kolom("Description");
+
+        var soort = iEenheidR >= 0 ? 'R' : iEenheidC >= 0 ? 'C' : '?';
+        var iEenheid = soort == 'R' ? iEenheidR : iEenheidC;
+        if (soort == '?' || iWaarde < 0 || iGpn < 0)
+        {
+            fouten.Add($"kopregel niet herkend: {string.Join(", ", kop)}");
+            return (componenten, fouten);
+        }
+
+        for (var r = 1; r < regels.Count; r++)
+        {
+            var velden = EurocircuitsExport.SplitsCsv(regels[r], ',')
+                                           .Select(EurocircuitsExport.Kaal).ToList();
+            string Veld(int i) => i >= 0 && i < velden.Count ? velden[i] : "";
+
+            var gpn = Veld(iGpn);
+            if (gpn.Length == 0) continue;
+
+            var waardeTekst = Veld(iWaarde);
+            var eenheid = Veld(iEenheid);
+            var basis = WaardeInBasis(waardeTekst, eenheid);
+            if (basis is null)
+            {
+                fouten.Add($"regel {r + 1}: waarde '{waardeTekst} {eenheid}' niet te lezen");
+                continue;
+            }
+
+            var grootte = GrootteUit(gpn, Veld(iOms));
+            if (grootte.Length == 0)
+            {
+                fouten.Add($"regel {r + 1}: grootte niet uit '{gpn}' te halen");
+                continue;
+            }
+
+            componenten.Add(new EcComponent
+            {
+                Gpn = gpn,
+                Soort = soort,
+                Grootte = grootte,
+                WaardeBasis = basis.Value,
+                WaardeTekst = $"{waardeTekst} {eenheid}".Trim(),
+                Tolerantie = Leeg(Veld(iTol)),
+                Vermogen = Leeg(Veld(iVermogen)),
+                Spanning = Leeg(Veld(iSpanning)),
+                Dielectricum = Leeg(Veld(iDiel)),
+                Omschrijving = Leeg(Veld(iOms)),
+            });
+        }
+
+        return (componenten, fouten);
+    }
+
+    private static string? Leeg(string s) => s.Length == 0 ? null : s;
+
+    /// <summary>"1,1" + "kΩ" → 1100 (ohm); "0,5" + "pF" → 5e-13 (farad).</summary>
+    private static double? WaardeInBasis(string waarde, string eenheid)
+    {
+        if (!double.TryParse(waarde.Replace(',', '.'),
+                             System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture, out var getal))
+            return null;
+
+        var factor = eenheid.Trim() switch
+        {
+            "Ω" or "ohm" or "Ohm" or "R" => 1.0,
+            "mΩ" => 1e-3,
+            "kΩ" or "kohm" or "kOhm" or "k" => 1e3,
+            "MΩ" or "Mohm" or "MOhm" or "M" => 1e6,
+            "pF" => 1e-12,
+            "nF" => 1e-9,
+            "µF" or "uF" => 1e-6,
+            "mF" => 1e-3,
+            "F" => 1.0,
+            _ => double.NaN,
+        };
+        return double.IsNaN(factor) ? null : getal * factor;
+    }
+
+    /// <summary>De grootte uit het GPN (GPR0402… → 0402), anders uit de
+    /// omschrijving ("… 0402 [1005 Metric] …").</summary>
+    private static string GrootteUit(string gpn, string omschrijving)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(gpn, @"^GP[A-Z](\d{4})");
+        if (m.Success) return m.Groups[1].Value;
+
+        m = System.Text.RegularExpressions.Regex.Match(omschrijving, @"\b(\d{4})\s*[\[\(]");
+        return m.Success ? m.Groups[1].Value : "";
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
