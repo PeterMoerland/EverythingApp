@@ -1080,6 +1080,12 @@ html[data-thema="donker"] a.primair:hover { background: #2a6cc4; }
 .zoekveld { margin-left: auto; min-width: 16rem; }
 .comp-tabel td { vertical-align: top; }
 .comp-tabel td.omschrijving { overflow-wrap: anywhere; }
+/* Beheer ▸ Filestore: lijst links, details rechts */
+.fs-tweeluik { display: grid; grid-template-columns: minmax(0, 1fr) 28rem; gap: 1.2rem; align-items: start; margin-top: .6rem; }
+@media (max-width: 80rem) { .fs-tweeluik { grid-template-columns: 1fr; } }
+.fs-tabel td { white-space: nowrap; }
+.fs-tabel td.omschrijving { white-space: normal; overflow-wrap: anywhere; }
+.fs-detail .prod-velden { grid-template-columns: max-content 1fr; }
 /* MPN opzoeken in de kijker: de MPN zelf is de link */
 .mpn-link { background: none; border: none; padding: 0; margin: 0;
             font: inherit; color: var(--accent); text-decoration: underline;

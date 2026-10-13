@@ -233,19 +233,30 @@ public class LabelService
         }
         Zeg($"Fotomap: {map}");
 
-        // Bleek de map onbereikbaar, dan even niet opnieuw proberen: printen zonder
-        // foto is beter dan een knop die een halve minuut blijft hangen.
+        // Bleek de map onbereikbaar, dan heel even niet opnieuw proberen: printen zonder
+        // foto is beter dan een knop die blijft hangen. Kort (30 s), want de NAS heeft
+        // af en toe een hik van een paar seconden — geen reden om vijf minuten lang
+        // labels zonder foto te maken. De uitleg-pagina (verslag) probeert het altijd.
         var stuk = new DateTime(Interlocked.Read(ref _fotomapStuk), DateTimeKind.Utc);
-        if (DateTime.UtcNow - stuk < TimeSpan.FromMinutes(5))
+        if (verslag is null && DateTime.UtcNow - stuk < TimeSpan.FromSeconds(30))
         {
-            Zeg($"De map lag er om {stuk.ToLocalTime():HH:mm:ss} uit; tot vijf minuten daarna "
-              + "gaan labels zonder foto. Opnieuw printen na die tijd probeert het weer.");
+            _log.LogInformation("Foto van artikel {Id} overgeslagen: fotomap lag er om {Tijd:HH:mm:ss} uit.", artikelId, stuk.ToLocalTime());
             return null;
         }
+        if (verslag is not null && DateTime.UtcNow - stuk < TimeSpan.FromSeconds(30))
+            Zeg($"De map lag er om {stuk.ToLocalTime():HH:mm:ss} uit (labels gaan 30 s zonder foto); deze uitleg probeert het toch.");
 
         try
         {
             var submap = Path.Combine(map, (artikelId / 1000).ToString("D8"));
+
+            // Netwerkpad: bij een hik van de SMB-verbinding faalt de eerste aanroep
+            // zonder duidelijke fout. Eén korte herkansing voordat we opgeven.
+            if (map.StartsWith(@"\\") && !Directory.Exists(submap))
+            {
+                await Task.Delay(400);
+                if (Directory.Exists(submap)) Zeg("Fotomap pas bij herkansing bereikbaar (netwerk-hik).");
+            }
 
             // Bewust geen Directory.Exists: die geeft bij élke fout "bestaat niet"
             // terug en verzwijgt waarom. Meteen opsommen geeft bij een probleem een

@@ -187,9 +187,11 @@ public static class Menu
                 new MenuItem("Pastypes", "/beheer/tabel/pastypes"),
                 new MenuItem("Tariefsoorten")),   // staat voorlopig vast
             new MenuGroep("Instellingen",
-                new MenuItem("Algemene instellingen", "/beheer/instellingen")),
+                new MenuItem("Algemene instellingen", "/beheer/instellingen"),
+                new MenuItem("Labelprinter (deze pc)", "/beheer/labelprinter")),
             new MenuGroep("Systeem",
                 new MenuItem("Verbinding & schema", "/diag"),
+                new MenuItem("Filestore", "/beheer/filestore"),
                 new MenuItem("Computers", "/beheer/computers"))),
     };
 

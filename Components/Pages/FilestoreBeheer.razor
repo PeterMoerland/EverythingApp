@@ -1,0 +1,269 @@
+@page "/beheer/filestore"
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+
+@* Beheer ▸ Systeem ▸ Filestore — de FilestoreViewer uit Access. Alle bestanden
+   in de filestore, te filteren op soort, wie het toevoegde en extensie; rechts
+   de details van het gekozen bestand met wat er op schijf staat. 'Controleer'
+   kijkt voor de getoonde regels of het bestand echt bestaat. *@
+
+<PageTitle>Filestore — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Filestore</h1>
+        <span class="weeklabel">@_totaal bestand(en) @(_regels.Count < _totaal ? $"· eerste {_regels.Count} getoond" : "")</span>
+    </header>
+
+    @if (!Store.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>De filestore is niet ingesteld (Filestore:Pad en de databaseverbinding).</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Soort (StoreType)</span>
+                <select value="@(_storeType?.ToString() ?? string.Empty)" @onchange="e => Filter(() => _storeType = Int((string?)e.Value))">
+                    <option value="">Alle</option>
+                    @foreach (var t in _types)
+                    {
+                        <option value="@t.Id">@(t.Naam.Length > 0 ? $"{t.Id} · {t.Naam}" : t.Id.ToString()) (@t.Aantal)</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Toegevoegd door</span>
+                <select value="@(_doorId?.ToString() ?? string.Empty)" @onchange="e => Filter(() => _doorId = Int((string?)e.Value))">
+                    <option value="">Iedereen</option>
+                    @foreach (var w in _werknemers)
+                    {
+                        <option value="@w.Id">@w.Naam</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Extensie</span>
+                <input value="@_extensie" style="width:6rem" placeholder="pdf" @onchange="e => Filter(() => _extensie = ((string?)e.Value ?? string.Empty).Trim())" />
+            </label>
+            <label class="bankveld">
+                <span>Zoek in naam of ID</span>
+                <input value="@_zoek" placeholder="factuur, 168790…" @onchange="e => Filter(() => _zoek = ((string?)e.Value ?? string.Empty).Trim())" />
+            </label>
+            <label class="bankveld">
+                <span>MasterID</span>
+                <input value="@(_masterId?.ToString() ?? string.Empty)" style="width:6rem" @onchange="e => Filter(() => _masterId = Int((string?)e.Value))" />
+            </label>
+            <button class="klein" @onclick="Wis">Filters wissen</button>
+            <button class="klein" disabled="@_controleert" @onclick="Controleer" title="Kijkt voor de getoonde regels of het bestand op schijf staat">
+                @(_controleert ? "Bezig…" : "Controleer op schijf")
+            </button>
+        </div>
+
+        <div class="fs-tweeluik">
+            <section>
+                <table class="kiezer-tabel fs-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:5.5rem">ID</th>
+                            <th style="width:9.5rem">Toegevoegd</th>
+                            <th>Bestand</th>
+                            <th style="width:10rem">Door</th>
+                            <th style="width:11rem">Soort</th>
+                            <th style="width:5rem">Master</th>
+                            <th style="width:2rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _regels)
+                        {
+                            <tr @key="r.Id" class="klikbaar @(_gekozen?.Id == r.Id ? "gekozen" : "") @(_ontbreekt.Contains(r.Id) ? "ec-fout" : "")"
+                                @onclick="() => Kies(r)">
+                                <td>@r.Id</td>
+                                <td>@(r.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                <td class="omschrijving">@(r.OrigineleNaam.Length > 0 ? r.OrigineleNaam : r.OpslagNaam)</td>
+                                <td>@r.Door</td>
+                                <td>@TypeNaam(r.StoreType)</td>
+                                <td>@r.MasterId</td>
+                                <td title="@(_ontbreekt.Contains(r.Id) ? "Bestand niet gevonden op schijf" : "")">@(_ontbreekt.Contains(r.Id) ? "⚠" : "")</td>
+                            </tr>
+                        }
+                        @if (_regels.Count == 0)
+                        {
+                            <tr><td colspan="7" class="kiezer-info">@(_laadt ? "Laden…" : "Geen bestanden gevonden.")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+
+            <aside class="prod-kaart fs-detail">
+                @if (_gekozen is null)
+                {
+                    <p class="kiezer-info">Kies een bestand in de lijst.</p>
+                }
+                else
+                {
+                    <div class="prod-kop"><b>@_gekozen.OrigineleNaam</b></div>
+                    <dl class="prod-velden">
+                        <dt>FileStoreID</dt><dd>@_gekozen.Id</dd>
+                        <dt>Filestore-naam</dt><dd>@_gekozen.OpslagNaam</dd>
+                        <dt>Submap</dt><dd>@FilestoreService.MapVoor(_gekozen.Id)</dd>
+                        <dt>Toegevoegd</dt><dd>@(_gekozen.Toegevoegd?.ToString("dd-MM-yyyy HH:mm:ss") ?? "—") door @(_gekozen.Door.Length > 0 ? _gekozen.Door : "—")</dd>
+                        <dt>Soort</dt><dd>@(_gekozen.StoreType) · @(TypeNaam(_gekozen.StoreType))</dd>
+                        <dt>MasterID</dt><dd>@_gekozen.MasterId</dd>
+                        <dt>Op schijf</dt>
+                        <dd>
+                            @if (_schijf.Bestaat)
+                            {
+                                <span class="stand-chip s-groen">aanwezig</span>
+                                <span>@Grootte(_schijf.Grootte) · @(_schijf.Gewijzigd?.ToString("dd-MM-yyyy HH:mm") ?? "")</span>
+                            }
+                            else
+                            {
+                                <span class="stand-chip s-rood">ontbreekt</span>
+                                <span class="uitleg">@_schijf.Reden</span>
+                            }
+                            <br /><small class="uitleg">@_schijf.Pad</small>
+                        </dd>
+                    </dl>
+                    <div class="btngroup">
+                        @if (_schijf.Bestaat)
+                        {
+                            <a class="knopje" href="@("bestand/" + _gekozen.Id)" target="_blank" rel="noopener">Bekijken</a>
+                            <a class="knopje" href="@("bestand/" + _gekozen.Id + "/download")">⬇ Downloaden</a>
+                        }
+                        @if (Referentie(_gekozen) is { } url)
+                        {
+                            <a class="knopje" href="@url">Open referentie ↗</a>
+                        }
+                    </div>
+                }
+            </aside>
+        </div>
+
+        <footer class="voet">
+            Hoofdmap: <code>@Store.Hoofdmap</code>. Submap = (FileStoreID ÷ 1000) + 1; de opslagnaam is datum/tijd + werknemernummer.
+        </footer>
+    }
+</div>
+
+@code {
+    private List<(int Id, string Naam, int Aantal)> _types = new();
+    private List<(int Id, string Naam)> _werknemers = new();
+    private List<FilestoreService.Regel> _regels = new();
+    private int _totaal;
+    private bool _laadt;
+
+    private int? _storeType, _doorId, _masterId;
+    private string _extensie = "", _zoek = "";
+
+    private FilestoreService.Regel? _gekozen;
+    private (bool Bestaat, long Grootte, DateTime? Gewijzigd, string Pad, string Reden) _schijf;
+    private readonly HashSet<int> _ontbreekt = new();
+    private bool _controleert;
+
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Store.Beschikbaar) return;
+        try
+        {
+            _types = await Store.StoreTypesAsync();
+            _werknemers = await Store.ToevoegersAsync();
+        }
+        catch (Exception ex) { Toon("Opzoeklijsten laden mislukt: " + ex.Message, true); }
+        await Laad();
+    }
+
+    private static int? Int(string? s) => int.TryParse(s, out var v) ? v : null;
+
+    private async Task Filter(Action zet)
+    {
+        zet();
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laadt = true;
+        _ontbreekt.Clear();
+        try
+        {
+            (_regels, _totaal) = await Store.ZoekRegelsAsync(_storeType, _doorId, _extensie, _zoek, _masterId);
+            if (_gekozen is not null && _regels.All(r => r.Id != _gekozen.Id)) _gekozen = null;
+        }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+        finally { _laadt = false; }
+    }
+
+    private async Task Wis()
+    {
+        _storeType = null; _doorId = null; _masterId = null; _extensie = ""; _zoek = "";
+        await Laad();
+    }
+
+    private void Kies(FilestoreService.Regel r)
+    {
+        _gekozen = r;
+        _schijf = Store.OpSchijf(r.Id, r.OpslagNaam);
+        if (!_schijf.Bestaat) _ontbreekt.Add(r.Id);
+    }
+
+    /// <summary>Voor alle getoonde regels kijken of het bestand er is.</summary>
+    private async Task Controleer()
+    {
+        _controleert = true;
+        _ontbreekt.Clear();
+        try
+        {
+            var regels = _regels.ToList();
+            await Task.Run(() =>
+            {
+                foreach (var r in regels)
+                    if (!Store.OpSchijf(r.Id, r.OpslagNaam).Bestaat) _ontbreekt.Add(r.Id);
+            });
+            Toon(_ontbreekt.Count == 0
+                ? $"Alle {regels.Count} getoonde bestanden staan op schijf."
+                : $"{_ontbreekt.Count} van de {regels.Count} getoonde bestanden ontbreken op schijf (rood gemarkeerd).",
+                _ontbreekt.Count > 0);
+        }
+        finally { _controleert = false; }
+    }
+
+    private string TypeNaam(int storeType)
+        => _types.FirstOrDefault(t => t.Id == storeType).Naam is { Length: > 0 } n ? n : storeType.ToString();
+
+    /// <summary>Waar het record staat waar dit bestand bij hoort — per StoreType een scherm.</summary>
+    private static string? Referentie(FilestoreService.Regel r) => r.StoreType switch
+    {
+        1 => "financien/facturen",
+        2 => "artikelen",
+        3 or 4 => "bestellingen",
+        10 or 11 => "producten",
+        300 or 301 => "werknemers",
+        310 => "relaties/nda",
+        311 => "relaties",
+        320 or 321 or 323 => "productie/drivetypen",
+        322 => "producten",
+        _ => null,
+    };
+
+    private static string Grootte(long bytes)
+    {
+        // Geen switch met '<'-patronen: Razor leest een regel die met '<' begint als HTML.
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} kB";
+        return $"{bytes / 1024.0 / 1024.0:0.##} MB";
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

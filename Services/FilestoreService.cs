@@ -40,6 +40,27 @@ public class FilestoreService
     /// <summary>Submap voor een FileStoreID: (id / 1000) + 1, zes cijfers.</summary>
     public static string MapVoor(int fileStoreId) => ((fileStoreId / 1000) + 1).ToString("D6");
 
+    /// <summary>
+    /// File.Exists op een netwerkpad zegt "nee" zonder fout als de SMB-sessie net
+    /// weg is (bijvoorbeeld vlak na een herstart van de service). Eén korte
+    /// herkansing vangt dat op zonder dat een echt ontbrekend bestand traag wordt.
+    /// </summary>
+    private bool Bestaat(string pad)
+    {
+        if (File.Exists(pad)) return true;
+        if (!pad.StartsWith(@"\\")) return false;
+        foreach (var wacht in new[] { 300, 1000, 2500 })
+        {
+            Thread.Sleep(wacht);
+            if (File.Exists(pad))
+            {
+                _log.LogWarning("Netwerkpad pas bij herkansing gevonden ({Wacht} ms): {Pad}", wacht, pad);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Bestandsnaam zoals de VBA die maakt.</summary>
     private static string NieuweBestandsnaam(string origineleNaam, int werknemerId)
     {
@@ -168,7 +189,7 @@ public class FilestoreService
         if (string.IsNullOrWhiteSpace(opslagnaam)) return null;
 
         var pad = Path.Combine(_hoofdmap!, MapVoor(fileStoreId), opslagnaam);
-        if (!File.Exists(pad))
+        if (!Bestaat(pad))
         {
             // Oudere bestanden kunnen in een andere submap staan; buurmappen proberen.
             foreach (var verschuiving in new[] { -1, 1 })
@@ -213,6 +234,196 @@ public class FilestoreService
         catch { /* ongeldig pad */ }
         return null;
     }
+
+    // ------------------------------------------------------------------
+    //  Beheer ▸ Filestore: zoeken en controleren (de FilestoreViewer uit Access)
+    // ------------------------------------------------------------------
+
+    /// <summary>Eén regel uit FileStore, met wat de viewer wil tonen.</summary>
+    public record Regel(int Id, DateTime? Toegevoegd, string OrigineleNaam, string OpslagNaam,
+                        int StoreType, string StoreTypeNaam, int MasterId, int? DoorId, string Door)
+    {
+        public string Extensie => Path.GetExtension(OrigineleNaam.Length > 0 ? OrigineleNaam : OpslagNaam).TrimStart('.').ToUpperInvariant();
+    }
+
+    /// <summary>De soorten uit de tabel filestoretype (id + omschrijving), plus hoeveel bestanden erbij horen.</summary>
+    public async Task<List<(int Id, string Naam, int Aantal)>> StoreTypesAsync()
+    {
+        var lijst = new List<(int, string, int)>();
+        if (string.IsNullOrWhiteSpace(_cs)) return lijst;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+
+        // Welke tabel? Via de foreign key van FileStore.StoreType, anders op naam zoeken.
+        // Is er geen opzoektabel, dan tonen we alleen de nummers met hun aantal.
+        string? tabel = null, idKolom = null;
+        await using (var fk = new MySqlCommand(
+            "SELECT referenced_table_name, referenced_column_name FROM information_schema.key_column_usage " +
+            "WHERE table_schema = DATABASE() AND table_name = 'FileStore' AND column_name = 'StoreType' " +
+            "  AND referenced_table_name IS NOT NULL LIMIT 1", cn))
+        await using (var r0 = await fk.ExecuteReaderAsync())
+            if (await r0.ReadAsync()) { tabel = r0.GetString(0); idKolom = r0.GetString(1); }
+
+        if (tabel is null)
+        {
+            await using var zoek = new MySqlCommand(
+                "SELECT table_name FROM information_schema.tables " +
+                "WHERE table_schema = DATABASE() AND LOWER(table_name) LIKE '%storetype%' LIMIT 1", cn);
+            tabel = (await zoek.ExecuteScalarAsync())?.ToString();
+        }
+
+        if (tabel is null)
+        {
+            await using var los = new MySqlCommand(
+                "SELECT `StoreType`, COUNT(*) FROM `FileStore` GROUP BY `StoreType` ORDER BY `StoreType`", cn);
+            await using var r1 = await los.ExecuteReaderAsync();
+            while (await r1.ReadAsync())
+                lijst.Add((Convert.ToInt32(r1.GetValue(0)), "", Convert.ToInt32(r1.GetValue(1))));
+            return lijst;
+        }
+
+        // Id-kolom en omschrijvingskolom heten niet overal hetzelfde: opzoeken.
+        string? omsKolom = null;
+        await using (var kol = new MySqlCommand(
+            "SELECT column_name, data_type FROM information_schema.columns " +
+            "WHERE table_schema = DATABASE() AND table_name = @t ORDER BY ordinal_position", cn))
+        {
+            kol.Parameters.AddWithValue("@t", tabel);
+            await using var r2 = await kol.ExecuteReaderAsync();
+            while (await r2.ReadAsync())
+            {
+                var naam = r2.GetString(0);
+                var type = r2.GetString(1).ToLowerInvariant();
+                if (idKolom is null && (type.Contains("int") || naam.EndsWith("ID", StringComparison.OrdinalIgnoreCase))) idKolom = naam;
+                if (omsKolom is null && (type is "varchar" or "char" or "text" or "tinytext")) omsKolom = naam;
+            }
+        }
+        if (idKolom is null) return lijst;
+
+        var oms = omsKolom is null ? "''" : $"t.`{omsKolom}`";
+        await using var cmd = new MySqlCommand(
+            $"SELECT t.`{idKolom}`, {oms}, " +
+            $"       (SELECT COUNT(*) FROM `FileStore` f WHERE f.`StoreType` = t.`{idKolom}`) " +
+            $"  FROM `{tabel}` t ORDER BY t.`{idKolom}`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add((Convert.ToInt32(r.GetValue(0)), r.IsDBNull(1) ? "" : r.GetValue(1).ToString() ?? "", Convert.ToInt32(r.GetValue(2))));
+        return lijst;
+    }
+
+    /// <summary>Werknemers die ooit iets hebben toegevoegd (voor het filter).</summary>
+    public async Task<List<(int Id, string Naam)>> ToevoegersAsync()
+    {
+        var lijst = new List<(int, string)>();
+        if (string.IsNullOrWhiteSpace(_cs)) return lijst;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT DISTINCT w.`Werknemer-id`, COALESCE(w.`NaamVoluit`, CONCAT('#', w.`Werknemer-id`)) " +
+            "  FROM `FileStore` f JOIN `Werknemers` w ON w.`Werknemer-id` = f.`ToegevoegdDoor` ORDER BY 2", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add((r.GetInt32(0), r.GetString(1)));
+        return lijst;
+    }
+
+    /// <summary>Zoeken in FileStore. Nieuwste eerst, maximaal <paramref name="max"/> regels.</summary>
+    public async Task<(List<Regel> Regels, int Totaal)> ZoekRegelsAsync(
+        int? storeType, int? doorId, string? extensie, string? zoek, int? masterId, int max = 300)
+    {
+        var regels = new List<Regel>();
+        if (string.IsNullOrWhiteSpace(_cs)) return (regels, 0);
+
+        var waar = new List<string>();
+        if (storeType is not null) waar.Add("f.`StoreType` = @st");
+        if (doorId is not null) waar.Add("f.`ToegevoegdDoor` = @door");
+        if (!string.IsNullOrWhiteSpace(extensie)) waar.Add("(f.`FileOnly` LIKE @ext OR f.`FileNaam` LIKE @ext)");
+        if (!string.IsNullOrWhiteSpace(zoek)) waar.Add("(f.`FileOnly` LIKE @z OR f.`FileNaam` LIKE @z OR f.`FileStoreID` = @zid)");
+        if (masterId is not null) waar.Add("f.`MasterID` = @master");
+        var where = waar.Count > 0 ? " WHERE " + string.Join(" AND ", waar) : "";
+
+        void Vul(MySqlCommand c)
+        {
+            if (storeType is not null) c.Parameters.AddWithValue("@st", storeType.Value);
+            if (doorId is not null) c.Parameters.AddWithValue("@door", doorId.Value);
+            if (!string.IsNullOrWhiteSpace(extensie)) c.Parameters.AddWithValue("@ext", "%." + extensie.Trim().TrimStart('.'));
+            if (!string.IsNullOrWhiteSpace(zoek))
+            {
+                c.Parameters.AddWithValue("@z", "%" + zoek.Trim() + "%");
+                c.Parameters.AddWithValue("@zid", int.TryParse(zoek.Trim(), out var zi) ? zi : -1);
+            }
+            if (masterId is not null) c.Parameters.AddWithValue("@master", masterId.Value);
+        }
+
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+
+        int totaal;
+        await using (var tel = new MySqlCommand($"SELECT COUNT(*) FROM `FileStore` f{where}", cn))
+        {
+            Vul(tel);
+            totaal = Convert.ToInt32(await tel.ExecuteScalarAsync());
+        }
+
+        await using var cmd = new MySqlCommand(
+            "SELECT f.`FileStoreID`, f.`DatumToegevoegd`, COALESCE(f.`FileOnly`, ''), COALESCE(f.`FileNaam`, ''), " +
+            "       COALESCE(f.`StoreType`, 0), COALESCE(f.`MasterID`, 0), f.`ToegevoegdDoor`, COALESCE(w.`NaamVoluit`, '') " +
+            "  FROM `FileStore` f LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = f.`ToegevoegdDoor`" +
+            where + " ORDER BY f.`FileStoreID` DESC LIMIT @max", cn);
+        Vul(cmd);
+        cmd.Parameters.AddWithValue("@max", max);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            regels.Add(new Regel(
+                r.GetInt32(0),
+                r.IsDBNull(1) ? null : Convert.ToDateTime(r.GetValue(1)),
+                r.GetString(2), r.GetString(3), Convert.ToInt32(r.GetValue(4)), "",
+                Convert.ToInt32(r.GetValue(5)),
+                r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
+                r.GetString(7)));
+        return (regels, totaal);
+    }
+
+    /// <summary>Bestaat het bestand op schijf, en hoe groot/oud is het? Voor het detailpaneel en de controle.</summary>
+    public (bool Bestaat, long Grootte, DateTime? Gewijzigd, string Pad, string Reden) OpSchijf(int fileStoreId, string opslagNaam)
+    {
+        if (string.IsNullOrWhiteSpace(_hoofdmap)) return (false, 0, null, "", "Filestore:Pad is niet ingesteld");
+        if (string.IsNullOrWhiteSpace(opslagNaam)) return (false, 0, null, "", "geen bestandsnaam in de FileStore-regel");
+
+        foreach (var verschuiving in new[] { 0, -1, 1 })
+        {
+            var pad = Path.Combine(_hoofdmap!, ((fileStoreId / 1000) + 1 + verschuiving).ToString("D6"), opslagNaam);
+            if (verschuiving == 0 ? Bestaat(pad) : File.Exists(pad))
+            {
+                var info = new FileInfo(pad);
+                return (true, info.Length, info.LastWriteTime, pad, "");
+            }
+        }
+
+        // Niet gevonden: uitzoeken waarom, zodat de beheerder niet hoeft te raden.
+        var verwacht = Path.Combine(_hoofdmap!, MapVoor(fileStoreId), opslagNaam);
+        var map = Path.GetDirectoryName(verwacht)!;
+        string reden;
+        try
+        {
+            if (!Directory.Exists(_hoofdmap!)) reden = "hoofdmap niet bereikbaar voor het serviceaccount";
+            else if (!Directory.Exists(map)) reden = $"submap {Path.GetFileName(map)} bestaat niet";
+            else
+            {
+                // Zelfde naam, andere hoofdletters? (Linux-NAS is hoofdlettergevoelig.)
+                var kaal = Path.GetFileNameWithoutExtension(opslagNaam);
+                var gelijkend = Directory.EnumerateFiles(map, kaal + ".*").FirstOrDefault();
+                reden = gelijkend is not null
+                    ? $"wel gevonden als '{Path.GetFileName(gelijkend)}' (hoofdletters/extensie verschillen)"
+                    : "submap bestaat, bestand staat er niet in";
+            }
+        }
+        catch (UnauthorizedAccessException) { reden = "geen leesrechten voor het serviceaccount"; }
+        catch (Exception ex) { reden = ex.Message; }
+        return (false, 0, null, verwacht, reden);
+    }
+
+    /// <summary>De hoofdmap zoals ingesteld — voor de kop van het beheerscherm.</summary>
+    public string Hoofdmap => _hoofdmap ?? "";
 
     public static string MimeVoor(string naam) => Path.GetExtension(naam).ToLowerInvariant() switch
     {

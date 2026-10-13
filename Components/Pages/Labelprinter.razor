@@ -1,0 +1,151 @@
+@page "/beheer/labelprinter"
+@inject IJSRuntime JS
+
+@* Instellingen van de DYMO-labelprinter voor déze pc: welke printer, en bij een Twin Turbo
+   in welke rol het kleine (12×50) en het grote (41×89) label zit. Dat hoort bij de werkplek,
+   niet bij de app — dus het staat in de browser van deze pc (localStorage), net als vroeger
+   de keuzes in het artikelscherm. In Artikelen kies je daarna alleen nog klein of groot. *@
+
+<PageTitle>Labelprinter — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Labelprinter</h1>
+        <span class="weeklabel">geldt voor deze pc</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    <section class="wn-velden een-kolom">
+        <div class="wn-veld">
+            <label>Printer</label>
+            @if (_printers.Count > 0)
+            {
+                <select value="@_printer" @onchange="PrinterGewijzigd">
+                    @foreach (var p in _printers)
+                    {
+                        <option value="@p">@p</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <span class="uitleg">@_dymoMelding</span>
+            }
+            <div class="btngroup">
+                <button class="klein" @onclick="ZoekPrinters">⟳ Printers zoeken</button>
+                <button class="klein" @onclick="Diagnose">Diagnose</button>
+            </div>
+        </div>
+
+        @if (IsTwinTurbo)
+        {
+            <div class="wn-veld">
+                <label>Klein label — 12 × 50 mm (99017) zit in rol</label>
+                <select value="@_rolKlein" @onchange="e => ZetRol(DymoLabel.Klein, e)">
+                    <option value="Left">Links</option>
+                    <option value="Right">Rechts</option>
+                    <option value="Auto">Vanzelf (printer kiest)</option>
+                </select>
+            </div>
+            <div class="wn-veld">
+                <label>Groot label — 41 × 89 mm (11356) zit in rol</label>
+                <select value="@_rolGroot" @onchange="e => ZetRol(DymoLabel.Groot, e)">
+                    <option value="Left">Links</option>
+                    <option value="Right">Rechts</option>
+                    <option value="Auto">Vanzelf (printer kiest)</option>
+                </select>
+            </div>
+            <p class="uitleg">
+                Een Twin Turbo heeft twee rollen; welke welk label heeft weet alleen jij. Bij het printen
+                kiest de app de rol op grond van het gekozen label. Wissel je de rollen om, pas het dan hier aan.
+            </p>
+        }
+        else if (_printers.Count > 0)
+        {
+            <p class="uitleg">Deze printer heeft één rol; welk label erin zit kies je bij het printen.</p>
+        }
+    </section>
+
+    @if (_diagnose is not null)
+    {
+        <pre class="dymodiagnose">@_diagnose</pre>
+    }
+
+    <footer class="voet">
+        Opgeslagen in de browser van deze pc. Wordt gebruikt in Artikelen ▸ Label printen.
+        DYMO Connect moet op deze pc draaien (Chrome of Edge).
+    </footer>
+</div>
+
+@code {
+    private List<string> _printers = new();
+    private string _printer = "";
+    private string _rolKlein = "Auto", _rolGroot = "Auto";
+    private string _dymoMelding = "Nog niet gezocht.";
+    private string? _diagnose;
+    private string? _melding;
+    private bool _fout;
+    private bool _geladen;
+
+    private bool IsTwinTurbo => _printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _geladen) return;
+        _geladen = true;
+        await ZoekPrinters();
+        StateHasChanged();
+    }
+
+    private async Task ZoekPrinters()
+    {
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeDymo.beschikbaar"))
+            {
+                _dymoMelding = "DYMO Connect is niet gevonden op deze pc. Draait het wel, gebruik dan Chrome of Edge. "
+                             + await JS.InvokeAsync<string>("mdeDymo.uitleg");
+                _printers = new();
+            }
+            else
+            {
+                _printers = (await JS.InvokeAsync<string[]>("mdeDymo.printers")).ToList();
+                if (_printers.Count == 0) _dymoMelding = await JS.InvokeAsync<string>("mdeDymo.uitleg");
+            }
+
+            var inst = await DymoLabel.LeesAsync(JS);
+            _printer = _printers.Contains(inst.Printer) ? inst.Printer : _printers.FirstOrDefault() ?? "";
+            _rolKlein = inst.RolKlein; _rolGroot = inst.RolGroot;
+            if (_printer.Length > 0 && _printer != inst.Printer) await DymoLabel.SchrijfAsync(JS, "dymoPrinter", _printer);
+        }
+        catch (Exception ex) { _dymoMelding = "DYMO Connect niet bereikbaar: " + ex.Message; }
+    }
+
+    private async Task PrinterGewijzigd(ChangeEventArgs e)
+    {
+        _printer = (string?)e.Value ?? "";
+        await DymoLabel.SchrijfAsync(JS, "dymoPrinter", _printer);
+        Melding($"Printer: {_printer}");
+    }
+
+    private async Task ZetRol(string label, ChangeEventArgs e)
+    {
+        var rol = (string?)e.Value ?? "Auto";
+        if (label == DymoLabel.Klein) _rolKlein = rol; else _rolGroot = rol;
+        await DymoLabel.SchrijfAsync(JS, label == DymoLabel.Klein ? "dymoRolKlein" : "dymoRolGroot", rol);
+        Melding($"{(label == DymoLabel.Klein ? "Klein" : "Groot")} label: rol {DymoLabel.RolTekst(rol)}.");
+    }
+
+    private async Task Diagnose()
+    {
+        _diagnose = "Bezig…";
+        try { _diagnose = await JS.InvokeAsync<string>("mdeDymo.diagnose"); }
+        catch (Exception ex) { _diagnose = "Diagnose mislukt: " + ex.Message; }
+    }
+
+    private void Melding(string t) { _melding = t; _fout = false; }
+}
