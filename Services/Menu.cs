@@ -154,7 +154,7 @@ public static class Menu
             new MenuGroep("Rapporten",
                 new MenuItem("Rapportage facturatie"),
                 new MenuItem("Vaste lasten", "/financien/vaste-lasten", "Financial"),
-                new MenuItem("Liquiditeitsoverzicht"),
+                new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"),
                 new MenuItem("Voorraadstand"))),
 
         // Gebouwbeheer praat met de PLC: licht, zonwering, compressor en verbruik.

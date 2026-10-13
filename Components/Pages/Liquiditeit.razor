@@ -1,0 +1,459 @@
+@page "/financien/liquiditeit"
+@inject ILiquiditeitRepository Repo
+@inject IVasteLastenRepository VasteLasten
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Overgezet van Access' Report_LiquiditeitsOverzicht en de formulieren 'Liquiditeit Te laat
+   inkomend/uitgaand'. Alleen lezen. Rekenregels in Services/Liquiditeitsrekenaar.cs. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Liquiditeitsoverzicht</h1>
+        @if (_p is not null)
+        {
+            <span class="weeklabel">vanaf het banksaldo van @_p.Start.ToString("dd-MM-yyyy") · @_dagen dagen vooruit</span>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="bankfilters">
+            <div class="bankveld">
+                <span>BV's</span>
+                <div class="btngroup">
+                    @foreach (var bv in _bvs)
+                    {
+                        <button class="klein @(_gekozen.Contains(bv.Id) ? "actief" : "")" @key="bv.Id" title="@bv.Naam"
+                                @onclick="() => WisselBv(bv.Id)">@bv.Afkorting</button>
+                    }
+                    <button class="klein" title="Terug naar de MDE-BV's" @onclick="StandaardBvs">MDE-BV's</button>
+                </div>
+            </div>
+            <label class="bankveld">
+                <span>Periode</span>
+                <select value="@_dagen" @onchange="PeriodeGewijzigd">
+                    <option value="30">30 dagen</option>
+                    <option value="60">60 dagen</option>
+                    <option value="90">90 dagen</option>
+                </select>
+            </label>
+            <div class="btngroup">
+                <button class="klein" disabled="@_bezig" @onclick="Laad">@(_bezig ? "Bezig…" : "Vernieuwen")</button>
+            </div>
+        </div>
+
+        @if (_p is not null)
+        {
+            @* ---------- kaarten ---------- *@
+            <div class="lq-kaarten">
+                <div class="lq-kaart" title="@RekeningenTekst()">
+                    <span class="lq-label">Banksaldo @_p.Start.ToString("dd-MM")</span>
+                    <span class="lq-getal">@Geld(_p.Beginsaldo)</span>
+                    <span class="zij-extra">@_p.Rekeningen.Count rekeningen@(OudeRekeningen())</span>
+                </div>
+                <div class="lq-kaart klik" @onclick="() => _toonTeLaat = !_toonTeLaat">
+                    <span class="lq-label">Te laat van klanten</span>
+                    <span class="lq-getal lq-plus">+ @Geld(_p.TeLaatVanKlanten)</span>
+                    <span class="zij-extra">@_p.TeLaatKlanten.Count facturen · klik voor de lijst</span>
+                </div>
+                <div class="lq-kaart klik" @onclick="() => _toonTeLaat = !_toonTeLaat">
+                    <span class="lq-label">Te laat aan leveranciers</span>
+                    <span class="lq-getal lq-min">− @Geld(_p.TeLaatAanLeveranciers)</span>
+                    <span class="zij-extra">@_p.TeLaatLeveranciers.Count facturen · klik voor de lijst</span>
+                </div>
+                @foreach (var n in Mijlpalen)
+                {
+                    var dag = _p.Na(n);
+                    @if (dag is not null)
+                    {
+                        <div class="lq-kaart" @key="n">
+                            <span class="lq-label">Over @n dagen (@dag.Datum.ToString("dd-MM"))</span>
+                            <span class="lq-getal @(dag.SaldoNaTeLaatLeveranciers < 0 ? "lq-min" : "")">@Geld(dag.SaldoNaTeLaatLeveranciers)</span>
+                            <span class="zij-extra">incl. te laat van klanten @Geld(dag.SaldoInclTeLaatKlanten)</span>
+                        </div>
+                    }
+                }
+            </div>
+
+            @* ---------- grafiek ---------- *@
+            <div class="lq-grafiek">
+                <div class="lq-grafiek-binnen">
+                @* De bedragen van de y-as in HTML: tekst in de uitgerekte SVG zou vervormen. *@
+                <div class="lq-yas">
+                    @foreach (var waarde in Schaalstreepjes)
+                    {
+                        <span @key="waarde" style="top:@Getal(Y(waarde) / Hoogte * 100)%">@Geld(waarde)</span>
+                    }
+                </div>
+                <svg viewBox="0 0 @Breedte @Hoogte" preserveAspectRatio="none" role="img"
+                     aria-label="Verwacht saldo per dag">
+                    @foreach (var waarde in Schaalstreepjes)
+                    {
+                        <line @key="waarde" x1="0" x2="@Breedte" y1="@Getal(Y(waarde))" y2="@Getal(Y(waarde))" class="lq-raster" />
+                    }
+                    @if (Nullijn is double nul)
+                    {
+                        <line x1="0" x2="@Breedte" y1="@Getal(nul)" y2="@Getal(nul)" class="lq-nul" />
+                    }
+                    <polyline points="@Lijn(d => d.SaldoInclTeLaatKlanten)" class="lq-lijn-incl" />
+                    <polyline points="@Lijn(d => d.SaldoNaTeLaatLeveranciers)" class="lq-lijn" />
+                    @for (var i = 0; i < _p.Dagen.Count; i++)
+                    {
+                        var dag = _p.Dagen[i];
+                        var x = X(i);
+                        <rect x="@Getal(x - Stap / 2)" y="0" width="@Getal(Stap)" height="@Hoogte"
+                              class="lq-dagvlak @(dag.Datum == _dag ? "gekozen" : "")"
+                              @onclick="() => KiesDag(dag.Datum)">
+                            <title>@dag.Datum.ToString("ddd dd-MM", Nl): @Geld(dag.SaldoNaTeLaatLeveranciers)</title>
+                        </rect>
+                        @if (dag.Erbij + dag.Eraf > 0)
+                        {
+                            <circle cx="@Getal(x)" cy="@Getal(Y(dag.SaldoNaTeLaatLeveranciers))" r="3" class="lq-punt" />
+                        }
+                    }
+                </svg>
+                </div>
+                <div class="lq-as">
+                    <span>@_p.Start.AddDays(1).ToString("dd-MM")</span>
+                    <span class="zij-extra">— saldo minus te laat aan leveranciers · - - plus te laat van klanten · klik een dag of gebruik ↑ ↓ in de lijst</span>
+                    <span>@_p.Start.AddDays(_dagen).ToString("dd-MM")</span>
+                </div>
+            </div>
+
+            @* ---------- details van een dag, of alle dagen met beweging ---------- *@
+            <div class="lq-onder">
+                @* tabindex: de lijst zelf krijgt de focus, zodat ↑ ↓ hier binnenkomen (zoals bij Bestellingen) *@
+                <div id="lq-dagen" class="regels-omhulsel lq-dagen" tabindex="0"
+                     @onkeydown="Toetsen" @onkeydown:preventDefault="_pijltje">
+                    <table class="kiezer-tabel banktabel">
+                        <thead>
+                            <tr>
+                                <th style="width:7rem">Datum</th>
+                                <th style="width:8rem" class="r">Erbij</th>
+                                <th style="width:8rem" class="r">Eraf</th>
+                                <th style="width:9rem" class="r">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in _p.Dagen.Where(x => x.Erbij + x.Eraf > 0))
+                            {
+                                <tr @key="d.Datum" class="@(d.Datum == _dag ? "gekozen-rij actief" : "")" @onclick="() => KiesDag(d.Datum)">
+                                    <td>@d.Datum.ToString("ddd dd-MM", Nl)</td>
+                                    <td class="r">@(d.Erbij == 0 ? "" : Geld(d.Erbij))</td>
+                                    <td class="r">@(d.Eraf == 0 ? "" : Geld(d.Eraf))</td>
+                                    <td class="r @(d.SaldoNaTeLaatLeveranciers < 0 ? "factuur-telaat" : "")">@Geld(d.SaldoNaTeLaatLeveranciers)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <aside class="lq-details">
+                    @if (_dag is DateOnly gekozenDag)
+                    {
+                        var vandaag = _p.Posten.Where(x => x.Datum == gekozenDag).ToList();
+                        <h3 class="wn-kop">@gekozenDag.ToString("dddd d MMMM", Nl)</h3>
+                        @if (vandaag.Count == 0)
+                        {
+                            <p class="kiezer-info">Op deze dag gebeurt er niets.</p>
+                        }
+                        else
+                        {
+                            @* Drie kolommen: wie, wat er binnenkomt (klanten) en wat eraf gaat (leveranciers,
+                               vaste lasten, btw). Binnenkomend eerst. *@
+                            <table class="kiezer-tabel lq-dagtabel">
+                                <thead>
+                                    <tr>
+                                        <th>Relatie</th>
+                                        <th style="width:7.5rem" class="r">Bij</th>
+                                        <th style="width:7.5rem" class="r">Af</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var post in vandaag.OrderByDescending(x => x.Bedrag > 0).ThenByDescending(x => Math.Abs(x.Bedrag)))
+                                    {
+                                        <tr @key="post" class="@(Openbaar(post) ? "lq-open" : "")" title="@Uitleg(post)"
+                                            @ondblclick="() => Open(post)">
+                                            <td>
+                                                @post.Relatie
+                                                <span class="zij-extra">@post.Kenmerk</span>
+                                            </td>
+                                            <td class="r lq-plus">@(post.Bedrag > 0 ? Geld(post.Bedrag) : "")</td>
+                                            <td class="r lq-min">@(post.Bedrag < 0 ? Geld(-post.Bedrag) : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td><b>Totaal</b> <span class="zij-extra">saldo @Geld(vandaag.Sum(x => x.Bedrag))</span></td>
+                                        <td class="r lq-plus"><b>@Geld(vandaag.Where(x => x.Bedrag > 0).Sum(x => x.Bedrag))</b></td>
+                                        <td class="r lq-min"><b>@Geld(-vandaag.Where(x => x.Bedrag < 0).Sum(x => x.Bedrag))</b></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        }
+                    }
+                    else
+                    {
+                        <p class="kiezer-info">Klik een dag in de grafiek of de lijst om te zien wat er die dag binnenkomt en afgaat.</p>
+                    }
+                </aside>
+            </div>
+
+            @* ---------- te laat ---------- *@
+            @if (_toonTeLaat)
+            {
+                <div class="lq-onder">
+                    @foreach (var (titel, lijst) in new[] { ("Te laat van klanten", _p.TeLaatKlanten), ("Te laat aan leveranciers", _p.TeLaatLeveranciers) })
+                    {
+                        <div class="regels-omhulsel" @key="titel">
+                            <h3 class="wn-kop">@titel <span class="zij-extra">(@lijst.Count · @Geld(lijst.Sum(f => f.Bedrag)))</span></h3>
+                            <table class="kiezer-tabel banktabel">
+                                <thead>
+                                    <tr>
+                                        <th style="width:6.5rem">Vervallen</th>
+                                        <th style="width:3rem" class="r">Dagen</th>
+                                        <th>Relatie</th>
+                                        <th style="width:8rem">Factuur</th>
+                                        <th style="width:8rem" class="r">Bedrag</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var f in lijst.OrderBy(f => f.Vervaldatum))
+                                    {
+                                        <tr @key="(f.Verkoop, f.Id)">
+                                            <td>@f.Vervaldatum.ToString("dd-MM-yy")</td>
+                                            <td class="r">@(_p.Start.DayNumber - f.Vervaldatum.DayNumber)</td>
+                                            <td class="omschrijving" title="@f.Relatie">@f.Relatie</td>
+                                            <td>@f.Bv @f.Nummer</td>
+                                            <td class="r">@Geld(f.Bedrag)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (_bezig)
+        {
+            <p class="uitleg">Bezig met rekenen…</p>
+        }
+    }
+</div>
+
+@* dubbelklik op een regel van de gekozen dag: de factuur of vaste last erachter *@
+<VerkoopFactuurVenster FactuurId="_verkoopId" Sluiten="VensterDicht" />
+<FactuurVenster FactuurId="_inkoopId" Sluiten="VensterDicht" />
+<VasteLastVenster Last="_vasteLast" Categorieen="_categorieen" Sluiten="VensterDicht" />
+
+@code {
+    private List<LiquiditeitBv> _bvs = new();
+    private readonly HashSet<int> _gekozen = new();
+    private int _dagen = 60;
+    private LiquiditeitPrognose? _p;
+    private DateOnly? _dag;
+    private bool _toonTeLaat;
+    private bool _bezig;
+    private string? _melding;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C0", Nl);
+    private static string Getal(double w) => w.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>De saldi na 7, 30 en de hele periode, zoals Access (7/30/60).</summary>
+    private IEnumerable<int> Mijlpalen => new[] { 7, 30, _dagen }.Distinct().Where(n => n <= _dagen);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _bvs = await Repo.BvsAsync(); } catch (Exception ex) { _melding = "BV's ophalen mislukt: " + ex.Message; }
+        StandaardBvsZonderLaden();
+        await Laad();
+    }
+
+    private void StandaardBvsZonderLaden()
+    {
+        _gekozen.Clear();
+        foreach (var bv in _bvs.Where(b => b.MdeBv)) _gekozen.Add(bv.Id);
+    }
+
+    private async Task StandaardBvs() { StandaardBvsZonderLaden(); await Laad(); }
+
+    private async Task WisselBv(int id)
+    {
+        if (!_gekozen.Remove(id)) _gekozen.Add(id);
+        await Laad();
+    }
+
+    private async Task PeriodeGewijzigd(ChangeEventArgs e)
+    {
+        _dagen = int.TryParse((string?)e.Value, out var d) ? d : 60;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _bezig = true;
+        try
+        {
+            var bvs = _gekozen.ToList();
+            var rekeningen = await Repo.BanksaldiAsync(bvs);
+
+            // Start = de laatste dag met banktransacties op een van deze rekeningen (zoals Access);
+            // zonder bankgegevens vandaag.
+            var start = rekeningen.Where(r => r.Datum is not null).Select(r => r.Datum!.Value).DefaultIfEmpty(DateOnly.FromDateTime(DateTime.Today)).Max();
+
+            _vasteLasten = await VasteLasten.LijstAsync();
+            _p = Liquiditeitsrekenaar.Bereken(start, _dagen, rekeningen,
+                await Repo.OpenstaandAsync(bvs),
+                _vasteLasten,
+                await Repo.BtwPerKwartaalAsync(bvs, start.Year - 1));
+            if (_dag is DateOnly d && (d <= start || d > start.AddDays(_dagen))) _dag = null;
+            _melding = null;
+        }
+        catch (Exception ex) { _melding = "Rekenen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private void KiesDag(DateOnly d) => _dag = _dag == d ? null : d;
+
+    // ---- dubbelklik: de mutatie bekijken ----
+    private List<VasteLast> _vasteLasten = new();
+    private List<VasteLastCategorie> _categorieen = new();
+    private int? _verkoopId;
+    private int? _inkoopId;
+    private VasteLast? _vasteLast;
+
+    private static bool Openbaar(LiquiditeitPost p) => p.FactuurId is not null || p.VasteLastId is not null;
+
+    private static string Uitleg(LiquiditeitPost p) => p.Soort switch
+    {
+        "Klant" => "Dubbelklik om de uitgaande factuur te openen",
+        "Leverancier" => "Dubbelklik om de inkomende factuur te openen",
+        "Vaste last" => "Dubbelklik om de vaste last te openen",
+        _ => "Btw van het kwartaal: verkoop-btw min inkoop-btw van de gekozen BV's, te betalen voor het eind van de maand na het kwartaal",
+    };
+
+    private async Task Open(LiquiditeitPost p)
+    {
+        if (p.FactuurId is int id) { if (p.Verkoop) _verkoopId = id; else _inkoopId = id; return; }
+        if (p.VasteLastId is not int vlId || _vasteLasten.FirstOrDefault(v => v.Id == vlId) is not { } v) return;
+
+        if (_categorieen.Count == 0)
+            try { _categorieen = await VasteLasten.CategorieenAsync(); } catch { }
+
+        // Een kopie, zodat Annuleren niets verandert.
+        _vasteLast = new VasteLast
+        {
+            Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,
+            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand,
+        };
+    }
+
+    /// <summary>Venster dicht; is er iets opgeslagen, dan de prognose opnieuw rekenen.</summary>
+    private async Task VensterDicht(bool opgeslagen)
+    {
+        _verkoopId = null;
+        _inkoopId = null;
+        _vasteLast = null;
+        if (opgeslagen) await Laad();
+    }
+
+    // ---- bladeren met het toetsenbord, door de dagen met beweging ----
+    private bool _pijltje;
+
+    private async Task Toetsen(KeyboardEventArgs e)
+    {
+        var dagen = _p?.Dagen.Where(x => x.Erbij + x.Eraf > 0).Select(x => x.Datum).ToList() ?? new();
+        _pijltje = e.Key is "ArrowDown" or "ArrowUp" or "PageDown" or "PageUp" or "Home" or "End";
+        if (!_pijltje || dagen.Count == 0) return;
+
+        var huidig = _dag is DateOnly gekozen ? dagen.IndexOf(gekozen) : -1;
+        var nieuw = e.Key switch
+        {
+            "ArrowDown" => huidig + 1,
+            "ArrowUp" => huidig < 0 ? 0 : huidig - 1,
+            "PageDown" => huidig + 10,
+            "PageUp" => huidig - 10,
+            "Home" => 0,
+            _ => dagen.Count - 1,
+        };
+        _dag = dagen[Math.Clamp(nieuw, 0, dagen.Count - 1)];
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("mdeLijst.naarActief", "lq-dagen"); } catch { }
+    }
+
+    private string RekeningenTekst()
+        => string.Join("\n", _p!.Rekeningen.Select(r => $"{r.Omschrijving} ({r.Rekening}): {Geld(r.Saldo)}" +
+                                                          (r.Datum is DateOnly d ? $" op {d:dd-MM-yyyy}" : " (geen transacties)")));
+
+    /// <summary>Waarschuwing als een rekening al lang geen afschriften meer heeft: dan klopt het saldo misschien niet.</summary>
+    private string OudeRekeningen()
+    {
+        var oud = _p!.Rekeningen.Count(r => r.Datum is null || r.Datum < _p.Start.AddDays(-14));
+        return oud == 0 ? "" : $", waarvan {oud} zonder recente afschriften";
+    }
+
+    // ============================================================
+    //  Grafiek (eigen SVG, geen bibliotheek nodig)
+    // ============================================================
+    private const double Breedte = 1000, Hoogte = 220, Rand = 10;
+
+    private double Stap => _p!.Dagen.Count <= 1 ? Breedte : (Breedte - 2 * Rand) / (_p.Dagen.Count - 1);
+    private double X(int i) => Rand + i * Stap;
+
+    private decimal Min => Math.Min(0, _p!.Dagen.Select(d => Math.Min(d.SaldoNaTeLaatLeveranciers, d.SaldoInclTeLaatKlanten)).DefaultIfEmpty(0).Min());
+    private decimal Max => _p!.Dagen.Select(d => Math.Max(d.SaldoNaTeLaatLeveranciers, d.SaldoInclTeLaatKlanten)).DefaultIfEmpty(0).Max();
+
+    /// <summary>
+    /// Een nette schaal: stappen van 1, 2 of 5 × een macht van tien, ongeveer vijf streepjes,
+    /// en de as begint en eindigt op een streepje.
+    /// </summary>
+    private (decimal Onder, decimal Boven, decimal Stap) Schaal
+    {
+        get
+        {
+            var ruw = (Max - Min) / 5;
+            if (ruw <= 0) ruw = 1000;
+            var macht = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)ruw)));
+            var stap = new[] { 1m, 2m, 5m, 10m }.Select(f => f * macht).First(s => s >= ruw);
+            var onder = Math.Floor(Min / stap) * stap;
+            var boven = Math.Ceiling(Max / stap) * stap;
+            if (boven <= onder) boven = onder + stap;
+            return (onder, boven, stap);
+        }
+    }
+
+    private IEnumerable<decimal> Schaalstreepjes
+    {
+        get
+        {
+            var (onder, boven, stap) = Schaal;
+            for (var w = onder; w <= boven; w += stap) yield return w;
+        }
+    }
+
+    private double Y(decimal waarde)
+    {
+        var (onder, boven, _) = Schaal;
+        return Rand + (Hoogte - 2 * Rand) * (1 - (double)(waarde - onder) / (double)(boven - onder));
+    }
+
+    private double? Nullijn => Min < 0 ? Y(0) : null;
+
+    private string Lijn(Func<LiquiditeitDag, decimal> waarde)
+        => string.Join(" ", _p!.Dagen.Select((d, i) => $"{Getal(X(i))},{Getal(Y(waarde(d)))}"));
+}
