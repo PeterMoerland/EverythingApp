@@ -2429,3 +2429,27 @@ html[data-thema="donker"] .ls-lijst .wn-naam small, html[data-thema="donker"] .d
 html[data-thema="donker"] .dr-kruimel { background: #1b2f48; }
 html[data-thema="donker"] .dr-kruimel.wees { background: #3a2222; color: #f0a0a0; }
 html[data-thema="donker"] .lk-boom { border-color: #2b4a73; }
+
+/* ---- Voorraad: artikelvoorraad ---- */
+.wn-lijst.av-lijst { width: clamp(20rem, 28vw, 30rem); }
+.av-namen { max-height: 70vh; }
+.av-chips { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-top: .25rem; }
+.av-regel { display: grid; grid-template-columns: auto 1fr auto; column-gap: .3rem; text-align: left; }
+.av-regel small { grid-column: 1 / -1; display: block; color: #667; font-size: .82em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-aantal { font-weight: 600; }
+.av-kop { display: flex; gap: 1rem; align-items: center; margin: .3rem 0 .6rem; }
+.av-foto { max-width: 9rem; max-height: 7rem; object-fit: contain; }
+.av-totaal { font-size: 1.5rem; font-weight: 700; margin-bottom: .3rem; }
+.av-totaal .uitleg { font-size: .9rem; font-weight: 400; }
+.av-posities td, .av-historie td { vertical-align: middle; }
+.av-posities .r, .av-historie .r { text-align: right; }
+.av-pad { display: block; color: #667; font-size: .8em; }
+.av-acties { white-space: nowrap; text-align: right; }
+.av-min { color: #a33; }
+.av-plus { color: #2a7a2a; }
+.av-venster { width: min(40rem, 96vw); }
+.av-aantalinvoer { width: 6rem; text-align: right; }
+html[data-thema="donker"] .av-regel small, html[data-thema="donker"] .av-pad { color: #9fb0c4; }
+html[data-thema="donker"] .av-min { color: #f08a8a; }
+html[data-thema="donker"] .av-plus { color: #8fd18f; }

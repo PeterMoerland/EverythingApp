@@ -1,0 +1,549 @@
+@page "/voorraad/artikelen"
+@page "/voorraad/artikelen/{Id:int}"
+@inject IVoorraadRepository Repo
+@inject ILokatieRepository Lokaties
+@inject IArtikelRepository Artikelen
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* Overgezet van het Access-formulier ArtikelInVoorraad ("Artikelvoorraad"), met ArtikelInboeken, ArtikelUitboeken
+   en ArtikelVerplaatsen als vensters. Links de artikelen die ergens liggen, rechts per plek en status hoeveel.
+   Scannen gaat via het zoekvak: MDE123 of een EAN-code opent het artikel, @L00000123 filtert op die plek.
+   Gevonden in Access:
+   - de stand liet mutaties met een werkorder weg, dus wat naar een project was uitgeboekt bleef op voorraad staan
+     (okt 2026: 232 posities, 1001 stuks volgens Access tegen 466 echt). Hier telt alles.
+   - "Artikel aanpassen" opende het formulier VoorraadAanpassen, dat niet bestaat. Hier: Corrigeren (telling).
+   - Uitboeken zonder werkorder maakte toch projectmateriaal aan (zonder project). Hier alleen met werkorder.
+   - plekken werden op naam teruggezocht (LocationNames); twee plekken met dezelfde naam gaven de verkeerde. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Artikelvoorraad</h1>
+        <span class="weeklabel">@_lijst.Count artikelen@(_lijst.Count >= Max ? "+" : "")</span>
+        @if (Repo.Beschikbaar)
+        {
+            <button class="klein" @onclick="() => OpenBoeking(Soort.In, null)">＋ Inboeken…</button>
+        }
+        <a class="knopje" href="voorraad/dragers">Dragers</a>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst av-lijst">
+                <div class="wn-filters dr-filters">
+                    <input placeholder="Zoek of scan (MDE-nr, code, EAN, @@L…)" value="@_zoek" @key="_zoekVersie"
+                           @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
+                    <div class="av-chips">
+                        <button class="klein" @onclick="() => _groepKiezerOpen = true">Groep…</button>
+                        @if (_groepNaam.Length > 0)
+                        {
+                            <span class="ls-chip">@_groepNaam <button class="ls-weg" title="Groepfilter weg" @onclick="GroepWeg">✕</button></span>
+                        }
+                        @if (_lokatieFilter is int lf)
+                        {
+                            <span class="ls-chip" title="@_boom.Leesbaar(lf)">📍 @_boom.Naam(lf) <button class="ls-weg" title="Plekfilter weg" @onclick="LokatieWeg">✕</button></span>
+                        }
+                    </div>
+                </div>
+                <div class="wn-namen av-namen">
+                    @foreach (var a in _lijst)
+                    {
+                        <button class="wn-naam av-regel @(a.ArtikelId == _artikel?.ArtikelId ? "actief" : "")" @key="a.ArtikelId" @onclick="() => Open(a.ArtikelId)">
+                            <span class="artikel-id">@a.ArtikelId</span><span class="av-code">@a.Code</span>
+                            <span class="av-aantal">@a.Totaal.ToString("0.###")</span>
+                            <small>@a.Omschrijving</small>
+                        </button>
+                    }
+                    @if (_lijst.Count == 0) { <div class="kiezer-info">Niets op voorraad gevonden.</div> }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_artikel is null)
+                {
+                    <p class="uitleg">Kies links een artikel, of scan het label of de EAN-code.</p>
+                }
+                else
+                {
+                    var a = _artikel;
+                    <div class="of-kop">
+                        <h2>@a.Code</h2>
+                        <span>@a.Omschrijving</span>
+                        <span class="groei"></span>
+                        <a class="knopje" href="@($"artikelen?nr={a.ArtikelId}")">Open in Artikelen</a>
+                    </div>
+
+                    <div class="av-kop">
+                        <img class="av-foto" src="@($"artikelfoto/{a.ArtikelId}")" alt="" onerror="this.style.display='none'" />
+                        <div>
+                            <div class="av-totaal">@_posities.Sum(p => p.Aantal).ToString("0.###") <span class="uitleg">op voorraad, @_posities.Count plek(ken)</span></div>
+                            <button class="klein primair" @onclick="() => OpenBoeking(Soort.In, null)">＋ Inboeken…</button>
+                        </div>
+                    </div>
+
+                    <table class="kiezer-tabel av-posities">
+                        <thead><tr><th>Plek</th><th>Status</th><th class="r">Aantal</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var p in _posities.OrderBy(p => _boom.Leesbaar(p.LokatieId)))
+                            {
+                                var plek = _boom.PerId.GetValueOrDefault(p.LokatieId);
+                                <tr @key="(p.LokatieId, p.StatusId)">
+                                    <td>
+                                        @if (plek?.Verplaatsbaar == true)
+                                        {
+                                            <a href="@($"voorraad/dragers/{p.LokatieId}")" title="Drager openen"><b>@_boom.Naam(p.LokatieId)</b></a>
+                                        }
+                                        else
+                                        {
+                                            <b>@(_boom.Naam(p.LokatieId) is { Length: > 0 } n ? n : $"lokatie {p.LokatieId}")</b>
+                                        }
+                                        <small class="av-pad">@_boom.Leesbaar(p.LokatieId)</small>
+                                    </td>
+                                    <td>@p.Status</td>
+                                    <td class="r"><b>@p.Aantal.ToString("0.###")</b></td>
+                                    <td class="av-acties">
+                                        <button class="klein" @onclick="() => OpenBoeking(Soort.Uit, p)">Uitboeken…</button>
+                                        <button class="klein" @onclick="() => OpenBoeking(Soort.Verplaats, p)">Verplaatsen…</button>
+                                        @if (MagCorrigeren)
+                                        {
+                                            <button class="klein" title="Telling: het werkelijke aantal invullen" @onclick="() => OpenBoeking(Soort.Corrigeer, p)">Corrigeren…</button>
+                                        }
+                                        <button class="klein" title="Wat ligt er nog meer op deze plek" @onclick="() => FilterOpPlek(p.LokatieId)">📍</button>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_posities.Count == 0) { <tr><td colspan="4" class="uitleg">Dit artikel ligt nergens op voorraad.</td></tr> }
+                        </tbody>
+                    </table>
+
+                    <h3 class="ls-kop">
+                        <button class="klein" @onclick="ToonHistorie">@(_historie is null ? "▸ Mutatiehistorie" : "▾ Mutatiehistorie")</button>
+                    </h3>
+                    @if (_historie is not null)
+                    {
+                        <table class="kiezer-tabel av-historie">
+                            <thead><tr><th>Datum</th><th class="r">Mutatie</th><th>Soort</th><th>Plek</th><th>Status</th><th>Door</th><th>Werkorder</th></tr></thead>
+                            <tbody>
+                                @foreach (var h in _historie)
+                                {
+                                    <tr>
+                                        <td>@h.Op?.ToString("d-M-yyyy HH:mm")</td>
+                                        <td class="r @(h.Mutatie < 0 ? "av-min" : "av-plus")">@h.Mutatie.ToString("+0.###;-0.###;0")</td>
+                                        <td>@h.Soort</td>
+                                        <td>@(h.LokatieId is int hl ? _boom.Naam(hl) : "—")</td>
+                                        <td>@h.Status</td>
+                                        <td>@h.Door@(h.Werknemer.Length > 0 && h.Werknemer != h.Door ? $" (voor {h.Werknemer})" : "")</td>
+                                        <td>@h.Werkorder</td>
+                                    </tr>
+                                }
+                                @if (_historie.Count == 0) { <tr><td colspan="7" class="uitleg">Geen mutaties.</td></tr> }
+                            </tbody>
+                        </table>
+                        @if (_historie.Count >= 100) { <p class="uitleg">De laatste 100 mutaties.</p> }
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@* ---------- venster inboeken / uitboeken / verplaatsen / corrigeren ---------- *@
+@if (_soort is Soort s)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster av-venster">
+            <header class="bijlagekop"><h2>@Titel(s)</h2><button class="klein" @onclick="SluitBoeking">✕</button></header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Artikel</label>
+                        @if (_boekArtikel is { } ba)
+                        {
+                            <span class="po-regel"><span><b>@ba.Code</b> @ba.Omschrijving</span>
+                                @if (s == Soort.In) { <button class="klein" @onclick="() => _boekArtikel = null">Ander…</button> }</span>
+                        }
+                        else
+                        {
+                            <div>
+                                <input placeholder="Zoek of scan artikel (Enter)…" value="@_artikelZoek" @oninput="e => _artikelZoek = (string?)e.Value ?? string.Empty" @onkeydown="ArtikelZoekToets" />
+                                <div class="wn-namen kort">
+                                    @foreach (var k in _kandidaten)
+                                    {
+                                        <button class="wn-naam" @key="k.ArtikelId" @onclick="() => _boekArtikel = k"><span class="artikel-id">@k.ArtikelId</span>@k.Code — @k.Omschrijving</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (s != Soort.In && _boekPositie is { } bp)
+                    {
+                        <div class="wn-veld"><label>Van</label>
+                            <span>@_boom.Naam(bp.LokatieId) · @bp.Status · <b>@bp.Aantal.ToString("0.###")</b> aanwezig <small class="av-pad">@_boom.Leesbaar(bp.LokatieId)</small></span></div>
+                    }
+
+                    @if (s == Soort.In || s == Soort.Verplaats)
+                    {
+                        <div class="wn-veld">
+                            <label>@(s == Soort.In ? "Plek" : "Naar")</label>
+                            <div>
+                                <span class="po-regel">
+                                    <span>@(_boekNaar is int bn ? _boom.Leesbaar(bn) + " (" + _boom.Naam(bn) + ")" : "— kies een plek —")</span>
+                                    <button class="klein" @onclick="() => _plekKiezerOpen = true">Kies…</button>
+                                </span>
+                                @if (s == Soort.In && _bestaandePlekken.Count > 0)
+                                {
+                                    <div class="av-chips"><span class="uitleg">Ligt al op:</span>
+                                        @foreach (var bpk in _bestaandePlekken)
+                                        {
+                                            <button class="klein @(_boekNaar == bpk ? "primair" : "")" @onclick="() => _boekNaar = bpk">@_boom.Naam(bpk)</button>
+                                        }
+                                    </div>
+                                }
+                                @if (s == Soort.Verplaats)
+                                {
+                                    <div class="av-chips"><span class="uitleg">Of bij een persoon (lenen):</span>
+                                        <select @onchange="PersoonGekozen">
+                                            <option value="">— persoon —</option>
+                                            @foreach (var pp in _personen) { <option value="@pp.Id">@pp.Naam</option> }
+                                        </select>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (s == Soort.In)
+                    {
+                        <div class="wn-veld"><label>Status</label>
+                            <select @onchange="e => _boekStatus = int.TryParse((string?)e.Value, out var v) ? v : null">
+                                @foreach (var st in _statussen) { <option value="@st.Id" selected="@(_boekStatus == st.Id)">@st.Naam</option> }
+                            </select></div>
+                    }
+
+                    <div class="wn-veld">
+                        <label>@(s == Soort.Corrigeer ? "Werkelijk aantal" : "Aantal")</label>
+                        <span class="po-regel">
+                            @if (s != Soort.Corrigeer) { <button class="klein" @onclick="() => Stap(-1)">−</button> }
+                            <input class="av-aantalinvoer" value="@_boekAantal.ToString("0.###")" @key="_aantalVersie" @onchange="AantalGewijzigd" />
+                            @if (s != Soort.Corrigeer) { <button class="klein" @onclick="() => Stap(1)">＋</button> }
+                            @if (s is Soort.Uit or Soort.Verplaats && _boekPositie is { } mp)
+                            {
+                                <button class="klein" @onclick="() => { _boekAantal = mp.Aantal; _aantalVersie++; }">alles (@mp.Aantal.ToString("0.###"))</button>
+                            }
+                        </span>
+                    </div>
+
+                    @if (s is Soort.Uit or Soort.Verplaats)
+                    {
+                        <div class="wn-veld"><label>Door / voor</label>
+                            <select @onchange="e => _boekWerknemer = int.TryParse((string?)e.Value, out var v) ? v : null">
+                                <option value="" selected="@(_boekWerknemer is null)">— wie? —</option>
+                                @foreach (var pp in _personen) { <option value="@pp.Id" selected="@(_boekWerknemer == pp.Id)">@pp.Naam</option> }
+                            </select></div>
+                    }
+
+                    @if (s == Soort.Uit)
+                    {
+                        <div class="wn-veld"><label>Werkorder</label>
+                            <span class="po-regel">
+                                <span>@(_boekWerkorder is { } wo ? wo.Weergave + " " + wo.Omschrijving : "— geen —")</span>
+                                <button class="klein" @onclick="() => _werkorderOpen = true">Kies…</button>
+                                @if (_boekWerkorder is not null) { <button class="klein" @onclick="() => _boekWerkorder = null">✕</button> }
+                            </span></div>
+                        <p class="uitleg">Met een werkorder komt het artikel ook bij de projectmaterialen, als geleverd.</p>
+                    }
+                </div>
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="SluitBoeking">Annuleren</button>
+                    <button class="primair" disabled="@_boekBezig" @onclick="Boek">@Knop(s)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<LokatieKiezer Open="_plekKiezerOpen" Titel="Kies een plek" Boom="_boom" VoorArtikel="true"
+               Huidig="_boekPositie?.LokatieId" OpGekozen="PlekGekozen" OpSluiten="() => _plekKiezerOpen = false" />
+
+<WerkorderKiezer Open="_werkorderOpen" WerknemerId="Ik.WerknemerId ?? 0" OpGekozen="WerkorderGekozen" OpGesloten="() => _werkorderOpen = false" />
+
+<GroepenKiezer Open="_groepKiezerOpen" Titel="Filter op artikelgroep" Filteren="true" ToonWissen="true"
+               OpKeuze="GroepGekozen" OpSluiten="() => _groepKiezerOpen = false" />
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "lokatie")] public int? LokatieQuery { get; set; }
+
+    private const int Max = 1000;
+    private enum Soort { In, Uit, Verplaats, Corrigeer }
+
+    private LokatieBoom _boom = new(Array.Empty<Lokatie>());
+    private List<VoorraadArtikel> _lijst = new();
+    private VoorraadArtikel? _artikel;
+    private List<VoorraadPositie> _posities = new();
+    private List<VoorraadMutatieRegel>? _historie;
+    private List<VoorraadStatusKeuze> _statussen = new();
+    private List<(int Id, string Naam)> _personen = new();
+
+    private string _zoek = "";
+    private int _zoekVersie;
+    private string _groepNaam = "";
+    private List<int> _groepIds = new();
+    private int? _lokatieFilter;
+    private bool _groepKiezerOpen;
+
+    // boeking
+    private Soort? _soort;
+    private VoorraadArtikel? _boekArtikel;
+    private VoorraadPositie? _boekPositie;
+    private int? _boekNaar;
+    private int? _boekStatus;
+    private decimal _boekAantal = 1;
+    private int _aantalVersie;
+    private int? _boekWerknemer;
+    private Workorder? _boekWerkorder;
+    private bool _boekBezig, _plekKiezerOpen, _werkorderOpen;
+    private string _artikelZoek = "";
+    private List<VoorraadArtikel> _kandidaten = new();
+    private List<int> _bestaandePlekken = new();
+
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagCorrigeren => !Ik.Gekoppeld || Ik.MagEenVan("Voorraadbeheer", "Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _boom = await Lokaties.BoomAsync();
+            _statussen = await Repo.StatussenAsync();
+            _personen = await Repo.PersonenAsync();
+            _lokatieFilter = LokatieQuery;
+            await LaadLijst();
+            if (Id is int id) await Open(id);
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadLijst()
+    {
+        try { _lijst = await Repo.ArtikelenAsync(_zoek.Trim(), _groepIds, _lokatieFilter, Max); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Enter: een gescande plek (@L…) zet het plekfilter, een artikelcode/EAN opent het artikel, anders zoeken.</summary>
+    private async Task ZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var z = _zoek.Trim();
+        var m = System.Text.RegularExpressions.Regex.Match(z, @"^@?L0*(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var lid) && _boom.PerId.ContainsKey(lid))
+        {
+            _zoek = ""; _zoekVersie++;
+            await FilterOpPlek(lid);
+            return;
+        }
+        await LaadLijst();
+        if (_lijst.Count == 1) { await Open(_lijst[0].ArtikelId); return; }
+        if (_lijst.Count == 0 && z.Length > 0 && await Repo.ArtikelVoorScanAsync(z) is int aid)
+        {
+            _zoek = ""; _zoekVersie++;
+            await LaadLijst();
+            await Open(aid);
+        }
+    }
+
+    private async Task FilterOpPlek(int lokatieId)
+    {
+        _lokatieFilter = lokatieId;
+        await LaadLijst();
+        Toon($"Alleen wat er op {_boom.Leesbaar(lokatieId)} ligt ({_lijst.Count} artikelen).", false);
+    }
+
+    private async Task LokatieWeg() { _lokatieFilter = null; await LaadLijst(); }
+
+    private async Task GroepGekozen(Groepknoop? knoop)
+    {
+        _groepKiezerOpen = false;
+        _groepNaam = knoop?.Pad ?? "";
+        _groepIds = new();
+        if (knoop is not null) Verzamel(knoop);
+        await LaadLijst();
+
+        void Verzamel(Groepknoop k) { _groepIds.Add(k.Id); foreach (var c in k.Kinderen) Verzamel(c); }
+    }
+
+    private async Task GroepWeg() { _groepNaam = ""; _groepIds = new(); await LaadLijst(); }
+
+    private async Task Open(int artikelId)
+    {
+        try
+        {
+            _artikel = _lijst.FirstOrDefault(a => a.ArtikelId == artikelId);
+            if (_artikel is null)
+            {
+                // niet (meer) op voorraad: gegevens los ophalen, zodat inboeken kan
+                var art = await Artikelen.GetAsync(artikelId);
+                if (art is null) { Toon($"Artikel {artikelId} bestaat niet.", true); return; }
+                _artikel = new VoorraadArtikel(artikelId, art.Code, art.OmschrijvingNl, 0, 0);
+            }
+            _posities = await Repo.PositiesAsync(artikelId);
+            _historie = null;
+            Nav.NavigateTo($"voorraad/artikelen/{artikelId}" + (_lokatieFilter is int l ? $"?lokatie={l}" : ""), replace: true);
+        }
+        catch (Exception ex) { Toon("Artikel ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ToonHistorie()
+    {
+        if (_historie is not null) { _historie = null; return; }
+        if (_artikel is null) return;
+        try { _historie = await Repo.HistorieAsync(_artikel.ArtikelId, 100); }
+        catch (Exception ex) { Toon("Historie ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- boeken ----
+    private static string Titel(Soort s) => s switch
+    {
+        Soort.In => "Artikel inboeken", Soort.Uit => "Artikel uitboeken", Soort.Verplaats => "Artikel verplaatsen", _ => "Voorraad corrigeren",
+    };
+
+    private static string Knop(Soort s) => s switch
+    {
+        Soort.In => "Inboeken", Soort.Uit => "Uitboeken", Soort.Verplaats => "Verplaatsen", _ => "Corrigeren",
+    };
+
+    private void OpenBoeking(Soort s, VoorraadPositie? p)
+    {
+        _soort = s;
+        _boekArtikel = _artikel;
+        _boekPositie = p;
+        _boekNaar = null;
+        _boekStatus = p?.StatusId ?? _statussen.FirstOrDefault()?.Id;
+        _boekAantal = s == Soort.Corrigeer && p is not null ? p.Aantal : 1;
+        _aantalVersie++;
+        _boekWerknemer = Ik.WerknemerId;
+        _boekWerkorder = null;
+        _artikelZoek = ""; _kandidaten = new();
+        _bestaandePlekken = s == Soort.In ? _posities.Select(x => x.LokatieId).Distinct().ToList() : new();
+    }
+
+    private void SluitBoeking() => _soort = null;
+
+    private void Stap(int d)
+    {
+        var max = _soort is Soort.Uit or Soort.Verplaats ? _boekPositie?.Aantal ?? decimal.MaxValue : decimal.MaxValue;
+        _boekAantal = Math.Clamp(_boekAantal + d, 1, Math.Max(1, max));
+        _aantalVersie++;
+    }
+
+    private void AantalGewijzigd(ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Replace(',', '.').Trim();
+        _boekAantal = decimal.TryParse(t, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+    }
+
+    /// <summary>Enter: een gescand label (MDE123), artikelnummer of EAN kiest meteen; anders de zoeklijst.</summary>
+    private async Task ArtikelZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        try
+        {
+            if (await Repo.ArtikelVoorScanAsync(_artikelZoek) is int id && await Artikelen.GetAsync(id) is { } art)
+            {
+                _boekArtikel = new VoorraadArtikel(id, art.Code, art.OmschrijvingNl, 0, 0);
+                return;
+            }
+            _kandidaten = await Repo.ZoekArtikelenAsync(_artikelZoek, 30);
+            if (_kandidaten.Count == 1) _boekArtikel = _kandidaten[0];
+        }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private void PlekGekozen(int id) { _boekNaar = id; _plekKiezerOpen = false; }
+
+    private async Task PersoonGekozen(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var wid)) return;
+        try
+        {
+            _boekNaar = await Repo.PersoonLokatieAsync(wid, Ik.WerknemerId);
+            if (!_boom.PerId.ContainsKey(_boekNaar.Value)) _boom = await Lokaties.BoomAsync();   // net aangemaakt
+        }
+        catch (Exception ex) { Toon("Persoonlijke lokatie mislukt: " + ex.Message, true); }
+    }
+
+    private void WerkorderGekozen(Workorder w) { _boekWerkorder = w; _werkorderOpen = false; }
+
+    private async Task Boek()
+    {
+        if (_soort is not Soort s) return;
+        var art = _boekArtikel;
+        if (art is null) { Toon("Kies een artikel.", true); return; }
+        if (s != Soort.Corrigeer && _boekAantal <= 0) { Toon("Geen juist aantal ingevoerd.", true); return; }
+        if (s is Soort.Uit or Soort.Verplaats && _boekWerknemer is null) { Toon("Wie boekt er? Kies een persoon.", true); return; }
+        if (s == Soort.Uit && _boekWerkorder is null && !await Bevestig("Geen werkorder gekozen. Toch uitboeken?")) return;
+
+        _boekBezig = true;
+        try
+        {
+            string klaar;
+            switch (s)
+            {
+                case Soort.In:
+                    if (_boekNaar is not int naar) { Toon("Kies een plek.", true); return; }
+                    if (_boekStatus is not int st) { Toon("Kies een status.", true); return; }
+                    await Repo.InboekenAsync(art.ArtikelId, naar, st, _boekAantal, Ik.WerknemerId);
+                    klaar = $"{_boekAantal:0.###} × {art.Code} ingeboekt op {_boom.Naam(naar)}.";
+                    break;
+                case Soort.Uit:
+                    var p = _boekPositie!;
+                    await Repo.UitboekenAsync(art.ArtikelId, p.LokatieId, p.StatusId, _boekAantal, Ik.WerknemerId, _boekWerknemer, _boekWerkorder?.WerkbonId);
+                    klaar = $"{_boekAantal:0.###} × {art.Code} uitgeboekt van {_boom.Naam(p.LokatieId)}" + (_boekWerkorder is { } wo ? $" naar {wo.Weergave}." : ".");
+                    break;
+                case Soort.Verplaats:
+                    var vp = _boekPositie!;
+                    if (_boekNaar is not int nr) { Toon("Kies een nieuwe plek.", true); return; }
+                    await Repo.VerplaatsAsync(art.ArtikelId, vp.LokatieId, vp.StatusId, nr, _boekAantal, Ik.WerknemerId, _boekWerknemer);
+                    klaar = $"{_boekAantal:0.###} × {art.Code} van {_boom.Naam(vp.LokatieId)} naar {_boom.Naam(nr)}.";
+                    break;
+                default:
+                    var cp = _boekPositie!;
+                    if (_boekAantal < 0) { Toon("Een negatief aantal kan niet.", true); return; }
+                    await Repo.CorrigeerAsync(art.ArtikelId, cp.LokatieId, cp.StatusId, _boekAantal, Ik.WerknemerId);
+                    klaar = $"{art.Code} op {_boom.Naam(cp.LokatieId)} staat nu op {_boekAantal:0.###} (was {cp.Aantal:0.###}).";
+                    break;
+            }
+            _soort = null;
+            await LaadLijst();
+            await Open(art.ArtikelId);
+            Toon(klaar, false);
+        }
+        catch (Exception ex) { Toon("Boeken mislukt: " + ex.Message, true); }
+        finally { _boekBezig = false; }
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

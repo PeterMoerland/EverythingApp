@@ -95,9 +95,10 @@ public static class Menu
                 new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur"),
                 new MenuItem("Lokaties")),
             new MenuGroep("Voorraad",
-                new MenuItem("Inboeken"),
-                new MenuItem("Uitboeken"),
-                new MenuItem("Verplaatsen")),
+                new MenuItem("Artikelvoorraad", "/voorraad/artikelen"),
+                new MenuItem("Inboeken", "/voorraad/artikelen"),
+                new MenuItem("Uitboeken", "/voorraad/artikelen"),
+                new MenuItem("Verplaatsen", "/voorraad/artikelen")),
             new MenuGroep("Rapporten",
                 new MenuItem("Voorraadstand"))),
 
