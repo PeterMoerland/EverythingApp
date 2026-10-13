@@ -195,3 +195,7 @@ public record FactuurArtikel(int Id, string Code, string Omschrijving, decimal V
 /// <summary>Een banktransactie die aan een uitgaande factuur gekoppeld is.</summary>
 public record VerkoopFactuurBetaling(int BanktransactieId, DateTime? Datum, decimal Bedrag,
                                      string Tegenpartij, string Omschrijving);
+
+/// <summary>Een nieuwe uitgaande factuur, alvast ingevuld (bv. vanuit een termijn van een PO van een klant).</summary>
+public record FactuurVoorstel(int? BvId, int? KlantId, string Klant, string PoKlant, string Omschrijving,
+                              string Regel, decimal Bedrag);

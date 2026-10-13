@@ -2167,3 +2167,33 @@ html[data-thema="donker"] .br-werknemers label { background: #16273d; border-col
 html[data-thema="donker"] .br-werknemers label.aan { background: #1d3557; border-color: #5b8fd6; }
 html[data-thema="donker"] .br-chip { background: #1d3557; border-color: #2b4a73; }
 html[data-thema="donker"] .br-tabel .br-mist { background: #3a2020; }
+
+/* ---- PO's van klanten ---- */
+.po-lijst tr.po-regel-klik { cursor: default; }
+.po-lijst tr.po-regel-klik:hover td { background: rgba(26, 95, 180, .06); }
+.po-lijst td.po-klaar { color: #1e7b34; font-weight: 600; }
+.po-lijst tr.po-laat td:first-child { color: var(--rood); font-weight: 600; }
+.po-vink span:last-child { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.po-vink input[type="checkbox"] { width: auto; margin: 0; }
+.po-venster { width: min(84rem, 96vw); }
+.po-tweeluik { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+@media (max-width: 70rem) { .po-tweeluik { grid-template-columns: 1fr; } }
+.po-zoek { position: relative; flex: 1; }
+.po-zoek input { width: 100%; box-sizing: border-box; }
+.po-keuzes { position: absolute; z-index: 20; left: 0; right: 0; max-height: 16rem; overflow: auto; background: #fff; border: 1px solid #ccd5e0; border-radius: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+.po-regel { display: flex; align-items: center; gap: .4rem; }
+.po-regel input { flex: 1; }
+.po-termijnen input { width: 100%; box-sizing: border-box; padding: 1px 4px; font: inherit; }
+.po-termijnen input.r { text-align: right; }
+.po-termijnen input.po-opm { margin-top: 2px; font-size: .85em; color: #555; }
+.po-termijnen td { vertical-align: top; }
+.po-termijnen .po-gef { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.po-termijnen .po-gef input[type="checkbox"] { width: auto; margin: 0; }
+.po-termijnen tr.po-koppel td { background: var(--selected); }
+.po-factuurkeuze { display: block; text-align: left; }
+.po-termvoet { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: .5rem 0; }
+.po-documenten .po-doc { display: flex; align-items: center; gap: .4rem; padding: .15rem 0; }
+.po-documenten .po-doc.actief button.link { font-weight: 700; }
+.po-voorbeeld { width: 100%; height: 60vh; border: 1px solid #ddd; border-radius: 4px; margin-top: .5rem; background: #fff; }
+html[data-thema="donker"] .po-keuzes { background: #16273d; border-color: #2b4a73; }
+html[data-thema="donker"] .po-lijst td.po-klaar { color: #7fd18f; }

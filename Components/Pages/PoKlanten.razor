@@ -1,0 +1,236 @@
+@page "/financien/po-klant"
+@inject IPOKlantRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Overgezet van het Access-formulier POInkomend ("Inkomende inkoopopdrachten") met POInkomend_Overzicht.
+   De facturatie-agenda vervangt het rapport Payments_due. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>PO's van klanten</h1>
+        <span class="weeklabel">@_lijst.Count PO's · @Geld(_lijst.Sum(p => p.Bedrag)) · nog te factureren @Geld(_lijst.Sum(p => Math.Max(0, p.Open)))</span>
+        @if (Repo.Beschikbaar && MagInvoeren)
+        {
+            <button class="klein" @onclick="() => _poOpen = 0">＋ PO toevoegen</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-tabs">
+            <button class="@(_tab == "lijst" ? "actief" : "")" @onclick="() => WisselTab(TabLijst)">PO's</button>
+            <button class="@(_tab == "agenda" ? "actief" : "")" @onclick="() => WisselTab(TabAgenda)">
+                Facturatie-agenda @if (_agenda.Count(a => a.VerwachtOp < Vandaag) is int laat && laat > 0) { <span class="stand-chip s-rood">@laat te laat</span> }
+            </button>
+        </div>
+
+        @if (_tab == "lijst")
+        {
+            <div class="bankfilters">
+                <label class="bankveld">
+                    <span>BV</span>
+                    <select value="@(_filter.BvId?.ToString() ?? "")" @onchange="BvGewijzigd">
+                        <option value="">Alle</option>
+                        @foreach (var b in _bvs)
+                        {
+                            <option value="@b.Id">@b.Afkorting</option>
+                        }
+                    </select>
+                </label>
+                <label class="bankveld">
+                    <span>Van</span>
+                    <NlDatum Waarde="_filter.Van" WaardeChanged="VanGewijzigd" />
+                </label>
+                <label class="bankveld">
+                    <span>Tot en met</span>
+                    <NlDatum Waarde="_filter.Tot" WaardeChanged="TotGewijzigd" />
+                </label>
+                <div class="btngroup">
+                    <button class="klein" @onclick="DitKwartaal">Dit kwartaal</button>
+                    <button class="klein" @onclick="DitJaar">Dit jaar</button>
+                    <button class="klein" @onclick="AllePerioden">Alles</button>
+                </div>
+                <label class="bankveld groei">
+                    <span>Zoeken</span>
+                    <span class="zoekregel">
+                        <input placeholder="PO-nummer, klant, omschrijving, contactpersoon…" value="@_filter.Zoek" @onchange="ZoekGewijzigd" />
+                        <button class="klein" disabled="@(_filter.Zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </span>
+                </label>
+                <label class="bankveld po-vink">
+                    <span>&nbsp;</span>
+                    <span><input type="checkbox" checked="@_filter.AlleenOpen" @onchange="OpenGewijzigd" /> Niet volledig gefactureerd</span>
+                </label>
+                <div class="btngroup">
+                    <button class="klein" @onclick="FiltersOpheffen">Filters opheffen</button>
+                </div>
+            </div>
+
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel po-lijst">
+                    <thead>
+                        <tr>
+                            <th style="width:6.5rem">Datum</th>
+                            <th style="width:3.5rem">BV</th>
+                            <th style="width:14rem">Klant</th>
+                            <th style="width:10rem">PO-nummer</th>
+                            <th>Omschrijving</th>
+                            <th style="width:10rem">Contactpersoon</th>
+                            <th class="r" style="width:8rem">Bedrag</th>
+                            <th class="r" style="width:8rem">Gefactureerd</th>
+                            <th class="c" style="width:4rem" title="Aantal betaaltermijnen">Term.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in _lijst)
+                        {
+                            <tr @key="p.Id" class="po-regel-klik" @ondblclick="() => _poOpen = p.Id" title="Dubbelklik om te openen">
+                                <td>@(p.Datum?.ToString("d-M-yyyy"))</td>
+                                <td>@p.Bv</td>
+                                <td>@p.Klant</td>
+                                <td>@p.PoNummer</td>
+                                <td>@p.Omschrijving</td>
+                                <td>@p.Contact</td>
+                                <td class="r">@Geld(p.Bedrag)</td>
+                                <td class="r @(p.Bedrag > 0 && p.Gefactureerd >= p.Bedrag - 0.005m ? "po-klaar" : "")">@(p.AantalTermijnen > 0 ? Geld(p.Gefactureerd) : "")</td>
+                                <td class="c">@(p.AantalTermijnen > 0 ? p.AantalTermijnen : "")</td>
+                            </tr>
+                        }
+                        @if (_lijst.Count == 0 && !_laden)
+                        {
+                            <tr><td colspan="9" class="uitleg">Geen PO's binnen dit filter.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="uitleg">Dubbelklik op een regel om de PO te openen, met termijnen en documenten.</p>
+        }
+        else
+        {
+            <p class="uitleg">Termijnen met een verwachte factuurdatum die nog niet gefactureerd zijn (Access: rapport Payments_due, "Facturatie agenda").</p>
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel po-lijst">
+                    <thead>
+                        <tr>
+                            <th style="width:6.5rem">Verwacht</th>
+                            <th style="width:3.5rem">BV</th>
+                            <th style="width:14rem">Klant</th>
+                            <th style="width:10rem">PO-nummer</th>
+                            <th>Termijn</th>
+                            <th class="r" style="width:8rem">Bedrag</th>
+                            <th>Opmerking</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _agenda)
+                        {
+                            <tr @key="a.TermijnId" class="po-regel-klik @(a.VerwachtOp < Vandaag ? "po-laat" : "")" @ondblclick="() => _poOpen = a.PoId"
+                                title="Dubbelklik om de PO te openen">
+                                <td>@(a.VerwachtOp?.ToString("d-M-yyyy"))</td>
+                                <td>@a.Bv</td>
+                                <td>@a.Klant</td>
+                                <td>@a.PoNummer</td>
+                                <td>@a.Termijn <span class="uitleg">@a.PoOmschrijving</span></td>
+                                <td class="r">@Geld(a.Bedrag)</td>
+                                <td>@a.Opmerking</td>
+                            </tr>
+                        }
+                        @if (_agenda.Count == 0)
+                        {
+                            <tr><td colspan="7" class="uitleg">Niets te factureren volgens de verwachte datums.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<POKlantVenster PoId="_poOpen" Sluiten="VensterDicht" />
+
+@code {
+    private const string TabLijst = "lijst", TabAgenda = "agenda";
+    private string _tab = TabLijst;
+    private POFilter _filter = new();
+    private List<POKlant> _lijst = new();
+    private List<POAgendaRegel> _agenda = new();
+    private List<Administratie> _bvs = new();
+    private int? _poOpen;
+    private bool _laden = true;
+    private string? _melding;
+
+    private static DateOnly Vandaag => DateOnly.FromDateTime(DateTime.Today);
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _bvs = await Repo.BvsAsync(); } catch { }
+        Kwartaal();             // Access opende op het lopende kwartaal
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laden = true;
+        try
+        {
+            _lijst = await Repo.ZoekAsync(_filter);
+            _agenda = await Repo.AgendaAsync();
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+        finally { _laden = false; }
+    }
+
+    private void WisselTab(string tab) => _tab = tab;
+
+    private async Task VensterDicht(bool gewijzigd)
+    {
+        _poOpen = null;
+        if (gewijzigd) await Laad();
+    }
+
+    private void Kwartaal()
+    {
+        var v = Vandaag;
+        var start = new DateOnly(v.Year, (v.Month - 1) / 3 * 3 + 1, 1);
+        _filter.Van = start;
+        _filter.Tot = start.AddMonths(3).AddDays(-1);
+    }
+
+    private async Task DitKwartaal() { Kwartaal(); await Laad(); }
+    private async Task DitJaar() { _filter.Van = new DateOnly(Vandaag.Year, 1, 1); _filter.Tot = new DateOnly(Vandaag.Year, 12, 31); await Laad(); }
+    private async Task AllePerioden() { _filter.Van = null; _filter.Tot = null; await Laad(); }
+    private async Task VanGewijzigd(DateOnly? d) { _filter.Van = d; await Laad(); }
+    private async Task TotGewijzigd(DateOnly? d) { _filter.Tot = d; await Laad(); }
+
+    private async Task BvGewijzigd(ChangeEventArgs e)
+    {
+        _filter.BvId = int.TryParse((string?)e.Value, out var b) ? b : null;
+        await Laad();
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e) { _filter.Zoek = ((string?)e.Value ?? "").Trim(); await Laad(); }
+    private async Task WisZoek() { _filter.Zoek = ""; await Laad(); }
+    private async Task OpenGewijzigd(ChangeEventArgs e) { _filter.AlleenOpen = e.Value is bool b && b; await Laad(); }
+
+    /// <summary>Access "Filters opheffen": AUTO, alle perioden, zoeken leeg.</summary>
+    private async Task FiltersOpheffen()
+    {
+        _filter = new POFilter();
+        await Laad();
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal d) => d.ToString("C2", Nl);
+}

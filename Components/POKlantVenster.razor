@@ -1,0 +1,578 @@
+@* Een PO van een klant toevoegen of aanpassen; vervangt "POInkomend toevoegen" en "POInkomend aanpassen"
+   met het subformulier PO_Payments. PoId: 0 = nieuw, een getal = die PO, null = dicht. *@
+@inject IPOKlantRepository Repo
+@inject IRelatieRepository Relaties
+@inject IBestelRepository Bestel
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Filestore
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (PoId is not null)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster po-venster" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@(_po.Id == 0 ? "PO van klant toevoegen" : $"PO {_po.PoNummer} · {_po.Klant}")</h2>
+                <button class="klein" @onclick="Afbreken">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+                @if (!MagInvoeren)
+                {
+                    <div class="melding fout">Alleen bekijken: PO's invoeren mag met het recht Financial of Directie.</div>
+                }
+
+                <div class="po-tweeluik">
+                    <div>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld">
+                                <label>Klant</label>
+                                @if (_klantZoekOpen || _po.KlantId is null)
+                                {
+                                    <div class="po-zoek">
+                                        <input placeholder="Zoek klant…" value="@_klantZoek" @oninput="KlantZoekGewijzigd" disabled="@(!MagInvoeren)" />
+                                        @if (_klanten.Count > 0)
+                                        {
+                                            <div class="po-keuzes">
+                                                @foreach (var kl in _klanten)
+                                                {
+                                                    <button class="wn-naam" @key="kl.Id" @onclick="() => KiesKlant(kl)">@kl.Naam</button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span>
+                                        <strong>@_po.Klant</strong>
+                                        @if (MagInvoeren) { <button class="klein" @onclick="() => _klantZoekOpen = true">Wijzig</button> }
+                                    </span>
+                                }
+                            </div>
+                            <div class="wn-veld">
+                                <label>Contactpersoon</label>
+                                <select value="@(_po.ContactId?.ToString() ?? "")" disabled="@(!MagInvoeren || _po.KlantId is null)"
+                                        @onchange="e => _po.ContactId = int.TryParse((string?)e.Value, out var gekozenContact) ? gekozenContact : null">
+                                    <option value="">—</option>
+                                    @foreach (var con in _contacten)
+                                    {
+                                        <option value="@con.Id">@con.Naam</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="wn-veld">
+                                <label>PO-nummer klant</label>
+                                <span class="po-regel">
+                                    <input value="@_po.PoNummer" maxlength="100" disabled="@(!MagInvoeren)" @onchange="PoNummerGewijzigd" />
+                                    @if (_bestaatAl) { <span class="stand-chip s-geel" title="Dit PO-nummer staat al bij deze klant">bestaat al</span> }
+                                </span>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Datum PO</label>
+                                <NlDatum Waarde="_po.Datum" WaardeChanged="poDatum => _po.Datum = poDatum" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Administratie</label>
+                                <select value="@(_po.BvId?.ToString() ?? "")" disabled="@(!MagInvoeren)"
+                                        @onchange="e => _po.BvId = int.TryParse((string?)e.Value, out var gekozenBv) ? gekozenBv : null">
+                                    <option value="">—</option>
+                                    @foreach (var adm in _bvs)
+                                    {
+                                        <option value="@adm.Id">@adm.Afkorting · @adm.Naam</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Bedrag (ex BTW)</label>
+                                <input class="r" value="@Geld(_po.Bedrag)" disabled="@(!MagInvoeren)" @onchange="BedragGewijzigd" />
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Omschrijving</label>
+                                <input value="@_po.Omschrijving" maxlength="100" disabled="@(!MagInvoeren)"
+                                       @onchange="e => _po.Omschrijving = Tekst(e)" />
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Opmerking</label>
+                                <textarea rows="2" maxlength="400" disabled="@(!MagInvoeren)"
+                                          @onchange="e => _po.Opmerking = Tekst(e)">@_po.Opmerking</textarea>
+                            </div>
+                            @if (_po.Id > 0)
+                            {
+                                <div class="wn-veld">
+                                    <label>Ingevoerd</label>
+                                    <span class="wn-vast">@(_po.Ingevoerd?.ToString("d-M-yyyy HH:mm")) @(_po.IngevoerdDoor.Length > 0 ? "door " + _po.IngevoerdDoor : "")</span>
+                                </div>
+                            }
+                        </div>
+
+                        @* ---------- termijnen (Access: PO_Payments) ---------- *@
+                        <h3 class="wn-kop">Betaaltermijnen</h3>
+                        <table class="kiezer-tabel po-termijnen">
+                            <thead>
+                                <tr>
+                                    <th>Omschrijving</th>
+                                    <th class="r" style="width:7.5rem">Bedrag</th>
+                                    <th class="r" style="width:4rem" title="Percentage van het PO-bedrag">%</th>
+                                    <th style="width:7.5rem">Verwacht</th>
+                                    <th style="width:9.5rem">Gefactureerd</th>
+                                    <th style="width:10rem">Factuur</th>
+                                    <th style="width:2rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var t in _po.Termijnen)
+                                {
+                                    var term = t;
+                                    <tr @key="term">
+                                        <td>
+                                            <input value="@term.Omschrijving" maxlength="50" disabled="@(!MagInvoeren)" placeholder="bv. 30% bij opdracht"
+                                                   @onchange="e => term.Omschrijving = Tekst(e)" />
+                                            <input class="po-opm" value="@term.Opmerking" disabled="@(!MagInvoeren)" placeholder="opmerking"
+                                                   @onchange="e => term.Opmerking = Tekst(e)" />
+                                        </td>
+                                        <td><input class="r" value="@Geld(term.Bedrag)" disabled="@(!MagInvoeren)" @onchange="e => TermBedrag(term, e)" /></td>
+                                        <td><input class="r" value="@Procent(term)" disabled="@(!MagInvoeren || _po.Bedrag == 0)" @onchange="e => TermProcent(term, e)" /></td>
+                                        <td><NlDatum Waarde="term.VerwachtOp" WaardeChanged="verwacht => term.VerwachtOp = verwacht" /></td>
+                                        <td>
+                                            <label class="po-gef">
+                                                <input type="checkbox" checked="@term.Gefactureerd" disabled="@(!MagInvoeren || term.FactuurId is not null)"
+                                                       @onchange="e => Gefactureerd(term, e)" />
+                                                @(term.GefactureerdOp?.ToString("d-M-yyyy") ?? "")
+                                            </label>
+                                        </td>
+                                        <td>
+                                            @if (term.FactuurId is int fid)
+                                            {
+                                                <button class="link" title="Factuur openen" @onclick="() => _factuurOpen = fid">@term.Factuurnummer</button>
+                                                @if (MagInvoeren) { <button class="klein" title="Factuur ontkoppelen" @onclick="() => Ontkoppel(term)">✕</button> }
+                                            }
+                                            else if (MagInvoeren)
+                                            {
+                                                <button class="klein" disabled="@(term.Id == 0)" title="@(term.Id == 0 ? "Eerst opslaan" : "Uitgaande factuur maken voor deze termijn")"
+                                                        @onclick="() => MaakFactuur(term)">＋ Factuur</button>
+                                                <button class="klein" disabled="@(term.Id == 0)" title="@(term.Id == 0 ? "Eerst opslaan" : "Bestaande factuur koppelen")"
+                                                        @onclick="() => ZoekFacturen(term)">Koppel…</button>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (MagInvoeren && term.FactuurId is null)
+                                            {
+                                                <button class="klein rood" title="Termijn wissen" @onclick="() => _po.Termijnen.Remove(term)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                    @if (_koppelVoor == term)
+                                    {
+                                        <tr class="po-koppel">
+                                            <td colspan="7">
+                                                @if (_facturen.Count == 0)
+                                                {
+                                                    <span class="uitleg">Geen uitgaande facturen van deze klant.</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="uitleg">Kies de factuur voor "@term.Omschrijving" (bedrag rond @Geld(term.Bedrag) bovenaan):</span>
+                                                    @foreach (var fk in _facturen)
+                                                    {
+                                                        <button class="wn-naam po-factuurkeuze" @onclick="() => Koppel(term, fk)">
+                                                            <strong>@fk.Nummer</strong> · @(fk.Datum?.ToString("d-M-yyyy")) · @Geld(fk.BedragEx)
+                                                            <span class="uitleg">@fk.Omschrijving @(fk.PoKlant.Length > 0 ? "· PO " + fk.PoKlant : "")</span>
+                                                        </button>
+                                                    }
+                                                }
+                                                <button class="klein" @onclick="() => _koppelVoor = null">Annuleren</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                        <div class="po-termvoet">
+                            @if (MagInvoeren) { <button class="klein" @onclick="NieuweTermijn">＋ Termijn</button> }
+                            <span>Totaal termijnen: <strong>@Geld(_po.TotaalTermijnen)</strong></span>
+                            @if (_po.Termijnen.Count > 0 && Math.Abs(_po.TotaalTermijnen - _po.Bedrag) > 0.005m)
+                            {
+                                <span class="stand-chip s-geel">@Geld(_po.Bedrag - _po.TotaalTermijnen) verschil met het PO-bedrag</span>
+                            }
+                        </div>
+                    </div>
+
+                    @* ---------- documenten (FileStore, StoreType 20) ---------- *@
+                    <div class="po-documenten">
+                        <h3 class="wn-kop">Documenten</h3>
+                        @if (MagInvoeren)
+                        {
+                            <InputFile OnChange="BestandenGekozen" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.png,.jpg,.jpeg" />
+                        }
+                        @foreach (var doc in _documenten)
+                        {
+                            <div class="po-doc @(doc.FileStoreId == _kies ? "actief" : "")">
+                                <button class="link" @onclick="() => _kies = doc.FileStoreId">@doc.Bestandsnaam</button>
+                                <a class="knopje" href="@("bestand/" + doc.FileStoreId + "/download")" title="Downloaden">⭳</a>
+                                @if (MagInvoeren) { <button class="klein rood" title="Document wissen" @onclick="() => WisDocument(doc)">✕</button> }
+                            </div>
+                        }
+                        @foreach (var wt in _wachtrij)
+                        {
+                            <div class="po-doc"><span>@wt.Naam</span> <span class="uitleg">wordt opgeslagen bij Opslaan</span>
+                                <button class="klein rood" @onclick="() => _wachtrij.Remove(wt)">✕</button></div>
+                        }
+                        @if (_documenten.Count == 0 && _wachtrij.Count == 0)
+                        {
+                            <p class="uitleg">Nog geen documenten. Voeg de PO van de klant toe als PDF.</p>
+                        }
+                        @if (_kies is int kiesId)
+                        {
+                            <iframe class="po-voorbeeld" src="@("voorbeeld/" + kiesId)" title="Voorbeeld"></iframe>
+                        }
+                    </div>
+                </div>
+
+                <div class="btngroep-rand">
+                    @if (MagInvoeren && _po.Id > 0)
+                    {
+                        <button class="klein rood" @onclick="Wis">PO wissen</button>
+                    }
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="Afbreken">Annuleren</button>
+                    @if (MagInvoeren)
+                    {
+                        <button class="klein" disabled="@_bezig" @onclick="() => Bewaar(false)">Opslaan</button>
+                        <button class="primair" disabled="@_bezig" @onclick="() => Bewaar(true)">Opslaan en sluiten</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <VerkoopFactuurVenster FactuurId="_factuurOpen" Voorstel="_voorstel" Bewaard="FactuurBewaard"
+                           Sluiten="_ => { _factuurOpen = null; _voorstel = null; }" />
+}
+
+@code {
+    /// <summary>0 = nieuw, een getal = die PO, null = dicht.</summary>
+    [Parameter] public int? PoId { get; set; }
+
+    /// <summary>true als er iets is opgeslagen of gewist, zodat de lijst kan verversen.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    private const int StoreTypePo = 20;          // Access: FileStore.StoreType 20 bij PO_Inkomend
+    private const int StandaardBv = 5254;        // Access: AUTO
+
+    private POKlant _po = new();
+    private int? _geladenVoor = -1;
+    private string _zoalsGeopend = "";
+    private bool _gewijzigd;                      // iets opgeslagen in dit venster (voor Sluiten)
+    private bool _bezig, _fout, _overlayDruk, _bestaatAl, _klantZoekOpen;
+    private string? _melding;
+    private string _klantZoek = "";
+    private List<Keuze> _klanten = new();
+    private List<Keuze> _contacten = new();
+    private List<Administratie> _bvs = new();
+    private List<Bestand> _documenten = new();
+    private int? _kies;
+    private record Wachtend(string Naam, byte[] Inhoud);
+    private List<Wachtend> _wachtrij = new();
+
+    private POTermijn? _koppelVoor;
+    private List<POFactuurKeuze> _facturen = new();
+    private int? _factuurOpen;
+    private FactuurVoorstel? _voorstel;
+    private POTermijn? _factuurVoor;
+
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (PoId == _geladenVoor) return;
+        _geladenVoor = PoId;
+        _melding = null; _klantZoek = ""; _klanten = new(); _contacten = new(); _documenten = new();
+        _wachtrij = new(); _kies = null; _koppelVoor = null; _gewijzigd = false; _bestaatAl = false;
+        if (PoId is null) return;
+
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            if (_bvs.Count == 0) _bvs = await Repo.BvsAsync();
+            if (PoId == 0)
+            {
+                _po = new POKlant { Datum = DateOnly.FromDateTime(DateTime.Today), BvId = _bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : null };
+                _klantZoekOpen = true;
+            }
+            else
+            {
+                _po = await Repo.GetAsync(PoId.Value) ?? new POKlant();
+                _klantZoekOpen = false;
+                await LaadContacten();
+                await LaadDocumenten();
+            }
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        _zoalsGeopend = Vingerafdruk();
+    }
+
+    private string Vingerafdruk() => System.Text.Json.JsonSerializer.Serialize(_po) + _wachtrij.Count;
+
+    private async Task LaadContacten()
+    {
+        try { _contacten = _po.KlantId is int k ? await Bestel.GetContactenAsync(k) : new(); }
+        catch { _contacten = new(); }
+    }
+
+    private async Task LaadDocumenten()
+    {
+        if (_po.Id == 0 || !WnRepo.Beschikbaar) { _documenten = new(); return; }
+        try { _documenten = await WnRepo.GetBestandenAsync(StoreTypePo, _po.Id); }
+        catch { _documenten = new(); }
+        if (_kies is null || _documenten.All(d => d.FileStoreId != _kies))
+            _kies = _documenten.FirstOrDefault(d => d.Bestandsnaam.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))?.FileStoreId
+                    ?? _documenten.FirstOrDefault()?.FileStoreId;
+    }
+
+    // ---- klant ----
+    private async Task KlantZoekGewijzigd(ChangeEventArgs e)
+    {
+        _klantZoek = (string?)e.Value ?? "";
+        var zoek = _klantZoek.Trim();
+        if (zoek.Length < 2) { _klanten = new(); return; }
+        try { _klanten = await Relaties.ZoekAsync(zoek, true, false, 0, 15); }
+        catch { _klanten = new(); }
+    }
+
+    private async Task KiesKlant(Keuze k)
+    {
+        var anders = _po.KlantId != k.Id;
+        _po.KlantId = k.Id;
+        _po.Klant = k.Naam;
+        _klantZoekOpen = false; _klantZoek = ""; _klanten = new();
+        if (anders) _po.ContactId = null;          // Access: contactpersoon leeg bij een andere klant
+        await LaadContacten();
+        await ControleerPoNummer();
+    }
+
+    private async Task PoNummerGewijzigd(ChangeEventArgs e)
+    {
+        _po.PoNummer = Tekst(e);
+        await ControleerPoNummer();
+    }
+
+    private async Task ControleerPoNummer()
+    {
+        try { _bestaatAl = _po.KlantId is int k && await Repo.PoNummerBestaatAsync(k, _po.PoNummer, _po.Id); }
+        catch { _bestaatAl = false; }
+    }
+
+    private void BedragGewijzigd(ChangeEventArgs e)
+    {
+        if (Bedragen.Lees((string?)e.Value ?? "") is decimal b) _po.Bedrag = Math.Round(b, 2);
+        else Toon("Geen geldig bedrag.", true);
+    }
+
+    // ---- termijnen ----
+    private void NieuweTermijn()
+    {
+        var rest = _po.Bedrag - _po.TotaalTermijnen;
+        _po.Termijnen.Add(new POTermijn { Bedrag = rest > 0 ? rest : 0 });
+    }
+
+    private void TermBedrag(POTermijn t, ChangeEventArgs e)
+    {
+        if (Bedragen.Lees((string?)e.Value ?? "") is decimal b) t.Bedrag = Math.Round(b, 2);
+        else Toon("Geen geldig bedrag.", true);
+    }
+
+    /// <summary>Access: de knop Calc (BetalingstermijnPopUp) — termijn als percentage van het PO-bedrag.</summary>
+    private void TermProcent(POTermijn t, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace("%", "").Trim();
+        if (Bedragen.Lees(tekst) is decimal p && _po.Bedrag != 0) t.Bedrag = Math.Round(_po.Bedrag * p / 100, 2);
+    }
+
+    private string Procent(POTermijn t)
+        => _po.Bedrag == 0 ? "" : (t.Bedrag / _po.Bedrag * 100).ToString("0.#", Nl);
+
+    private async Task Gefactureerd(POTermijn t, ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+        t.Gefactureerd = aan;
+        if (aan)
+        {
+            // Access: datum vandaag, of vragen of een bestaande datum ververst moet worden
+            if (t.GefactureerdOp is null || await Bevestig("De datum 'gefactureerd op' op vandaag zetten?"))
+                t.GefactureerdOp = DateOnly.FromDateTime(DateTime.Today);
+            t.GecontroleerdDoor = Ik.WerknemerId;
+        }
+        else if (t.GefactureerdOp is not null && await Bevestig("De datum 'gefactureerd op' leegmaken?"))
+            t.GefactureerdOp = null;
+    }
+
+    // ---- facturen bij een termijn ----
+    private async Task ZoekFacturen(POTermijn t)
+    {
+        if (_po.KlantId is not int k) { Toon("Kies eerst een klant.", true); return; }
+        try { _facturen = await Repo.FacturenVanKlantAsync(k, t.Bedrag); _koppelVoor = t; }
+        catch (Exception ex) { Toon("Facturen ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Koppel(POTermijn t, POFactuurKeuze f)
+    {
+        try
+        {
+            await Repo.KoppelFactuurAsync(t.Id, f.Id, Ik.WerknemerId);
+            t.FactuurId = f.Id; t.Factuurnummer = f.Nummer; t.Gefactureerd = true;
+            t.GefactureerdOp = f.Datum ?? DateOnly.FromDateTime(DateTime.Today); t.GecontroleerdDoor = Ik.WerknemerId;
+            _koppelVoor = null; _gewijzigd = true;
+            Toon($"Factuur {f.Nummer} gekoppeld aan '{t.Omschrijving}'.", false);
+        }
+        catch (Exception ex) { Toon("Koppelen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Ontkoppel(POTermijn t)
+    {
+        if (!await Bevestig($"Factuur {t.Factuurnummer} loskoppelen van '{t.Omschrijving}'?\n\nDe factuur zelf blijft bestaan; 'gefactureerd' blijft aangevinkt.")) return;
+        try
+        {
+            await Repo.KoppelFactuurAsync(t.Id, null, Ik.WerknemerId);
+            t.FactuurId = null; t.Factuurnummer = ""; _gewijzigd = true;
+        }
+        catch (Exception ex) { Toon("Ontkoppelen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Access: "Maak uitgaande factuur aan" — nu als voorstel in het factuurvenster, eerst nakijken.</summary>
+    private void MaakFactuur(POTermijn t)
+    {
+        if (_po.KlantId is null) { Toon("Kies eerst een klant.", true); return; }
+        if (t.Omschrijving.Trim().Length == 0) { Toon("Geef de termijn eerst een omschrijving.", true); return; }
+        _factuurVoor = t;
+        _voorstel = new FactuurVoorstel(_po.BvId, _po.KlantId, _po.Klant, _po.PoNummer,
+                                        _po.Omschrijving.Length > 0 ? _po.Omschrijving : t.Omschrijving, t.Omschrijving, t.Bedrag);
+        _factuurOpen = 0;
+    }
+
+    private async Task FactuurBewaard(int factuurId)
+    {
+        if (_factuurVoor is not { } t || _voorstel is null) return;     // alleen bij een nieuwe factuur vanuit een termijn
+        try
+        {
+            await Repo.KoppelFactuurAsync(t.Id, factuurId, Ik.WerknemerId);
+            var vers = await Repo.GetAsync(_po.Id);
+            var bijgewerkt = vers?.Termijnen.FirstOrDefault(x => x.Id == t.Id);
+            t.FactuurId = factuurId; t.Gefactureerd = true; t.GecontroleerdDoor = Ik.WerknemerId;
+            t.Factuurnummer = bijgewerkt?.Factuurnummer ?? ""; t.GefactureerdOp = bijgewerkt?.GefactureerdOp ?? DateOnly.FromDateTime(DateTime.Today);
+            _gewijzigd = true;
+            Toon($"Factuur {t.Factuurnummer} gemaakt en gekoppeld aan '{t.Omschrijving}'.", false);
+        }
+        catch (Exception ex) { Toon("Factuur gemaakt, maar koppelen mislukt: " + ex.Message, true); }
+        finally { _factuurVoor = null; }
+    }
+
+    // ---- documenten ----
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount > 20) { Toon("Maximaal 20 bestanden tegelijk.", true); return; }
+        var fouten = new List<string>();
+        foreach (var f in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                using var ms = new MemoryStream();
+                await f.OpenReadStream(50 * 1024 * 1024).CopyToAsync(ms);
+                _wachtrij.Add(new Wachtend(f.Name, ms.ToArray()));
+            }
+            catch (Exception ex) { fouten.Add($"{f.Name}: {ex.Message}"); }
+        }
+        if (fouten.Count > 0) Toon(string.Join(" ", fouten), true);
+        if (_po.Id > 0) await UploadWachtrij();          // bestaande PO: meteen opslaan
+    }
+
+    private async Task UploadWachtrij()
+    {
+        var fouten = new List<string>();
+        foreach (var w in _wachtrij.ToList())
+        {
+            try
+            {
+                using var stroom = new MemoryStream(w.Inhoud);
+                await Filestore.ToevoegenAsync(stroom, w.Naam, StoreTypePo, _po.Id, Ik.WerknemerId ?? 0);
+                _wachtrij.Remove(w);
+            }
+            catch (Exception ex) { fouten.Add($"{w.Naam}: {ex.Message}"); }
+        }
+        await LaadDocumenten();
+        if (fouten.Count > 0) Toon("Niet opgeslagen: " + string.Join(" ", fouten), true);
+    }
+
+    private async Task WisDocument(Bestand d)
+    {
+        if (!await Bevestig($"Document {d.Bestandsnaam} wissen?")) return;
+        try { await Filestore.VerwijderAsync(d.FileStoreId); if (_kies == d.FileStoreId) _kies = null; await LaadDocumenten(); }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- opslaan, wissen, sluiten ----
+    private async Task Bewaar(bool sluiten)
+    {
+        if (!MagInvoeren) return;
+        if (_po.KlantId is null) { Toon("Klant niet ingevuld.", true); return; }
+        if (_po.BvId is null) { Toon("Kies de administratie (BV).", true); return; }
+        if (_po.Datum is null) { Toon("Vul de datum van de PO in.", true); return; }
+
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAsync(_po, Ik.WerknemerId);
+            if (_wachtrij.Count > 0) await UploadWachtrij();
+            _gewijzigd = true;
+            if (sluiten && _wachtrij.Count == 0) { _geladenVoor = -1; await Sluiten.InvokeAsync(true); return; }
+
+            // venster blijft open: alles opnieuw lezen (ids van nieuwe termijnen, ingevoerd door)
+            var vers = await Repo.GetAsync(_po.Id);
+            if (vers is not null) _po = vers;
+            _zoalsGeopend = Vingerafdruk();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Wis()
+    {
+        if (!await Bevestig($"PO {_po.PoNummer} van {_po.Klant} wissen, met de termijnen?\n\nDocumenten blijven in de filestore.")) return;
+        try { await Repo.WisAsync(_po.Id); _geladenVoor = -1; await Sluiten.InvokeAsync(true); }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task Afbreken()
+    {
+        if (MagInvoeren && Vingerafdruk() != _zoalsGeopend && !await Bevestig("Wijzigingen niet opslaan?")) return;
+        _geladenVoor = -1;
+        await Sluiten.InvokeAsync(_gewijzigd);
+    }
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Afbreken();
+    }
+
+    // ---- hulpjes ----
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal d) => d.ToString("#,##0.00", Nl);
+}

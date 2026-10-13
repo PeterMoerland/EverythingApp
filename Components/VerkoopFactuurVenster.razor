@@ -385,6 +385,12 @@
     /// <summary>Geeft door of er iets is opgeslagen, zodat de lijst kan verversen.</summary>
     [Parameter] public EventCallback<bool> Sluiten { get; set; }
 
+    /// <summary>Bij een nieuwe factuur (FactuurId 0): alvast ingevuld, bv. vanuit een termijn van een PO van een klant.</summary>
+    [Parameter] public FactuurVoorstel? Voorstel { get; set; }
+
+    /// <summary>Na opslaan: het id van de factuur (vóór Sluiten), zodat de aanroeper hem kan koppelen.</summary>
+    [Parameter] public EventCallback<int> Bewaard { get; set; }
+
     /// <summary>Access stond op AUTO als je niets anders koos; dat blijft de standaard.</summary>
     private const int StandaardBv = 5254;
 
@@ -468,8 +474,19 @@
                     Factuurdatum = DateOnly.FromDateTime(DateTime.Today),
                     Betalingstermijn = 30,
                 };
+                if (Voorstel is { } v)
+                {
+                    if (v.BvId is int vbv && _administraties.Any(a => a.Id == vbv)) _f.AdministratieId = vbv;
+                    _f.PoKlant = v.PoKlant;
+                    _f.Omschrijving = v.Omschrijving;
+                    _f.Regels.Add(new VerkoopFactuurItem
+                    {
+                        Omschrijving = v.Regel, Aantal = 1, Stuksprijs = v.Bedrag, Korting = 0,
+                    });
+                }
                 if (_f.AdministratieId is int bv) _f.Factuurnummer = await Repo.VolgendNummerAsync(bv);
                 _klantZoekOpen = true;
+                if (Voorstel is { KlantId: int vk } vs) await KiesKlant(new Keuze(vk, vs.Klant));
             }
             else
             {
@@ -609,6 +626,7 @@
                 await Vraag($"Let op: het nummer werd {_f.Factuurnummer} (niet {voorstel}); " +
                             "intussen is er een andere factuur gemaakt.");
             _geladenVoor = -1;
+            if (Bewaard.HasDelegate) await Bewaard.InvokeAsync(_f.Id);
             await Sluiten.InvokeAsync(true);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
