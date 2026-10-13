@@ -1911,7 +1911,7 @@
 
     private async Task<bool> Vraag(string tekst)
     {
-        try { return await JS.InvokeAsync<bool>("confirm", tekst); }
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
         catch { return false; }
     }
 

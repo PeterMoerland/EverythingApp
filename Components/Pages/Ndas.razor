@@ -718,7 +718,7 @@
 
     private async Task<bool> Bevestig(string vraag)
     {
-        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
         catch { return true; }
     }
 }

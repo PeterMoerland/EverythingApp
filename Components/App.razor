@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=173" />
+    <link rel="stylesheet" href="app.css?v=181" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -490,6 +490,55 @@
             kies: function (mobiel) {
                 try { localStorage.setItem('mde-mobiel', mobiel ? 'ja' : 'nee'); } catch (e) { }
             }
+        };
+
+        // Opvallende 'weet je het zeker?'-dialoog in plaats van het grijze browser-confirm.
+        // Geeft een Promise<bool> terug; Enter = ja, Esc = nee.
+        // mdeMelding(tekst, kop): zelfde dialoog met alleen een OK-knop (bv. 'STO niet vrijgegeven').
+        window.mdeMelding = function (tekst, kop) { return window.mdeBevestig(tekst, { kop: kop || '⚠ Let op', alleenOk: true }); };
+        window.mdeBevestig = function (tekst, opties) {
+            opties = opties || {};
+            return new Promise(function (klaar) {
+                var oud = document.getElementById('mde-bevestig');
+                if (oud) oud.remove();
+                var achter = document.createElement('div');
+                achter.id = 'mde-bevestig';
+                achter.className = 'bevestig-achter';
+                var box = document.createElement('div');
+                box.className = 'bevestig-box';
+                box.setAttribute('role', 'dialog');
+                var kop = document.createElement('div');
+                kop.className = 'bevestig-kop';
+                kop.textContent = opties.kop || '⚠ Bevestigen';
+                var body = document.createElement('div');
+                body.className = 'bevestig-tekst';
+                body.textContent = tekst || 'Weet je het zeker?';
+                var knoppen = document.createElement('div');
+                knoppen.className = 'bevestig-knoppen';
+                var nee = document.createElement('button');
+                nee.type = 'button'; nee.className = 'bevestig-nee'; nee.textContent = 'Annuleren';
+                var ja = document.createElement('button');
+                ja.type = 'button'; ja.className = 'bevestig-ja'; ja.textContent = opties.alleenOk ? 'OK' : 'Ja, doorgaan';
+                if (opties.alleenOk) nee.style.display = 'none';
+                function sluit(antwoord) {
+                    document.removeEventListener('keydown', toets, true);
+                    achter.remove();
+                    klaar(antwoord);
+                }
+                function toets(e) {
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); sluit(false); }
+                    else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); sluit(true); }
+                }
+                nee.onclick = function () { sluit(false); };
+                ja.onclick = function () { sluit(true); };
+                achter.onclick = function (e) { if (e.target === achter) sluit(false); };
+                knoppen.appendChild(nee); knoppen.appendChild(ja);
+                box.appendChild(kop); box.appendChild(body); box.appendChild(knoppen);
+                achter.appendChild(box);
+                document.body.appendChild(achter);
+                document.addEventListener('keydown', toets, true);
+                ja.focus();
+            });
         };
 
         // volledig scherm (kiosk-modus)

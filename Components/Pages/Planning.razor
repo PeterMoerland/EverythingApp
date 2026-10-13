@@ -645,7 +645,7 @@
         if (_bewerkt is null || _bewerkt.Id == 0) return;
         try
         {
-            var zeker = await JS.InvokeAsync<bool>("confirm", "Deze balk van de planning halen?");
+            var zeker = await JS.InvokeAsync<bool>("mdeBevestig", "Deze balk van de planning halen?");
             if (!zeker) return;
         }
         catch { return; }

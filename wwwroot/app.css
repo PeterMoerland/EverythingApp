@@ -1747,6 +1747,19 @@ html[data-thema="donker"] .import-nieuw b { color: #4ecb71; }
 html[data-thema="donker"] .import-fout { background: #3a2020; border-color: var(--rood); color: #ffb4ae; }
 html[data-thema="donker"] .banktotalen { box-shadow: 0 2px 12px rgba(0,0,0,.45); }
 
+/* ---- Bevestigingsdialoog (mdeBevestig): opvallend, i.p.v. het grijze browser-confirm ---- */
+.bevestig-achter { position: fixed; inset: 0; background: rgba(40, 20, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 10000; }
+.bevestig-box { background: #fff; min-width: 22rem; max-width: 34rem; border-radius: 10px; border: 3px solid #e67e00; box-shadow: 0 10px 40px rgba(0,0,0,.35); overflow: hidden; font-size: 1rem; }
+.bevestig-kop { background: #e67e00; color: #fff; font-weight: 700; font-size: 1.1rem; padding: .6rem 1rem; letter-spacing: .02em; }
+.bevestig-tekst { padding: 1rem 1.2rem; white-space: pre-line; color: #222; line-height: 1.4; }
+.bevestig-knoppen { display: flex; justify-content: flex-end; gap: .6rem; padding: .7rem 1rem 1rem; background: #fff6e8; }
+.bevestig-knoppen button { padding: .5rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+.bevestig-nee { background: #fff; color: #333; border-color: #bbb !important; }
+.bevestig-nee:hover { background: #eee; }
+.bevestig-ja { background: #c62828; color: #fff; }
+.bevestig-ja:hover { background: #a81e1e; }
+.bevestig-ja:focus { outline: 3px solid #f9c74f; outline-offset: 1px; }
+
 /* ---- Uitgaande factuur: de regeltabel in het venster ---- */
 .vf-regels input { width: 100%; box-sizing: border-box; }
 .vf-regels td { vertical-align: top; }

@@ -567,7 +567,7 @@
             : $"{e.Uren:0.##} uur — {e.Omschrijving}";
 
         bool zeker;
-        try { zeker = await JS.InvokeAsync<bool>("confirm", $"Deze regel verwijderen?\n\n{wat}\n\nWeet je het zeker?"); }
+        try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"Deze regel verwijderen?\n\n{wat}\n\nWeet je het zeker?"); }
         catch { zeker = true; }
         if (!zeker) return;
 

@@ -290,7 +290,7 @@
     {
         try
         {
-            var zeker = await JS.InvokeAsync<bool>("confirm",
+            var zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"{regel.Code} ({regel.Aantal}×) uit de batch halen?");
             if (!zeker) return;
         }
@@ -316,7 +316,7 @@
         // dus eerst even zeker weten — precies zoals het Access-scherm dat vroeg.
         try
         {
-            var zeker = await JS.InvokeAsync<bool>("confirm",
+            var zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"Alle {ids.Count} zichtbare regels uit de batch wissen? Dit geldt voor iedereen.");
             if (!zeker) return;
         }

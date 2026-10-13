@@ -183,7 +183,7 @@
 
         try
         {
-            var zeker = await JS.InvokeAsync<bool>("confirm",
+            var zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"{lijst.Count} factu(u)r(en) mailen naar Basecone, vanuit jouw postbus ({Ik.Email})?");
             if (!zeker) return;
         }

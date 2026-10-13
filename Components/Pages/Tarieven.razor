@@ -288,7 +288,7 @@
         bool zeker;
         try
         {
-            zeker = await JS.InvokeAsync<bool>("confirm",
+            zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"Afspraak {Datum(_afspraak.Van)} — {Datum(_afspraak.Tot)} verwijderen? Weet je het zeker?");
         }
         catch { zeker = true; }

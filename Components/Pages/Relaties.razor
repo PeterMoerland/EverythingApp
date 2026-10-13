@@ -682,7 +682,7 @@
         bool zeker;
         try
         {
-            zeker = await JS.InvokeAsync<bool>("confirm",
+            zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.");
         }
         catch { zeker = true; }
@@ -807,7 +807,7 @@
             bool zeker;
             try
             {
-                zeker = await JS.InvokeAsync<bool>("confirm",
+                zeker = await JS.InvokeAsync<bool>("mdeBevestig",
                     $"'{naam}' verwijderen?\n\nDe contactpersonen van deze relatie gaan ook weg.\nWeet je het zeker?");
             }
             catch { zeker = true; }

@@ -235,7 +235,7 @@ else
             }
 
             bool zeker;
-            try { zeker = await JS.InvokeAsync<bool>("confirm", $"'{naam}' verwijderen? Weet je het zeker?"); }
+            try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"'{naam}' verwijderen? Weet je het zeker?"); }
             catch { zeker = true; }
             if (!zeker) return;
 
