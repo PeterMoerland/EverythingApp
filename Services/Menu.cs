@@ -160,7 +160,7 @@ public static class Menu
                 new MenuItem("Facturen goedkeuren", "", "MagFacturenGoedkeuren")),
             new MenuGroep("Bank",
                 new MenuItem("Banktransacties", "/financien/banktransacties"),
-                new MenuItem("Betalingen klaarzetten"),
+                new MenuItem("Betalingen klaarzetten", "/financien/betalingen-klaarzetten", "Financial"),
                 new MenuItem("Bankgegevens exporteren")),
             new MenuGroep("Rapporten",
                 new MenuItem("Rapportage facturatie"),

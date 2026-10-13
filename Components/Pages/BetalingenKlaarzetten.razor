@@ -1,0 +1,361 @@
+@page "/financien/betalingen-klaarzetten"
+@inject IBetalingRepository Repo
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@inject IConfiguration Config
+
+@* Overgezet van het Access-formulier BetalingenKlaarzetten. Access kopieerde de facturen naar de hulptabel
+   BankExport; hier staan ze alleen op het scherm. Het SEPA-bestand (Services/Sepa.cs) is één stap aan het
+   eind, zodat die later door de betaal-API van de Rabobank vervangen kan worden. De verborgen
+   Access-knop "meerdere betalingsdata" is niet overgenomen. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Betalingen klaarzetten</h1>
+        <span class="weeklabel">@Zichtbaar.Count() facturen · @Gekozen.Count() geselecteerd · @Geld(Gekozen.Sum(r => r.Bedrag))</span>
+        <button class="klein" @onclick="Laad" title="Opnieuw ophalen; selectie en wijzigingen in omschrijving vervallen">↻ Vernieuwen</button>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!MagBetalen)
+        {
+            <div class="melding fout">Alleen bekijken: betalingen klaarzetten mag met het recht Financial of Directie.</div>
+        }
+        @if (_regels.Any(r => r.IsCredit))
+        {
+            <div class="melding bk-let-op">Let op: er staat een creditnota tussen de openstaande facturen. Die is niet te selecteren.</div>
+        }
+
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Vervalt na</span>
+                <select value="@_vervalt" @onchange="VervaltGewijzigd">
+                    @foreach (var (waarde, tekst) in VervaltKeuzes)
+                    {
+                        <option value="@waarde">@tekst</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>BV</span>
+                <select value="@_bv" @onchange="BvGewijzigd">
+                    <option value="">Alle</option>
+                    @foreach (var b in _regels.Select(r => r.Bv).Distinct().OrderBy(b => b))
+                    {
+                        <option value="@b">@b</option>
+                    }
+                </select>
+            </label>
+            <div class="btngroup">
+                <button class="klein" disabled="@(!MagBetalen)" @onclick="SelecteerAlles">Selecteer alles</button>
+                <button class="klein" disabled="@(!MagBetalen)" @onclick="SelecteerNiets">Niets</button>
+                <button class="klein" disabled="@(!MagBetalen)" @onclick="SelecteerVolledig">Alleen volledige regels</button>
+            </div>
+        </div>
+
+        @if (_laden)
+        {
+            <p class="uitleg">Laden…</p>
+        }
+        else if (!Zichtbaar.Any())
+        {
+            <section class="module-placeholder">
+                <p>@(_regels.Count == 0 ? "Geen goedgekeurde te betalen facturen gevonden." : "Geen facturen binnen dit filter.")</p>
+            </section>
+        }
+        else
+        {
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel bk-tabel">
+                    <thead>
+                        <tr>
+                            <th class="c" style="width:2rem">Sel</th>
+                            <th style="width:13rem">Leverancier</th>
+                            <th style="width:4rem">BV</th>
+                            <th style="width:6.5rem">Factuur</th>
+                            <th style="width:6.5rem">Betalen op</th>
+                            <th class="r" style="width:3.5rem" title="Dagen over de betaaldatum (negatief = nog zoveel dagen)">Nog</th>
+                            <th class="r" style="width:7rem">Bedrag</th>
+                            <th style="width:13rem">Tenaamstelling</th>
+                            <th style="width:12rem">IBAN</th>
+                            <th style="width:7rem">BIC</th>
+                            <th>Omschrijving</th>
+                            <th style="width:2rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Zichtbaar)
+                        {
+                            var ontbreekt = r.Ontbreekt();
+                            <tr @key="r.FactuurId" class="@RegelKlasse(r, ontbreekt)" @ondblclick="() => _factuurId = r.FactuurId"
+                                title="@(ontbreekt.Count > 0 ? "Ontbreekt: " + string.Join(", ", ontbreekt) : "")">
+                                <td class="c">
+                                    <input type="checkbox" checked="@r.Selectie" disabled="@(!MagBetalen || r.IsCredit)"
+                                           @onchange="e => Kies(r, e)" />
+                                </td>
+                                <td>@r.Leverancier</td>
+                                <td>@r.Bv</td>
+                                <td>@Datum(r.Factuurdatum)</td>
+                                <td>@Datum(r.Betaaldatum)</td>
+                                <td class="r @(r.NogDagen > 0 ? "bk-laat" : "")">@r.NogDagen</td>
+                                <td class="r">@Geld(r.Bedrag)</td>
+                                <td>
+                                    @if (r.OnHold) { <span class="stand-chip s-geel" title="Betaling staat on hold">Hold</span> }
+                                    <input class="bk-veld @(string.IsNullOrWhiteSpace(r.Tenaamstelling) ? "bk-mist" : "")" value="@r.Tenaamstelling"
+                                           disabled="@(!MagBetalen)" maxlength="70"
+                                           @onchange="e => r.Tenaamstelling = ((string?)e.Value ?? string.Empty).Trim()" />
+                                </td>
+                                <td>
+                                    <input @key="_herteken" class="bk-veld bk-iban @(Sepa.IbanKlopt(r.Iban) ? "" : "bk-mist")" value="@r.Iban"
+                                           disabled="@(!MagBetalen)" maxlength="40" title="Wijzigen past ook de leverancier aan"
+                                           @onchange="e => IbanGewijzigd(r, e)" />
+                                </td>
+                                <td>
+                                    <input @key="_herteken" class="bk-veld @(Sepa.BicKlopt(r.Bic) ? "" : "bk-mist")" value="@r.Bic"
+                                           disabled="@(!MagBetalen)" maxlength="11" title="Wijzigen past ook de leverancier aan"
+                                           @onchange="e => BicGewijzigd(r, e)" />
+                                </td>
+                                <td>
+                                    <input class="bk-veld @(string.IsNullOrWhiteSpace(r.Omschrijving) ? "bk-mist" : "")" value="@r.Omschrijving"
+                                           disabled="@(!MagBetalen)" maxlength="140"
+                                           @onchange="e => r.Omschrijving = ((string?)e.Value ?? string.Empty).Trim()" />
+                                </td>
+                                <td><button class="klein" title="Factuur bekijken" @onclick="() => _factuurId = r.FactuurId">📄</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="bk-voet">
+                <span>@Gekozen.Count() van @Zichtbaar.Count() geselecteerd</span>
+                @foreach (var g in Gekozen.GroupBy(r => r.Bv).OrderBy(g => g.Key))
+                {
+                    <span class="bk-bv">@g.Key: @g.Count() · @Geld(g.Sum(r => r.Bedrag))</span>
+                }
+                <strong>Totaal incl. BTW: @Geld(Gekozen.Sum(r => r.Bedrag))</strong>
+                <button class="primair" disabled="@(!MagBetalen || _bezig || !Gekozen.Any())" @onclick="MaakSepa">
+                    @(_bezig ? "Bezig…" : "SEPA-bestand(en) aanmaken")
+                </button>
+            </div>
+            <p class="uitleg">
+                Dubbelklik op een regel om de factuur te bekijken. Tenaamstelling en omschrijving gelden alleen voor dit
+                bestand; IBAN en BIC worden ook bij de leverancier bijgewerkt. Het bestand komt in @SepaMap
+                en wordt ook gedownload.
+            </p>
+        }
+    }
+</div>
+
+<FactuurVenster FactuurId="_factuurId" Sluiten="_ => _factuurId = null" />
+
+@code {
+    private List<BetaalRegel> _regels = new();
+    private int _vervalt = -3;
+    private string _bv = "";
+    private bool _laden = true, _bezig, _fout;
+    private string? _melding;
+    private int? _factuurId;
+    private int _herteken;      // ophogen = IBAN/BIC-velden opnieuw tekenen na een afgewezen wijziging
+
+    private static readonly (int, string)[] VervaltKeuzes =
+    {
+        (-999999, "Alle"), (0, "Te laat"), (-3, "3 dagen"), (-7, "1 week"), (-14, "2 weken"), (-21, "3 weken"), (-31, "4 weken"),
+    };
+
+    private bool MagBetalen => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private string SepaMap => Config["Betalingen:SepaMap"] is { Length: > 0 } m && !string.IsNullOrWhiteSpace(m)
+        ? m : @"\\172.16.1.4\data\Administration\Finance\SEPA";
+
+    /// <summary>Zoals de Access-query: NogDagen &gt; 'vervalt na', en de BV.</summary>
+    private IEnumerable<BetaalRegel> Zichtbaar => _regels
+        .Where(r => r.NogDagen > _vervalt && (_bv.Length == 0 || r.Bv == _bv))
+        .OrderByDescending(r => r.NogDagen).ThenBy(r => r.Leverancier);
+
+    /// <summary>Wat er betaald wordt: geselecteerd én zichtbaar (wat je ziet is wat er in het bestand komt).</summary>
+    private IEnumerable<BetaalRegel> Gekozen => Zichtbaar.Where(r => r.Selectie);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laden = true;
+        try { _regels = Repo.Beschikbaar ? await Repo.TeBetalenAsync() : new(); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _laden = false; }
+    }
+
+    private void VervaltGewijzigd(ChangeEventArgs e) => _vervalt = int.TryParse((string?)e.Value, out var v) ? v : -3;
+    private void BvGewijzigd(ChangeEventArgs e) => _bv = (string?)e.Value ?? "";
+
+    private void Kies(BetaalRegel r, ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+        if (aan && r.IsCredit) { Toon("Niet te selecteren: bedrag is 0 of negatief.", true); return; }
+        r.Selectie = aan;
+    }
+
+    // Access: "Selecteer alles" zette alleen wat niet on hold is en een positief bedrag heeft (binnen het BV-filter).
+    private void SelecteerAlles()
+    {
+        foreach (var r in _regels) r.Selectie = false;
+        foreach (var r in Zichtbaar) r.Selectie = !r.OnHold && !r.IsCredit;
+    }
+
+    private void SelecteerNiets() { foreach (var r in _regels) r.Selectie = false; }
+
+    private void SelecteerVolledig()
+    {
+        foreach (var r in _regels) r.Selectie = false;
+        foreach (var r in Zichtbaar) r.Selectie = !r.OnHold && !r.IsCredit && r.Volledig;
+    }
+
+    // ---- IBAN en BIC: ook bij de leverancier bijwerken (Access: IBAN_AfterUpdate / BIC_AfterUpdate) ----
+    private async Task IbanGewijzigd(BetaalRegel r, ChangeEventArgs e)
+    {
+        var nieuw = ((string?)e.Value ?? "").Replace(" ", "").ToUpperInvariant();
+        var oud = r.Iban;
+        if (nieuw == oud) return;
+        if (nieuw.Length > 0 && !Sepa.IbanKlopt(nieuw))
+        {
+            Toon($"'{nieuw}' is geen geldig IBAN.", true);
+            _herteken++;        // veld terugzetten
+            return;
+        }
+        if (!await Bevestig($"IBAN van {r.Leverancier} wijzigen?\n\n{(oud.Length > 0 ? oud : "(leeg)")}  →  {nieuw}\n\n" +
+                            "Dit wordt ook bij de leverancier (Relaties) opgeslagen."))
+        {
+            _herteken++;
+            return;
+        }
+        try
+        {
+            await Repo.ZetBankgegevensAsync(r.RelatieId, nieuw, null);
+            foreach (var x in _regels.Where(x => x.RelatieId == r.RelatieId)) x.Iban = nieuw;
+            Toon($"IBAN van {r.Leverancier} bijgewerkt.", false);
+        }
+        catch (Exception ex) { _herteken++; Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task BicGewijzigd(BetaalRegel r, ChangeEventArgs e)
+    {
+        var nieuw = ((string?)e.Value ?? "").Replace(" ", "").ToUpperInvariant();
+        var oud = r.Bic;
+        if (nieuw == oud) return;
+        if (nieuw.Length > 0 && !Sepa.BicKlopt(nieuw))
+        {
+            Toon($"'{nieuw}' is geen geldige BIC (8 of 11 tekens).", true);
+            _herteken++;
+            return;
+        }
+        if (!await Bevestig($"Weet je zeker dat {nieuw} de juiste BIC is voor {r.Leverancier}?\n\n" +
+                            "Dit wordt ook bij de leverancier (Relaties) opgeslagen."))
+        {
+            _herteken++;
+            return;
+        }
+        try
+        {
+            await Repo.ZetBankgegevensAsync(r.RelatieId, null, nieuw);
+            foreach (var x in _regels.Where(x => x.RelatieId == r.RelatieId)) x.Bic = nieuw;
+            Toon($"BIC van {r.Leverancier} bijgewerkt.", false);
+        }
+        catch (Exception ex) { _herteken++; Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    // ---- SEPA-bestand(en): per BV één bestand (Access: ExportBetalingen_Click) ----
+    private async Task MaakSepa()
+    {
+        var gekozen = Gekozen.ToList();
+        if (gekozen.Count == 0) { Toon("Geen betalingen geselecteerd.", true); return; }
+
+        var onvolledig = gekozen.Where(r => !r.Volledig).ToList();
+        if (onvolledig.Count > 0)
+        {
+            Toon("Niet compleet: " + string.Join("; ", onvolledig.Take(5).Select(r =>
+                     $"{r.Leverancier} {r.Factuurnummer} mist {string.Join(", ", r.Ontbreekt())}")) +
+                 (onvolledig.Count > 5 ? $" … en nog {onvolledig.Count - 5}." : "."), true);
+            return;
+        }
+
+        _bezig = true;
+        try
+        {
+            var bvs = await Repo.BvsAsync(gekozen.Select(r => r.BvId));
+            var fouten = bvs.Where(b => !Sepa.IbanKlopt(b.Iban) || !Sepa.BicKlopt(b.Bic))
+                            .Select(b => $"{b.Naam}: eigen IBAN of BIC ontbreekt of klopt niet (Relaties).").ToList();
+            fouten.AddRange(gekozen.Select(r => r.BvId).Distinct().Where(id => bvs.All(b => b.Id != id))
+                                   .Select(id => $"BV {id} niet gevonden in Relaties."));
+            if (fouten.Count > 0) { Toon(string.Join(" ", fouten), true); return; }
+
+            var nu = DateTime.Now;
+            var medewerker = Ik.Velden.TryGetValue("Afkorting", out var a) && a is not null ? a.ToString() ?? "" : "";
+            var gemaakt = new List<string>();
+            var nietInMap = new List<string>();
+
+            foreach (var bv in bvs.OrderBy(b => b.Afkorting))
+            {
+                var regels = gekozen.Where(r => r.BvId == bv.Id).ToList();
+                var xml = Sepa.Maak(bv, regels, nu);
+                var naam = Sepa.Bestandsnaam(bv, nu, medewerker);
+                var bytes = new System.Text.UTF8Encoding(false).GetBytes(xml);
+
+                try
+                {
+                    Directory.CreateDirectory(SepaMap);
+                    await File.WriteAllBytesAsync(Path.Combine(SepaMap, naam), bytes);
+                }
+                catch (Exception ex) { nietInMap.Add($"{naam} ({ex.Message})"); }
+
+                try { await JS.InvokeVoidAsync("mdeBestand.download", naam, bytes); } catch { }
+                gemaakt.Add($"{bv.Naam}: {regels.Count} {(regels.Count == 1 ? "betaling" : "betalingen")}, {Geld(regels.Sum(r => r.Bedrag))} — {naam}");
+            }
+
+            var tekst = "SEPA-bestand(en) aangemaakt:\n\n" + string.Join("\n", gemaakt) +
+                        (nietInMap.Count > 0 ? "\n\nNiet in de map gezet (wel gedownload): " + string.Join("; ", nietInMap) : "");
+
+            if (await Bevestig(tekst + "\n\nDe gekozen facturen op 'SEPA aangemaakt' zetten?"))
+            {
+                var aantal = await Repo.MarkeerSepaAsync(gekozen.Select(r => r.FactuurId), Ik.WerknemerId);
+                await Laad();
+                Toon($"{gemaakt.Count} bestand(en) aangemaakt en {aantal} facturen op 'SEPA aangemaakt' gezet.", nietInMap.Count > 0);
+            }
+            else
+            {
+                Toon($"{gemaakt.Count} bestand(en) aangemaakt; de facturen staan nog open.", nietInMap.Count > 0);
+            }
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- hulpjes ----
+    private string RegelKlasse(BetaalRegel r, List<string> ontbreekt)
+        => (r.Selectie ? "bk-gekozen " : "") + (r.IsCredit ? "bk-credit " : "") + (r.OnHold ? "bk-hold " : "") + (ontbreekt.Count > 0 ? "bk-onvolledig" : "");
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal d) => d.ToString("C2", Nl);
+    private static string Datum(DateTime? d) => d is DateTime x ? x.ToString("d-M-yyyy") : "";
+}
