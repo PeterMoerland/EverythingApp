@@ -1764,6 +1764,18 @@ html[data-thema="donker"] .ui-elders td { background: #33290f; }
 .bc-tabel td { vertical-align: top; }
 .bc-omschrijving { max-width: 26rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---- Vaste lasten ---- */
+.vl-jaarkeuze { align-items: center; margin: .4rem 0; }
+.vl-jaar td, .vl-jaar th { white-space: nowrap; }
+.vl-balk-rij td { vertical-align: bottom; height: 64px; border-bottom: none; }
+.vl-balk { background: var(--accent); width: 70%; margin: 0 auto; border-radius: 2px 2px 0 0; }
+/* Lijst: niet over de volle breedte (omschrijving smaller), knoppen naast elkaar zodat de regels dun blijven */
+.vl-lijst { width: auto; table-layout: fixed; }
+.vl-lijst td { padding-top: .2rem; padding-bottom: .2rem; }
+.vl-lijst td:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vl-acties { white-space: nowrap; }
+.vl-acties button { padding: .05rem .45rem; }
+
 /* ---- Banktransacties: Rabobank-koppeling ---- */
 .rabo-blok { border: 1px solid #c9d6e8; background: #f5f8fc; border-radius: 6px; padding: 6px 10px; margin: 6px 0 8px; font-size: 0.9em; }
 .rabo-blok.fout { border-color: var(--rood); }

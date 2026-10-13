@@ -153,6 +153,7 @@ public static class Menu
                 new MenuItem("Bankgegevens exporteren")),
             new MenuGroep("Rapporten",
                 new MenuItem("Rapportage facturatie"),
+                new MenuItem("Vaste lasten", "/financien/vaste-lasten", "Financial"),
                 new MenuItem("Liquiditeitsoverzicht"),
                 new MenuItem("Voorraadstand"))),
 

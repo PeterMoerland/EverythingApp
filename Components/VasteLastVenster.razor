@@ -1,0 +1,208 @@
+@* Een vaste last toevoegen of aanpassen; vervangt VasteLastenInvoer en VasteLastenEdit.
+   Last: een nieuwe (Id 0) of een kopie van een bestaande; null = venster dicht. *@
+@inject IVasteLastenRepository Repo
+@inject HuidigeGebruiker Ik
+
+@if (Last is not null)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster vl-venster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>@(Last.Id == 0 ? "Vaste last toevoegen" : "Vaste last aanpassen")</h2>
+                <button class="klein" @onclick="Afbreken">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+                }
+
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld breed">
+                        <label>Omschrijving</label>
+                        <input value="@Last.Omschrijving" maxlength="45" autofocus
+                               @onchange="e => Last.Omschrijving = Tekst(e)" />
+                    </div>
+
+                    <div class="wn-veld">
+                        <label>Categorie</label>
+                        @if (_nieuweCategorie)
+                        {
+                            <span class="factuur-termijn">
+                                <input value="@_categorieNaam" maxlength="45" placeholder="Naam van de nieuwe categorie"
+                                       @onchange="e => _categorieNaam = Tekst(e)" />
+                                <button class="klein" @onclick="() => _nieuweCategorie = false">Annuleren</button>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="factuur-termijn">
+                                <select value="@(Last.CategorieId?.ToString() ?? "")" @onchange="CategorieGewijzigd">
+                                    <option value="">— geen —</option>
+                                    @foreach (var c in Categorieen)
+                                    {
+                                        <option value="@c.Id">@c.Omschrijving</option>
+                                    }
+                                </select>
+                                <button class="klein" title="Nieuwe categorie" @onclick="() => _nieuweCategorie = true">＋ nieuw</button>
+                            </span>
+                        }
+                    </div>
+
+                    <div class="wn-veld">
+                        <label>Bedrag</label>
+                        <input class="r smal" value="@Last.Bedrag.ToString("0.00", Nl)" @onchange="BedragGewijzigd" />
+                    </div>
+
+                    <div class="wn-veld">
+                        <label>Interval</label>
+                        <select value="@((int)Last.Interval)" @onchange="IntervalGewijzigd">
+                            @foreach (var i in Enum.GetValues<VasteLastInterval>())
+                            {
+                                <option value="@((int)i)">@VasteLast.IntervalNaam(i)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="wn-veld">
+                        <label>@(Last.Interval == VasteLastInterval.Wekelijks ? "Weekdag" : "Afschrijving")</label>
+                        <span class="factuur-termijn">
+                            @if (Last.Interval == VasteLastInterval.Wekelijks)
+                            {
+                                <select value="@Last.Dag" @onchange="e => Last.Dag = Getal(e, 1)">
+                                    @for (var d = 1; d <= 7; d++)
+                                    {
+                                        <option value="@d">@VasteLast.WeekdagNaam(d)</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <select value="@Last.Dag" @onchange="e => Last.Dag = Getal(e, 1)">
+                                    @for (var d = 1; d <= 31; d++)
+                                    {
+                                        <option value="@d">@d</option>
+                                    }
+                                </select>
+                                @if (Last.Interval == VasteLastInterval.Kwartaal)
+                                {
+                                    <select value="@Last.Maand" @onchange="e => Last.Maand = Getal(e, 1)">
+                                        @for (var m = 1; m <= 3; m++)
+                                        {
+                                            <option value="@m">@VasteLast.KwartaalNaam(m)</option>
+                                        }
+                                    </select>
+                                }
+                                else if (Last.Interval == VasteLastInterval.Jaarlijks)
+                                {
+                                    <select value="@Last.Maand" @onchange="e => Last.Maand = Getal(e, 1)">
+                                        @for (var m = 1; m <= 12; m++)
+                                        {
+                                            <option value="@m">@VasteLast.MaandNaam(m)</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <span class="zij-extra">van elke maand</span>
+                                }
+                            }
+                        </span>
+                    </div>
+                </div>
+
+                <p class="uitleg">
+                    @Last.Wanneer · @Geld(Last.TotaalPerJaar) per jaar ·
+                    volgende keer @Last.Volgende(DateOnly.FromDateTime(DateTime.Today)).ToString("dd-MM-yyyy")
+                </p>
+            </div>
+
+            <div class="bijlagevoet">
+                @if (MagInvoeren)
+                {
+                    <button class="klein" @onclick="Afbreken">Annuleren</button>
+                    <button class="primair" disabled="@_bewaren" @onclick="Bewaar">@(Last.Id == 0 ? "Toevoegen" : "Opslaan")</button>
+                }
+                else
+                {
+                    <span class="zij-extra">Alleen bekijken: je hebt geen recht om vaste lasten aan te passen.</span>
+                    <button class="klein" @onclick="Afbreken">Sluiten</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De last die bewerkt wordt (een kopie, zodat Annuleren niets verandert); null = dicht.</summary>
+    [Parameter] public VasteLast? Last { get; set; }
+    [Parameter] public List<VasteLastCategorie> Categorieen { get; set; } = new();
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    /// <summary>Zelfde rechten als op de pagina Vaste lasten; het venster opent ook vanuit de liquiditeit.</summary>
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private bool _nieuweCategorie;
+    private string _categorieNaam = "";
+    private bool _bewaren;
+    private bool _overlayDruk;
+    private string? _melding;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static int Getal(ChangeEventArgs e, int standaard) => int.TryParse((string?)e.Value, out var v) ? v : standaard;
+
+    protected override void OnParametersSet()
+    {
+        if (Last is null) { _nieuweCategorie = false; _categorieNaam = ""; _melding = null; }
+    }
+
+    private void CategorieGewijzigd(ChangeEventArgs e)
+        => Last!.CategorieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+
+    private void BedragGewijzigd(ChangeEventArgs e)
+    {
+        if (Bedragen.Lees(Tekst(e)) is decimal b) Last!.Bedrag = b;
+        else _melding = "Dat bedrag kan ik niet lezen.";
+    }
+
+    /// <summary>Ander interval: de keuze van dag en maand opnieuw beginnen, zoals Access deed.</summary>
+    private void IntervalGewijzigd(ChangeEventArgs e)
+    {
+        Last!.Interval = (VasteLastInterval)Getal(e, 2);
+        Last.Dag = 1;
+        Last.Maand = 1;
+    }
+
+    private async Task Bewaar()
+    {
+        if (!MagInvoeren) { _melding = "Je hebt hier geen recht voor."; return; }
+        if (Last!.Omschrijving.Length == 0) { _melding = "Geen omschrijving ingevuld."; return; }
+        if (Last.Bedrag <= 0) { _melding = "Vul een bedrag in."; return; }
+
+        _bewaren = true;
+        try
+        {
+            if (_nieuweCategorie)
+            {
+                if (_categorieNaam.Length == 0) { _melding = "Geef de nieuwe categorie een naam."; return; }
+                Last.CategorieId = await Repo.CategorieToevoegenAsync(_categorieNaam);
+            }
+            await Repo.BewaarAsync(Last);
+            await Sluiten.InvokeAsync(true);
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+        finally { _bewaren = false; }
+    }
+
+    private async Task Afbreken() => await Sluiten.InvokeAsync(false);
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Afbreken();
+    }
+}

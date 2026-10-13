@@ -1,0 +1,341 @@
+@page "/financien/vaste-lasten"
+@inject IVasteLastenRepository Repo
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@* Overgezet van het Access-formulier VasteLasten (met VasteLastenInvoer/-Edit). Het jaaroverzicht
+   vervangt de rapporten VasteLasten/VasteLastenTotaal en de knoppen die in Access nooit af waren. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Vaste lasten</h1>
+        <span class="weeklabel">@Gefilterd.Count() vaste lasten · @Geld(Gefilterd.Sum(v => v.TotaalPerJaar)) per jaar</span>
+        @if (Repo.Beschikbaar && MagInvoeren)
+        {
+            <button class="klein" @onclick="Nieuw">＋ Vaste last toevoegen</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="bankfilters">
+            <label class="bankveld groei">
+                <span>Omschrijving</span>
+                <span class="zoekregel">
+                    <input placeholder="Zoeken…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+                    <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="() => _zoek = string.Empty">✕</button>
+                </span>
+            </label>
+            <label class="bankveld">
+                <span>Categorie</span>
+                <select value="@(_categorie?.ToString() ?? "")" @onchange="CategorieFilter">
+                    <option value="">Alle</option>
+                    @foreach (var c in _categorieen)
+                    {
+                        <option value="@c.Id">@c.Omschrijving</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Interval</span>
+                <select value="@(_interval?.ToString() ?? "")" @onchange="IntervalFilter">
+                    <option value="">Alle</option>
+                    @foreach (var i in Enum.GetValues<VasteLastInterval>())
+                    {
+                        <option value="@((int)i)">@VasteLast.IntervalNaam(i)</option>
+                    }
+                </select>
+            </label>
+            <div class="btngroup">
+                <button class="klein" @onclick="FiltersOpheffen">Filters opheffen</button>
+            </div>
+        </div>
+
+        <div class="wn-tabs">
+            <button class="@(_tab == "lijst" ? "actief" : "")" @onclick="() => _tab = DeLijst">Lijst</button>
+            <button class="@(_tab == "jaar" ? "actief" : "")" @onclick="() => _tab = HetJaar">Jaaroverzicht</button>
+        </div>
+
+        @if (_tab == "lijst")
+        {
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel vl-lijst">
+                    <thead>
+                        <tr>
+                            <th style="width:20rem">Omschrijving</th>
+                            <th style="width:9rem">Categorie</th>
+                            <th style="width:7.5rem">Interval</th>
+                            <th style="width:12rem">Wanneer</th>
+                            <th style="width:6.5rem">Volgende</th>
+                            <th style="width:8rem" class="r">Bedrag</th>
+                            <th style="width:8.5rem" class="r">Per jaar</th>
+                            <th style="width:7.5rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in Gefilterd)
+                        {
+                            <tr @key="v.Id" @ondblclick="() => Open(v)">
+                                <td>@v.Omschrijving</td>
+                                <td>@v.Categorie</td>
+                                <td>@VasteLast.IntervalNaam(v.Interval)</td>
+                                <td>@v.Wanneer</td>
+                                <td>@v.Volgende(_vandaag).ToString("dd-MM-yy")</td>
+                                <td class="r">@Geld(v.Bedrag)</td>
+                                <td class="r">@Geld(v.TotaalPerJaar)</td>
+                                <td class="c vl-acties">
+                                    @if (MagInvoeren)
+                                    {
+                                        <button class="klein" @onclick="() => Open(v)">Aanpassen</button>
+                                        <button class="klein rood" title="Wissen" @onclick="() => Wis(v)">✕</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (!Gefilterd.Any())
+                        {
+                            <tr><td colspan="8" class="kiezer-info">Geen vaste lasten in deze selectie.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="banktotalen">
+                <span><b>Per jaar</b> @Geld(Gefilterd.Sum(v => v.TotaalPerJaar))</span>
+                <span><b>Per maand</b> @Geld(Gefilterd.Sum(v => v.TotaalPerJaar) / 12)</span>
+                <span><b>Aantal</b> @Gefilterd.Count()</span>
+            </div>
+        }
+        else
+        {
+            <div class="btngroup vl-jaarkeuze">
+                <button class="klein" @onclick="() => _jaar--">◀</button>
+                <b>@_jaar</b>
+                <button class="klein" @onclick="() => _jaar++">▶</button>
+                <span class="zij-extra">volgens de filters hierboven; bedragen op de dag dat ze afgaan</span>
+            </div>
+
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel vl-jaar">
+                    <thead>
+                        <tr>
+                            <th>Categorie</th>
+                            @for (var m = 1; m <= 12; m++)
+                            {
+                                <th class="r">@(VasteLast.MaandNaam(m).Substring(0, 3))</th>
+                            }
+                            <th class="r">Totaal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rij in Jaar)
+                        {
+                            <tr @key="rij.Categorie">
+                                <td>@rij.Categorie</td>
+                                @for (var m = 0; m < 12; m++)
+                                {
+                                    <td class="r">@(rij.PerMaand[m] == 0 ? "" : Kort(rij.PerMaand[m]))</td>
+                                }
+                                <td class="r"><b>@Kort(rij.PerMaand.Sum())</b></td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td><b>Totaal</b></td>
+                            @for (var m = 0; m < 12; m++)
+                            {
+                                var maandIndex = m;
+                                <td class="r"><b>@Kort(Jaar.Sum(r => r.PerMaand[maandIndex]))</b></td>
+                            }
+                            <td class="r"><b>@Kort(Jaar.Sum(r => r.PerMaand.Sum()))</b></td>
+                        </tr>
+                        <tr class="vl-balk-rij">
+                            <td></td>
+                            @for (var m = 0; m < 12; m++)
+                            {
+                                var maandIndex = m;
+                                <td title="@Geld(Jaar.Sum(r => r.PerMaand[maandIndex]))">
+                                    <div class="vl-balk" style="height:@(Hoogte(maandIndex))px"></div>
+                                </td>
+                            }
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <h3 class="wn-kop">De komende 60 dagen</h3>
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel">
+                    <thead>
+                        <tr>
+                            <th style="width:7rem">Datum</th>
+                            <th>Omschrijving</th>
+                            <th style="width:9rem">Categorie</th>
+                            <th style="width:8rem" class="r">Bedrag</th>
+                            <th style="width:9rem" class="r">Opgeteld</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ decimal opgeteld = 0; }
+                        @foreach (var b in Komend)
+                        {
+                            opgeteld += b.Last.Bedrag;
+                            <tr @key="(b.Datum, b.Last.Id)">
+                                <td>@b.Datum.ToString("ddd dd-MM", Nl)</td>
+                                <td>@b.Last.Omschrijving</td>
+                                <td>@b.Last.Categorie</td>
+                                <td class="r">@Geld(b.Last.Bedrag)</td>
+                                <td class="r">@Geld(opgeteld)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<VasteLastVenster Last="_bewerk" Categorieen="_categorieen" Sluiten="SluitVenster" />
+
+@code {
+    private const string DeLijst = "lijst";
+    private const string HetJaar = "jaar";
+
+    private List<VasteLast> _lasten = new();
+    private List<VasteLastCategorie> _categorieen = new();
+    private string _zoek = "";
+    private int? _categorie;
+    private int? _interval;
+    private string _tab = DeLijst;
+    private int _jaar = DateTime.Today.Year;
+    private readonly DateOnly _vandaag = DateOnly.FromDateTime(DateTime.Today);
+
+    private VasteLast? _bewerk;
+    private string? _melding;
+    private bool _fout;
+
+    // Zelfde rechten als de facturen: kijken mag wie de pagina mag zien, wijzigen niet iedereen.
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+    private static string Kort(decimal w) => w.ToString("C0", Nl);
+
+    private IEnumerable<VasteLast> Gefilterd => _lasten
+        .Where(v => _zoek.Trim().Length == 0 || v.Omschrijving.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Where(v => _categorie is null || v.CategorieId == _categorie)
+        .Where(v => _interval is null || (int)v.Interval == _interval);
+
+    private sealed record JaarRij(string Categorie, decimal[] PerMaand);
+
+    /// <summary>Per categorie het bedrag per maand, volgens de echte betaaldagen in het gekozen jaar.</summary>
+    private List<JaarRij> Jaar => Gefilterd
+        .GroupBy(v => v.Categorie.Length > 0 ? v.Categorie : "(geen categorie)")
+        .OrderBy(g => g.Key)
+        .Select(g =>
+        {
+            var perMaand = new decimal[12];
+            foreach (var v in g)
+                foreach (var d in v.Betaaldagen(_jaar)) perMaand[d.Month - 1] += v.Bedrag;
+            return new JaarRij(g.Key, perMaand);
+        })
+        .ToList();
+
+    private int Hoogte(int maand)
+    {
+        var jaar = Jaar;
+        var max = Enumerable.Range(0, 12).Max(m => jaar.Sum(r => r.PerMaand[m]));
+        return max == 0 ? 0 : (int)Math.Round(jaar.Sum(r => r.PerMaand[maand]) / max * 60);
+    }
+
+    private IEnumerable<(DateOnly Datum, VasteLast Last)> Komend => Gefilterd
+        .SelectMany(v => v.Betaaldagen(_vandaag.Year).Concat(v.Betaaldagen(_vandaag.Year + 1))
+            .Where(d => d >= _vandaag && d <= _vandaag.AddDays(60))
+            .Select(d => (d, v)))
+        .OrderBy(x => x.d).ThenBy(x => x.v.Omschrijving);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lasten = await Repo.LijstAsync();
+            _categorieen = await Repo.CategorieenAsync();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void CategorieFilter(ChangeEventArgs e)
+        => _categorie = int.TryParse((string?)e.Value, out var gekozen) ? gekozen : null;
+
+    private void IntervalFilter(ChangeEventArgs e)
+        => _interval = int.TryParse((string?)e.Value, out var gekozen) ? gekozen : null;
+
+    private void FiltersOpheffen()
+    {
+        _zoek = "";
+        _categorie = null;
+        _interval = null;
+    }
+
+    // ---- toevoegen, aanpassen, wissen ----
+    private void Nieuw() => _bewerk = new VasteLast { CategorieId = _categorie };
+
+    /// <summary>Een kopie bewerken, zodat Annuleren de lijst niet verandert.</summary>
+    private void Open(VasteLast v)
+    {
+        if (!MagInvoeren) return;
+        _bewerk = new VasteLast
+        {
+            Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,
+            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand,
+        };
+    }
+
+    private async Task SluitVenster(bool opgeslagen)
+    {
+        var naam = _bewerk?.Omschrijving;
+        _bewerk = null;
+        if (!opgeslagen) return;
+        await Laad();
+        Toon($"{naam} is opgeslagen.", false);
+    }
+
+    private async Task Wis(VasteLast v)
+    {
+        if (!MagInvoeren) return;
+        if (!await Vraag($"Vaste last '{v.Omschrijving}' wissen?")) return;
+        try
+        {
+            await Repo.WisAsync(v.Id);
+            await Laad();
+            Toon($"{v.Omschrijving} is gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
