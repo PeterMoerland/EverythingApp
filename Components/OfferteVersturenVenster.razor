@@ -1,0 +1,230 @@
+@* De offerte als PDF bekijken en als Gmail-concept klaarzetten (Access: Bekijken en "Aanmaken en versturen…").
+   Besluit gebruiker: de app zet een concept in je eigen Gmail met de PDF (en de Metaalunievoorwaarden); jij kijkt het
+   na en verstuurt het in Gmail. Daarna "Verstuurd" = status Aangeboden en GemaildOp/Door, zoals Access na
+   "Is de offerte daadwerkelijk gemaild?". De PDF gaat (net als in Access) bij het klaarzetten al naar de
+   offertemap en de filestore (StoreType 8, MasterID = project). *@
+@inject IOfferteRepository Repo
+@inject OffertePdfService Pdf
+@inject FilestoreService Filestore
+@inject MailService Post
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (OfferteId is not null)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster of-versturen">
+            <header class="bijlagekop">
+                <h2>@(_g?.Offerte.OfferteNr ?? "Offerte") · PDF en versturen</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_fout ? "fout" : "ok")">@_melding</div>
+                }
+                @foreach (var w in _waarschuwingen)
+                {
+                    <div class="melding bk-let-op">⚠ @w</div>
+                }
+
+                <div class="of-verstuur-tweeluik">
+                    <div class="of-pdf">
+                        @if (_bezigPdf) { <p class="uitleg">PDF maken…</p> }
+                        else if (_pdfUrl is not null) { <iframe src="@_pdfUrl" title="Offerte"></iframe> }
+                    </div>
+
+                    <div class="of-mail">
+                        @if (_stap == Stap.Klaarzetten)
+                        {
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld"><label>Van</label><span class="wn-vast">@Ik.Email <small>(concept in je eigen Gmail)</small></span></div>
+                                <div class="wn-veld"><label>Aan</label><input value="@_aan" @onchange="e => _aan = Tekst(e)" placeholder="mailadres contactpersoon" /></div>
+                                <div class="wn-veld"><label>Cc</label><input value="@_cc" @onchange="e => _cc = Tekst(e)" /></div>
+                                <div class="wn-veld"><label>Onderwerp</label><input value="@_onderwerp" @onchange="e => _onderwerp = Tekst(e)" /></div>
+                            </div>
+                            <textarea class="of-mailtekst" rows="8" @onchange="e => _tekst = (string?)e.Value ?? string.Empty">@_tekst</textarea>
+                            <div class="of-bijlagen">
+                                <strong>Bijlagen</strong>
+                                <div>📄 @_pdfNaam</div>
+                                @if (_voorwaarden is not null) { <div>📄 @_voorwaarden.Value.Naam</div> }
+                                else if (_g?.Offerte.AlgemeneVoorwaarden == true) { <div class="of-mist">Algemene voorwaarden: bestand niet gevonden (@_voorwaardenPad)</div> }
+                            </div>
+                            <div class="btngroep-rand">
+                                <button class="klein" disabled="@(_pdf is null)" @onclick="Download">⭳ PDF downloaden</button>
+                                <span class="groei"></span>
+                                <button class="primair" disabled="@(_pdf is null || _bezig || !Ik.Gekoppeld)" @onclick="Klaarzetten">
+                                    @(_bezig ? "Bezig…" : "Concept in Gmail zetten")
+                                </button>
+                            </div>
+                            <p class="uitleg">De PDF komt in @_mapPad en in de filestore van het project.</p>
+                        }
+                        else
+                        {
+                            <div class="of-klaar">
+                                <p>✔ Het concept staat in je Gmail met de offerte@(_voorwaarden is not null ? " en de algemene voorwaarden" : "").</p>
+                                <p><a class="knopje" href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener">Gmail-concepten openen</a></p>
+                                <p>Kijk het na en verstuur het in Gmail. Daarna:</p>
+                                <button class="primair" disabled="@_bezig" @onclick="Verstuurd">Verstuurd: zet op Aangeboden</button>
+                                <p class="uitleg">Niet verstuurd? Sluit dit venster; de offerte blijft op @OfferteStatus.Naam(_g?.Offerte.Status ?? 1).</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De offerte; null = dicht.</summary>
+    [Parameter] public int? OfferteId { get; set; }
+
+    /// <summary>true = de offerte is op verstuurd/aangeboden gezet.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    private const int StoreTypeOfferte = 8;      // Access: FileStore.StoreType 8, MasterID = ProjectID
+
+    private enum Stap { Klaarzetten, Klaar }
+    private Stap _stap;
+    private int? _geladenVoor;
+    private OffertePdfGegevens? _g;
+    private byte[]? _pdf;
+    private string _pdfNaam = "", _mapPad = "", _voorwaardenPad = "";
+    private string? _pdfUrl, _melding;
+    private (string Naam, byte[] Inhoud)? _voorwaarden;
+    private List<string> _waarschuwingen = new();
+    private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
+    private bool _bezig, _bezigPdf, _fout, _verstuurd;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OfferteId == _geladenVoor) return;
+        _geladenVoor = OfferteId;
+        await Opruimen();
+        if (OfferteId is not int id) return;
+
+        _stap = Stap.Klaarzetten;
+        _melding = null; _waarschuwingen = new(); _voorwaarden = null; _verstuurd = false;
+        _bezigPdf = true;
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            _g = await Pdf.LaadAsync(id, Ik.WerknemerId);
+            var o = _g.Offerte;
+            var en = o.Taal == OfferteTaal.Engels;
+
+            // Access-controles: contactpersoon met mailadres; geldigheid en levertijd ingevuld (alleen waarschuwen)
+            if (o.ContactId is null) _waarschuwingen.Add("Geen contactpersoon gekozen (tabblad Algemeen).");
+            else if (_g.ContactMail.Length == 0) _waarschuwingen.Add($"{_g.Klant.Tav} heeft geen mailadres; vul het in bij Relaties of typ het hieronder.");
+            if (o.Geldigheid.Trim().Length == 0) _waarschuwingen.Add("Geldigheid is niet ingevuld (tabblad Voorwaarden).");
+            if (o.Levertijd.Trim().Length == 0) _waarschuwingen.Add("Levertijd is niet ingevuld (tabblad Voorwaarden).");
+            if (o.Totalen.Totaal == 0) _waarschuwingen.Add("De offerte heeft geen bedrag.");
+
+            // mail zoals Access: onderwerp "Offerte"/"Quotation" + nummer, tekst uit de instellingen met {of}
+            var inst = await Repo.MailInstellingenAsync();
+            _aan = _g.ContactMail;
+            _cc = "";
+            _onderwerp = $"{(en ? "Quotation" : "Offerte")} {o.OfferteNr}";
+            _tekst = (en ? inst.TekstEn : inst.TekstNl).Replace("{of}", o.OfferteNr);
+            if (o.AlgemeneVoorwaarden)
+            {
+                _voorwaardenPad = Pdf.Pad(en ? inst.VoorwaardenEn : inst.VoorwaardenNl);
+                try
+                {
+                    if (_voorwaardenPad.Length > 0 && File.Exists(_voorwaardenPad))
+                        _voorwaarden = (Path.GetFileName(_voorwaardenPad), await File.ReadAllBytesAsync(_voorwaardenPad));
+                }
+                catch { _voorwaarden = null; }
+            }
+
+            _pdfNaam = OffertePdfService.Bestandsnaam(o);
+            _mapPad = Path.Combine(Pdf.Map, DateTime.Today.Year.ToString(), _g.Afzender.Afkorting.Length > 0 ? _g.Afzender.Afkorting : "BV");
+            _pdf = await Pdf.NaarPdfAsync(Pdf.Html(_g, DateOnly.FromDateTime(DateTime.Today)));
+            _pdfUrl = await JS.InvokeAsync<string>("mdeBlob.maak", _pdf, "application/pdf");
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _bezigPdf = false; }
+    }
+
+    private async Task Download()
+    {
+        if (_pdf is null) return;
+        try { await JS.InvokeVoidAsync("mdeBestand.download", _pdfNaam, _pdf); } catch { }
+    }
+
+    private async Task Klaarzetten()
+    {
+        if (_g is null || _pdf is null) return;
+        if (_aan.Trim().Length == 0 && !await Bevestig("Er is geen ontvanger. Toch een concept zonder 'Aan' klaarzetten?")) return;
+        _bezig = true;
+        var fouten = new List<string>();
+        try
+        {
+            // 1. offertemap: <Offertes>\<jaar>\<BV>\<OfferteNr>.PDF (een bestaande wordt overschreven, zoals Access)
+            try
+            {
+                Directory.CreateDirectory(_mapPad);
+                await File.WriteAllBytesAsync(Path.Combine(_mapPad, _pdfNaam), _pdf);
+            }
+            catch (Exception ex) { fouten.Add($"niet in de offertemap ({ex.Message})"); }
+
+            // 2. filestore van het project
+            try
+            {
+                using var stroom = new MemoryStream(_pdf);
+                await Filestore.ToevoegenAsync(stroom, _pdfNaam, StoreTypeOfferte, _g.Offerte.ProjectId, Ik.WerknemerId ?? 0);
+            }
+            catch (Exception ex) { fouten.Add($"niet in de filestore ({ex.Message})"); }
+
+            // 3. concept in de eigen Gmail
+            var bijlagen = new List<(string, byte[])> { (_pdfNaam, _pdf) };
+            if (_voorwaarden is { } v) bijlagen.Add(v);
+            await Post.MaakConceptAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp, _tekst, bijlagen, _cc.Length > 0 ? _cc : null);
+
+            _stap = Stap.Klaar;
+            Toon(fouten.Count == 0 ? "Concept klaargezet; de PDF staat in de offertemap en de filestore."
+                                   : "Concept klaargezet, maar de PDF staat " + string.Join(" en ", fouten) + ".", fouten.Count > 0);
+        }
+        catch (Exception ex) { Toon("Concept maken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verstuurd()
+    {
+        if (_g is null) return;
+        _bezig = true;
+        try
+        {
+            await Repo.MarkeerVerstuurdAsync(_g.Offerte.Id, Ik.WerknemerId);
+            _verstuurd = true;
+            await Sluit();
+        }
+        catch (Exception ex) { Toon("Bijwerken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Sluit()
+    {
+        var verstuurd = _verstuurd;
+        _geladenVoor = null;
+        await Opruimen();
+        await Sluiten.InvokeAsync(verstuurd);
+    }
+
+    private async Task Opruimen()
+    {
+        if (_pdfUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pdfUrl); } catch { } }
+        _pdfUrl = null;
+        _pdf = null;
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+}

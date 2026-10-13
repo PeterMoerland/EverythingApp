@@ -1,0 +1,92 @@
+@* Artikel kiezen voor een materiaalregel van een offerte (Access: ZoekArtikel met ParentForm "Offerte").
+   Zoekt via IArtikelRepository (nummer, code, omschrijving, fabrikant; '#1234' = dat MDE-nummer) en toont
+   inkoop (vastgestelde kostprijs) en verkoopprijs project. *@
+@inject IArtikelRepository Artikelen
+@inject IOfferteRepository Repo
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="() => Gekozen.InvokeAsync(null)">
+        <div class="factuurvenster of-zoeker" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@Titel</h2>
+                <button class="klein" @onclick="() => Gekozen.InvokeAsync(null)">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <input class="of-zoekveld" placeholder="Zoek op MDE-nummer, artikelnummer, omschrijving of fabrikant… (#1234 = dat MDE-nummer)"
+                       value="@_zoek" @oninput="ZoekGetypt" autofocus />
+                @if (_bezig) { <p class="uitleg">Zoeken…</p> }
+                <table class="kiezer-tabel of-regels">
+                    <thead>
+                        <tr><th class="r" style="width:5rem">MDE</th><th style="width:11rem">Artikel</th><th>Omschrijving</th>
+                            <th style="width:9rem">Merk</th><th class="r" style="width:6.5rem">Inkoop</th><th class="r" style="width:6.5rem">Verkoop</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _treffers)
+                        {
+                            var prijs = _prijzen.GetValueOrDefault(a.Id);
+                            <tr @key="a.Id" class="of-treffer" @onclick="() => Kies(a)">
+                                <td class="r">@a.Id</td>
+                                <td>@a.Code</td>
+                                <td>@a.Omschrijving</td>
+                                <td>@a.Merk</td>
+                                <td class="r">@Geld(prijs.Inkoop)</td>
+                                <td class="r @(prijs.Verkoop == 0 ? "of-mist" : "")">@Geld(prijs.Verkoop)</td>
+                            </tr>
+                        }
+                        @if (_treffers.Count == 0 && _zoek.Trim().Length >= 2 && !_bezig)
+                        {
+                            <tr><td colspan="6" class="uitleg">Niets gevonden.</td></tr>
+                        }
+                    </tbody>
+                </table>
+                @if (_treffers.Count >= Max) { <p class="uitleg">De eerste @Max treffers; zoek specifieker.</p> }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public string Titel { get; set; } = "Artikel kiezen";
+
+    /// <summary>Het gekozen artikel met prijzen, of null bij annuleren.</summary>
+    [Parameter] public EventCallback<OfferteArtikelKeuze?> Gekozen { get; set; }
+
+    private const int Max = 100;
+    private string _zoek = "";
+    private bool _bezig;
+    private List<ArtikelRegel> _treffers = new();
+    private Dictionary<int, (decimal Inkoop, decimal Verkoop)> _prijzen = new();
+    private int _teller;
+
+    private async Task ZoekGetypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        var mijn = ++_teller;
+        await Task.Delay(250);                   // even wachten tot er niet meer getypt wordt
+        if (mijn != _teller) return;
+        var zoek = _zoek.Trim();
+        if (zoek.Length < 2) { _treffers = new(); return; }
+        _bezig = true;
+        try
+        {
+            var treffers = await Artikelen.ZoekAsync(zoek, null, false, Max);
+            var prijzen = await Repo.ArtikelPrijzenAsync(treffers.Select(t => t.Id));
+            if (mijn != _teller) return;
+            _treffers = treffers;
+            _prijzen = prijzen;
+        }
+        catch { _treffers = new(); }
+        finally { _bezig = false; }
+    }
+
+    private Task Kies(ArtikelRegel a)
+    {
+        var p = _prijzen.GetValueOrDefault(a.Id);
+        return Gekozen.InvokeAsync(new OfferteArtikelKeuze(a.Id, a.Code, a.Omschrijving, p.Inkoop, p.Verkoop));
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal d) => d == 0 ? "" : d.ToString("C2", Nl);
+}

@@ -401,6 +401,37 @@ public class MailService
     }
 
     /// <summary>
+    /// Zet een bericht als concept klaar in de map Concepten van de postbus (Gmail drafts), zodat de gebruiker het
+    /// in Gmail nakijkt en zelf verstuurt. Geeft het id van het bericht terug (voor een link naar het concept).
+    /// </summary>
+    public async Task<string> MaakConceptAsync(MailPostbus postbus, string naar, string onderwerp, string tekst,
+                                               IEnumerable<(string Naam, byte[] Inhoud)>? bijlagen = null,
+                                               string? cc = null)
+    {
+        var client = await ClientOfFoutAsync(postbus);
+
+        var raw = BouwBericht(postbus.Adres, naar ?? "", cc, onderwerp, tekst, bijlagen);
+        var json = JsonSerializer.Serialize(new { message = new { raw = NaarBase64Url(Encoding.UTF8.GetBytes(raw)) } });
+
+        var antwoord = await client.PostAsync($"{Basis}/drafts",
+            new StringContent(json, Encoding.UTF8, "application/json"));
+
+        var inhoud = await antwoord.Content.ReadAsStringAsync();
+        if (!antwoord.IsSuccessStatusCode)
+        {
+            _log.LogWarning("Mailconcept maken mislukte: {Status} {Body}", antwoord.StatusCode, inhoud);
+            throw new InvalidOperationException(Foutmelding(antwoord.StatusCode, inhoud, postbus));
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(inhoud);
+            return doc.RootElement.GetProperty("message").GetProperty("id").GetString() ?? "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>
     /// Bouwt een gewoon RFC-822-bericht. Zonder bijlagen is dat één tekstdeel;
     /// met bijlagen een multipart/mixed met een scheidingsregel.
     /// </summary>

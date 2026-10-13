@@ -1,0 +1,190 @@
+@* Prijs van een materiaalregel berekenen (Access: OfferteMateriaalSpecialeprijs en -NoMDE).
+   Met artikel: Standaard (inkoop × (1 + opslag)), Bruto (brutoprijs leverancier) of Vast (verkoopprijs project).
+   Zonder artikel: Standaard (kostprijs × (1 + opslag)) of Vast. De klantkorting telt één keer: hij komt
+   alleen in het regeltotaal, niet ook in de prijs (besluit gebruiker; Access deed beide bij Standaard/Vast). *@
+@inject IOfferteRepository Repo
+@inject IJSRuntime JS
+
+@if (Regel is not null)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster of-prijsvenster">
+            <header class="bijlagekop">
+                <h2>Prijs berekenen</h2>
+                <button class="klein" @onclick="() => Sluiten.InvokeAsync(false)">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <p><strong>@(Regel.ArtikelNr.Length > 0 ? Regel.ArtikelNr + " · " : "")@Regel.Omschrijving</strong>
+                   <span class="uitleg">@(Regel.ArtikelId is int a ? $"MDE {a}" : "vrije regel zonder artikel")</span></p>
+
+                @if (_laden) { <p class="uitleg">Laden…</p> }
+                else
+                {
+                    <div class="of-methodes">
+                        @foreach (var m in Methodes)
+                        {
+                            <label class="of-vink @(m == _methode ? "of-gekozen" : "")">
+                                <input type="radio" name="methode" checked="@(m == _methode)" @onchange="() => _methode = m" />
+                                @OfferteMateriaalRegel.MethodeNaam(m)
+                            </label>
+                        }
+                    </div>
+
+                    <table class="kiezer-tabel of-prijstabel">
+                        @if (_info is not null)
+                        {
+                            <tr><td>Leverancier</td><td class="r">@(_info.Leverancier.Length > 0 ? _info.Leverancier : "— geen leverancier bekend —")</td></tr>
+                            <tr class="@(_methode == OffertePrijs.Bruto ? "of-bron" : "")"><td>Brutoprijs leverancier</td><td class="r">@Geld(_info.Bruto)</td></tr>
+                            <tr><td>Korting leverancier</td><td class="r">@Procent(_info.KortingLeverancier)</td></tr>
+                            <tr class="@(_methode == OffertePrijs.Standaard ? "of-bron" : "")"><td>Inkoopprijs</td><td class="r">@Geld(_inkoop)</td></tr>
+                        }
+                        else
+                        {
+                            <tr class="@(_methode == OffertePrijs.Standaard ? "of-bron" : "")">
+                                <td>Kostprijs</td>
+                                <td class="r"><input class="r" value="@Getal(_inkoop, 4)" @onchange="e => Lees(e, v => _inkoop = v)" /></td>
+                            </tr>
+                        }
+                        <tr>
+                            <td>Opslag @(_methode == OffertePrijs.Standaard ? "" : "(alleen bij Standaard)")</td>
+                            <td class="r">
+                                <input class="r of-pct" value="@Getal(_opslag * 100, 1)" disabled="@(_methode != OffertePrijs.Standaard)"
+                                       @onchange="e => Lees(e, v => _opslag = v / 100)" /> %
+                                @if (_methode == OffertePrijs.Standaard && _opslag != _standaardOpslag)
+                                {
+                                    <button class="klein" title="Terug naar de standaardopslag" @onclick="() => _opslag = _standaardOpslag">standaard @Getal(_standaardOpslag * 100, 0)%</button>
+                                }
+                            </td>
+                        </tr>
+                        <tr class="@(_methode == OffertePrijs.Vast ? "of-bron" : "")">
+                            <td>Vaste prijs @(_info is not null ? "(verkoopprijs project)" : "")</td>
+                            <td class="r">
+                                @if (_info is not null) { @Geld(_vast) }
+                                else { <input class="r" value="@Getal(_vast, 2)" @onchange="e => Lees(e, v => _vast = v)" /> }
+                            </td>
+                        </tr>
+                        <tr class="of-uitkomst"><td>Offerteprijs (stuks, vóór klantkorting)</td><td class="r">@Geld(Prijs)</td></tr>
+                        <tr>
+                            <td>Klantkorting</td>
+                            <td class="r">
+                                <input class="r of-pct" value="@Getal(_korting * 100, 1)" @onchange="e => Lees(e, v => _korting = Math.Clamp(v, 0, 100) / 100)" /> %
+                                @foreach (var k in _klantkortingen)
+                                {
+                                    var kk = k;
+                                    <button class="klein" title="@kk.Omschrijving" @onclick="() => _korting = kk.Korting">@Procent(kk.Korting)</button>
+                                }
+                            </td>
+                        </tr>
+                        <tr class="of-uitkomst"><td>Netto per stuk</td><td class="r">@Geld(Netto)</td></tr>
+                        <tr><td>Totaal (@Getal(Regel.Aantal, 2) st.)</td><td class="r">@Geld(Netto * Regel.Aantal)</td></tr>
+                        @if (_inkoop > 0)
+                        {
+                            <tr class="@(Netto <= _inkoop ? "of-verlies" : "")"><td>Marge per stuk</td><td class="r">@Geld(Netto - _inkoop) (@Procent(Netto == 0 ? 0 : (Netto - _inkoop) / Netto))</td></tr>
+                        }
+                    </table>
+                    @if (_info is not null && _info.Leverancier.Length == 0 && _methode != OffertePrijs.Vast)
+                    {
+                        <p class="melding fout">Geen leverancier bekend: inkoop- en brutoprijs zijn 0. Kies Vast of vul de leverancier aan bij het artikel.</p>
+                    }
+                }
+
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => Sluiten.InvokeAsync(false)">Annuleren</button>
+                    <button class="primair" disabled="@_laden" @onclick="Toepassen">Prijs overnemen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De regel; null = dicht. Bij Toepassen worden Prijs, Korting, Methode (en zonder artikel kostprijs/opslag) gezet.</summary>
+    [Parameter] public OfferteMateriaalRegel? Regel { get; set; }
+    [Parameter] public int? KlantId { get; set; }
+
+    /// <summary>true = de regel is aangepast (de aanroeper slaat hem op).</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    private OfferteMateriaalRegel? _geladenVoor;
+    private bool _laden = true;
+    private OffertePrijsInfo? _info;
+    private List<(decimal Korting, string Omschrijving)> _klantkortingen = new();
+    private decimal _standaardOpslag = 0.43m;
+    private int _methode;
+    private decimal _inkoop, _opslag, _vast, _korting;
+
+    private int[] Methodes => _info is null ? new[] { OffertePrijs.Standaard, OffertePrijs.Vast }
+                                            : new[] { OffertePrijs.Standaard, OffertePrijs.Bruto, OffertePrijs.Vast };
+
+    private decimal Prijs => OffertePrijs.Prijs(_methode, _inkoop, _opslag, _info?.Bruto ?? 0, _vast);
+    private decimal Netto => Prijs * (1 - _korting);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Regel is null || ReferenceEquals(Regel, _geladenVoor)) return;
+        _geladenVoor = Regel;
+        _laden = true;
+        try
+        {
+            _standaardOpslag = await Repo.StandaardOpslagAsync();
+            _klantkortingen = KlantId is int k ? await Repo.KlantkortingenAsync(k) : new();
+            _info = Regel.ArtikelId is int a ? await Repo.PrijsInfoAsync(a) : null;
+            _korting = Regel.Korting;
+            if (_info is not null)
+            {
+                _methode = Regel.Methode is >= 0 and <= 2 ? Regel.Methode : OffertePrijs.Standaard;
+                _inkoop = _info.Inkoop;
+                _vast = _info.VastePrijs;
+                _opslag = _standaardOpslag;          // Access: opslag bij een artikel wordt niet bewaard
+            }
+            else
+            {
+                // Access NoMDE: Bruto bestaat hier niet (wordt Vast); kostprijs = bewaarde kostprijs of terugrekenen uit de prijs
+                _methode = Regel.Methode == OffertePrijs.Standaard ? OffertePrijs.Standaard : OffertePrijs.Vast;
+                _opslag = Regel.ToeslagNonMde ?? _standaardOpslag;
+                _inkoop = _methode == OffertePrijs.Standaard && Regel.InkoopNonMde is decimal ink && ink > 0
+                    ? ink : Math.Round(Regel.Prijs / (1 + _opslag), 4);
+                _vast = Regel.Prijs;
+            }
+        }
+        catch { _info = null; }
+        finally { _laden = false; }
+    }
+
+    private void Lees(ChangeEventArgs e, Action<decimal> zet)
+    {
+        if (Bedragen.Lees(((string?)e.Value ?? "").Replace("%", "")) is decimal v) zet(v);
+    }
+
+    private async Task Toepassen()
+    {
+        if (Regel is null) return;
+        if (_inkoop > 0 && Netto <= _inkoop
+            && !await Bevestig($"De verkoopprijs ({Geld(Netto)}) is niet hoger dan de inkoopprijs ({Geld(_inkoop)}). Toch overnemen?"))
+            return;
+
+        Regel.Methode = _methode;
+        Regel.Prijs = Prijs;
+        Regel.Korting = _korting;
+        if (_info is null)
+        {
+            Regel.InkoopNonMde = _inkoop;
+            Regel.ToeslagNonMde = _opslag;
+            Regel.Kostprijs = _inkoop;
+        }
+        _geladenVoor = null;
+        await Sluiten.InvokeAsync(true);
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal d) => d.ToString("C2", Nl);
+    private static string Procent(decimal f) => (f * 100).ToString("0.#", Nl) + "%";
+    private static string Getal(decimal d, int dec) => d.ToString("N" + dec, Nl);
+}

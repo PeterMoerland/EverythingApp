@@ -1,0 +1,785 @@
+@page "/projecten/offertes"
+@page "/projecten/offertes/{Id:int}"
+@inject IOfferteRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Overgezet van het Access-formulier Offertes (fase 1: kop, voorwaarden, aantekeningen, status, nieuw, wissen,
+   zoeken). Regels (uren, materiaal, overigen, categorieën, tarieven) volgen in fase 2, de PDF en mail in fase 4.
+   Zie ..\Offertes_analyse.md. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Offertes</h1>
+        @if (_o is not null)
+        {
+            <span class="weeklabel">@_o.OfferteNr · @_o.Klant</span>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: projecten en offertes, of zoeken ---------- *@
+            <aside class="wn-lijst of-lijst">
+                <div class="wn-tabs of-modus">
+                    <button class="@(!_zoekModus ? "actief" : "")" @onclick="() => _zoekModus = false">Per project</button>
+                    <button class="@(_zoekModus ? "actief" : "")" @onclick="NaarZoeken">Zoeken</button>
+                </div>
+
+                @if (!_zoekModus)
+                {
+                    <div class="wn-filters">
+                        <input placeholder="Klant…" value="@_klantZoek" @onchange="KlantZoekGewijzigd" />
+                        <input placeholder="Project (nummer of omschrijving)…" value="@_projectZoek" @onchange="ProjectZoekGewijzigd" />
+                        <label class="of-vink"><input type="checkbox" checked="@_alleenMetOffertes" @onchange="AlleenMetOffertesGewijzigd" /> Alleen projecten met offertes</label>
+                    </div>
+                    <div class="wn-namen of-projecten">
+                        @foreach (var p in _projecten)
+                        {
+                            <button class="wn-naam @(p.Id == _projectId ? "actief" : "")" @key="p.Id" @onclick="() => KiesProject(p.Id)">
+                                <strong>@p.Nummer</strong> @p.Omschrijving
+                                <small>@p.Klant @(p.AantalOffertes > 0 ? $"· {p.AantalOffertes} off." : "")@(p.Open ? "" : " · dicht")</small>
+                            </button>
+                        }
+                        @if (_projecten.Count == 0)
+                        {
+                            <div class="kiezer-info">Geen projecten gevonden.</div>
+                        }
+                    </div>
+
+                    @if (_projectId is not null)
+                    {
+                        <h3 class="wn-kop">Offertes <small>(@_offertes.Count)</small></h3>
+                        <div class="wn-namen of-offertes">
+                            @foreach (var o in _offertes)
+                            {
+                                <button class="wn-naam @(o.Id == _o?.Id ? "actief" : "")" @key="o.Id" @onclick="() => Kies(o.Id)">
+                                    <strong>@o.OfferteNr</strong> <span class="stand-chip @OfferteStatus.Kleur(o.Status)">@OfferteStatus.Naam(o.Status)</span>
+                                    <small>@o.Omschrijving · @Geld(o.Totaal)</small>
+                                </button>
+                            }
+                            @if (_offertes.Count == 0)
+                            {
+                                <div class="kiezer-info">Nog geen offertes bij dit project.</div>
+                            }
+                        </div>
+                        <div class="btngroup">
+                            <button class="klein" disabled="@(!MagMaken)" @onclick="OpenNieuw">＋ Nieuwe offerte</button>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="wn-filters">
+                        <input placeholder="Offertenummer, klant, project, omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <select value="@(_zoekMaker?.ToString() ?? "")" @onchange="MakerGewijzigd">
+                            <option value="">Alle makers</option>
+                            @foreach (var m in _makers)
+                            {
+                                <option value="@m.Id">@m.Naam</option>
+                            }
+                        </select>
+                        <select value="@(_zoekStatus?.ToString() ?? "")" @onchange="StatusFilterGewijzigd">
+                            <option value="">Alle statussen</option>
+                            @for (var s = 1; s <= 4; s++)
+                            {
+                                var st = s;
+                                <option value="@st">@OfferteStatus.Naam(st)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="wn-namen of-zoekresultaat">
+                        @foreach (var o in _zoekResultaat)
+                        {
+                            <button class="wn-naam @(o.Id == _o?.Id ? "actief" : "")" @key="o.Id" @onclick="() => KiesUitZoeken(o)">
+                                <strong>@o.OfferteNr</strong> <span class="stand-chip @OfferteStatus.Kleur(o.Status)">@OfferteStatus.Naam(o.Status)</span>
+                                <small>@o.Klant · @o.Omschrijving</small>
+                                <small>@(o.AanmaakDatum?.ToString("d-M-yyyy")) · @o.Maker · @Geld(o.Totaal)</small>
+                            </button>
+                        }
+                        @if (_zoekResultaat.Count == 0)
+                        {
+                            <div class="kiezer-info">Geen offertes gevonden.</div>
+                        }
+                    </div>
+                }
+            </aside>
+
+            @* ---------- rechts: de offerte ---------- *@
+            <section class="wn-detail">
+                @if (_o is null)
+                {
+                    <p class="uitleg">Kies links een project en een offerte, of zoek een offerte.</p>
+                }
+                else
+                {
+                    <div class="of-kop">
+                        <h2>@_o.OfferteNr</h2>
+                        <span class="stand-chip @OfferteStatus.Kleur(_o.Status)">@OfferteStatus.Naam(_o.Status)</span>
+                        @if (_o.OpSlot)
+                        {
+                            <span class="of-slot">🔒 Aangeboden: aanpassen kan niet meer, behalve de interne aantekeningen.</span>
+                        }
+                        <span class="groei"></span>
+                        @if (Gewijzigd)
+                        {
+                            <span class="of-gewijzigd">niet opgeslagen</span>
+                        }
+                        @if (MagMaken)
+                        {
+                            <button class="klein" title="Kopie van deze offerte maken, eventueel in een ander project" @onclick="OpenKopie">Kopiëren…</button>
+                            <button class="klein" title="De offerte als PDF bekijken en als Gmail-concept klaarzetten" @onclick="OpenVersturen">📄 PDF en versturen…</button>
+                        }
+                        <button class="primair" disabled="@(!Gewijzigd || _bezig)" @onclick="Bewaar">Opslaan</button>
+                    </div>
+
+                    <div class="wn-tabs">
+                        @foreach (var tab in Tabs)
+                        {
+                            var t = tab;
+                            <button class="@(_tab == t ? "actief" : "")" @onclick="() => _tab = t">@t</button>
+                        }
+                    </div>
+
+                    @if (_tab == "Algemeen")
+                    {
+                        <div class="wn-velden een-kolom of-velden">
+                            <div class="wn-veld"><label>Klant</label><span class="wn-vast">@_o.Klant</span></div>
+                            <div class="wn-veld"><label>Project</label><span class="wn-vast">@_o.Projectnummer · @_o.Project</span></div>
+                            <div class="wn-veld">
+                                <label>Contactpersoon</label>
+                                <select value="@(_o.ContactId?.ToString() ?? "")" disabled="@(!Bewerkbaar)"
+                                        @onchange="e => _o.ContactId = int.TryParse((string?)e.Value, out var cid) ? cid : null">
+                                    <option value="">—</option>
+                                    @foreach (var c in _contacten)
+                                    {
+                                        <option value="@c.Id">@c.Naam@(c.UitDienst ? " (uit dienst)" : "")@(c.Mail.Length == 0 ? " · geen mail" : "")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Omschrijving</label>
+                                <input value="@_o.Omschrijving" maxlength="250" disabled="@(!Bewerkbaar)" @onchange="e => _o.Omschrijving = Tekst(e)" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Status</label>
+                                <span class="bz-regel">
+                                    <select @key="_statusTeller" value="@_o.Status" disabled="@(!MagStatus)" @onchange="StatusGewijzigd">
+                                        @foreach (var st in StatusKeuzes)
+                                        {
+                                            <option value="@st">@OfferteStatus.Naam(st)</option>
+                                        }
+                                    </select>
+                                    @if (_o.OpSlot && Ik.Mag("Directie"))
+                                    {
+                                        <button class="klein" title="Directie: de offerte weer bewerkbaar maken" @onclick="TerugNaarAanmaken">Zet op 'Aanmaken'</button>
+                                    }
+                                </span>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Taal</label>
+                                <select value="@(_o.Taal?.ToString() ?? "")" disabled="@(!Bewerkbaar)" @onchange="TaalGewijzigd">
+                                    <option value="1">Nederlands</option>
+                                    <option value="2">Engels</option>
+                                </select>
+                            </div>
+                            <div class="wn-veld"><label>Aangemaakt</label><span class="wn-vast">@_o.AangemaaktDoor (@(_o.AanmaakDatum?.ToString("d-M-yyyy")))</span></div>
+                            <div class="wn-veld"><label>Gemaild</label><span class="wn-vast">@(_o.GemaildOp is DateTime gm ? $"{_o.GemaildDoor} ({gm:d-M-yyyy})" : "(nog niet gemaild)")</span></div>
+                            @if (_o.Bronofferte.Length > 0)
+                            {
+                                <div class="wn-veld"><label>Kopie van</label><span class="wn-vast">@_o.Bronofferte</span></div>
+                            }
+                        </div>
+
+                        <div class="of-teksten">
+                            <label>Koptekst <small class="@(5000 - _o.OfferteTekst.Length < 100 ? "of-bijna" : "")">(nog @(5000 - _o.OfferteTekst.Length))</small></label>
+                            <textarea rows="7" maxlength="5000" disabled="@(!Bewerkbaar)" @oninput="e => _o.OfferteTekst = (string?)e.Value ?? string.Empty">@_o.OfferteTekst</textarea>
+                            <label>Voettekst <small>(nog @(2000 - _o.Voettekst.Length))</small></label>
+                            <textarea rows="3" maxlength="2000" disabled="@(!Bewerkbaar)" @oninput="e => _o.Voettekst = (string?)e.Value ?? string.Empty">@_o.Voettekst</textarea>
+                        </div>
+
+                        <table class="kiezer-tabel of-totalen">
+                            <tr><td>Uren</td><td class="r">@_o.Totalen.AantalUren.ToString("0.##", Nl) uur (@((_o.Totalen.AantalUren / 8).ToString("0.#", Nl)) dagen)</td><td class="r">@Geld(_o.Totalen.Uren)</td></tr>
+                            <tr><td>Materiaal</td><td></td><td class="r">@Geld(_o.Totalen.Materiaal)</td></tr>
+                            <tr><td>Overigen</td><td></td><td class="r">@Geld(_o.Totalen.Overigen)</td></tr>
+                            <tr class="of-totaal"><td>Offerte totaal (excl. btw)</td><td></td><td class="r">@Geld(_o.Totalen.Totaal)</td></tr>
+                        </table>
+                    }
+                    else if (_tab == "Voorwaarden")
+                    {
+                        <div class="wn-velden een-kolom of-velden">
+                            @foreach (var lijst in Enum.GetValues<OfferteLijst>())
+                            {
+                                var l = lijst;
+                                <div class="wn-veld">
+                                    <label>@LijstNaam(l)</label>
+                                    <input list="@($"of-lijst-{l}")" value="@Waarde(l)" maxlength="100" disabled="@(!Bewerkbaar)"
+                                           @onchange="e => LijstGewijzigd(l, e)" />
+                                    <datalist id="@($"of-lijst-{l}")">
+                                        @foreach (var tekst in _lijsten.GetValueOrDefault(l) ?? new())
+                                        {
+                                            <option value="@tekst"></option>
+                                        }
+                                    </datalist>
+                                </div>
+                            }
+                            <div class="wn-veld">
+                                <label>Algemene voorwaarden</label>
+                                <label class="of-vink"><input type="checkbox" checked="@_o.AlgemeneVoorwaarden" disabled="@(!Bewerkbaar)"
+                                       @onchange="e => _o.AlgemeneVoorwaarden = e.Value is bool av && av" /> Metaalunievoorwaarden als bijlage bij de mail</label>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Ondertekening</label>
+                                <label class="of-vink"><input type="checkbox" checked="@_o.Ondertekening" disabled="@(!Bewerkbaar)"
+                                       @onchange="e => _o.Ondertekening = e.Value is bool od && od" /> Handtekeningblok op de offerte</label>
+                            </div>
+                        </div>
+                        <div class="of-teksten">
+                            <label>
+                                Disclaimer (onderaan de laatste pagina)
+                                @if (Bewerkbaar)
+                                {
+                                    <button class="klein" @onclick="() => _disclaimerKiezen = !_disclaimerKiezen">Kies een standaardtekst…</button>
+                                    @if (_o.Disclaimer.Trim().Length > 0 && !_disclaimers.Contains(_o.Disclaimer.Trim()))
+                                    {
+                                        <button class="klein" @onclick="DisclaimerAlsStandaard">Bewaar als standaardtekst</button>
+                                    }
+                                }
+                            </label>
+                            @if (_disclaimerKiezen)
+                            {
+                                <div class="of-disclaimers">
+                                    @foreach (var d in _disclaimers)
+                                    {
+                                        <button class="wn-naam" @onclick="() => { _o!.Disclaimer = d; _disclaimerKiezen = false; }">@d</button>
+                                    }
+                                    @if (_disclaimers.Count == 0) { <span class="uitleg">Geen standaardteksten in deze taal.</span> }
+                                </div>
+                            }
+                            <textarea rows="4" maxlength="1000" disabled="@(!Bewerkbaar)" @oninput="e => _o.Disclaimer = (string?)e.Value ?? string.Empty">@_o.Disclaimer</textarea>
+                        </div>
+                    }
+                    else if (TabsRegels.Contains(_tab))
+                    {
+                        <OfferteRegelsTab OfferteId="_o.Id" Tab="@_tab" Bewerkbaar="Bewerkbaar" KlantId="_o.KlantId" Gewijzigd="TotalenVerversen" />
+                    }
+                    else if (_tab == "Aantekeningen")
+                    {
+                        <div class="of-teksten">
+                            <label>Interne aantekeningen <small>(niet op de offerte; blijft bewerkbaar · nog @(2000 - _o.Aantekeningen.Length))</small></label>
+                            <textarea rows="12" maxlength="2000" disabled="@(!MagMaken)" @oninput="e => _o.Aantekeningen = (string?)e.Value ?? string.Empty">@_o.Aantekeningen</textarea>
+                        </div>
+                    }
+
+                    <div class="btngroep-rand">
+                        @if (!_o.OpSlot && MagMaken)
+                        {
+                            <button class="klein rood" @onclick="Wis">Offerte wissen</button>
+                        }
+                        <span class="groei"></span>
+
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@if (_nieuwOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster of-nieuw">
+            <header class="bijlagekop">
+                <h2>Nieuwe offerte</h2>
+                <button class="klein" @onclick="() => _nieuwOpen = false">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld"><label>Project</label><span class="wn-vast">@_nieuwProject?.Nummer · @_nieuwProject?.Omschrijving</span></div>
+                    <div class="wn-veld"><label>Klant</label><span class="wn-vast">@_nieuwProject?.Klant</span></div>
+                    <div class="wn-veld">
+                        <label>Contactpersoon</label>
+                        <select value="@(_nieuwContact?.ToString() ?? "")" @onchange="e => _nieuwContact = int.TryParse((string?)e.Value, out var nc) ? nc : null">
+                            <option value="">—</option>
+                            @foreach (var c in _nieuwContacten.Where(c => !c.UitDienst))
+                            {
+                                <option value="@c.Id">@c.Naam</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="wn-veld">
+                        <label>Omschrijving</label>
+                        <input value="@_nieuwOmschrijving" maxlength="250" autofocus @oninput="e => _nieuwOmschrijving = (string?)e.Value ?? string.Empty" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Tarieven</label>
+                        <label class="of-vink"><input type="checkbox" checked="@_nieuwTarieven" @onchange="e => _nieuwTarieven = e.Value is bool nt && nt" /> standaardtarieven van de BV meteen overnemen</label>
+                    </div>
+                </div>
+                <p class="uitleg">Een nieuwe contactpersoon voeg je toe in Relaties.</p>
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_nieuwOmschrijving.Trim().Length == 0 || _bezig)" @onclick="MaakNieuw">Offerte aanmaken</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_kopieOpen && _o is not null)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster of-nieuw">
+            <header class="bijlagekop">
+                <h2>Offerte kopiëren</h2>
+                <button class="klein" @onclick="() => _kopieOpen = false">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld"><label>Bron</label><span class="wn-vast">@_o.OfferteNr · @_o.Omschrijving</span></div>
+                    <div class="wn-veld">
+                        <label>Naar project</label>
+                        <div>
+                            <input placeholder="Zoek een open project…" value="@_kopieZoek" @onchange="KopieZoekGewijzigd" />
+                            <div class="of-kopieprojecten">
+                                @foreach (var p in _kopieProjecten)
+                                {
+                                    <button class="wn-naam @(p.Id == _kopieProject?.Id ? "actief" : "")" @key="p.Id" @onclick="() => _kopieProject = p">
+                                        <strong>@p.Nummer</strong> @p.Omschrijving <small>@p.Klant</small>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="wn-veld">
+                        <label>Overnemen</label>
+                        <div class="of-kopievinken">
+                            <label class="of-vink"><input type="checkbox" checked="@_kopie.Algemeen" @onchange="e => _kopie.Algemeen = e.Value is bool k1 && k1" /> Algemeen (omschrijving, kop- en voettekst)</label>
+                            <label class="of-vink"><input type="checkbox" checked="@_kopie.Uren" @onchange="e => _kopie.Uren = e.Value is bool k2 && k2" /> Uren</label>
+                            <label class="of-vink"><input type="checkbox" checked="@_kopie.Materiaal" @onchange="e => _kopie.Materiaal = e.Value is bool k3 && k3" /> Materiaal</label>
+                            <label class="of-vink"><input type="checkbox" checked="@_kopie.Overigen" @onchange="e => _kopie.Overigen = e.Value is bool k4 && k4" /> Overigen</label>
+                            <label class="of-vink"><input type="checkbox" checked="@_kopie.Voorwaarden" @onchange="e => _kopie.Voorwaarden = e.Value is bool k5 && k5" /> Voorwaarden</label>
+                            <span class="uitleg">Categorieën, tarieven, taal en de interne aantekeningen gaan altijd mee. De contactpersoon alleen binnen hetzelfde project.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => _kopieOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_kopieProject is null || _bezig)" @onclick="MaakKopie">Kopie aanmaken</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<OfferteVersturenVenster OfferteId="_versturenId" Sluiten="VersturenGesloten" />
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private static readonly string[] Tabs = { "Algemeen", "Uren", "Materiaal", "Overigen", "Categorieën", "Tarieven", "Voorwaarden", "Aantekeningen" };
+    private static readonly HashSet<string> TabsRegels = new() { "Uren", "Materiaal", "Overigen", "Categorieën", "Tarieven" };
+    private const string OpslagSleutel = "mde-laatste-offerte";
+
+    // links
+    private bool _zoekModus;
+    private string _klantZoek = "", _projectZoek = "", _zoek = "";
+    private bool _alleenMetOffertes = true;
+    private List<OfferteProject> _projecten = new();
+    private int? _projectId;
+    private List<OfferteRegel> _offertes = new();
+    private List<OfferteRegel> _zoekResultaat = new();
+    private List<Keuze> _makers = new();
+    private int? _zoekMaker, _zoekStatus;
+
+    // rechts
+    private Offerte? _o;
+    private string _zoalsGeladen = "";
+    private string _tab = "Algemeen";
+    private List<OfferteContact> _contacten = new();
+    private Dictionary<OfferteLijst, List<string>> _lijsten = new();
+    private List<string> _disclaimers = new();
+    private bool _disclaimerKiezen, _bezig, _fout;
+    private int _statusTeller;
+    private string? _melding;
+
+    // nieuw
+    private bool _nieuwOpen, _nieuwTarieven = true;
+    private OfferteProject? _nieuwProject;
+    private List<OfferteContact> _nieuwContacten = new();
+    private int? _nieuwContact;
+    private string _nieuwOmschrijving = "";
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    /// <summary>Access kende geen apart recht voor offertes; iedereen met een werknemerskoppeling.</summary>
+    private bool MagMaken => Ik.Gekoppeld;
+    private bool Bewerkbaar => MagMaken && _o is { OpSlot: false };
+    private bool MagStatus => MagMaken;
+    private bool Gewijzigd => _o is not null && Vingerafdruk() != _zoalsGeladen;
+
+    /// <summary>Terug naar 'Aanmaken' alleen via Directie (knop); verder vrij te kiezen (besluit gebruiker).</summary>
+    private IEnumerable<int> StatusKeuzes => _o is { OpSlot: true }
+        ? new[] { OfferteStatus.Aangeboden, OfferteStatus.Afgewezen, OfferteStatus.Opdracht }
+        : new[] { OfferteStatus.Aanmaken, OfferteStatus.Aangeboden, OfferteStatus.Afgewezen, OfferteStatus.Opdracht };
+
+    private string Vingerafdruk() => _o is null ? "" : System.Text.Json.JsonSerializer.Serialize(_o);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _makers = await Repo.MakersAsync(); } catch { }
+        await LaadProjecten();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste || !Repo.Beschikbaar) return;
+        int? start = Id;
+        if (start is null)
+        {
+            try { start = int.TryParse(await JS.InvokeAsync<string?>("mdeOpslag.lees", OpslagSleutel), out var l) ? l : null; } catch { }
+        }
+        if (start is int s) { await Kies(s, project: true); StateHasChanged(); }
+    }
+
+    // ---- links ----
+    private async Task LaadProjecten()
+    {
+        try { _projecten = await Repo.ProjectenAsync(_klantZoek, _projectZoek, _alleenMetOffertes, 200); }
+        catch (Exception ex) { Toon("Projecten ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KlantZoekGewijzigd(ChangeEventArgs e) { _klantZoek = Tekst(e); await LaadProjecten(); }
+
+    private async Task ProjectZoekGewijzigd(ChangeEventArgs e)
+    {
+        _projectZoek = Tekst(e);
+        await LaadProjecten();
+        if (_projecten.Count == 1) await KiesProject(_projecten[0].Id);     // Access: precies één project = meteen kiezen
+    }
+
+    private async Task AlleenMetOffertesGewijzigd(ChangeEventArgs e) { _alleenMetOffertes = e.Value is bool b && b; await LaadProjecten(); }
+
+    private async Task KiesProject(int projectId)
+    {
+        if (!await MagWeg()) return;
+        _projectId = projectId;
+        try { _offertes = await Repo.VanProjectAsync(projectId); }
+        catch (Exception ex) { Toon("Offertes ophalen mislukt: " + ex.Message, true); }
+        if (_offertes.Count == 1) await Kies(_offertes[0].Id);
+        else if (_o is not null && _o.ProjectId != projectId) _o = null;
+    }
+
+    private async Task NaarZoeken()
+    {
+        _zoekModus = true;
+        if (_zoekResultaat.Count == 0) { _zoekMaker ??= Ik.WerknemerId; await Zoek(); }   // Access: standaard je eigen offertes
+    }
+
+    private async Task Zoek()
+    {
+        try { _zoekResultaat = await Repo.ZoekAsync(_zoek, _zoekMaker, _zoekStatus, 200); }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e) { _zoek = Tekst(e); await Zoek(); }
+    private async Task MakerGewijzigd(ChangeEventArgs e) { _zoekMaker = int.TryParse((string?)e.Value, out var m) ? m : null; await Zoek(); }
+    private async Task StatusFilterGewijzigd(ChangeEventArgs e) { _zoekStatus = int.TryParse((string?)e.Value, out var s) ? s : null; await Zoek(); }
+
+    private async Task KiesUitZoeken(OfferteRegel o) => await Kies(o.Id, project: true);
+
+    // ---- een offerte kiezen ----
+    private async Task Kies(int id) => await Kies(id, project: false);
+
+    private async Task Kies(int id, bool project)
+    {
+        if (_o?.Id != id && !await MagWeg()) return;
+        try
+        {
+            var o = await Repo.GetAsync(id);
+            if (o is null) { Toon("Deze offerte bestaat niet (meer).", true); return; }
+            _o = o;
+            _zoalsGeladen = Vingerafdruk();
+            _disclaimerKiezen = false;
+            _contacten = o.KlantId is int k ? await Repo.ContactenAsync(k) : new();
+            await LaadLijsten();
+            if (project && _projectId != o.ProjectId)
+            {
+                _projectId = o.ProjectId;
+                _offertes = await Repo.VanProjectAsync(o.ProjectId);
+                if (_projecten.All(p => p.Id != o.ProjectId))
+                    _projecten.Insert(0, new OfferteProject(o.ProjectId, o.Projectnummer, o.Project, o.KlantId, o.Klant, _offertes.Count, true));
+            }
+            try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", OpslagSleutel, id.ToString()); } catch { }
+        }
+        catch (Exception ex) { Toon("Offerte ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadLijsten()
+    {
+        var taal = _o?.Taal ?? OfferteTaal.Nederlands;
+        _lijsten = new();
+        foreach (var l in Enum.GetValues<OfferteLijst>()) _lijsten[l] = await Repo.TekstenAsync(l, taal);
+        _disclaimers = await Repo.DisclaimersAsync(taal);
+    }
+
+    /// <summary>Niet-opgeslagen wijzigingen? Dan eerst vragen.</summary>
+    private async Task<bool> MagWeg() => !Gewijzigd || await Bevestig("Wijzigingen in deze offerte niet opslaan?");
+
+    // ---- velden ----
+    private static string LijstNaam(OfferteLijst l) => l switch
+    {
+        OfferteLijst.Geldigheid => "Geldigheid offerte",
+        OfferteLijst.Levertijd => "Levertijd",
+        OfferteLijst.Betalingstermijn => "Betalingstermijn",
+        _ => "Betaling",
+    };
+
+    private string Waarde(OfferteLijst l) => l switch
+    {
+        OfferteLijst.Geldigheid => _o!.Geldigheid,
+        OfferteLijst.Levertijd => _o!.Levertijd,
+        OfferteLijst.Betalingstermijn => _o!.Betalingstermijn,
+        _ => _o!.Betaling,
+    };
+
+    /// <summary>Access: een tekst die nog niet in de lijst van deze taal staat mag worden toegevoegd.</summary>
+    private async Task LijstGewijzigd(OfferteLijst l, ChangeEventArgs e)
+    {
+        var tekst = Tekst(e);
+        switch (l)
+        {
+            case OfferteLijst.Geldigheid: _o!.Geldigheid = tekst; break;
+            case OfferteLijst.Levertijd: _o!.Levertijd = tekst; break;
+            case OfferteLijst.Betalingstermijn: _o!.Betalingstermijn = tekst; break;
+            default: _o!.Betaling = tekst; break;
+        }
+        var taal = _o!.Taal ?? OfferteTaal.Nederlands;
+        if (tekst.Length > 0 && !(_lijsten.GetValueOrDefault(l) ?? new()).Contains(tekst)
+            && await Bevestig($"'{tekst}' staat nog niet in de lijst {LijstNaam(l).ToLowerInvariant()} ({(taal == 2 ? "Engels" : "Nederlands")}). Toevoegen, zodat je hem later kunt kiezen?"))
+        {
+            try { await Repo.VoegTekstToeAsync(l, tekst, taal); _lijsten[l] = await Repo.TekstenAsync(l, taal); }
+            catch (Exception ex) { Toon("Toevoegen aan de lijst mislukt: " + ex.Message, true); }
+        }
+    }
+
+    private async Task DisclaimerAlsStandaard()
+    {
+        var taal = _o!.Taal ?? OfferteTaal.Nederlands;
+        try { await Repo.VoegDisclaimerToeAsync(_o.Disclaimer, taal); _disclaimers = await Repo.DisclaimersAsync(taal); Toon("Disclaimer bewaard als standaardtekst.", false); }
+        catch (Exception ex) { Toon("Bewaren mislukt: " + ex.Message, true); }
+    }
+
+    private async Task TaalGewijzigd(ChangeEventArgs e)
+    {
+        _o!.Taal = int.TryParse((string?)e.Value, out var t) ? t : OfferteTaal.Nederlands;
+        await LaadLijsten();
+    }
+
+    // ---- opslaan, status, wissen ----
+    private async Task Bewaar()
+    {
+        if (_o is null || !MagMaken) return;
+        if (!_o.OpSlot && _o.Omschrijving.Trim().Length == 0) { Toon("De omschrijving mag niet leeg zijn.", true); return; }
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAsync(_o);
+            _zoalsGeladen = Vingerafdruk();
+            await VerversLijst();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task StatusGewijzigd(ChangeEventArgs e)
+    {
+        if (_o is null || !int.TryParse((string?)e.Value, out var nieuw) || nieuw == _o.Status) return;
+        var oud = _o.Status;
+        if (nieuw > OfferteStatus.Aanmaken && oud == OfferteStatus.Aanmaken)
+        {
+            if (!await Bevestig($"Status op '{OfferteStatus.Naam(nieuw)}' zetten? Daarna kan de offerte niet meer worden aangepast (alleen de aantekeningen)."))
+            { _statusTeller++; return; }        // keuzelijst terug op de oude status
+            if (Gewijzigd) await Bewaar();          // eerst de lopende wijzigingen, anders gaan ze verloren
+        }
+        try
+        {
+            await Repo.ZetStatusAsync(_o.Id, nieuw);
+            _o.Status = nieuw;
+            _zoalsGeladen = Vingerafdruk();
+            await VerversLijst();
+        }
+        catch (Exception ex) { Toon("Status wijzigen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task TerugNaarAanmaken()
+    {
+        if (_o is null || !await Bevestig("Deze offerte terugzetten op 'Aanmaken', zodat hij weer aangepast kan worden?")) return;
+        try { await Repo.ZetStatusAsync(_o.Id, OfferteStatus.Aanmaken); _o.Status = OfferteStatus.Aanmaken; _zoalsGeladen = Vingerafdruk(); await VerversLijst(); }
+        catch (Exception ex) { Toon("Mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis()
+    {
+        if (_o is null || !await Bevestig($"Offerte {_o.OfferteNr} ({_o.Omschrijving}) wissen?")) return;
+        try
+        {
+            await Repo.WisAsync(_o.Id, Ik.WerknemerId);
+            _o = null;
+            await VerversLijst();
+            Toon("Offerte gewist.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task VerversLijst()
+    {
+        if (_projectId is int p) _offertes = await Repo.VanProjectAsync(p);
+        if (_zoekModus) await Zoek();
+    }
+
+    // ---- nieuw ----
+    private async Task OpenNieuw()
+    {
+        _nieuwProject = _projecten.FirstOrDefault(p => p.Id == _projectId);
+        if (_nieuwProject is null) return;
+        _nieuwOmschrijving = ""; _nieuwContact = null; _nieuwTarieven = true;
+        try { _nieuwContacten = _nieuwProject.KlantId is int k ? await Repo.ContactenAsync(k) : new(); }
+        catch { _nieuwContacten = new(); }
+        _nieuwOpen = true;
+    }
+
+    private async Task MaakNieuw()
+    {
+        if (_nieuwProject is null || _nieuwOmschrijving.Trim().Length == 0) return;
+        _bezig = true;
+        try
+        {
+            var id = await Repo.NieuwAsync(_nieuwProject.Id, _nieuwOmschrijving, _nieuwContact, Ik.WerknemerId);
+            var tarieven = _nieuwTarieven ? await Repo.ImporteerTarievenAsync(id) : 0;
+            _nieuwOpen = false;
+            _o = null;
+            await VerversLijst();
+            await Kies(id);
+            Toon($"Offerte {_o?.OfferteNr} aangemaakt{(tarieven > 0 ? $" met {tarieven} standaardtarieven" : "")}.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- totalen na een wijziging in de regels ----
+    private async Task TotalenVerversen()
+    {
+        if (_o is null) return;
+        try
+        {
+            var vers = await Repo.GetAsync(_o.Id);
+            if (vers is null) return;
+            // alleen de totalen; lopende wijzigingen in de kop blijven staan
+            var gewijzigd = Gewijzigd;
+            _o.Totalen = vers.Totalen;
+            if (!gewijzigd) _zoalsGeladen = Vingerafdruk();
+            var plek = _offertes.FindIndex(x => x.Id == _o.Id);
+            if (plek >= 0) _offertes[plek] = _offertes[plek] with { Totaal = vers.Totalen.Totaal };
+        }
+        catch { }
+    }
+
+    // ---- PDF en versturen (fase 4) ----
+    private int? _versturenId;
+
+    private async Task OpenVersturen()
+    {
+        if (_o is null) return;
+        if (Gewijzigd)
+        {
+            if (!await Bevestig("Er zijn niet-opgeslagen wijzigingen. Eerst opslaan, zodat ze in de PDF staan?")) return;
+            await Bewaar();
+            if (Gewijzigd) return;          // opslaan mislukte
+        }
+        _versturenId = _o.Id;
+    }
+
+    private async Task VersturenGesloten(bool verstuurd)
+    {
+        _versturenId = null;
+        if (verstuurd && _o is not null)
+        {
+            await Kies(_o.Id, project: false);
+            await VerversLijst();
+            Toon($"{_o?.OfferteNr} staat op {OfferteStatus.Naam(_o?.Status ?? 2)}.", false);
+        }
+    }
+
+    // ---- kopiëren (Access: OfferteKopieeren) ----
+    private bool _kopieOpen;
+    private OfferteKopieOpties _kopie = new();
+    private string _kopieZoek = "";
+    private List<OfferteProject> _kopieProjecten = new();
+    private OfferteProject? _kopieProject;
+
+    private async Task OpenKopie()
+    {
+        if (_o is null || !await MagWeg()) return;
+        _kopie = new OfferteKopieOpties();
+        _kopieZoek = "";
+        _kopieProjecten = (await Repo.ProjectenAsync(null, null, false, 60)).Where(p => p.Open).ToList();
+        _kopieProject = _kopieProjecten.FirstOrDefault(p => p.Id == _o.ProjectId);
+        if (_kopieProject is null)
+        {
+            _kopieProject = new OfferteProject(_o.ProjectId, _o.Projectnummer, _o.Project, _o.KlantId, _o.Klant, 0, true);
+            _kopieProjecten.Insert(0, _kopieProject);
+        }
+        _kopieOpen = true;
+    }
+
+    private async Task KopieZoekGewijzigd(ChangeEventArgs e)
+    {
+        _kopieZoek = Tekst(e);
+        _kopieProjecten = (await Repo.ProjectenAsync(null, _kopieZoek, false, 60)).Where(p => p.Open).ToList();
+        if (_kopieProjecten.Count == 1) _kopieProject = _kopieProjecten[0];
+    }
+
+    private async Task MaakKopie()
+    {
+        if (_o is null || _kopieProject is null) return;
+        _bezig = true;
+        try
+        {
+            var bronNr = _o.OfferteNr;
+            var id = await Repo.KopieerAsync(_o.Id, _kopieProject.Id, _kopie, Ik.WerknemerId);
+            _kopieOpen = false;
+            await Kies(id, project: true);
+            Toon($"Kopie van {bronNr} aangemaakt: {_o?.OfferteNr}.", false);
+        }
+        catch (Exception ex) { Toon("Kopiëren mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- hulpjes ----
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static string Geld(decimal d) => d.ToString("C2", Nl);
+}

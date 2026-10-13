@@ -44,7 +44,7 @@ public class FactuurPdfService
     }
 
     /// <summary>Aanvullingen uit bedrijven.json en het logo.</summary>
-    private void VulAfzender(FactuurAfzender a)
+    public void VulAfzender(FactuurAfzender a)
     {
         try
         {

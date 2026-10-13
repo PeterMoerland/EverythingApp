@@ -139,6 +139,7 @@ if (liveDb)
     builder.Services.AddSingleton<IBetalingRepository>(_ => new MySqlBetalingRepository(cs!));
     builder.Services.AddSingleton<IPOKlantRepository>(_ => new MySqlPOKlantRepository(cs!));
     builder.Services.AddSingleton<IBezoekRepository>(_ => new MySqlBezoekRepository(cs!));
+    builder.Services.AddSingleton<IOfferteRepository>(_ => new MySqlOfferteRepository(cs!));
     builder.Services.AddSingleton<IInstellingRepository>(_ => new MySqlInstellingRepository(cs!));
     builder.Services.AddSingleton<IPlanningRepository>(_ => new MySqlPlanningRepository(cs!));
     builder.Services.AddSingleton<IComputerRepository>(_ => new MySqlComputerRepository(cs!));
@@ -169,6 +170,7 @@ else
     builder.Services.AddSingleton<IBetalingRepository, GeenBetalingRepository>();
     builder.Services.AddSingleton<IPOKlantRepository, GeenPOKlantRepository>();
     builder.Services.AddSingleton<IBezoekRepository, GeenBezoekRepository>();
+    builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();
     builder.Services.AddSingleton<IComputerRepository, GeenComputerRepository>();
     builder.Services.AddSingleton<IBaseconeRepository, GeenBaseconeRepository>();
@@ -200,6 +202,7 @@ builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
 builder.Services.AddSingleton<FactuurPdfService>();
+builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
 builder.Services.AddScoped<WerkplekAgent>();           // per browser: is er een MDE Werkplek-agent op deze pc?   // duurtestlog van de testrig-PLC ophalen (FTP)

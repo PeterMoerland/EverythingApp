@@ -66,7 +66,7 @@ public static class Menu
                 new MenuItem("Materialen"),
                 new MenuItem("Todo")),
             new MenuGroep("Offertes",
-                new MenuItem("Offertes wijzigen")),
+                new MenuItem("Offertes wijzigen", "/projecten/offertes")),
             new MenuGroep("Planning",
                 new MenuItem("Projectplanning", "/planning")),
             new MenuGroep("Rapporten",

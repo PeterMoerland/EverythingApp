@@ -1,0 +1,463 @@
+@* De regels van een offerte (fase 2): tabbladen Uren, Materiaal, Overigen, Categorieën en Tarieven.
+   Zoals de Access-subformulieren wordt elke wijziging aan een regel meteen opgeslagen; daarna ververst de
+   ouder de totalen (Gewijzigd). Artikel zoeken en de prijsdialoog volgen in fase 3. *@
+@inject IOfferteRepository Repo
+@inject IJSRuntime JS
+
+@if (_melding is not null)
+{
+    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+}
+
+@if (Tab == "Uren")
+{
+    <table class="kiezer-tabel of-regels">
+        <thead>
+            <tr>
+                <th style="width:11rem">Categorie</th>
+                <th class="r" style="width:6rem">Uren</th>
+                <th>Omschrijving</th>
+                <th style="width:12rem">Tarief</th>
+                <th class="r" style="width:7rem">Uurtarief</th>
+                <th class="r" style="width:8rem">Totaal</th>
+                <th style="width:2.2rem"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in _r.Uren)
+            {
+                var uur = u;
+                var tarief = _r.Tarieven.FirstOrDefault(t => t.Id == uur.TariefId);
+                <tr @key="uur">
+                    <td>@CategorieKeuze(uur.CategorieId, id => { uur.CategorieId = id; return BewaarUur(uur); })</td>
+                    <td><input class="r" value="@Getal(uur.Uren)" disabled="@(!Bewerkbaar)" @onchange="e => UrenGewijzigd(uur, e)" /></td>
+                    <td><input value="@uur.Omschrijving" maxlength="200" disabled="@(!Bewerkbaar)" @onchange="e => { uur.Omschrijving = Tekst(e); return BewaarUur(uur); }" /></td>
+                    <td>
+                        <select value="@(uur.TariefId?.ToString() ?? "")" disabled="@(!Bewerkbaar)"
+                                @onchange="e => { uur.TariefId = int.TryParse((string?)e.Value, out var tid) ? tid : null; _laatsteTarief = uur.TariefId; return BewaarUur(uur); }">
+                            <option value="">— kies —</option>
+                            @foreach (var t in _r.Tarieven)
+                            {
+                                <option value="@t.Id">@t.Afkorting · @Geld(t.Tarief)</option>
+                            }
+                        </select>
+                    </td>
+                    <td class="r">@(tarief is null ? "" : Geld(tarief.Tarief))</td>
+                    <td class="r @(tarief is null ? "of-mist" : "")" title="@(tarief is null ? "Zonder tarief telt deze regel niet mee" : "")">@Geld(uur.Uren * (tarief?.Tarief ?? 0))</td>
+                    <td>@if (Bewerkbaar) { <button class="klein rood" title="Regel wissen" @onclick="() => WisUur(uur)">✕</button> }</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr>
+                <td>@if (Bewerkbaar) { <button class="klein" disabled="@_bezig" @onclick="NieuwUur">＋ Regel</button> }</td>
+                <td class="r"><strong>@Getal(_r.Uren.Where(x => x.TariefId is not null).Sum(x => x.Uren))</strong></td>
+                <td colspan="3" class="uitleg">@(_r.Tarieven.Count == 0 ? "Nog geen tarieven: voeg ze toe op het tabblad Tarieven." : "")</td>
+                <td class="r"><strong>@Geld(_r.Uren.Sum(x => x.Uren * (_r.Tarieven.FirstOrDefault(t => t.Id == x.TariefId)?.Tarief ?? 0)))</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+}
+else if (Tab == "Materiaal")
+{
+    <table class="kiezer-tabel of-regels">
+        <thead>
+            <tr>
+                <th style="width:10rem">Categorie</th>
+                <th class="r" style="width:5rem">Aantal</th>
+                <th class="r" style="width:4.5rem" title="MDE-nummer van het gekoppelde artikel (leeg = vrije regel)">MDE</th>
+                <th style="width:9rem">Artikelnr</th>
+                <th>Omschrijving</th>
+                <th class="r" style="width:7rem">Prijs</th>
+                <th class="r" style="width:4.5rem">Korting %</th>
+                <th style="width:5.5rem">Methode</th>
+                <th class="r" style="width:8rem">Totaal</th>
+                @if (_winst)
+                {
+                    <th class="r" style="width:6.5rem" title="Vastgestelde kostprijs van het artikel, of de kostprijs van een vrije regel">Kostprijs</th>
+                    <th class="r" style="width:7rem">Winst</th>
+                }
+                <th style="width:2.2rem"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var m in _r.Materiaal)
+            {
+                var mat = m;
+                <tr @key="mat">
+                    <td>@CategorieKeuze(mat.CategorieId, id => { mat.CategorieId = id; return BewaarMateriaal(mat); })</td>
+                    <td><input class="r" value="@Getal(mat.Aantal)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, v => mat.Aantal = v, () => BewaarMateriaal(mat))" /></td>
+                    <td class="r of-mde">
+                        @mat.ArtikelId
+                        @if (Bewerkbaar)
+                        {
+                            <button class="of-mini" title="@(mat.ArtikelId is null ? "Artikel kiezen" : "Ander artikel kiezen")" @onclick="() => ZoekVoor(mat)">🔍</button>
+                        }
+                    </td>
+                    <td>
+                        <input value="@mat.ArtikelNr" maxlength="45" disabled="@(!Bewerkbaar)" title="@(mat.ArtikelId is null ? "Vrije regel (geen artikel)" : "")"
+                               @onchange="e => { mat.ArtikelNr = Tekst(e); return BewaarMateriaal(mat); }" />
+                    </td>
+                    <td><input value="@mat.Omschrijving" maxlength="260" disabled="@(!Bewerkbaar)" @onchange="e => { mat.Omschrijving = Tekst(e); return BewaarMateriaal(mat); }" /></td>
+                    <td>
+                        <span class="of-prijscel">
+                            <input class="r" value="@Getal(mat.Prijs, 2)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, v => mat.Prijs = v, () => BewaarMateriaal(mat))" />
+                            @if (Bewerkbaar) { <button class="of-mini" title="Prijs berekenen (standaard, bruto, vast)" @onclick="() => _prijsRegel = mat">€</button> }
+                        </span>
+                    </td>
+                    <td><input class="r" value="@Getal(mat.Korting * 100)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, v => mat.Korting = Math.Clamp(v, 0, 100) / 100, () => BewaarMateriaal(mat))" /></td>
+                    <td>@OfferteMateriaalRegel.MethodeNaam(mat.Methode)</td>
+                    <td class="r">@Geld(mat.Totaal)</td>
+                    @if (_winst)
+                    {
+                        <td class="r">@(mat.Kostprijs is decimal kp && kp != 0 ? Geld(kp) : "")</td>
+                        <td class="r @(mat.Winst < 0 ? "of-verlies" : "")">@(mat.Winst is decimal w ? Geld(w) : "")</td>
+                    }
+                    <td>@if (Bewerkbaar) { <button class="klein rood" title="Regel wissen" @onclick="() => WisMateriaal(mat)">✕</button> }</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="3">
+                    @if (Bewerkbaar)
+                    {
+                        <button class="klein" disabled="@_bezig" @onclick="() => ZoekVoor(null)">＋ Artikel</button>
+                        <button class="klein" disabled="@_bezig" @onclick="NieuwMateriaal">＋ Vrije regel</button>
+                    }
+                </td>
+                <td colspan="5">
+                    <label class="of-vink"><input type="checkbox" checked="@_winst" @onchange="e => _winst = e.Value is bool wv && wv" /> Winst tonen (intern)</label>
+                </td>
+                <td class="r"><strong>@Geld(_r.Materiaal.Sum(x => x.Totaal))</strong></td>
+                @if (_winst)
+                {
+                    <td></td>
+                    <td class="r"><strong>@Geld(_r.Materiaal.Sum(x => x.Winst ?? 0))</strong></td>
+                }
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <OfferteArtikelZoeker Open="_zoekOpen" Titel="@(_zoekRegel is null ? "Artikel toevoegen" : "Ander artikel kiezen")" Gekozen="ArtikelGekozen" />
+    <OffertePrijsVenster Regel="_prijsRegel" KlantId="KlantId" Sluiten="PrijsGesloten" />
+}
+else if (Tab == "Overigen")
+{
+    <table class="kiezer-tabel of-regels">
+        <thead>
+            <tr>
+                <th style="width:11rem">Categorie</th>
+                <th class="r" style="width:5rem">Aantal</th>
+                <th>Omschrijving</th>
+                <th class="r" style="width:7.5rem">Stuksprijs</th>
+                <th class="r" style="width:8rem">Totaal</th>
+                <th style="width:2.2rem"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var v in _r.Overigen)
+            {
+                var ov = v;
+                <tr @key="ov">
+                    <td>@CategorieKeuze(ov.CategorieId, id => { ov.CategorieId = id; return BewaarOverig(ov); })</td>
+                    <td><input class="r" value="@Getal(ov.Aantal)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, x => ov.Aantal = x, () => BewaarOverig(ov))" /></td>
+                    <td><input value="@ov.Omschrijving" maxlength="200" disabled="@(!Bewerkbaar)" @onchange="e => { ov.Omschrijving = Tekst(e); return BewaarOverig(ov); }" /></td>
+                    <td><input class="r" value="@Getal(ov.Prijs, 2)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, x => ov.Prijs = x, () => BewaarOverig(ov))" /></td>
+                    <td class="r">@Geld(ov.Totaal)</td>
+                    <td>@if (Bewerkbaar) { <button class="klein rood" title="Regel wissen" @onclick="() => WisOverig(ov)">✕</button> }</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr>
+                <td>@if (Bewerkbaar) { <button class="klein" disabled="@_bezig" @onclick="NieuwOverig">＋ Regel</button> }</td>
+                <td colspan="3"></td>
+                <td class="r"><strong>@Geld(_r.Overigen.Sum(x => x.Totaal))</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+}
+else if (Tab == "Categorieën")
+{
+    <p class="uitleg">Op de offerte staan de regels per categorie, alfabetisch op naam (wie een eigen volgorde wil, nummert: "1. Engineering").</p>
+    <table class="kiezer-tabel of-regels of-smal">
+        <thead><tr><th style="width:16rem">Categorie</th><th>Omschrijving (intern)</th><th class="r" style="width:5rem">Regels</th><th style="width:2.2rem"></th></tr></thead>
+        <tbody>
+            @foreach (var c in _r.Categorieen)
+            {
+                var cat = c;
+                <tr @key="cat">
+                    <td><input value="@cat.Naam" maxlength="45" disabled="@(!Bewerkbaar)" @onchange="e => { cat.Naam = Tekst(e); return BewaarCategorie(cat); }" /></td>
+                    <td><input value="@cat.Omschrijving" maxlength="250" disabled="@(!Bewerkbaar)" @onchange="e => { cat.Omschrijving = Tekst(e); return BewaarCategorie(cat); }" /></td>
+                    <td class="r">@Gebruik(cat.Id)</td>
+                    <td>@if (Bewerkbaar) { <button class="klein rood" title="Categorie wissen" @onclick="() => WisCategorie(cat)">✕</button> }</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot><tr><td colspan="4">@if (Bewerkbaar) { <button class="klein" disabled="@_bezig" @onclick="NieuweCategorie">＋ Categorie</button> }</td></tr></tfoot>
+    </table>
+}
+else if (Tab == "Tarieven")
+{
+    <p class="uitleg">De uurtarieven van deze offerte. Een tarief aanpassen werkt direct door in alle urenregels met dat tarief.</p>
+    <table class="kiezer-tabel of-regels of-smal">
+        <thead><tr><th style="width:9rem">Afkorting</th><th>Omschrijving</th><th class="r" style="width:8rem">Tarief</th><th class="r" style="width:5rem">Regels</th><th style="width:2.2rem"></th></tr></thead>
+        <tbody>
+            @foreach (var t in _r.Tarieven)
+            {
+                var tar = t;
+                <tr @key="tar">
+                    <td><input value="@tar.Afkorting" maxlength="15" disabled="@(!Bewerkbaar)" @onchange="e => { tar.Afkorting = Tekst(e); return BewaarTarief(tar); }" /></td>
+                    <td><input value="@tar.Omschrijving" maxlength="45" disabled="@(!Bewerkbaar)" @onchange="e => { tar.Omschrijving = Tekst(e); return BewaarTarief(tar); }" /></td>
+                    <td><input class="r" value="@Getal(tar.Tarief, 2)" disabled="@(!Bewerkbaar)" @onchange="e => GetalGewijzigd(e, x => tar.Tarief = x, () => BewaarTarief(tar))" /></td>
+                    <td class="r">@_r.Uren.Count(u => u.TariefId == tar.Id)</td>
+                    <td>@if (Bewerkbaar) { <button class="klein rood" title="Tarief wissen" @onclick="() => WisTarief(tar)">✕</button> }</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr><td colspan="5">
+                @if (Bewerkbaar)
+                {
+                    <button class="klein" disabled="@_bezig" @onclick="NieuwTarief">＋ Tarief</button>
+                    <button class="klein" disabled="@_bezig" title="Ontbrekende standaardtarieven van de BV toevoegen en afwijkende bijwerken" @onclick="ImporteerTarieven">Standaardtarieven van de BV ophalen</button>
+                }
+            </td></tr>
+        </tfoot>
+    </table>
+}
+
+@code {
+    [Parameter] public int OfferteId { get; set; }
+    [Parameter] public string Tab { get; set; } = "";
+    [Parameter] public bool Bewerkbaar { get; set; }
+
+    /// <summary>Klant van het project (kortingen in de prijsdialoog).</summary>
+    [Parameter] public int? KlantId { get; set; }
+
+    /// <summary>Na elke opgeslagen wijziging: de ouder ververst de totalen.</summary>
+    [Parameter] public EventCallback Gewijzigd { get; set; }
+
+    private OfferteRegels _r = new();
+    private int _geladenVoor = -1;
+    private string _geladenTab = "";
+    private bool _bezig, _fout;
+    private string? _melding;
+
+    // nieuwe regels krijgen de laatst gekozen categorie (Access: getGlobalOfferteCatagorie) en het laatste tarief
+    private int? _laatsteCategorie, _laatsteTarief;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Access ververste bij wisselen van tabblad (nieuwe categorieën/tarieven in de keuzelijsten)
+        if (OfferteId == _geladenVoor && Tab == _geladenTab) return;
+        if (OfferteId != _geladenVoor) { _laatsteCategorie = null; _laatsteTarief = null; _melding = null; }
+        _geladenVoor = OfferteId;
+        _geladenTab = Tab;
+        try { _r = await Repo.RegelsAsync(OfferteId); }
+        catch (Exception ex) { Toon("Regels ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- gedeeld ----
+    private RenderFragment CategorieKeuze(int? huidig, Func<int?, Task> gekozen) => __builder =>
+    {
+        <select value="@(huidig?.ToString() ?? "")" disabled="@(!Bewerkbaar)"
+                @onchange="async e => { var id = int.TryParse((string?)e.Value, out var cid) ? cid : (int?)null; _laatsteCategorie = id; await gekozen(id); }">
+            <option value="">—</option>
+            @foreach (var c in _r.Categorieen)
+            {
+                <option value="@c.Id">@c.Naam</option>
+            }
+        </select>
+    };
+
+    private async Task Bewaar(Func<Task> actie)
+    {
+        try
+        {
+            await actie();
+            await Gewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private Task BewaarUur(OfferteUur u) => Bewaar(() => Repo.BewaarUurAsync(OfferteId, u));
+    private Task BewaarMateriaal(OfferteMateriaalRegel m) => Bewaar(() => Repo.BewaarMateriaalAsync(OfferteId, m));
+    private Task BewaarOverig(OfferteOverig o) => Bewaar(() => Repo.BewaarOverigAsync(OfferteId, o));
+    private Task BewaarCategorie(OfferteCategorie c) => Bewaar(() => Repo.BewaarCategorieAsync(OfferteId, c));
+    private Task BewaarTarief(OfferteTarief t) => Bewaar(() => Repo.BewaarTariefAsync(OfferteId, t));
+
+    private async Task GetalGewijzigd(ChangeEventArgs e, Action<decimal> zet, Func<Task> bewaar)
+    {
+        if (Bedragen.Lees((string?)e.Value ?? "") is decimal v) { zet(v); await bewaar(); }
+        else Toon("Geen geldig getal.", true);
+    }
+
+    private async Task UrenGewijzigd(OfferteUur u, ChangeEventArgs e)
+        => await GetalGewijzigd(e, v => u.Uren = v, () => BewaarUur(u));
+
+    // ---- nieuw ----
+    private async Task Nieuw(Func<Task> actie)
+    {
+        _bezig = true;
+        try { await Bewaar(actie); }
+        finally { _bezig = false; }
+    }
+
+    private Task NieuwUur() => Nieuw(async () =>
+    {
+        var u = new OfferteUur { CategorieId = _laatsteCategorie, Uren = 1, TariefId = _laatsteTarief ?? _r.Tarieven.FirstOrDefault()?.Id };
+        await Repo.BewaarUurAsync(OfferteId, u);
+        _r.Uren.Add(u);
+    });
+
+    private Task NieuwMateriaal() => Nieuw(async () =>
+    {
+        var m = new OfferteMateriaalRegel { CategorieId = _laatsteCategorie, Aantal = 1 };
+        await Repo.BewaarMateriaalAsync(OfferteId, m);
+        _r.Materiaal.Add(m);
+    });
+
+    private Task NieuwOverig() => Nieuw(async () =>
+    {
+        var o = new OfferteOverig { CategorieId = _laatsteCategorie, Aantal = 1 };
+        await Repo.BewaarOverigAsync(OfferteId, o);
+        _r.Overigen.Add(o);
+    });
+
+    private Task NieuweCategorie() => Nieuw(async () =>
+    {
+        var c = new OfferteCategorie { Naam = $"Categorie {_r.Categorieen.Count + 1}" };
+        await Repo.BewaarCategorieAsync(OfferteId, c);
+        _r.Categorieen.Add(c);
+    });
+
+    private Task NieuwTarief() => Nieuw(async () =>
+    {
+        var t = new OfferteTarief { Afkorting = "Nieuw" };
+        await Repo.BewaarTariefAsync(OfferteId, t);
+        _r.Tarieven.Add(t);
+    });
+
+    // ---- fase 3: artikel kiezen en prijs berekenen ----
+    private bool _zoekOpen, _winst;
+    private OfferteMateriaalRegel? _zoekRegel;      // null = nieuwe regel
+    private OfferteMateriaalRegel? _prijsRegel;
+
+    private void ZoekVoor(OfferteMateriaalRegel? regel)
+    {
+        _zoekRegel = regel;
+        _zoekOpen = true;
+    }
+
+    /// <summary>Access (ZoekArtikel, ParentForm "Offerte"): artikel, code, omschrijving en verkoopprijs project; methode Standaard, korting 0.</summary>
+    private async Task ArtikelGekozen(OfferteArtikelKeuze? keuze)
+    {
+        _zoekOpen = false;
+        if (keuze is null) return;
+        var regel = _zoekRegel ?? new OfferteMateriaalRegel { CategorieId = _laatsteCategorie, Aantal = 1 };
+        if (_zoekRegel is not null && regel.ArtikelId is not null && regel.ArtikelId != keuze.Id
+            && !await Bevestig($"Artikel {regel.ArtikelNr} vervangen door {keuze.Code}? Prijs en korting worden opnieuw gezet."))
+            return;
+        regel.ArtikelId = keuze.Id;
+        regel.ArtikelNr = keuze.Code.Length > 45 ? keuze.Code[..45] : keuze.Code;
+        regel.Omschrijving = keuze.Omschrijving.Length > 260 ? keuze.Omschrijving[..260] : keuze.Omschrijving;
+        regel.Prijs = Math.Round(keuze.Verkoop, 2);
+        regel.Korting = 0;
+        regel.Methode = OffertePrijs.Standaard;
+        regel.InkoopNonMde = null;
+        regel.ToeslagNonMde = null;
+        regel.Kostprijs = keuze.Inkoop;
+        await Bewaar(async () =>
+        {
+            await Repo.BewaarMateriaalAsync(OfferteId, regel);
+            if (_zoekRegel is null) _r.Materiaal.Add(regel);
+        });
+        if (keuze.Verkoop == 0) Toon($"{keuze.Code} heeft geen verkoopprijs project; bereken de prijs met €.", true);
+    }
+
+    private async Task PrijsGesloten(bool aangepast)
+    {
+        var regel = _prijsRegel;
+        _prijsRegel = null;
+        if (aangepast && regel is not null) await BewaarMateriaal(regel);
+    }
+
+    // ---- wissen ----
+    private async Task Wis(string vraag, Func<Task> actie, Action weg)
+    {
+        if (!await Bevestig(vraag)) return;
+        try { await actie(); weg(); await Gewijzigd.InvokeAsync(); }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private Task WisUur(OfferteUur u) => Wis("Deze urenregel wissen?", () => Repo.WisUurAsync(OfferteId, u.Id), () => _r.Uren.Remove(u));
+    private Task WisMateriaal(OfferteMateriaalRegel m) => Wis("Deze materiaalregel wissen?", () => Repo.WisMateriaalAsync(OfferteId, m.Id), () => _r.Materiaal.Remove(m));
+    private Task WisOverig(OfferteOverig o) => Wis("Deze regel wissen?", () => Repo.WisOverigAsync(OfferteId, o.Id), () => _r.Overigen.Remove(o));
+
+    private Task WisCategorie(OfferteCategorie c)
+    {
+        var n = Gebruik(c.Id);
+        return Wis(n == 0 ? $"Categorie '{c.Naam}' wissen?" : $"Categorie '{c.Naam}' wissen? {n} regel(s) komen dan zonder categorie te staan.",
+            () => Repo.WisCategorieAsync(OfferteId, c.Id),
+            () =>
+            {
+                _r.Categorieen.Remove(c);
+                foreach (var x in _r.Uren.Where(x => x.CategorieId == c.Id)) x.CategorieId = null;
+                foreach (var x in _r.Materiaal.Where(x => x.CategorieId == c.Id)) x.CategorieId = null;
+                foreach (var x in _r.Overigen.Where(x => x.CategorieId == c.Id)) x.CategorieId = null;
+            });
+    }
+
+    private Task WisTarief(OfferteTarief t)
+        => Wis($"Tarief '{t.Afkorting}' wissen?", () => Repo.WisTariefAsync(OfferteId, t.Id), () => _r.Tarieven.Remove(t));
+
+    private int Gebruik(int categorieId)
+        => _r.Uren.Count(x => x.CategorieId == categorieId) + _r.Materiaal.Count(x => x.CategorieId == categorieId)
+           + _r.Overigen.Count(x => x.CategorieId == categorieId);
+
+    // ---- tarieven van de BV (Access: OfferteImporteerTarieven) ----
+    private async Task ImporteerTarieven()
+    {
+        _bezig = true;
+        try
+        {
+            var erbij = await Repo.ImporteerTarievenAsync(OfferteId);
+            var bijgewerkt = 0;
+            foreach (var v in await Repo.TariefVerschillenAsync(OfferteId))
+            {
+                if (!await Bevestig($"Tarief '{v.Afkorting}' bijwerken van {Geld(v.Oud)} naar {Geld(v.Nieuw)}?")) continue;
+                var t = _r.Tarieven.FirstOrDefault(x => x.Id == v.OfferteTariefId) ?? new OfferteTarief { Id = v.OfferteTariefId, Afkorting = v.Afkorting };
+                t.Tarief = v.Nieuw;
+                if (v.Omschrijving.Length > 0) t.Omschrijving = v.Omschrijving.Length > 45 ? v.Omschrijving[..45] : v.Omschrijving;
+                await Repo.BewaarTariefAsync(OfferteId, t);
+                bijgewerkt++;
+            }
+            _r = await Repo.RegelsAsync(OfferteId);
+            await Gewijzigd.InvokeAsync();
+            Toon(erbij + bijgewerkt == 0 ? "De tarieven zijn al gelijk aan de standaardtarieven van de BV."
+                                         : $"{erbij} tarief(en) toegevoegd, {bijgewerkt} bijgewerkt.", false);
+        }
+        catch (Exception ex) { Toon("Tarieven ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- hulpjes ----
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static string Geld(decimal d) => d.ToString("C2", Nl);
+    private static string Getal(decimal d, int decimalen = -1)
+        => decimalen >= 0 ? d.ToString("N" + decimalen, Nl) : d.ToString("0.##", Nl);
+}
