@@ -267,7 +267,10 @@ if (loginAan)
         // modify = lezen en opruimen (prullenbak, archiveren, gelezen markeren).
         // Definitief verwijderen kan de app bewust níet.
         o.Scope.Add("https://www.googleapis.com/auth/gmail.modify");
-        o.SaveTokens = true;
+        // Geen tokens in het inlogcookie: OnCreatingTicket hieronder zet ze al in AgendaTokens
+        // (Blazor kan ze uit het cookie toch niet lezen). Met tokens erin werd het cookie zo
+        // groot dat het in stukken ging, en oude stukken bleven op iPhones hangen.
+        o.SaveTokens = false;
         o.AccessType = "offline";        // levert een refresh-token, zodat het na een uur blijft werken
 
         // Alleen accounts van het eigen Workspace-domein toelaten,
