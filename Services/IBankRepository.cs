@@ -49,6 +49,23 @@ public interface IBankRepository
     /// weggeschreven en telt 'Toegevoegd' wat er toegevoegd zou worden.
     /// </summary>
     Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken);
+
+    // ---- beheer (Access-formulier Bankrekeningen) ----
+
+    /// <summary>Alle rekeningen met BV, aantallen en wie ze mag zien.</summary>
+    Task<List<BankrekeningBeheer>> BeheerLijstAsync();
+
+    /// <summary>De BV's die een rekening kunnen hebben (Relations.Werkmaatschappij).</summary>
+    Task<List<(int Id, string Naam)>> WerkmaatschappijenAsync();
+
+    /// <summary>Nieuw (Id 0) of bijwerken; geeft het id terug.</summary>
+    Task<int> BewaarRekeningAsync(BankrekeningBeheer rekening);
+
+    /// <summary>Wist de rekening met zijn rechten; alleen als er niets anders aan hangt.</summary>
+    Task WisRekeningAsync(int id);
+
+    /// <summary>Werknemer mag de rekening zien (aan) of niet meer (uit).</summary>
+    Task ZetRechtAsync(int rekeningId, int werknemerId, bool aan);
 }
 
 /// <summary>Doet niets — demo-modus zonder live database.</summary>
@@ -70,6 +87,11 @@ public class GeenBankRepository : IBankRepository
         => Task.FromResult(new BankImportResultaat(0, 0, 0, new List<string> { "Geen live database." }));
     public Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
         => Task.FromResult(new BankImportResultaat(regels.Count, 0, 0, new List<string> { "Geen live database." }));
+    public Task<List<BankrekeningBeheer>> BeheerLijstAsync() => Task.FromResult(new List<BankrekeningBeheer>());
+    public Task<List<(int Id, string Naam)>> WerkmaatschappijenAsync() => Task.FromResult(new List<(int, string)>());
+    public Task<int> BewaarRekeningAsync(BankrekeningBeheer rekening) => Task.FromResult(0);
+    public Task WisRekeningAsync(int id) => Task.CompletedTask;
+    public Task ZetRechtAsync(int rekeningId, int werknemerId, bool aan) => Task.CompletedTask;
 }
 
 /// <summary>Banktransacties uit banktransacties, Bankrekeningen en BankRekeningRechten.</summary>
@@ -662,6 +684,104 @@ public class MySqlBankRepository : IBankRepository
         }
 
         return new(regels.Count, toegevoegd, alAanwezig, fouten);
+    }
+
+    // ============================================================
+    //  Beheer: rekeningen en wie ze mag zien (Access-formulier Bankrekeningen)
+    // ============================================================
+    public async Task<List<BankrekeningBeheer>> BeheerLijstAsync()
+    {
+        var lijst = new List<BankrekeningBeheer>();
+        await using var cn = await OpenAsync();
+        await using (var cmd = new MySqlCommand(
+            "SELECT b.`Bankrekeningen_id`, COALESCE(b.`Rekeningnummer`, ''), COALESCE(b.`OmschrijvingRekening`, ''), " +
+            "       b.`BVid`, COALESCE(r.`Afkorting`, r.`name`, ''), " +
+            "       (SELECT COUNT(*) FROM `banktransacties` t WHERE t.`Rekening` = REPLACE(b.`Rekeningnummer`, ' ', '')), " +
+            "       (SELECT COUNT(*) FROM `Passen` p WHERE p.`BankrekeningID` = b.`Bankrekeningen_id`), " +
+            "       (SELECT COUNT(*) FROM `BankReferentieNegeren` n WHERE n.`BankrekeningID` = b.`Bankrekeningen_id`) " +
+            "  FROM `Bankrekeningen` b LEFT JOIN `Relations` r ON r.`id_supplier` = b.`BVid` " +
+            " ORDER BY b.`OmschrijvingRekening`, b.`Rekeningnummer`", cn))
+        await using (var rd = await cmd.ExecuteReaderAsync())
+            while (await rd.ReadAsync())
+                lijst.Add(new BankrekeningBeheer
+                {
+                    Id = rd.GetInt32(0),
+                    Nummer = rd.GetString(1),
+                    Omschrijving = rd.GetString(2),
+                    BvId = rd.IsDBNull(3) ? null : rd.GetInt32(3),
+                    Bv = rd.GetString(4),
+                    Transacties = Convert.ToInt32(rd.GetValue(5)),
+                    Passen = Convert.ToInt32(rd.GetValue(6)),
+                    Negeren = Convert.ToInt32(rd.GetValue(7)),
+                });
+
+        await using (var cmd = new MySqlCommand(
+            "SELECT `BankrekeningID`, `WerknemerID` FROM `BankRekeningRechten` " +
+            " WHERE `BankrekeningID` IS NOT NULL AND `WerknemerID` IS NOT NULL", cn))
+        await using (var rd = await cmd.ExecuteReaderAsync())
+            while (await rd.ReadAsync())
+                lijst.FirstOrDefault(x => x.Id == rd.GetInt32(0))?.Rechten.Add(rd.GetInt32(1));
+
+        return lijst;
+    }
+
+    public async Task<List<(int Id, string Naam)>> WerkmaatschappijenAsync()
+    {
+        var lijst = new List<(int, string)>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `id_supplier`, COALESCE(`name`, '') FROM `Relations` " +
+            " WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY `name`", cn);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync()) lijst.Add((rd.GetInt32(0), rd.GetString(1)));
+        return lijst;
+    }
+
+    public async Task<int> BewaarRekeningAsync(BankrekeningBeheer rekening)
+    {
+        var nummer = rekening.Nummer.Replace(" ", "").ToUpperInvariant();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(rekening.Id == 0
+            ? "INSERT INTO `Bankrekeningen` (`Rekeningnummer`, `OmschrijvingRekening`, `BVid`) VALUES (@n, @o, @bv); SELECT LAST_INSERT_ID();"
+            : "UPDATE `Bankrekeningen` SET `Rekeningnummer` = @n, `OmschrijvingRekening` = @o, `BVid` = @bv " +
+              " WHERE `Bankrekeningen_id` = @id; SELECT @id;", cn);
+        cmd.Parameters.AddWithValue("@n", Kort(nummer, 25));
+        cmd.Parameters.AddWithValue("@o", Kort(rekening.Omschrijving.Trim(), 45));
+        cmd.Parameters.AddWithValue("@bv", (object?)rekening.BvId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", rekening.Id);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task WisRekeningAsync(int id)
+    {
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var cmd = new MySqlCommand(
+            "DELETE FROM `BankRekeningRechten` WHERE `BankrekeningID` = @id", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await using (var cmd = new MySqlCommand(
+            "DELETE FROM `Bankrekeningen` WHERE `Bankrekeningen_id` = @id", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();     // faalt op de sleutels als er passen of negeerregels aan hangen
+        }
+        await tx.CommitAsync();
+    }
+
+    public async Task ZetRechtAsync(int rekeningId, int werknemerId, bool aan)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(aan
+            ? "INSERT INTO `BankRekeningRechten` (`BankrekeningID`, `WerknemerID`) " +
+              "SELECT @r, @w FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `BankRekeningRechten` " +
+              "  WHERE `BankrekeningID` = @r AND `WerknemerID` = @w)"
+            : "DELETE FROM `BankRekeningRechten` WHERE `BankrekeningID` = @r AND `WerknemerID` = @w", cn);
+        cmd.Parameters.AddWithValue("@r", rekeningId);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     // ------------------------------------------------------------

@@ -57,6 +57,23 @@ public class BanktransactieDetail
 }
 
 /// <summary>Een bankrekening waar de ingelogde gebruiker bij mag.</summary>
+/// <summary>Een rekening in het beheerscherm Bankrekeningen, met wat er aan hangt.</summary>
+public class BankrekeningBeheer
+{
+    public int Id { get; set; }
+    public string Nummer { get; set; } = "";
+    public string Omschrijving { get; set; } = "";
+    public int? BvId { get; set; }
+    public string Bv { get; set; } = "";
+    public int Transacties { get; set; }
+    public int Passen { get; set; }
+    public int Negeren { get; set; }               // BankReferentieNegeren
+    public List<int> Rechten { get; set; } = new(); // werknemers die de rekening mogen zien
+
+    /// <summary>Wissen kan alleen zonder transacties, passen en genegeerde referenties (sleutels in de database).</summary>
+    public bool Wisbaar => Transacties == 0 && Passen == 0 && Negeren == 0;
+}
+
 public record Bankrekening(int Id, string Nummer, string Omschrijving, int? BvId)
 {
     public string Volledig => string.IsNullOrWhiteSpace(Omschrijving) ? Nummer : $"{Omschrijving} · {Nummer}";

@@ -1,0 +1,267 @@
+@page "/financien/bankrekeningen"
+@inject IBankRepository Repo
+@inject IUrenRepository Uren
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@* Overgezet van het Access-formulier Bankrekeningen (rekeningnummer, omschrijving, BV). Nieuw: wie de
+   rekening mag zien (tabel BankRekeningRechten, gebruikt door Banktransacties) — alleen Directie mag dat
+   wijzigen. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Bankrekeningen</h1>
+        <span class="weeklabel">@_rekeningen.Count rekeningen</span>
+        @if (Repo.Beschikbaar && MagBeheren)
+        {
+            <button class="klein" @onclick="Nieuw">＋ Rekening toevoegen</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!MagBeheren)
+        {
+            <div class="melding fout">Alleen bekijken: rekeningen beheren mag met het recht Financial of Directie.</div>
+        }
+
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel banktabel br-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:13rem">Rekeningnummer</th>
+                        <th style="width:16rem">Omschrijving</th>
+                        <th style="width:15rem">BV</th>
+                        <th class="r" style="width:6rem">Transacties</th>
+                        <th>Mag zien</th>
+                        <th style="width:2.5rem"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _rekeningen)
+                    {
+                        <tr @key="r.Id" class="@(r.Id == _open ? "br-open" : "")">
+                            <td>
+                                <input @key="(r.Id, _herteken)" class="br-veld br-iban @(r.Nummer.Length == 0 || Sepa.IbanKlopt(r.Nummer) ? "" : "br-mist")"
+                                       value="@r.Nummer" maxlength="34" disabled="@(!MagBeheren)"
+                                       title="@(r.Transacties > 0 ? "Er hangen transacties aan dit nummer; wijzigen kan niet." : "")"
+                                       readonly="@(r.Transacties > 0)" @onchange="e => NummerGewijzigd(r, e)" />
+                            </td>
+                            <td>
+                                <input class="br-veld" value="@r.Omschrijving" maxlength="45" disabled="@(!MagBeheren)"
+                                       @onchange="e => OmschrijvingGewijzigd(r, e)" />
+                            </td>
+                            <td>
+                                <select class="br-veld" value="@(r.BvId?.ToString() ?? "")" disabled="@(!MagBeheren)"
+                                        @onchange="e => BvGewijzigd(r, e)">
+                                    <option value="">—</option>
+                                    @foreach (var (id, naam) in _bvs)
+                                    {
+                                        <option value="@id">@naam</option>
+                                    }
+                                </select>
+                            </td>
+                            <td class="r">@r.Transacties.ToString("N0", Nl)</td>
+                            <td>
+                                @if (r.Rechten.Count == 0)
+                                {
+                                    <span class="uitleg">niemand</span>
+                                }
+                                @foreach (var w in r.Rechten.Select(Naam).OrderBy(n => n))
+                                {
+                                    <span class="br-chip">@w</span>
+                                }
+                                @if (MagRechten)
+                                {
+                                    <button class="klein br-wijzig" @onclick="() => _open = r.Id">Wijzigen</button>
+                                }
+                            </td>
+                            <td>
+                                @if (MagBeheren)
+                                {
+                                    <button class="klein rood" disabled="@(!r.Wisbaar)" @onclick="() => Wis(r)"
+                                            title="@(r.Wisbaar ? "Rekening wissen" : "Kan niet: er hangen transacties, passen of genegeerde referenties aan")">✕</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="uitleg">
+            Het rekeningnummer is het IBAN zoals het in de bankafschriften staat (zonder spaties); daarop worden de
+            transacties aan de rekening gekoppeld. Wie een rekening mag zien bepaalt wat Banktransacties toont.
+        </p>
+    }
+</div>
+
+@if (Open is { } ro && MagRechten)
+{
+    <div class="cmdk-overlay midden" @onclick="() => _open = null">
+        <div class="factuurvenster br-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Wie mag @(ro.Omschrijving.Length > 0 ? ro.Omschrijving : ro.Nummer) zien?</h2>
+                <button class="klein" @onclick="() => _open = null">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <p class="uitleg">
+                    Aangevinkt = ziet de transacties van @ro.Nummer in Banktransacties. Elke klik wordt meteen opgeslagen.
+                </p>
+                <div class="br-werknemers">
+                    @foreach (var w in _werknemers)
+                    {
+                        <label class="@(ro.Rechten.Contains(w.WerknemerId) ? "aan" : "")">
+                            <input type="checkbox" checked="@ro.Rechten.Contains(w.WerknemerId)"
+                                   @onchange="e => RechtGewijzigd(ro, w, e)" />
+                            <span>@w.Naam</span>
+                        </label>
+                    }
+                </div>
+                @foreach (var oud in ro.Rechten.Where(id => _werknemers.All(w => w.WerknemerId != id)))
+                {
+                    <p class="uitleg">Ook nog: @Naam(oud) (niet meer in dienst)
+                        <button class="klein" @onclick="() => RechtWeg(ro, oud)">intrekken</button></p>
+                }
+                <div class="btngroep-rand"><button class="primair" @onclick="() => _open = null">Klaar</button></div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<BankrekeningBeheer> _rekeningen = new();
+    private List<(int Id, string Naam)> _bvs = new();
+    private List<Werknemer> _werknemers = new();
+    private Dictionary<int, string> _namen = new();
+    private int? _open;          // rekening waarvan het rechtenvenster open staat
+    private BankrekeningBeheer? Open => _rekeningen.FirstOrDefault(r => r.Id == _open);
+    private int _herteken;
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBeheren => Ik.Mag("Financial") || Ik.Mag("Directie");
+    private bool MagRechten => Ik.Mag("Directie");
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _bvs = await Repo.WerkmaatschappijenAsync();
+            var alle = await Uren.ZoekWerknemersAsync(inclusiefIngeleend: true, inclusiefUitDienst: true, alleenPersonen: true, zoek: null);
+            _namen = alle.GroupBy(w => w.WerknemerId).ToDictionary(g => g.Key, g => g.First().Naam);
+            _werknemers = (await Uren.GetWerknemersAsync()).OrderBy(w => w.Naam).ToList();     // in dienst
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Laad() => _rekeningen = await Repo.BeheerLijstAsync();
+
+    private string Naam(int werknemerId) => _namen.TryGetValue(werknemerId, out var n) ? n : $"#{werknemerId}";
+
+    private async Task Bewaar(BankrekeningBeheer r, string gelukt)
+    {
+        try
+        {
+            await Repo.BewaarRekeningAsync(r);
+            r.Bv = _bvs.FirstOrDefault(b => b.Id == r.BvId).Naam ?? "";
+            Toon(gelukt, false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); await Laad(); _herteken++; }
+    }
+
+    private async Task NummerGewijzigd(BankrekeningBeheer r, ChangeEventArgs e)
+    {
+        var nieuw = ((string?)e.Value ?? "").Replace(" ", "").ToUpperInvariant();
+        if (nieuw == r.Nummer) return;
+        if (r.Transacties > 0) { Toon("Er hangen transacties aan dit nummer; wijzigen kan niet.", true); _herteken++; return; }
+        if (!Sepa.IbanKlopt(nieuw)) { Toon($"'{nieuw}' is geen geldig IBAN.", true); _herteken++; return; }
+        if (_rekeningen.Any(x => x.Id != r.Id && x.Nummer == nieuw)) { Toon($"{nieuw} staat er al.", true); _herteken++; return; }
+        r.Nummer = nieuw;
+        await Bewaar(r, "Rekeningnummer opgeslagen.");
+    }
+
+    private async Task OmschrijvingGewijzigd(BankrekeningBeheer r, ChangeEventArgs e)
+    {
+        r.Omschrijving = ((string?)e.Value ?? "").Trim();
+        await Bewaar(r, "Omschrijving opgeslagen.");
+    }
+
+    private async Task BvGewijzigd(BankrekeningBeheer r, ChangeEventArgs e)
+    {
+        r.BvId = int.TryParse((string?)e.Value, out var id) ? id : null;
+        await Bewaar(r, "BV opgeslagen.");
+    }
+
+    private async Task Nieuw()
+    {
+        try
+        {
+            var r = new BankrekeningBeheer { Omschrijving = "Nieuwe rekening" };
+            r.Id = await Repo.BewaarRekeningAsync(r);
+            // wie de rekening aanmaakt mag hem ook zien (anders verdwijnt hij uit Banktransacties)
+            if (Ik.WerknemerId is int ik) await Repo.ZetRechtAsync(r.Id, ik, true);
+            await Laad();
+            Toon("Rekening toegevoegd; vul het rekeningnummer en de BV in.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis(BankrekeningBeheer r)
+    {
+        if (!r.Wisbaar) return;
+        if (!await Bevestig($"Rekening {(r.Nummer.Length > 0 ? r.Nummer : "(zonder nummer)")} · {r.Omschrijving} wissen?\n\n" +
+                            "Ook wie hem mag zien wordt gewist.")) return;
+        try
+        {
+            await Repo.WisRekeningAsync(r.Id);
+            await Laad();
+            Toon("Rekening gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task RechtGewijzigd(BankrekeningBeheer r, Werknemer w, ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+        try
+        {
+            await Repo.ZetRechtAsync(r.Id, w.WerknemerId, aan);
+            if (aan) { if (!r.Rechten.Contains(w.WerknemerId)) r.Rechten.Add(w.WerknemerId); }
+            else r.Rechten.Remove(w.WerknemerId);
+            Toon($"{w.Naam} mag {(r.Omschrijving.Length > 0 ? r.Omschrijving : r.Nummer)} {(aan ? "nu zien" : "niet meer zien")}.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task RechtWeg(BankrekeningBeheer r, int werknemerId)
+    {
+        try
+        {
+            await Repo.ZetRechtAsync(r.Id, werknemerId, false);
+            r.Rechten.Remove(werknemerId);
+            Toon($"{Naam(werknemerId)} mag {(r.Omschrijving.Length > 0 ? r.Omschrijving : r.Nummer)} niet meer zien.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
