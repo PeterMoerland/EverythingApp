@@ -1,0 +1,484 @@
+@page "/artikelen/samenstellingen"
+@page "/artikelen/samenstellingen/{Id:int}"
+@inject ISamenstellingRepository Repo
+@inject IArtikelRepository Artikelen
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Overgezet van het Access-formulier ArtikelSamenstellingen (met _Open, _Nieuw en _Details): links de samenstellingen,
+   rechts de hele stuklijst als boom met zoeken, en van het gekozen onderdeel de gegevens, foto en documenten.
+   Regels wijzigen gaat via IArtikelRepository, net als Artikelen ▸ Samenstelling. De Inventor-import
+   (InventorImportAssy) is niet overgenomen; geïmporteerde regels staan vet, zoals in Access. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Samenstellingen</h1>
+        <span class="weeklabel">@_lijst.Count samenstellingen</span>
+        @if (Repo.Beschikbaar && MagBewerken)
+        {
+            <button class="klein" @onclick="OpenNieuw">＋ Nieuwe samenstelling</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst as-lijst">
+                <div class="wn-filters">
+                    <input placeholder="Zoek samenstelling (MDE-nr, code, omschrijving)…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                </div>
+                <div class="wn-namen as-namen">
+                    @foreach (var s in _lijst)
+                    {
+                        <button class="wn-naam @(s.ArtikelId == _boom?.ArtikelId ? "actief" : "")" @key="s.ArtikelId" @onclick="() => Open(s.ArtikelId)">
+                            <span class="artikel-id">@s.ArtikelId</span>@s.Code
+                            <small>@s.Omschrijving · @s.AantalOnderdelen onderdelen</small>
+                        </button>
+                    }
+                    @if (_lijst.Count == 0) { <div class="kiezer-info">Geen samenstellingen gevonden.</div> }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_boom is null)
+                {
+                    <p class="uitleg">Kies links een samenstelling.</p>
+                }
+                else
+                {
+                    <div class="of-kop">
+                        <h2>@_boom.Code</h2>
+                        <span>@_boom.Omschrijving</span>
+                        <span class="groei"></span>
+                        <a class="knopje" href="@($"artikelen?nr={_boom.ArtikelId}")">Open in Artikelen</a>
+                    </div>
+
+                    <div class="as-tweeluik">
+                        <div>
+                            <div class="as-balk">
+                                <input placeholder="Zoek in de boom…" value="@_boomZoek" @onchange="BoomZoekGewijzigd" />
+                                <button class="klein" @onclick="AllesOpen">Alles open</button>
+                                <button class="klein" @onclick="AllesDicht">Alles dicht</button>
+                                @if (_treffers > 0) { <span class="uitleg">@_treffers gevonden</span> }
+                            </div>
+
+                            <div class="stuklijst as-boom">
+                                <div class="stuk-regel kop">
+                                    <span class="stuk-pijl leeg"></span>
+                                    <span class="stuk-aantal">Aantal</span>
+                                    <span class="stuk-nummer">MDE#</span>
+                                    <span class="stuk-code">Partnumber</span>
+                                    <span class="stuk-oms">Omschrijving</span>
+                                    <span class="stuk-opm">Opmerking</span>
+                                    <span class="stuk-prijs">Kostprijs</span>
+                                    <span class="stuk-totaal">Totaal</span>
+                                    <span class="stuk-weg"></span>
+                                </div>
+                                @Knoop(_boom, "w")
+                            </div>
+                        </div>
+
+                        @* ---------- details van het gekozen onderdeel (Access: ArtikelSamenstelling_Details) ---------- *@
+                        <aside class="as-details">
+                            @if (_gekozen is { } g)
+                            {
+                                <h3>@g.Code</h3>
+                                <p>@g.Omschrijving</p>
+                                <img class="as-foto" src="@($"artikelfoto/{g.ArtikelId}")" alt="" onerror="this.style.display='none'" />
+                                <table class="kiezer-tabel as-gegevens">
+                                    <tr><td>MDE-nummer</td><td>@g.ArtikelId</td></tr>
+                                    @if (_artikel is not null)
+                                    {
+                                        <tr><td>Fabrikant</td><td>@_artikel.Merk @_artikel.CodeFabrikant</td></tr>
+                                        <tr><td>Eenheid</td><td>@_artikel.Eenheid</td></tr>
+                                        <tr><td>Kostprijs</td><td>@Geld(_artikel.Kostprijs)</td></tr>
+                                        <tr><td>Verkoop project</td><td>@Geld(_artikel.VerkoopprijsProject)</td></tr>
+                                        @if (_artikel.Opmerking.Length > 0) { <tr><td>Opmerking</td><td>@_artikel.Opmerking</td></tr> }
+                                    }
+                                    @if (g.RegelId != 0) { <tr><td>In samenstelling</td><td>@(g.Aantal.ToString("0.##")) × in #@g.OuderArtikelId</td></tr> }
+                                    @if (_gebruiktIn > 1) { <tr><td>Gebruikt in</td><td>@_gebruiktIn samenstellingen</td></tr> }
+                                </table>
+                                <p><a class="knopje" href="@($"artikelen?nr={g.ArtikelId}")">Open artikel</a>
+                                   @if (g.IsSamenstelling && g.RegelId != 0) { <button class="klein" @onclick="() => Open(g.ArtikelId)">Als samenstelling openen</button> }</p>
+
+                                <h4>Documenten <label class="of-vink as-pdf"><input type="checkbox" checked="@_alleenPdf" @onchange="e => _alleenPdf = e.Value is bool p && p" /> alleen PDF</label></h4>
+                                @foreach (var d in _documenten.Where(d => !_alleenPdf || d.Bestandsnaam.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    <div><a href="@($"bestand/{d.FileStoreId}")" target="_blank">📄 @d.Bestandsnaam</a></div>
+                                }
+                                @if (_documenten.Count == 0) { <p class="uitleg">Geen documenten bij dit artikel.</p> }
+
+                                @if (MagBewerken && g.IsSamenstelling)
+                                {
+                                    <h4>Onderdeel toevoegen aan @g.Code</h4>
+                                    <input class="as-zoekonderdeel" placeholder="Zoek artikel om toe te voegen…" value="@_onderdeelZoek" @onchange="OnderdeelZoekGewijzigd" />
+                                    <div class="wn-namen kort">
+                                        @foreach (var k in _kandidaten)
+                                        {
+                                            <button class="wn-naam" @key="k.Id" @onclick="() => VoegToe(g, k)"><span class="artikel-id">@k.Id</span>@k.Code — @k.Omschrijving</button>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="uitleg">Klik op een onderdeel voor de gegevens, foto en documenten.</p>
+                            }
+                        </aside>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@if (_nieuwOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster of-nieuw">
+            <header class="bijlagekop"><h2>Nieuwe samenstelling</h2><button class="klein" @onclick="() => _nieuwOpen = false">✕</button></header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>MDE-artikelcode</label>
+                        <span class="po-regel">
+                            <input value="@_nieuwCode" maxlength="45" @onchange="NieuwCodeGewijzigd" />
+                            @if (_codeBestaat) { <span class="stand-chip s-rood">bestaat al</span> }
+                        </span>
+                    </div>
+                    <div class="wn-veld"><label>Omschrijving</label><input value="@_nieuwOmschrijving" maxlength="250" @oninput="e => _nieuwOmschrijving = (string?)e.Value ?? string.Empty" /></div>
+                    <div class="wn-veld"><label>Code fabrikant</label><input value="@_nieuwFabrikant" maxlength="45" @onchange="e => _nieuwFabrikant = ((string?)e.Value ?? string.Empty).Trim()" /></div>
+                    <div class="wn-veld"><label>Merk</label><MerkKiezer @bind-Waarde="_nieuwMerk" /></div>
+                    <div class="wn-veld">
+                        <label>Groep</label>
+                        <span class="po-regel"><span>@(_nieuwGroepNaam.Length > 0 ? _nieuwGroepNaam : "— kies een groep —")</span>
+                            <button class="klein" @onclick="() => _groepKiezerOpen = true">Kies…</button></span>
+                    </div>
+                </div>
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_codeBestaat || _nieuwCode.Length == 0 || _nieuwOmschrijving.Trim().Length == 0 || _nieuwGroep is null)" @onclick="MaakNieuw">Aanmaken</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <GroepenKiezer Open="_groepKiezerOpen" Titel="Groep van de nieuwe samenstelling" OpKeuze="GroepGekozen" OpSluiten="() => _groepKiezerOpen = false" />
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private List<SamenstellingKop> _lijst = new();
+    private string _zoek = "";
+    private SamenstellingKnoop? _boom;
+    private readonly HashSet<string> _open = new();
+    private string _boomZoek = "";
+    private int _treffers;
+    private SamenstellingKnoop? _gekozen;
+    private string? _gekozenSleutel;
+    private Artikel? _artikel;
+    private int _gebruiktIn;
+    private List<Bestand> _documenten = new();
+    private bool _alleenPdf;
+    private string _onderdeelZoek = "";
+    private List<ArtikelRegel> _kandidaten = new();
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBewerken => !Ik.Gekoppeld || Ik.Mag("Inkoop") || Ik.Mag("Beheer") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        await LaadLijst();
+        if (Id is int id) await Open(id);
+    }
+
+    private async Task LaadLijst()
+    {
+        try { _lijst = await Repo.LijstAsync(_zoek, 500); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e) { _zoek = ((string?)e.Value ?? "").Trim(); await LaadLijst(); }
+
+    private async Task Open(int artikelId)
+    {
+        try
+        {
+            _boom = await Repo.BoomAsync(artikelId);
+            _open.Clear();
+            _open.Add("w");                            // de wortel open
+            _gekozen = null; _gekozenSleutel = null; _boomZoek = ""; _treffers = 0;
+            if (_boom is not null) await Kies(_boom, "w");
+        }
+        catch (Exception ex) { Toon("Samenstelling ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Herlaad()
+    {
+        if (_boom is null) return;
+        var open = _open.ToHashSet();
+        var gekozen = _gekozenSleutel;
+        _boom = await Repo.BoomAsync(_boom.ArtikelId);
+        _open.Clear();
+        foreach (var s in open) _open.Add(s);
+        _gekozenSleutel = gekozen;
+        _gekozen = gekozen is null ? null : Vind(_boom, "w", gekozen);
+        await LaadLijst();
+    }
+
+    private static SamenstellingKnoop? Vind(SamenstellingKnoop? k, string sleutel, string doel)
+    {
+        if (k is null) return null;
+        if (sleutel == doel) return k;
+        foreach (var c in k.Kinderen)
+            if (Vind(c, sleutel + "/" + c.RegelId, doel) is { } gevonden) return gevonden;
+        return null;
+    }
+
+    // ---- boom tekenen: elke knoop met een unieke sleutel (pad van regel-ids) ----
+    private RenderFragment Knoop(SamenstellingKnoop k, string sleutel) => __builder =>
+    {
+        var open = _open.Contains(sleutel);
+        var treffer = _boomZoek.Length > 0 && Past(k);
+        <div class="stuk-regel @(k.IsSamenstelling ? "assy" : "") @(sleutel == _gekozenSleutel ? "as-gekozen" : "") @(treffer ? "as-treffer" : "") @(k.InventorImport ? "as-inventor" : "")"
+             style="@FormattableString.Invariant($"padding-left: {0.2 + k.Niveau * 1.1:0.##}rem")" @onclick="() => Kies(k, sleutel)">
+            @if (k.Kinderen.Count > 0)
+            {
+                <button class="stuk-pijl" @onclick="() => Klap(sleutel)" @onclick:stopPropagation>@(open ? "▾" : "▸")</button>
+            }
+            else { <span class="stuk-pijl leeg"></span> }
+            <span class="stuk-aantal">
+                @if (k.RegelId != 0 && MagBewerken)
+                {
+                    <input class="r" value="@k.Aantal.ToString("0.##")" @onclick:stopPropagation @onchange="e => AantalGewijzigd(k, e)" />
+                }
+                else if (k.RegelId != 0) { @k.Aantal.ToString("0.##") }
+            </span>
+            <span class="stuk-nummer">@k.ArtikelId</span>
+            <span class="stuk-code" title="@k.Code">@k.Code</span>
+            <span class="stuk-oms" title="@k.Omschrijving">@k.Omschrijving@(k.Kringloop ? " ⟲" : "")</span>
+            <span class="stuk-opm">
+                @if (k.RegelId != 0 && MagBewerken)
+                {
+                    <input value="@k.Opmerking" maxlength="250" placeholder="opmerking" @onclick:stopPropagation @onchange="e => OpmerkingGewijzigd(k, e)" />
+                }
+                else { @k.Opmerking }
+            </span>
+            <span class="stuk-prijs">@Geld(k.Kostprijs)</span>
+            <span class="stuk-totaal">@(k.RegelId != 0 ? Geld(k.Totaal) : "")</span>
+            <span class="stuk-weg">
+                @if (k.RegelId != 0 && MagBewerken)
+                {
+                    <button class="klein rood" title="Uit deze samenstelling halen" @onclick="() => Wis(k)" @onclick:stopPropagation>✕</button>
+                }
+            </span>
+        </div>
+        @if (open)
+        {
+            @foreach (var c in k.Kinderen)
+            {
+                @Knoop(c, sleutel + "/" + c.RegelId)
+            }
+        }
+    };
+
+    private void Klap(string sleutel) { if (!_open.Remove(sleutel)) _open.Add(sleutel); }
+
+    private void AllesOpen() { _open.Clear(); Alle(_boom, "w", s => _open.Add(s)); }
+    private void AllesDicht() { _open.Clear(); _open.Add("w"); }
+
+    private static void Alle(SamenstellingKnoop? k, string sleutel, Action<string> doe)
+    {
+        if (k is null) return;
+        if (k.Kinderen.Count > 0) doe(sleutel);
+        foreach (var c in k.Kinderen) Alle(c, sleutel + "/" + c.RegelId, doe);
+    }
+
+    // ---- zoeken in de boom (Access: ZoekInTreeView: vet maken en de ouders uitklappen) ----
+    private bool Past(SamenstellingKnoop k)
+        => $"{k.ArtikelId} {k.Code} {k.Omschrijving} {k.Opmerking}".Contains(_boomZoek, StringComparison.OrdinalIgnoreCase);
+
+    private void BoomZoekGewijzigd(ChangeEventArgs e)
+    {
+        _boomZoek = ((string?)e.Value ?? "").Trim();
+        _treffers = 0;
+        _open.Clear();
+        _open.Add("w");
+        if (_boomZoek.Length == 0 || _boom is null) return;
+
+        bool Zoek(SamenstellingKnoop k, string sleutel)
+        {
+            var hier = sleutel != "w" && Past(k);
+            if (hier) _treffers++;
+            var eronder = false;
+            foreach (var c in k.Kinderen) eronder |= Zoek(c, sleutel + "/" + c.RegelId);
+            if (eronder) _open.Add(sleutel);
+            return hier || eronder;
+        }
+        Zoek(_boom, "w");
+        if (_treffers == 0) Toon($"Niets gevonden voor '{_boomZoek}'.", true);
+    }
+
+    // ---- kiezen en details ----
+    private async Task Kies(SamenstellingKnoop k, string sleutel)
+    {
+        _gekozen = k;
+        _gekozenSleutel = sleutel;
+        _onderdeelZoek = ""; _kandidaten = new();
+        try
+        {
+            _artikel = await Artikelen.GetAsync(k.ArtikelId);
+            _gebruiktIn = await Repo.GebruiktInAsync(k.ArtikelId);
+            // Access: FileStore StoreType 2 (artikel) en 100, per bestandsnaam de nieuwste
+            var docs = new List<Bestand>();
+            if (WnRepo.Beschikbaar)
+            {
+                docs.AddRange(await WnRepo.GetBestandenAsync(2, k.ArtikelId));
+                docs.AddRange(await WnRepo.GetBestandenAsync(100, k.ArtikelId));
+            }
+            _documenten = docs.GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                              .Select(g => g.OrderByDescending(d => d.FileStoreId).First())
+                              .OrderBy(d => d.Bestandsnaam).ToList();
+        }
+        catch { _artikel = null; _documenten = new(); }
+    }
+
+    // ---- wijzigen (zelfde opslag als Artikelen ▸ Samenstelling) ----
+    private async Task AantalGewijzigd(SamenstellingKnoop k, ChangeEventArgs e)
+    {
+        if (Bedragen.Lees((string?)e.Value ?? "") is not decimal v) { Toon("Geen geldig aantal.", true); return; }
+        k.Aantal = (double)v;
+        await BewaarRegel(k);
+    }
+
+    private async Task OpmerkingGewijzigd(SamenstellingKnoop k, ChangeEventArgs e)
+    {
+        k.Opmerking = ((string?)e.Value ?? "").Trim();
+        await BewaarRegel(k);
+    }
+
+    private async Task BewaarRegel(SamenstellingKnoop k)
+    {
+        if (!await WaarschuwGedeeld(k.OuderArtikelId, "Je wijzigt een onderdeel van een samenstelling die ook elders gebruikt wordt.")) { await Herlaad(); return; }
+        try
+        {
+            await Artikelen.BewaarSamenstellingregelAsync(k.OuderArtikelId, new Samenstellingregel
+            { Id = k.RegelId, ArtikelId = k.ArtikelId, Aantal = k.Aantal, Opmerking = k.Opmerking });
+            await Herlaad();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis(SamenstellingKnoop k)
+    {
+        if (!await Bevestig($"{k.Code} uit samenstelling #{k.OuderArtikelId} halen?")) return;
+        if (!await WaarschuwGedeeld(k.OuderArtikelId, "Deze samenstelling wordt ook elders gebruikt; het onderdeel verdwijnt daar ook.")) return;
+        try
+        {
+            await Artikelen.VerwijderSamenstellingregelAsync(k.RegelId);
+            if (_gekozen == k) { _gekozen = null; _gekozenSleutel = null; }
+            await Herlaad();
+            Toon($"{k.Code} uit de samenstelling gehaald.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Access: "Je voegt een artikel toe aan een samenstelling dat in meerdere samenstellingen gebruikt kan zijn."</summary>
+    private async Task<bool> WaarschuwGedeeld(int samenstellingId, string tekst)
+    {
+        if (_boom is null || samenstellingId == _boom.ArtikelId) return true;
+        var n = await Repo.GebruiktInAsync(samenstellingId);
+        return n <= 1 || await Bevestig($"{tekst}\n\nSamenstelling #{samenstellingId} zit in {n} samenstellingen. Doorgaan?");
+    }
+
+    private async Task OnderdeelZoekGewijzigd(ChangeEventArgs e)
+    {
+        _onderdeelZoek = ((string?)e.Value ?? "").Trim();
+        try { _kandidaten = _onderdeelZoek.Length < 2 ? new() : await Artikelen.ZoekAsync(_onderdeelZoek, null, false, 30); }
+        catch { _kandidaten = new(); }
+    }
+
+    private async Task VoegToe(SamenstellingKnoop ouder, ArtikelRegel k)
+    {
+        if (k.Id == ouder.ArtikelId) { Toon("Een artikel kan niet in zichzelf zitten.", true); return; }
+        if (!await WaarschuwGedeeld(ouder.ArtikelId, "Je voegt een artikel toe aan een samenstelling die ook elders gebruikt wordt.")) return;
+        try
+        {
+            await Artikelen.BewaarSamenstellingregelAsync(ouder.ArtikelId, new Samenstellingregel { ArtikelId = k.Id, Aantal = 1 });
+            if (_gekozenSleutel is not null) _open.Add(_gekozenSleutel);
+            _onderdeelZoek = ""; _kandidaten = new();
+            await Herlaad();
+            Toon($"{k.Code} toegevoegd aan {ouder.Code}.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- nieuwe samenstelling (Access: Artikelsamenstellingen_Nieuw) ----
+    private bool _nieuwOpen, _groepKiezerOpen, _codeBestaat;
+    private string _nieuwCode = "", _nieuwOmschrijving = "", _nieuwFabrikant = "", _nieuwGroepNaam = "";
+    private int? _nieuwMerk, _nieuwGroep;
+
+    private void OpenNieuw()
+    {
+        _nieuwCode = ""; _nieuwOmschrijving = ""; _nieuwFabrikant = ""; _nieuwMerk = null; _nieuwGroep = null; _nieuwGroepNaam = "";
+        _codeBestaat = false;
+        _nieuwOpen = true;
+    }
+
+    private async Task NieuwCodeGewijzigd(ChangeEventArgs e)
+    {
+        _nieuwCode = ((string?)e.Value ?? "").Trim();
+        try { _codeBestaat = _nieuwCode.Length > 0 && (await Artikelen.ZoekAsync(_nieuwCode, null, false, 20)).Any(a => a.Code.Equals(_nieuwCode, StringComparison.OrdinalIgnoreCase)); }
+        catch { _codeBestaat = false; }
+    }
+
+    private void GroepGekozen(Groepknoop? g)
+    {
+        _groepKiezerOpen = false;
+        if (g is null) return;
+        _nieuwGroep = g.Id;
+        _nieuwGroepNaam = g.Naam;
+        _groepKiezerOpen = false;
+    }
+
+    private async Task MaakNieuw()
+    {
+        try
+        {
+            var id = await Artikelen.NieuwArtikelAsync(_nieuwCode, _nieuwOmschrijving.Trim(), _nieuwMerk,
+                                                       _nieuwFabrikant.Length > 0 ? _nieuwFabrikant : null, _nieuwGroep, Ik.WerknemerId);
+            await Artikelen.ZetSamenstellingAsync(id, true);
+            _nieuwOpen = false;
+            await LaadLijst();
+            await Open(id);
+            Toon($"Samenstelling {_nieuwCode} aangemaakt; voeg rechts de onderdelen toe.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    // ---- hulpjes ----
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal? w) => w is null or 0 ? "" : w.Value.ToString("C2", Nl);
+}

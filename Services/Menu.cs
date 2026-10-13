@@ -80,6 +80,7 @@ public static class Menu
         new("artikelen", "Artikelen", "package",
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen"),
+                new MenuItem("Samenstellingen", "/artikelen/samenstellingen"),
                 new MenuItem("Maakdelen", "/maakdelen"),
                 new MenuItem("Artikelgroepen"),
                 new MenuItem("Artikelsamenstellingen"),
