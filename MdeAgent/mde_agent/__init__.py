@@ -1,3 +1,3 @@
 """MDE Werkplek-agent: lokale hulpdienst op productie-pc's voor de EverythingApp."""
 
-VERSIE = "1.11.4"
+VERSIE = "1.12.0"

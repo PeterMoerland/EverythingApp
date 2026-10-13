@@ -16,4 +16,6 @@ ALTER TABLE `DriveTypen` ADD UNIQUE KEY IF NOT EXISTS `uq_drivetype_vendor_code`
 -- Bekende fabrikanten. Ingenia/Novanta bewust leeg gelaten: vul in wat de testrig bij de eerste
 -- uitleesbeurt meldt (Test PCB toont "fabrikantcode 0x... nog niet vastgelegd").
 UPDATE `DriveTypen` SET `VendorID` = '0x000010E3' WHERE `VendorID` = '' AND `ProductCode` = '0x00055955';   -- MDE M-Pede-WJ1
+-- Eigen MDE-slaves krijgen protocol 'mde' (standaardobjecten, SDO's, FoE, testrecept); 'ethercat' is Ingenia.
+UPDATE `DriveTypen` SET `Protocol` = 'mde', `Naam` = 'M-Pede-WJ1 (Swivel)' WHERE `ProductCode` = '0x00055955' AND `Protocol` = 'ethercat';
 UPDATE `DriveTypen` SET `VendorID` = '0x5A65726F' WHERE `VendorID` = '' AND `ProductCode` = '0x00029252';   -- ZeroErr eRob

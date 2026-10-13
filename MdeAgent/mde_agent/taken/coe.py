@@ -514,17 +514,18 @@ def werker(ifname: str, opdracht_json: str) -> dict:
 #  Vanuit de agent: werker starten en resultaat doorgeven
 # ---------------------------------------------------------------------------
 
-def _draai(inst: dict, job, opdracht: dict, timeout: int) -> dict:
+def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "coe") -> dict:
     """Werker-proces starten. De opdracht gaat via een tijdelijk bestand (geen aanhalingstekens
-    of lengtegrenzen op de Windows-commandoregel); het antwoord is de laatste regel JSON op stdout."""
+    of lengtegrenzen op de Windows-commandoregel); het antwoord is de laatste regel JSON op stdout.
+    `werker_naam` kiest het werker-programma (coe, of mde voor de eigen MDE-slaves)."""
     import os
     import tempfile
     ifname = _ifname(inst)
-    fd, pad = tempfile.mkstemp(prefix="mde-coe-", suffix=".json")
+    fd, pad = tempfile.mkstemp(prefix=f"mde-{werker_naam}-", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(opdracht, f)
     cmd = [sys.executable] + ([] if getattr(sys, "frozen", False) else ["-m", "mde_agent"]) \
-          + ["--werker", "coe", ifname, "@" + pad]
+          + ["--werker", werker_naam, ifname, "@" + pad]
     begin = time.time()
     job.log(f"Werker gestart ({opdracht.get('wat')}, drive {opdracht.get('positie')}) …")
     laatste = None

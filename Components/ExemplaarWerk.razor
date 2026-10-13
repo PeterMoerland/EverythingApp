@@ -226,7 +226,18 @@
                         title="Encoderwaarde live: wijzerplaat (singleturn), ruwe positie, omwentelingen en waarschuwing bij de 32-bit-grens">◎ Encoder…</button>
             }
         </div>
-        @if (IsCoe(p))
+        @if (IsMde(p))
+        {
+            @* Eigen MDE-slave: identiteit en standaardobjecten; de objectdictionary en losse SDO's zoals bij de eRob. *@
+            <div class="bankfilters prod-prog prod-hoek">
+                <span class="prod-prog-pos"><small class="uitleg">slave @p.Positie</small></span>
+                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => LeesIdentiteit(p)"
+                        title="Fabrikant, productcode, revisie, naam, hardware- en firmwareversie, serienummer, control-/statusword (standaardobjecten)">🪪 Identiteit</button>
+                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
+                        title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+            </div>
+        }
+        @if (IsErob(p))
         {
             @* eRob e.d.: de as in een hoek zetten (profile position) en de positie uitlezen. *@
             <div class="bankfilters prod-prog prod-hoek">
@@ -1358,7 +1369,26 @@
 
     private string ProtocolVan(DrivePositie p)
         => _driveTypen.FirstOrDefault(t => t.Id == p.DriveTypeId)?.Protocol ?? DriveProtocol.EtherCat;
-    private bool IsCoe(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Coe;
+    /// <summary>Praat met SDO's (eRob én MDE-slaves): JSON-parametersets, geen Ingenia-registers of -testen.</summary>
+    private bool IsCoe(DrivePositie p) => DriveProtocol.ViaSdo(ProtocolVan(p));
+    private bool IsErob(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Coe;
+    private bool IsMde(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Mde;
+
+    /// <summary>MDE-slave: de standaardobjecten lezen (mde.identiteit) en in het logboek tonen.</summary>
+    private async Task LeesIdentiteit(DrivePositie p)
+    {
+        var body = JsonSerializer.Serialize(new { positie = p.Positie });
+        await VoerTaakUit("mde.identiteit", body, $"Slave {p.Positie} ({p.Naam}): identiteit lezen", 40, res =>
+        {
+            if (res.ValueKind != JsonValueKind.Object) return Task.FromResult("geen gegevens");
+            var mde = res.TryGetProperty("mde", out var m) && m.ValueKind == JsonValueKind.True;
+            var tekst = $"{Tekst(res, "naam")} · {Tekst(res, "vendor")}/{Tekst(res, "productcode")} rev {Tekst(res, "revisie")} · " +
+                        $"hw {Tekst(res, "hardware")} · fw {Tekst(res, "firmware")} · sn {(Tekst(res, "serienummer") is { Length: > 0 } sn ? sn : "—")} · " +
+                        $"status {Tekst(res, "statusword")} control {Tekst(res, "controlword")}" + (mde ? "" : " · GEEN MDE-slave");
+            return Task.FromResult(tekst);
+        });
+    }
+
     private string ParamTitel(DrivePositie p) => IsCoe(p)
         ? "Parameterset (.json met SDO's) in de actuator schrijven, teruglezen en opslaan in EEPROM"
         : "Parameterset (.xcf) in de drive schrijven en opslaan";
@@ -1780,8 +1810,11 @@
             positie = p.Positie,
             firmware = BestandUrl(fw.FirmwareFileId.Value),
             versie = fw.Versie,
+            bestandsnaam = fw.FirmwareBestand,
         });
-        await VoerTaakUit("drives.firmware", body, $"Firmware {fw.Versie} → drive {p.Positie} ({p.Naam})", 900, async res =>
+        // Ingenia-drives via ingeniamotion; eigen MDE-slaves via FoE met pysoem (mde.firmware).
+        var taak = IsMde(p) ? "mde.firmware" : "drives.firmware";
+        await VoerTaakUit(taak, body, $"Firmware {fw.Versie} → drive {p.Positie} ({p.Naam})", 900, async res =>
         {
             // De agent leest na de herstart de versie terug uit de drive (bv. 2.10.0.000); die gaat het attribuut in.
             var gelezen = Tekst(res, "versie");
@@ -2919,9 +2952,9 @@
                 continue;
             }
             r.TypeUitTabel = type.Naam;
-            if (type.Protocol == DriveProtocol.Coe)
+            if (DriveProtocol.ViaSdo(type.Protocol))
             {
-                // eRob e.d.: geen elektronisch serienummer (0x1018:4 = 0) en geen Ingenia-registers.
+                // eRob en MDE-slaves: geen elektronisch serienummer (0x1018:4 = 0) en geen Ingenia-registers.
                 r.ZonderElektronischSn = true;
                 r.Fouten.RemoveAll(f => f.Contains("0x26E6") || f.Contains("0x1018"));
             }

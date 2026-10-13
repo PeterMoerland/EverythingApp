@@ -73,13 +73,18 @@ def _ingebouwd_scan(ifname: str) -> list[dict]:
                     return ""
             rec["device_name"] = tekst(0x1008)
             rec["hardware_version"] = tekst(0x1009)
-            rec["software_version"] = tekst(0x26E4) or tekst(0x100A)
-            rec["coco_software_version"] = tekst(0x5EE4)
-            try:  # productcode volgens de drive zelf (kan afwijken van de EEPROM)
-                rec["ingenia_product_code"] = int.from_bytes(slave.sdo_read(0x26E1, 0)[:4], "little")
-            except Exception:  # noqa: BLE001
-                rec["ingenia_product_code"] = None
-            for index, sub, naam in ((0x1018, 4, "0x1018:4"), (0x26E6, 0, "0x26E6")):
+            # Eigen MDE-slaves (vendor 0x10E3) kennen alleen de standaardobjecten; de Ingenia-registers
+            # (0x26E4, 0x5EE4, 0x26E1, 0x26E6) zouden daar alleen SDO-aborts en foutmeldingen geven.
+            eigen = slave.man == 0x000010E3
+            rec["software_version"] = tekst(0x100A) if eigen else (tekst(0x26E4) or tekst(0x100A))
+            rec["coco_software_version"] = "" if eigen else tekst(0x5EE4)
+            rec["ingenia_product_code"] = None
+            if not eigen:
+                try:  # productcode volgens de drive zelf (kan afwijken van de EEPROM)
+                    rec["ingenia_product_code"] = int.from_bytes(slave.sdo_read(0x26E1, 0)[:4], "little")
+                except Exception:  # noqa: BLE001
+                    pass
+            for index, sub, naam in (((0x1018, 4, "0x1018:4"),) if eigen else ((0x1018, 4, "0x1018:4"), (0x26E6, 0, "0x26E6"))):
                 try:
                     ruw = slave.sdo_read(index, sub)
                     if len(ruw) >= 4 and index == 0x1018:

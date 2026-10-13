@@ -70,11 +70,14 @@ public static class DriveProtocol
     public const string Stm32 = "stm32";
     /// <summary>Generieke CiA402-drive over EtherCAT (SDO's), zoals de ZeroErr eRob-actuatoren.</summary>
     public const string Coe = "coe";
+    /// <summary>Eigen MDE-slave (vendor 0x000010E3: M-Pede-WJ1, stappenmotorsturing, Display v2, Gripper): standaardobjecten, SDO's, FoE, testrecept.</summary>
+    public const string Mde = "mde";
 
     public static readonly (string Code, string Naam, string CodeLabel, string ParamBestand)[] Alle =
     {
         (EtherCat, "EtherCAT (Ingenia/Novanta)", "Productcode (hex)", ".xcf"),
         (Coe,      "EtherCAT CoE / eRob (CiA402)", "Productcode (hex, bv. 0x00029252)", ".json"),
+        (Mde,      "EtherCAT MDE-slave (M-Pede)",  "Productcode (hex, uit het ESI)", ".json"),
         (Feetech,  "Feetech serieel (STS/SMS)",  "Model (bv. STS3215)", ".json"),
         (Esp32,    "ESP32 (USB-UART, esptool)",  "Chip voor esptool (auto, esp32s3, esp32c3 …)", ""),
         (Stm32,    "STM32 (ST-LINK)",            "pyocd-target (bv. stm32g474retx; leeg = herkennen)", ""),
@@ -87,7 +90,10 @@ public static class DriveProtocol
     public static bool IsChip(string code) => code is Esp32 or Stm32;
 
     /// <summary>Zit op de EtherCAT-bus (uitlezen via de agent, drive-posities).</summary>
-    public static bool OpBus(string code) => code is EtherCat or Coe;
+    public static bool OpBus(string code) => code is EtherCat or Coe or Mde;
+
+    /// <summary>Praat met SDO's (JSON-parametersets, objectdictionary, losse SDO): eRob en MDE-slaves.</summary>
+    public static bool ViaSdo(string code) => code is Coe or Mde;
 
     /// <summary>Welke firmwarebestanden bij dit protocol horen (voor het uploadvak).</summary>
     public static string FirmwareExtensies(string code) => code switch
@@ -96,6 +102,7 @@ public static class DriveProtocol
         Stm32 => ".hex/.bin/.elf",
         Feetech => ".bin",
         Coe => "n.v.t. — alleen de versie, ter controle",
+        Mde => ".bin (FoE)",
         _ => ".lfu/.sfu",
     };
 }
