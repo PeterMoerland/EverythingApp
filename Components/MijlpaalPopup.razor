@@ -67,7 +67,9 @@
     private static string Regel(Mijlpaalmelding m) => m.IsJubileum
         ? (m.Wanneer == "vandaag"
             ? $"is vandaag {m.Jaren} jaar in dienst"
-            : $"was {m.Wanneer} {m.Jaren} jaar in dienst")
+            : m.Datum > Vandaag
+                ? $"is {m.Wanneer} {m.Jaren} jaar in dienst"          // komende week (HRM kijkt vooruit)
+                : $"was {m.Wanneer} {m.Jaren} jaar in dienst")        // gemist, eerder deze week
         : (m.Wanneer == "vandaag"
             ? $"is vandaag {m.Jaren} jaar geworden"
             : m.Datum > Vandaag

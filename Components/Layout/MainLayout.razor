@@ -9,6 +9,9 @@
 <div class="shell @(_kiosk ? "kiosk" : "")">
     <aside class="sidebar">
         <a href="" class="logo" title="MDE Automation">MDE Automation</a>
+        <button id="cmdk-open" class="zoekknop zoekknop-zij" @onclick="Open" title="Zoeken in MDE (Ctrl+K)">
+            <span>🔍 Zoeken…</span><kbd>Ctrl+K</kbd>
+        </button>
         <nav>
             <div class="navkop">Snel</div>
             <NavLink href="" Match="NavLinkMatch.All">Ureningave</NavLink>
@@ -51,14 +54,8 @@
     </aside>
     <div class="hoofdvlak">
         <header class="shell-top">
-            <button id="cmdk-open" class="zoekknop" @onclick="Open">
-                <span>Zoeken in MDE…</span><kbd>Ctrl+K</kbd>
-            </button>
-            <button class="kioskknop" title="Volledig scherm" @onclick="KioskAan">⛶ Volledig scherm</button>
-            <button class="themaknop" @onclick="WisselThema"
-                    title="@(_donker ? "Naar lichte weergave" : "Naar donkere weergave")">
-                @(_donker ? "☀" : "☾")
-            </button>
+            @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
+            <span class="shell-top-vulling"></span>
             @if (Ik.Ingelogd)
             {
                 <span class="gebruiker" title="@Ik.Email">
@@ -75,6 +72,11 @@
                 <span class="gebruiker">niet ingelogd</span>
                 <a class="uitlogknop" href="login" title="Inloggen met Google">Inloggen</a>
             }
+            <button class="kioskknop" title="Volledig scherm" @onclick="KioskAan">⛶ Volledig scherm</button>
+            <button class="themaknop" @onclick="WisselThema"
+                    title="@(_donker ? "Naar lichte weergave" : "Naar donkere weergave")">
+                @(_donker ? "☀" : "☾")
+            </button>
         </header>
         @* Waarschuwing voor de directie als de Vault-backup hapert; onzichtbaar
            zolang alles klopt (en voor iedereen zonder directierecht). *@
