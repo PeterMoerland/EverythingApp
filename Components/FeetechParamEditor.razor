@@ -1,0 +1,214 @@
+@inject FilestoreService Store
+@inject IDriveRepository Drives
+@inject HuidigeGebruiker Ik
+
+@* Editor voor een Feetech-parameterset (.json) van een halffabricaat. Leest het
+   bestand uit de filestore, toont de registers als tabel met uitleg en bereik,
+   en schrijft bij Opslaan een nieuw bestand weg (het oude wordt opgeruimd) —
+   zo hoef je geen JSON met de hand te maken. *@
+
+@if (Open && _set is not null && Parameterset is not null)
+{
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker ec-venster verplaatsbaar fpe-venster">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>Parameterset bewerken — @Parameterset.DriveTypeNaam · positie @Parameterset.Positie · fw @Parameterset.FirmwareVersie</b>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="Sluit">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <div class="bankfilters">
+                    <label class="bankveld prod-keuze">
+                        <span>Omschrijving (komt in het bestand en in de lijst)</span>
+                        <input value="@_set.Omschrijving" @onchange="e => _set.Omschrijving = (string?)e.Value ?? string.Empty" />
+                    </label>
+                    <label class="bankveld">
+                        <span>Model</span>
+                        <input value="@_set.Model" style="width:8rem" @onchange="e => _set.Model = (string?)e.Value ?? string.Empty" />
+                    </label>
+                    <label class="bankveld">
+                        <span>Bytevolgorde</span>
+                        <select value="@_set.Endian" @onchange="e => _set.Endian = (string?)e.Value ?? string.Empty">
+                            <option value="little">little (STS-serie)</option>
+                            <option value="big">big (SMS-serie)</option>
+                        </select>
+                    </label>
+                </div>
+
+                <table class="kiezer-tabel fpe-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:4rem">Adres</th>
+                            <th style="width:14rem">Register</th>
+                            <th style="width:7rem" class="r">Waarde</th>
+                            <th style="width:8rem">Bereik</th>
+                            <th>Uitleg</th>
+                            <th style="width:2.4rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _set.Registers.OrderBy(r => r.Adres).ToList())
+                        {
+                            var def = FeetechRegisters.Zoek(r.Adres);
+                            var fout = def is not null && (r.Waarde < def.Min || r.Waarde > def.Max);
+                            <tr @key="r.Adres" class="@(fout ? "ec-fout" : "")">
+                                <td>@r.Adres</td>
+                                <td>@(def?.Naam ?? r.Naam) @if (def is null) { <small class="uitleg">(onbekend adres)</small> }</td>
+                                <td class="r">
+                                    <input type="number" value="@r.Waarde" min="@(def?.Min)" max="@(def?.Max)" style="width:6.5rem; text-align:right"
+                                           @onchange="e => ZetWaarde(r, e)" />
+                                </td>
+                                <td class="uitleg">@(def is null ? "" : $"{def.Min} … {def.Max}")</td>
+                                <td class="uitleg">@Uitleg(r, def)</td>
+                                <td class="c"><button class="klein rood" title="Register uit de set halen" @onclick="() => _set.Registers.Remove(r)">✕</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <div class="bankfilters">
+                    <label class="bankveld">
+                        <span>Register toevoegen</span>
+                        <select value="0" @onchange="VoegToe">
+                            <option value="0">— kies —</option>
+                            @foreach (var d in FeetechRegisters.Sts3215.Where(d => d.Rw == "rw" && _set.Registers.All(r => r.Adres != d.Adres)))
+                            {
+                                <option value="@d.Adres">@d.Adres · @d.Naam (@d.Geheugen)</option>
+                            }
+                        </select>
+                    </label>
+                    <button class="klein" @onclick="Fabriek" title="Alle programmeerbare EEPROM-registers op fabriekswaarde">Fabriekswaarden</button>
+                    <span style="flex:1"></span>
+                    @if (_fout is not null)
+                    {
+                        <span class="uitleg fout-tekst">@_fout</span>
+                    }
+                    <button class="primair" disabled="@(_bezig || _set.Registers.Count == 0)" @onclick="Opslaan">Opslaan</button>
+                </div>
+                <p class="uitleg">
+                    Alleen rw-registers in EEPROM worden door de agent geschreven; ID en baudrate als laatste.
+                    SRAM-registers (torque, doel) mag je meenemen als startwaarde maar worden niet bewaard door de servo.
+                </p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public DriveParameterset? Parameterset { get; set; }
+    [Parameter] public EventCallback OpSluiten { get; set; }
+    /// <summary>Na opslaan: het nieuwe FileStoreID, zodat de aanroeper de lijst kan verversen.</summary>
+    [Parameter] public EventCallback<int> OpOpgeslagen { get; set; }
+
+    private FeetechParameterset? _set;
+    private int? _geladenVoor;
+    private bool _bezig;
+    private string? _fout;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Open || Parameterset is null) { _geladenVoor = null; return; }
+        if (_geladenVoor == Parameterset.Id) return;
+        _geladenVoor = Parameterset.Id;
+        _fout = null;
+        _set = null;
+
+        try
+        {
+            if (Parameterset.ParameterFileId is int fid && await Store.ZoekAsync(fid) is { } bestand)
+            {
+                var inhoud = await File.ReadAllBytesAsync(bestand.Pad);
+                _set = FeetechParameterset.Lees(inhoud);
+                if (_set is not null && _set.Protocol != "feetech")
+                    _fout = $"Dit bestand heeft protocol '{_set.Protocol}'; de editor is voor Feetech.";
+            }
+        }
+        catch (Exception ex) { _fout = "Bestand lezen mislukt: " + ex.Message; }
+
+        // Geen of onleesbaar bestand: beginnen met het sjabloon.
+        _set ??= FeetechParameterset.Sjabloon(Parameterset.Omschrijving.Length > 0 ? Parameterset.Omschrijving : "Nieuwe parameterset");
+    }
+
+    private void ZetWaarde(FeetechParameterRegel r, ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var v)) r.Waarde = v;
+    }
+
+    private void VoegToe(ChangeEventArgs e)
+    {
+        if (_set is null || !int.TryParse((string?)e.Value, out var adres) || adres == 0) return;
+        var def = FeetechRegisters.Zoek(adres);
+        if (def is null || _set.Registers.Any(r => r.Adres == adres)) return;
+        _set.Registers.Add(new FeetechParameterRegel { Adres = adres, Naam = def.Naam, Waarde = FeetechRegisters.Fabriek.GetValueOrDefault(adres) });
+    }
+
+    private void Fabriek()
+    {
+        if (_set is null) return;
+        foreach (var d in FeetechRegisters.Programmeerbaar)
+        {
+            var r = _set.Registers.FirstOrDefault(x => x.Adres == d.Adres);
+            var w = FeetechRegisters.Fabriek.GetValueOrDefault(d.Adres);
+            if (r is null) _set.Registers.Add(new FeetechParameterRegel { Adres = d.Adres, Naam = d.Naam, Waarde = w });
+            else r.Waarde = w;
+        }
+    }
+
+    private static string Uitleg(FeetechParameterRegel r, FeetechRegister? def)
+    {
+        if (def is null) return "";
+        var basis = def.Uitleg;
+        if (def.Adres == 6)
+        {
+            var bauds = new[] { "1M", "500k", "250k", "128k", "115200", "76800", "57600", "38400" };
+            basis = (r.Waarde >= 0 && r.Waarde < bauds.Length ? $"= {bauds[r.Waarde]} baud · " : "") + basis;
+        }
+        if (def.Adres is 9 or 11 or 31) basis = $"= {r.Waarde * 360.0 / 4096:0.0}° · " + basis;
+        if (def.Adres is 14 or 15) basis = $"= {r.Waarde / 10.0:0.0} V · " + basis;
+        return basis;
+    }
+
+    private async Task Opslaan()
+    {
+        if (_set is null || Parameterset is null) return;
+        var buiten = _set.Registers.Where(r => FeetechRegisters.Zoek(r.Adres) is { } d && (r.Waarde < d.Min || r.Waarde > d.Max)).ToList();
+        if (buiten.Count > 0) { _fout = $"Waarde buiten bereik bij: {string.Join(", ", buiten.Select(b => b.Naam))}."; return; }
+        if (!Store.Beschikbaar) { _fout = "De filestore is niet ingesteld."; return; }
+
+        _bezig = true; _fout = null;
+        try
+        {
+            foreach (var r in _set.Registers)
+                if (r.Naam.Length == 0) r.Naam = FeetechRegisters.Zoek(r.Adres)?.Naam ?? "";
+
+            var naam = MaakBestandsnaam(_set.Omschrijving.Length > 0 ? _set.Omschrijving : Parameterset.Omschrijving) + ".json";
+            using var ms = new MemoryStream(_set.Schrijf());
+            var nieuwId = await Store.ToevoegenAsync(ms, naam, DriveStore.Parameters, Parameterset.Id, Ik.WerknemerId ?? 0);
+
+            var oud = Parameterset.ParameterFileId;
+            Parameterset.ParameterFileId = nieuwId;
+            if (_set.Omschrijving.Length > 0) Parameterset.Omschrijving = _set.Omschrijving;
+            await Drives.BewaarParametersetAsync(Parameterset, Ik.WerknemerId);
+            if (oud is int o) { try { await Store.VerwijderAsync(o); } catch { } }
+
+            _geladenVoor = null;
+            await OpOpgeslagen.InvokeAsync(nieuwId);
+            await OpSluiten.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private static string MaakBestandsnaam(string s)
+    {
+        var kaal = new string(s.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray()).Trim('_');
+        return kaal.Length == 0 ? "parameterset" : kaal;
+    }
+
+    private async Task Sluit()
+    {
+        _geladenVoor = null;
+        await OpSluiten.InvokeAsync();
+    }
+}

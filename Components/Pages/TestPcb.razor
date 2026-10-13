@@ -1,0 +1,651 @@
+@page "/productie/test-pcb"
+@page "/productie/motor"
+@inject IProductRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject WerkplekAgent Agent
+
+@* Productie ▸ Half-fabricaten (en /productie/motor): de werkplek. Kies het halffabricaat,
+   scan of typ het serienummer, en het exemplaar staat op het scherm met attributen en
+   historie. Het eigenlijke werk — uitlezen, programmeren, testen, opbouw/eindcontrole —
+   zit in de component ExemplaarWerk, die ook Producten ▸ exemplaar ▸ Programmeren gebruikt. *@
+
+<PageTitle>@Titel — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>@Titel</h1>
+        @if (_exemplaar is not null)
+        {
+            <span class="weeklabel">@_naam?.Naam · @_exemplaar.Serienummer</span>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (Agent.Aanwezig == false)
+    {
+        <section class="module-placeholder">
+            <p>
+                Op deze pc is geen <b>MDE Werkplek-agent</b> gevonden (@Agent.Url — @Agent.Reden).
+                Dit scherm werkt alleen op een werkplek-pc met de agent (EtherCAT-adapter, USB). Installeer de agent
+                met <code>installeer.bat</code> uit <code>MdeAgent\uitvoer</code>, of gebruik Producten ▸ exemplaar.
+            </p>
+            <div class="btngroup"><button class="klein" @onclick="AgentOpnieuw">⟳ Opnieuw controleren</button></div>
+        </section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- stap 1: het halffabricaat ---------- *@
+        <section class="prod-stap">
+            <h3 class="wn-kop"><span class="prod-nr">1</span> @(MotorModus ? "Motor" : "Halffabricaat")</h3>
+            <div class="bankfilters">
+                @if (_groepen.Count > 0)
+                {
+                    <label class="bankveld">
+                        <span>Groep</span>
+                        <select value="@(_groepId?.ToString() ?? string.Empty)" @onchange="GroepGewijzigd">
+                            <option value="">Alle</option>
+                            @foreach (var g in _groepen)
+                            {
+                                <option value="@g.Id">@g.Naam</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <label class="bankveld">
+                    <span>Zoeken (naam, omschrijving, artikel)</span>
+                    <input value="@_zoek" placeholder="bv. RZ of 56083" @onchange="ZoekGewijzigd" />
+                </label>
+                <label class="bankveld prod-keuze">
+                    <span>@(MotorModus ? "Motorproduct" : "Halffabricaat")</span>
+                    <select value="@(_naam?.Id.ToString() ?? string.Empty)" @onchange="NaamGewijzigd">
+                        <option value="">— kies —</option>
+                        @foreach (var n in NamenGefilterd())
+                        {
+                            <option value="@n.Id">@n.Volledig@(n.ArtikelId is int a ? $"  ·  #{a}" : "")@(n.Groep.Length > 0 && _groepId is null ? $"  [{n.Groep}]" : "")</option>
+                        }
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        @* ---------- stap 2: het serienummer ---------- *@
+        <section class="prod-stap">
+            <h3 class="wn-kop"><span class="prod-nr">2</span> Serienummer</h3>
+            <div class="bankfilters">
+                <label class="bankveld">
+                    <span>Serienummer (typen of scannen)</span>
+                    <input value="@_serie" placeholder="bv. 24-00123" autofocus
+                           @oninput="e => _serie = (string?)e.Value ?? string.Empty"
+                           @onkeydown="SerieToets" />
+                </label>
+                <button class="primair" disabled="@_bezig" @onclick="ZoekSerie">Ophalen</button>
+                <button class="klein" disabled="@(_bezig || _naam is null)" @onclick="OpenKiezer"
+                        title="@KiezerTitel">🔍 Zoeken…</button>
+                @if (_exemplaar is not null)
+                {
+                    <button class="klein" @onclick="Wis">Volgende print</button>
+                    <a class="knopje" href="@ProductenUrl" target="_blank" rel="noopener"
+                       title="Dit exemplaar openen in het beheerscherm Producten (nieuw tabblad)">↗ Openen in Producten</a>
+                }
+            </div>
+        </section>
+
+        @* ---------- het exemplaar ---------- *@
+        @if (_exemplaar is not null && _naam is not null)
+        {
+            <section class="prod-stap prod-exemplaar">
+                <h3 class="wn-kop"><span class="prod-nr">3</span> Exemplaar</h3>
+
+                <div class="prod-tweeluik">
+                <div class="prod-links">
+                <div class="prod-kaart">
+                    <div class="prod-kop">
+                        <b>@_naam.Naam</b>
+                        <span class="nummer">@_exemplaar.Serienummer</span>
+                        @if (_exemplaar.StatusKort.Length > 0)
+                        {
+                            <span class="stand-chip s-blauw">@_exemplaar.StatusKort</span>
+                        }
+                        @if (_exemplaar.Gewist)
+                        {
+                            <span class="stand-chip s-rood">gewist</span>
+                        }
+                    </div>
+                    @if (_naam.Omschrijving.Length > 0)
+                    {
+                        <p class="uitleg">@_naam.Omschrijving</p>
+                    }
+                    <dl class="prod-velden">
+                        @if (_naam.Groep.Length > 0)
+                        {
+                            <dt>Groep</dt><dd>@_naam.Groep</dd>
+                        }
+                        @if (_naam.ArtikelId is int artikelId)
+                        {
+                            <dt>Artikel</dt>
+                            <dd>
+                                <a href="artikelen?nr=@artikelId" target="_blank" rel="noopener" title="Artikel openen (samenstelling)">#@artikelId</a>
+                                @_naam.ArtikelCode @(_naam.ArtikelOmschrijving.Length > 0 ? "— " + _naam.ArtikelOmschrijving : "")
+                            </dd>
+                        }
+                        @if (_exemplaar.Klant.Length > 0)
+                        {
+                            <dt>Klant</dt><dd>@_exemplaar.Klant</dd>
+                        }
+                        @if (_bouwjaar.Length > 0)
+                        {
+                            <dt>Bouwjaar</dt><dd>@_bouwjaar</dd>
+                        }
+                        @if (_exemplaar.Opmerking.Length > 0)
+                        {
+                            <dt>Opmerking</dt><dd>@_exemplaar.Opmerking</dd>
+                        }
+                        @foreach (var a in _attributen)
+                        {
+                            <dt title="@(a.Bron.Length > 0 ? "Automatisch: " + AttribuutBronnen.Omschrijving(a.Bron) : "")">
+                                @a.Attribuut @(a.Bron.Length > 0 ? "⚙" : "")
+                            </dt>
+                            <dd>@a.Waarde @a.Eenheid</dd>
+                        }
+                    </dl>
+                </div>
+
+                @* Uitlezen, programmeren, testen, opbouw/eindcontrole: de gedeelde component. *@
+                <ExemplaarWerk @key="_productId" Naam="_naam" Exemplaar="_exemplaar" ProductId="_productId"
+                               MotorModus="MotorModus" MetNummers="true" StartNummer="4" ToonOpbouwStap="true"
+                               OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
+                </div>
+
+                @* Rechts: de historie van deze print, compact. *@
+                <aside class="prod-rechts">
+                    <div class="prod-hist-titel">
+                        <h4 class="prod-subkop">Historie</h4>
+                        <button class="klein" title="Alle historieregels, met zoekfunctie" @onclick="OpenHistorie">🔍 Alles (@_historie.Count)</button>
+                    </div>
+                    <table class="kiezer-tabel prod-historie">
+                        <tbody>
+                            @foreach (var h in _historie.Take(15))
+                            {
+                                <tr @key="h.Id" class="@(h.Uitkomst is null ? "" : h.Uitkomst.Value ? "hist-ok" : "hist-fout")">
+                                    <td>
+                                        <div class="prod-hist-kop">
+                                            <span>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</span>
+                                            <span class="stand-chip @h.Kleur">@h.Soort</span>
+                                            <span class="prod-hist-door">@h.Door</span>
+                                        </div>
+                                        <div class="prod-hist-tekst">@h.Event</div>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_historie.Count == 0)
+                            {
+                                <tr><td class="kiezer-info">Nog geen historie.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </aside>
+                </div>
+            </section>
+        }
+
+        @* ---------- exemplaar kiezen (popup) ---------- *@
+        @if (_kiezerOpen && _naam is not null)
+        {
+            <div class="cmdk-overlay midden">
+                <div class="fusion-kijker ec-venster verplaatsbaar prod-kiezer">
+                    <div class="sleepkop fusion-kijker-kop">
+                        <b>Exemplaren van @_naam.Naam</b>
+                        <span class="uitleg">@KiezerGefilterd().Count van @_kiezerLijst.Count</span>
+                        <span style="flex:1"></span>
+                        <input class="zoekveld" value="@_kiezerZoek" placeholder="serienummer, status, klant…" autofocus
+                               @oninput="e => _kiezerZoek = ((string?)e.Value ?? string.Empty).Trim()" />
+                        <label class="prod-kiezer-vink"><input type="checkbox" checked="@_kiezerGewist" @onchange="KiezerGewistGewijzigd" /> ook gewiste</label>
+                        <button class="klein" @onclick="() => _kiezerOpen = false">✕ Sluiten</button>
+                    </div>
+                    <div class="fusion-kijker-inhoud">
+                        <table class="kiezer-tabel prod-kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:9rem">Serienummer</th>
+                                    <th style="width:8rem">Status</th>
+                                    <th>Klant</th>
+                                    <th>Opmerking</th>
+                                    <th style="width:5rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in KiezerGefilterd())
+                                {
+                                    <tr @key="p.Id" class="klikbaar @(p.Gewist ? "ec-fout" : "")" @ondblclick="() => KiesExemplaar(p)">
+                                        <td><b>@p.Serienummer</b></td>
+                                        <td>@(p.StatusKort.Length > 0 ? p.StatusKort : "")</td>
+                                        <td class="omschrijving">@p.Klant</td>
+                                        <td class="omschrijving">@p.Opmerking</td>
+                                        <td class="c"><button class="klein primair" @onclick="() => KiesExemplaar(p)">Kies</button></td>
+                                    </tr>
+                                }
+                                @if (KiezerGefilterd().Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">@(_kiezerLijst.Count == 0 ? "Geen exemplaren van dit halffabricaat." : "Niets gevonden.")</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ---------- historie (popup): alles onder elkaar, met zoeken ---------- *@
+        @if (_historieOpen && _exemplaar is not null)
+        {
+            <div class="cmdk-overlay midden">
+                <div class="fusion-kijker ec-venster verplaatsbaar prod-hist-venster">
+                    <div class="sleepkop fusion-kijker-kop">
+                        <b>Historie — @_naam?.Naam · @_exemplaar.Serienummer</b>
+                        <span class="uitleg">@HistorieGefilterd().Count van @_historie.Count regels</span>
+                        <span style="flex:1"></span>
+                        <input class="zoekveld" value="@_histZoek" placeholder="zoek in gebeurtenis, soort, naam…" autofocus
+                               @oninput="e => _histZoek = ((string?)e.Value ?? string.Empty).Trim()" />
+                        <select value="@_histSoort" @onchange="e => _histSoort = (string?)e.Value ?? string.Empty">
+                            <option value="">alle soorten</option>
+                            @foreach (var s in _historie.Select(h => h.Soort).Where(s => s.Length > 0).Distinct().OrderBy(s => s))
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                        <button class="klein" @onclick="() => _historieOpen = false">✕ Sluiten</button>
+                    </div>
+                    <div class="fusion-kijker-inhoud">
+                        <table class="kiezer-tabel prod-hist-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:9.5rem">Wanneer</th>
+                                    <th style="width:9rem">Soort</th>
+                                    <th>Gebeurtenis</th>
+                                    <th style="width:11rem">Door</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var h in HistorieGefilterd())
+                                {
+                                    <tr @key="h.Id" class="@(h.Uitkomst is null ? "" : h.Uitkomst.Value ? "hist-ok" : "hist-fout")">
+                                        <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td><span class="stand-chip @h.Kleur">@h.Soort</span></td>
+                                        <td class="omschrijving">@Markeer(h.Event)</td>
+                                        <td>@h.Door</td>
+                                    </tr>
+                                }
+                                @if (HistorieGefilterd().Count == 0)
+                                {
+                                    <tr><td colspan="4" class="kiezer-info">Geen regels die hieraan voldoen.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Zelfde scherm, twee ingangen: /productie/test-pcb (prints) en /productie/motor (motoren).</summary>
+    private bool MotorModus => Nav.Uri.Contains("/productie/motor", StringComparison.OrdinalIgnoreCase);
+    private string Titel => MotorModus ? "Motor programmeren" : "Half-fabricaten";
+
+    private List<Keuze> _types = new();
+    private List<ProductNaam> _namen = new();
+    private int? _typeId;
+    private string _zoek = "";
+    private ProductNaam? _naam;
+
+    private string _serie = "";
+    private ProductRegel? _exemplaar;
+    private int _productId;
+    private string _bouwjaar = "";
+    private List<ProductAttribuut> _attributen = new();
+    private List<ProductGebeurtenis> _historie = new();
+    private bool _bezig;
+    private string? _melding;
+    private bool _fout;
+
+    private string ProductenUrl => _naam is null ? "producten" : $"producten?naam={_naam.Id}&product={_productId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try
+        {
+            _types = await Repo.GetProducttypesAsync();
+            try { _groepen = await Repo.GetProductgroepenAsync(); } catch { }
+            // Motor programmeren: standaard de groep Motor voorkiezen als die bestaat.
+            if (MotorModus) _groepId = _groepen.FirstOrDefault(g => g.Naam.Contains("motor", StringComparison.OrdinalIgnoreCase))?.Id;
+
+            // Half-fabricaten gaat over halffabricaten, Motor programmeren over motoren: dat type
+            // staat vast. Streepjes en spaties in de typenaam tellen niet mee ('Half-fabricaat').
+            static string Kaal(string s) => new string(s.Where(char.IsLetter).ToArray()).ToLowerInvariant();
+            if (MotorModus)
+            {
+                _typeId = (_types.FirstOrDefault(t => Kaal(t.Naam).Contains("motor"))
+                           ?? _types.FirstOrDefault(t => Kaal(t.Naam).Contains("servo")))?.Id;
+                if (_typeId is null)
+                    Toon("Producttype 'Motor' niet gevonden; alle producten worden getoond. Zet de motoren onder een producttype met 'motor' in de naam.", true);
+            }
+            else
+            {
+                _typeId = (_types.FirstOrDefault(t => Kaal(t.Naam).Contains("halffabri"))
+                           ?? _types.FirstOrDefault(t => Kaal(t.Naam).Contains("pcb") || Kaal(t.Naam).Contains("print")))?.Id;
+                if (_typeId is null)
+                    Toon("Producttype 'Half-fabricaat' niet gevonden; alle producten worden getoond.", true);
+            }
+
+            await LaadNamen();
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadNamen()
+    {
+        _namen = await Repo.ZoekProductnamenAsync(_zoek.Length == 0 ? null : _zoek, _typeId);
+        if (_naam is not null && _namen.All(n => n.Id != _naam.Id)) _naam = null;
+    }
+
+    // Groep (Motor/PCBA/Kabel) en zoektekst voor stap 1.
+    private List<Keuze> _groepen = new();
+    private int? _groepId;
+
+    private IEnumerable<ProductNaam> NamenGefilterd()
+        => _groepId is null ? _namen : _namen.Where(n => n.GroepId == _groepId);
+
+    private void GroepGewijzigd(ChangeEventArgs e)
+    {
+        _groepId = int.TryParse((string?)e.Value, out var g) ? g : null;
+        if (_naam is not null && _groepId is not null && _naam.GroepId != _groepId) { _naam = null; if (_exemplaar is not null) Wis(); }
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        await LaadNamen();
+        // Eén treffer? Dan meteen kiezen — handig bij zoeken op artikelnummer.
+        var treffers = NamenGefilterd().ToList();
+        if (_zoek.Length > 0 && treffers.Count == 1 && _naam?.Id != treffers[0].Id)
+        {
+            _naam = treffers[0];
+            if (_exemplaar is not null) Wis();
+        }
+    }
+
+    private async Task NaamGewijzigd(ChangeEventArgs e)
+    {
+        _naam = int.TryParse((string?)e.Value, out var id) ? _namen.FirstOrDefault(n => n.Id == id) : null;
+        // Ander halffabricaat = andere print; het oude exemplaar hoort er niet meer bij.
+        if (_exemplaar is not null) Wis();
+        // Onthouden per toestel: op de testrig staat de volgende keer dezelfde print voor.
+        try { await JS.InvokeVoidAsync("localStorage.setItem", NaamSleutel, _naam?.Id.ToString() ?? ""); } catch { }
+    }
+
+    private string NaamSleutel => MotorModus ? "mde-motor-product" : "mde-testpcb-halffabricaat";
+    private bool _naamHersteld;
+
+    private bool _agentGecontroleerd;
+
+    private async Task AgentOpnieuw()
+    {
+        try { await Agent.ControleerAsync(JS, opnieuw: true); } catch { }
+    }
+
+    /// <summary>Agent controleren en het laatst gekozen halffabricaat terugzetten zodra de lijst geladen is.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_agentGecontroleerd && Repo.Beschikbaar)
+        {
+            _agentGecontroleerd = true;
+            var had = Agent.Aanwezig;
+            try { await Agent.ControleerAsync(JS); } catch { }
+            if (had != Agent.Aanwezig) StateHasChanged();
+        }
+        if (_naamHersteld || !Repo.Beschikbaar || _namen.Count == 0) return;
+        _naamHersteld = true;
+        try
+        {
+            var bewaard = await JS.InvokeAsync<string?>("localStorage.getItem", NaamSleutel);
+            if (int.TryParse(bewaard, out var id) && _namen.FirstOrDefault(n => n.Id == id) is { } n && _naam is null)
+            {
+                _naam = n;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private async Task SerieToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ZoekSerie();
+    }
+
+    /// <summary>
+    /// Het serienummer opzoeken binnen het gekozen halffabricaat. Alleen een PN-scan
+    /// (uniek over alles) mag het halffabricaat bepalen; anders nooit stil overschakelen.
+    /// </summary>
+    private async Task ZoekSerie()
+    {
+        var serie = _serie.Trim();
+        if (serie.Length == 0) return;
+
+        _bezig = true;
+        try
+        {
+            (int ProductId, int ProductNameId)? gevonden = null;
+            var pn = serie.StartsWith("PN", StringComparison.OrdinalIgnoreCase);
+            if (_naam is not null && !pn)
+            {
+                var exemplaren = await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: true);
+                var tref = exemplaren.FirstOrDefault(p => SerieGelijk(p.Serienummer, serie));
+                if (tref is not null) gevonden = (tref.Id, _naam.Id);
+            }
+            else
+            {
+                gevonden = await Repo.ZoekOpSerienummerAsync(serie);
+            }
+
+            if (gevonden is null)
+            {
+                Toon(_naam is null
+                    ? $"Geen print met serienummer '{serie}' in de database."
+                    : $"Geen '{_naam.Naam}' met serienummer '{serie}'. Kies het juiste halffabricaat of maak het exemplaar aan.", true);
+                _exemplaar = null;
+                return;
+            }
+
+            var (productId, productNameId) = gevonden.Value;
+
+            if (_naam is not null && _naam.Id != productNameId)
+            {
+                // Alleen mogelijk na een PN-scan: die is eenduidig, dus overschakelen is hier terecht.
+                var ander = (await Repo.ZoekProductnamenAsync(null, null))
+                            .FirstOrDefault(n => n.Id == productNameId);
+                Toon($"{serie} hoort bij '{ander?.Naam ?? "een ander halffabricaat"}'; het scherm is daarop overgeschakeld.", false);
+            }
+
+            // Het halffabricaat bijstellen op wat het serienummer zegt.
+            if (_naam is null || _naam.Id != productNameId)
+            {
+                _naam = _namen.FirstOrDefault(n => n.Id == productNameId);
+                if (_naam is null)
+                {
+                    // Hoort bij iets dat geen halffabricaat is: niet overschakelen.
+                    var ander = (await Repo.ZoekProductnamenAsync(null, null)).FirstOrDefault(n => n.Id == productNameId);
+                    Toon($"'{serie}' hoort bij '{ander?.Naam ?? "een ander product"}' en dat is geen halffabricaat.", true);
+                    _exemplaar = null;
+                    return;
+                }
+            }
+
+            _productId = productId;
+            _exemplaar = (await Repo.GetProductenAsync(productNameId, inclusiefGewist: true))
+                         .FirstOrDefault(p => p.Id == productId);
+            var velden = await Repo.GetVeldenAsync(productId);
+            _bouwjaar = velden.TryGetValue("Bouwjaar", out var bj) && bj is not null ? bj.ToString() ?? "" : "";
+            _attributen = await Repo.GetAttributenAsync(productId);
+            _historie = await Repo.GetHistorieAsync(productId);
+
+            if (_exemplaar is not null && _melding is null)
+                Toon($"{_naam?.Naam} · {_exemplaar.Serienummer} geladen.", false);
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>'65', '000065' en '0065' zijn hetzelfde serienummer.</summary>
+    private static bool SerieGelijk(string a, string b)
+    {
+        a = a.Trim(); b = b.Trim();
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        return long.TryParse(a, out var x) && long.TryParse(b, out var y) && x == y;
+    }
+
+    /// <summary>Na werk in de component (uitlezen, programmeren, vinkje, status): kaart, attributen en historie verversen.</summary>
+    private async Task NaWijziging()
+    {
+        if (_exemplaar is null) return;
+        try
+        {
+            _attributen = await Repo.GetAttributenAsync(_productId);
+            _historie = await Repo.GetHistorieAsync(_productId);
+            if (_naam is not null)
+                _exemplaar = (await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: true)).FirstOrDefault(p => p.Id == _productId) ?? _exemplaar;
+        }
+        catch { }
+        StateHasChanged();
+    }
+
+    // ---- exemplaar kiezen uit de lijst ----
+    private bool _kiezerOpen, _kiezerGewist;
+    private string _kiezerZoek = "";
+    private List<ProductRegel> _kiezerLijst = new();
+
+    private string KiezerTitel => _naam is null ? "Kies eerst een halffabricaat" : $"Kies uit de bestaande exemplaren van {_naam.Naam}";
+
+    private async Task OpenKiezer()
+    {
+        if (_naam is null) return;
+        _kiezerZoek = "";
+        await LaadKiezer();
+        _kiezerOpen = true;
+    }
+
+    private async Task LaadKiezer()
+    {
+        if (_naam is null) return;
+        try
+        {
+            _kiezerLijst = (await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: _kiezerGewist))
+                .OrderByDescending(p => long.TryParse(p.Serienummer, out var n) ? n : long.MinValue)
+                .ThenByDescending(p => p.Serienummer, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex) { Toon("Exemplaren laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KiezerGewistGewijzigd(ChangeEventArgs e)
+    {
+        _kiezerGewist = e.Value is bool b && b;
+        await LaadKiezer();
+    }
+
+    private List<ProductRegel> KiezerGefilterd()
+    {
+        if (_kiezerZoek.Length == 0) return _kiezerLijst;
+        var woorden = _kiezerZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _kiezerLijst.Where(p => woorden.All(w =>
+            p.Serienummer.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+            p.StatusKort.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+            p.Klant.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+            p.Opmerking.Contains(w, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
+    private async Task KiesExemplaar(ProductRegel p)
+    {
+        _kiezerOpen = false;
+        _serie = p.Serienummer;
+        await ZoekSerie();
+    }
+
+    // ---- historie-popup ----
+    private bool _historieOpen;
+    private string _histZoek = "", _histSoort = "";
+
+    private void OpenHistorie() { _histZoek = ""; _histSoort = ""; _historieOpen = true; }
+
+    private List<ProductGebeurtenis> HistorieGefilterd()
+    {
+        IEnumerable<ProductGebeurtenis> q = _historie;
+        if (_histSoort.Length > 0) q = q.Where(h => h.Soort == _histSoort);
+        if (_histZoek.Length > 0)
+        {
+            var woorden = _histZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            q = q.Where(h => woorden.All(w =>
+                h.Event.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                h.Soort.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                h.Door.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                (h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "").Contains(w)));
+        }
+        return q.ToList();
+    }
+
+    /// <summary>De zoekwoorden in de gebeurtenis geel markeren.</summary>
+    private RenderFragment Markeer(string tekst) => __builder =>
+    {
+        var woorden = _histZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (woorden.Length == 0) { __builder.AddContent(0, tekst); return; }
+        var pos = 0;
+        while (pos < tekst.Length)
+        {
+            var beste = -1; var lengte = 0;
+            foreach (var w in woorden)
+            {
+                var i = tekst.IndexOf(w, pos, StringComparison.OrdinalIgnoreCase);
+                if (i >= 0 && (beste < 0 || i < beste)) { beste = i; lengte = w.Length; }
+            }
+            if (beste < 0) { __builder.AddContent(1, tekst[pos..]); break; }
+            __builder.AddContent(2, tekst[pos..beste]);
+            __builder.OpenElement(3, "mark");
+            __builder.AddContent(4, tekst.Substring(beste, lengte));
+            __builder.CloseElement();
+            pos = beste + lengte;
+        }
+    };
+
+    /// <summary>Klaar met deze print: serienummerveld leeg, halffabricaat blijft staan.</summary>
+    private void Wis()
+    {
+        _exemplaar = null;
+        _serie = "";
+        _attributen = new();
+        _historie = new();
+        _melding = null;
+    }
+
+    /// <summary>Status staat op gereed: scherm leegmaken voor de volgende print (zoals 'Volgende print').</summary>
+    private void NaGereed(string status)
+    {
+        var wat = _exemplaar is null ? "" : $"{_naam?.Naam} {_exemplaar.Serienummer}";
+        Wis();
+        Toon($"{wat} staat op '{status}'. Volgende: serienummer typen of scannen.", false);
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

@@ -20,6 +20,9 @@ public interface IProductRepository
 
     /// <summary>De standaardattributen van een producttype (ProductNameAttributes).</summary>
     Task<List<ProductAttribuut>> GetTypeAttributenAsync(int productNameId);
+
+    /// <summary>Is de kolom Bron aanwezig (ProductAttribuutBron_MariaDB.sql)? Anders kan 'Automatisch gevuld uit' niet bewaard worden.</summary>
+    Task<bool> HeeftAttribuutBronAsync();
     Task<int> BewaarTypeAttribuutAsync(int productNameId, ProductAttribuut attribuut, int? door);
     Task VerwijderTypeAttribuutAsync(int productNameAttributeId);
 
@@ -50,7 +53,18 @@ public interface IProductRepository
 
     // --- historie ---
     Task<List<ProductGebeurtenis>> GetHistorieAsync(int productId);
-    Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door);
+    /// <param name="uitkomst">true = geslaagd, false = mislukt, null = neutraal (kleur in de historie).</param>
+    Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null);
+
+    /// <summary>Indeling van halffabricaten (Motor, PCBA, Kabel …) en de koppeling naar een artikel.</summary>
+    Task<List<Keuze>> GetProductgroepenAsync();
+    Task ZetProductnaamExtraAsync(int productNameId, int? groepId, int? artikelId);
+    /// <summary>Stap (ProductStap-code) in Half-fabricaten tonen of weglaten voor dit halffabricaat.</summary>
+    Task ZetStapZichtbaarAsync(int productNameId, string stap, bool toon);
+
+    /// <summary>Welke techniek er op een halffabricaat zit (ProductTechniek.Drives/Esp32/Stm32).</summary>
+    Task<HashSet<string>> GetTechniekenAsync(int productNameId);
+    Task ZetTechniekAsync(int productNameId, string techniek, bool aan);
 
     // --- attributen van een exemplaar ---
     Task<List<ProductAttribuut>> GetAttributenAsync(int productId);
@@ -70,11 +84,21 @@ public interface IProductRepository
     /// <summary>Hangt een exemplaar onder een ander exemplaar.</summary>
     Task KoppelAsync(int onderdeelId, int? ouderId);
 
-    /// <summary>Exemplaren die nog vrij zijn (geen ouder), om als onderdeel te kiezen.</summary>
-    Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max);
+    /// <summary>Exemplaren die nog vrij zijn (geen ouder), om als onderdeel te kiezen;
+    /// met <paramref name="productNameId"/> alleen van dat halffabricaat.</summary>
+    Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null);
+
+    // --- stuklijst per producttype (ProductSamenstelling_MariaDB.sql) ---
+    /// <summary>Welke halffabricaten er in dit producttype gaan, en hoeveel. Lege lijst als de tabel ontbreekt.</summary>
+    Task<List<StuklijstRegel>> GetStuklijstAsync(int productNameId);
+    Task<int> BewaarStuklijstRegelAsync(StuklijstRegel regel, int? door);
+    Task VerwijderStuklijstRegelAsync(int samenstellingId);
+    Task<bool> HeeftStuklijstAsync();
 
     // --- keuzelijsten ---
     Task<List<Keuze>> GetStatussenAsync();
+    /// <summary>ProductStatusID's waarvan Status óf StatusShort gelijk is aan <paramref name="naam"/> (bijv. 'OK').</summary>
+    Task<HashSet<int>> GetStatusIdsMetNaamAsync(string naam);
     Task<List<Keuze>> GetProducttypesAsync();
     Task<List<Keuze>> GetArtikelenAsync();
     Task<List<Keuze>> GetHistorieSoortenAsync();
@@ -95,6 +119,7 @@ public class GeenProductRepository : IProductRepository
     public Task<string?> ProductnaamInGebruikAsync(int productNameId)
         => Task.FromResult<string?>("Geen live database.");
     public Task VerwijderProductnaamAsync(int productNameId) => Task.CompletedTask;
+    public Task<bool> HeeftAttribuutBronAsync() => Task.FromResult(false);
     public Task<List<ProductAttribuut>> GetTypeAttributenAsync(int productNameId)
         => Task.FromResult(new List<ProductAttribuut>());
     public Task<int> BewaarTypeAttribuutAsync(int productNameId, ProductAttribuut attribuut, int? door)
@@ -119,7 +144,12 @@ public class GeenProductRepository : IProductRepository
     public Task ZetGewistAsync(int productId, bool gewist) => Task.CompletedTask;
     public Task<List<ProductGebeurtenis>> GetHistorieAsync(int productId)
         => Task.FromResult(new List<ProductGebeurtenis>());
-    public Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door)
+    public Task<List<Keuze>> GetProductgroepenAsync() => Task.FromResult(new List<Keuze>());
+    public Task ZetProductnaamExtraAsync(int productNameId, int? groepId, int? artikelId) => Task.CompletedTask;
+    public Task ZetStapZichtbaarAsync(int productNameId, string stap, bool toon) => Task.CompletedTask;
+    public Task<HashSet<string>> GetTechniekenAsync(int productNameId) => Task.FromResult(new HashSet<string>());
+    public Task ZetTechniekAsync(int productNameId, string techniek, bool aan) => Task.CompletedTask;
+    public Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null)
         => Task.CompletedTask;
     public Task<List<ProductAttribuut>> GetAttributenAsync(int productId)
         => Task.FromResult(new List<ProductAttribuut>());
@@ -132,9 +162,14 @@ public class GeenProductRepository : IProductRepository
     public Task<SamenstellingRegel?> GetGebruiktInAsync(int productId)
         => Task.FromResult<SamenstellingRegel?>(null);
     public Task KoppelAsync(int onderdeelId, int? ouderId) => Task.CompletedTask;
-    public Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max)
+    public Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null)
         => Task.FromResult(new List<SamenstellingRegel>());
+    public Task<List<StuklijstRegel>> GetStuklijstAsync(int productNameId) => Task.FromResult(new List<StuklijstRegel>());
+    public Task<int> BewaarStuklijstRegelAsync(StuklijstRegel regel, int? door) => Task.FromResult(0);
+    public Task VerwijderStuklijstRegelAsync(int samenstellingId) => Task.CompletedTask;
+    public Task<bool> HeeftStuklijstAsync() => Task.FromResult(false);
     public Task<List<Keuze>> GetStatussenAsync() => Task.FromResult(new List<Keuze>());
+    public Task<HashSet<int>> GetStatusIdsMetNaamAsync(string naam) => Task.FromResult(new HashSet<int>());
     public Task<List<Keuze>> GetProducttypesAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetArtikelenAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetHistorieSoortenAsync() => Task.FromResult(new List<Keuze>());
@@ -154,7 +189,14 @@ public class MySqlProductRepository : IProductRepository
     private List<Keuze>? _types;
     private List<Keuze>? _historieSoorten;
 
-    public MySqlProductRepository(string connectionString) => _cs = connectionString;
+    /// <summary>KlantID voor een nieuw exemplaar als er geen klant is meegegeven (Productie:StandaardKlantId, MDE zelf).</summary>
+    private readonly int? _standaardKlantId;
+
+    public MySqlProductRepository(string connectionString, int? standaardKlantId = null)
+    {
+        _cs = connectionString;
+        _standaardKlantId = standaardKlantId;
+    }
 
     public bool Beschikbaar => true;
 
@@ -186,25 +228,94 @@ public class MySqlProductRepository : IProductRepository
         return kandidaten.FirstOrDefault(kolommen.Contains) ?? kandidaten[0];
     }
 
+    // Is de kolom 'Bron' al toegevoegd (ProductAttribuutBron_MariaDB.sql)? Zo niet,
+    // dan werkt alles als vanouds, alleen zonder automatische bronnen.
+    private bool? _heeftBron;
+
+    public async Task<bool> HeeftAttribuutBronAsync()
+    {
+        await using var cn = await OpenAsync();
+        return await HeeftBronAsync(cn);
+    }
+
+    private async Task<bool> HeeftBronAsync(MySqlConnection cn)
+    {
+        // Alleen 'ja' onthouden: wordt het script uitgevoerd terwijl de app draait,
+        // dan pikt de volgende aanroep dat meteen op zonder herstart.
+        if (_heeftBron == true) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns " +
+            "WHERE table_schema = DATABASE() AND LOWER(table_name) = 'productnameattributes' AND LOWER(column_name) = 'bron'", cn);
+        _heeftBron = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        return _heeftBron.Value;
+    }
+
     // ============================================================
     //  Producttypen (ProductNames)
     // ============================================================
+    // Zijtabel ProductNameExtra (groep + artikel) aanwezig? Alleen 'ja' onthouden.
+    private bool? _heeftExtra;
+    private async Task<bool> HeeftExtraAsync(MySqlConnection cn)
+    {
+        if (_heeftExtra == true) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.tables " +
+            "WHERE table_schema = DATABASE() AND table_name IN ('ProductNameExtra', 'ProductGroepen')", cn);
+        _heeftExtra = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 2;
+        return _heeftExtra.Value;
+    }
+
+    // Kolommen Toon… (stappen in Half-fabricaten) in ProductNameExtra? Alleen 'ja' onthouden.
+    private bool? _heeftStappen;
+    private async Task<bool> HeeftStappenAsync(MySqlConnection cn)
+    {
+        if (_heeftStappen == true) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns " +
+            "WHERE table_schema = DATABASE() AND table_name = 'ProductNameExtra' AND column_name IN (" +
+            string.Join(",", ProductStap.Alle.Select(s => $"'{ProductStap.Kolom(s.Code)}'")) + ")", cn);
+        _heeftStappen = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == ProductStap.Alle.Length;
+        return _heeftStappen.Value;
+    }
+
     public async Task<List<ProductNaam>> ZoekProductnamenAsync(string? zoek, int? productTypeId)
     {
         var lijst = new List<ProductNaam>();
+        await using var cn = await OpenAsync();
+        var extra = await HeeftExtraAsync(cn);
+        var stappen = extra && await HeeftStappenAsync(cn);
 
         var delen = new List<string>();
         if (!string.IsNullOrWhiteSpace(zoek))
-            delen.Add("(n.`ProductName` LIKE @z OR n.`Omschrijving` LIKE @z)");
+            delen.Add(extra
+                ? "(n.`ProductName` LIKE @z OR n.`Omschrijving` LIKE @z OR a.`ArtikelCodeMDE` LIKE @z OR CAST(a.`ArtikelID` AS CHAR) = @zk OR g.`Naam` LIKE @z)"
+                : "(n.`ProductName` LIKE @z OR n.`Omschrijving` LIKE @z)");
         if (productTypeId is not null) delen.Add("n.`ProductTypeID` = @t");
         var where = delen.Count > 0 ? "WHERE " + string.Join(" AND ", delen) : "";
 
-        await using var cn = await OpenAsync();
+        // Groep en artikel komen uit de zijtabel; zonder die tabellen blijven de kolommen leeg.
+        var select = extra
+            ? ", x.`GroepID`, COALESCE(g.`Naam`, ''), x.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, '')"
+            : ", NULL, '', NULL, '', ''";
+        // Stappen: per ProductStap-code één kolom Toon…; ontbreekt de kolom, dan alles tonen.
+        select += stappen
+            ? string.Concat(ProductStap.Alle.Select(s => $", COALESCE(x.`{ProductStap.Kolom(s.Code)}`, {ProductStap.Standaard(s.Code)})"))
+            : string.Concat(ProductStap.Alle.Select(s => $", {ProductStap.Standaard(s.Code)}"));
+        var joins = extra
+            ? "  LEFT JOIN `ProductNameExtra` x ON x.`ProductNameID` = n.`ProductNameID` " +
+              "  LEFT JOIN `ProductGroepen` g ON g.`GroepID` = x.`GroepID` " +
+              "  LEFT JOIN `Artikelen` a ON a.`ArtikelID` = x.`ArtikelID` "
+            : "";
+
         await using var cmd = new MySqlCommand(
-            "SELECT n.`ProductNameID`, n.`ProductName`, n.`Omschrijving`, n.`ProductTypeID` " +
-            $"  FROM `ProductNames` n {where} " +
+            $"SELECT n.`ProductNameID`, n.`ProductName`, n.`Omschrijving`, n.`ProductTypeID`{select} " +
+            $"  FROM `ProductNames` n {joins}{where} " +
             "  ORDER BY n.`ProductName`", cn);
-        if (!string.IsNullOrWhiteSpace(zoek)) cmd.Parameters.AddWithValue("@z", "%" + zoek.Trim() + "%");
+        if (!string.IsNullOrWhiteSpace(zoek))
+        {
+            cmd.Parameters.AddWithValue("@z", "%" + zoek.Trim() + "%");
+            cmd.Parameters.AddWithValue("@zk", zoek.Trim().TrimStart('#'));
+        }
         if (productTypeId is not null) cmd.Parameters.AddWithValue("@t", productTypeId.Value);
 
         var types = await GetProducttypesAsync();
@@ -220,9 +331,61 @@ public class MySqlProductRepository : IProductRepository
                 r.IsDBNull(1) ? "" : r.GetString(1),
                 r.IsDBNull(2) ? "" : r.GetString(2),
                 code,
-                typeId));
+                typeId)
+            {
+                GroepId = r.IsDBNull(4) ? null : Convert.ToInt32(r.GetValue(4)),
+                Groep = r.IsDBNull(5) ? "" : r.GetString(5),
+                ArtikelId = r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
+                ArtikelCode = r.IsDBNull(7) ? "" : r.GetString(7),
+                ArtikelOmschrijving = r.IsDBNull(8) ? "" : r.GetString(8),
+                VerborgenStappen = ProductStap.Alle
+                    .Select((s, i) => (s.Code, Toon: r.IsDBNull(9 + i) || Convert.ToInt32(r.GetValue(9 + i)) != 0))
+                    .Where(x => !x.Toon).Select(x => x.Code)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase),
+            });
         }
         return lijst;
+    }
+
+    public async Task<List<Keuze>> GetProductgroepenAsync()
+    {
+        var lijst = new List<Keuze>();
+        await using var cn = await OpenAsync();
+        if (!await HeeftExtraAsync(cn)) return lijst;
+        await using var cmd = new MySqlCommand("SELECT `GroepID`, `Naam` FROM `ProductGroepen` ORDER BY `Volgorde`, `Naam`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), r.GetString(1)));
+        return lijst;
+    }
+
+    public async Task ZetProductnaamExtraAsync(int productNameId, int? groepId, int? artikelId)
+    {
+        await using var cn = await OpenAsync();
+        if (!await HeeftExtraAsync(cn))
+            throw new InvalidOperationException("De tabellen ProductGroepen/ProductNameExtra ontbreken nog: voer ProductGroepen_MariaDB.sql uit.");
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ProductNameExtra` (`ProductNameID`, `GroepID`, `ArtikelID`) VALUES (@n, @g, @a) " +
+            "ON DUPLICATE KEY UPDATE `GroepID` = VALUES(`GroepID`), `ArtikelID` = VALUES(`ArtikelID`)", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        cmd.Parameters.AddWithValue("@g", (object?)groepId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@a", (object?)artikelId ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task ZetStapZichtbaarAsync(int productNameId, string stap, bool toon)
+    {
+        if (!ProductStap.Alle.Any(s => s.Code == stap)) throw new ArgumentException($"Onbekende stap '{stap}'.");
+        await using var cn = await OpenAsync();
+        if (!await HeeftExtraAsync(cn) || !await HeeftStappenAsync(cn))
+            throw new InvalidOperationException("De kolommen Toon… ontbreken nog in ProductNameExtra: voer ProductGroepen_MariaDB.sql (opnieuw) uit.");
+        var kolom = ProductStap.Kolom(stap);
+        // Rij aanmaken als die er nog niet is (groep/artikel blijven dan leeg), anders alleen de vlag zetten.
+        await using var cmd = new MySqlCommand(
+            $"INSERT INTO `ProductNameExtra` (`ProductNameID`, `{kolom}`) VALUES (@n, @t) " +
+            $"ON DUPLICATE KEY UPDATE `{kolom}` = VALUES(`{kolom}`)", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        cmd.Parameters.AddWithValue("@t", toon ? 1 : 0);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task<int> NieuwProductnaamAsync(string naam, string omschrijving, int? productTypeId)
@@ -292,9 +455,10 @@ public class MySqlProductRepository : IProductRepository
     {
         var lijst = new List<ProductAttribuut>();
         await using var cn = await OpenAsync();
+        var bron = await HeeftBronAsync(cn) ? "`Bron`" : "NULL";
         await using var cmd = new MySqlCommand(
             "SELECT `ProductNameAttributeID`, `Attribute`, `AttributeEenheid`, `Opmerking`, " +
-            "       `VerplichteInvoer`, `VraagBijAanmaak` " +
+            $"       `VerplichteInvoer`, `VraagBijAanmaak`, {bron} " +
             "  FROM `ProductNameAttributes` WHERE `ProductNameID` = @id " +
             "  ORDER BY `ProductNameAttributeID`", cn);
         cmd.Parameters.AddWithValue("@id", productNameId);
@@ -318,6 +482,7 @@ public class MySqlProductRepository : IProductRepository
                 Opmerking = S(3),
                 Verplicht = B(4),
                 VraagBijAanmaak = B(5),
+                Bron = S(6),
             });
         }
         return lijst;
@@ -325,15 +490,18 @@ public class MySqlProductRepository : IProductRepository
 
     public async Task<int> BewaarTypeAttribuutAsync(int productNameId, ProductAttribuut a, int? door)
     {
-        const string velden =
+        await using var cn = await OpenAsync();
+        var metBron = await HeeftBronAsync(cn);
+
+        var velden =
             "`ProductNameID` = @naam, `Attribute` = @attr, `AttributeEenheid` = @eenheid, " +
-            "`Opmerking` = @opm, `VerplichteInvoer` = @verplicht, `VraagBijAanmaak` = @vraag";
+            "`Opmerking` = @opm, `VerplichteInvoer` = @verplicht, `VraagBijAanmaak` = @vraag" +
+            (metBron ? ", `Bron` = @bron" : "");
 
         var sql = a.Id == 0
             ? $"INSERT INTO `ProductNameAttributes` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
             : $"UPDATE `ProductNameAttributes` SET {velden} WHERE `ProductNameAttributeID` = @id";
 
-        await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(sql, cn);
         cmd.Parameters.AddWithValue("@naam", productNameId);
         cmd.Parameters.AddWithValue("@attr", a.Attribuut ?? "");
@@ -341,6 +509,7 @@ public class MySqlProductRepository : IProductRepository
         cmd.Parameters.AddWithValue("@opm", a.Opmerking ?? "");
         cmd.Parameters.AddWithValue("@verplicht", a.Verplicht ? 1 : 0);
         cmd.Parameters.AddWithValue("@vraag", a.VraagBijAanmaak ? 1 : 0);
+        if (metBron) cmd.Parameters.AddWithValue("@bron", string.IsNullOrWhiteSpace(a.Bron) ? DBNull.Value : a.Bron.Trim());
         if (a.Id == 0) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         else cmd.Parameters.AddWithValue("@id", a.Id);
 
@@ -365,6 +534,8 @@ public class MySqlProductRepository : IProductRepository
         var kolommen = await KolommenAsync();
         var serie = await Kolom("Serienummer", "SerieNummer");
         var gewistKolom = kolommen.Contains("isDeleted") ? "p.`isDeleted`" : "0";
+        // Project bestaat pas na Producten_Project_MariaDB.sql.
+        var projectKolom = kolommen.Contains("Project") ? "COALESCE(p.`Project`, '')" : "''";
         var filter = inclusiefGewist || !kolommen.Contains("isDeleted")
             ? ""
             : "AND (p.`isDeleted` = 0 OR p.`isDeleted` IS NULL) ";
@@ -374,7 +545,7 @@ public class MySqlProductRepository : IProductRepository
         await using var cmd = new MySqlCommand(
             $"SELECT p.`ProductenID`, p.`{serie}`, COALESCE(r.`name`, ''), " +
             "        COALESCE(s.`StatusShort`, s.`Status`, ''), COALESCE(p.`Opmerking`, ''), " +
-            $"       {gewistKolom} " +
+            $"       {gewistKolom}, p.`ProductStatusID`, {projectKolom} " +
             "  FROM `Producten` p " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = p.`KlantID` " +
             "  LEFT JOIN `ProductStatus` s ON s.`ProductStatusID` = p.`ProductStatusID` " +
@@ -392,7 +563,8 @@ public class MySqlProductRepository : IProductRepository
             }
             string S(int i) => r2.IsDBNull(i) ? "" : r2.GetValue(i).ToString() ?? "";
 
-            lijst.Add(new ProductRegel(r2.GetInt32(0), S(1), S(2), S(3), S(4), B(5)));
+            lijst.Add(new ProductRegel(r2.GetInt32(0), S(1), S(2), S(3), S(4), B(5),
+                                       r2.IsDBNull(6) ? null : Convert.ToInt32(r2.GetValue(6)), S(7)));
         }
         return lijst;
     }
@@ -502,6 +674,9 @@ public class MySqlProductRepository : IProductRepository
         var kolommen = await KolommenAsync();
         var serie = await Kolom("Serienummer", "SerieNummer");
 
+        // Geen klant opgegeven: het exemplaar is (nog) van MDE zelf.
+        klantId ??= _standaardKlantId;
+
         var sets = new List<string> { "`ProductNameID` = @naam", $"`{serie}` = @sn" };
         if (klantId is not null) sets.Add("`KlantID` = @klant");
         if (werkorderId is not null) sets.Add("`WorkorderID` = @wo");
@@ -511,13 +686,16 @@ public class MySqlProductRepository : IProductRepository
 
         await using var cn = await OpenAsync();
 
-        // Serienummer is een doorlopende reeks over alle producten (zo deed de VBA
-        // het ook met DMax). Geen nummer meegegeven? Dan het volgende vrije nummer.
+        // Serienummers lopen per halffabricaat/producttype: '65' bestaat bij de RZ-print
+        // én bij de display-print. Geen nummer meegegeven? Dan het volgende vrije
+        // nummer binnen dít producttype (gewiste exemplaren tellen mee, anders krijg
+        // je een nummer dat al eens is uitgegeven).
         var nummer = serienummer;
         if (string.IsNullOrWhiteSpace(nummer))
         {
             await using var max = new MySqlCommand(
-                $"SELECT COALESCE(MAX(CAST(`{serie}` AS UNSIGNED)), 0) + 1 FROM `Producten`", cn);
+                $"SELECT COALESCE(MAX(CAST(`{serie}` AS UNSIGNED)), 0) + 1 FROM `Producten` WHERE `ProductNameID` = @naam", cn);
+            max.Parameters.AddWithValue("@naam", productNameId);
             var res = await max.ExecuteScalarAsync();
             var volgend = res is null or DBNull ? 1 : Convert.ToInt64(res);
             nummer = volgend.ToString("D6");
@@ -615,9 +793,10 @@ public class MySqlProductRepository : IProductRepository
         var soorten = await GetHistorieSoortenAsync();
 
         await using var cn = await OpenAsync();
+        var uitkomst = await HeeftUitkomstAsync(cn) ? "h.`Uitkomst`" : "NULL";
         await using var cmd = new MySqlCommand(
             "SELECT h.`ProductHistorieID`, h.`Event`, h.`HistorieTypeID`, h.`ToegevoegdOp`, " +
-            "       COALESCE(w.`NaamVoluit`, '') " +
+            $"       COALESCE(w.`NaamVoluit`, ''), {uitkomst} " +
             "  FROM `ProductHistorie` h " +
             "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = h.`ToegevoegdDoor` " +
             " WHERE h.`ProductID` = @id " +
@@ -635,22 +814,71 @@ public class MySqlProductRepository : IProductRepository
                 r.IsDBNull(1) ? "" : r.GetString(1),
                 soort,
                 r.IsDBNull(3) ? null : Convert.ToDateTime(r.GetValue(3)),
-                r.IsDBNull(4) ? "" : r.GetString(4)));
+                r.IsDBNull(4) ? "" : r.GetString(4),
+                r.IsDBNull(5) ? null : Convert.ToInt32(r.GetValue(5)) != 0));
         }
         return lijst;
     }
 
-    public async Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door)
+    public async Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null)
     {
         await using var cn = await OpenAsync();
+        var metUitkomst = uitkomst is not null && await HeeftUitkomstAsync(cn);
         await using var cmd = new MySqlCommand(
             "INSERT INTO `ProductHistorie` SET `ProductID` = @id, `Event` = @event, " +
-            "`HistorieTypeID` = @soort, `ToegevoegdDoor` = @door, `ToegevoegdOp` = NOW()", cn);
+            "`HistorieTypeID` = @soort, `ToegevoegdDoor` = @door, `ToegevoegdOp` = NOW()" +
+            (metUitkomst ? ", `Uitkomst` = @uitkomst" : ""), cn);
         cmd.Parameters.AddWithValue("@id", productId);
         cmd.Parameters.AddWithValue("@event", (gebeurtenis ?? "").Length > 250
             ? gebeurtenis![..250] : gebeurtenis ?? "");
         cmd.Parameters.AddWithValue("@soort", (object?)soortId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        if (metUitkomst) cmd.Parameters.AddWithValue("@uitkomst", uitkomst!.Value ? 1 : 0);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Kolom Uitkomst aanwezig? (ProductTechniek_MariaDB.sql) Alleen 'ja' wordt onthouden.
+    private bool? _heeftUitkomst;
+    private async Task<bool> HeeftUitkomstAsync(MySqlConnection cn)
+    {
+        if (_heeftUitkomst == true) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns " +
+            "WHERE table_schema = DATABASE() AND table_name = 'ProductHistorie' AND LOWER(column_name) = 'uitkomst'", cn);
+        _heeftUitkomst = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        return _heeftUitkomst.Value;
+    }
+
+    // ============================================================
+    //  Technieken op een halffabricaat (ProductTechnieken)
+    // ============================================================
+    public async Task<HashSet<string>> GetTechniekenAsync(int productNameId)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT `Techniek` FROM `ProductTechnieken` WHERE `ProductNameID` = @n", cn);
+            cmd.Parameters.AddWithValue("@n", productNameId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) set.Add(r.GetString(0));
+        }
+        catch (MySqlException ex) when (ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase))
+        {
+            // Tabel nog niet aangemaakt: dan gedragen we ons als 'onbekend' (lege set).
+        }
+        return set;
+    }
+
+    public async Task ZetTechniekAsync(int productNameId, string techniek, bool aan)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(aan
+            ? "INSERT IGNORE INTO `ProductTechnieken` (`ProductNameID`, `Techniek`) VALUES (@n, @t)"
+            : "DELETE FROM `ProductTechnieken` WHERE `ProductNameID` = @n AND `Techniek` = @t", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        cmd.Parameters.AddWithValue("@t", techniek);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -661,10 +889,14 @@ public class MySqlProductRepository : IProductRepository
     {
         var lijst = new List<ProductAttribuut>();
         await using var cn = await OpenAsync();
+        // De Bron komt van het standaardattribuut waar dit exemplaar-attribuut van afstamt.
+        var bron = await HeeftBronAsync(cn) ? "s.`Bron`" : "NULL";
         await using var cmd = new MySqlCommand(
-            "SELECT `ProductAttributeID`, `Attribute`, `AttributeValue`, `AttributeEenheid`, " +
-            "       `VerplichteInvoer`, `Opmerking` " +
-            "  FROM `ProductAttributes` WHERE `ProductID` = @id ORDER BY `Attribute`", cn);
+            "SELECT a.`ProductAttributeID`, a.`Attribute`, a.`AttributeValue`, a.`AttributeEenheid`, " +
+            $"       a.`VerplichteInvoer`, a.`Opmerking`, a.`ProductNameAttributeID`, {bron} " +
+            "  FROM `ProductAttributes` a " +
+            "  LEFT JOIN `ProductNameAttributes` s ON s.`ProductNameAttributeID` = a.`ProductNameAttributeID` " +
+            " WHERE a.`ProductID` = @id ORDER BY a.`Attribute`", cn);
         cmd.Parameters.AddWithValue("@id", productId);
 
         await using var r = await cmd.ExecuteReaderAsync();
@@ -680,6 +912,8 @@ public class MySqlProductRepository : IProductRepository
                 Eenheid = S(3),
                 Verplicht = !r.IsDBNull(4) && Convert.ToInt64(r.GetValue(4)) != 0,
                 Opmerking = S(5),
+                SjabloonId = r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
+                Bron = S(7),
             });
         }
         return lijst;
@@ -691,12 +925,15 @@ public class MySqlProductRepository : IProductRepository
             "`ProductID` = @prod, `Attribute` = @attr, `AttributeValue` = @waarde, " +
             "`AttributeEenheid` = @eenheid, `Opmerking` = @opm, `VerplichteInvoer` = @verplicht";
 
+        // Nieuw attribuut dat van een standaardattribuut afstamt: de koppeling meenemen,
+        // dan weet de app later nog waar het vandaan komt (Bron, sync).
         var sql = a.Id == 0
-            ? $"INSERT INTO `ProductAttributes` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
+            ? $"INSERT INTO `ProductAttributes` SET {velden}, `ProductNameAttributeID` = @sjabloon, `AddedBy` = @door, `AddedAt` = NOW()"
             : $"UPDATE `ProductAttributes` SET {velden} WHERE `ProductAttributeID` = @id";
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(sql, cn);
+        if (a.Id == 0) cmd.Parameters.AddWithValue("@sjabloon", (object?)a.SjabloonId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@prod", productId);
         cmd.Parameters.AddWithValue("@attr", a.Attribuut ?? "");
         cmd.Parameters.AddWithValue("@waarde", a.Waarde ?? "");
@@ -813,11 +1050,12 @@ public class MySqlProductRepository : IProductRepository
     }
 
     /// <summary>Exemplaren zonder ouder, om als onderdeel toe te voegen.</summary>
-    public async Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max)
+    public async Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null)
     {
         var serie = await Kolom("Serienummer", "SerieNummer");
         var kolommen = await KolommenAsync();
         var gewist = kolommen.Contains("isDeleted") ? "AND (p.`isDeleted` = 0 OR p.`isDeleted` IS NULL) " : "";
+        var type = productNameId is null ? "" : "AND p.`ProductNameID` = @n ";
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
@@ -825,11 +1063,97 @@ public class MySqlProductRepository : IProductRepository
             "  FROM `Producten` p " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
             "  LEFT JOIN `ProductTypes` t ON t.`ProductTypeID` = n.`ProductTypeID` " +
-            " WHERE p.`ParentProductenID` IS NULL " + gewist +
+            " WHERE p.`ParentProductenID` IS NULL " + gewist + type +
             $"   AND (p.`{serie}` LIKE @z OR n.`ProductName` LIKE @z OR n.`Omschrijving` LIKE @z) " +
-            $" ORDER BY n.`ProductName`, p.`{serie}` LIMIT {Math.Clamp(max, 1, 100)}", cn);
+            $" ORDER BY n.`ProductName`, CAST(p.`{serie}` AS UNSIGNED) DESC, p.`{serie}` DESC LIMIT {Math.Clamp(max, 1, 200)}", cn);
         cmd.Parameters.AddWithValue("@z", "%" + (zoek ?? "").Trim() + "%");
+        if (productNameId is not null) cmd.Parameters.AddWithValue("@n", productNameId.Value);
         return await LeesSamenstelling(cmd);
+    }
+
+    // ============================================================
+    //  Stuklijst per producttype (ProductSamenstelling)
+    // ============================================================
+    private bool? _heeftStuklijst;
+    public async Task<bool> HeeftStuklijstAsync()
+    {
+        if (_heeftStuklijst == true) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductSamenstelling'", cn);
+            _heeftStuklijst = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { return false; }
+        return _heeftStuklijst.Value;
+    }
+
+    public async Task<List<StuklijstRegel>> GetStuklijstAsync(int productNameId)
+    {
+        var lijst = new List<StuklijstRegel>();
+        if (!await HeeftStuklijstAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        var extra = await HeeftExtraAsync(cn);
+        await using var cmd = new MySqlCommand(
+            "SELECT s.`SamenstellingID`, s.`ProductNameID`, s.`OnderdeelNameID`, COALESCE(n.`ProductName`, ''), " +
+            "       COALESCE(n.`Omschrijving`, ''), s.`Aantal`, s.`Volgorde`, COALESCE(s.`Opmerking`, '')" +
+            (extra ? ", COALESCE(g.`Naam`, '') " : ", '' ") +
+            "  FROM `ProductSamenstelling` s " +
+            "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = s.`OnderdeelNameID` " +
+            (extra ? "  LEFT JOIN `ProductNameExtra` x ON x.`ProductNameID` = n.`ProductNameID` " +
+                     "  LEFT JOIN `ProductGroepen` g ON g.`GroepID` = x.`GroepID` " : "") +
+            " WHERE s.`ProductNameID` = @n ORDER BY s.`Volgorde`, n.`ProductName`", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new StuklijstRegel
+            {
+                Id = r.GetInt32(0), ProductNameId = r.GetInt32(1), OnderdeelNameId = r.GetInt32(2),
+                OnderdeelNaam = r.GetString(3), OnderdeelOmschrijving = r.GetString(4),
+                Aantal = r.GetInt32(5), Volgorde = r.GetInt32(6), Opmerking = r.GetString(7), OnderdeelGroep = r.GetString(8),
+            });
+        return lijst;
+    }
+
+    public async Task<int> BewaarStuklijstRegelAsync(StuklijstRegel s, int? door)
+    {
+        if (!await HeeftStuklijstAsync())
+            throw new InvalidOperationException("De tabel ProductSamenstelling ontbreekt nog: voer ProductSamenstelling_MariaDB.sql uit.");
+        if (s.OnderdeelNameId == s.ProductNameId) throw new InvalidOperationException("Een product kan niet zichzelf bevatten.");
+        await using var cn = await OpenAsync();
+        if (s.Id == 0 && s.Volgorde == 0)
+        {
+            await using var max = new MySqlCommand("SELECT COALESCE(MAX(`Volgorde`), 0) + 1 FROM `ProductSamenstelling` WHERE `ProductNameID` = @n", cn);
+            max.Parameters.AddWithValue("@n", s.ProductNameId);
+            s.Volgorde = Convert.ToInt32(await max.ExecuteScalarAsync());
+        }
+        var velden = "`ProductNameID` = @n, `OnderdeelNameID` = @o, `Aantal` = @a, `Volgorde` = @v, `Opmerking` = @opm";
+        var sql = s.Id == 0
+            ? $"INSERT INTO `ProductSamenstelling` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
+            : $"UPDATE `ProductSamenstelling` SET {velden} WHERE `SamenstellingID` = @id";
+        await using var cmd = new MySqlCommand(sql, cn);
+        cmd.Parameters.AddWithValue("@n", s.ProductNameId);
+        cmd.Parameters.AddWithValue("@o", s.OnderdeelNameId);
+        cmd.Parameters.AddWithValue("@a", Math.Max(1, s.Aantal));
+        cmd.Parameters.AddWithValue("@v", s.Volgorde);
+        cmd.Parameters.AddWithValue("@opm", string.IsNullOrWhiteSpace(s.Opmerking) ? DBNull.Value : s.Opmerking.Trim());
+        if (s.Id == 0) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        else cmd.Parameters.AddWithValue("@id", s.Id);
+        try { await cmd.ExecuteNonQueryAsync(); }
+        catch (MySqlException ex) when (ex.Number == 1062)
+        {
+            throw new InvalidOperationException("Dit halffabricaat staat al in de stuklijst; pas daar het aantal aan.");
+        }
+        return s.Id == 0 ? (int)cmd.LastInsertedId : s.Id;
+    }
+
+    public async Task VerwijderStuklijstRegelAsync(int samenstellingId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `ProductSamenstelling` WHERE `SamenstellingID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", samenstellingId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     // ============================================================
@@ -853,6 +1177,20 @@ public class MySqlProductRepository : IProductRepository
             lijst.Add(new Keuze(r.GetInt32(0), nummer is null ? naam : $"{nummer} - {naam}"));
         }
         return lijst;
+    }
+
+    public async Task<HashSet<int>> GetStatusIdsMetNaamAsync(string naam)
+    {
+        var ids = new HashSet<int>();
+        if (string.IsNullOrWhiteSpace(naam)) return ids;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `ProductStatusID` FROM `ProductStatus` " +
+            " WHERE UPPER(TRIM(COALESCE(`Status`, ''))) = @naam OR UPPER(TRIM(COALESCE(`StatusShort`, ''))) = @naam", cn);
+        cmd.Parameters.AddWithValue("@naam", naam.Trim().ToUpperInvariant());
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) ids.Add(r.GetInt32(0));
+        return ids;
     }
 
     /// <summary>Producttypes met hun afkorting (HALF, PROD) — die staat in de lijst links.</summary>

@@ -29,3 +29,10 @@ public class FusionPakketten
     public (string Naam, byte[] Inhoud)? Pak(Guid id)
         => _kast.TryGetValue(id, out var p) ? (p.Naam, p.Inhoud) : null;
 }
+
+/// <summary>
+/// Zelfde idee, voor firmware: Test PCB zet het geüploade bestand hier neer en
+/// geeft de URL /api/firmware/{id} aan de werkplek-agent, die het via het LAN
+/// ophaalt en in de chip schrijft. Een uur geldig.
+/// </summary>
+public class FirmwarePakketten : FusionPakketten { }

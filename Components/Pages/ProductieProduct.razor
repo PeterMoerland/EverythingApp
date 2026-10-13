@@ -1,0 +1,457 @@
+@page "/productie/product"
+@inject IProductRepository Repo
+@inject IOpbouwRepository Opbouw
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject DuurtestService Duurtest
+
+@* Productie ▸ Producten: het eindproduct opbouwen. Kies het product, scan of typ
+   het serienummer (PN-scan van het typeplaatje werkt ook), en vink de
+   opbouwstappen af — met de hands-on documenten per stap bij de hand. Elke
+   wijziging komt in de historie van het exemplaar. *@
+
+<PageTitle>Producten — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Producten</h1>
+        @if (_exemplaar is not null)
+        {
+            <span class="weeklabel">@_naam?.Naam · @_exemplaar.Serienummer</span>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- stap 1: product ---------- *@
+        <section class="prod-stap">
+            <h3 class="wn-kop"><span class="prod-nr">1</span> Product</h3>
+            <div class="bankfilters">
+                <label class="bankveld">
+                    <span>Zoeken (naam, omschrijving, artikel)</span>
+                    <input value="@_zoek" placeholder="bv. M-Pede" @onchange="ZoekGewijzigd" />
+                </label>
+                <label class="bankveld prod-keuze">
+                    <span>Product</span>
+                    <select value="@(_naam?.Id.ToString() ?? string.Empty)" @onchange="NaamGewijzigd">
+                        <option value="">— kies —</option>
+                        @foreach (var n in _namen)
+                        {
+                            <option value="@n.Id">@n.Volledig@(n.ArtikelId is int a ? $"  ·  #{a}" : "")</option>
+                        }
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        @* ---------- stap 2: serienummer ---------- *@
+        <section class="prod-stap">
+            <h3 class="wn-kop"><span class="prod-nr">2</span> Serienummer</h3>
+            <div class="bankfilters">
+                <label class="bankveld">
+                    <span>Serienummer (typen of scannen, ook PN…)</span>
+                    <input value="@_serie" placeholder="bv. 24 of PN12345" autofocus
+                           @oninput="e => _serie = (string?)e.Value ?? string.Empty" @onkeydown="SerieToets" />
+                </label>
+                <button class="primair" disabled="@_bezig" @onclick="ZoekSerie">Ophalen</button>
+                <button class="klein" disabled="@(_bezig || _naam is null)" @onclick="OpenKiezer">🔍 Zoeken…</button>
+                @if (_exemplaar is not null)
+                {
+                    <button class="klein" @onclick="Wis">Volgend product</button>
+                    <a class="knopje" href="@ProductenUrl" target="_blank" rel="noopener"
+                       title="Dit exemplaar openen in het beheerscherm Producten (nieuw tabblad): alle velden, documenten, historie, samenstelling">↗ Openen in Producten</a>
+                }
+            </div>
+        </section>
+
+        @* ---------- stap 3: exemplaar + afvinklijst ---------- *@
+        @if (_exemplaar is not null && _naam is not null)
+        {
+            <section class="prod-stap prod-exemplaar">
+                <h3 class="wn-kop"><span class="prod-nr">3</span> Exemplaar</h3>
+                <div class="prod-tweeluik">
+                <div class="prod-links">
+                    <div class="prod-kaart">
+                        <div class="prod-kop">
+                            <b>@_naam.Naam</b>
+                            <span class="nummer">@_exemplaar.Serienummer</span>
+                            @if (_exemplaar.StatusKort.Length > 0)
+                            {
+                                <span class="stand-chip s-blauw">@_exemplaar.StatusKort</span>
+                            }
+                            @if (_exemplaar.Gewist)
+                            {
+                                <span class="stand-chip s-rood">gewist</span>
+                            }
+                            <span style="flex:1"></span>
+                        </div>
+                        @if (_naam.Omschrijving.Length > 0)
+                        {
+                            <p class="uitleg">@_naam.Omschrijving</p>
+                        }
+                        <dl class="prod-velden">
+                            @if (_exemplaar.Klant.Length > 0) { <dt>Klant</dt><dd>@_exemplaar.Klant</dd> }
+                            @if (_naam.ArtikelId is int artikelId)
+                            {
+                                <dt>Artikel</dt>
+                                <dd><a href="artikelen?nr=@artikelId" target="_blank" rel="noopener">#@artikelId</a> @_naam.ArtikelCode</dd>
+                            }
+                            @if (_bouwjaar.Length > 0) { <dt>Bouwjaar</dt><dd>@_bouwjaar</dd> }
+                            @if (_exemplaar.Opmerking.Length > 0) { <dt>Opmerking</dt><dd>@_exemplaar.Opmerking</dd> }
+                        </dl>
+                    </div>
+
+                    @* ---------- stap 4: samenstelling — de halffabricaten volgens de stuklijst koppelen ---------- *@
+                    @if (ToonSamenstelling)
+                    {
+                    <h3 class="wn-kop prod-stapkop"><span class="prod-nr">4</span> Samenstelling</h3>
+                    <p class="uitleg">Koppel de halffabricaten die in dit product gaan: scan of typ het serienummer bij de regel, of kies uit de vrije exemplaren.</p>
+                    <SamenstellingKiezer @key="_productId" ProductNameId="_naam.Id" ProductId="_productId" OpGewijzigd="NaWijziging" />
+                    }
+
+                    @* ---------- opbouw ---------- *@
+                    @if (ToonOpbouw)
+                    {
+                    <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrOpbouw</span> Opbouw</h3>
+                    <OpbouwLijst @ref="_opbouw" ProductNameId="_naam.Id" ProductId="_productId" ToonControle="false"
+                                 HuidigeStatus="@_exemplaar.StatusKort" OpGewijzigd="NaWijziging" />
+                    }
+
+                    @* ---------- stap 5: duurtest in de testrig; daarna de log van de PLC als document ---------- *@
+                    @if (ToonDuurtest)
+                    {
+                    <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrDuurtest</span> Duurtest</h3>
+                    <p class="uitleg">
+                        Zet het product in de testrig, koppel het aan de PLC en draai het testprogramma (de PLC maakt de logmap
+                        leeg bij het starten). Is de test klaar, haal dan de log op: die wordt als zip bij dit exemplaar bewaard.
+                        <small>(@Duurtest.Omschrijving)</small>
+                    </p>
+                    <div class="btngroup">
+                        <button class="primair" disabled="@_duurBezig" @onclick="HaalDuurtestLog"
+                                title="Logmap via FTP van de testrig-PLC ophalen, zippen en als document opslaan">
+                            @(_duurBezig ? "⏳ Bezig met ophalen…" : "⬇ Duurtestlog ophalen")
+                        </button>
+                        @if (_duurResultaat is { } dr)
+                        {
+                            <span class="stand-chip s-groen">✔ @dr.Bestanden bestand(en) → <a href="@("bestand/" + dr.FileStoreId + "/download")">@dr.Bestandsnaam</a></span>
+                        }
+                        @if (_duurFout is not null)
+                        {
+                            <span class="uitleg fout-tekst">@_duurFout</span>
+                        }
+                    </div>
+                    @if (_duurRegels.Count > 0)
+                    {
+                        <pre class="prod-log">@string.Join("\n", _duurRegels)</pre>
+                    }
+                    }
+
+                    @* ---------- stap 6: eindcontrole en gereedmelden ---------- *@
+                    <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrEindcontrole</span> Eindcontrole</h3>
+                    <OpbouwLijst @ref="_lijst" ProductNameId="_naam.Id" ProductId="_productId" ToonOpbouw="false"
+                                 HuidigeStatus="@_exemplaar.StatusKort" OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
+                </div>
+
+                <aside class="prod-rechts">
+                    <h4 class="prod-subkop">Historie</h4>
+                    <table class="kiezer-tabel prod-historie">
+                        <tbody>
+                            @foreach (var h in _historie.Take(15))
+                            {
+                                <tr @key="h.Id" class="@(h.Uitkomst is null ? "" : h.Uitkomst.Value ? "hist-ok" : "hist-fout")">
+                                    <td>
+                                        <div class="prod-hist-kop">
+                                            <span>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</span>
+                                            <span class="stand-chip @h.Kleur">@h.Soort</span>
+                                            <span class="prod-hist-door">@h.Door</span>
+                                        </div>
+                                        <div class="prod-hist-tekst">@h.Event</div>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_historie.Count == 0)
+                            {
+                                <tr><td class="kiezer-info">Nog geen historie.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </aside>
+                </div>
+            </section>
+        }
+
+        @* ---------- exemplaar kiezen (popup) ---------- *@
+        @if (_kiezerOpen && _naam is not null)
+        {
+            <div class="cmdk-overlay midden">
+                <div class="fusion-kijker ec-venster verplaatsbaar prod-kiezer">
+                    <div class="sleepkop fusion-kijker-kop">
+                        <b>Exemplaren van @_naam.Naam</b>
+                        <span style="flex:1"></span>
+                        <input class="zoekveld" value="@_kiezerZoek" placeholder="serienummer, status, klant…" autofocus
+                               @oninput="e => _kiezerZoek = ((string?)e.Value ?? string.Empty).Trim()" />
+                        <button class="klein" @onclick="() => _kiezerOpen = false">✕ Sluiten</button>
+                    </div>
+                    <div class="fusion-kijker-inhoud">
+                        <table class="kiezer-tabel prod-kiezer-tabel">
+                            <thead><tr><th style="width:9rem">Serienummer</th><th style="width:8rem">Status</th><th>Klant</th><th>Opmerking</th><th style="width:5rem"></th></tr></thead>
+                            <tbody>
+                                @foreach (var p in KiezerGefilterd())
+                                {
+                                    <tr @key="p.Id" class="klikbaar" @ondblclick="() => KiesExemplaar(p)">
+                                        <td><b>@p.Serienummer</b></td><td>@p.StatusKort</td>
+                                        <td class="omschrijving">@p.Klant</td><td class="omschrijving">@p.Opmerking</td>
+                                        <td class="c"><button class="klein primair" @onclick="() => KiesExemplaar(p)">Kies</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Keuze> _types = new();
+    private int? _typeId;
+    private string _zoek = "";
+    private List<ProductNaam> _namen = new();
+    private ProductNaam? _naam;
+
+    private string _serie = "";
+    private ProductRegel? _exemplaar;
+    private int _productId;
+    private string _bouwjaar = "";
+    private List<ProductGebeurtenis> _historie = new();
+    private OpbouwLijst? _lijst;    // eindcontrole + gereed
+    private OpbouwLijst? _opbouw;   // opbouwstappen
+
+    // Welke stappen dit product toont (Producten ▸ Techniek ▸ 'Stappen'); nummering loopt door.
+    private bool ToonOpbouw => _naam?.ToonStap(ProductStap.Opbouw) ?? true;
+    /// <summary>Stuklijst aanwezig voor dit producttype → stap Samenstelling tonen.</summary>
+    private bool ToonSamenstelling => _stuklijstAantal > 0;
+    private int _stuklijstAantal;
+    private int NrOpbouw => ToonSamenstelling ? 5 : 4;
+    private bool ToonDuurtest => Duurtest.Beschikbaar && (_naam?.ToonStap(ProductStap.Duurtest) ?? true);
+    private int NrDuurtest => NrOpbouw + (ToonOpbouw ? 1 : 0);
+    private int NrEindcontrole => NrDuurtest + (ToonDuurtest ? 1 : 0);
+
+    /// <summary>Link naar het beheerscherm Producten met dit type en exemplaar voorgeselecteerd.</summary>
+    private string ProductenUrl => _naam is null ? "producten" : $"producten?naam={_naam.Id}&product={_productId}";
+
+    // ---- duurtest ----
+    private bool _duurBezig;
+    private string? _duurFout;
+    private DuurtestService.Resultaat? _duurResultaat;
+    private List<string> _duurRegels = new();
+
+    /// <summary>Logmap van de testrig-PLC ophalen (server-side FTP), zippen en als document bij het exemplaar zetten.</summary>
+    private async Task HaalDuurtestLog()
+    {
+        if (_exemplaar is null || _naam is null || _duurBezig) return;
+        _duurBezig = true; _duurFout = null; _duurResultaat = null; _duurRegels = new();
+        try
+        {
+            _duurResultaat = await Duurtest.HaalLogAsync(_productId, _naam.Naam, _exemplaar.Serienummer, Ik.WerknemerId ?? 0,
+                regel => { _duurRegels.Add($"{DateTime.Now:HH:mm:ss} {regel}"); InvokeAsync(StateHasChanged); });
+            await NaWijziging();
+            Toon($"Duurtestlog opgeslagen: {_duurResultaat.Bestandsnaam}", false);
+        }
+        catch (Exception ex)
+        {
+            _duurFout = ex.Message;
+            _duurRegels.Add($"{DateTime.Now:HH:mm:ss} FOUT: {ex.Message}");
+            try
+            {
+                await Repo.VoegHistorieToeAsync(_productId, $"Duurtest: log ophalen MISLUKT — {ex.Message}",
+                    ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: false);
+                await NaWijziging();
+            }
+            catch { }
+        }
+        finally { _duurBezig = false; }
+    }
+
+    /// <summary>Na een vinkje of statuswissel: historie en kaart verversen.</summary>
+    private async Task NaWijziging()
+    {
+        try
+        {
+            _historie = await Repo.GetHistorieAsync(_productId);
+            if (_naam is not null)
+                _exemplaar = (await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: true)).FirstOrDefault(p => p.Id == _productId) ?? _exemplaar;
+            // Twee lijsten (Opbouw, Eindcontrole) delen dezelfde stappen: de knop 'Product gereed'
+            // in stap 5 moet weten dat er in stap 4 iets is afgevinkt — beide herladen.
+            if (_opbouw is not null) await _opbouw.Laad();
+            if (_lijst is not null) await _lijst.Laad();
+        }
+        catch { }
+    }
+
+    private bool _bezig;
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _types = await Repo.GetProducttypesAsync();
+            // Producttype 'Product' (eindproduct); niet gevonden = alles tonen.
+            static string Kaal(string s) => new string(s.Where(char.IsLetter).ToArray()).ToLowerInvariant();
+            _typeId = _types.FirstOrDefault(t => Kaal(t.Naam) == "product" || Kaal(t.Naam).Contains("eindproduct"))?.Id
+                      ?? _types.FirstOrDefault(t => Kaal(t.Naam).Contains("product") && !Kaal(t.Naam).Contains("half"))?.Id;
+            await LaadNamen();
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadNamen()
+    {
+        _namen = await Repo.ZoekProductnamenAsync(_zoek.Length == 0 ? null : _zoek, _typeId);
+        if (_naam is not null && _namen.All(n => n.Id != _naam.Id)) _naam = null;
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        await LaadNamen();
+        if (_zoek.Length > 0 && _namen.Count == 1) { _naam = _namen[0]; if (_exemplaar is not null) Wis(); }
+    }
+
+    private async Task NaamGewijzigd(ChangeEventArgs e)
+    {
+        _naam = int.TryParse((string?)e.Value, out var id) ? _namen.FirstOrDefault(n => n.Id == id) : null;
+        if (_exemplaar is not null) Wis();
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "mde-productie-product", _naam?.Id.ToString() ?? ""); } catch { }
+    }
+
+    private bool _hersteld;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_hersteld || !Repo.Beschikbaar || _namen.Count == 0) return;
+        _hersteld = true;
+        try
+        {
+            var bewaard = await JS.InvokeAsync<string?>("localStorage.getItem", "mde-productie-product");
+            if (int.TryParse(bewaard, out var id) && _namen.FirstOrDefault(n => n.Id == id) is { } n && _naam is null)
+            { _naam = n; StateHasChanged(); }
+        }
+        catch { }
+    }
+
+    private async Task SerieToets(KeyboardEventArgs e) { if (e.Key == "Enter") await ZoekSerie(); }
+
+    private static bool SerieGelijk(string a, string b)
+    {
+        a = a.Trim(); b = b.Trim();
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        return long.TryParse(a, out var x) && long.TryParse(b, out var y) && x == y;
+    }
+
+    private async Task ZoekSerie()
+    {
+        var serie = _serie.Trim();
+        if (serie.Length == 0) return;
+        _bezig = true;
+        try
+        {
+            // Product gekozen: alleen daarbinnen zoeken, nooit stil overschakelen. Alleen een PN-scan mag het product bepalen.
+            (int ProductId, int ProductNameId)? gevonden = null;
+            if (_naam is not null && !serie.StartsWith("PN", StringComparison.OrdinalIgnoreCase))
+            {
+                var ex = await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: true);
+                var tref = ex.FirstOrDefault(p => SerieGelijk(p.Serienummer, serie));
+                if (tref is not null) gevonden = (tref.Id, _naam.Id);
+            }
+            else
+            {
+                gevonden = await Repo.ZoekOpSerienummerAsync(serie);
+            }
+            if (gevonden is null)
+            {
+                Toon(_naam is null ? $"Geen exemplaar met serienummer '{serie}'." : $"Geen '{_naam.Naam}' met serienummer '{serie}'. Kies het juiste product of maak het exemplaar aan.", true);
+                _exemplaar = null; return;
+            }
+            var (productId, productNameId) = gevonden.Value;
+            if (_naam is null || _naam.Id != productNameId)
+            {
+                _naam = _namen.FirstOrDefault(n => n.Id == productNameId)
+                        ?? (await Repo.ZoekProductnamenAsync(null, null)).FirstOrDefault(n => n.Id == productNameId);
+                if (_naam is null) { Toon("Het product van dit exemplaar staat niet in deze lijst.", true); return; }
+            }
+            _productId = productId;
+            _exemplaar = (await Repo.GetProductenAsync(productNameId, inclusiefGewist: true)).FirstOrDefault(p => p.Id == productId);
+            var velden = await Repo.GetVeldenAsync(productId);
+            _bouwjaar = velden.TryGetValue("Bouwjaar", out var bj) && bj is not null ? bj.ToString() ?? "" : "";
+            _historie = await Repo.GetHistorieAsync(productId);
+            try { _stuklijstAantal = (await Repo.GetStuklijstAsync(productNameId)).Count; } catch { _stuklijstAantal = 0; }
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- exemplaar kiezen ----
+    private bool _kiezerOpen;
+    private string _kiezerZoek = "";
+    private List<ProductRegel> _kiezerLijst = new();
+
+    private async Task OpenKiezer()
+    {
+        if (_naam is null) return;
+        _kiezerZoek = "";
+        try
+        {
+            _kiezerLijst = (await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: false))
+                .OrderByDescending(p => long.TryParse(p.Serienummer, out var n) ? n : long.MinValue).ToList();
+        }
+        catch (Exception ex) { Toon("Exemplaren laden mislukt: " + ex.Message, true); return; }
+        _kiezerOpen = true;
+    }
+
+    private List<ProductRegel> KiezerGefilterd()
+    {
+        if (_kiezerZoek.Length == 0) return _kiezerLijst;
+        var w = _kiezerZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _kiezerLijst.Where(p => w.All(x =>
+            p.Serienummer.Contains(x, StringComparison.OrdinalIgnoreCase) || p.StatusKort.Contains(x, StringComparison.OrdinalIgnoreCase) ||
+            p.Klant.Contains(x, StringComparison.OrdinalIgnoreCase) || p.Opmerking.Contains(x, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
+    private async Task KiesExemplaar(ProductRegel p)
+    {
+        _kiezerOpen = false;
+        _serie = p.Serienummer;
+        await ZoekSerie();
+    }
+
+    private void Wis()
+    {
+        _exemplaar = null; _serie = ""; _historie = new(); _melding = null;
+        _duurFout = null; _duurResultaat = null; _duurRegels = new();
+    }
+
+    /// <summary>Status staat op gereed: scherm leegmaken voor het volgende product (zoals 'Volgend product').</summary>
+    private void NaGereed(string status)
+    {
+        var wat = _exemplaar is null ? "" : $"{_naam?.Naam} {_exemplaar.Serienummer}";
+        Wis();
+        Toon($"{wat} staat op '{status}'. Volgende product: serienummer typen of scannen.", false);
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

@@ -1,0 +1,382 @@
+@page "/productie/drivetypen"
+@inject IDriveRepository Drives
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Productie ▸ Drivetypen. Links de typen (Everest, Capitan …, herkend aan de
+   EtherCAT-productcode), rechts de firmwareversies van het gekozen type met
+   hun status en bestanden (firmware + dictionary). Test PCB gebruikt dit om
+   na het uitlezen te zeggen of een drive de juiste firmware heeft. De
+   parametersets (.xcf) staan niet hier maar bij het halffabricaat
+   (Producten ▸ tab Drives), want die verschillen per print. *@
+
+<PageTitle>Controllertypen — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Controllertypen</h1>
+        @if (_type is not null)
+        {
+            <span class="weeklabel">@_type.Naam · @_firmwares.Count firmwareversie(s)</span>
+        }
+    </header>
+
+    @if (!Drives.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (_tabelOntbreekt)
+        {
+            <div class="melding fout">De drive-tabellen ontbreken nog: voer <code>DriveTypen_MariaDB.sql</code> uit.</div>
+        }
+
+        <div class="drv-tweeluik">
+            @* ---------- links: typen ---------- *@
+            <section class="prod-kaart">
+                <h3 class="wn-kop">Typen</h3>
+                <table class="kiezer-tabel">
+                    <thead>
+                        <tr><th>Naam</th><th style="width:8rem">Productcode</th><th style="width:5rem">Firmw.</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in _typen)
+                        {
+                            <tr @key="t.Id" class="klikbaar @(_type?.Id == t.Id ? "gekozen" : "")" @onclick="() => KiesType(t)">
+                                <td><b>@t.Naam</b><br /><small class="uitleg">@t.Fabrikant · @DriveProtocol.Naam(t.Protocol)</small></td>
+                                <td><code>@t.ProductCode</code></td>
+                                <td>@t.AantalFirmwares</td>
+                            </tr>
+                        }
+                        @if (_typen.Count == 0)
+                        {
+                            <tr><td colspan="3" class="kiezer-info">Nog geen drivetypen.</td></tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="btngroup">
+                    <button class="klein" @onclick="NieuwType">+ Type</button>
+                </div>
+
+                @if (_type is not null)
+                {
+                    <h4 class="prod-subkop">Gegevens</h4>
+                    <div class="bankfilters">
+                        <label class="bankveld"><span>Naam</span>
+                            <input value="@_type.Naam" @onchange="e => ZetType(v => _type.Naam = v, e)" /></label>
+                        <label class="bankveld"><span>Protocol</span>
+                            <select value="@_type.Protocol" @onchange="e => ZetType(v => _type.Protocol = v, e)">
+                                @foreach (var p in DriveProtocol.Alle)
+                                {
+                                    <option value="@p.Code">@p.Naam</option>
+                                }
+                            </select></label>
+                        <label class="bankveld"><span>@(DriveProtocol.Alle.FirstOrDefault(p => p.Code == _type.Protocol).CodeLabel ?? "Productcode")</span>
+                            <input value="@_type.ProductCode" style="width:9rem" placeholder="@CodeVoorbeeld"
+                                   @onchange="e => ZetType(v => _type.ProductCode = v, e)" /></label>
+                        <label class="bankveld"><span>Fabrikant</span>
+                            <input value="@_type.Fabrikant" @onchange="e => ZetType(v => _type.Fabrikant = v, e)" /></label>
+                        <label class="bankveld prod-keuze"><span>Opmerking</span>
+                            <input value="@_type.Opmerking" @onchange="e => ZetType(v => _type.Opmerking = v, e)" /></label>
+                    </div>
+                    <div class="btngroup">
+                        <button class="klein rood" @onclick="VerwijderType">✕ Type verwijderen</button>
+                    </div>
+                    <p class="uitleg">De productcode is wat de drive via EtherCAT meldt (Test PCB toont hem achter het type).
+                       De naam in de EEPROM van Ingenia-drives is generiek, de code niet.</p>
+                }
+            </section>
+
+            @* ---------- rechts: firmwares ---------- *@
+            <section class="prod-kaart">
+                @if (_type is null)
+                {
+                    <p class="kiezer-info">Kies links een drivetype.</p>
+                }
+                else
+                {
+                    <h3 class="wn-kop">Firmwareversies van @_type.Naam</h3>
+                    <table class="kiezer-tabel drv-firmwares">
+                        <thead>
+                            <tr>
+                                <th style="width:6.5rem">Versie</th>
+                                <th style="width:8rem">Status</th>
+                                <th>Firmware (@DriveProtocol.FirmwareExtensies(_type.Protocol))</th>
+                                @if (!IsChip)
+                                {
+                                    <th>Dictionary (.xdf)</th>
+                                    <th title="EtherCAT Slave Information">ESI (.xml)</th>
+                                }
+                                <th style="width:9rem">Vrijgegeven</th>
+                                <th style="width:2.6rem"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var f in _firmwares)
+                            {
+                                <tr @key="f.Id" class="drv-rij">
+                                    <td><input value="@f.Versie" placeholder="2.10.0" @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
+                                    <td>
+                                        <select value="@f.Status" class="drv-status @DriveStatus.Kleur(f.Status)"
+                                                @onchange="e => ZetStatus(f, e)"
+                                                title="@StatusTitel(f)">
+                                            @foreach (var s in DriveStatus.Firmware)
+                                            {
+                                                <option value="@s.Code">@s.Code</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>@Bestandcel(f, f.FirmwareFileId, f.FirmwareBestand, DriveStore.Firmware)</td>
+                                    @if (!IsChip)
+                                    {
+                                        <td>@Bestandcel(f, f.DictionaryFileId, f.DictionaryBestand, DriveStore.Dictionary)</td>
+                                        <td>@Bestandcel(f, f.EsiFileId, f.EsiBestand, DriveStore.Esi)</td>
+                                    }
+                                    <td><input type="date" value="@(f.Vrijgegeven?.ToString("yyyy-MM-dd"))" @onchange="e => ZetDatum(f, e)" /></td>
+                                    <td class="c"><button class="klein rood" title="Verwijderen" @onclick="() => VerwijderFirmware(f)">✕</button></td>
+                                </tr>
+                                <tr @key="@($"{f.Id}-opm")" class="drv-opm">
+                                    <td colspan="7">
+                                        <input value="@f.Opmerking" placeholder="Opmerking bij deze versie…"
+                                               @onchange="e => ZetFirmware(f, v => f.Opmerking = v, e)" />
+                                    </td>
+                                </tr>
+                            }
+                            @if (_firmwares.Count == 0)
+                            {
+                                <tr><td colspan="7" class="kiezer-info">Nog geen firmwareversies voor dit type.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                    <div class="btngroup">
+                        <button class="klein" @onclick="NieuweFirmware">+ Firmwareversie</button>
+                    </div>
+                    <p class="uitleg">
+                        <b>actueel</b> = de versie die nieuwe prints krijgen (één per type; een andere op actueel zetten maakt
+                        de vorige 'toegestaan'). <b>toegestaan</b> = mag blijven zitten. <b>geblokkeerd</b> = moet vervangen worden.
+                        @if (IsChip)
+                        {
+                            <text>Het firmwarebestand is een .hex (adressen zitten erin) of een .bin; in Half-fabricaten ▸ stap 4
+                            kies je de versie uit deze lijst — de actuele staat voorgeselecteerd.</text>
+                        }
+                        else
+                        {
+                            <text>Elke firmwareversie heeft haar eigen dictionary (.xdf), ESI-bestand (EtherCAT Slave Information, .xml)
+                            en, per halffabricaat, haar eigen parameterset (.xcf).</text>
+                        }
+                    </p>
+                }
+            </section>
+        </div>
+
+        <footer class="voet">
+            Parametersets (.xcf) leg je vast bij het halffabricaat: Producten ▸ producttype ▸ tab Drives.
+        </footer>
+    }
+</div>
+
+@code {
+    private List<DriveSoort> _typen = new();
+    private DriveSoort? _type;
+    private List<DriveFirmware> _firmwares = new();
+    private string? _melding;
+    private bool _fout;
+    private bool _tabelOntbreekt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Drives.Beschikbaar) return;
+        await LaadTypen();
+    }
+
+    private async Task LaadTypen()
+    {
+        try { _typen = await Drives.GetTypenAsync(); _tabelOntbreekt = false; }
+        catch (Exception ex)
+        {
+            _tabelOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
+            if (!_tabelOntbreekt) Toon("Laden mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task KiesType(DriveSoort t)
+    {
+        _type = t;
+        try { _firmwares = await Drives.GetFirmwaresAsync(t.Id); }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuwType()
+    {
+        try
+        {
+            var id = await Drives.BewaarTypeAsync(new DriveSoort { Naam = "(nieuw type)", ProductCode = "0x00000000" }, Ik.WerknemerId);
+            await LaadTypen();
+            var n = _typen.FirstOrDefault(t => t.Id == id);
+            if (n is not null) await KiesType(n);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetType(Action<string> zet, ChangeEventArgs e)
+    {
+        if (_type is null) return;
+        zet(((string?)e.Value ?? "").Trim());
+        try
+        {
+            await Drives.BewaarTypeAsync(_type, Ik.WerknemerId);
+            var id = _type.Id;
+            await LaadTypen();
+            _type = _typen.FirstOrDefault(t => t.Id == id) ?? _type;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderType()
+    {
+        if (_type is null) return;
+        if (!await Bevestig($"Drivetype '{_type.Naam}' verwijderen, inclusief {_firmwares.Count} firmwareversie(s)?")) return;
+        try
+        {
+            await Drives.VerwijderTypeAsync(_type.Id);
+            _type = null; _firmwares = new();
+            await LaadTypen();
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ------------------------------------------------------------ firmwares
+    private async Task NieuweFirmware()
+    {
+        if (_type is null) return;
+        try
+        {
+            var status = _firmwares.Any(f => f.Status == DriveStatus.Actueel) ? DriveStatus.Toegestaan : DriveStatus.Actueel;
+            await Drives.BewaarFirmwareAsync(new DriveFirmware { DriveTypeId = _type.Id, Versie = "(versie)", Status = status }, Ik.WerknemerId);
+            await KiesType(_type);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetFirmware(DriveFirmware f, Action<string> zet, ChangeEventArgs e)
+    {
+        zet(((string?)e.Value ?? "").Trim());
+        await BewaarFirmware(f);
+    }
+
+    private async Task ZetDatum(DriveFirmware f, ChangeEventArgs e)
+    {
+        f.Vrijgegeven = DateTime.TryParse((string?)e.Value, out var d) ? d : null;
+        await BewaarFirmware(f);
+    }
+
+    private async Task BewaarFirmware(DriveFirmware f)
+    {
+        try { await Drives.BewaarFirmwareAsync(f, Ik.WerknemerId); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetStatus(DriveFirmware f, ChangeEventArgs e)
+    {
+        var status = (string?)e.Value ?? DriveStatus.Toegestaan;
+        try
+        {
+            await Drives.ZetFirmwareStatusAsync(f.Id, status, Ik.WerknemerId);
+            if (_type is not null) await KiesType(_type);   // de vorige 'actueel' is nu 'toegestaan'
+            Toon($"Versie {f.Versie} is nu {status}.", false);
+        }
+        catch (Exception ex) { Toon("Status zetten mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderFirmware(DriveFirmware f)
+    {
+        if (!await Bevestig($"Firmwareversie '{f.Versie}' verwijderen? Parametersets die eraan hangen gaan mee.")) return;
+        try
+        {
+            if (f.FirmwareFileId is int a) await Store.VerwijderAsync(a);
+            if (f.DictionaryFileId is int b) await Store.VerwijderAsync(b);
+            if (f.EsiFileId is int c) await Store.VerwijderAsync(c);
+            await Drives.VerwijderFirmwareAsync(f.Id);
+            if (_type is not null) await KiesType(_type);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ------------------------------------------------------------ bestanden
+    /// <summary>Cel met bestandsnaam + download, of een uploadknopje als er nog niets is.</summary>
+    private RenderFragment Bestandcel(DriveFirmware f, int? fileId, string naam, int storeType) => __builder =>
+    {
+        if (fileId is int id)
+        {
+            <div class="drv-bestand">
+                <a class="knopje" href="@("bestand/" + id + "/download")" title="Downloaden: @naam">⬇ @naam</a>
+                <button class="klein" title="Vervangen door een ander bestand" @onclick="() => _vervang = _vervang == (f.Id, storeType) ? null : (f.Id, storeType)">↻</button>
+            </div>
+            @if (_vervang == (f.Id, storeType))
+            {
+                <InputFile OnChange="e => Upload(f, storeType, e)" />
+            }
+        }
+        else
+        {
+            <InputFile OnChange="e => Upload(f, storeType, e)" />
+        }
+    };
+
+    private (int, int)? _vervang;
+
+    private async Task Upload(DriveFirmware f, int storeType, InputFileChangeEventArgs e)
+    {
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
+        try
+        {
+            var bestand = e.File;
+            await using var stroom = bestand.OpenReadStream(200 * 1024 * 1024);
+            var nieuwId = await Store.ToevoegenAsync(stroom, bestand.Name, storeType, f.Id, Ik.WerknemerId ?? 0);
+
+            int? oud;
+            switch (storeType)
+            {
+                case DriveStore.Firmware:   oud = f.FirmwareFileId;   f.FirmwareFileId = nieuwId;   break;
+                case DriveStore.Dictionary: oud = f.DictionaryFileId; f.DictionaryFileId = nieuwId; break;
+                default:                    oud = f.EsiFileId;        f.EsiFileId = nieuwId;        break;
+            }
+            await Drives.BewaarFirmwareAsync(f, Ik.WerknemerId);
+            if (oud is int o) { try { await Store.VerwijderAsync(o); } catch { } }
+
+            _vervang = null;
+            if (_type is not null) await KiesType(_type);
+            Toon($"'{bestand.Name}' opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Upload mislukt: " + ex.Message, true); }
+    }
+
+    private string CodeVoorbeeld => _type?.Protocol switch
+    {
+        DriveProtocol.Feetech => "STS3215",
+        DriveProtocol.Coe => "0x00029252",
+        DriveProtocol.Esp32 => "auto",
+        DriveProtocol.Stm32 => "stm32g474retx",
+        _ => "0x03B11001",
+    };
+    private bool IsChip => _type is not null && DriveProtocol.IsChip(_type.Protocol);
+
+    private static string StatusTitel(DriveFirmware f)
+        => DriveStatus.Uitleg(f.Status) + (f.StatusOp is null ? "" : $" — {f.StatusDoor}, {f.StatusOp:dd-MM-yyyy HH:mm}");
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return true; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

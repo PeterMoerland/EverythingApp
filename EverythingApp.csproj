@@ -46,12 +46,20 @@
     <!-- Tekst uit een PDF halen (facturen uitlezen). Zuiver .NET, geen externe
          programma's nodig; werkt alleen als de PDF een tekstlaag heeft. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
+    <!-- FTP-client (duurtestlog van de testrig-PLC ophalen). Zuiver .NET, geen externe programma's. -->
+    <PackageReference Include="FluentFTP" Version="52.*" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Het NDA-sjabloon gaat mee naar de publish-map. Wil je de tekst wijzigen,
          pas dan dit bestand aan (of zet Nda:TemplatePad in appsettings.json). -->
     <None Update="Templates\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- MdeAgent is een aparte wereld (Python-agent + CanLuisteraar, een eigen .NET-project
+         dat bouw.bat bouwt). Zonder deze regels compileert de app CanLuisteraar\Program.cs mee. -->
+    <Compile Remove="MdeAgent\**" />
+    <Content Remove="MdeAgent\**" />
+    <None Remove="MdeAgent\**" />
+    <EmbeddedResource Remove="MdeAgent\**" />
   </ItemGroup>
 
 </Project>

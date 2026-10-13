@@ -109,6 +109,17 @@ public static class Menu
                 new MenuItem("Opbouw"),
                 new MenuItem("Samenstelling"))),
 
+        // Productie: halffabricaten (prints, motoren, kabels) opbouwen, uitlezen,
+        // programmeren en testen; producten opbouwen en duurtesten — gekoppeld aan
+        // de exemplaren in Producten. (Motoren gaan via Half-fabricaten; het scherm
+        // /productie/motor bestaat nog als rechtstreekse ingang.)
+        new("productie", "Productie", "zap",
+            new MenuGroep("Opbouw en test",
+                new MenuItem("Half-fabricaten", "/productie/test-pcb"),
+                new MenuItem("Producten", "/productie/product")),
+            new MenuGroep("Onderhoud",
+                new MenuItem("Controllertypen en firmware", "/productie/drivetypen"))),
+
         // Tools is zelf geen pagina maar een klapper; de drie pakketten eronder
         // hebben elk hun eigen landingspagina met tegels.
         new("tools", "Tools", "wrench")

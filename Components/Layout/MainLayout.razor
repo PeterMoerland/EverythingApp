@@ -4,6 +4,7 @@
 @inject RecentPagesService Recent
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject WerkplekAgent Agent
 @implements IDisposable
 
 <div class="shell @(_kiosk ? "kiosk" : "")">
@@ -170,6 +171,8 @@
         if (!eerste) return;
         await LeesThema();
         await MobielCheck();
+        // Productie hoort alleen in het menu op een pc met de MDE Werkplek-agent (EtherCAT/USB).
+        try { await Agent.ControleerAsync(JS); } catch { }
         StateHasChanged();
     }
 
@@ -215,6 +218,10 @@
     {
         if (m.Sleutel == "beheer")
             return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
+
+        // Productie (werkplek: uitlezen, programmeren, testen) alleen op een pc met de werkplek-agent.
+        if (m.Sleutel == "productie" && Agent.Aanwezig != true)
+            return false;
 
         // Een klapper is zichtbaar als er tenminste één pakket eronder zichtbaar is.
         if (m.HeeftOnder) return m.Onder.Any(ModuleZichtbaar);

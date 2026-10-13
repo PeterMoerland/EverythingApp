@@ -1,0 +1,9 @@
+# Bouwomgeving voor de agent (Python 3.11 of 3.12 aanbevolen: daar zijn wheels voor alles).
+pysoem>=1.1
+ingeniamotion>=0.9      # drive-firmware en parametersets (Novanta/Ingenia); trekt ingenialink mee
+esptool>=4.8
+pyserial>=3.5
+pyocd>=0.36
+pywin32>=306
+pyinstaller>=6.11          # oudere versies struikelen over numpy.f2py.__main__ (sys.exit in het isolatie-proces)
+pyinstaller-hooks-contrib>=2024.10

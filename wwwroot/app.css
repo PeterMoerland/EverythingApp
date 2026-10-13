@@ -342,6 +342,11 @@ button.zij-knop:hover { text-decoration: underline; }
 .product-namen { max-height: 30vh; }
 .type-code { display: inline-block; min-width: 3.6rem; color: #8a929c; }
 .wn-naam.actief .type-code { color: #dbe6f3; }
+/* groep (PCBA/Motor/Kabel) en gekoppeld artikelnummer in de productenlijst */
+.groep-code { min-width: 0; margin-right: .4rem; padding: 0 .35rem; border-radius: .6rem; background: #eef2f7; color: #556; font-size: .72rem; }
+.wn-naam.actief .groep-code { background: rgba(255,255,255,.2); color: #fff; }
+.art-nr { margin-left: .5rem; font-size: .78rem; font-weight: 400; color: #8a929c; font-variant-numeric: tabular-nums; }
+.wn-naam.actief .art-nr { color: #dbe6f3; }
 .wn-naam .stat { display: inline-block; min-width: 4.2rem; color: #6b7480; font-size: .9em; }
 .wn-naam.actief .stat { color: #dbe6f3; }
 .btngroep-rand { display: flex; gap: .2rem; padding: .3rem .7rem .5rem; }
@@ -1077,6 +1082,162 @@ a.primair:hover { background: #14498a; color: #fff; }
 html[data-thema="donker"] a.primair { background: #2f6cb8; border-color: #2f6cb8; }
 html[data-thema="donker"] a.primair:hover { background: #2a6cc4; }
 
+/* ===== Productie ▸ Test PCB: genummerde stappen en de exemplaarkaart ===== */
+.prod-stap { margin-bottom: .6rem; }
+.prod-nr { display: inline-flex; align-items: center; justify-content: center;
+           width: 1.5rem; height: 1.5rem; border-radius: 50%; margin-right: .45rem;
+           background: var(--accent); color: #fff; font-size: .85rem; font-weight: 700; }
+.prod-keuze { flex: 1 1 24rem; }
+.prod-keuze select, .prod-keuze input { width: 100%; }
+.prod-kaart { border: 1px solid #cfd6df; border-radius: 10px; padding: .8rem 1.2rem;
+              background: #fff; }
+.prod-kop { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; font-size: 1.05rem; }
+/* attributen onder elkaar: label links, waarde rechts */
+.prod-velden { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1.2rem;
+               margin: .6rem 0 0; align-items: baseline; }
+.prod-velden dt { color: #667; white-space: nowrap; padding-right: .4rem; }
+.prod-velden dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* exemplaar links, historie rechts in een smalle kolom; onder ~80rem weer onder elkaar */
+.prod-tweeluik { display: grid; grid-template-columns: minmax(0, 1fr) 26rem; gap: 1.2rem; align-items: start; }
+@media (max-width: 80rem) { .prod-tweeluik { grid-template-columns: 1fr; } }
+.prod-rechts .prod-subkop { margin-top: 0; }
+.prod-historie td { padding: .4rem .6rem; }
+.prod-hist-kop { display: flex; gap: .5rem; align-items: center; font-size: .78rem; color: #667; flex-wrap: wrap; }
+.prod-hist-door { margin-left: auto; }
+.prod-hist-tekst { margin-top: .15rem; overflow-wrap: anywhere; }
+.stand-chip.s-grijs { background: #e9edf2; color: #445; }
+html[data-thema="donker"] .stand-chip.s-grijs { background: #2b4a73; color: #d6e2f0; }
+html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
+.prod-acties { margin: .8rem 0 .4rem; }
+.prod-subkop { margin: 1rem 0 .3rem; }
+/* de uitgelezen drives: groen kader bij go, rood bij no-go */
+.prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
+.prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+.prod-drives-kop { display: flex; align-items: center; gap: .8rem; margin-bottom: .5rem; flex-wrap: wrap; }
+.prod-drives-kop b { font-size: 1.1rem; letter-spacing: .05em; color: #2f9e44; }
+.prod-drives.nogo .prod-drives-kop b { color: #c92a2a; }
+.prod-drives-kop span { flex: 1; }
+.prod-drives .fout-tekst { color: #c92a2a; margin: .3rem 0 0; }
+.prod-bron-actief { font-weight: 600; color: #1c7ed6; }
+.prod-controle { margin: .4rem 0 .8rem; }
+/* stap 4 en 5 binnen het exemplaarblok */
+.prod-stapkop { margin: 1.2rem 0 .4rem; }
+.prod-prog { align-items: flex-end; border-left: 3px solid #cfd6df; padding-left: .8rem; margin-bottom: .5rem; }
+.prod-prog-pos { min-width: 12rem; align-self: center; }
+.prod-hoek { border-left-color: #f0c36d; margin-top: -.3rem; }   /* eRob: hoek zetten, hoort bij de regel erboven */
+/* Objectdictionary-venster (eRob): vaste ruime maat, tabel scrollt */
+.prod-od-venster { width: min(90rem, 96vw); height: min(50rem, 90vh); display: flex; flex-direction: column; }
+.prod-od-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+.prod-pc-venster { width: min(70rem, 96vw); max-height: 88vh; display: flex; flex-direction: column; }
+.prod-pc-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+/* ---- Encoder-venster: wijzerplaat + cijfertabel + ontleed BiSS-frame ---- */
+.prod-encoder-venster { width: min(90rem, 97vw); max-height: 92vh; display: flex; flex-direction: column; }
+.prod-encoder-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+.prod-encoder-rij { display: flex; gap: 1.4rem; align-items: flex-start; flex-wrap: wrap; }
+.prod-wijzer { width: 16rem; height: 16rem; flex: 0 0 auto; }
+.prod-encoder-cijfers { flex: 1 1 22rem; display: flex; flex-direction: column; gap: 0; }
+.prod-encoder-cijfers > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 1rem; align-items: center; border-bottom: 1px solid #e2e6ec; padding: .22rem 0; min-height: 2.1rem; }
+.prod-encoder-cijfers > div > span { color: #556; line-height: 1.2; }
+.prod-encoder-cijfers > div > span > small { display: block; color: #8a95a3; font-size: .78em; font-family: Consolas, "Cascadia Mono", monospace; }
+.prod-encoder-cijfers > div > b { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; font-family: Consolas, "Cascadia Mono", monospace; font-size: 1.02em; }
+.prod-encoder-cijfers > div.prod-bits { display: block; }
+.prod-encoder-cijfers > div.prod-bits > span { display: block; margin-bottom: .2rem; }
+.prod-encoder-cijfers > div.prod-bits > p { margin: .2rem 0 .4rem; }
+html[data-thema="donker"] .prod-encoder-cijfers > div { border-bottom-color: #2b4a73; }
+.bits-tabel { margin-top: .3rem; width: 100%; table-layout: fixed; font-family: Consolas, "Cascadia Mono", monospace; font-size: .95em; }
+.bits-tabel col.k-veld { width: 7.5rem; } .bits-tabel col.k-bits { width: 8.5rem; } .bits-tabel col.k-bin { width: 16rem; }
+.bits-tabel col.k-dec { width: 9rem; } .bits-tabel col.k-bet { width: auto; }
+.bits-tabel td, .bits-tabel th { padding: .25rem .5rem; white-space: nowrap; }
+.bits-tabel .r { text-align: right !important; font-variant-numeric: tabular-nums; }
+.bits-tabel tr.bits-rij-fout td { background: #f8c9c5; color: #5a0f0c; }
+.bits-tabel tr.bits-rij-waarschuwing td { background: #ffe0a8; color: #5b3a00; }
+.bits-mt { background: #e4edf9; color: #274e7d; padding: .1rem .35rem; border-radius: 4px; letter-spacing: .04em; }
+.bits-st { background: #fff3d6; color: #7a4f00; padding: .1rem .35rem; border-radius: 4px; letter-spacing: .04em; }
+.bits-ok { background: #e7f3e7; color: #1e5c1e; padding: .1rem .3rem; border-radius: 4px; }
+.bits-fout { background: #fdecea; color: #8b1a16; padding: .1rem .3rem; border-radius: 4px; font-weight: 700; }
+.bits-waarschuwing { background: #fff3d6; color: #7a4f00; padding: .1rem .3rem; border-radius: 4px; font-weight: 700; }
+.bits-crc { background: #e9edf2; color: #445; padding: .1rem .35rem; border-radius: 4px; letter-spacing: .04em; }
+html[data-thema="donker"] .bits-tabel tr.bits-rij-fout td { background: #5a1f1c; color: #ffd0cc; }
+html[data-thema="donker"] .bits-tabel tr.bits-rij-waarschuwing td { background: #5a4310; color: #ffe3a8; }
+html[data-thema="donker"] .bits-mt { background: #16273d; color: #9ec4f5; }
+html[data-thema="donker"] .bits-st { background: #3a3014; color: #ffd98a; }
+html[data-thema="donker"] .bits-ok { background: #1c3222; color: #a5e6b4; }
+html[data-thema="donker"] .bits-fout { background: #3a2020; color: #ffb4ae; }
+html[data-thema="donker"] .bits-waarschuwing { background: #3a3014; color: #ffd98a; }
+html[data-thema="donker"] .bits-crc { background: #2b4a73; color: #d6e2f0; }
+.prod-test-venster { width: min(70rem, 96vw); max-height: 90vh; display: flex; flex-direction: column; }
+.prod-test-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+.prod-log-kort { max-height: 12rem; overflow: auto; }
+.kiezer-tabel tr.hist-onderdeel td { font-style: italic; }
+.prod-dual-teach { display: flex; gap: 1.2rem; flex-wrap: wrap; width: 100%; margin: .2rem 0; }
+.prod-dual-teach > div { display: flex; align-items: center; gap: .5rem; padding: .3rem .6rem; border: 1px solid #dfe4ea; border-radius: 6px; }
+html[data-thema="donker"] .prod-dual-teach > div { border-color: #2b4a73; }
+.prod-scopes-rij { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+.prod-scopes-rij .prod-scope-half { height: 14rem; }
+.prod-scope { width: 100%; height: 16rem; display: block; border-radius: 6px; margin: .4rem 0; }
+.prod-alias-venster { width: min(60rem, 96vw); max-height: 85vh; display: flex; flex-direction: column; }
+.prod-alias-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+.od-tabel td, .od-tabel th { font-size: .85rem; padding: .15rem .4rem; }
+.od-tabel td:nth-child(6) { font-family: Consolas, monospace; text-align: right; }
+.prod-sdo { border-left: 3px solid #cfd6df; padding-left: .8rem; align-items: flex-end; }
+.prod-prog select { min-width: 14rem; }
+/* historieregels met uitkomst: groen geslaagd, rood mislukt (Test PCB, Producten) */
+tr.hist-ok td   { background: #f1f9f2; }
+tr.hist-fout td { background: #fdf0ef; }
+html[data-thema="donker"] tr.hist-ok td   { background: #17301d; }
+html[data-thema="donker"] tr.hist-fout td { background: #3d1b1b; }
+.prod-techniek { display: flex; flex-direction: column; gap: .4rem; margin: .4rem 0 1rem; }
+.prod-techniek-vink { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
+.prod-kiezer { min-width: min(60rem, 94vw); }
+.prod-kiezer .fusion-kijker-inhoud { max-height: 65vh; overflow: auto; }
+.prod-kiezer .zoekveld { margin-left: 0; min-width: 16rem; }
+.prod-kiezer-vink { display: flex; align-items: center; gap: .3rem; white-space: nowrap; font-size: .85rem; }
+.prod-kiezer-tabel tr.klikbaar:hover td { background: #eef3fa; }
+html[data-thema="donker"] .prod-kiezer-tabel tr.klikbaar:hover td { background: #16273d; }
+.prod-hist-titel { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.prod-hist-titel .prod-subkop { margin: 0; }
+/* Vaste, ruime maat: de popup groeit of krimpt niet mee met het aantal regels. */
+.prod-hist-venster { width: min(80rem, 94vw); height: min(46rem, 88vh); display: flex; flex-direction: column; }
+.prod-hist-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
+.prod-hist-venster .zoekveld { margin-left: 0; min-width: 18rem; }
+.prod-hist-tabel td { vertical-align: top; }
+.prod-hist-tabel td.omschrijving { white-space: pre-wrap; overflow-wrap: anywhere; }
+.prod-hist-tabel mark { background: #ffe066; padding: 0 .1rem; border-radius: 2px; }
+html[data-thema="donker"] .prod-hist-tabel mark { background: #a07a1e; color: #fff; }
+.prod-servo-regs { max-width: 40rem; margin-top: .4rem; }
+/* Producten ▸ Opbouw: stappen, volgorde, documenten, vinkjes */
+.opb-tabel input:not([type=checkbox]) { width: 100%; }
+.opb-volgorde { white-space: nowrap; }
+.opb-volgorde .klein { padding: 0 .35rem; }
+.opb-vink { width: 1.15rem; height: 1.15rem; }
+.prod-gereed { margin-top: .8rem; align-items: center; }
+.prod-nr.klein-nr { width: 1.3rem; height: 1.3rem; font-size: .72rem; background: #8a929c; margin: 0; }
+tr.opb-docs td { background: #f7f9fc; padding: .4rem .6rem; }
+.opb-doc { display: inline-flex; align-items: center; gap: .3rem; margin: 0 .8rem .3rem 0; }
+html[data-thema="donker"] tr.opb-docs td { background: #1b2a3f; }
+/* Feetech-parameterset editor */
+.fpe-venster { min-width: min(64rem, 94vw); }
+.fpe-venster .fusion-kijker-inhoud { max-height: 75vh; overflow: auto; }
+.fpe-tabel td { vertical-align: middle; }
+.fpe-tabel td.uitleg { font-size: .82rem; }
+.art-nieuw { min-width: min(38rem, 94vw); }
+.art-nieuw textarea { width: 100%; resize: vertical; }
+/* artikelkoppeling bij een producttype (Producten ▸ Algemeen) */
+.prod-artikel { display: flex; gap: .4rem; align-items: center; }
+.prod-artikel-lijst { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
+.prod-io { display: flex; flex-wrap: wrap; gap: .6rem 1.4rem; align-items: center; margin: .3rem 0 .6rem; }
+.prod-io-drive { display: inline-flex; gap: .25rem; align-items: center; }
+.prod-io-drive b { margin-right: .2rem; }
+.prod-io-knop { min-width: 2rem; }
+.prod-io-knop.aan { background: #ffd43b; border-color: #e0b04a; color: #000; font-weight: 700; }
+.prod-taak { border: 2px solid #cfd6df; border-radius: 8px; padding: .6rem .8rem; margin: .6rem 0; background: #f7f9fc; }
+.prod-taak.go   { border-color: #2f9e44; background: #f3faf4; }
+.prod-taak.nogo { border-color: #c92a2a; background: #fdf3f3; }
+.prod-taak .prod-drives-kop b { color: inherit; font-size: 1rem; letter-spacing: 0; }
+html[data-thema="donker"] .prod-taak { background: #1b2a3f; border-color: #2b4a73; }
+html[data-thema="donker"] .prod-taak.go { background: #17301d; }
+html[data-thema="donker"] .prod-taak.nogo { background: #3d1b1b; }
+.prod-controle .stand-chip { white-space: normal; }
 /* Beheer ▸ Computers */
 .zoekveld { margin-left: auto; min-width: 16rem; }
 .comp-tabel td { vertical-align: top; }
@@ -1087,6 +1248,37 @@ html[data-thema="donker"] a.primair:hover { background: #2a6cc4; }
 .fs-tabel td { white-space: nowrap; }
 .fs-tabel td.omschrijving { white-space: normal; overflow-wrap: anywhere; }
 .fs-detail .prod-velden { grid-template-columns: max-content 1fr; }
+/* Productie ▸ Drivetypen: typen links, firmwares rechts */
+.drv-tweeluik { display: grid; grid-template-columns: minmax(22rem, 30rem) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+@media (max-width: 70rem) { .drv-tweeluik { grid-template-columns: 1fr; } }
+.drv-tweeluik .wn-kop { margin-top: 0; }
+.kiezer-tabel tr.klikbaar { cursor: pointer; }
+.kiezer-tabel tr.gekozen td { background: #e4edf9; }
+html[data-thema="donker"] .kiezer-tabel tr.gekozen td { background: #16273d; }
+.drv-firmwares input, .drv-firmwares select { width: 100%; }
+.drv-firmwares td { vertical-align: top; }
+.drv-bestand { display: flex; gap: .3rem; align-items: center; }
+.drv-bestand .knopje { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16rem; }
+.drv-firmwares tr.drv-rij td { border-bottom: none; padding-bottom: .15rem; }
+.drv-firmwares tr.drv-opm td { padding-top: 0; }
+.drv-firmwares tr.drv-opm input { font-size: .85rem; color: #556; }
+.drv-status.s-groen { color: #1e5c1e; font-weight: 600; }
+.drv-status.s-geel  { color: #6b4b00; }
+.drv-status.s-rood  { color: #8b1a16; font-weight: 600; }
+/* firmware laden: voortgangsbalk en de log van de agent */
+.prod-flash { min-width: min(60rem, 94vw); }
+.prod-vink { justify-content: flex-end; }
+.prod-vink label { display: flex; align-items: center; gap: .4rem; white-space: nowrap; }
+.prod-voortgang { height: .6rem; background: #e3e8ef; border-radius: .3rem; overflow: hidden; margin: .6rem 0 .4rem; }
+.prod-voortgang div { height: 100%; background: #2f9e44; transition: width .4s; }
+.prod-log { max-height: 18rem; overflow: auto; background: #0f172a; color: #d6e2f0; font-size: .78rem;
+            padding: .6rem .8rem; border-radius: 6px; white-space: pre-wrap; margin: 0; }
+html[data-thema="donker"] .prod-voortgang { background: #2b4a73; }
+html[data-thema="donker"] .prod-drives { background: #17301d; border-color: #2f9e44; }
+html[data-thema="donker"] .prod-drives.nogo { background: #3d1b1b; }
+html[data-thema="donker"] .prod-kaart { background: #1b2a3f; border-color: #2b4a73; }
+html[data-thema="donker"] .prod-velden dt { color: #9fb0c5; }
+
 /* uitkomst van de JLCPCB-proefaanvraag */
 .jlc-proef { background: #f5f7fa; border: 1px solid #ddd; border-radius: 6px;
              padding: .6rem .8rem; max-height: 22rem; overflow: auto;
@@ -1181,6 +1373,7 @@ html[data-thema="donker"] .fusion-fabrikanten .klein.actief:hover { background: 
 .stand-chip.s-oranje { background: #fff3d6; border-color: #e6a817;     color: #7a4f00; }
 .stand-chip.s-blauw  { background: #e4edf9; border-color: #9db8dc;     color: #274e7d; }
 .stand-chip.s-rood   { background: #fdecea; border-color: var(--rood); color: #8b1a16; }
+.stand-chip.s-geel   { background: #fff4d6; border-color: #e0b04a;     color: #6b4b00; }
 
 .alarm-meer { margin-top: 1.4rem; max-width: 60rem; }
 .alarm-meer summary { cursor: pointer; color: var(--accent); padding: .3rem 0; }
@@ -1731,6 +1924,7 @@ html[data-thema="donker"] .stand-chip.s-groen  { background: #1c3222; border-col
 html[data-thema="donker"] .stand-chip.s-oranje { background: #33290f; border-color: #7a6320; color: #ffd9a0; }
 html[data-thema="donker"] .stand-chip.s-blauw  { background: #16273d; border-color: #2b4a73; color: #9ec4f5; }
 html[data-thema="donker"] .stand-chip.s-rood   { background: #3a2020; border-color: var(--rood); color: #ffb4ae; }
+html[data-thema="donker"] .stand-chip.s-geel   { background: #3a3014; border-color: #a07a1e; color: #ffd98a; }
 html[data-thema="donker"] .vault-balk { background: #3a2020; border-color: var(--rood); color: #ffb4ae; }
 html[data-thema="donker"] .fusion-mappen { border-color: var(--d3); }
 
@@ -1783,6 +1977,16 @@ html[data-thema="donker"] .banktotalen { box-shadow: 0 2px 12px rgba(0,0,0,.45);
 .bevestig-ja:hover { background: #a81e1e; }
 .bevestig-ja:focus { outline: 3px solid #f9c74f; outline-offset: 1px; }
 
+/* ---- Samenstelling volgens stuklijst (SamenstellingKiezer) ---- */
+.sam-tabel td { vertical-align: top; }
+.sam-exemplaar { display: inline-flex; align-items: center; gap: .2rem; margin: 0 .5rem .3rem 0; padding: .15rem .45rem; border: 1px solid #cfd6df; border-radius: 1rem; background: #f6f8fb; }
+.sam-exemplaar .knopje { padding: 0 .3rem; line-height: 1; }
+.sam-kies { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .3rem; }
+.sam-sn { width: 11rem; }
+.sam-vrij { max-height: 12rem; overflow: auto; }
+.sam-stand { margin-top: .4rem; }
+html[data-thema="donker"] .sam-exemplaar { background: var(--d1); border-color: var(--d3); }
+
 /* ---- Groepenkiezer: nieuwe (sub)groep maken ---- */
 .grplus { margin-left: auto; padding: 0 .45rem; line-height: 1.2; font-size: .85rem; color: #789; background: transparent; border: 1px solid transparent; border-radius: 4px; opacity: 0; }
 .grrij:hover .grplus { opacity: 1; }
@@ -1798,6 +2002,36 @@ html[data-thema="donker"] .grnieuw { background: var(--d1); border-color: var(--
 /* ---- Merkkiezer (combobox met NotInList) ---- */
 .merk-kiezer { display: inline-flex; flex-direction: column; gap: .15rem; width: 100%; }
 .merk-kiezer input { width: 100%; }
+
+/* ---- Producten: linkerkolom zo hoog als het scherm, exemplarenlijst vult de rest ---- */
+.product-lijst { display: flex; flex-direction: column; height: calc(100vh - 8.5rem); position: sticky; top: .6rem; overflow: hidden; }
+.product-lijst .product-namen { max-height: 26vh; flex-shrink: 0; }
+.product-lijst .product-exemplaren { flex: 1 1 auto; max-height: none; min-height: 6rem; }
+/* Exemplaarregel: smal serienummer gecentreerd, status (PREPROD past), klant op één regel (…) */
+.wn-naam.exemplaar-regel { display: grid; grid-template-columns: minmax(3.2rem, max-content) minmax(4.9rem, max-content) minmax(0, 1fr); gap: .5rem; align-items: baseline; padding: .22rem .5rem; }
+.wn-naam.exemplaar-regel .nummer { min-width: 0; text-align: center; }
+.wn-naam.exemplaar-regel .stat { min-width: 0; white-space: nowrap; }
+.wn-naam.exemplaar-regel .klant { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* vinkje netjes in het midden van de regel */
+.product-exemplaren .mail-regel { align-items: center; }
+.product-exemplaren .mail-regel > input[type="checkbox"] { margin: 0 0 0 .35rem; }
+/* Statusfilter boven de lijst: knop + uitklapmenu met vinkjes, scheiding met de lijst */
+.exemplaar-filter { position: relative; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    padding: .3rem .7rem .5rem; margin-bottom: .3rem; border-bottom: 1px solid #dfe4ea; }
+.exemplaar-filter .statusknop { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-popover { position: absolute; top: 100%; left: .7rem; z-index: 30; min-width: 16rem; max-height: 45vh; overflow: auto;   /* .product-lijst knipt (overflow hidden) */
+    background: #fff; border: 1px solid #c8d1dc; border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.14); padding: .5rem .7rem .6rem; }
+.status-popover-kop { display: flex; align-items: center; gap: .3rem; margin-bottom: .35rem; }
+.status-popover-kop .knopje { padding: .15rem .5rem; font-size: .85em; }
+.status-popover hr { margin: .4rem 0; border: 0; border-top: 1px solid #e2e6ec; }
+.status-keuze { padding: .12rem 0; }
+.status-keuze .uitleg { margin-left: auto; padding-left: .8rem; }
+html[data-thema="donker"] .exemplaar-filter { border-bottom-color: #2b4a73; }
+html[data-thema="donker"] .status-popover { background: #14243a; border-color: #2b4a73; box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+html[data-thema="donker"] .status-popover hr { border-top-color: #2b4a73; }
+.product-lijst .wn-kop small { font-weight: 400; margin-left: .3rem; }
+.randlabels { display: flex; gap: 1rem; flex-wrap: wrap; padding: 0 .7rem; }
+.shell.kiosk .product-lijst { height: calc(100vh - 3rem); }
 
 /* ---- Uitgaande factuur: de regeltabel in het venster ---- */
 .vf-regels input { width: 100%; box-sizing: border-box; }
@@ -1871,6 +2105,10 @@ html[data-thema="donker"] .lq-raster { stroke: #2b3a4d; }/* Liquiditeit: drie ko
 /* Liquiditeit: regels met iets erachter zijn te openen met dubbelklik */
 .lq-dagtabel tr.lq-open { cursor: pointer; }
 .lq-dagtabel tr.lq-open:hover td { background: rgba(26, 95, 180, .06); }
+/* Producten: project als vierde kolom in de exemplarenlijst, na de klant */
+.wn-naam.exemplaar-regel { grid-template-columns: minmax(3.2rem, max-content) minmax(4.9rem, max-content) minmax(0, 1fr) minmax(0, .8fr); }
+.wn-naam.exemplaar-regel .project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667; }
+html[data-thema="donker"] .wn-naam.exemplaar-regel .project { color: #9fb0c4; }
 
 /* ---- Banktransacties: Rabobank-koppeling ---- */
 .rabo-blok { border: 1px solid #c9d6e8; background: #f5f8fc; border-radius: 6px; padding: 6px 10px; margin: 6px 0 8px; font-size: 0.9em; }

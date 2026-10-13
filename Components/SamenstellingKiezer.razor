@@ -1,0 +1,271 @@
+@inject IProductRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Samenstelling van een exemplaar, gestuurd door de stuklijst van het producttype
+   (Producten ▸ producttype ▸ tab Samenstelling): per halffabricaat hoeveel er in moeten,
+   hoeveel er al gekoppeld zijn, en een kiezer die uitsluitend vrije exemplaren van
+   precies dát halffabricaat aanbiedt (SN typen/scannen of klikken). Halffabricaten
+   buiten de stuklijst staan onder 'Overig' en kunnen via de vrije zoekregel erbij.
+   De koppeling zelf is Producten.ParentProductenID, zoals in Access. *@
+
+@if (_stuklijst.Count == 0 && _onderdelen.Count == 0 && !_vrijZoeken)
+{
+    <p class="uitleg">
+        Dit producttype heeft nog geen stuklijst (Producten ▸ producttype ▸ tab Samenstelling).
+        <button class="klein" @onclick="() => _vrijZoeken = true">Toch een halffabricaat koppelen…</button>
+    </p>
+}
+
+@if (_stuklijst.Count > 0)
+{
+    <table class="kiezer-tabel sam-tabel">
+        <tbody>
+            @foreach (var s in _stuklijst)
+            {
+                var gekoppeld = Gekoppeld(s).ToList();
+                var klaar = gekoppeld.Count >= s.Aantal;
+                <tr @key="s.Id" class="@RijKleur(gekoppeld.Count, s.Aantal)">
+                    <td style="width:3rem" class="c">
+                        <span class="stand-chip @ChipKleur(gekoppeld.Count, s.Aantal)" title="gekoppeld van verwacht">@gekoppeld.Count / @s.Aantal</span>
+                    </td>
+                    <td style="width:16rem">
+                        <b>@s.OnderdeelNaam</b>
+                        @if (s.OnderdeelGroep.Length > 0) { <small class="uitleg"> · @s.OnderdeelGroep</small> }
+                        @if (s.OnderdeelOmschrijving.Length > 0) { <br /><small class="uitleg">@s.OnderdeelOmschrijving</small> }
+                        @if (s.Opmerking.Length > 0) { <br /><small class="uitleg">@s.Opmerking</small> }
+                    </td>
+                    <td>
+                        @foreach (var o in gekoppeld)
+                        {
+                            <span class="sam-exemplaar" @key="o.ProductId">
+                                <span class="nummer">@o.Serienummer</span>
+                                <button class="knopje rood" title="Uit de samenstelling halen" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
+                            </span>
+                        }
+                        @if (!klaar)
+                        {
+                            <span class="sam-kies">
+                                <input class="sam-sn" placeholder="SN typen/scannen ↵" value="@SnVoor(s.Id)" disabled="@_bezig"
+                                       @oninput="e => _sn[s.Id] = (string?)e.Value ?? string.Empty"
+                                       @onkeydown="e => SnToets(s, e)" />
+                                <button class="klein" disabled="@_bezig" @onclick="() => ToonVrije(s)"
+                                        title="Vrije exemplaren van dit halffabricaat">@(_open == s.Id ? "▴" : "▾") kiezen</button>
+                            </span>
+                        }
+                    </td>
+                </tr>
+                @if (_open == s.Id && !klaar)
+                {
+                    <tr @key="@($"{s.Id}-vrij")" class="opb-docs">
+                        <td></td>
+                        <td colspan="2">
+                            @if (_vrijeVoor.Count == 0)
+                            {
+                                <span class="uitleg">Geen vrije exemplaren van @s.OnderdeelNaam (alle exemplaren zitten al in een product, of er zijn er nog geen aangemaakt).</span>
+                            }
+                            else
+                            {
+                                <div class="wn-namen kort sam-vrij">
+                                    @foreach (var v in _vrijeVoor)
+                                    {
+                                        <button class="wn-naam" @key="v.ProductId" disabled="@_bezig" @onclick="() => Koppel(v, s)">
+                                            <span class="nummer">@v.Serienummer</span> @v.Code
+                                        </button>
+                                    }
+                                </div>
+                                @if (_vrijeVoor.Count >= 30) { <small class="uitleg">Alleen de 30 nieuwste; typ het serienummer voor een ander.</small> }
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+    <p class="uitleg sam-stand">
+        @if (AllesCompleet) { <span class="stand-chip s-groen">✔ Samenstelling compleet</span> }
+        else { <text>nog @Ontbrekend halffabrica(a)t(en) te koppelen</text> }
+    </p>
+}
+
+@{ var overig = Overig().ToList(); }
+@if (overig.Count > 0)
+{
+    <h4 class="prod-subkop">Overig (niet in de stuklijst)</h4>
+    <table class="kiezer-tabel">
+        <tbody>
+            @foreach (var o in overig)
+            {
+                <tr @key="o.ProductId">
+                    <td style="width:16rem">@o.Code</td>
+                    <td style="width:7rem"><span class="nummer">@o.Serienummer</span></td>
+                    <td>@o.Omschrijving</td>
+                    <td class="c" style="width:4rem"><button class="klein rood" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (_vrijZoeken || _stuklijst.Count > 0)
+{
+    <div class="tl-balk">
+        <input class="mail-zoek" placeholder="@ZoekTekst"
+               value="@_vrijZoek" @onchange="VrijZoekGewijzigd" />
+    </div>
+    @if (_vrije.Count > 0)
+    {
+        <div class="wn-namen kort">
+            @foreach (var v in _vrije)
+            {
+                <button class="wn-naam" @key="v.ProductId" disabled="@_bezig" @onclick="() => Koppel(v, null)">
+                    <span class="nummer">@v.Serienummer</span>
+                    <span class="stat">@v.Code</span>
+                    @v.Omschrijving
+                </button>
+            }
+        </div>
+    }
+}
+@if (_fout is not null) { <p class="uitleg fout-tekst">@_fout</p> }
+
+@code {
+    [Parameter] public int ProductNameId { get; set; }
+    [Parameter] public int ProductId { get; set; }
+    /// <summary>Na elke koppeling/ontkoppeling, zodat de aanroeper historie/kaart kan verversen.</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private List<StuklijstRegel> _stuklijst = new();
+    private List<SamenstellingRegel> _onderdelen = new();
+    private List<SamenstellingRegel> _vrijeVoor = new();
+    private List<SamenstellingRegel> _vrije = new();
+    private readonly Dictionary<int, string> _sn = new();
+    private int? _open;
+    private string _vrijZoek = "";
+    private bool _vrijZoeken;
+    private bool _bezig;
+    private string? _fout;
+    private int _geladenVoor = -1;
+
+    private IEnumerable<SamenstellingRegel> Gekoppeld(StuklijstRegel s) => _onderdelen.Where(o => o.ProductNameId == s.OnderdeelNameId);
+    private IEnumerable<SamenstellingRegel> Overig() => _onderdelen.Where(o => _stuklijst.All(s => s.OnderdeelNameId != o.ProductNameId));
+    private int Ontbrekend => _stuklijst.Sum(s => Math.Max(0, s.Aantal - Gekoppeld(s).Count()));
+    /// <summary>Alle regels van de stuklijst zijn gevuld (voor 'Product gereed' e.d.).</summary>
+    public bool AllesCompleet => _stuklijst.Count > 0 && Ontbrekend == 0;
+    private string SnVoor(int id) => _sn.TryGetValue(id, out var v) ? v : "";
+    private static string ChipKleur(int n, int verwacht) => n > verwacht ? "s-rood" : n >= verwacht ? "s-groen" : "s-geel";
+    private static string RijKleur(int n, int verwacht) => n > verwacht ? "hist-fout" : n >= verwacht ? "hist-ok" : "";
+    private string ZoekTekst => _stuklijst.Count > 0
+        ? "Iets anders toevoegen: zoek een vrij exemplaar (SN of type)…"
+        : "Zoek een vrij exemplaar om toe te voegen…";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProductId) return;
+        _geladenVoor = ProductId;
+        await Laad();
+    }
+
+    public async Task Laad()
+    {
+        _fout = null; _open = null; _vrijeVoor = new(); _vrije = new(); _vrijZoek = "";
+        try
+        {
+            _stuklijst = await Repo.GetStuklijstAsync(ProductNameId);
+            _onderdelen = await Repo.GetOnderdelenAsync(ProductId);
+        }
+        catch (Exception ex) { _fout = "Samenstelling laden mislukt: " + ex.Message; }
+        StateHasChanged();
+    }
+
+    private async Task ToonVrije(StuklijstRegel s)
+    {
+        if (_open == s.Id) { _open = null; return; }
+        _open = s.Id;
+        try { _vrijeVoor = await Repo.ZoekVrijeExemplarenAsync("", 30, s.OnderdeelNameId); }
+        catch (Exception ex) { _fout = ex.Message; _vrijeVoor = new(); }
+    }
+
+    /// <summary>Serienummer getypt/gescand bij een regel: het vrije exemplaar van dát halffabricaat koppelen.</summary>
+    private async Task SnToets(StuklijstRegel s, KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var sn = SnVoor(s.Id).Trim();
+        if (sn.Length == 0) return;
+        try
+        {
+            var kandidaten = await Repo.ZoekVrijeExemplarenAsync(sn, 50, s.OnderdeelNameId);
+            var tref = kandidaten.FirstOrDefault(k => SerieGelijk(k.Serienummer, sn))
+                       ?? (kandidaten.Count == 1 ? kandidaten[0] : null);
+            if (tref is null)
+            {
+                _fout = kandidaten.Count > 1
+                    ? $"'{sn}' past op meerdere vrije exemplaren van {s.OnderdeelNaam}; typ het volledige nummer."
+                    : $"Geen vrij exemplaar van {s.OnderdeelNaam} met serienummer '{sn}' (bestaat het, en zit het niet al in een ander product?).";
+                return;
+            }
+            await Koppel(tref, s);
+            _sn[s.Id] = "";
+        }
+        catch (Exception ex) { _fout = ex.Message; }
+    }
+
+    private static bool SerieGelijk(string a, string b)
+    {
+        static string Kaal(string s) => s.Trim().TrimStart('0');
+        return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase) || Kaal(a) == Kaal(b);
+    }
+
+    private async Task Koppel(SamenstellingRegel v, StuklijstRegel? s)
+    {
+        if (v.ProductId == ProductId) { _fout = "Een product kan niet zichzelf bevatten."; return; }
+        // Buiten de stuklijst, of al vol? Dan wel koppelen maar het zeggen — de stuklijst is een hulpmiddel, geen slot.
+        var regel = s ?? _stuklijst.FirstOrDefault(x => x.OnderdeelNameId == v.ProductNameId);
+        var melding = regel is null && _stuklijst.Count > 0 ? $" (let op: {v.Code} staat niet in de stuklijst)"
+                    : regel is not null && Gekoppeld(regel).Count() >= regel.Aantal ? $" (let op: meer dan de {regel.Aantal} verwachte {regel.OnderdeelNaam})"
+                    : "";
+        _bezig = true; _fout = null;
+        try
+        {
+            await Repo.KoppelAsync(v.ProductId, ProductId);
+            await Repo.VoegHistorieToeAsync(ProductId, $"Samenstelling: {v.Code} {v.Serienummer} toegevoegd{melding}",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: melding.Length == 0 ? true : null);
+            await Repo.VoegHistorieToeAsync(v.ProductId, $"Ingebouwd in product #{ProductId}", ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            var open = _open;
+            await Laad();
+            if (open is int id && _stuklijst.FirstOrDefault(x => x.Id == id) is { } nog && Gekoppeld(nog).Count() < nog.Aantal)
+            {
+                _open = id;
+                _vrijeVoor = await Repo.ZoekVrijeExemplarenAsync("", 30, nog.OnderdeelNameId);
+            }
+            if (melding.Length > 0) _fout = melding.Trim(' ', '(', ')');
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Koppelen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Ontkoppel(SamenstellingRegel o)
+    {
+        _bezig = true; _fout = null;
+        try
+        {
+            await Repo.KoppelAsync(o.ProductId, null);
+            await Repo.VoegHistorieToeAsync(ProductId, $"Samenstelling: {o.Code} {o.Serienummer} verwijderd",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            await Repo.VoegHistorieToeAsync(o.ProductId, $"Uit product #{ProductId} gehaald", ProductVelden.HistorieLevensloop, Ik.WerknemerId);
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Ontkoppelen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task VrijZoekGewijzigd(ChangeEventArgs e)
+    {
+        _vrijZoek = ((string?)e.Value ?? "").Trim();
+        _vrije = new();
+        if (_vrijZoek.Length < 2) return;
+        try { _vrije = await Repo.ZoekVrijeExemplarenAsync(_vrijZoek, 25); }
+        catch (Exception ex) { _fout = ex.Message; }
+    }
+}

@@ -6,8 +6,13 @@
 @inject FilestoreService Store
 @inject LabelService Labels
 @inject AltecPrinter Altec
+@inject IDriveRepository Drives
+@inject IArtikelRepository Artikelen
+@inject IOpbouwRepository Opbouw
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IConfiguration Config
+@inject WerkplekAgent Agent
 
 <div class="page">
     <header class="topbar">
@@ -53,26 +58,46 @@
                                 <option value="@t.Id">@t.Naam</option>
                             }
                         </select>
+                        @if (_groepen.Count > 0)
+                        {
+                            <select value="@(_groepFilter?.ToString() ?? string.Empty)" @onchange="GroepFilterGewijzigd" title="Groep (Motor, PCBA, Kabel)">
+                                <option value="">Alle groepen</option>
+                                @foreach (var g in _groepen)
+                                {
+                                    <option value="@g.Id">@g.Naam</option>
+                                }
+                            </select>
+                        }
                     </div>
                 </div>
 
                 <div class="wn-namen product-namen">
-                    @if (_namen.Count == 0)
+                    @if (NamenGefilterd().Count == 0)
                     {
                         <div class="kiezer-info">Niets gevonden.</div>
                     }
                     else
                     {
-                        @foreach (var n in _namen)
+                        @foreach (var n in NamenGefilterd())
                         {
                             <button class="wn-naam @(n.Id == _naamId ? "actief" : "")"
                                     @key="n.Id" @onclick="() => KiesNaam(n)">
                                 <span class="nda-regel">
-                                    <span class="nda-naam">@n.Naam</span>
+                                    <span class="nda-naam">
+                                        @n.Naam
+                                        @if (n.ArtikelId is int a)
+                                        {
+                                            <span class="art-nr" title="Gekoppeld artikel">#@a</span>
+                                        }
+                                    </span>
                                     <span class="nda-onder">
                                         @if (!string.IsNullOrWhiteSpace(n.TypeCode))
                                         {
                                             <span class="type-code">@n.TypeCode</span>
+                                        }
+                                        @if (n.Groep.Length > 0)
+                                        {
+                                            <span class="type-code groep-code">@n.Groep</span>
                                         }
                                         @n.Omschrijving
                                     </span>
@@ -86,19 +111,51 @@
                     <button class="klein rood" disabled="@(_naamId is null)" @onclick="WisType">✕ Type wissen</button>
                 </div>
 
-                <h3 class="wn-kop">Exemplaren</h3>
-                <label class="vink randlabel">
-                    <input type="checkbox" checked="@_inclGewist" @onchange="GewistGewijzigd" />
-                    Inclusief gewist
-                </label>
-                <div class="wn-namen kort">
+                <h3 class="wn-kop">Exemplaren <small class="uitleg">(@_producten.Count, nieuwste boven)</small></h3>
+                @* Filter op status (meerkeuze) en gewist; de keuze wordt per pc onthouden. *@
+                <div class="exemplaar-filter">
+                    <button class="klein statusknop" @onclick="() => _statusOpen = !_statusOpen" title="Welke statussen in de lijst staan">
+                        Status: @StatusFilterTekst <span class="navpijl">@(_statusOpen ? "▴" : "▾")</span>
+                    </button>
+                    @if (_inclGewist) { <span class="stand-chip s-rood" title="Gewiste exemplaren staan ook in de lijst">+ gewist</span> }
+                    @if (_statusOpen)
+                    {
+                        <div class="status-popover">
+                            <div class="status-popover-kop">
+                                <button class="knopje" @onclick="StatusAlles">alles</button>
+                                <button class="knopje" @onclick="StatusGeen">geen</button>
+                                <button class="knopje" @onclick="StatusStandaard" title="Alles behalve de eindstatus">standaard</button>
+                                <span style="flex:1"></span>
+                                <button class="knopje" @onclick="() => _statusOpen = false">✕</button>
+                            </div>
+                            @foreach (var s in Lijst("Status"))
+                            {
+                                var id = s.Id;
+                                <label class="vink status-keuze" @key="id">
+                                    <input type="checkbox" checked="@_statusFilter.Contains(id)" @onchange="e => ZetStatusFilter(id, e)" />
+                                    <span>@s.Naam</span><small class="uitleg">@AantalMetStatus(id)</small>
+                                </label>
+                            }
+                            <label class="vink status-keuze">
+                                <input type="checkbox" checked="@_statusFilter.Contains(0)" @onchange="e => ZetStatusFilter(0, e)" />
+                                <span>(geen status)</span><small class="uitleg">@AantalMetStatus(0)</small>
+                            </label>
+                            <hr />
+                            <label class="vink status-keuze" title="Zacht gewiste exemplaren (isDeleted) ook tonen">
+                                <input type="checkbox" checked="@_inclGewist" @onchange="GewistGewijzigd" />
+                                <span>ook gewiste exemplaren</span>
+                            </label>
+                        </div>
+                    }
+                </div>
+                <div class="wn-namen kort product-exemplaren">
                     @if (_naamId is null)
                     {
                         <div class="kiezer-info">Kies eerst een producttype.</div>
                     }
                     else if (_producten.Count == 0)
                     {
-                        <div class="kiezer-info">Nog geen exemplaren.</div>
+                        <div class="kiezer-info">@(_alleProducten.Count > 0 ? $"Geen exemplaren met de gekozen status ({_alleProducten.Count} verborgen)." : "Nog geen exemplaren.")</div>
                     }
                     else
                     {
@@ -107,11 +164,12 @@
                             <div class="mail-regel @(p.Id == _productId ? "actief" : "")" @key="p.Id">
                                 <input type="checkbox" title="Selecteren voor een groepsbewerking"
                                        checked="@_gekozen.Contains(p.Id)" @onchange="e => Vink(p, e)" />
-                                <button class="wn-naam @(p.Gewist ? "vervallen" : "")"
-                                        @onclick="() => KiesProduct(p)">
+                                <button class="wn-naam exemplaar-regel @(p.Gewist ? "vervallen" : "")"
+                                        @onclick="() => KiesProduct(p)" title="@RegelTitel(p)">
                                     <span class="nummer">@p.Serienummer</span>
                                     <span class="stat">@p.StatusKort</span>
-                                    @p.Klant
+                                    <span class="klant">@p.Klant</span>
+                                    <span class="project">@p.Project</span>
                                 </button>
                             </div>
                         }
@@ -167,6 +225,17 @@
                                 }
                             </select>
                         </div>
+                        @if (_kolommen.Contains("Project"))
+                        {
+                            <div class="wn-veld">
+                                <label>Project</label>
+                                <span class="zoekregel">
+                                    <input @key="_groepTeller" maxlength="100" placeholder="Projectnaam of -nummer"
+                                           value="@_groepProject" @onchange="e => _groepProject = ((string?)e.Value ?? string.Empty).Trim()" />
+                                    <button class="klein" @onclick="GroepProject">Toewijzen</button>
+                                </span>
+                            </div>
+                        }
                         <div class="wn-veld">
                             <label>Werkorder</label>
                             <select @key="_groepTeller" value="" @onchange="GroepWerkorder">
@@ -200,7 +269,7 @@
                         }
                         @foreach (var tab in Tabs)
                         {
-                            <button class="@(tab == _tab ? "actief" : "")" @onclick="() => _tab = tab">@tab</button>
+                            <button class="@(tab == _tab ? "actief" : "")" @onclick="() => _tab = tab">@TabTitel(tab)</button>
                         }
                     </div>
 
@@ -231,9 +300,48 @@
                                             <label>Omschrijving</label>
                                             <input value="@_naamOms" maxlength="100" @onchange="NaamOmsGewijzigd" />
                                         </div>
+                                        <div class="wn-veld">
+                                            <label>Groep</label>
+                                            <select value="@(_naam?.GroepId?.ToString() ?? string.Empty)" @onchange="GroepGewijzigd"
+                                                    disabled="@(_groepen.Count == 0)" title="@GroepTitel">
+                                                <option value="">—</option>
+                                                @foreach (var g in _groepen)
+                                                {
+                                                    <option value="@g.Id">@g.Naam</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="wn-veld">
+                                            <label>Artikel</label>
+                                            <div class="prod-artikel">
+                                                @if (_naam?.ArtikelId is int aid)
+                                                {
+                                                    <span class="stand-chip s-blauw" title="@_naam.ArtikelOmschrijving">#@aid @_naam.ArtikelCode</span>
+                                                    <a class="knopje" href="artikelen?nr=@aid" target="_blank" rel="noopener" title="Openen in Artikelen (samenstelling)">Artikel openen ↗</a>
+                                                    <button class="klein" title="Koppeling weghalen" @onclick="() => ZetArtikel(null)">✕</button>
+                                                }
+                                                <input value="@_artikelZoek" placeholder="@ArtikelPlaceholder" style="flex:1"
+                                                       @oninput="ArtikelZoekGewijzigd" />
+                                            </div>
+                                            @if (_artikelZoek.Length >= 2)
+                                            {
+                                                <div class="prod-artikel-lijst">
+                                                    @foreach (var a in _artikelTreffers)
+                                                    {
+                                                        <button class="klein" title="@a.Omschrijving" @onclick="() => ZetArtikel(a.Id)">#@a.Id @a.Code <small class="uitleg">@a.Omschrijving</small></button>
+                                                    }
+                                                    @if (_artikelTreffers.Count == 0)
+                                                    {
+                                                        <span class="uitleg">@(_artikelZoekt ? "zoeken…" : "geen artikel gevonden")</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
                                     </div>
                                     <p class="uitleg">
-                                        Dit is het producttype. Kies links een serienummer om een exemplaar
+                                        Dit is het producttype. Groep (Motor, PCBA, Kabel) en artikel worden gebruikt in
+                                        Productie ▸ Test PCB / Motor programmeren: het artikel wijst naar de samenstelling
+                                        (bijvoorbeeld hoe een kabel is opgebouwd). Kies links een serienummer om een exemplaar
                                         te zien, met zijn eigen status, werkorder en historie.
                                     </p>
                                 }
@@ -266,18 +374,6 @@
                             <Zij>
                                 @if (_productId is null)
                                 {
-                                    <ZijBlok Titel="Exemplaren" Aantal="_producten.Count"
-                                             Leeg="@(_producten.Count == 0)" LeegTekst="Nog geen exemplaren.">
-                                        @foreach (var p in _producten.Take(6))
-                                        {
-                                            <div class="zij-regel" @key="p.Id">
-                                                <button class="zij-naam zij-knop" @onclick="() => KiesProduct(p)">
-                                                    @p.Serienummer @p.Klant
-                                                </button>
-                                                <span class="zij-extra">@p.StatusKort @p.Opmerking</span>
-                                            </div>
-                                        }
-                                    </ZijBlok>
                                     <ZijBlok Titel="Standaardattributen" Aantal="_typeAttributen.Count"
                                              Meer="NaarAttributen"
                                              Leeg="@(_typeAttributen.Count == 0)" LeegTekst="Nog geen attributen.">
@@ -340,21 +436,48 @@
                             </select>
                             <button class="primair" @onclick="VoegHistorieToe">+ Toevoegen</button>
                         </div>
+                        <div class="tl-balk hist-filter">
+                            <input class="mail-zoek" placeholder="🔍 Zoeken in historie (tekst, soort, door)…" value="@_histZoek"
+                                   @oninput="e => _histZoek = (string?)e.Value ?? string.Empty" />
+                            <select value="@_histSoortFilter" @onchange="e => _histSoortFilter = (string?)e.Value ?? string.Empty">
+                                <option value="">alle soorten</option>
+                                @foreach (var s in _historie.Select(h => h.Soort).Where(x => x.Length > 0).Distinct().OrderBy(x => x))
+                                {
+                                    <option value="@s">@s</option>
+                                }
+                            </select>
+                            <select value="@_histUitkomst" @onchange="e => _histUitkomst = (string?)e.Value ?? string.Empty">
+                                <option value="">alles</option>
+                                <option value="ok">alleen geslaagd</option>
+                                <option value="fout">alleen mislukt</option>
+                            </select>
+                            <label class="vink" title="Ook de historie van de gekoppelde halffabricaten (samenstelling, tot 3 niveaus diep) tonen">
+                                <input type="checkbox" checked="@_histMetOnderdelen" @onchange="HistOnderdelenGewijzigd" /> incl. onderdelen
+                            </label>
+                            <span class="uitleg">@HistorieGefilterd.Count van @(_historie.Count + (_histMetOnderdelen ? _histOnderdelen.Count : 0))</span>
+                            @if (_histZoek.Length > 0 || _histSoortFilter.Length > 0 || _histUitkomst.Length > 0)
+                            {
+                                <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; }">✕ wissen</button>
+                            }
+                        </div>
 
                         <table class="kiezer-tabel">
                             <thead>
                                 <tr>
                                     <th style="width:10rem">Wanneer</th>
+                                    @if (_histMetOnderdelen) { <th style="width:12rem">Van</th> }
                                     <th style="width:10rem">Soort</th>
                                     <th>Gebeurtenis</th>
                                     <th style="width:11rem">Door</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var h in _historie)
+                                @foreach (var h in HistorieGefilterd)
                                 {
-                                    <tr @key="h.Id">
+                                    var hvan = _histVan.TryGetValue(h.Id, out var hvw) ? hvw : "";
+                                    <tr @key="h.Id" class="@(h.Uitkomst is null ? "" : h.Uitkomst.Value ? "hist-ok" : "hist-fout") @(hvan.Length > 0 ? "hist-onderdeel" : "")">
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        @if (_histMetOnderdelen) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
                                         <td>@h.Event</td>
                                         <td>@h.Door</td>
@@ -363,6 +486,10 @@
                                 @if (_historie.Count == 0)
                                 {
                                     <tr><td colspan="4" class="kiezer-info">Nog geen historie.</td></tr>
+                                }
+                                else if (HistorieGefilterd.Count == 0)
+                                {
+                                    <tr><td colspan="4" class="kiezer-info">Niets gevonden voor dit filter.</td></tr>
                                 }
                             </tbody>
                         </table>
@@ -431,58 +558,89 @@
                     }
 
                     @* ===== SAMENSTELLING (alleen bij een exemplaar) ===== *@
-                    @if (_tab == "Samenstelling")
+                    @* ===== SAMENSTELLING van een producttype: de stuklijst (welke halffabricaten, hoeveel) ===== *@
+                    @if (_tab == "Samenstelling" && _productId is null && _naamId is not null)
                     {
-                        <h3 class="wn-kop">Gebruikt</h3>
+                        <p class="uitleg">
+                            Welke halffabricaten er in dit product gaan en hoeveel. Bij het samenstellen van een exemplaar
+                            (tab Samenstelling, en Productie ▸ Producten) worden dan alleen vrije exemplaren van precies deze
+                            halffabricaten aangeboden en zie je wat er nog ontbreekt.
+                        </p>
+                        @if (!_heeftStuklijst)
+                        {
+                            <div class="melding fout">De tabel <code>ProductSamenstelling</code> ontbreekt nog: voer <code>ProductSamenstelling_MariaDB.sql</code> uit.</div>
+                        }
                         <table class="kiezer-tabel">
                             <thead>
                                 <tr>
-                                    <th style="width:11rem">Type</th>
-                                    <th style="width:7rem">SN</th>
-                                    <th>Omschrijving</th>
-                                    <th style="width:8rem">Soort</th>
-                                    <th style="width:7rem"></th>
+                                    <th style="width:5rem">#</th>
+                                    <th>Halffabricaat</th>
+                                    <th style="width:6rem">Aantal</th>
+                                    <th style="width:18rem">Opmerking</th>
+                                    <th style="width:3rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var o in _onderdelen)
+                                @for (var i = 0; i < _stuklijst.Count; i++)
                                 {
-                                    <tr @key="o.ProductId">
-                                        <td>@o.Code</td>
-                                        <td>@o.Serienummer</td>
-                                        <td>@o.Omschrijving</td>
-                                        <td>@o.TypeCode</td>
-                                        <td class="c">
-                                            <button class="klein" title="Naar dit product springen"
-                                                    @onclick="() => GaNaar(o)">↗ Goto</button>
-                                            <button class="klein rood" title="Uit de samenstelling halen"
-                                                    @onclick="() => Ontkoppel(o)">✕</button>
+                                    var s = _stuklijst[i]; var idx = i;
+                                    <tr @key="s.Id">
+                                        <td class="opb-volgorde">
+                                            <button class="klein" disabled="@(idx == 0)" title="Omhoog" @onclick="() => VerschuifStuklijst(s, -1)">▲</button>
+                                            <button class="klein" disabled="@(idx == _stuklijst.Count - 1)" title="Omlaag" @onclick="() => VerschuifStuklijst(s, 1)">▼</button>
                                         </td>
+                                        <td>
+                                            <b>@s.OnderdeelNaam</b>
+                                            @if (s.OnderdeelGroep.Length > 0) { <small class="uitleg"> · @s.OnderdeelGroep</small> }
+                                            @if (s.OnderdeelOmschrijving.Length > 0) { <br /><small class="uitleg">@s.OnderdeelOmschrijving</small> }
+                                        </td>
+                                        <td><input type="number" min="1" max="999" value="@s.Aantal" style="width:4.5rem"
+                                                   @onchange="e => ZetStuklijst(s, () => s.Aantal = int.TryParse((string?)e.Value, out var n) && n > 0 ? n : s.Aantal)" /></td>
+                                        <td><input value="@s.Opmerking" maxlength="200" placeholder="bv. links/rechts"
+                                                   @onchange="e => ZetStuklijst(s, () => s.Opmerking = (string?)e.Value ?? string.Empty)" /></td>
+                                        <td class="c"><button class="klein rood" title="Uit de stuklijst" @onclick="() => VerwijderStuklijst(s)">✕</button></td>
                                     </tr>
                                 }
-                                @if (_onderdelen.Count == 0)
+                                @if (_stuklijst.Count == 0)
                                 {
-                                    <tr><td colspan="5" class="kiezer-info">Nog geen onderdelen.</td></tr>
+                                    <tr><td colspan="5" class="kiezer-info">Nog geen halffabricaten in de stuklijst.</td></tr>
                                 }
                             </tbody>
                         </table>
-
-                        <div class="tl-balk">
-                            <input class="mail-zoek" placeholder="Zoek een vrij exemplaar om toe te voegen…"
-                                   value="@_vrijZoek" @onchange="VrijZoekGewijzigd" />
+                        <div class="bankfilters">
+                            <label class="bankveld prod-keuze">
+                                <span>Halffabricaat toevoegen (zoek op naam, omschrijving, groep)</span>
+                                <input value="@_stuklijstZoek" placeholder="bv. PCBA, kabel, motor…" @oninput="StuklijstZoekGewijzigd" />
+                            </label>
                         </div>
-                        @if (_vrije.Count > 0)
+                        @if (_stuklijstTreffers.Count > 0)
                         {
                             <div class="wn-namen kort">
-                                @foreach (var v in _vrije)
+                                @foreach (var n in _stuklijstTreffers)
                                 {
-                                    <button class="wn-naam" @key="v.ProductId" @onclick="() => Koppel(v)">
-                                        <span class="nummer">@v.Serienummer</span>
-                                        <span class="stat">@v.Code</span>
-                                        @v.Omschrijving
+                                    <button class="wn-naam" @key="n.Id" @onclick="() => VoegStuklijstToe(n)">
+                                        <span class="stat">@(n.Groep.Length > 0 ? n.Groep : n.TypeCode)</span>
+                                        <b>@n.Naam</b> @n.Omschrijving
                                     </button>
                                 }
                             </div>
+                        }
+                    }
+
+                    @* ===== SAMENSTELLING van een exemplaar: koppelen volgens de stuklijst ===== *@
+                    @if (_tab == "Samenstelling" && _naamId is int samNaam && _productId is int samProduct)
+                    {
+                        <h3 class="wn-kop">Gebruikt</h3>
+                        <SamenstellingKiezer @key="samProduct" ProductNameId="samNaam" ProductId="samProduct" OpGewijzigd="NaSamenstellingWijziging" />
+                        @if (_onderdelen.Count > 0)
+                        {
+                            <p class="uitleg">
+                                Springen naar een onderdeel:
+                                @foreach (var o in _onderdelen)
+                                {
+                                    <button class="klein" @key="o.ProductId" title="Naar dit exemplaar" @onclick="() => GaNaar(o)">↗ @o.Code @o.Serienummer</button>
+                                }
+                            </p>
                         }
 
                         <h3 class="wn-kop">Wordt gebruikt in</h3>
@@ -562,7 +720,18 @@
                         <p class="uitleg">
                             Deze attributen horen bij het producttype. Bij het aanmaken van een nieuw
                             exemplaar worden ze meegegeven, zodat je de waarden per exemplaar kunt vullen.
+                            Met <i>Automatisch gevuld uit</i> vult Productie ▸ Test PCB het attribuut zelf
+                            (serienummer van drive 1, 2, …, MAC van de ESP32, UID van de STM32); de naam
+                            mag je vrij kiezen.
                         </p>
+                        @if (_heeftBron == false)
+                        {
+                            <div class="melding fout">
+                                De kolom <b>Bron</b> ontbreekt nog in de database: de keuze bij
+                                <i>Automatisch gevuld uit</i> wordt niet bewaard. Voer
+                                <code>ProductAttribuutBron_MariaDB.sql</code> uit en herstart de app.
+                            </div>
+                        }
 
                         <table class="kiezer-tabel">
                             <thead>
@@ -572,6 +741,7 @@
                                     <th>Opmerking</th>
                                     <th style="width:5rem">Verplicht</th>
                                     <th style="width:7rem" title="Wordt gevraagd bij het aanmaken">Bij aanmaak</th>
+                                    <th style="width:15rem" title="Test PCB vult dit attribuut automatisch vanuit de werkplek-agent">Automatisch gevuld uit</th>
                                     <th style="width:3rem"></th>
                                 </tr>
                             </thead>
@@ -586,6 +756,15 @@
                                                              @onchange="e => ZetAttribuutVlag(a, b => a.Verplicht = b, e)" /></td>
                                         <td class="c"><input type="checkbox" checked="@a.VraagBijAanmaak"
                                                              @onchange="e => ZetAttribuutVlag(a, b => a.VraagBijAanmaak = b, e)" /></td>
+                                        <td>
+                                            <select value="@a.Bron" @onchange="e => ZetAttribuut(a, v => a.Bron = v, e)"
+                                                    class="@(a.Bron.Length > 0 ? "prod-bron-actief" : "")">
+                                                @foreach (var b in AttribuutBronnen.Alle)
+                                                {
+                                                    <option value="@b.Code">@b.Omschrijving</option>
+                                                }
+                                            </select>
+                                        </td>
                                         <td class="c">
                                             <button class="klein rood" title="Verwijderen"
                                                     @onclick="() => VerwijderAttribuut(a)">✕</button>
@@ -594,7 +773,7 @@
                                 }
                                 @if (_typeAttributen.Count == 0)
                                 {
-                                    <tr><td colspan="6" class="kiezer-info">Nog geen attributen.</td></tr>
+                                    <tr><td colspan="7" class="kiezer-info">Nog geen attributen.</td></tr>
                                 }
                             </tbody>
                         </table>
@@ -603,18 +782,322 @@
                             <button class="klein" @onclick="NieuwAttribuut">+ Attribuut toevoegen</button>
                         </div>
                     }
+
+                    @* ===== PROGRAMMEREN van een exemplaar: uitlezen, programmeren, testen, duurtest — dezelfde
+                       component als op de werkplek (Productie ▸ Half-fabricaten), zonder stapnummers. ===== *@
+                    @if (_tab == "Programmeren" && _naam is not null && _product is not null && _productId is int progId)
+                    {
+                        <p class="uitleg">
+                            Werkt via de MDE Werkplek-agent op déze pc (EtherCAT-adapter, USB). Opbouw en eindcontrole staan in hun eigen tabs.
+                        </p>
+                        <ExemplaarWerk @key="progId" Naam="_naam" Exemplaar="_product" ProductId="progId"
+                                       MetNummers="false" ToonOpbouwStap="false" ToonDuurtestStap="IsEindproduct"
+                                       OpGewijzigd="NaProgrammeerWijziging" OpGereed="NaProgrammeerGereed" />
+                    }
+
+                    @* ===== OPBOUW: de stappen (bij het type: beheren; bij een exemplaar: afvinken) ===== *@
+                    @if (_tab is "Opbouw" or "Eindcheck")
+                    {
+                        @if (_opbouwOntbreekt)
+                        {
+                            <div class="melding fout">De opbouw-tabellen ontbreken nog: voer <code>ProductOpbouw_MariaDB.sql</code> uit (en 330 in FileStoreType).</div>
+                        }
+                        else if (!_heeftSoort)
+                        {
+                            <div class="melding fout">
+                                De kolom <code>Soort</code> ontbreekt nog in <code>ProductOpbouwStappen</code>; daardoor komt alles onder Opbouw terecht.
+                                Voer uit: <code>ALTER TABLE `ProductOpbouwStappen` ADD COLUMN IF NOT EXISTS `Soort` VARCHAR(12) NOT NULL DEFAULT 'opbouw' AFTER `Volgorde`;</code>
+                            </div>
+                        }
+                        @if (!_opbouwOntbreekt)
+                        {
+                        @if (_productId is null)
+                        {
+                            var soort = _tab == "Eindcheck" ? OpbouwSoort.Controle : OpbouwSoort.Opbouw;
+                            var lijst = _stappen.Where(s => s.Soort == soort).ToList();
+                            <p class="uitleg">
+                                @if (soort == OpbouwSoort.Controle)
+                                {
+                                    <text>De handmatige eindcheck vóór het gereedmelden. Bij een exemplaar wordt elke check afgevinkt;
+                                    zijn alle checks en verplichte opbouwstappen klaar, dan kan de status op 'Gereed'.</text>
+                                }
+                                else
+                                {
+                                    <text>De opbouwvolgorde van dit producttype: Mechanische opbouw, Elektrische opbouw, Parameters
+                                    inschieten, Testen … Per stap kun je documenten met hands-on uitleg toevoegen. Bij een exemplaar
+                                    worden de stappen afgevinkt; elke wijziging komt in de historie.</text>
+                                }
+                            </p>
+                            <table class="kiezer-tabel opb-tabel">
+                                <thead>
+                                    <tr>
+                                        <th style="width:5rem">#</th>
+                                        <th style="width:18rem">@(soort == OpbouwSoort.Controle ? "Check" : "Stap")</th>
+                                        <th>Omschrijving</th>
+                                        <th style="width:6rem">Verplicht</th>
+                                        <th style="width:12rem">Documenten</th>
+                                        <th style="width:3rem"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (var i = 0; i < lijst.Count; i++)
+                                    {
+                                        var s = lijst[i]; var idx = i;
+                                        <tr @key="s.Id">
+                                            <td class="opb-volgorde">
+                                                <button class="klein" disabled="@(idx == 0)" title="Omhoog" @onclick="() => Verschuif(s, -1)">▲</button>
+                                                <button class="klein" disabled="@(idx == lijst.Count - 1)" title="Omlaag" @onclick="() => Verschuif(s, 1)">▼</button>
+                                            </td>
+                                            <td><input value="@s.Naam" maxlength="80" @onchange="e => ZetStap(s, () => s.Naam = (string?)e.Value ?? string.Empty)" /></td>
+                                            <td><input value="@s.Omschrijving" maxlength="500" @onchange="e => ZetStap(s, () => s.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                                            <td class="c"><input type="checkbox" checked="@s.Verplicht" @onchange="e => ZetStap(s, () => s.Verplicht = e.Value is bool b && b)" /></td>
+                                            <td>
+                                                <button class="klein" @onclick="() => ToonStapDocs(s)">📎 @s.AantalDocumenten</button>
+                                            </td>
+                                            <td class="c"><button class="klein rood" title="Stap verwijderen" @onclick="() => VerwijderStap(s)">✕</button></td>
+                                        </tr>
+                                        @if (_stapDocs == s.Id)
+                                        {
+                                            <tr @key="@($"{s.Id}-docs")" class="opb-docs">
+                                                <td></td>
+                                                <td colspan="5">
+                                                    @foreach (var d in _stapDocumenten)
+                                                    {
+                                                        <span class="opb-doc">
+                                                            <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
+                                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⬇</a>
+                                                            <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStapDoc(d)">✕</button>
+                                                        </span>
+                                                    }
+                                                    <InputFile OnChange="e => UploadStapDoc(s, e)" multiple />
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                    @if (lijst.Count == 0)
+                                    {
+                                        <tr><td colspan="6" class="kiezer-info">@(soort == OpbouwSoort.Controle ? "Nog geen controles." : "Nog geen stappen.")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            <div class="btngroup">
+                                <button class="klein" @onclick="() => NieuweStap(soort)">@(soort == OpbouwSoort.Controle ? "+ Check" : "+ Stap")</button>
+                            </div>
+                        }
+                        else if (_naamId is int nid && _productId is int pid)
+                        {
+                            <p class="uitleg">Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.</p>
+                            <OpbouwLijst @key="_tab" ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")"
+                                         ToonOpbouw="TabIsOpbouw" ToonControle="TabIsEindcheck" OpGewijzigd="NaOpbouwWijziging" />
+                        }
+                        }
+                    }
+
+                    @* ===== TECHNIEK van een halffabricaat: wat zit erop, drives, parametersets ===== *@
+                    @if (_tab == "Techniek" && _productId is null)
+                    {
+                        <p class="uitleg">
+                            Wat er op deze print zit bepaalt welke stappen Productie ▸ Test PCB aanbiedt:
+                            uitlezen/firmware/parameters/IO-test voor drives, chip programmeren voor ESP32 en STM32.
+                        </p>
+                        <div class="prod-techniek">
+                            @foreach (var t in ProductTechniek.Alle)
+                            {
+                                var code = t.Code;
+                                <label class="prod-techniek-vink" title="@t.Uitleg">
+                                    <input type="checkbox" checked="@_technieken.Contains(code)" @onchange="e => ZetTechniek(code, e)" />
+                                    <b>@t.Naam</b> <small class="uitleg">@t.Uitleg</small>
+                                </label>
+                            }
+                        </div>
+                        @if (_drvOntbreekt)
+                        {
+                            <div class="melding fout">De drive-tabellen ontbreken nog: voer <code>DriveTypen_MariaDB.sql</code> en <code>ProductTechniek_MariaDB.sql</code> uit.</div>
+                        }
+
+                        <h4 class="prod-subkop">Stappen in Half-fabricaten en Producten</h4>
+                        <p class="uitleg">
+                            Welke onderdelen de productieschermen tonen voor dit producttype. Een kabel hoeft niet
+                            geprogrammeerd of automatisch getest te worden — vink die stappen dan uit; de handmatige eindcheck
+                            (tab Eindcheck) blijft beschikbaar in 'Opbouw en eindcontrole'. Zonder techniek verdwijnen
+                            Programmeren en Testen sowieso. Niet elk product gaat de testrig in: zet dan 'Stap Duurtest' uit.
+                        </p>
+                        <div class="prod-techniek">
+                            @foreach (var s in ProductStap.Alle)
+                            {
+                                var code = s.Code;
+                                <label class="prod-techniek-vink" title="@s.Uitleg">
+                                    <input type="checkbox" checked="@(_naam?.ToonStap(code) ?? true)" @onchange="e => ZetStapZichtbaar(code, e)" />
+                                    <b>@s.Naam</b> <small class="uitleg">@s.Uitleg</small>
+                                </label>
+                            }
+                        </div>
+                    }
+                    @if (_tab == "Techniek" && _productId is null && (HeeftDrivesOfServo || HeeftChip))
+                    {
+                        <p class="uitleg">
+                            @if (HeeftChip && !HeeftDrivesOfServo)
+                            {
+                                <text>Voor een chip: maak één positie met het controllertype (bv. 'ESP32 (alle varianten)' of 'STM32 …').
+                                De firmwareversies (.hex/.bin) met status staan bij dat type onder Productie ▸ Controllertypen en firmware;
+                                in Half-fabricaten ▸ stap 4 wordt de actuele versie voorgeselecteerd.</text>
+                            }
+                            else if (_technieken.Contains(ProductTechniek.Feetech))
+                            {
+                                <text>Voor een servo: maak één positie (1) met het controllertype (bv. Feetech STS3215) en koppel daaraan de
+                                parameterset (.json) bij de firmwareversie van de servo. Sjabloon: MdeAgent\voorbeelden\feetech-sts3215.json.</text>
+                            }
+                            else
+                            {
+                                <text>Welke drives er op deze print zitten (per positie op de EtherCAT-bus) en welke
+                                parameterset (.xcf) erin moet — die hoort bij een firmwareversie, want elke
+                                firmware heeft haar eigen set.</text>
+                            }
+                        </p>
+
+                        <h4 class="prod-subkop">Posities</h4>
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:5rem">Positie</th>
+                                    <th style="width:12rem">Naam</th>
+                                    <th>Verwacht controllertype</th>
+                                    <th style="width:3rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in _posities)
+                                {
+                                    <tr @key="p.Id">
+                                        <td><input type="number" min="1" max="16" value="@p.Positie" style="width:4rem"
+                                                   @onchange="e => ZetPositie(p, () => p.Positie = int.TryParse((string?)e.Value, out var n) ? n : p.Positie)" /></td>
+                                        <td><input value="@p.Naam" placeholder="bv. R-as" @onchange="e => ZetPositie(p, () => p.Naam = (string?)e.Value ?? string.Empty)" /></td>
+                                        <td>
+                                            <select value="@(p.DriveTypeId?.ToString() ?? string.Empty)"
+                                                    @onchange="e => ZetPositie(p, () => p.DriveTypeId = int.TryParse((string?)e.Value, out var t) ? t : null)">
+                                                <option value="">— niet controleren —</option>
+                                                @foreach (var t in TypenVoorProduct)
+                                                {
+                                                    <option value="@t.Id">@t.Naam (@t.ProductCode)</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td class="c"><button class="klein rood" @onclick="() => VerwijderPositie(p)">✕</button></td>
+                                    </tr>
+                                }
+                                @if (_posities.Count == 0)
+                                {
+                                    <tr><td colspan="4" class="kiezer-info">Nog geen posities. Voeg er één toe per drive op de print.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="NieuwePositie">+ Positie</button>
+                            @if (HeeftChip && !HeeftDrivesOfServo)
+                            {
+                                <a class="knopje" href="productie/drivetypen">Controllertypen en firmware beheren ↗</a>
+                            }
+                        </div>
+                    }
+                    @if (_tab == "Techniek" && _productId is null && HeeftDrivesOfServo)
+                    {
+                        <h4 class="prod-subkop">Parametersets</h4>
+                        <table class="kiezer-tabel drv-params">
+                            <thead>
+                                <tr>
+                                    <th style="width:5rem">Positie</th>
+                                    <th style="width:16rem">Firmwareversie</th>
+                                    <th style="width:14rem">Omschrijving</th>
+                                    <th>Bestand (.xcf)</th>
+                                    <th style="width:8rem">Status</th>
+                                    <th>Opmerking</th>
+                                    <th style="width:3rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @* Vaste volgorde (aanmaakvolgorde), zodat een regel niet verspringt als je de positie of firmware wijzigt. *@
+                                @foreach (var ps in _parametersets.OrderBy(x => x.Id))
+                                {
+                                    <tr @key="ps.Id">
+                                        <td>
+                                            <select value="@ps.Positie" @onchange="e => ZetParam(ps, () => ps.Positie = int.TryParse((string?)e.Value, out var n) ? n : ps.Positie)">
+                                                @foreach (var p in _posities.OrderBy(p => p.Positie))
+                                                {
+                                                    <option value="@p.Positie">@p.Positie @(p.Naam.Length > 0 ? "· " + p.Naam : "")</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select value="@ps.DriveFirmwareId" @onchange="e => ZetParam(ps, () => ps.DriveFirmwareId = int.TryParse((string?)e.Value, out var f) ? f : ps.DriveFirmwareId)">
+                                                @foreach (var f in _alleFirmwares)
+                                                {
+                                                    <option value="@f.Id">@f.TypeNaam · @f.Versie (@f.Status)</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input value="@ps.Omschrijving" placeholder="bv. R_drive A v0.0.2"
+                                                   @onchange="e => ZetParam(ps, () => ps.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                                        <td>
+                                            @if (ps.ParameterFileId is int fid)
+                                            {
+                                                <a class="knopje" href="@DownloadUrl(fid)" target="_blank" rel="noopener">⬇ @ps.ParameterBestand</a>
+                                                <button class="klein" title="Vervangen" @onclick="() => _drvVervang = ps.Id">↻</button>
+                                                @if (_drvVervang == ps.Id)
+                                                {
+                                                    <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                            }
+                                        </td>
+                                        <td>
+                                            <select value="@ps.Status" class="drv-status @DriveStatus.Kleur(ps.Status)"
+                                                    @onchange="e => ZetParam(ps, () => ps.Status = (string?)e.Value ?? DriveStatus.Actueel)">
+                                                @foreach (var s in DriveStatus.Parameters)
+                                                {
+                                                    <option value="@s.Code">@s.Tekst</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input value="@ps.Opmerking" @onchange="e => ZetParam(ps, () => ps.Opmerking = (string?)e.Value ?? string.Empty)" /></td>
+                                        <td class="c">
+                                            @if (IsFeetechSet(ps))
+                                            {
+                                                <button class="klein" title="Registers bewerken in de app" @onclick="() => _editorPs = ps">✎</button>
+                                            }
+                                            <button class="klein rood" @onclick="() => VerwijderParam(ps)">✕</button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_parametersets.Count == 0)
+                                {
+                                    <tr><td colspan="7" class="kiezer-info">Nog geen parametersets.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="btngroup">
+                            <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweParam"
+                                    title="@(_alleFirmwares.Count == 0 ? "Maak eerst een firmwareversie aan bij Productie ▸ Drivetypen" : "")">+ Parameterset</button>
+                            @if (_technieken.Contains(ProductTechniek.Feetech))
+                            {
+                                <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweFeetechSet"
+                                        title="Een Feetech-parameterset maken uit het sjabloon en meteen bewerken — geen JSON-bestand nodig">+ Feetech-set uit sjabloon…</button>
+                            }
+                            <a class="knopje" href="productie/drivetypen">Drivetypen en firmware beheren ↗</a>
+                        </div>
+                    }
                 }
             </section>
         </div>
     }
 
-    <footer class="voet">
-        Het opbouwscherm volgt later; daarvoor gebruik je voorlopig Access.
-        Beide werken op dezelfde database.
-    </footer>
 </div>
 
 <BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="SluitVoorbeeld" />
+<FeetechParamEditor Open="@(_editorPs is not null)" Parameterset="_editorPs"
+                    OpSluiten="() => _editorPs = null" OpOpgeslagen="EditorOpgeslagen" />
 
 @code {
     // ---- lijst links ----
@@ -670,9 +1153,17 @@
     /// <summary>
     /// Bij een producttype drie tabbladen (zoals in Access), bij een exemplaar vijf.
     /// </summary>
+    private bool TabIsOpbouw => _tab == "Opbouw";
+    private bool TabIsEindcheck => _tab == "Eindcheck";
+
+    /// <summary>Opschrift van een tab; de interne naam blijft 'Programmeren' (per-pc onthouden, URL's).</summary>
+    private static string TabTitel(string tab) => tab == "Programmeren" ? "Programmeren en testen" : tab;
+
     private string[] Tabs => _productId is null
-        ? new[] { "Algemeen", "Documenten", "Attributen" }
-        : new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen" };
+        ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
+        : Agent.Aanwezig == true
+            ? new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
+            : new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
 
     private string Titel
     {
@@ -701,6 +1192,7 @@
             _kolommen = await Repo.KolommenAsync();
 
             await Vul("Status", Repo.GetStatussenAsync);
+            try { _okStatusIds = await Repo.GetStatusIdsMetNaamAsync(OkStatusNaam); } catch { }
             await Vul("Artikel", Repo.GetArtikelenAsync);
             await Vul("Klant", Repo.GetKlantenAsync);
             await Vul("Werkorder", WerkordersAsync);
@@ -708,6 +1200,7 @@
 
             try { _types = await Repo.GetProducttypesAsync(); } catch { }
             try { _historieSoorten = await Repo.GetHistorieSoortenAsync(); } catch { }
+            try { _groepen = await Repo.GetProductgroepenAsync(); } catch { }
 
             await LaadNamen();
         }
@@ -781,6 +1274,26 @@
         await GroepVeld("KlantID", klantId, $"Klant gewijzigd naar {naam}.");
     }
 
+    // ---- project (vrije tekst) voor de aangevinkte exemplaren ----
+    private string _groepProject = "";
+
+    private async Task GroepProject()
+    {
+        var project = _groepProject.Trim();
+        var vraag = project.Length == 0
+            ? $"Het project leegmaken bij {_gekozen.Count} exemplaar/exemplaren?\n\n" + GekozenTekst()
+            : $"Project '{project}' toewijzen aan {_gekozen.Count} exemplaar/exemplaren?\n\n" + GekozenTekst();
+        if (!await Bevestig(vraag)) return;
+
+        _groepTeller++;
+        await GroepVeld("Project", project.Length == 0 ? null : project,
+                        project.Length == 0 ? "Project leeggemaakt." : $"Project gewijzigd naar {project}.");
+        _groepProject = "";
+    }
+
+    private static string RegelTitel(ProductRegel p)
+        => string.Join(" · ", new[] { p.Serienummer, p.StatusKort, p.Klant, p.Project }.Where(s => s.Length > 0));
+
     private async Task GroepWerkorder(ChangeEventArgs e)
     {
         if (!int.TryParse((string?)e.Value, out var werkorderId)) return;
@@ -793,7 +1306,7 @@
         await GroepVeld("WorkorderID", werkorderId, $"Gekoppeld aan werkorder {naam}.");
     }
 
-    private async Task GroepVeld(string kolom, object waarde, string historie)
+    private async Task GroepVeld(string kolom, object? waarde, string historie)
     {
         try
         {
@@ -944,7 +1457,105 @@
     private async Task TypeGewijzigd(ChangeEventArgs e)
     {
         _typeId = int.TryParse((string?)e.Value, out var v) ? v : null;
-        await LaadNamen(kiesBijEen: true);
+        // Ander type = andere wereld: groepfilter los, en de eerste uit de lijst openen.
+        _groepFilter = null;
+        Leegmaken();
+        await LaadNamen();
+        await KiesEerste();
+        // Onthouden per toestel (localStorage): de volgende keer staat hetzelfde type voor.
+        try { await JS.InvokeVoidAsync("localStorage.setItem", TypeSleutel, TypeTekst); } catch { }
+    }
+
+    private const string TypeSleutel = "mde-producten-type";
+    private bool _typeHersteld;
+
+    /// <summary>
+    /// De laatst gekozen producttype terugzetten. Kan pas na de eerste render:
+    /// eerder is er nog geen verbinding met de browser voor localStorage.
+    /// </summary>
+    private bool _agentGecontroleerd;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Tab Programmeren alleen op een pc met de werkplek-agent; één keer controleren (de layout doet dat meestal al).
+        if (!_agentGecontroleerd && Repo.Beschikbaar)
+        {
+            _agentGecontroleerd = true;
+            var had = Agent.Aanwezig;
+            try { await Agent.ControleerAsync(JS); } catch { }
+            if (had != Agent.Aanwezig) StateHasChanged();
+        }
+
+        // Niet aan firstRender hangen: de eerste render komt vóór de typelijst geladen
+        // is. Pas als _types gevuld is kunnen we de bewaarde keuze controleren.
+        if (_typeHersteld || !Repo.Beschikbaar || _types.Count == 0) return;
+        _typeHersteld = true;
+        try
+        {
+            // filters van de exemplarenlijst, per pc onthouden
+            _inclGewist = await JS.InvokeAsync<string?>("mdeOpslag.lees", GewistSleutel) == "1";
+            var statussen = await JS.InvokeAsync<string?>("mdeOpslag.lees", StatusSleutel);
+            if (!string.IsNullOrWhiteSpace(statussen))
+                _statusFilter = statussen.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(t => int.TryParse(t, out var v) ? v : -1).Where(v => v >= 0).ToHashSet();
+            else
+                StatusStandaardZetten();
+            _statusFilterGeladen = true;
+            if (_naamId is not null) { await LaadProducten(); StateHasChanged(); }
+
+            var bewaard = await JS.InvokeAsync<string?>("localStorage.getItem", TypeSleutel);
+            if (int.TryParse(bewaard, out var id) && _types.Any(t => t.Id == id) && _typeId != id)
+            {
+                _typeId = id;
+                await LaadNamen();
+                StateHasChanged();
+            }
+        }
+        catch { }
+
+        // Geopend vanuit een ander scherm (producten?naam=…&product=…): dat type en exemplaar tonen.
+        if (NaamQuery is not null || ProductQuery is not null)
+        {
+            await OpenUitUrl();
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>ProductNameID uit de URL (?naam=), bv. vanuit Productie ▸ Producten.</summary>
+    [SupplyParameterFromQuery(Name = "naam")] public int? NaamQuery { get; set; }
+    /// <summary>ProductenID uit de URL (?product=): het exemplaar openen.</summary>
+    [SupplyParameterFromQuery(Name = "product")] public int? ProductQuery { get; set; }
+
+    private async Task OpenUitUrl()
+    {
+        try
+        {
+            var naamId = NaamQuery;
+            if (naamId is null && ProductQuery is int pq)
+            {
+                // Alleen een exemplaar meegegeven: het type erbij zoeken.
+                var velden = await Repo.GetVeldenAsync(pq);
+                if (velden.TryGetValue("ProductNameID", out var v) && v is not null && int.TryParse(v.ToString(), out var n)) naamId = n;
+            }
+            if (naamId is null) return;
+
+            var naam = _namen.FirstOrDefault(n => n.Id == naamId);
+            if (naam is null)
+            {
+                // buiten het huidige filter: filters wissen en opnieuw zoeken
+                _zoek = ""; _typeId = null; _groepFilter = null;
+                await LaadNamen();
+                naam = _namen.FirstOrDefault(n => n.Id == naamId);
+            }
+            if (naam is null) { Toon($"Producttype #{naamId} niet gevonden.", true); return; }
+            await KiesNaam(naam);
+
+            if (ProductQuery is not int pid) return;
+            var regel = await ZoekInLijst(pid);
+            if (regel is null) { Toon($"Exemplaar #{pid} niet gevonden.", true); return; }
+            await KiesProduct(regel);
+        }
+        catch (Exception ex) { Toon("Openen mislukt: " + ex.Message, true); }
     }
 
     /// <summary>Serienummer scannen of typen: zoekt het exemplaar op en opent het.</summary>
@@ -971,15 +1582,7 @@
 
             await KiesNaam(naam);
 
-            var regel = _producten.FirstOrDefault(p => p.Id == gevonden.Value.ProductId);
-            if (regel is null)
-            {
-                // het exemplaar staat op gewist: dan ook die tonen
-                _inclGewist = true;
-                await LaadProducten();
-                regel = _producten.FirstOrDefault(p => p.Id == gevonden.Value.ProductId);
-            }
-
+            var regel = await ZoekInLijst(gevonden.Value.ProductId);
             if (regel is null) { Toon("Het exemplaar is niet gevonden.", true); return; }
             await KiesProduct(regel);
             _scan = "";
@@ -991,8 +1594,81 @@
     private async Task GewistGewijzigd(ChangeEventArgs e)
     {
         _inclGewist = e.Value is bool b && b;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", GewistSleutel, _inclGewist ? "1" : "0"); } catch { }
         await LaadProducten();
     }
+
+    // Statusfilter van de exemplarenlijst (meerkeuze; 0 = zonder status). Standaard alles behalve
+    // de eindstatus (Productie:OkStatus, meestal 'OK') — wie hier werkt is met de laatst geproduceerde
+    // bezig. De keuze wordt per pc onthouden.
+    private const string GewistSleutel = "mde-producten-inclgewist";
+    private const string StatusSleutel = "mde-producten-statussen";
+    private HashSet<int> _statusFilter = new();
+    private bool _statusFilterGeladen;
+    private bool _statusOpen;
+    private List<ProductRegel> _alleProducten = new();     // ongefilterd (voor de aantallen per status)
+    private string OkStatusNaam => Config["Productie:OkStatus"] ?? "OK";
+    private HashSet<int> _okStatusIds = new();               // uit de tabel: Status óf StatusShort = OkStatusNaam
+    private bool IsOkStatus(Keuze s)
+    {
+        if (_okStatusIds.Contains(s.Id)) return true;
+        var n = s.Naam.Trim();
+        return n.Equals(OkStatusNaam, StringComparison.OrdinalIgnoreCase)
+            || n.EndsWith(" " + OkStatusNaam, StringComparison.OrdinalIgnoreCase);   // 'n - OK' met nummer ervoor
+    }
+
+    private string StatusFilterTekst
+    {
+        get
+        {
+            var alle = Lijst("Status");
+            var totaal = alle.Count + 1;   // + (geen status)
+            var gekozen = _statusFilter.Count(id => id == 0 || alle.Any(s => s.Id == id));
+            if (gekozen == 0) return "geen";
+            if (gekozen >= totaal) return "alle";
+            var uit = alle.Where(s => !_statusFilter.Contains(s.Id)).Select(s => s.Naam.Trim()).ToList();
+            if (!_statusFilter.Contains(0)) uit.Add("geen status");
+            return uit.Count <= 2 ? "alle behalve " + string.Join(", ", uit) : $"{gekozen} van {totaal}";
+        }
+    }
+
+    private int AantalMetStatus(int id) => _alleProducten.Count(p => (p.StatusId ?? 0) == id);
+    private bool StatusZichtbaar(ProductRegel p) => _statusFilter.Contains(p.StatusId ?? 0);
+
+    /// <summary>Standaard: alles behalve de eindstatus.</summary>
+    private void StatusStandaardZetten()
+    {
+        _statusFilter = Lijst("Status").Where(s => !IsOkStatus(s)).Select(s => s.Id).ToHashSet();
+        _statusFilter.Add(0);
+    }
+
+    private async Task StatusBewaar()
+    {
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", StatusSleutel, string.Join(",", _statusFilter.OrderBy(i => i))); } catch { }
+        await LaadProducten();
+    }
+
+    private async Task ZetStatusFilter(int id, ChangeEventArgs e)
+    {
+        if (e.Value is bool b && b) _statusFilter.Add(id); else _statusFilter.Remove(id);
+        await StatusBewaar();
+    }
+
+    private async Task StatusAlles()
+    {
+        _statusFilter = Lijst("Status").Select(s => s.Id).ToHashSet();
+        _statusFilter.Add(0);
+        await StatusBewaar();
+    }
+
+    private async Task StatusGeen() { _statusFilter = new(); await StatusBewaar(); }
+
+    private async Task StatusStandaard() { StatusStandaardZetten(); await StatusBewaar(); }
+
+    /// <summary>Nieuwste boven: op serienummer als getal, anders als tekst.</summary>
+    private static IEnumerable<ProductRegel> NieuwsteBoven(IEnumerable<ProductRegel> lijst)
+        => lijst.OrderByDescending(p => long.TryParse(new string(p.Serienummer.Where(char.IsDigit).ToArray()), out var n) ? n : -1)
+                .ThenByDescending(p => p.Serienummer, StringComparer.OrdinalIgnoreCase);
 
     // ================================================================
     //  Producttype
@@ -1004,12 +1680,21 @@
         _naamNaam = n.Naam;
         _naamOms = n.Omschrijving;
         _naamTypeId = n.TypeId;
+        _artikelZoek = ""; _artikelTreffers = new();
         _gekozen.Clear();          // selectie hoort bij het vorige type
         LeegmakenProduct();
         if (!Tabs.Contains(_tab)) _tab = "Algemeen";
 
         try { _typeAttributen = await Repo.GetTypeAttributenAsync(n.Id); }
         catch { _typeAttributen = new(); }
+        await LaadDrives(n.Id);
+        await LaadOpbouw();
+        await LaadStuklijst();
+        if (_heeftBron != true)
+        {
+            try { _heeftBron = await Repo.HeeftAttribuutBronAsync(); }
+            catch { _heeftBron = false; }
+        }
 
         await LaadProducten();
         await LaadDocumenten();
@@ -1020,6 +1705,7 @@
         LeegmakenProduct();
         if (!Tabs.Contains(_tab)) _tab = "Algemeen";
         await LaadDocumenten();
+        await LaadOpbouw();
     }
 
     private async Task BewaarNaam()
@@ -1100,8 +1786,15 @@
     private async Task LaadProducten()
     {
         if (_naamId is null) { _producten = new(); return; }
-        try { _producten = await Repo.GetProductenAsync(_naamId.Value, _inclGewist); }
-        catch (Exception ex) { _producten = new(); Toon("Exemplaren ophalen mislukt: " + ex.Message, true); }
+        try
+        {
+            var alle = await Repo.GetProductenAsync(_naamId.Value, _inclGewist);
+            _alleProducten = alle;
+            if (!_statusFilterGeladen && _statusFilter.Count == 0) StatusStandaardZetten();
+            // het geopende exemplaar blijft altijd zichtbaar, ook als zijn status niet aangevinkt is
+            _producten = NieuwsteBoven(alle.Where(p => StatusZichtbaar(p) || p.Id == _productId)).ToList();
+        }
+        catch (Exception ex) { _producten = new(); _alleProducten = new(); Toon("Exemplaren ophalen mislukt: " + ex.Message, true); }
 
         // Aangevinkte exemplaren die niet meer in de lijst staan (bijvoorbeeld nadat
         // 'Inclusief gewist' uitging) uit de selectie halen — anders werkt een
@@ -1117,6 +1810,28 @@
         if (_product is null) LeegmakenProduct();
     }
 
+    /// <summary>
+    /// Zoekt een exemplaar (scan, link, samenstelling) in de lijst. Staat het buiten het
+    /// filter — andere status of gewist — dan komt het er als geopend exemplaar tóch bij,
+    /// zonder de statuskeuze van de gebruiker te veranderen.
+    /// </summary>
+    private async Task<ProductRegel?> ZoekInLijst(int id)
+    {
+        var regel = _producten.FirstOrDefault(p => p.Id == id);
+        if (regel is not null) return regel;
+
+        if (_alleProducten.All(p => p.Id != id) && !_inclGewist)
+        {
+            _inclGewist = true;                       // staat op gewist: dan ook die tonen
+            await LaadProducten();
+        }
+        if (_alleProducten.All(p => p.Id != id)) return null;
+
+        _productId = id;                              // het geopende exemplaar staat altijd in de lijst
+        await LaadProducten();
+        return _producten.FirstOrDefault(p => p.Id == id);
+    }
+
     private async Task KiesProduct(ProductRegel p)
     {
         _productId = p.Id;
@@ -1129,7 +1844,166 @@
         try { _historie = await Repo.GetHistorieAsync(p.Id); } catch { _historie = new(); }
         try { _attributen = await Repo.GetAttributenAsync(p.Id); } catch { _attributen = new(); }
         await LaadSamenstelling();
+        if (_histMetOnderdelen) await LaadHistorieOnderdelen();
         await LaadDocumenten();
+        await LaadOpbouw();
+    }
+
+    // ================================================================
+    //  Opbouwvolgorde (tab Opbouw): stappen van het type, vinkjes per exemplaar
+    // ================================================================
+    private List<OpbouwStap> _stappen = new();
+    private bool _opbouwOntbreekt;
+    private bool _heeftSoort = true;
+    private int? _stapDocs;                       // stap waarvan de documenten open staan
+    private List<Bestand> _stapDocumenten = new();
+
+    private async Task LaadOpbouw()
+    {
+        _stappen = new(); _stapDocs = null; _stapDocumenten = new();
+        if (_naamId is null || !Opbouw.Beschikbaar) return;
+        try
+        {
+            _stappen = await Opbouw.GetStappenAsync(_naamId.Value, _productId); _opbouwOntbreekt = false;
+            _heeftSoort = await Opbouw.HeeftSoortAsync();
+        }
+        catch (Exception ex)
+        {
+            _opbouwOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
+            if (!_opbouwOntbreekt) Toon("Opbouw laden mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task NieuweStap(string soort)
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Opbouw.BewaarStapAsync(new OpbouwStap
+            {
+                ProductNameId = _naamId.Value, Soort = soort,
+                Naam = soort == OpbouwSoort.Controle ? "(nieuwe check)" : "(nieuwe stap)"
+            }, Ik.WerknemerId);
+            await LaadOpbouw();
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Na een vinkje of statuswissel in de OpbouwLijst: historie en exemplaar verversen.</summary>
+    private async Task NaOpbouwWijziging()
+    {
+        if (_productId is null) return;
+        try
+        {
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            await LaadProducten();
+            _product = _producten.FirstOrDefault(p => p.Id == _productId) ?? _product;
+        }
+        catch { }
+    }
+
+    /// <summary>Eindproduct (geen halffabricaat/motor): dan hoort de duurtest bij de tab Programmeren.</summary>
+    private bool IsEindproduct
+    {
+        get
+        {
+            static string Kaal(string s) => new string(s.Where(char.IsLetter).ToArray()).ToLowerInvariant();
+            var type = _types.FirstOrDefault(t => t.Id == _naamTypeId);
+            if (type is null) return false;
+            var k = Kaal(type.Naam);
+            return k.Contains("product") && !k.Contains("half");
+        }
+    }
+
+    private Task NaProgrammeerGereed(string status) => NaProgrammeerWijziging();
+
+    /// <summary>Na werk in de tab Programmeren (uitlezen, programmeren, testen, duurtest): attributen, historie en kaart verversen.</summary>
+    private async Task NaProgrammeerWijziging()
+    {
+        if (_productId is null) return;
+        try
+        {
+            _attributen = await Repo.GetAttributenAsync(_productId.Value);
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            await LaadProducten();
+            _product = _producten.FirstOrDefault(p => p.Id == _productId) ?? _product;
+            await LaadDocumenten();
+        }
+        catch { }
+        StateHasChanged();
+    }
+
+    private async Task ZetStap(OpbouwStap s, Action wijzig)
+    {
+        wijzig();
+        try { await Opbouw.BewaarStapAsync(s, Ik.WerknemerId); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Een stap omhoog/omlaag binnen zijn eigen soort (opbouw of controle).</summary>
+    private async Task Verschuif(OpbouwStap stap, int richting)
+    {
+        var lijst = _stappen.Where(s => s.Soort == stap.Soort).ToList();
+        var index = lijst.IndexOf(stap);
+        var nieuw = index + richting;
+        if (index < 0 || nieuw < 0 || nieuw >= lijst.Count) return;
+        (lijst[index], lijst[nieuw]) = (lijst[nieuw], lijst[index]);
+        try { await Opbouw.ZetVolgordeAsync(lijst.Select(s => s.Id).ToList()); await LaadOpbouw(); }
+        catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderStap(OpbouwStap s)
+    {
+        if (!await Bevestig($"Stap '{s.Naam}' verwijderen? De vinkjes van bestaande exemplaren voor deze stap gaan mee.")) return;
+        try
+        {
+            foreach (var d in await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id)) { try { await Store.VerwijderAsync(d.FileStoreId); } catch { } }
+            await Opbouw.VerwijderStapAsync(s.Id);
+            await LaadOpbouw();
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ToonStapDocs(OpbouwStap s)
+    {
+        if (_stapDocs == s.Id) { _stapDocs = null; return; }
+        _stapDocs = s.Id;
+        try { _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _stapDocumenten = new(); }
+    }
+
+    private async Task UploadStapDoc(OpbouwStap s, InputFileChangeEventArgs e)
+    {
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, OpbouwStore.Stap, s.Id, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true); }
+        }
+        _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id);
+        s.AantalDocumenten = _stapDocumenten.Count;
+        if (gelukt > 0) Toon($"{gelukt} document(en) bij '{s.Naam}'.", false);
+    }
+
+    private async Task VerwijderStapDoc(Bestand d)
+    {
+        if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?")) return;
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            if (_stapDocs is int id)
+            {
+                _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, id);
+                var s = _stappen.FirstOrDefault(x => x.Id == id);
+                if (s is not null) s.AantalDocumenten = _stapDocumenten.Count;
+            }
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
     }
 
     private async Task LaadSamenstelling()
@@ -1137,6 +2011,95 @@
         if (_productId is null) { _onderdelen = new(); _gebruiktIn = null; return; }
         try { _onderdelen = await Repo.GetOnderdelenAsync(_productId.Value); } catch { _onderdelen = new(); }
         try { _gebruiktIn = await Repo.GetGebruiktInAsync(_productId.Value); } catch { _gebruiktIn = null; }
+    }
+
+    /// <summary>Na koppelen/ontkoppelen in de SamenstellingKiezer: onderdelen en historie verversen.</summary>
+    private async Task NaSamenstellingWijziging()
+    {
+        await LaadSamenstelling();
+        if (_productId is int pid) { try { _historie = await Repo.GetHistorieAsync(pid); } catch { } }
+    }
+
+    // ================================================================
+    //  Stuklijst van het producttype (tab Samenstelling op typeniveau)
+    // ================================================================
+    private List<StuklijstRegel> _stuklijst = new();
+    private bool _heeftStuklijst = true;
+    private string _stuklijstZoek = "";
+    private List<ProductNaam> _stuklijstTreffers = new();
+
+    private async Task LaadStuklijst()
+    {
+        _stuklijst = new(); _stuklijstZoek = ""; _stuklijstTreffers = new();
+        if (_naamId is null) return;
+        try
+        {
+            _heeftStuklijst = await Repo.HeeftStuklijstAsync();
+            _stuklijst = await Repo.GetStuklijstAsync(_naamId.Value);
+        }
+        catch (Exception ex) { Toon("Stuklijst laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task StuklijstZoekGewijzigd(ChangeEventArgs e)
+    {
+        _stuklijstZoek = ((string?)e.Value ?? "").Trim();
+        _stuklijstTreffers = new();
+        if (_stuklijstZoek.Length < 2) return;
+        try
+        {
+            // Alle producttypes behalve het product zelf en wat er al in staat; halffabricaten eerst.
+            var alles = await Repo.ZoekProductnamenAsync(_stuklijstZoek, null);
+            _stuklijstTreffers = alles
+                .Where(n => n.Id != _naamId && _stuklijst.All(s => s.OnderdeelNameId != n.Id))
+                .OrderBy(n => n.TypeId == _naamTypeId ? 1 : 0)   // eigen type (eindproducten) achteraan
+                .ThenBy(n => n.Naam)
+                .Take(30).ToList();
+        }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VoegStuklijstToe(ProductNaam n)
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Repo.BewaarStuklijstRegelAsync(new StuklijstRegel { ProductNameId = _naamId.Value, OnderdeelNameId = n.Id, Aantal = 1 }, Ik.WerknemerId);
+            await LaadStuklijst();
+            Toon($"{n.Naam} toegevoegd aan de stuklijst.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task ZetStuklijst(StuklijstRegel s, Action wijzig)
+    {
+        wijzig();
+        try { await Repo.BewaarStuklijstRegelAsync(s, Ik.WerknemerId); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon(ex.Message, true); await LaadStuklijst(); }
+    }
+
+    private async Task VerwijderStuklijst(StuklijstRegel s)
+    {
+        if (!await Bevestig($"'{s.OnderdeelNaam}' uit de stuklijst van {_naamNaam} halen?")) return;
+        try { await Repo.VerwijderStuklijstRegelAsync(s.Id); await LaadStuklijst(); }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task VerschuifStuklijst(StuklijstRegel s, int richting)
+    {
+        var index = _stuklijst.IndexOf(s);
+        var nieuw = index + richting;
+        if (index < 0 || nieuw < 0 || nieuw >= _stuklijst.Count) return;
+        (_stuklijst[index], _stuklijst[nieuw]) = (_stuklijst[nieuw], _stuklijst[index]);
+        try
+        {
+            for (var i = 0; i < _stuklijst.Count; i++)
+            {
+                if (_stuklijst[i].Volgorde == i + 1) continue;
+                _stuklijst[i].Volgorde = i + 1;
+                await Repo.BewaarStuklijstRegelAsync(_stuklijst[i], Ik.WerknemerId);
+            }
+        }
+        catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); await LaadStuklijst(); }
     }
 
     private async Task Bewaar((string Kolom, object? Waarde) wijziging)
@@ -1250,6 +2213,69 @@
     private void HistorieSoortGewijzigd(ChangeEventArgs e)
         => _historieSoortId = int.TryParse((string?)e.Value, out var v) ? v : null;
 
+    // Zoeken/filteren in de historie van het geopende exemplaar (alleen in het scherm, niets wordt bewaard).
+    private string _histZoek = "", _histSoortFilter = "", _histUitkomst = "";
+    private bool _histMetOnderdelen;
+    private List<ProductGebeurtenis> _histOnderdelen = new();            // historie van de gekoppelde halffabricaten
+    private readonly Dictionary<int, string> _histVan = new();           // historie-id → 'code · serienummer' van het onderdeel
+
+    private async Task HistOnderdelenGewijzigd(ChangeEventArgs e)
+    {
+        _histMetOnderdelen = e.Value is bool b && b;
+        if (_histMetOnderdelen) await LaadHistorieOnderdelen();
+    }
+
+    /// <summary>Historie van alle onderdelen in de samenstelling, recursief tot 3 niveaus (onderdeel van onderdeel).</summary>
+    private async Task LaadHistorieOnderdelen()
+    {
+        _histOnderdelen = new(); _histVan.Clear();
+        if (_productId is null) return;
+        var gezien = new HashSet<int> { _productId.Value };
+        async Task Verzamel(int productId, string pad, int diepte)
+        {
+            if (diepte > 3) return;
+            List<SamenstellingRegel> onderdelen;
+            try { onderdelen = await Repo.GetOnderdelenAsync(productId); } catch { return; }
+            foreach (var o in onderdelen)
+            {
+                if (!gezien.Add(o.ProductId)) continue;
+                var naam = (pad.Length > 0 ? pad + " › " : "") + $"{o.Code} {o.Serienummer}".Trim();
+                try
+                {
+                    foreach (var h in await Repo.GetHistorieAsync(o.ProductId))
+                    {
+                        _histOnderdelen.Add(h);
+                        _histVan[h.Id] = naam;
+                    }
+                }
+                catch { }
+                await Verzamel(o.ProductId, naam, diepte + 1);
+            }
+        }
+        await Verzamel(_productId.Value, "", 1);
+    }
+
+    private List<ProductGebeurtenis> HistorieGefilterd
+    {
+        get
+        {
+            IEnumerable<ProductGebeurtenis> q = _histMetOnderdelen
+                ? _historie.Concat(_histOnderdelen).OrderByDescending(h => h.Wanneer ?? DateTime.MinValue).ThenByDescending(h => h.Id)
+                : _historie;
+            if (_histSoortFilter.Length > 0) q = q.Where(h => h.Soort == _histSoortFilter);
+            if (_histUitkomst == "ok") q = q.Where(h => h.Uitkomst == true);
+            else if (_histUitkomst == "fout") q = q.Where(h => h.Uitkomst == false);
+            var termen = _histZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var t in termen)
+                q = q.Where(h => h.Event.Contains(t, StringComparison.OrdinalIgnoreCase)
+                              || h.Soort.Contains(t, StringComparison.OrdinalIgnoreCase)
+                              || (_histVan.TryGetValue(h.Id, out var bron) && bron.Contains(t, StringComparison.OrdinalIgnoreCase))
+                              || h.Door.Contains(t, StringComparison.OrdinalIgnoreCase)
+                              || (h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "").Contains(t, StringComparison.OrdinalIgnoreCase));
+            return q.ToList();
+        }
+    }
+
     private async Task VoegHistorieToe()
     {
         if (_productId is null) return;
@@ -1355,14 +2381,7 @@
 
         await KiesNaam(naam);
 
-        var doel = _producten.FirstOrDefault(p => p.Id == regel.ProductId);
-        if (doel is null)
-        {
-            // staat misschien op gewist
-            _inclGewist = true;
-            await LaadProducten();
-            doel = _producten.FirstOrDefault(p => p.Id == regel.ProductId);
-        }
+        var doel = await ZoekInLijst(regel.ProductId);
         if (doel is null) { Toon("Dat exemplaar is niet gevonden.", true); return; }
 
         await KiesProduct(doel);
@@ -1560,8 +2579,324 @@
     }
 
     // ================================================================
+    //  Groep en artikel van het producttype (zijtabel ProductNameExtra)
+    // ================================================================
+    private List<Keuze> _groepen = new();
+    private string _artikelZoek = "";
+    private string GroepTitel => _groepen.Count == 0 ? "Voer ProductGroepen_MariaDB.sql uit" : "";
+
+    // Filter op groep in de linkerlijst (naast het producttype).
+    private int? _groepFilter;
+    private List<ProductNaam> NamenGefilterd()
+        => _groepFilter is null ? _namen : _namen.Where(n => n.GroepId == _groepFilter).ToList();
+    private async Task GroepFilterGewijzigd(ChangeEventArgs e)
+    {
+        _groepFilter = int.TryParse((string?)e.Value, out var g) ? g : null;
+        // Het gekozen producttype valt buiten de groep? Dan de eerste uit de nieuwe lijst openen.
+        if (_naam is null || (_groepFilter is not null && _naam.GroepId != _groepFilter))
+        {
+            Leegmaken();
+            await KiesEerste();
+        }
+    }
+
+    /// <summary>De eerste productnaam uit de (gefilterde) lijst openen, als die er is.</summary>
+    private async Task KiesEerste()
+    {
+        var eerste = NamenGefilterd().FirstOrDefault();
+        if (eerste is not null) await KiesNaam(eerste);
+    }
+
+    private List<ArtikelRegel> _artikelTreffers = new();
+    private bool _artikelZoekt;
+    private string ArtikelPlaceholder => _naam?.ArtikelId is null ? "zoek artikel: nummer of code…" : "ander artikel zoeken…";
+
+    /// <summary>Live zoeken in de artikeltabel: op nummer (#56083 of 56083) of op code/omschrijving.</summary>
+    private async Task ArtikelZoekGewijzigd(ChangeEventArgs e)
+    {
+        _artikelZoek = ((string?)e.Value ?? "").Trim();
+        _artikelTreffers = new();
+        if (_artikelZoek.Length < 2) return;
+        _artikelZoekt = true;
+        try
+        {
+            var z = _artikelZoek.TrimStart('#');
+            if (int.TryParse(z, out var nr))
+            {
+                var a = await Artikelen.GetAsync(nr);
+                if (a is not null) _artikelTreffers.Add(new ArtikelRegel(a.Id, a.Code, a.OmschrijvingNl, ""));
+            }
+            if (_artikelTreffers.Count == 0)
+                _artikelTreffers = await Artikelen.ZoekAsync(z, null, false, 12);
+        }
+        catch (Exception ex) { Toon("Artikel zoeken mislukt: " + ex.Message, true); }
+        finally { _artikelZoekt = false; }
+    }
+
+    private async Task GroepGewijzigd(ChangeEventArgs e)
+    {
+        if (_naam is null) return;
+        var groepId = int.TryParse((string?)e.Value, out var g) ? g : (int?)null;
+        await BewaarExtra(groepId, _naam.ArtikelId);
+    }
+
+    private async Task ZetArtikel(int? artikelId)
+    {
+        if (_naam is null) return;
+        _artikelZoek = ""; _artikelTreffers = new();
+        await BewaarExtra(_naam.GroepId, artikelId);
+    }
+
+    private async Task BewaarExtra(int? groepId, int? artikelId)
+    {
+        if (_naam is null) return;
+        try
+        {
+            await Repo.ZetProductnaamExtraAsync(_naam.Id, groepId, artikelId);
+            var id = _naam.Id;
+            await LaadNamen();
+            _naam = _namen.FirstOrDefault(n => n.Id == id)
+                    ?? (await Repo.ZoekProductnamenAsync(null, null)).FirstOrDefault(n => n.Id == id) ?? _naam;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    // ================================================================
+    //  Drives van het halffabricaat: posities + parametersets (tab Drives)
+    // ================================================================
+    private List<DriveSoort> _driveTypen = new();
+    private List<(int Id, string TypeNaam, string Versie, string Status)> _alleFirmwares = new();
+    private List<DrivePositie> _posities = new();
+    private List<DriveParameterset> _parametersets = new();
+    private bool _drvOntbreekt;
+    private int? _drvVervang;
+    private HashSet<string> _technieken = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool HeeftDrivesOfServo => _technieken.Contains(ProductTechniek.Drives) || _technieken.Contains(ProductTechniek.Feetech);
+    private bool HeeftChip => _technieken.Contains(ProductTechniek.Esp32) || _technieken.Contains(ProductTechniek.Stm32);
+
+    /// <summary>Controllertypen die bij de aangevinkte technieken passen (ESP32-print: geen Everest in de lijst).</summary>
+    private IEnumerable<DriveSoort> TypenVoorProduct => _driveTypen.Where(t =>
+        t.Protocol switch
+        {
+            DriveProtocol.Esp32 => _technieken.Contains(ProductTechniek.Esp32),
+            DriveProtocol.Stm32 => _technieken.Contains(ProductTechniek.Stm32),
+            DriveProtocol.Feetech => _technieken.Contains(ProductTechniek.Feetech),
+            DriveProtocol.Coe => _technieken.Contains(ProductTechniek.Drives) || _technieken.Contains(ProductTechniek.Can),   // eRob: EtherCAT óf CAN
+            _ => _technieken.Contains(ProductTechniek.Drives),
+        });
+
+    /// <summary>Vinkje 'stap zichtbaar in Half-fabricaten' — kolom Toon… in ProductNameExtra.</summary>
+    private async Task ZetStapZichtbaar(string code, ChangeEventArgs e)
+    {
+        if (_naamId is null || _naam is null) return;
+        var toon = e.Value is bool b && b;
+        try
+        {
+            await Repo.ZetStapZichtbaarAsync(_naamId.Value, code, toon);
+            if (toon) _naam.VerborgenStappen.Remove(code); else _naam.VerborgenStappen.Add(code);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task ZetTechniek(string code, ChangeEventArgs e)
+    {
+        if (_naamId is null) return;
+        var aan = e.Value is bool b && b;
+        try
+        {
+            await Repo.ZetTechniekAsync(_naamId.Value, code, aan);
+            if (aan) _technieken.Add(code); else _technieken.Remove(code);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon(ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase)
+                ? "De tabel ProductTechnieken ontbreekt nog: voer ProductTechniek_MariaDB.sql uit."
+                : "Opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task LaadDrives(int productNameId)
+    {
+        if (!Drives.Beschikbaar) return;
+        try { _technieken = await Repo.GetTechniekenAsync(productNameId); } catch { _technieken = new(StringComparer.OrdinalIgnoreCase); }
+        try
+        {
+            _driveTypen = await Drives.GetTypenAsync();
+            _alleFirmwares = new();
+            foreach (var t in _driveTypen)
+                foreach (var f in await Drives.GetFirmwaresAsync(t.Id))
+                    _alleFirmwares.Add((f.Id, t.Naam, f.Versie, f.Status));
+            _posities = await Drives.GetPositiesAsync(productNameId);
+            _parametersets = await Drives.GetParametersetsAsync(productNameId);
+            _drvOntbreekt = false;
+        }
+        catch (Exception ex)
+        {
+            _drvOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
+            if (!_drvOntbreekt) Toon("Drives laden mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task NieuwePositie()
+    {
+        if (_naamId is null) return;
+        try
+        {
+            var volgende = _posities.Count == 0 ? 1 : _posities.Max(p => p.Positie) + 1;
+            await Drives.BewaarPositieAsync(new DrivePositie { ProductNameId = _naamId.Value, Positie = volgende, Naam = $"Drive {volgende}" });
+            await LaadDrives(_naamId.Value);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetPositie(DrivePositie p, Action wijzig)
+    {
+        wijzig();
+        try { await Drives.BewaarPositieAsync(p); if (_naamId is int n) await LaadDrives(n); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderPositie(DrivePositie p)
+    {
+        if (!await Bevestig($"Positie {p.Positie} ({p.Naam}) verwijderen?")) return;
+        try { await Drives.VerwijderPositieAsync(p.Id); if (_naamId is int n) await LaadDrives(n); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task NieuweParam()
+    {
+        if (_naamId is null || _posities.Count == 0 || _alleFirmwares.Count == 0) return;
+        try
+        {
+            // Standaard: eerste positie en de actuele firmware van het verwachte type als die er is.
+            var pos = _posities.OrderBy(p => p.Positie).First();
+            var typeNaam = pos.DriveTypeNaam;
+            var fw = _alleFirmwares.FirstOrDefault(f => f.TypeNaam == typeNaam && f.Status == DriveStatus.Actueel);
+            if (fw.Id == 0) fw = _alleFirmwares.First();
+            await Drives.BewaarParametersetAsync(new DriveParameterset
+            {
+                ProductNameId = _naamId.Value, Positie = pos.Positie, DriveFirmwareId = fw.Id, Status = DriveStatus.Actueel
+            }, Ik.WerknemerId);
+            await LaadDrives(_naamId.Value);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- Feetech-editor ----
+    private DriveParameterset? _editorPs;
+
+    private bool IsFeetechSet(DriveParameterset ps)
+        => ps.ParameterBestand.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+           || (ps.ParameterFileId is null && _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol == DriveProtocol.Feetech);
+
+    private async Task EditorOpgeslagen(int nieuwFileId)
+    {
+        if (_naamId is int n) await LaadDrives(n);
+        Toon("Parameterset opgeslagen.", false);
+    }
+
+    /// <summary>Nieuwe parameterset voor de eerste positie, en meteen de editor erop.</summary>
+    private async Task NieuweFeetechSet()
+    {
+        if (_naamId is null || _posities.Count == 0 || _alleFirmwares.Count == 0) return;
+        try
+        {
+            var pos = _posities.OrderBy(p => p.Positie).First();
+            var fw = _alleFirmwares.FirstOrDefault(f => f.TypeNaam == pos.DriveTypeNaam && f.Status == DriveStatus.Actueel);
+            if (fw.Id == 0) fw = _alleFirmwares.FirstOrDefault(f => f.TypeNaam == pos.DriveTypeNaam);
+            if (fw.Id == 0) fw = _alleFirmwares.First();
+            var id = await Drives.BewaarParametersetAsync(new DriveParameterset
+            {
+                ProductNameId = _naamId.Value, Positie = pos.Positie, DriveFirmwareId = fw.Id,
+                Omschrijving = $"{_naam?.Naam} parameters", Status = DriveStatus.Actueel
+            }, Ik.WerknemerId);
+            await LaadDrives(_naamId.Value);
+            _editorPs = _parametersets.FirstOrDefault(p => p.Id == id);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetParam(DriveParameterset ps, Action wijzig)
+    {
+        wijzig();
+        try { await Drives.BewaarParametersetAsync(ps, Ik.WerknemerId); if (_naamId is int n) await LaadDrives(n); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task UploadParam(DriveParameterset ps, InputFileChangeEventArgs e)
+    {
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
+        try
+        {
+            var bestand = e.File;
+            using var geheugen = new MemoryStream();
+            await bestand.OpenReadStream(20 * 1024 * 1024).CopyToAsync(geheugen);
+
+            // De kop van het .xcf zegt voor welke drive hij is: <Device ProductCode="57741313"
+            // PartNumber="CAP-NET-E" firmwareVersion="…">. Past dat niet bij het drivetype
+            // van deze positie, dan waarschuwen — opslaan mag wel, jij beslist.
+            var waarschuwing = "";
+            var kop = XcfKop(geheugen.ToArray());
+            if (kop is not null)
+            {
+                var positie = _posities.FirstOrDefault(p => p.Positie == ps.Positie);
+                var type = _driveTypen.FirstOrDefault(t => t.Id == positie?.DriveTypeId);
+                if (type is not null && !string.Equals(MySqlDriveRepository.NormaliseerCode(type.ProductCode), kop.Value.Code, StringComparison.OrdinalIgnoreCase))
+                    waarschuwing = $" Let op: dit bestand is voor {kop.Value.PartNumber} ({kop.Value.Code}), positie {ps.Positie} verwacht {type.Naam}.";
+                if (ps.Opmerking.Length == 0)
+                    ps.Opmerking = $"{kop.Value.PartNumber}, xcf-firmware {kop.Value.Firmware}, {kop.Value.Registers} registers";
+            }
+
+            geheugen.Position = 0;
+            var nieuwId = await Store.ToevoegenAsync(geheugen, bestand.Name, DriveStore.Parameters, ps.Id, Ik.WerknemerId ?? 0);
+            var oud = ps.ParameterFileId;
+            ps.ParameterFileId = nieuwId;
+            if (ps.Omschrijving.Length == 0) ps.Omschrijving = Path.GetFileNameWithoutExtension(bestand.Name);
+            await Drives.BewaarParametersetAsync(ps, Ik.WerknemerId);
+            if (oud is int o) { try { await Store.VerwijderAsync(o); } catch { } }
+            _drvVervang = null;
+            if (_naamId is int n) await LaadDrives(n);
+            Toon($"'{bestand.Name}' opgeslagen." + waarschuwing, waarschuwing.Length > 0);
+        }
+        catch (Exception ex) { Toon("Upload mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Kop van een Ingenia .xcf: productcode (hex), partnumber, firmware, aantal registers.</summary>
+    private static (string Code, string PartNumber, string Firmware, int Registers)? XcfKop(byte[] inhoud)
+    {
+        try
+        {
+            var doc = System.Xml.Linq.XDocument.Load(new MemoryStream(inhoud));
+            var dev = doc.Descendants("Device").FirstOrDefault();
+            if (dev is null) return null;
+            var code = MySqlDriveRepository.NormaliseerCode((string?)dev.Attribute("ProductCode") ?? "");
+            return (code, (string?)dev.Attribute("PartNumber") ?? "", (string?)dev.Attribute("firmwareVersion") ?? "",
+                    doc.Descendants("Register").Count());
+        }
+        catch { return null; }
+    }
+
+    private async Task VerwijderParam(DriveParameterset ps)
+    {
+        if (!await Bevestig($"Parameterset '{ps.Omschrijving}' (positie {ps.Positie}, firmware {ps.FirmwareVersie}) verwijderen?")) return;
+        try
+        {
+            if (ps.ParameterFileId is int f) { try { await Store.VerwijderAsync(f); } catch { } }
+            await Drives.VerwijderParametersetAsync(ps.Id);
+            if (_naamId is int n) await LaadDrives(n);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ================================================================
     //  Attributen van het producttype
     // ================================================================
+    private bool? _heeftBron;   // kolom Bron aanwezig? (ProductAttribuutBron_MariaDB.sql)
+
     private async Task NieuwAttribuut()
     {
         if (_naamId is null) return;
@@ -1614,7 +2949,7 @@
     // ================================================================
     private async Task<bool> Bevestig(string vraag)
     {
-        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
         catch { return true; }
     }
 

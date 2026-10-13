@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 32-bit hulpprogramma voor de MDE Werkplek-agent: luistert op een GCAN USBCAN via de
+       32-bit ECanVci.dll (zoals die bij eTuner zit) en schrijft elk CAN-frame als één regel JSON
+       naar stdout. De 64-bit agent kan die DLL niet zelf laden; dit programma wel.
+       Bouwen: dotnet publish -c Release  (gebeurt in bouw.bat) -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <PlatformTarget>x86</PlatformTarget>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>CanLuisteraar</AssemblyName>
+    <RootNamespace>CanLuisteraar</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

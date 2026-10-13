@@ -1,0 +1,44 @@
+{
+  "protocol": "coe",
+  "model": "eRob110",
+  "omschrijving": "eRob110 — MDE-instellingen (zoals in eRob-Studio: PID Adjust, Pos Limit, Safety Power Supply, Target Reached)",
+  "_uitleg": [
+    "Elke regel is één SDO: index (hex), sub, type (UDINT/DINT/UINT/INT/USINT/SINT), naam, waarde. Volgorde = schrijfvolgorde.",
+    "0x2383 (Bus Adjust PID) moet 1 zijn vóórdat de PID-objecten via de bus te schrijven zijn — daarom staat hij bovenaan.",
+    "Posities/snelheden zijn in encoder-counts aan de lastzijde: 524288 counts = 360°, dus 1° = 1456,4 counts.",
+    "Softwarelimieten (0x607D) zijn absolute posities en verschillen per as/inbouw: alleen opnemen als ze voor dit halffabricaat vast zijn, anders de regels verwijderen.",
+    "Niet via EtherCAT instelbaar (alleen in eRob-Studio via CAN): min/max busspanning, max fasestroom/motorstroom/somfout, max drivetemperatuur, DIn/DOut-functies, STO-config, filterfrequentie/-demping.",
+    "Weggelaten: 0x6040 (controlword), 0x607A (doelpositie), 0x2242 (encoder-reset) — die zet de app zelf.",
+    "Opslaan gebeurt met 0x1010:01 = 'save' na het schrijven."
+  ],
+  "opslaan": true,
+  "registers": [
+    { "index": "0x2383", "sub": 0, "type": "UDINT", "naam": "Bus Adjust PID (1 = PID via bus instelbaar)",        "waarde": 1 },
+
+    { "index": "0x2382", "sub": 1, "type": "UINT",  "naam": "Pos Loop Gain",                                      "waarde": 600 },
+    { "index": "0x2381", "sub": 1, "type": "UINT",  "naam": "Speed Loop Gain",                                    "waarde": 3200 },
+    { "index": "0x2381", "sub": 2, "type": "UINT",  "naam": "Speed Loop Integral",                                "waarde": 40 },
+    { "index": "0x2382", "sub": 3, "type": "UINT",  "naam": "Speed Feed Factor (16384 = 100 %)",                  "waarde": 16384 },
+
+    { "index": "0x6065", "sub": 0, "type": "UDINT", "naam": "Max Position Error (counts)",                        "waarde": 6240 },
+    { "index": "0x3B62", "sub": 0, "type": "UDINT", "naam": "Soft Pos Error (counts)",                            "waarde": 5242 },
+    { "index": "0x6066", "sub": 0, "type": "UINT",  "naam": "Position following error time out (ms)",             "waarde": 100 },
+
+    { "index": "0x6067", "sub": 0, "type": "UDINT", "naam": "Target Position Window (counts)",                    "waarde": 10 },
+    { "index": "0x6068", "sub": 0, "type": "UINT",  "naam": "Target Position Window Time (ms)",                   "waarde": 4 },
+
+    { "index": "0x6075", "sub": 0, "type": "UDINT", "naam": "Continuous Current (mA)",                            "waarde": 25000 },
+    { "index": "0x6072", "sub": 0, "type": "UINT",  "naam": "Max Output Torque (‰ van continu; 1201 = 30,0 A piek)", "waarde": 1201 },
+    { "index": "0x60E0", "sub": 0, "type": "UINT",  "naam": "Positive torque limit (‰)",                          "waarde": 1201 },
+    { "index": "0x60E1", "sub": 0, "type": "UINT",  "naam": "Negative torque limit (‰)",                          "waarde": 1201 },
+
+    { "index": "0x607F", "sub": 0, "type": "UDINT", "naam": "Max profile velocity (counts/s)",                    "waarde": 291271 },
+    { "index": "0x6081", "sub": 0, "type": "UDINT", "naam": "Profile velocity (counts/s, 10 °/s)",                "waarde": 14564 },
+    { "index": "0x6083", "sub": 0, "type": "UDINT", "naam": "Profile acceleration (counts/s²)",                   "waarde": 29127 },
+    { "index": "0x6084", "sub": 0, "type": "UDINT", "naam": "Profile deceleration (counts/s²)",                   "waarde": 29127 },
+    { "index": "0x6085", "sub": 0, "type": "UDINT", "naam": "Quick stop deceleration (counts/s²)",                "waarde": 145636 },
+
+    { "index": "0x607D", "sub": 1, "type": "DINT",  "naam": "Position Limit from (counts) — per as controleren!", "waarde": 193000 },
+    { "index": "0x607D", "sub": 2, "type": "DINT",  "naam": "Position Limit to (counts) — per as controleren!",   "waarde": 270000 }
+  ]
+}

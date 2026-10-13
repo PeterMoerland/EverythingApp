@@ -492,6 +492,34 @@
             }
         };
 
+        // Testrig-agent: een klein Python-servertje op de testrig-pc zelf
+        // (localhost) dat de drives via EtherCAT uitleest. De server kan daar
+        // niet bij, de browser op die pc wel — dus halen we het hier op en
+        // geven het aan Blazor terug. Zie TestrigAgent/README.md.
+        window.mdeAgent = {
+            // GET (body leeg) of POST (body = JSON-tekst); token gaat mee in een kop.
+            haal: async function (url, seconden, token, body) {
+                var ctrl = new AbortController();
+                var timer = setTimeout(function () { ctrl.abort(); }, (seconden || 70) * 1000);
+                try {
+                    var opties = { signal: ctrl.signal, cache: 'no-store', headers: {} };
+                    if (token) opties.headers['X-Agent-Token'] = token;
+                    if (body) { opties.method = 'POST'; opties.headers['Content-Type'] = 'application/json'; opties.body = body; }
+                    var r = await fetch(url, opties);
+                    var tekst = await r.text();
+                    return { status: r.status, tekst: tekst };
+                } catch (e) {
+                    var reden = e && e.name === 'AbortError'
+                        ? 'time-out: de agent antwoordde niet op tijd'
+                        : 'geen verbinding met de werkplek-agent op deze pc (is de MDE Werkplek-agent geïnstalleerd en gestart, '
+                          + 'en staat dit app-adres ' + location.origin + ' in agent.json bij toegestaan?) — '
+                          + 'browser zegt: ' + (e && e.message ? e.message : e);
+                    console.warn('mdeAgent', url, e);
+                    return { status: 0, tekst: reden };
+                } finally { clearTimeout(timer); }
+            }
+        };
+
         // Opvallende 'weet je het zeker?'-dialoog in plaats van het grijze browser-confirm.
         // Geeft een Promise<bool> terug; Enter = ja, Esc = nee.
         // mdeMelding(tekst, kop): zelfde dialoog met alleen een OK-knop (bv. 'STO niet vrijgegeven').

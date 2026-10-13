@@ -16,6 +16,8 @@ public static class ProductVelden
             new Veld("Werkorder", VeldType.Keuze, new[] { "WorkorderID" }, Lijst: "Werkorder"),
             new Veld("Artikel", VeldType.Keuze, new[] { "ArtikelID" }, Lijst: "Artikel"),
             new Veld("Klant", VeldType.Keuze, new[] { "KlantID" }, Lijst: "Klant"),
+            // Vrije tekst; kolom uit Producten_Project_MariaDB.sql (zonder die kolom blijft het veld weg).
+            new Veld("Project", VeldType.Tekst, new[] { "Project" }),
             new Veld("Opmerking", VeldType.Meerregelig, new[] { "Opmerking" }))
             { EenKolom = true },
     };

@@ -100,6 +100,10 @@ builder.Services.AddRazorComponents()
         o.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
         o.KeepAliveInterval = TimeSpan.FromSeconds(15);
         o.HandshakeTimeout = TimeSpan.FromSeconds(30);
+        // Antwoorden van de werkplek-agent komen via JS-interop de server binnen (browser →
+        // server). Standaard mag zo'n bericht maar 32 kB zijn; een objectdictionary-scan of
+        // een lange servo-registerlijst is groter en dan blijft de aanroep stil hangen.
+        o.MaximumReceiveMessageSize = 8 * 1024 * 1024;
     });
 
 // Nodig zodat App.razor (de <base href> tag) weet met welk pad-voorvoegsel de
@@ -120,7 +124,8 @@ if (liveDb)
     builder.Services.AddSingleton<IRelatieRepository>(_ => new MySqlRelatieRepository(cs!));
     builder.Services.AddSingleton<IProjectRepository>(_ => new MySqlProjectRepository(cs!));
     builder.Services.AddSingleton<INdaRepository>(_ => new MySqlNdaRepository(cs!));
-    builder.Services.AddSingleton<IProductRepository>(_ => new MySqlProductRepository(cs!));
+    builder.Services.AddSingleton<IProductRepository>(_ => new MySqlProductRepository(cs!,
+        builder.Configuration.GetValue<int?>("Productie:StandaardKlantId")));
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
@@ -137,6 +142,8 @@ if (liveDb)
     builder.Services.AddSingleton<IBaseconeRepository>(_ => new MySqlBaseconeRepository(cs!));
     builder.Services.AddSingleton<IEcComponentRepository>(_ => new MySqlEcComponentRepository(cs!));
     builder.Services.AddSingleton<IJlcComponentRepository>(_ => new MySqlJlcComponentRepository(cs!));
+    builder.Services.AddSingleton<IDriveRepository>(_ => new MySqlDriveRepository(cs!));
+    builder.Services.AddSingleton<IOpbouwRepository>(_ => new MySqlOpbouwRepository(cs!));
 }
 else
 {
@@ -161,6 +168,8 @@ else
     builder.Services.AddSingleton<IBaseconeRepository, GeenBaseconeRepository>();
     builder.Services.AddSingleton<IEcComponentRepository, GeenEcComponentRepository>();
     builder.Services.AddSingleton<IJlcComponentRepository, GeenJlcComponentRepository>();
+    builder.Services.AddSingleton<IDriveRepository, NullDriveRepository>();
+    builder.Services.AddSingleton<IOpbouwRepository, NullOpbouwRepository>();
 }
 
 builder.Services.AddSingleton<CameraService>();
@@ -185,7 +194,9 @@ builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
 builder.Services.AddSingleton<FactuurPdfService>();
+builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
+builder.Services.AddScoped<WerkplekAgent>();           // per browser: is er een MDE Werkplek-agent op deze pc?   // duurtestlog van de testrig-PLC ophalen (FTP)
 
 // NDA: document maken uit het Word-sjabloon, opslaan in de filestore, en de
 // eenmalige overname van de oude Python-app.
@@ -194,6 +205,7 @@ builder.Services.AddSingleton<NdaDocumentService>();
 builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<AltecPrinter>();
 builder.Services.AddSingleton<FusionPakketten>();
+builder.Services.AddSingleton<FirmwarePakketten>();
 builder.Services.AddSingleton<ComponentZoeker>();
 builder.Services.AddSingleton<JlcKoppeling>();
 builder.Services.AddSingleton<JlcOnderdelen>();
@@ -878,6 +890,13 @@ app.MapPost("/api/laptop", ComputerMelden);
 app.MapGet("/api/fusion-pakket/{id:guid}", (Guid id, FusionPakketten pakketten) =>
     pakketten.Pak(id) is { } pakket
         ? Results.File(pakket.Inhoud, "application/zip", pakket.Naam)
+        : Results.NotFound());
+
+// Firmware voor de werkplek-agent (Productie ▸ Test PCB ▸ Firmware laden):
+// de agent op de werkplek-pc haalt het bestand hier op. Zie MdeAgent/README.md.
+app.MapGet("/api/firmware/{id:guid}", (Guid id, FirmwarePakketten pakketten) =>
+    pakketten.Pak(id) is { } pakket
+        ? Results.File(pakket.Inhoud, "application/octet-stream", pakket.Naam)
         : Results.NotFound());
 
 // ---------------------------------------------------------------------------

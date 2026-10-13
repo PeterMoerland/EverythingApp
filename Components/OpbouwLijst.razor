@@ -1,0 +1,204 @@
+@inject IOpbouwRepository Opbouw
+@inject IProductRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject IConfiguration Config
+@inject HuidigeGebruiker Ik
+
+@* Afvinklijst van een exemplaar: de opbouwstappen en daaronder de eindcontrole.
+   Elke wijziging komt in de historie; zijn alle verplichte opbouwstappen en alle
+   controles klaar, dan wordt de knop 'Product gereed' actief die de status van
+   het exemplaar omzet. Gebruikt in Half-fabricaten, Producten en het tabblad
+   Opbouw bij een exemplaar. *@
+
+@if (_stappen.Count == 0)
+{
+    <p class="uitleg">Dit producttype heeft nog geen opbouwstappen of eindchecks (Producten ▸ producttype ▸ tabs Opbouw en Eindcheck).</p>
+}
+else
+{
+    @if (ToonOpbouw && Opbouwstappen.Any())
+    {
+        <h4 class="prod-subkop">Opbouw <span class="stand-chip @(OpbouwKlaar ? "s-groen" : "s-geel")">@Opbouwstappen.Count(s => s.Klaar) van @Opbouwstappen.Count()</span></h4>
+        @Tabel(Opbouwstappen)
+    }
+    @if (ToonOpbouw && !ToonControle && !Opbouwstappen.Any())
+    {
+        <p class="uitleg">Dit producttype heeft geen opbouwstappen; zie de tab Eindcheck.</p>
+    }
+    @if (ToonControle && Controles.Any())
+    {
+        <h4 class="prod-subkop">Eindcontrole <span class="stand-chip @(ControlesKlaar ? "s-groen" : "s-geel")">@Controles.Count(s => s.Klaar) van @Controles.Count()</span></h4>
+        <p class="uitleg">Handmatige controle vóór het gereedmelden; vink elke check af nadat je hem hebt uitgevoerd.</p>
+        @Tabel(Controles)
+    }
+    @if (ToonControle && !Controles.Any())
+    {
+        <p class="uitleg">Dit producttype heeft nog geen eindchecks (Producten ▸ producttype ▸ tab Eindcheck).</p>
+    }
+
+    @if (ToonControle)
+    {
+    <div class="btngroup prod-gereed">
+        <button class="primair" disabled="@(_bezig || !AllesKlaar || _isGereed)" @onclick="ZetGereed"
+                title="@GereedTitel">
+            ✔ Product gereed
+        </button>
+        @if (_isGereed)
+        {
+            <span class="stand-chip s-groen">Status: @HuidigeStatus</span>
+        }
+        else if (!AllesKlaar)
+        {
+            <span class="uitleg">nog @(_stappen.Count(s => !s.Klaar && (s.Verplicht || s.Soort == OpbouwSoort.Controle))) te doen</span>
+        }
+        @if (_statusFout is not null)
+        {
+            <span class="uitleg fout-tekst">@_statusFout</span>
+        }
+    </div>
+    }
+    else if (_statusFout is not null)
+    {
+        <span class="uitleg fout-tekst">@_statusFout</span>
+    }
+}
+
+@code {
+    [Parameter] public int ProductNameId { get; set; }
+    [Parameter] public int ProductId { get; set; }
+    /// <summary>Huidige status van het exemplaar (StatusKort), voor de gereed-knop.</summary>
+    [Parameter] public string HuidigeStatus { get; set; } = "";
+    /// <summary>Opbouwstappen tonen (false = alleen de eindcontrole, als de opbouw elders al staat).</summary>
+    [Parameter] public bool ToonOpbouw { get; set; } = true;
+    /// <summary>Eindcontrole en de knop 'Product gereed' tonen (false = alleen de opbouwstappen).</summary>
+    [Parameter] public bool ToonControle { get; set; } = true;
+    /// <summary>Na elke wijziging (vinkje of status), zodat de aanroeper historie/kaart kan verversen.</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+    /// <summary>Nadat de status op 'Gereed' is gezet (bv. om het scherm te wissen voor het volgende exemplaar). Geeft de statusnaam mee.</summary>
+    [Parameter] public EventCallback<string> OpGereed { get; set; }
+
+    private List<OpbouwStap> _stappen = new();
+    private int? _docsVoor;
+    private List<Bestand> _docs = new();
+    private bool _bezig;
+    private string? _statusFout;
+    private int _geladenVoor = -1;
+
+    private IEnumerable<OpbouwStap> Opbouwstappen => _stappen.Where(s => s.Soort != OpbouwSoort.Controle);
+    private IEnumerable<OpbouwStap> Controles => _stappen.Where(s => s.Soort == OpbouwSoort.Controle);
+    private bool OpbouwKlaar => Opbouwstappen.All(s => s.Klaar || !s.Verplicht);
+    private bool ControlesKlaar => Controles.All(s => s.Klaar);
+    private bool AllesKlaar => _stappen.Count > 0 && OpbouwKlaar && ControlesKlaar;
+    private string GereedStatusNaam => Config["Productie:GereedStatus"] ?? "Gereed";
+    private bool _isGereed => HuidigeStatus.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase);
+    private string GereedTitel => AllesKlaar
+        ? $"Status van dit exemplaar op '{GereedStatusNaam}' zetten"
+        : "Eerst alle verplichte opbouwstappen en controles afvinken";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProductId) return;
+        _geladenVoor = ProductId;
+        await Laad();
+    }
+
+    public async Task Laad()
+    {
+        _stappen = new(); _docsVoor = null; _docs = new(); _statusFout = null;
+        if (!Opbouw.Beschikbaar || ProductNameId == 0) return;
+        try { _stappen = await Opbouw.GetStappenAsync(ProductNameId, ProductId); }
+        catch { /* tabellen ontbreken: lege lijst */ }
+        StateHasChanged();   // ook als de aanroeper (een andere lijst op dezelfde pagina) ons herlaadt
+    }
+
+    private RenderFragment Tabel(IEnumerable<OpbouwStap> stappen) => __builder =>
+    {
+        <table class="kiezer-tabel opb-tabel">
+            <tbody>
+                @foreach (var s in stappen)
+                {
+                    <tr @key="s.Id" class="@(s.Klaar ? "hist-ok" : "")">
+                        <td style="width:3rem" class="c"><input type="checkbox" class="opb-vink" checked="@s.Klaar" disabled="@_bezig" @onchange="e => Vink(s, e)" /></td>
+                        <td style="width:2.5rem"><span class="prod-nr klein-nr">@s.Volgorde</span></td>
+                        <td>
+                            <b>@s.Naam</b>@(s.Verplicht || s.Soort == OpbouwSoort.Controle ? "" : " (optioneel)")
+                            @if (s.Omschrijving.Length > 0) { <br /><small class="uitleg">@s.Omschrijving</small> }
+                        </td>
+                        <td style="width:16rem">@(s.Klaar ? $"{s.KlaarOp:dd-MM-yyyy HH:mm} · {s.KlaarDoor}" : "")</td>
+                        <td style="width:6rem">
+                            @if (s.AantalDocumenten > 0)
+                            {
+                                <button class="klein" title="Hands-on uitleg" @onclick="() => ToonDocs(s)">📎 @s.AantalDocumenten</button>
+                            }
+                        </td>
+                    </tr>
+                    @if (_docsVoor == s.Id)
+                    {
+                        <tr @key="@($"{s.Id}-docs")" class="opb-docs">
+                            <td colspan="2"></td>
+                            <td colspan="3">
+                                @foreach (var d in _docs)
+                                {
+                                    <span class="opb-doc">
+                                        <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
+                                        <a class="knopje" href="@("bestand/" + d.FileStoreId + "/download")" title="Downloaden">⬇</a>
+                                    </span>
+                                }
+                                @if (_docs.Count == 0) { <span class="uitleg">geen documenten</span> }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    };
+
+    private async Task Vink(OpbouwStap s, ChangeEventArgs e)
+    {
+        var klaar = e.Value is bool b && b;
+        _bezig = true;
+        try
+        {
+            await Opbouw.ZetStatusAsync(ProductId, s.Id, klaar, Ik.WerknemerId);
+            var soort = s.Soort == OpbouwSoort.Controle ? "Eindcontrole" : "Opbouw";
+            await Repo.VoegHistorieToeAsync(ProductId,
+                klaar ? $"{soort}: '{s.Naam}' klaar" : $"{soort}: '{s.Naam}' teruggezet naar niet klaar",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: klaar ? true : null);
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task ToonDocs(OpbouwStap s)
+    {
+        if (_docsVoor == s.Id) { _docsVoor = null; return; }
+        _docsVoor = s.Id;
+        try { _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _docs = new(); }
+    }
+
+    /// <summary>Alle checks klaar: status van het exemplaar op 'Gereed' (naam uit Productie:GereedStatus).</summary>
+    private async Task ZetGereed()
+    {
+        if (!AllesKlaar) return;
+        _statusFout = null;
+        try
+        {
+            var statussen = await Repo.GetStatussenAsync();
+            var gereed = statussen.FirstOrDefault(s => string.Equals(s.Naam, GereedStatusNaam, StringComparison.OrdinalIgnoreCase))
+                         ?? statussen.FirstOrDefault(s => s.Naam.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase));
+            if (gereed is null) { _statusFout = $"Geen productstatus '{GereedStatusNaam}' gevonden (Productie:GereedStatus in appsettings)."; return; }
+
+            _bezig = true;
+            await Repo.UpdateVeldAsync(ProductId, "ProductStatusID", gereed.Id);
+            await Repo.VoegHistorieToeAsync(ProductId, $"Product gereed: status → {gereed.Naam} (opbouw en eindcontrole compleet)",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: true);
+            HuidigeStatus = gereed.Naam;
+            await OpGewijzigd.InvokeAsync();
+            await OpGereed.InvokeAsync(gereed.Naam);
+        }
+        catch (Exception ex) { _statusFout = "Status zetten mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+}
