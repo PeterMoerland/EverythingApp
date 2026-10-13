@@ -2470,6 +2470,18 @@ html[data-thema="donker"] .sonos-speaker { background: #16273d; border-color: #2
 html[data-thema="donker"] .sonos-demp { border-color: #2b4a73; }
 html[data-thema="donker"] .sonos-demp.aan { background: #3a2222; border-color: #7a3a3a; }
 
+/* ---- Gebouwbeheer als zwevend venster (MainLayout) ---- */
+.zweefvenster { position: fixed; top: 4rem; right: 1.2rem; z-index: 900; width: min(30rem, calc(100vw - 2rem));
+                max-height: calc(100vh - 5.5rem); display: flex; flex-direction: column; background: var(--bg, #fff);
+                border: 1px solid #c9d3df; border-radius: 10px; box-shadow: 0 12px 32px rgba(20, 30, 50, .25); outline: none; }
+.zweefvenster.breed { width: min(60rem, calc(100vw - 2rem)); }
+.zweefkop { display: flex; align-items: center; gap: .4rem; padding: .5rem .7rem; border-bottom: 1px solid #dde3ea; }
+.zweefkop a.klein { text-decoration: none; padding: .1rem .45rem; border: 1px solid #c9d3df; border-radius: 5px; color: inherit; }
+.zweefinhoud { overflow: auto; padding: .7rem; }
+.zweefinhoud .page { padding: 0; }
+html[data-thema="donker"] .zweefvenster { background: #0f1d2e; border-color: #2b4a73; }
+html[data-thema="donker"] .zweefkop, html[data-thema="donker"] .zweefkop a.klein { border-color: #2b4a73; }
+
 /* Sonos: wat er speelt */
 .sonos-balk { display: flex; gap: .4rem; margin-bottom: .5rem; }
 .sonos-speelt { grid-column: 1 / -1; display: flex; gap: .6rem; align-items: center; min-width: 0; color: #556; font-size: .88em; }

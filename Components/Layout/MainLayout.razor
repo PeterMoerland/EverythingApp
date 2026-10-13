@@ -33,7 +33,15 @@
                     {
                         @foreach (var onder in m.Onder.Where(ModuleZichtbaar))
                         {
-                            <NavLink class="navonder" href="@onder.Adres">@onder.Naam</NavLink>
+                            @if (onder.Venster)
+                            {
+                                <a class="navonder @(_venster?.Sleutel == onder.Sleutel ? "active" : "")" href="@onder.Adres"
+                                   @onclick="() => OpenVenster(onder)" @onclick:preventDefault>@onder.Naam</a>
+                            }
+                            else
+                            {
+                                <NavLink class="navonder" href="@onder.Adres">@onder.Naam</NavLink>
+                            }
                         }
                     }
                 }
@@ -105,6 +113,30 @@
             <p class="mobiel-klein">Je keuze wordt op dit toestel onthouden. Wisselen kan
                altijd: via 'Volledige app gebruiken' op het mobiele startscherm, of door
                zelf naar /mobiel te gaan.</p>
+        </div>
+    </div>
+}
+
+@* Gebouwbeheer als zwevend venster: het scherm eronder blijft gewoon staan. *@
+@if (_venster is { } v)
+{
+    <div class="zweefvenster @(v.Sleutel == "cameras" ? "breed" : "")" tabindex="-1" @onkeydown="VensterToets" @ref="_vensterRef">
+        <header class="zweefkop">
+            <b>@v.Naam</b>
+            <span class="groei"></span>
+            <a class="klein" href="@v.Adres" title="Als losse pagina openen" @onclick="() => _venster = null">↗</a>
+            <button class="klein" title="Sluiten (Esc)" @onclick="() => _venster = null">✕</button>
+        </header>
+        <div class="zweefinhoud">
+            @switch (v.Sleutel)
+            {
+                case "verlichting": <VerlichtingPaneel />; break;
+                case "zonwering": <ZonweringPaneel />; break;
+                case "compressor": <CompressorPaneel />; break;
+                case "sonos": <SonosPaneel />; break;
+                case "alarm": <AlarmPaneel />; break;
+                case "cameras": <EverythingApp.Components.Pages.Cameras />; break;
+            }
         </div>
     </div>
 }
@@ -231,6 +263,23 @@
 
         return m.Groepen.SelectMany(g => g.Items)
                         .Any(i => i.Recht is null || Ik.Mag(i.Recht));
+    }
+
+    // ===== Gebouwbeheer als zwevend venster =====
+    private MenuModule? _venster;
+    private ElementReference _vensterRef;
+
+    private async Task OpenVenster(MenuModule m)
+    {
+        _venster = _venster?.Sleutel == m.Sleutel ? null : m;     // nog eens klikken = dicht
+        if (_venster is null) return;
+        StateHasChanged();
+        try { await Task.Yield(); await _vensterRef.FocusAsync(); } catch { /* niet erg: dan werkt Esc pas na een klik */ }
+    }
+
+    private void VensterToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _venster = null;
     }
 
     // ===== uitklapbare modules in de zijbalk =====

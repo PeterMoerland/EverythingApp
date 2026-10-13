@@ -30,6 +30,12 @@ public record MenuModule(string Sleutel, string Naam, string Icoon, params MenuG
     /// </summary>
     public string? Url { get; init; }
 
+    /// <summary>
+    /// Opent als zwevend venster boven het huidige scherm in plaats van een eigen pagina (Gebouwbeheer: even
+    /// tussendoor het licht of het volume regelen zonder je werk te verlaten). De pagina op Url blijft bestaan.
+    /// </summary>
+    public bool Venster { get; init; }
+
     public string Adres => string.IsNullOrWhiteSpace(Url) ? $"module/{Sleutel}" : Url!.TrimStart('/');
 }
 
@@ -184,17 +190,17 @@ public static class Menu
         {
             Onder = new[]
             {
-                new MenuModule("verlichting", "Verlichting", "bulb") { Url = "/gebouw/verlichting" },
+                new MenuModule("verlichting", "Verlichting", "bulb") { Url = "/gebouw/verlichting", Venster = true },
 
-                new MenuModule("zonwering", "Zonwering", "sun") { Url = "/gebouw/zonwering" },
+                new MenuModule("zonwering", "Zonwering", "sun") { Url = "/gebouw/zonwering", Venster = true },
 
-                new MenuModule("compressor", "Compressor", "gauge") { Url = "/gebouw/compressor" },
+                new MenuModule("compressor", "Compressor", "gauge") { Url = "/gebouw/compressor", Venster = true },
 
-                new MenuModule("sonos", "Sonos", "volume") { Url = "/gebouw/sonos" },
+                new MenuModule("sonos", "Sonos", "volume") { Url = "/gebouw/sonos", Venster = true },
 
-                new MenuModule("cameras", "Camera's", "camera") { Url = "/gebouw/cameras" },
+                new MenuModule("cameras", "Camera's", "camera") { Url = "/gebouw/cameras", Venster = true },
 
-                new MenuModule("alarm", "Alarm", "shield") { Url = "/gebouw/alarm" },
+                new MenuModule("alarm", "Alarm", "shield") { Url = "/gebouw/alarm", Venster = true },
 
                 new MenuModule("energie", "Energie", "flash",
                     new MenuGroep("Overzichten",
