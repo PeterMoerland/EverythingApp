@@ -2106,7 +2106,11 @@ html[data-thema="donker"] .lq-raster { stroke: #2b3a4d; }/* Liquiditeit: drie ko
 .lq-dagtabel tr.lq-open { cursor: pointer; }
 .lq-dagtabel tr.lq-open:hover td { background: rgba(26, 95, 180, .06); }
 /* Producten: project als vierde kolom in de exemplarenlijst, na de klant */
-.wn-naam.exemplaar-regel { grid-template-columns: minmax(3.2rem, max-content) minmax(4.9rem, max-content) minmax(0, 1fr) minmax(0, .8fr); }
+.wn-naam.exemplaar-regel { grid-template-columns: minmax(3.2rem, max-content) minmax(4.9rem, max-content) minmax(0, 1fr) minmax(0, 1.4fr); }
+/* breder dan de andere lijsten, zodat klant en vooral project leesbaar zijn; groeit mee met het scherm */
+.wn-lijst.product-lijst { width: clamp(24rem, 34vw, 38rem); }
+/* Shift-klik voor een reeks mag geen tekst selecteren */
+.product-exemplaren .mail-regel { user-select: none; }
 .wn-naam.exemplaar-regel .project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667; }
 html[data-thema="donker"] .wn-naam.exemplaar-regel .project { color: #9fb0c4; }
 

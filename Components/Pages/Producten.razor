@@ -162,10 +162,10 @@
                         @foreach (var p in _producten)
                         {
                             <div class="mail-regel @(p.Id == _productId ? "actief" : "")" @key="p.Id">
-                                <input type="checkbox" title="Selecteren voor een groepsbewerking"
-                                       checked="@_gekozen.Contains(p.Id)" @onchange="e => Vink(p, e)" />
+                                <input type="checkbox" title="Selecteren voor een groepsbewerking (Shift-klik: reeks)"
+                                       checked="@_gekozen.Contains(p.Id)" @onclick="e => VinkKlik(p, e)" />
                                 <button class="wn-naam exemplaar-regel @(p.Gewist ? "vervallen" : "")"
-                                        @onclick="() => KiesProduct(p)" title="@RegelTitel(p)">
+                                        @onclick="e => RegelKlik(p, e)" title="@RegelTitel(p)">
                                     <span class="nummer">@p.Serienummer</span>
                                     <span class="stat">@p.StatusKort</span>
                                     <span class="klant">@p.Klant</span>
@@ -1224,10 +1224,45 @@
     /// <summary>Loopt op na elke groepskeuze, zodat de keuzelijst weer op '—' springt.</summary>
     private int _groepTeller;
 
-    private void Vink(ProductRegel p, ChangeEventArgs e)
+    /// <summary>Het exemplaar waar een Shift-klik vanaf telt: de laatst aangeklikte regel of het laatste vinkje.</summary>
+    private int? _anker;
+
+    /// <summary>Vinkje: gewone klik zet dit exemplaar aan/uit, Shift-klik de hele reeks vanaf het anker.</summary>
+    private void VinkKlik(ProductRegel p, MouseEventArgs e)
     {
-        if (e.Value is bool aan && aan) _gekozen.Add(p.Id);
-        else _gekozen.Remove(p.Id);
+        var aan = !_gekozen.Contains(p.Id);
+        if (e.ShiftKey && ZetReeks(p, aan)) return;
+        if (aan) _gekozen.Add(p.Id); else _gekozen.Remove(p.Id);
+        _anker = p.Id;
+    }
+
+    /// <summary>Regel: gewone klik opent het exemplaar, Shift-klik selecteert de reeks, Ctrl-klik zet hem aan/uit.</summary>
+    private async Task RegelKlik(ProductRegel p, MouseEventArgs e)
+    {
+        if (e.ShiftKey)
+        {
+            if (!ZetReeks(p, true)) { _gekozen.Add(p.Id); _anker = p.Id; }
+            return;
+        }
+        if (e.CtrlKey || e.MetaKey)
+        {
+            if (!_gekozen.Remove(p.Id)) _gekozen.Add(p.Id);
+            _anker = p.Id;
+            return;
+        }
+        _anker = p.Id;
+        await KiesProduct(p);
+    }
+
+    /// <summary>Alles tussen het anker en dit exemplaar (in de getoonde volgorde) aan of uit. False zonder bruikbaar anker.</summary>
+    private bool ZetReeks(ProductRegel p, bool aan)
+    {
+        var van = _producten.FindIndex(x => x.Id == _anker);
+        var tot = _producten.FindIndex(x => x.Id == p.Id);
+        if (van < 0 || tot < 0) return false;
+        for (var i = Math.Min(van, tot); i <= Math.Max(van, tot); i++)
+            if (aan) _gekozen.Add(_producten[i].Id); else _gekozen.Remove(_producten[i].Id);
+        return true;
     }
 
     private void AllesAanUit()
