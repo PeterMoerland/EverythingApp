@@ -2260,3 +2260,10 @@ html[data-thema="donker"] .bz-sub, html[data-thema="donker"] .bz-fragment { colo
 html[data-thema="donker"] .br-chip.bz-gast { background: #3a3014; border-color: #6b5a2a; }
 html[data-thema="donker"] .bz-foto { background: #16273d; border-color: #2b4a73; }
 html[data-thema="donker"] .bz-info { background: #1d3557; border-color: #2b4a73; color: #cfe0ff; }
+
+/* ---- Hover op een geselecteerd item ----
+   De algemene regel button:hover (lichtgrijs) is specifieker dan .wn-naam.actief / .wn-tabs button.actief,
+   waardoor de witte tekst van het gekozen item op lichtgrijs kwam. Gekozen = blijft blauw, iets donkerder.
+   (Eigen hover-regels met meer klassen, zoals .fusion-fabrikanten, gaan hier nog steeds voor.) */
+button.actief:hover:not(:disabled) { background: #14498a; border-color: #14498a; color: #fff; }
+html[data-thema="donker"] button.actief:hover:not(:disabled) { background: #2a6cc4; border-color: #2a6cc4; color: #fff; }
