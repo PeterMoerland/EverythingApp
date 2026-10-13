@@ -3,7 +3,7 @@
    stuklijst zelf. De onderdelen worden pas opgehaald als je uitklapt. *@
 
 <div class="stuk-regel @(Regel.IsSamenstelling ? "assy" : "")"
-     style="@($"padding-left: {0.2 + Niveau * 1.1:0.##}rem")">
+     style="@FormattableString.Invariant($"padding-left: {0.2 + Niveau * 1.1:0.##}rem")">
 
     @if (Regel.IsSamenstelling)
     {
@@ -49,13 +49,13 @@
 {
     @if (_bezig)
     {
-        <div class="stuk-regel laden" style="@($"padding-left: {1.3 + Niveau * 1.1:0.##}rem")">
+        <div class="stuk-regel laden" style="@FormattableString.Invariant($"padding-left: {1.3 + Niveau * 1.1:0.##}rem")">
             <span class="zij-extra">bezig…</span>
         </div>
     }
     else if (_onder.Count == 0)
     {
-        <div class="stuk-regel laden" style="@($"padding-left: {1.3 + Niveau * 1.1:0.##}rem")">
+        <div class="stuk-regel laden" style="@FormattableString.Invariant($"padding-left: {1.3 + Niveau * 1.1:0.##}rem")">
             <span class="zij-extra">geen onderdelen gevonden</span>
         </div>
     }
