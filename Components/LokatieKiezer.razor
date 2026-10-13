@@ -1,0 +1,142 @@
+@* Kiest een nieuwe plek voor een lokatie of drager (Access: LocationVoorraadSelect bij Verplaatsen).
+   De boom toont alle lokaties; een plek is kiesbaar als het type van de drager daar volgens de
+   lokatiestructuur onder mag (LocationChilds), of als het de Wees-lokatie is. Met het vinkje
+   "ook niet-toegestane" kan het toch, voor als de structuur nog niet compleet is. Zonder dat vinkje staan
+   alleen takken met een toegestane voorraadplek in de boom (geen kantoren, werknemers of losse kratten).
+   Met VoorArtikel=true kiest hij een plek voor een artikel: elke voorraadlokatie, ook een drager (Access:
+   LocationVoorraadSelect met SelectLocationInclDrager). *@
+
+@if (Open && Boom is not null)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="factuurvenster lk-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@Titel</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <div class="as-balk">
+                    <input placeholder="Zoek plek (naam of code)…" value="@_zoek" @oninput="e => _zoek = ((string?)e.Value ?? string.Empty).Trim()" />
+                    <label class="of-vink"><input type="checkbox" checked="@_alles" @onchange="e => _alles = e.Value is bool b && b" /> ook niet-toegestane plekken</label>
+                </div>
+                <div class="lk-boom">
+                    @if (_zoek.Length > 0)
+                    {
+                        var treffers = Boom.PerId.Values.Where(l => l.Id != VerplaatsId && !Boom.IsOnder(l.Id, VerplaatsId) && Past(l) && (_alles || Kiesbaar(l)))
+                                                        .OrderBy(l => Boom.Leesbaar(l.Id)).Take(200).ToList();
+                        @foreach (var l in treffers) { @Regel(l, 0, true) }
+                        @if (treffers.Count == 0) { <div class="kiezer-info">Niets gevonden.</div> }
+                    }
+                    else
+                    {
+                        @foreach (var w in Boom.Wortels) { @Tak(w, 0) }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public string Titel { get; set; } = "Kies een plek";
+    [Parameter] public LokatieBoom? Boom { get; set; }
+    [Parameter] public List<LokatieTypeRegel> Regels { get; set; } = new();
+    /// <summary>De lokatie die verplaatst wordt: hij en alles eronder kan geen nieuwe plek zijn.</summary>
+    [Parameter] public int VerplaatsId { get; set; }
+    /// <summary>Plek voor een artikel kiezen in plaats van een lokatie verplaatsen.</summary>
+    [Parameter] public bool VoorArtikel { get; set; }
+    /// <summary>Waar het nu ligt (bij VoorArtikel), voor "ligt hier nu".</summary>
+    [Parameter] public int? Huidig { get; set; }
+    [Parameter] public EventCallback<int> OpGekozen { get; set; }
+    [Parameter] public EventCallback OpSluiten { get; set; }
+
+    private readonly HashSet<int> _open = new();
+    private string _zoek = "";
+    private bool _alles;
+    private bool _wasOpen;
+    private readonly HashSet<int> _relevant = new();   // toegestane plekken en hun ouders
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen && Boom is not null)
+        {
+            // de bovenste twee niveaus open, plus de weg naar waar hij nu staat
+            _open.Clear(); _zoek = "";
+            foreach (var w in Boom.Wortels)
+            {
+                if (w.Id == MySqlLokatieRepository.Wees) continue;   // zit vol losse dragers
+                _open.Add(w.Id);
+                foreach (var k in Boom.KinderenVan(w.Id)) _open.Add(k.Id);
+            }
+            foreach (var l in Boom.Keten(VoorArtikel ? Huidig ?? 0 : VerplaatsId))
+                if (l.Id != MySqlLokatieRepository.Wees) _open.Add(l.Id);   // Wees zit vol losse dragers
+
+            _relevant.Clear();
+            foreach (var l in Boom.PerId.Values.Where(Kiesbaar))
+                foreach (var k in Boom.Keten(l.Id)) _relevant.Add(k.Id);
+        }
+        _wasOpen = Open;
+    }
+
+    private int? TypeVan(int id) => Boom?.PerId.GetValueOrDefault(id)?.TypeId;
+
+    private bool Toegestaan(Lokatie plek)
+    {
+        if (VoorArtikel) return plek.Id != MySqlLokatieRepository.Wees && !plek.Systeemlokatie;
+        if (plek.Id == MySqlLokatieRepository.Wees) return true;
+        var kind = TypeVan(VerplaatsId);
+        return kind is int k && plek.TypeId is int o && Regels.Any(r => r.OuderTypeId == o && r.KindTypeId == k);
+    }
+
+    /// <summary>Toegestaan en een voorraadlokatie (Access: AlleenVoorraadlokaties).</summary>
+    private bool Kiesbaar(Lokatie l)
+        => l.Id != VerplaatsId && !Boom!.IsOnder(l.Id, VerplaatsId) && Toegestaan(l) && (l.Voorraad || l.Id == MySqlLokatieRepository.Wees);
+
+    private bool Past(Lokatie l)
+        => l.Omschrijving.Contains(_zoek, StringComparison.CurrentCultureIgnoreCase)
+        || Boom!.Naam(l.Id).Contains(_zoek, StringComparison.CurrentCultureIgnoreCase);
+
+    private RenderFragment Tak(Lokatie l, int niveau) => __builder =>
+    {
+        if (l.Id == VerplaatsId) return;          // zichzelf (en alles eronder) niet tonen
+        if (!_alles && !_relevant.Contains(l.Id)) return;
+        @Regel(l, niveau, false)
+        @if (_open.Contains(l.Id) && niveau < 20)
+        {
+            foreach (var k in Boom!.KinderenVan(l.Id)) { @Tak(k, niveau + 1) }
+        }
+    };
+
+    private RenderFragment Regel(Lokatie l, int niveau, bool metPad) => __builder =>
+    {
+        var kinderen = Boom!.KinderenVan(l.Id).Where(k => k.Id != VerplaatsId && (_alles || _relevant.Contains(k.Id))).ToList();
+        var mag = Kiesbaar(l);
+        var hier = VoorArtikel ? Huidig == l.Id : Boom.PerId.GetValueOrDefault(VerplaatsId)?.OuderId == l.Id;
+        <div class="lk-regel @(mag ? "mag" : "magniet") @(l.Verplaatsbaar ? "drager" : "")"
+             style="@FormattableString.Invariant($"padding-left: {0.2 + niveau * 1.1:0.##}rem")">
+            @if (!metPad && kinderen.Count > 0)
+            {
+                <button class="stuk-pijl" @onclick="() => Klap(l.Id)">@(_open.Contains(l.Id) ? "▾" : "▸")</button>
+            }
+            else { <span class="stuk-pijl leeg"></span> }
+            <span class="lk-naam" title="@Boom.Leesbaar(l.Id)">@(metPad ? Boom.Leesbaar(l.Id) : l.Omschrijving)</span>
+            <span class="lk-code">@Boom.Naam(l.Id)</span>
+            @if (hier)
+            {
+                <span class="uitleg">@(VoorArtikel ? "ligt hier nu" : "staat hier nu")</span>
+            }
+            else if (mag || _alles)
+            {
+                <button class="klein @(mag ? "primair" : "")" title="@(mag ? "Hierheen verplaatsen" : "Volgens de lokatiestructuur mag dit type hier niet onder")"
+                        @onclick="() => Kies(l.Id)">Hierheen</button>
+            }
+        </div>
+    };
+
+    private void Klap(int id) { if (!_open.Remove(id)) _open.Add(id); }
+
+    private async Task Kies(int id) => await OpGekozen.InvokeAsync(id);
+
+    private async Task Sluit() => await OpSluiten.InvokeAsync();
+}

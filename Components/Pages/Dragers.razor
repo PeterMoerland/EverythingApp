@@ -1,0 +1,555 @@
+@page "/voorraad/dragers"
+@page "/voorraad/dragers/{Id:int}"
+@inject ILokatieRepository Repo
+@inject HuidigeGebruiker Ik
+@inject LabelService Labels
+@inject IJSRuntime JS
+
+@* Overgezet van het Access-formulier LocationDragers (met LocationDrager_Detail, LocationDragerContents_Detail,
+   locationdragerAanmaken, LocationDragersPrintRange en LocationDragerVerplaatsen). Een drager is een lokatie van
+   een verplaatsbaar type (krat, pallet). De seriële scanner van Access is vervangen door het zoekvak: een
+   handscanner typt "@L00000123" + Enter en de drager springt open.
+   Gevonden in Access: Verplaatsen via scannen sloot het venster zonder ParentLocationID te wijzigen, waardoor alle
+   dragers in "Wees" bleven staan. Hier verplaatst Verplaatsen echt. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Dragers</h1>
+        <span class="weeklabel">@_lijst.Count dragers</span>
+        @if (Repo.Beschikbaar && MagBewerken)
+        {
+            <button class="klein" @onclick="() => _aanmakenOpen = true">＋ Dragers aanmaken…</button>
+        }
+        @if (_gekozen.Count > 0)
+        {
+            <button class="klein" disabled="@_printBezig" @onclick="PrintSelectie">🏷 @_gekozen.Count label(s) printen</button>
+            <button class="klein" @onclick="() => _gekozen.Clear()">Selectie wissen</button>
+        }
+        <a class="knopje" href="voorraad/lokatiestructuur">Lokatiestructuur</a>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst dr-lijst">
+                <div class="wn-filters dr-filters">
+                    <input placeholder="Zoek of scan (@@L…)" value="@_zoek" @key="_zoekVersie"
+                           @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
+                    <select @onchange="TypeGekozen">
+                        <option value="" selected="@(_typeFilter is null)">Alle dragertypes</option>
+                        @foreach (var t in _dragerTypes) { <option value="@t.Id" selected="@(_typeFilter == t.Id)">@t.Omschrijving</option> }
+                    </select>
+                    <select @onchange="InhoudGekozen">
+                        <option value="" selected="@(_inhoudFilter is null)">Alle soorten inhoud</option>
+                        <option value="0" selected="@(_inhoudFilter == 0)">— geen soort —</option>
+                        @foreach (var s in _soorten) { <option value="@s.Id" selected="@(_inhoudFilter == s.Id)">@s.Omschrijving</option> }
+                    </select>
+                    <label class="of-vink"><input type="checkbox" checked="@_alleenMetVoorraad" @onchange="e => { _alleenMetVoorraad = e.Value is bool b && b; Filter(); }" /> alleen met voorraad</label>
+                </div>
+                <div class="wn-namen dr-namen">
+                    @foreach (var d in _lijst)
+                    {
+                        var telling = _tellingen.GetValueOrDefault(d.Id);
+                        <div class="mail-regel @(d.Id == _drager?.Id ? "actief" : "")" @key="d.Id">
+                            <input type="checkbox" title="Selecteren om labels te printen (Shift-klik: reeks)"
+                                   checked="@_gekozen.Contains(d.Id)" @onclick="e => VinkKlik(d, e)" />
+                            <button class="wn-naam dr-regel" @onclick="e => RegelKlik(d, e)">
+                                <span class="dr-naam">@d.Omschrijving</span>
+                                <span class="dr-items">@(telling.Items > 0 ? $"{telling.Items} art." : "")</span>
+                                <small>@Plek(d)@(d.Opmerking.Length > 0 ? " · " + d.Opmerking : "")</small>
+                            </button>
+                        </div>
+                    }
+                    @if (_lijst.Count == 0) { <div class="kiezer-info">Geen dragers gevonden.</div> }
+                </div>
+                <div class="btngroep-rand">
+                    <button class="klein" @onclick="AllesAanUit">@(_gekozen.Count == _lijst.Count && _lijst.Count > 0 ? "Niets selecteren" : "Alles selecteren")</button>
+                    <span class="uitleg">Shift-klik: reeks · Ctrl-klik: los</span>
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_drager is null)
+                {
+                    <p class="uitleg">Kies links een drager, of scan het label.</p>
+                }
+                else
+                {
+                    var d = _drager;
+                    var telling = _tellingen.GetValueOrDefault(d.Id);
+                    <div class="of-kop">
+                        <h2>@d.Omschrijving</h2>
+                        <span class="dr-barcode" title="Code op het label">@d.Barcode</span>
+                        <span class="groei"></span>
+                        @if (MagBewerken)
+                        {
+                            <button class="klein" @onclick="() => _kiezerOpen = true">Verplaatsen…</button>
+                        }
+                        <button class="klein" disabled="@_printBezig" @onclick="() => Print(new[] { d.Id })">🏷 Label printen</button>
+                    </div>
+
+                    <div class="dr-plek">
+                        <span class="uitleg">Staat in</span>
+                        @{ var keten = _boom.Keten(d.Id); }
+                        @for (var i = 0; i < keten.Count - 1; i++)
+                        {
+                            var stap = keten[i];
+                            <span class="dr-kruimel @(stap.Id == MySqlLokatieRepository.Wees ? "wees" : "")">@stap.Omschrijving</span>
+                            @if (i < keten.Count - 2) { <span class="dr-pijl">›</span> }
+                        }
+                        <span class="dr-code" title="Lokatiepad (zoals in Access)">@_boom.Pad(d.Id)</span>
+                    </div>
+                    @if (d.OuderId == MySqlLokatieRepository.Wees)
+                    {
+                        <p class="uitleg dr-wees">Deze drager heeft nog geen vaste plek (Wees). Met Verplaatsen… zet je hem op zijn plek.</p>
+                    }
+
+                    <div class="dr-tweeluik">
+                        <div>
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld"><label>Omschrijving</label>
+                                    <input value="@d.Omschrijving" maxlength="50" disabled="@(!MagBewerken)" @key="(d.Id, _versie)" @onchange="OmschrijvingGewijzigd" /></div>
+                                <div class="wn-veld"><label>Opmerking</label>
+                                    <input value="@d.Opmerking" maxlength="100" disabled="@(!MagBewerken)" @key="(d.Id, _versie, 1)" @onchange="OpmerkingGewijzigd" /></div>
+                                <div class="wn-veld"><label>Soort inhoud</label>
+                                    <select disabled="@(!MagBewerken)" @key="(d.Id, _versie, 2)" @onchange="SoortGewijzigd">
+                                        <option value="" selected="@(d.InhoudSoortId is null)">—</option>
+                                        @foreach (var s in _soorten) { <option value="@s.Id" selected="@(d.InhoudSoortId == s.Id)">@s.Omschrijving</option> }
+                                    </select></div>
+                                <div class="wn-veld"><label>Werkorder</label>
+                                    <span class="po-regel">
+                                        <span>@(d.Werkorder.Length > 0 ? d.Werkorder : "—")</span>
+                                        @if (MagBewerken)
+                                        {
+                                            <button class="klein" @onclick="() => _werkorderOpen = true">Kies…</button>
+                                            @if (d.WerkorderId is not null) { <button class="klein" title="Werkorder loskoppelen" @onclick="WerkorderWeg">✕</button> }
+                                        }
+                                    </span></div>
+                            </div>
+                            <table class="kiezer-tabel as-gegevens dr-gegevens">
+                                <tr><td>Lokatie-ID</td><td>@d.Id</td></tr>
+                                <tr><td>Type</td><td>@TypeNaam(d.TypeId)</td></tr>
+                                <tr><td>Aangemaakt</td><td>@d.AangemaaktDoor @d.AangemaaktOp?.ToString("d-M-yyyy HH:mm")</td></tr>
+                                <tr><td>Label geprint</td><td>@(d.GeprintOp?.ToString("d-M-yyyy HH:mm") ?? "nog niet")</td></tr>
+                                <tr><td>MDE-items</td><td>@telling.Items artikelen, @telling.Stuks.ToString("0.###") stuks</td></tr>
+                            </table>
+                        </div>
+
+                        <div>
+                            <h3 class="ls-kop">Globale inhoud</h3>
+                            <p class="uitleg">Wat er verder in zit, in woorden (geen voorraadartikelen).</p>
+                            <div class="dr-inhoud">
+                                @foreach (var c in _inhoud)
+                                {
+                                    <div class="dr-inhoudregel" @key="c.Id">
+                                        @if (MagBewerken)
+                                        {
+                                            <input value="@c.Omschrijving" maxlength="100" @onchange="e => InhoudGewijzigd(c, e)" />
+                                            <button class="klein rood" title="Weghalen" @onclick="() => WisInhoud(c)">✕</button>
+                                        }
+                                        else { <span>@c.Omschrijving</span> }
+                                    </div>
+                                }
+                                @if (_inhoud.Count == 0) { <span class="uitleg">Niets vastgelegd.</span> }
+                                @if (MagBewerken)
+                                {
+                                    <div class="dr-inhoudregel">
+                                        <input placeholder="＋ inhoud toevoegen (Enter)" maxlength="100" value="@_nieuweInhoud" @key="_inhoudVersie"
+                                               @oninput="e => _nieuweInhoud = (string?)e.Value ?? string.Empty" @onkeydown="InhoudToets" />
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3 class="ls-kop">Artikelen in deze drager</h3>
+                    @if (_artikelen.Count == 0)
+                    {
+                        <p class="uitleg">Geen voorraadartikelen op deze drager.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel dr-artikelen">
+                            <thead><tr><th>MDE#</th><th>Code</th><th>Omschrijving</th><th>Status</th><th class="r">Aantal</th></tr></thead>
+                            <tbody>
+                                @foreach (var a in _artikelen)
+                                {
+                                    <tr @key="(a.ArtikelId, a.Status)">
+                                        <td><a href="@($"artikelen?nr={a.ArtikelId}")">@a.ArtikelId</a></td>
+                                        <td>@a.Code</td><td>@a.Omschrijving</td><td>@a.Status</td>
+                                        <td class="r">@a.Aantal.ToString("0.###")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@if (_aanmakenOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster ls-nieuw">
+            <header class="bijlagekop"><h2>Dragers aanmaken</h2><button class="klein" @onclick="() => _aanmakenOpen = false">✕</button></header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld"><label>Type</label>
+                        <select @onchange="e => _maakType = int.TryParse((string?)e.Value, out var v) ? v : null">
+                            <option value="">— kies —</option>
+                            @foreach (var t in _dragerTypes) { <option value="@t.Id" selected="@(_maakType == t.Id)">@t.Omschrijving</option> }
+                        </select></div>
+                    <div class="wn-veld"><label>Aantal</label>
+                        <input type="number" min="1" max="100" value="@_maakAantal" @onchange="e => _maakAantal = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 1, 100) : 1" /></div>
+                </div>
+                @if (_maakType is int mt)
+                {
+                    var hoogste = _alleDragers.Where(x => x.TypeId == mt).Select(x => x.Index ?? 0).DefaultIfEmpty(0).Max();
+                    <p class="uitleg">Wordt @TypeNaam(mt) @(hoogste + 1)@(_maakAantal > 1 ? $" t/m {hoogste + _maakAantal}" : ""), eerst in Wees. Daarna kun je de labels printen en ze op hun plek zetten.</p>
+                }
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => _aanmakenOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_maakType is null || _maakBezig)" @onclick="MaakDragers">Aanmaken</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<LokatieKiezer Open="_kiezerOpen" Titel="@($"{_drager?.Omschrijving} verplaatsen naar…")" Boom="_boom" Regels="_regels"
+               VerplaatsId="_drager?.Id ?? 0" OpGekozen="Verplaats" OpSluiten="() => _kiezerOpen = false" />
+
+<WerkorderKiezer Open="_werkorderOpen" WerknemerId="Ik.WerknemerId ?? 0" OpGekozen="WerkorderGekozen" OpGesloten="() => _werkorderOpen = false" />
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private LokatieBoom _boom = new(Array.Empty<Lokatie>());
+    private List<LokatieType> _types = new();
+    private List<LokatieType> _dragerTypes = new();
+    private List<LokatieTypeRegel> _regels = new();
+    private List<InhoudSoort> _soorten = new();
+    private Dictionary<int, (int Items, decimal Stuks)> _tellingen = new();
+    private List<Lokatie> _alleDragers = new();
+    private List<Lokatie> _lijst = new();
+    private Lokatie? _drager;
+    private List<LokatieInhoud> _inhoud = new();
+    private List<LokatieArtikel> _artikelen = new();
+
+    private string _zoek = "";
+    private int _zoekVersie;
+    private int? _typeFilter;
+    private int? _inhoudFilter;
+    private bool _alleenMetVoorraad;
+    private readonly HashSet<int> _gekozen = new();
+    private int? _anker;
+    private int _versie;
+    private string _nieuweInhoud = "";
+    private int _inhoudVersie;
+
+    private bool _aanmakenOpen, _maakBezig, _kiezerOpen, _werkorderOpen, _printBezig;
+    private int? _maakType;
+    private int _maakAantal = 1;
+
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBewerken => !Ik.Gekoppeld || Ik.MagEenVan("Voorraadbeheer", "Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _types = await Repo.TypesAsync();
+            _regels = await Repo.TypeRegelsAsync();
+            _soorten = await Repo.InhoudSoortenAsync();
+            // Access toonde de types met unieke nummering; verplaatsbaar hoort er ook bij
+            _dragerTypes = _types.Where(t => t.Verplaatsbaar || t.UniekeNummering).ToList();
+            await Herlaad();
+            if (Id is int id) await Open(id);
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Herlaad()
+    {
+        _boom = await Repo.BoomAsync();
+        _tellingen = await Repo.TellingenAsync();
+        var typeIds = _dragerTypes.Select(t => t.Id).ToHashSet();
+        _alleDragers = _boom.PerId.Values.Where(l => l.TypeId is int t && typeIds.Contains(t))
+                            .OrderBy(l => TypeNaam(l.TypeId)).ThenBy(l => l.Index ?? 0).ThenBy(l => l.Id).ToList();
+        Filter();
+        if (_drager is not null) _drager = _boom.PerId.GetValueOrDefault(_drager.Id);
+        _versie++;
+    }
+
+    private void Filter()
+    {
+        var z = _zoek.Trim();
+        _lijst = _alleDragers.Where(d =>
+                (_typeFilter is null || d.TypeId == _typeFilter) &&
+                (_inhoudFilter is null || (d.InhoudSoortId ?? 0) == _inhoudFilter) &&
+                (!_alleenMetVoorraad || _tellingen.ContainsKey(d.Id)) &&
+                (z.Length == 0 || d.Omschrijving.Contains(z, StringComparison.CurrentCultureIgnoreCase)
+                               || d.Opmerking.Contains(z, StringComparison.CurrentCultureIgnoreCase)
+                               || d.Werkorder.Contains(z, StringComparison.CurrentCultureIgnoreCase)
+                               || d.Id.ToString() == z))
+            .ToList();
+    }
+
+    private string TypeNaam(int? id) => _types.FirstOrDefault(t => t.Id == id)?.Omschrijving ?? "";
+
+    private string Plek(Lokatie d)
+        => d.OuderId == MySqlLokatieRepository.Wees ? "geen plek (Wees)" : _boom.Naam(d.OuderId ?? 0) is { Length: > 0 } n ? n : _boom.Leesbaar(d.Id, zelfErbij: false);
+
+    private void TypeGekozen(ChangeEventArgs e) { _typeFilter = int.TryParse((string?)e.Value, out var v) ? v : null; Filter(); }
+    private void InhoudGekozen(ChangeEventArgs e) { _inhoudFilter = int.TryParse((string?)e.Value, out var v) ? v : null; Filter(); }
+
+    /// <summary>Enter in het zoekvak: een gescande code (@L00000123) opent die drager, anders gewoon filteren.</summary>
+    private async Task ZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") { return; }
+        var z = _zoek.Trim();
+        var m = System.Text.RegularExpressions.Regex.Match(z, @"^@?L0*(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var id))
+        {
+            _zoek = ""; _zoekVersie++;
+            Filter();
+            if (_boom.PerId.TryGetValue(id, out var l))
+            {
+                if (_alleDragers.Any(x => x.Id == id)) await Open(id);
+                else Toon($"{z} is geen drager maar de lokatie {_boom.Leesbaar(id)} ({_boom.Naam(id)}).", true);
+            }
+            else Toon($"Lokatie {id} bestaat niet.", true);
+            return;
+        }
+        Filter();
+        if (_lijst.Count == 1) await Open(_lijst[0].Id);
+    }
+
+    // ---- selectie (zoals Producten) ----
+    private void VinkKlik(Lokatie d, MouseEventArgs e)
+    {
+        var aan = !_gekozen.Contains(d.Id);
+        if (e.ShiftKey && ZetReeks(d, aan)) return;
+        if (aan) _gekozen.Add(d.Id); else _gekozen.Remove(d.Id);
+        _anker = d.Id;
+    }
+
+    private async Task RegelKlik(Lokatie d, MouseEventArgs e)
+    {
+        if (e.ShiftKey)
+        {
+            if (!ZetReeks(d, true)) { _gekozen.Add(d.Id); _anker = d.Id; }
+            return;
+        }
+        if (e.CtrlKey || e.MetaKey)
+        {
+            if (!_gekozen.Remove(d.Id)) _gekozen.Add(d.Id);
+            _anker = d.Id;
+            return;
+        }
+        _anker = d.Id;
+        await Open(d.Id);
+    }
+
+    private bool ZetReeks(Lokatie d, bool aan)
+    {
+        var van = _lijst.FindIndex(x => x.Id == _anker);
+        var tot = _lijst.FindIndex(x => x.Id == d.Id);
+        if (van < 0 || tot < 0) return false;
+        for (var i = Math.Min(van, tot); i <= Math.Max(van, tot); i++)
+            if (aan) _gekozen.Add(_lijst[i].Id); else _gekozen.Remove(_lijst[i].Id);
+        return true;
+    }
+
+    private void AllesAanUit()
+    {
+        if (_gekozen.Count == _lijst.Count && _lijst.Count > 0) _gekozen.Clear();
+        else foreach (var d in _lijst) _gekozen.Add(d.Id);
+    }
+
+    // ---- details ----
+    private async Task Open(int id)
+    {
+        if (!_boom.PerId.TryGetValue(id, out var d)) return;
+        _drager = d;
+        _versie++;
+        try
+        {
+            _inhoud = await Repo.InhoudAsync(id);
+            _artikelen = await Repo.ArtikelenOpAsync(id);
+        }
+        catch (Exception ex) { Toon("Details ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Bewaar(string wat)
+    {
+        if (_drager is null) return;
+        try { await Repo.BewaarDragerAsync(_drager); Toon($"{wat} van {_drager.Omschrijving} opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        await Herlaad();
+    }
+
+    private async Task OmschrijvingGewijzigd(ChangeEventArgs e)
+    {
+        if (_drager is null) return;
+        var t = ((string?)e.Value ?? "").Trim();
+        if (t.Length == 0) { Toon("Een omschrijving is verplicht.", true); _versie++; return; }
+        _drager.Omschrijving = t;
+        await Bewaar("Omschrijving");
+    }
+
+    private async Task OpmerkingGewijzigd(ChangeEventArgs e)
+    {
+        if (_drager is null) return;
+        _drager.Opmerking = ((string?)e.Value ?? "").Trim();
+        await Bewaar("Opmerking");
+    }
+
+    private async Task SoortGewijzigd(ChangeEventArgs e)
+    {
+        if (_drager is null) return;
+        _drager.InhoudSoortId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Bewaar("Soort inhoud");
+    }
+
+    private async Task WerkorderGekozen(Workorder w)
+    {
+        _werkorderOpen = false;
+        if (_drager is null) return;
+        _drager.WerkorderId = w.WerkbonId;
+        await Bewaar("Werkorder");
+    }
+
+    private async Task WerkorderWeg()
+    {
+        if (_drager is null) return;
+        _drager.WerkorderId = null;
+        await Bewaar("Werkorder");
+    }
+
+    private async Task Verplaats(int naar)
+    {
+        _kiezerOpen = false;
+        if (_drager is null) return;
+        var naam = _drager.Omschrijving;
+        try
+        {
+            await Repo.VerplaatsAsync(_drager.Id, naar);
+            await Herlaad();
+            Toon($"{naam} staat nu in {_boom.Leesbaar(naar)}.", false);
+        }
+        catch (Exception ex) { Toon("Verplaatsen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task MaakDragers()
+    {
+        if (_maakType is not int t) return;
+        _maakBezig = true;
+        try
+        {
+            var ids = await Repo.MaakDragersAsync(t, _maakAantal, Ik.WerknemerId);
+            _aanmakenOpen = false;
+            await Herlaad();
+            _gekozen.Clear();
+            foreach (var id in ids) _gekozen.Add(id);
+            if (ids.Count > 0) await Open(ids[0]);
+            Toon($"{ids.Count} × {TypeNaam(t)} aangemaakt en geselecteerd; print nu de labels.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+        finally { _maakBezig = false; }
+    }
+
+    // ---- globale inhoud ----
+    private async Task InhoudToets(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || _drager is null) return;
+        var t = _nieuweInhoud.Trim();
+        if (t.Length == 0) return;
+        try
+        {
+            await Repo.VoegInhoudToeAsync(_drager.Id, t, Ik.WerknemerId);
+            _nieuweInhoud = ""; _inhoudVersie++;
+            _inhoud = await Repo.InhoudAsync(_drager.Id);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task InhoudGewijzigd(LokatieInhoud c, ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Trim();
+        if (t.Length == 0) { await WisInhoud(c); return; }
+        try { await Repo.BewaarInhoudAsync(c.Id, t); c.Omschrijving = t; }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisInhoud(LokatieInhoud c)
+    {
+        if (_drager is null) return;
+        if (!await Bevestig($"'{c.Omschrijving}' weghalen?")) { _inhoud = await Repo.InhoudAsync(_drager.Id); return; }
+        try { await Repo.WisInhoudAsync(c.Id); _inhoud = await Repo.InhoudAsync(_drager.Id); }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- labels (Dymo, klein label; printer en rol uit Beheer ▸ Labelprinter) ----
+    private Task PrintSelectie() => Print(_lijst.Where(d => _gekozen.Contains(d.Id)).Select(d => d.Id)
+                                               .Concat(_gekozen.Where(id => _lijst.All(d => d.Id != id))).ToList());
+
+    private async Task Print(IEnumerable<int> ids)
+    {
+        var lijst = ids.Where(_boom.PerId.ContainsKey).ToList();
+        if (lijst.Count == 0) return;
+        if (lijst.Count > 5 && !await Bevestig($"{lijst.Count} labels printen?")) return;
+
+        _printBezig = true;
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeDymo.beschikbaar"))
+            {
+                Toon("DYMO Connect is niet gevonden op deze pc (gebruik Chrome of Edge).", true);
+                return;
+            }
+            var printers = (await JS.InvokeAsync<string[]>("mdeDymo.printers")).ToList();
+            if (printers.Count == 0) { Toon("Geen DYMO-printer gevonden.", true); return; }
+            var inst = await DymoLabel.LeesAsync(JS);
+            var printer = printers.Contains(inst.Printer) ? inst.Printer : printers[0];
+            var rol = printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase) ? inst.RolVoor(DymoLabel.Klein) : "Auto";
+
+            var gedaan = new List<int>();
+            foreach (var id in lijst)
+            {
+                var l = _boom.PerId[id];
+                await JS.InvokeVoidAsync("mdeDymo.print", printer, Labels.LokatieLabelXml(l.Barcode, _boom.Naam(id)), 1, rol);
+                gedaan.Add(id);
+            }
+            await Repo.ZetGeprintAsync(gedaan);
+            await Herlaad();
+            Toon($"{gedaan.Count} label(s) naar {printer}.", false);
+        }
+        catch (Exception ex) { Toon("Printen mislukt: " + ex.Message, true); }
+        finally { _printBezig = false; }
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

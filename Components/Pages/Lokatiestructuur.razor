@@ -1,0 +1,333 @@
+@page "/voorraad/lokatiestructuur"
+@inject ILokatieRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Overgezet van het Access-formulier LocationChilds ("Lokatiestruktuur", met LocationChildsSub en -SubDetails):
+   de lokatietypes, hun eigenschappen en welke types eronder mogen. Rechts daarnaast de hele structuur als boom,
+   zodat je ziet wat waaronder kan. Regels die naar een niet-bestaand type wijzen (overblijfsels uit Access)
+   worden apart getoond, zodat je ze kunt opruimen. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Lokatiestructuur</h1>
+        <span class="weeklabel">@_types.Count lokatietypes</span>
+        @if (Repo.Beschikbaar && MagBewerken)
+        {
+            <button class="klein" @onclick="() => { _nieuwNaam = string.Empty; _nieuwOpen = true; }">＋ Nieuw lokatietype</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst ls-lijst">
+                <div class="wn-namen ls-namen">
+                    @foreach (var t in _types)
+                    {
+                        <button class="wn-naam @(t.Id == _gekozen?.Id ? "actief" : "")" @key="t.Id" @onclick="() => Kies(t.Id)">
+                            @t.Omschrijving
+                            @if (t.Verplaatsbaar) { <span class="ls-label drager">drager</span> }
+                            @if (t.Systeem) { <span class="ls-label">systeem</span> }
+                            <small>@t.AantalLokaties lokaties · @Kinderen(t.Id).Count sub-types</small>
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                <div class="ls-tweeluik">
+                    <div>
+                        @if (_gekozen is null)
+                        {
+                            <p class="uitleg">Kies links een lokatietype.</p>
+                        }
+                        else
+                        {
+                            var t = _gekozen;
+                            var bewerkbaar = MagBewerken && !t.Systeem;
+                            <div class="of-kop">
+                                <h2>@t.Omschrijving</h2>
+                                <span>@t.AantalLokaties lokaties van dit type</span>
+                                <span class="groei"></span>
+                                @if (bewerkbaar)
+                                {
+                                    <button class="klein rood" @onclick="WisType">Wissen…</button>
+                                }
+                            </div>
+
+                            <h3 class="ls-kop">Details</h3>
+                            <div class="wn-velden een-kolom ls-velden">
+                                <div class="wn-veld">
+                                    <label>Omschrijving</label>
+                                    <input value="@t.Omschrijving" maxlength="20" disabled="@(!bewerkbaar)" @key="(t.Id, _versie)" @onchange="OmschrijvingGewijzigd" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Nummering</label>
+                                    <div class="ls-vinkjes">
+                                        <label class="of-vink"><input type="checkbox" checked="@t.GebruikNummering" disabled="@(!bewerkbaar)" @onchange="e => Zet(e, (x, v) => x.GebruikNummering = v)" /> Gebruik nummering</label>
+                                        <label class="of-vink"><input type="checkbox" checked="@t.StartMetIndex1" disabled="@(!bewerkbaar)" @onchange="e => Zet(e, (x, v) => x.StartMetIndex1 = v)" /> Start met index 1</label>
+                                        <label class="of-vink" title="Nummers lopen door over het hele bedrijf, zoals Krat 1, Krat 2, … (anders per plek)"><input type="checkbox" checked="@t.UniekeNummering" disabled="@(!bewerkbaar)" @onchange="e => Zet(e, (x, v) => x.UniekeNummering = v)" /> Unieke nummering</label>
+                                    </div>
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Soort</label>
+                                    <div class="ls-vinkjes">
+                                        <label class="of-vink" title="Een drager (krat, pallet) die van plek kan wisselen"><input type="checkbox" checked="@t.Verplaatsbaar" disabled="@(!bewerkbaar)" @onchange="e => Zet(e, (x, v) => x.Verplaatsbaar = v)" /> Verplaatsbaar (drager)</label>
+                                        @if (t.Systeem) { <span class="uitleg">Systeemtype: niet te wijzigen.</span> }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h3 class="ls-kop">Toegestane sub-lokatietypes</h3>
+                            <p class="uitleg">Wat er onder een @t.Omschrijving.ToLower() mag staan.</p>
+                            <div class="ls-chips">
+                                @foreach (var r in Kinderen(t.Id))
+                                {
+                                    <span class="ls-chip" @key="r.Id">
+                                        <button class="ls-chiplink" @onclick="() => Kies(r.KindTypeId)">@TypeNaam(r.KindTypeId)</button>
+                                        @if (MagBewerken)
+                                        {
+                                            <button class="ls-weg" title="Weghalen" @onclick="() => WisRegel(r)">✕</button>
+                                        }
+                                    </span>
+                                }
+                                @if (Kinderen(t.Id).Count == 0) { <span class="uitleg">Geen: hier kan niets onder.</span> }
+                            </div>
+                            @if (MagBewerken)
+                            {
+                                var kunnen = _types.Where(x => Kinderen(t.Id).All(r => r.KindTypeId != x.Id)).ToList();
+                                <div class="ls-toevoegen">
+                                    <select @key="(t.Id, _versie)" @onchange="SubtypeGekozen">
+                                        <option value="">＋ sub-type toevoegen…</option>
+                                        @foreach (var x in kunnen) { <option value="@x.Id">@x.Omschrijving</option> }
+                                    </select>
+                                </div>
+                            }
+
+                            <h3 class="ls-kop">Mag staan onder</h3>
+                            <div class="ls-chips">
+                                @foreach (var r in _regels.Where(r => r.KindTypeId == t.Id && _perId.ContainsKey(r.OuderTypeId)).OrderBy(r => TypeNaam(r.OuderTypeId)))
+                                {
+                                    <span class="ls-chip" @key="r.Id"><button class="ls-chiplink" @onclick="() => Kies(r.OuderTypeId)">@TypeNaam(r.OuderTypeId)</button></span>
+                                }
+                                @if (!_regels.Any(r => r.KindTypeId == t.Id && _perId.ContainsKey(r.OuderTypeId))) { <span class="uitleg">Nergens onder (alleen bovenaan).</span> }
+                            </div>
+                        }
+
+                        @if (_wezen.Count > 0)
+                        {
+                            <h3 class="ls-kop">Regels met een onbekend type</h3>
+                            <p class="uitleg">Deze regels uit Access wijzen naar een lokatietype dat niet (meer) bestaat en doen dus niets.</p>
+                            <div class="ls-chips">
+                                @foreach (var r in _wezen)
+                                {
+                                    <span class="ls-chip wees" @key="r.Id">
+                                        @TypeNaam(r.OuderTypeId) → @TypeNaam(r.KindTypeId)
+                                        @if (MagBewerken) { <button class="ls-weg" title="Weghalen" @onclick="() => WisRegel(r)">✕</button> }
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <aside class="ls-overzicht">
+                        <h3>Structuur</h3>
+                        <p class="uitleg">Wat waaronder mag, vanaf de bovenste types. ↺ = staat hoger al in deze tak.</p>
+                        <div class="ls-boom">
+                            @foreach (var w in Bovenste())
+                            {
+                                @Tak(w, new HashSet<int>(), 0)
+                            }
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    }
+</div>
+
+@if (_nieuwOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster ls-nieuw">
+            <header class="bijlagekop"><h2>Nieuw lokatietype</h2><button class="klein" @onclick="() => _nieuwOpen = false">✕</button></header>
+            <div class="factuurvenster-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld"><label>Omschrijving</label><input value="@_nieuwNaam" maxlength="20" placeholder="bijv. Vak, Bak, Kast" @oninput="e => _nieuwNaam = (string?)e.Value ?? string.Empty" /></div>
+                </div>
+                <div class="btngroep-rand">
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_nieuwNaam.Trim().Length == 0)" @onclick="NieuwType">Aanmaken</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _nieuwOpen;
+    private string _nieuwNaam = "";
+    private List<LokatieType> _types = new();
+    private Dictionary<int, LokatieType> _perId = new();
+    private List<LokatieTypeRegel> _regels = new();
+    private List<LokatieTypeRegel> _wezen = new();
+    private LokatieType? _gekozen;
+    private int _versie;
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBewerken => !Ik.Gekoppeld || Ik.MagEenVan("Voorraadbeheer", "Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        await Laad();
+        if (_types.Count > 0) _gekozen = _types[0];
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _types = await Repo.TypesAsync();
+            _perId = _types.ToDictionary(t => t.Id);
+            _regels = await Repo.TypeRegelsAsync();
+            _wezen = _regels.Where(r => !_perId.ContainsKey(r.OuderTypeId) || !_perId.ContainsKey(r.KindTypeId)).ToList();
+            if (_gekozen is not null) _gekozen = _perId.GetValueOrDefault(_gekozen.Id);
+            _versie++;
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void Kies(int id) { if (_perId.TryGetValue(id, out var t)) { _gekozen = t; _versie++; } }
+
+    private List<LokatieTypeRegel> Kinderen(int typeId)
+        => _regels.Where(r => r.OuderTypeId == typeId && _perId.ContainsKey(r.KindTypeId)).OrderBy(r => TypeNaam(r.KindTypeId)).ToList();
+
+    private string TypeNaam(int id) => _perId.TryGetValue(id, out var t) ? t.Omschrijving : $"onbekend type #{id}";
+
+    /// <summary>Types die nergens als sub-type voorkomen (behalve onder zichzelf) staan bovenaan de boom.</summary>
+    private IEnumerable<LokatieType> Bovenste()
+        => _types.Where(t => !_regels.Any(r => r.KindTypeId == t.Id && r.OuderTypeId != t.Id && _perId.ContainsKey(r.OuderTypeId)))
+                 .OrderBy(t => t.Systeem).ThenBy(t => t.Omschrijving);
+
+    private RenderFragment Tak(LokatieType t, HashSet<int> pad, int niveau) => __builder =>
+    {
+        var herhaling = pad.Contains(t.Id);
+        <div class="ls-tak @(t.Id == _gekozen?.Id ? "gekozen" : "") @(t.Verplaatsbaar ? "drager" : "")"
+             style="@FormattableString.Invariant($"padding-left: {niveau * 1.1:0.##}rem")"
+             @onclick="() => Kies(t.Id)">
+            @(niveau > 0 ? "└ " : "")@t.Omschrijving@(herhaling ? " ↺" : "")
+        </div>
+        @if (!herhaling && niveau < 12)
+        {
+            var verder = new HashSet<int>(pad) { t.Id };
+            foreach (var r in Kinderen(t.Id))
+            {
+                @Tak(_perId[r.KindTypeId], verder, niveau + 1)
+            }
+        }
+    };
+
+    // ---- wijzigen ----
+    private async Task OmschrijvingGewijzigd(ChangeEventArgs e)
+    {
+        if (_gekozen is null) return;
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (naam.Length == 0) { Toon("Een omschrijving is verplicht.", true); _versie++; return; }
+        if (_types.Any(x => x.Id != _gekozen.Id && string.Equals(x.Omschrijving, naam, StringComparison.OrdinalIgnoreCase)))
+        {
+            Toon($"Lokatietype '{naam}' bestaat al.", true); _versie++; return;
+        }
+        _gekozen.Omschrijving = naam;
+        await Bewaar();
+    }
+
+    private async Task Zet(ChangeEventArgs e, Action<LokatieType, bool> zet)
+    {
+        if (_gekozen is null) return;
+        zet(_gekozen, e.Value is bool b && b);
+        await Bewaar();
+    }
+
+    private async Task Bewaar()
+    {
+        if (_gekozen is null) return;
+        try { await Repo.BewaarTypeAsync(_gekozen); Toon($"{_gekozen.Omschrijving} opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        await Laad();
+    }
+
+    private async Task SubtypeGekozen(ChangeEventArgs e)
+    {
+        if (_gekozen is null || !int.TryParse((string?)e.Value, out var kind)) return;
+        try
+        {
+            await Repo.VoegSubtypeToeAsync(_gekozen.Id, kind);
+            Toon($"{TypeNaam(kind)} mag nu onder {_gekozen.Omschrijving}.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        await Laad();
+    }
+
+    private async Task WisRegel(LokatieTypeRegel r)
+    {
+        if (!await Bevestig($"{TypeNaam(r.KindTypeId)} niet meer toestaan onder {TypeNaam(r.OuderTypeId)}? Bestaande lokaties blijven staan.")) return;
+        try { await Repo.WisSubtypeAsync(r.Id); Toon("Weggehaald.", false); }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+        await Laad();
+    }
+
+    private async Task NieuwType()
+    {
+        var naam = _nieuwNaam.Trim();
+        if (naam.Length == 0) return;
+        if (naam.Length > 20) naam = naam[..20];
+        _nieuwOpen = false;
+        try
+        {
+            var id = await Repo.NieuwTypeAsync(naam);
+            if (id is null) { Toon($"Lokatietype '{naam}' bestaat al.", true); return; }
+            await Laad();
+            Kies(id.Value);
+            Toon($"Lokatietype '{naam}' aangemaakt. Geef aan wat eronder mag, en onder welk type het zelf mag staan.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisType()
+    {
+        if (_gekozen is null) return;
+        if (!await Bevestig($"Lokatietype '{_gekozen.Omschrijving}' wissen?")) return;
+        try
+        {
+            var reden = await Repo.WisTypeAsync(_gekozen.Id);
+            if (reden is not null) { Toon("Wissen kan niet: " + reden, true); return; }
+            Toon($"'{_gekozen.Omschrijving}' gewist.", false);
+            _gekozen = null;
+            await Laad();
+            if (_types.Count > 0) _gekozen = _types[0];
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

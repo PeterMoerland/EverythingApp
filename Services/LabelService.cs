@@ -451,6 +451,28 @@ public class LabelService
         return Teken(Papier("Groot", "WhiteNameBadgeS0722560"), breedMm, hoogMm, vlakken);
     }
 
+    /// <summary>
+    /// Lokatie- of dragerlabel (klein label, 12 × 50 mm): barcode @L plus acht cijfers, daaronder de naam
+    /// (Access: PrintLokatieLabel met de sjablonen Lokatie en Lokatiedrager). De scanner leest dezelfde code.
+    /// </summary>
+    public string LokatieLabelXml(string barcode, string naam)
+    {
+        const double breedMm = 50, hoogMm = 12;
+        const double rand = 1.2;
+        var breed = breedMm - 2 * rand;
+
+        var vlakken = new List<Vlak>
+        {
+            new() { Naam = "BARCODE", Soort = "barcode", Tekst = barcode,
+                    X = rand, Y = 0.8, Breed = breed, Hoog = 7.0, BarcodeTekst = false },
+            new() { Naam = "NAAM", Tekst = naam,
+                    X = rand, Y = 7.9, Breed = breed, Hoog = 3.3,
+                    Punten = 9, Vet = true, Uitlijning = "Center" },
+        };
+
+        return Teken(Papier("Klein", "SuspensionFileS0722460"), breedMm, hoogMm, vlakken);
+    }
+
     private string Papier(string welk, string standaard) => _config["Labels:" + welk + "Papier"] ?? standaard;
 
     // ============================================================
