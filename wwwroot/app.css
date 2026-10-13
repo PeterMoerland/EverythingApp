@@ -2453,3 +2453,31 @@ html[data-thema="donker"] .lk-boom { border-color: #2b4a73; }
 html[data-thema="donker"] .av-regel small, html[data-thema="donker"] .av-pad { color: #9fb0c4; }
 html[data-thema="donker"] .av-min { color: #f08a8a; }
 html[data-thema="donker"] .av-plus { color: #8fd18f; }
+
+/* ---- Gebouwbeheer: Sonos (volume) ---- */
+.sonos-lijst { display: flex; flex-direction: column; gap: .5rem; max-width: 44rem; }
+.sonos-speaker { display: grid; grid-template-columns: minmax(9rem, 14rem) auto 1fr 2.5rem; gap: .7rem; align-items: center;
+                 border: 1px solid #dde3ea; border-radius: 8px; padding: .55rem .8rem; background: #fff; }
+.sonos-speaker.weg { opacity: .55; grid-template-columns: minmax(9rem, 14rem) 1fr; }
+.sonos-naam { font-weight: 600; }
+.sonos-naam small { display: block; font-weight: 400; color: #889; font-size: .78em; }
+.sonos-demp { font-size: 1.2rem; background: none; border: 1px solid #c9d3df; border-radius: 6px; padding: .1rem .45rem; cursor: pointer; }
+.sonos-demp.aan { background: #fbeeee; border-color: #e2a6a6; }
+.sonos-schuif { width: 100%; accent-color: var(--accent); }
+.sonos-waarde { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 40rem) { .sonos-speaker { grid-template-columns: 1fr auto; } .sonos-schuif { grid-column: 1 / -1; } }
+html[data-thema="donker"] .sonos-speaker { background: #16273d; border-color: #2b4a73; }
+html[data-thema="donker"] .sonos-demp { border-color: #2b4a73; }
+html[data-thema="donker"] .sonos-demp.aan { background: #3a2222; border-color: #7a3a3a; }
+
+/* Sonos: wat er speelt */
+.sonos-balk { display: flex; gap: .4rem; margin-bottom: .5rem; }
+.sonos-speelt { grid-column: 1 / -1; display: flex; gap: .6rem; align-items: center; min-width: 0; color: #556; font-size: .88em; }
+.sonos-speelt img { width: 2.6rem; height: 2.6rem; object-fit: cover; border-radius: 4px; flex: none; }
+.sonos-speelt .sonos-tekst { min-width: 0; }
+.sonos-speelt .sonos-tekst > * { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sonos-speelt b { color: var(--accent); }
+.sonos-speelt.stil { color: #99a; }
+.zweefinhoud .sonos-speaker { grid-template-columns: minmax(7rem, 10rem) auto 1fr 2.2rem; }
+html[data-thema="donker"] .sonos-speelt { color: #b7c4d4; }
+html[data-thema="donker"] .sonos-speelt.stil { color: #7d8ea3; }

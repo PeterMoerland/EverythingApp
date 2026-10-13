@@ -190,6 +190,8 @@ public static class Menu
 
                 new MenuModule("compressor", "Compressor", "gauge") { Url = "/gebouw/compressor" },
 
+                new MenuModule("sonos", "Sonos", "volume") { Url = "/gebouw/sonos" },
+
                 new MenuModule("cameras", "Camera's", "camera") { Url = "/gebouw/cameras" },
 
                 new MenuModule("alarm", "Alarm", "shield") { Url = "/gebouw/alarm" },

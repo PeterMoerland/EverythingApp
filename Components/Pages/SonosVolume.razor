@@ -1,0 +1,19 @@
+@page "/gebouw/sonos"
+@inject HuidigeGebruiker Ik
+
+@* De bediening zelf zit in SonosPaneel, gedeeld met het Gebouwbeheer-venster in het menu. De pagina heet niet
+   Sonos.razor: die naam botst met de service in het paneel. *@
+
+<PageTitle>Sonos — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Sonos</h1>
+    </header>
+
+    <SonosPaneel />
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+}

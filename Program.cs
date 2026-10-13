@@ -218,6 +218,7 @@ builder.Services.AddScoped<WerkplekAgent>();           // per browser: is er een
 builder.Services.AddSingleton<NdaDocumentService>();
 // Typeplaatje voor de laser (SVG + PDF)
 builder.Services.AddSingleton<LabelService>();
+builder.Services.AddSingleton<SonosService>();
 builder.Services.AddSingleton<AltecPrinter>();
 builder.Services.AddSingleton<FusionPakketten>();
 builder.Services.AddSingleton<FirmwarePakketten>();
@@ -552,6 +553,13 @@ var rabobankTerug = app.MapGet("/rabobank/terug", async (HttpContext ctx, string
                                              $"<p><a class=\"knop\" href=\"{terug}\">Terug</a></p>"), "text/html");
 });
 if (loginAan) { rabobankKoppel.RequireAuthorization(); rabobankTerug.RequireAuthorization(); }
+
+// Albumhoes van wat een Sonos-speaker speelt (SonosPaneel). Via de server: de speaker geeft een pad op zichzelf.
+app.MapGet("/sonos/hoes/{uuid}", async (string uuid, SonosService sonos) =>
+{
+    try { return await sonos.HoesAsync(uuid) is { } h ? Results.File(h.Data, h.Soort) : Results.NotFound(); }
+    catch { return Results.NotFound(); }
+});
 
 app.MapGet("/artikelfoto/{nummer:int}", (int nummer, IConfiguration config,
                                          ILoggerFactory logboek, bool? uitleg) =>

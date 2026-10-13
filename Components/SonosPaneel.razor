@@ -1,0 +1,163 @@
+@implements IDisposable
+@inject SonosService Sonos
+
+@* Volume van de Sonos-speakers, zonder paginakop: gedeeld door /gebouw/sonos en het Gebouwbeheer-venster in het
+   menu. Tijdens het schuiven gaat het volume al naar de speaker; er loopt steeds hoogstens één opdracht per speaker
+   en daarna alleen de nieuwste stand (geen stortvloed aan opdrachten). Elke 5 s ververst de stand, behalve vlak
+   nadat iemand iets veranderde. *@
+
+@if (_melding is not null)
+{
+    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+}
+
+@if (!Sonos.Ingesteld)
+{
+    <p class="uitleg">Er zijn nog geen Sonos-speakers ingesteld. Zet in appsettings.json onder <code>Sonos:Adressen</code>
+       het IP-adres van minstens één speaker; de andere vindt de app zelf.</p>
+}
+else
+{
+    <div class="sonos-balk">
+        <button class="klein" disabled="@_bezig" @onclick="() => Verversen(true)">Ververs</button>
+        @if (_speakers.Any(s => s.Bereikbaar && !s.Gedempt))
+        {
+            <button class="klein" @onclick="AllesDempen">🔇 Alles dempen</button>
+        }
+    </div>
+    <div class="sonos-lijst">
+        @foreach (var s in _speakers)
+        {
+            <div class="sonos-speaker @(s.Bereikbaar ? "" : "weg")" @key="s.Uuid">
+                <div class="sonos-naam">@s.Naam <small>@s.Adres</small></div>
+                @if (!s.Bereikbaar)
+                {
+                    <span class="uitleg">niet bereikbaar</span>
+                }
+                else
+                {
+                    <button class="sonos-demp @(s.Gedempt ? "aan" : "")" title="@(s.Gedempt ? "Geluid aan" : "Dempen")" @onclick="() => Demp(s)">@(s.Gedempt ? "🔇" : "🔊")</button>
+                    <input type="range" min="0" max="100" step="1" class="sonos-schuif" value="@s.Volume" @key="(s.Uuid, _versie)"
+                           @oninput="e => Schuif(s, e)" @onchange="e => Schuif(s, e)" />
+                    <span class="sonos-waarde">@s.Volume</span>
+                    @Speelt(s)
+                }
+            </div>
+        }
+        @if (_speakers.Count == 0 && !_bezig) { <p class="uitleg">Geen speakers gevonden.</p> }
+    </div>
+}
+
+@code {
+    private List<SonosSpeaker> _speakers = new();
+    private readonly Dictionary<string, int> _gewenst = new();     // nieuwste stand van de schuif, per speaker
+    private readonly HashSet<string> _onderweg = new();            // speakers waar nu een opdracht naartoe loopt
+    private Timer? _klok;
+    private DateTime _laatsteWijziging;
+    private int _versie;
+    private bool _bezig;
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Sonos.Ingesteld) return;
+        await Verversen(false);
+        _klok = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            // niet terugspringen terwijl iemand aan een schuif zit
+            if (_onderweg.Count > 0 || DateTime.UtcNow - _laatsteWijziging < TimeSpan.FromSeconds(5)) return;
+            await Verversen(false);
+            StateHasChanged();
+        }), null, 5000, 5000);
+    }
+
+    private async Task Verversen(bool opnieuwZoeken)
+    {
+        _bezig = true;
+        try { _speakers = await Sonos.SpeakersAsync(opnieuwZoeken); _versie++; }
+        catch (Exception ex) { Melding(ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Elke beweging van de schuif: onthouden, en versturen zodra de vorige opdracht klaar is.</summary>
+    private async Task Schuif(SonosSpeaker s, ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var v)) return;
+        _laatsteWijziging = DateTime.UtcNow;
+        _gewenst[s.Uuid] = v;
+        Vervang(s.Uuid, x => x with { Volume = v });
+        if (!_onderweg.Add(s.Uuid)) return;           // er loopt al een opdracht; die pakt de nieuwste stand op
+
+        try
+        {
+            int verstuurd = -1;
+            while (_gewenst.TryGetValue(s.Uuid, out var doel) && doel != verstuurd)
+            {
+                await Sonos.ZetVolumeAsync(s.Adres, doel);
+                verstuurd = doel;
+            }
+        }
+        catch (Exception ex) { Melding($"{s.Naam}: volume zetten mislukt: {ex.Message}", true); _versie++; }
+        finally { _onderweg.Remove(s.Uuid); _gewenst.Remove(s.Uuid); _laatsteWijziging = DateTime.UtcNow; }
+    }
+
+    private async Task Demp(SonosSpeaker s)
+    {
+        _laatsteWijziging = DateTime.UtcNow;
+        try
+        {
+            await Sonos.ZetGedemptAsync(s.Adres, !s.Gedempt);
+            Vervang(s.Uuid, x => x with { Gedempt = !s.Gedempt });
+        }
+        catch (Exception ex) { Melding($"{s.Naam}: dempen mislukt: {ex.Message}", true); }
+    }
+
+    private async Task AllesDempen()
+    {
+        _laatsteWijziging = DateTime.UtcNow;
+        foreach (var s in _speakers.Where(s => s.Bereikbaar && !s.Gedempt).ToList())
+        {
+            try { await Sonos.ZetGedemptAsync(s.Adres, true); Vervang(s.Uuid, x => x with { Gedempt = true }); }
+            catch (Exception ex) { Melding($"{s.Naam}: dempen mislukt: {ex.Message}", true); }
+        }
+    }
+
+    private void Vervang(string uuid, Func<SonosSpeaker, SonosSpeaker> wijzig)
+    {
+        var i = _speakers.FindIndex(x => x.Uuid == uuid);
+        if (i >= 0) _speakers[i] = wijzig(_speakers[i]);
+    }
+
+    /// <summary>Wat er speelt, onder de schuif: hoes, titel, artiest/album of zender, en met wie hij samen speelt.</summary>
+    private RenderFragment Speelt(SonosSpeaker s) => __builder =>
+    {
+        var p = s.Speelt;
+        if (p is null) return;
+        var bezig = p.Afspelen;
+        var kop = p.Titel.Length > 0 ? p.Titel : p.Bron.Length > 0 ? p.Bron : bezig ? "speelt" : "";
+        var onder = string.Join(" · ", new[] { p.Artiest, p.Album.Length > 0 ? p.Album : p.Titel.Length > 0 ? p.Bron : "" }.Where(x => x.Length > 0));
+        <div class="sonos-speelt @(bezig ? "" : "stil")">
+            @if (bezig && p.HeeftHoes)
+            {
+                <img src="@($"sonos/hoes/{s.Uuid}?t={Uri.EscapeDataString(kop)}")" alt="" onerror="this.style.display='none'" />
+            }
+            <div class="sonos-tekst">
+                @if (bezig || kop.Length > 0)
+                {
+                    <span>@(bezig ? "▶" : p.Staat == "PAUSED_PLAYBACK" ? "⏸" : "⏹") <b>@(kop.Length > 0 ? kop : "—")</b></span>
+                    @if (onder.Length > 0) { <span>@onder</span> }
+                }
+                else
+                {
+                    <span>⏹ speelt niets</span>
+                }
+                @if (s.Groep.Length > 0) { <span title="Deze speakers spelen samen">🔗 @s.Groep</span> }
+            </div>
+        </div>
+    };
+
+    private void Melding(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    public void Dispose() => _klok?.Dispose();
+}
