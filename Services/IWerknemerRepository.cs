@@ -36,7 +36,7 @@ public interface IWerknemerRepository
     Task<List<Keuze>> GetPasTypesAsync();
     Task<List<Keuze>> GetBankrekeningenAsync();
 
-    // --- beheer: functies (Werknemers_functie) ---
+    // --- beheer: functies (Werknemers_Functie) ---
     Task<List<Functie>> GetFunctieBeheerAsync();
     Task<int> BewaarFunctieAsync(Functie f);
     /// <summary>Reden waarom wissen niet kan, of null als het mag.</summary>
@@ -56,7 +56,7 @@ public interface IWerknemerRepository
     // --- keuzelijsten voor het Status-tabblad ---
     /// <summary>Eigen BV's: Relations waarbij MDEbv aan staat.</summary>
     Task<List<Keuze>> GetBVsAsync();
-    /// <summary>Functies uit Werknemers_functie.</summary>
+    /// <summary>Functies uit Werknemers_Functie.</summary>
     Task<List<Keuze>> GetFunctiesAsync();
     /// <summary>Activiteiten uit UrenActiviteit.</summary>
     Task<List<Keuze>> GetActiviteitenLijstAsync();

@@ -363,7 +363,7 @@ public class MySqlWerknemerRepository : IWerknemerRepository
     }
 
     // ============================================================
-    //  Beheer: functies (Werknemers_functie)
+    //  Beheer: functies (Werknemers_Functie)
     //  Tariefkolommen bestaan misschien niet; die worden overgeslagen.
     // ============================================================
     private HashSet<string>? _functieKolommen;
@@ -377,7 +377,7 @@ public class MySqlWerknemerRepository : IWerknemerRepository
             await using var cn = await OpenAsync();
             await using var cmd = new MySqlCommand(
                 "SELECT column_name FROM information_schema.columns " +
-                "WHERE table_schema = DATABASE() AND table_name = 'Werknemers_functie'", cn);
+                "WHERE table_schema = DATABASE() AND table_name = 'Werknemers_Functie'", cn);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) set.Add(r.GetString(0));
         }
@@ -395,7 +395,7 @@ public class MySqlWerknemerRepository : IWerknemerRepository
             await using var cmd = new MySqlCommand(
                 "SELECT f.*, (SELECT COUNT(*) FROM `Werknemers` w " +
                 "              WHERE w.`id_functie` = f.`id_functie`) AS `aantal` " +
-                "  FROM `Werknemers_functie` f", cn);
+                "  FROM `Werknemers_Functie` f", cn);
             await using var r = (MySqlDataReader)await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
             {
@@ -442,8 +442,8 @@ public class MySqlWerknemerRepository : IWerknemerRepository
 
         var velden = string.Join(", ", stukken);
         var sql = f.Id == 0
-            ? $"INSERT INTO `Werknemers_functie` SET {velden}"
-            : $"UPDATE `Werknemers_functie` SET {velden} WHERE `id_functie` = @id";
+            ? $"INSERT INTO `Werknemers_Functie` SET {velden}"
+            : $"UPDATE `Werknemers_Functie` SET {velden} WHERE `id_functie` = @id";
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(sql, cn);
@@ -485,7 +485,7 @@ public class MySqlWerknemerRepository : IWerknemerRepository
     {
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "DELETE FROM `Werknemers_functie` WHERE `id_functie` = @id", cn);
+            "DELETE FROM `Werknemers_Functie` WHERE `id_functie` = @id", cn);
         cmd.Parameters.AddWithValue("@id", functieId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -718,7 +718,7 @@ public class MySqlWerknemerRepository : IWerknemerRepository
         terugvalSql: "SELECT * FROM `Relations` WHERE `Werkmaatschappij` <> 0");
 
     public Task<List<Keuze>> GetFunctiesAsync() => LijstAsync(
-        "SELECT * FROM `Werknemers_functie`",
+        "SELECT * FROM `Werknemers_Functie`",
         new[] { "id_functie", "FunctieId", "id" },
         new[] { "functie", "Functie", "Naam", "Omschrijving" });
 

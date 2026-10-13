@@ -149,16 +149,17 @@ CREATE TABLE IF NOT EXISTS `Werknemer_Relatie` (
    nieuwe StoreType-nummers af te spreken.
 
    LET OP: FileStore.StoreType heeft een foreign key naar de BESTAANDE tabel
-   `filestoretype` (kolom FilestoreTypeID). Nieuwe soorten moeten daar eerst in,
-   anders weigert de database het bestand.
+   `FileStoreType` (hoofdlettergevoelig op de server!). Nieuwe soorten moeten
+   daar eerst in, anders weigert de database het bestand.
 
    Kijk eerst wat er staat en welke nummers vrij zijn:
-       SHOW COLUMNS FROM `filestoretype`;
-       SELECT * FROM `filestoretype` ORDER BY `FilestoreTypeID`;
+       SHOW COLUMNS FROM `FileStoreType`;
+       SELECT * FROM `FileStoreType`;
 
-   Voeg daarna de twee nieuwe soorten toe (kolomnaam van de omschrijving
-   aanpassen als die bij jullie anders heet):
-       INSERT INTO `filestoretype` (`FilestoreTypeID`, `Omschrijving`) VALUES
+   Voeg daarna de nieuwe soorten toe (kolomnamen aanpassen aan wat SHOW COLUMNS
+   laat zien). In gebruik door de app: 300/301 werknemer(-gebeurtenis), 310 NDA,
+   311 relatie, 320 drive-firmware, 321 drive-dictionary, 322 drive-parameterset.
+       INSERT INTO `FileStoreType` (`FilestoreTypeID`, `Omschrijving`) VALUES
          (300, 'Werknemer'),
          (301, 'Werknemer gebeurtenis');
 

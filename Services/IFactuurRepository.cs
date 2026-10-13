@@ -140,7 +140,7 @@ public class GeenFactuurRepository : IFactuurRepository
 }
 
 /// <summary>
-/// Inkomende facturen uit de tabel factureninkomend.
+/// Inkomende facturen uit de tabel FacturenInkomend.
 ///
 /// In Access kwam dit scherm uit een SQL Server-view die 'Overdue' en de bedragen
 /// voorrekende. Die view bestaat hier niet, dus rekenen we het zelf uit — met
@@ -152,7 +152,7 @@ public class MySqlFactuurRepository : IFactuurRepository
     private readonly string _cs;
 
     /// <summary>
-    /// De kolomnamen van factureninkomend zoals ze er werkelijk zijn. Een paar
+    /// De kolomnamen van FacturenInkomend zoals ze er werkelijk zijn. Een paar
     /// namen verschillen per database (Basecone met of zonder liggend streepje),
     /// dus die zoeken we één keer op in plaats van te gokken.
     /// </summary>
@@ -181,7 +181,7 @@ public class MySqlFactuurRepository : IFactuurRepository
         {
             await using var cmd = new MySqlCommand(
                 "SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` " +
-                " WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'factureninkomend'", cn);
+                " WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'FacturenInkomend'", cn);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) namen.Add(r.GetString(0));
         }
@@ -272,7 +272,7 @@ public class MySqlFactuurRepository : IFactuurRepository
 
     /// <summary>De twee koppelingen naar Relations: de leverancier en de eigen BV.</summary>
     private const string Van =
-        "  FROM `factureninkomend` f " +
+        "  FROM `FacturenInkomend` f " +
         "  LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Bedrijf` " +
         "  LEFT JOIN `Relations` a ON a.`id_supplier` = f.`Admin` ";
 
@@ -406,7 +406,7 @@ public class MySqlFactuurRepository : IFactuurRepository
             "       COALESCE(bet.`NaamVoluit`, '') AS BetaaldNaam, " +
             "       COALESCE(goe.`NaamVoluit`, '') AS GoedNaam, " +
             "       COALESCE(sep.`NaamVoluit`, '') AS SepaNaam " +
-            "  FROM `factureninkomend` f " +
+            "  FROM `FacturenInkomend` f " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Bedrijf` " +
             "  LEFT JOIN `Werknemers` inv ON inv.`Werknemer-id` = f.`IngevoerdDoor` " +
             "  LEFT JOIN `Werknemers` bet ON bet.`Werknemer-id` = f.`Betaald_door` " +
@@ -566,9 +566,9 @@ public class MySqlFactuurRepository : IFactuurRepository
         var guid = nieuw && Kol("GUID") is not null ? ", `GUID` = @guid" : "";
 
         var sql = nieuw
-            ? $"INSERT INTO `factureninkomend` SET {velden}, " +
+            ? $"INSERT INTO `FacturenInkomend` SET {velden}, " +
               $"`DatumInvoer` = @nu, `IngevoerdDoor` = @door, `Opmerking` = ''{guid}"
-            : $"UPDATE `factureninkomend` SET {velden} WHERE `{Sleutel}` = @id";
+            : $"UPDATE `FacturenInkomend` SET {velden} WHERE `{Sleutel}` = @id";
 
         await using var cmd = new MySqlCommand(sql, cn);
         cmd.Parameters.AddWithValue("@admin", (object?)factuur.AdministratieId ?? DBNull.Value);
@@ -615,7 +615,7 @@ public class MySqlFactuurRepository : IFactuurRepository
         catch { }
 
         await using var cmd = new MySqlCommand(
-            $"DELETE FROM `factureninkomend` WHERE `{Sleutel}` = @id", cn);
+            $"DELETE FROM `FacturenInkomend` WHERE `{Sleutel}` = @id", cn);
         cmd.Parameters.AddWithValue("@id", id);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -646,7 +646,7 @@ public class MySqlFactuurRepository : IFactuurRepository
         if (wanneer.Length > 0) zet.Add($"`{wanneer}` = @wanneer");
 
         await using var cmd = new MySqlCommand(
-            $"UPDATE `factureninkomend` SET {string.Join(", ", zet)} WHERE `{Sleutel}` = @id", cn);
+            $"UPDATE `FacturenInkomend` SET {string.Join(", ", zet)} WHERE `{Sleutel}` = @id", cn);
 
         cmd.Parameters.AddWithValue("@aan", aan ? 1 : 0);
         if (wie.Length > 0)
@@ -670,7 +670,7 @@ public class MySqlFactuurRepository : IFactuurRepository
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "SELECT COUNT(*) FROM `factureninkomend` " +
+            "SELECT COUNT(*) FROM `FacturenInkomend` " +
             " WHERE `DatumFactuur` = @datum AND `Bedrijf` = @bedrijf " +
             "   AND ABS(COALESCE(`BedragExBTW`, 0) - @ex) < 0.01 " +
             $"  AND `{Sleutel}` <> @negeer", cn);
@@ -922,7 +922,7 @@ public class MySqlFactuurRepository : IFactuurRepository
             var samenvatting = nummers.Count > 0 ? string.Join(" + ", nummers) : "#Geen koppeling#";
 
             await using var upd = new MySqlCommand(
-                $"UPDATE `factureninkomend` SET `SummaryWorkorders` = @s WHERE `{Sleutel}` = @id", cn);
+                $"UPDATE `FacturenInkomend` SET `SummaryWorkorders` = @s WHERE `{Sleutel}` = @id", cn);
             upd.Parameters.AddWithValue("@s", samenvatting);
             upd.Parameters.AddWithValue("@id", factuurId);
             await upd.ExecuteNonQueryAsync();
@@ -1019,7 +1019,7 @@ public class MySqlFactuurRepository : IFactuurRepository
             $"SELECT f.`{Sleutel}`, COALESCE(f.`FactuurNummer`, ''), " +
             "        COALESCE(l.`Bedrag`, 0), COALESCE(f.`Betaald`, 0) " +
             "   FROM `Facturen_Orders_Link` l " +
-            "   JOIN `factureninkomend` f ON f.`" + Sleutel + "` = l.`FactuurID` " +
+            "   JOIN `FacturenInkomend` f ON f.`" + Sleutel + "` = l.`FactuurID` " +
             "  WHERE l.`OrderID` = @id ORDER BY l.`LinkID`", cn))
         {
             cmd.Parameters.AddWithValue("@id", orderId);
@@ -1158,7 +1158,7 @@ public class MySqlFactuurRepository : IFactuurRepository
         // onder meer een leverancierwissel af nadat de PO al gekozen was.
         await using (var check = new MySqlCommand(
             "SELECT COALESCE(o.`Supplier`, 0), COALESCE(f.`Bedrijf`, 0) " +
-            "  FROM `Orders` o, `factureninkomend` f " +
+            "  FROM `Orders` o, `FacturenInkomend` f " +
             $" WHERE o.`Order-id` = @o AND f.`{Sleutel}` = @f", cn))
         {
             check.Parameters.AddWithValue("@o", orderId);

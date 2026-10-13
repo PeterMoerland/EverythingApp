@@ -723,7 +723,7 @@
         if (_gebeurtenis is not null) _gebeurtenis.TotDatum = d;
     }
 
-    /// <summary>Naam van een functie uit Werknemers_functie, of null.</summary>
+    /// <summary>Naam van een functie uit Werknemers_Functie, of null.</summary>
     private string? FunctieNaam(int? id) =>
         id is null ? null : _functies.FirstOrDefault(f => f.Id == id)?.Naam;
 
@@ -780,7 +780,7 @@
     /// <summary>Ja/nee-vraag, zoals MsgBox in de Access-versie.</summary>
     private async Task<bool> Bevestig(string vraag)
     {
-        try { return await JS.InvokeAsync<bool>("confirm", vraag); }
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
         catch { return true; }   // geen dialoog beschikbaar: niet blokkeren
     }
 

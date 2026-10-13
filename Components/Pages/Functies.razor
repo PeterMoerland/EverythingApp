@@ -6,7 +6,7 @@
 <div class="page">
     <header class="topbar">
         <h1>Functies</h1>
-        <span class="weeklabel">@_functies.Count functies · tabel Werknemers_functie</span>
+        <span class="weeklabel">@_functies.Count functies · tabel Werknemers_Functie</span>
     </header>
 
     @if (!WnRepo.Beschikbaar)
@@ -170,7 +170,7 @@
             }
 
             bool zeker;
-            try { zeker = await JS.InvokeAsync<bool>("confirm", $"Functie '{f.Naam}' verwijderen? Weet je het zeker?"); }
+            try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"Functie '{f.Naam}' verwijderen? Weet je het zeker?"); }
             catch { zeker = true; }
             if (!zeker) return;
 

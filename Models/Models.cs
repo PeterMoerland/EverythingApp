@@ -221,7 +221,7 @@ public class Mijlpalen
     public DateOnly? InDienst { get; set; }
 }
 
-/// <summary>Functie uit Werknemers_functie, met tarieven en gebruik.</summary>
+/// <summary>Functie uit Werknemers_Functie, met tarieven en gebruik.</summary>
 public class Functie
 {
     public int Id { get; set; }
