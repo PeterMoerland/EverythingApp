@@ -126,6 +126,8 @@ if (liveDb)
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!));
     builder.Services.AddSingleton<IOrderBatchRepository>(_ => new MySqlOrderBatchRepository(cs!));
     builder.Services.AddSingleton<IFactuurRepository>(_ => new MySqlFactuurRepository(cs!));
+    builder.Services.AddSingleton<IVerkoopFactuurRepository>(_ => new MySqlVerkoopFactuurRepository(cs!));
+    builder.Services.AddSingleton<IUrenImportRepository>(_ => new MySqlUrenImportRepository(cs!));
     builder.Services.AddSingleton<IInstellingRepository>(_ => new MySqlInstellingRepository(cs!));
     builder.Services.AddSingleton<IPlanningRepository>(_ => new MySqlPlanningRepository(cs!));
     builder.Services.AddSingleton<ILaptopRepository>(_ => new MySqlLaptopRepository(cs!));
@@ -147,6 +149,8 @@ else
     builder.Services.AddSingleton<IInstellingRepository, GeenInstellingRepository>();
     builder.Services.AddSingleton<IOrderBatchRepository, GeenOrderBatchRepository>();
     builder.Services.AddSingleton<IFactuurRepository, GeenFactuurRepository>();
+    builder.Services.AddSingleton<IVerkoopFactuurRepository, GeenVerkoopFactuurRepository>();
+    builder.Services.AddSingleton<IUrenImportRepository, GeenUrenImportRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();
     builder.Services.AddSingleton<ILaptopRepository, GeenLaptopRepository>();
     builder.Services.AddSingleton<IBaseconeRepository, GeenBaseconeRepository>();
@@ -169,6 +173,7 @@ builder.Services.AddSingleton<FactuurLezer>();
 builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
+builder.Services.AddSingleton<FactuurPdfService>();
 
 // NDA: document maken uit het Word-sjabloon, opslaan in de filestore, en de
 // eenmalige overname van de oude Python-app.

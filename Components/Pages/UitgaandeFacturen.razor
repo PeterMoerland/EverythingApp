@@ -1,0 +1,672 @@
+@page "/financien/uitgaande-facturen"
+@inject IVerkoopFactuurRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@* Overgezet van het Access-formulier FacturenUitgaand (fase 1: overzicht).
+   Nieuw, aanpassen, uren importeren, versturen en de betalingscheck volgen;
+   zolang dat er niet is, gebeurt het nog in Access op dezelfde tabellen. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Uitgaande facturen</h1>
+        <span class="weeklabel">
+            @_totalen.Aantal facturen · @Bedrag(_totalen.ExBtw) excl. btw
+        </span>
+        @if (Repo.Beschikbaar && MagInvoeren)
+        {
+            <button class="klein" @onclick="Nieuw">＋ Factuur maken</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- filters ---------- *@
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Van</span>
+                <NlDatum Waarde="_filter.Van" WaardeChanged="VanGewijzigd" />
+            </label>
+            <label class="bankveld">
+                <span>Tot en met</span>
+                <NlDatum Waarde="_filter.Tot" WaardeChanged="TotGewijzigd" />
+            </label>
+
+            <div class="btngroup">
+                <button class="klein" title="Vorig kwartaal" @onclick="() => Kwartaal(-1)">◀ Q</button>
+                <button class="klein" @onclick="DitKwartaal">Dit kwartaal</button>
+                <button class="klein" @onclick="DitJaar">Dit jaar</button>
+                <button class="klein" title="Volgend kwartaal" @onclick="() => Kwartaal(1)">Q ▶</button>
+                <button class="klein" @onclick="AlleDatums">Alle datums</button>
+            </div>
+
+            <label class="bankveld">
+                <span>Vervallen</span>
+                <select value="@(_filter.MeerDanOverdue?.ToString() ?? "")" @onchange="OverdueGewijzigd">
+                    <option value="">Alles</option>
+                    <option value="0">Te laat</option>
+                    <option value="-7">Vervalt binnen een week</option>
+                    <option value="-31">Vervalt binnen een maand</option>
+                </select>
+            </label>
+
+            <label class="bankveld">
+                <span>BV</span>
+                <select value="@(_filter.AdministratieId?.ToString() ?? "")" @onchange="AdminGewijzigd">
+                    <option value="">Alle</option>
+                    @foreach (var a in _administraties)
+                    {
+                        <option value="@a.Id">@a.Afkorting — @a.Naam</option>
+                    }
+                </select>
+            </label>
+
+            <label class="bankveld">
+                <span>Klant</span>
+                <span class="zoekregel">
+                    <input placeholder="Naam…" value="@_filter.Klant" @onchange="KlantGewijzigd" />
+                    <button class="klein" disabled="@(_filter.Klant.Length == 0)"
+                            @onclick="() => ZetKlant(string.Empty)">✕</button>
+                </span>
+            </label>
+
+            <label class="bankveld groei">
+                <span>Zoeken</span>
+                <span class="zoekregel">
+                    <input placeholder="Omschrijving, PO klant, factuurnummer, bedrag…" value="@_filter.Zoek"
+                           @onchange="ZoekGewijzigd" />
+                    <button class="klein" disabled="@(_filter.Zoek.Length == 0)"
+                            @onclick="() => ZetZoek(string.Empty)">✕</button>
+                </span>
+            </label>
+
+            <label class="bankveld">
+                <span>Verstuurd</span>
+                <select value="@_filter.Verstuurd" @onchange="e => DrieluikGewijzigd(e, v => _filter.Verstuurd = v)">
+                    <option value="@Drieluik.Alles">Alles</option>
+                    <option value="@Drieluik.Nee">Nee</option>
+                    <option value="@Drieluik.Ja">Ja</option>
+                </select>
+            </label>
+            <label class="bankveld">
+                <span>Betaald</span>
+                <select value="@_filter.Betaald" @onchange="e => DrieluikGewijzigd(e, v => _filter.Betaald = v)">
+                    <option value="@Drieluik.Alles">Alles</option>
+                    <option value="@Drieluik.Nee">Nee</option>
+                    <option value="@Drieluik.Ja">Ja</option>
+                </select>
+            </label>
+        </div>
+
+        @* ---------- de vaste selecties uit Access ---------- *@
+        <div class="btngroup factuurknoppen">
+            <button class="klein" @onclick="TeLaat">Te laat</button>
+            <button class="klein" @onclick="VervaltDezeWeek">Vervalt deze week</button>
+            <button class="klein" @onclick="NietVerstuurd">Niet verstuurd</button>
+            <button class="klein" @onclick="OnbetaaldAlles">Onbetaald (alles)</button>
+            @foreach (var a in _facturerend)
+            {
+                <button class="klein" @key="a.Id" title="@("Onbetaald van " + a.Naam)"
+                        @onclick="() => OnbetaaldVoor(a.Id)">@a.Afkorting</button>
+            }
+            <button class="klein" @onclick="AllesLosLaten">Filters opheffen</button>
+            @* Kijken mag iedereen op deze pagina; op betaald zetten vraagt het recht (in het venster). *@
+            <button class="klein" title="Openstaande facturen vergelijken met de ontvangsten op de bank"
+                    @onclick="() => _checkOpen = true">Betalingen controleren</button>
+        </div>
+
+        <div class="factuur-vlak">
+            @* ---------- de lijst ---------- *@
+            <div class="regels-omhulsel factuur-lijst">
+                <table class="kiezer-tabel banktabel factuurtabel">
+                    <thead>
+                        <tr>
+                            <th style="width:5.6rem">Datum</th>
+                            <th style="width:6.4rem">Factuurnr</th>
+                            <th style="width:13rem">Klant</th>
+                            <th>Omschrijving</th>
+                            <th style="width:8rem">PO klant</th>
+                            <th style="width:8.4rem" class="r">Excl. btw</th>
+                            <th style="width:7.4rem" class="r">Btw</th>
+                            <th style="width:8.4rem" class="r">Incl. btw</th>
+                            <th style="width:4.4rem" class="r" title="Dagen te laat; negatief is nog te gaan">Te laat</th>
+                            <th style="width:3.4rem" class="c">BV</th>
+                            <th style="width:2.6rem" class="c" title="Verstuurd naar de klant">Verst</th>
+                            <th style="width:2.4rem" class="c" title="Betaald">Bet</th>
+                            <th style="width:2.4rem" class="c" title="Naar Basecone">Bc</th>
+                            <th style="width:2.6rem" class="c" title="Oninbaar">Oninb</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var f in _lijst)
+                        {
+                            @* De ronde zit in de sleutel: gaat een vinkje mis, dan bouwt
+                               Blazor de rij opnieuw op met wat de database zegt. *@
+                            <tr @key="(f.Id, _ronde)" class="@RijStijl(f)" @onclick="() => Kies(f)"
+                                @ondblclick="() => Open(f)">
+                                <td>@Dag(f.Factuurdatum)</td>
+                                <td>@f.Factuurnummer</td>
+                                <td class="omschrijving" title="@f.Klant">@f.Klant</td>
+                                <td class="omschrijving" title="@f.Omschrijving">
+                                    @if (f.IsProforma)
+                                    {
+                                        <b>Proforma · </b>
+                                    }
+                                    @f.Omschrijving
+                                </td>
+                                <td class="omschrijving" title="@f.PoKlant">@f.PoKlant</td>
+                                <td class="r @(f.IsCreditnota ? "factuur-credit" : "")">@Bedrag(f.BedragExBtw)</td>
+                                <td class="r">@Bedrag(f.Btw)</td>
+                                <td class="r @(f.IsCreditnota ? "factuur-credit" : "")">@Bedrag(f.BedragInclBtw)</td>
+                                <td class="r">@(f.Betaald || !f.Verstuurd ? "" : f.Overdue.ToString())</td>
+                                <td class="c">@f.Administratie</td>
+                                <td class="c">
+                                    @* Verstuurd zetten hoort bij het versturen zelf; hier alleen tonen. *@
+                                    <input type="checkbox" checked="@f.Verstuurd" disabled />
+                                </td>
+                                <td class="c">
+                                    <input type="checkbox" checked="@f.Betaald" disabled="@(!MagInvoeren)"
+                                           @onclick:stopPropagation @ondblclick:stopPropagation
+                                           @onchange="e => ZetVlag(f, VerkoopFactuurVlag.Betaald, e)" />
+                                </td>
+                                <td class="c">
+                                    <input type="checkbox" checked="@f.NaarBasecone" disabled="@(!MagInvoeren)"
+                                           @onclick:stopPropagation @ondblclick:stopPropagation
+                                           @onchange="e => ZetVlag(f, VerkoopFactuurVlag.Basecone, e)" />
+                                </td>
+                                <td class="c">
+                                    <input type="checkbox" checked="@f.Oninbaar" disabled="@(!MagInvoeren)"
+                                           @onclick:stopPropagation @ondblclick:stopPropagation
+                                           @onchange="e => ZetVlag(f, VerkoopFactuurVlag.Oninbaar, e)" />
+                                </td>
+                            </tr>
+                        }
+                        @if (_lijst.Count == 0)
+                        {
+                            <tr><td colspan="14" class="kiezer-info">Geen facturen in deze selectie.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* ---------- rechts: wat hoort bij de gekozen factuur ---------- *@
+            <aside class="factuur-zij @(_gekozen is null ? "leeg" : "")">
+                @if (_gekozen is null)
+                {
+                    <div class="kiezer-info">
+                        Kies een factuur om de regels, betalingen en documenten te zien.
+                        Dubbelklik opent de factuur. Uren importeren en versturen doe je
+                        voorlopig nog in Access.
+                    </div>
+                }
+                else
+                {
+                    <ZijBlok Titel="Factuur">
+                        <div class="zij-regel">
+                            <span class="zij-naam">@_gekozen.Klant</span>
+                            <span class="zij-extra">
+                                @_gekozen.Factuurnummer · @Dag(_gekozen.Factuurdatum) · @_gekozen.Administratie
+                            </span>
+                        </div>
+                        <div class="zij-regel">
+                            <span class="zij-extra">
+                                @Bedrag(_gekozen.BedragExBtw) excl. · @Bedrag(_gekozen.BedragInclBtw) incl. btw
+                            </span>
+                        </div>
+                        <div class="zij-regel">
+                            <span class="zij-extra">@Status(_gekozen)</span>
+                        </div>
+                        @if (HerinneringTekst(_gekozen) is { Length: > 0 } herinneringTekst)
+                        {
+                            <div class="zij-regel"><span class="zij-extra"><b>@herinneringTekst</b></span></div>
+                        }
+                        @if (_gekozen.Opmerking.Length > 0)
+                        {
+                            <div class="zij-regel"><span class="zij-extra">@_gekozen.Opmerking</span></div>
+                        }
+                        <div class="btngroup">
+                            <button class="klein" @onclick="() => Open(_gekozen)">@(MagInvoeren ? "Aanpassen" : "Openen")</button>
+                            <button class="klein" @onclick="() => _versturenId = _gekozen.Id">@(MagInvoeren ? "Versturen…" : "PDF bekijken")</button>
+                            @if (MagInvoeren && !_gekozen.Verstuurd)
+                            {
+                                <button class="klein" @onclick="Wis">Wissen</button>
+                            }
+                        </div>
+                    </ZijBlok>
+
+                    <ZijBlok Titel="Regels" Aantal="_items.Count"
+                             Leeg="@(_items.Count == 0)" LeegTekst="Geen regels.">
+                        @foreach (var item in _items)
+                        {
+                            <div class="zij-regel" @key="item.Id">
+                                <span class="zij-naam">@item.Tekst</span>
+                                <span class="zij-extra">@ItemDetail(item)</span>
+                            </div>
+                        }
+                    </ZijBlok>
+
+                    <ZijBlok Titel="Betalingen" Aantal="_betalingen.Count"
+                             Leeg="@(_betalingen.Count == 0)" LeegTekst="Geen banktransactie gekoppeld.">
+                        @foreach (var b in _betalingen)
+                        {
+                            <div class="zij-regel" @key="b.BanktransactieId">
+                                <span class="zij-naam">@Dag(b.Datum) · @Bedrag(b.Bedrag)</span>
+                                <span class="zij-extra" title="@b.Omschrijving">@b.Tegenpartij</span>
+                            </div>
+                        }
+                    </ZijBlok>
+
+                    <ZijBlok Titel="Documenten" Aantal="_documenten.Count"
+                             Leeg="@(_documenten.Count == 0)" LeegTekst="Nog geen PDF bij deze factuur.">
+                        @foreach (var d in _documenten)
+                        {
+                            <div class="zij-regel" @key="d.FileStoreId">
+                                <button class="bestandnaam" title="Bekijken"
+                                        @onclick="() => _voorbeeld = d">@d.Bestandsnaam</button>
+                                <span class="zij-extra">
+                                    @(d.Toegevoegd?.ToString("dd-MM-yyyy") ?? "") @d.ToegevoegdDoor
+                                </span>
+                            </div>
+                        }
+                    </ZijBlok>
+                }
+            </aside>
+        </div>
+
+        @* ---------- de cijfers, altijd in beeld ---------- *@
+        <div class="banktotalen">
+            <span><b>Excl. btw</b> @Bedrag(_totalen.ExBtw)</span>
+            <span><b>Btw</b> @Bedrag(_totalen.Btw)</span>
+            <span><b>Incl. btw</b> @Bedrag(_totalen.Totaal)</span>
+            <span><b>Aantal</b> @_totalen.Aantal</span>
+            <span><b>Gemiddeld</b> @Bedrag(_totalen.Gemiddeld)</span>
+            @if (_lijst.Count >= _max)
+            {
+                <span class="oud">Alleen de eerste @_max regels; beperk de selectie.</span>
+            }
+        </div>
+    }
+</div>
+
+@* een PDF groot in beeld *@
+<BestandVoorbeeld Id="_voorbeeld?.FileStoreId" Naam="@(_voorbeeld?.Bestandsnaam ?? "")"
+                  Sluiten="() => _voorbeeld = null" />
+
+@* nieuw en aanpassen *@
+<VerkoopFactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" />
+
+@* PDF maken en versturen *@
+<FactuurVersturenVenster FactuurId="_versturenId" Sluiten="SluitVersturen" />
+
+@* betalingen zoeken op de bank *@
+<BetalingscheckVenster Open="_checkOpen" Sluiten="SluitCheck" />
+
+@code {
+    private const int StoreTypeVerkoopfactuur = 5;     // zoals in Access: filestore-soort 5
+
+    private readonly VerkoopFactuurFilter _filter = new();
+    private List<VerkoopFactuurRegel> _lijst = new();
+    private List<Administratie> _administraties = new();
+    private List<Administratie> _facturerend = new();
+    private FactuurTotalen _totalen = new(0, 0, 0);
+    private readonly int _max = 1000;
+
+    private VerkoopFactuurRegel? _gekozen;
+    private List<VerkoopFactuurItem> _items = new();
+    private List<VerkoopFactuurBetaling> _betalingen = new();
+    private List<Bestand> _documenten = new();
+    private Bestand? _voorbeeld;
+
+    private string? _melding;
+    private bool _fout;
+
+    /// <summary>Gaat omhoog als een vinkje moet worden teruggedraaid; zie de @@key op de rij.</summary>
+    private int _ronde;
+
+    // Betaald zetten en wissen zijn niet voor iedereen; zelfde rechten als de inkomende facturen.
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    // ---- opmaak ----
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Bedrag(decimal waarde) => waarde.ToString("C2", Nl);
+    private static string Dag(DateTime? datum) => datum?.ToString("dd-MM-yy") ?? "";
+    private static string Getal(decimal? waarde) => waarde?.ToString("0.##", Nl) ?? "";
+
+    private string RijStijl(VerkoopFactuurRegel f)
+    {
+        var stukken = new List<string>();
+        if (f.Id == _gekozen?.Id) stukken.Add("gekozen-rij");
+        if (f.TeLaat) stukken.Add("factuur-telaat");
+        return string.Join(" ", stukken);
+    }
+
+    private static string Status(VerkoopFactuurRegel f)
+    {
+        var delen = new List<string>
+        {
+            f.Verstuurd ? "verstuurd " + Dag(f.DatumVerstuurd) : "nog niet verstuurd",
+            "termijn " + f.Betalingstermijn + " dagen",
+        };
+        if (f.Oninbaar) delen.Add("oninbaar");
+        else if (f.Betaald) delen.Add("betaald " + Dag(f.DatumBetaald));
+        else if (f.Verstuurd) delen.Add(f.Overdue > 0 ? f.Overdue + " dagen te laat" : "nog " + -f.Overdue + " dagen");
+        return string.Join(" · ", delen);
+    }
+
+    private static string HerinneringTekst(VerkoopFactuurRegel f) => f.Herinnering switch
+    {
+        1 => "1e herinnering",
+        2 => "2e herinnering",
+        3 => "3e herinnering",
+        4 => "Proforma",
+        _ => "",
+    };
+
+    private static string ItemDetail(VerkoopFactuurItem i)
+    {
+        var delen = new List<string>();
+        if (i.Werkorder.Length > 0) delen.Add(i.Werkorder);
+        if (i.Naam.Length > 0) delen.Add(i.Naam);
+        if (i.Uren is not null) delen.Add(Getal(i.Uren) + " uur " + i.Uurtype);
+        else if (i.Aantal is not null) delen.Add(Getal(i.Aantal) + " × " + Bedrag(i.Stuksprijs ?? 0));
+        if (i.Korting is > 0) delen.Add(Getal(i.Korting) + "% korting");
+        delen.Add(Bedrag(i.Totaal));
+        return string.Join(" · ", delen);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+
+        try { _administraties = await Repo.GetAdministratiesAsync(); } catch { }
+        try { _facturerend = await Repo.GetFacturerendeBvsAsync(); } catch { }
+
+        // Access opende op het lopende kwartaal.
+        DitKwartaalZonderLaden();
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lijst = await Repo.ZoekAsync(_filter, _max);
+            _totalen = await Repo.GetTotalenAsync(_filter);
+
+            // De gekozen factuur uit beeld? Dan de zijkant ook leegmaken.
+            if (_gekozen is not null && _lijst.All(f => f.Id != _gekozen.Id)) await Kies(null);
+            else if (_gekozen is not null) _gekozen = _lijst.First(f => f.Id == _gekozen.Id);
+        }
+        catch (Exception ex)
+        {
+            _lijst = new();
+            Toon("Ophalen mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task Kies(VerkoopFactuurRegel? f)
+    {
+        _gekozen = f;
+        _items = new();
+        _betalingen = new();
+        _documenten = new();
+        if (f is null) return;
+
+        try { _items = await Repo.GetItemsAsync(f.Id); } catch { }
+        try { _betalingen = await Repo.GetBetalingenAsync(f.Id); } catch { }
+        if (WnRepo.Beschikbaar)
+        {
+            try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeVerkoopfactuur, f.Id); }
+            catch { _documenten = new(); }
+        }
+    }
+
+    // ---- filters ----
+    private async Task VanGewijzigd(DateOnly? d) { _filter.Van = d; await Laad(); }
+    private async Task TotGewijzigd(DateOnly? d) { _filter.Tot = d; await Laad(); }
+
+    private async Task OverdueGewijzigd(ChangeEventArgs e)
+    {
+        _filter.MeerDanOverdue = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad();
+    }
+
+    private async Task AdminGewijzigd(ChangeEventArgs e)
+    {
+        _filter.AdministratieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad();
+    }
+
+    private async Task KlantGewijzigd(ChangeEventArgs e) => await ZetKlant((string?)e.Value ?? "");
+    private async Task ZetKlant(string waarde) { _filter.Klant = waarde; await Laad(); }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e) => await ZetZoek((string?)e.Value ?? "");
+    private async Task ZetZoek(string waarde) { _filter.Zoek = waarde; await Laad(); }
+
+    private async Task DrieluikGewijzigd(ChangeEventArgs e, Action<Drieluik> zet)
+    {
+        zet(Enum.TryParse<Drieluik>((string?)e.Value, out var v) ? v : Drieluik.Alles);
+        await Laad();
+    }
+
+    // ---- periodes ----
+    private void DitKwartaalZonderLaden()
+    {
+        var nu = DateTime.Today;
+        var eerste = (nu.Month - 1) / 3 * 3 + 1;
+        _filter.Van = new DateOnly(nu.Year, eerste, 1);
+        _filter.Tot = _filter.Van.Value.AddMonths(3).AddDays(-1);
+    }
+
+    private async Task DitKwartaal() { DitKwartaalZonderLaden(); await Laad(); }
+
+    private async Task DitJaar()
+    {
+        var jaar = DateTime.Today.Year;
+        _filter.Van = new DateOnly(jaar, 1, 1);
+        _filter.Tot = new DateOnly(jaar, 12, 31);
+        await Laad();
+    }
+
+    /// <summary>Een kwartaal terug of vooruit, gerekend vanaf het midden van de periode.</summary>
+    private async Task Kwartaal(int richting)
+    {
+        if (_filter.Van is null || _filter.Tot is null) DitKwartaalZonderLaden();
+
+        var midden = _filter.Van!.Value.AddDays((_filter.Tot!.Value.DayNumber - _filter.Van.Value.DayNumber) / 2);
+        var doel = midden.AddMonths(3 * richting);
+        var eerste = (doel.Month - 1) / 3 * 3 + 1;
+
+        _filter.Van = new DateOnly(doel.Year, eerste, 1);
+        _filter.Tot = _filter.Van.Value.AddMonths(3).AddDays(-1);
+        await Laad();
+    }
+
+    private async Task AlleDatums()
+    {
+        _filter.Van = null;
+        _filter.Tot = null;
+        await Laad();
+    }
+
+    // ---- de vaste selecties uit Access ----
+    private void FiltersLeeg()
+    {
+        _filter.Van = null;
+        _filter.Tot = null;
+        _filter.MeerDanOverdue = null;
+        _filter.Klant = "";
+        _filter.Zoek = "";
+        _filter.AdministratieId = null;
+        _filter.Verstuurd = Drieluik.Alles;
+        _filter.Betaald = Drieluik.Alles;
+    }
+
+    private async Task AllesLosLaten() { FiltersLeeg(); await Laad(); }
+
+    /// <summary>Verstuurd, niet betaald en over de vervaldatum.</summary>
+    private async Task TeLaat()
+    {
+        FiltersLeeg();
+        _filter.Verstuurd = Drieluik.Ja;
+        _filter.Betaald = Drieluik.Nee;
+        _filter.MeerDanOverdue = 0;
+        await Laad();
+    }
+
+    private async Task VervaltDezeWeek()
+    {
+        FiltersLeeg();
+        _filter.Verstuurd = Drieluik.Ja;
+        _filter.Betaald = Drieluik.Nee;
+        _filter.MeerDanOverdue = -7;
+        await Laad();
+    }
+
+    private async Task NietVerstuurd()
+    {
+        FiltersLeeg();
+        _filter.Verstuurd = Drieluik.Nee;
+        await Laad();
+    }
+
+    private async Task OnbetaaldAlles()
+    {
+        FiltersLeeg();
+        _filter.Betaald = Drieluik.Nee;
+        await Laad();
+    }
+
+    private async Task OnbetaaldVoor(int administratieId)
+    {
+        FiltersLeeg();
+        _filter.Betaald = Drieluik.Nee;
+        _filter.AdministratieId = administratieId;
+        await Laad();
+    }
+
+    // ---- vinkjes ----
+    private async Task ZetVlag(VerkoopFactuurRegel f, VerkoopFactuurVlag vlag, ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+
+        if (!MagInvoeren)
+        {
+            _ronde++;
+            Toon("Je hebt hier geen recht voor.", true);
+            return;
+        }
+
+        // Een factuur die al naar Basecone is, wil je niet stil terugdraaien.
+        if (vlag == VerkoopFactuurVlag.Basecone && !aan)
+        {
+            var zeker = await Vraag($"Factuur {f.Factuurnummer} weer als 'niet naar Basecone' zetten?");
+            if (!zeker) { _ronde++; return; }
+        }
+
+        try
+        {
+            await Repo.ZetVlagAsync(f.Id, vlag, aan, Ik.WerknemerId);
+
+            // Betalen verandert het aantal dagen te laat en de datum, dus opnieuw ophalen.
+            if (vlag == VerkoopFactuurVlag.Betaald) await Laad();
+            else if (vlag == VerkoopFactuurVlag.Basecone) f.NaarBasecone = aan;
+            else f.Oninbaar = aan;
+
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex)
+        {
+            _ronde++;      // vinkje terug naar wat de database zegt
+            Toon("Opslaan mislukt: " + ex.Message, true);
+            await Laad();
+        }
+    }
+
+    // ---- nieuw en aanpassen ----
+
+    /// <summary>0 = nieuwe factuur, een getal = die factuur, null = venster dicht.</summary>
+    private int? _bewerkId;
+
+    private void Nieuw() => _bewerkId = 0;
+
+    private void Open(VerkoopFactuurRegel? f)
+    {
+        if (f is not null) _bewerkId = f.Id;
+    }
+
+    private async Task SluitVenster(bool opgeslagen)
+    {
+        _bewerkId = null;
+        if (!opgeslagen) return;
+        await Laad();
+        if (_gekozen is not null) await Kies(_gekozen);    // regels in het zijpaneel bijwerken
+        Toon("Opgeslagen.", false);
+    }
+
+    // ---- versturen ----
+    private int? _versturenId;
+
+    private async Task SluitVersturen(bool verstuurd)
+    {
+        _versturenId = null;
+        if (!verstuurd) return;
+        await Laad();
+        if (_gekozen is not null) await Kies(_gekozen);    // nieuwe PDF's in het zijpaneel
+    }
+
+    // ---- betalingscheck ----
+    private bool _checkOpen;
+
+    private async Task SluitCheck(bool verwerkt)
+    {
+        _checkOpen = false;
+        if (!verwerkt) return;
+        await Laad();
+        if (_gekozen is not null) await Kies(_gekozen);
+    }
+
+    // ---- wissen ----
+    private async Task Wis()
+    {
+        if (_gekozen is null || !MagInvoeren) return;
+        var f = _gekozen;
+
+        if (!await Vraag($"Factuur {f.Factuurnummer} van {f.Klant} wissen? De regels gaan mee en " +
+                         "gereserveerde uren komen weer vrij."))
+            return;
+
+        try
+        {
+            var reden = await Repo.WisAsync(f.Id);
+            if (reden is not null) { Toon(reden, true); return; }
+
+            await Kies(null);
+            await Laad();
+            Toon($"Factuur {f.Factuurnummer} is gewist.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Wissen mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

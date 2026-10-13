@@ -1,0 +1,335 @@
+@* Een uitgaande factuur versturen; vervangt het Access-formulier InvoicePrint.
+   PDF's maken en bekijken -> mailconcept nakijken -> versturen via de eigen Gmail.
+   Daarna: PDF's in de filestore (en de factuurmap), factuur op verstuurd, uren op gefactureerd.
+   FactuurId: een getal = die factuur, null = dicht. *@
+@inject FactuurPdfService Pdf
+@inject IVerkoopFactuurRepository Repo
+@inject FilestoreService Filestore
+@inject MailService Post
+@inject IConfiguration Config
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@inject ILogger<FactuurVersturenVenster> Log
+@implements IAsyncDisposable
+
+@if (FactuurId is not null)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>Factuur @(_g?.Factuur.Factuurnummer) versturen</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+
+                @if (_bezig.Length > 0)
+                {
+                    <div class="factuur-lezen"><span class="draaier"></span><span class="factuur-lezen-tekst">@_bezig</span></div>
+                }
+
+                @if (_g is not null)
+                {
+                    <div class="factuur-tweeluik">
+                        <div class="factuur-linkerkant">
+                            @if (_g.Factuur.Verstuurd)
+                            {
+                                <p class="factuur-waarschuwing">
+                                    Deze factuur is al verstuurd op @_g.Factuur.DatumVerstuurd?.ToString("dd-MM-yyyy").
+                                    Opnieuw versturen kan (bijvoorbeeld als herinnering: zet die eerst bij Aanpassen).
+                                </p>
+                            }
+
+                            <h3 class="wn-kop">Mail</h3>
+                            <div class="wn-velden een-kolom">
+                                <div class="wn-veld breed">
+                                    <label>Aan</label>
+                                    <input value="@_aan" @onchange="e => _aan = Tekst(e)" placeholder="factuur@klant.nl" />
+                                </div>
+                                @if (_aan.Length == 0)
+                                {
+                                    <div class="wn-veld breed">
+                                        <label></label>
+                                        <span class="factuur-waarschuwing">
+                                            Van deze klant is geen factuuradres bekend (Relaties: e-mail facturen). Vul het hier in.
+                                        </span>
+                                    </div>
+                                }
+                                <div class="wn-veld breed">
+                                    <label>CC</label>
+                                    <input value="@_cc" @onchange="e => _cc = Tekst(e)" />
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Onderwerp</label>
+                                    <input value="@_onderwerp" @onchange="e => _onderwerp = Tekst(e)" />
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Tekst</label>
+                                    <textarea rows="9" value="@_tekst" @onchange="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Bijlagen</label>
+                                    <span class="alleen-lezen">
+                                        @foreach (var b in _bijlagen)
+                                        {
+                                            <span @key="b.Naam">📄 @b.Naam (@(b.Inhoud.Length / 1024) kB)&nbsp;&nbsp;</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Van</label>
+                                    <span class="alleen-lezen">@Ik.Email <span class="zij-extra">(je eigen Gmail; de mail komt in je map Verzonden)</span></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="factuur-rechterkant">
+                            <div class="btngroup">
+                                @foreach (var b in _bijlagen)
+                                {
+                                    <button class="klein @(_getoond == b ? "actief" : "")" @key="b.Naam"
+                                            @onclick="() => ToonPdf(b)">@b.Naam</button>
+                                }
+                            </div>
+                            <div class="factuur-kijker">
+                                @if (_url.Length > 0)
+                                {
+                                    <iframe src="@_url" title="@(_getoond?.Naam ?? "")"></iframe>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="Sluit">Annuleren</button>
+                @if (MagInvoeren && _g is not null)
+                {
+                    <button class="klein" disabled="@(_bezig.Length > 0)" @onclick="AlleenOpslaan"
+                            title="Niet mailen, wel PDF's bewaren en de factuur op verstuurd zetten (bijvoorbeeld bij versturen via een portal)">
+                        Alleen opslaan als verstuurd
+                    </button>
+                    <button class="primair" disabled="@(_bezig.Length > 0)" @onclick="Versturen">Mail versturen</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? FactuurId { get; set; }
+
+    /// <summary>True als de factuur verstuurd of opgeslagen is, zodat de lijst ververst.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    private const int StoreTypeVerkoopfactuur = 5;     // zoals in Access
+
+    private sealed record Pdfbestand(string Naam, byte[] Inhoud);
+
+    private FactuurPdfGegevens? _g;
+    private readonly List<Pdfbestand> _bijlagen = new();
+    private Pdfbestand? _getoond;
+    private string _url = "";
+    private int? _geladenVoor = -1;
+    private bool _overlayDruk;
+    private bool _klaar;
+
+    private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
+    private string _bezig = "";
+    private string? _melding;
+    private bool _meldingFout;
+
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (FactuurId == _geladenVoor) return;
+        _geladenVoor = FactuurId;
+
+        _g = null;
+        _bijlagen.Clear();
+        _getoond = null;
+        _melding = null;
+        _klaar = false;
+        await WisUrl();
+        if (FactuurId is not int id) return;
+
+        try
+        {
+            _bezig = "PDF's maken…";
+            StateHasChanged();
+
+            _g = await Pdf.LaadAsync(id);
+            _bijlagen.Add(new Pdfbestand(FactuurPdfService.Bestandsnaam(_g.Factuur, false),
+                                         await Pdf.NaarPdfAsync(Pdf.FactuurHtml(_g))));
+            if (_g.Uren.Count > 0)
+                _bijlagen.Add(new Pdfbestand(FactuurPdfService.Bestandsnaam(_g.Factuur, true),
+                                             await Pdf.NaarPdfAsync(Pdf.BijlageHtml(_g))));
+
+            VulMail(await Repo.MailTekstAsync(_g.Factuur.Engels));
+            await ToonPdf(_bijlagen[0]);
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _bezig = ""; }
+    }
+
+    /// <summary>Onderwerp en tekst zoals Access ze maakte; {fn} in de tekst wordt het factuurnummer.</summary>
+    private void VulMail(string tekst)
+    {
+        var f = _g!.Factuur;
+        var nr = f.Factuurnummer;
+        _aan = _g.MailAdres;
+        _cc = Config["Facturen:MailCc"] ?? "info@mde-automation.nl";
+        _onderwerp = f.Engels
+            ? f.BedragExBtw < 0 ? $"Credit {nr}" : f.Herinnering switch
+              {
+                  1 => $"Invoice (first reminder) {nr}",
+                  2 => $"Invoice (second reminder) {nr}",
+                  3 => $"Invoice (third reminder) {nr}",
+                  4 => $"Proforma Invoice {nr}",
+                  _ => $"Invoice {nr}",
+              }
+            : f.BedragExBtw < 0 ? $"Credit {nr}" : f.Herinnering switch
+              {
+                  1 => $"Factuur (eerste herinnering) {nr}",
+                  2 => $"Factuur (tweede herinnering) {nr}",
+                  3 => $"Factuur (derde herinnering) {nr}",
+                  4 => $"Proforma factuur {nr}",
+                  _ => $"Factuur {nr}",
+              };
+        // Access mailde HTML; hier gaat platte tekst, dus eventuele opmaakcodes eruit.
+        var schoon = System.Text.RegularExpressions.Regex.Replace(tekst.Replace("<br>", "\n").Replace("<br/>", "\n"), "<[^>]+>", "");
+        _tekst = System.Net.WebUtility.HtmlDecode(schoon).Replace("{fn}", nr);
+    }
+
+    private async Task ToonPdf(Pdfbestand b)
+    {
+        await WisUrl();
+        _getoond = b;
+        try { _url = await JS.InvokeAsync<string>("mdeBlob.maak", b.Inhoud, "application/pdf"); }
+        catch { _url = ""; }
+    }
+
+    private async Task WisUrl()
+    {
+        if (_url.Length == 0) return;
+        var url = _url;
+        _url = "";
+        try { await JS.InvokeVoidAsync("mdeBlob.weg", url); } catch { }
+    }
+
+    // ---- versturen ----
+    private async Task Versturen()
+    {
+        if (_g is null || !MagInvoeren) return;
+        if (!_aan.Contains('@')) { Toon("Vul een geldig e-mailadres in bij Aan.", true); return; }
+        if (!await Vraag($"Factuur {_g.Factuur.Factuurnummer} nu mailen naar {_aan}?")) return;
+
+        try
+        {
+            _bezig = "Mail versturen…";
+            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp, _tekst,
+                                     _bijlagen.Select(b => (b.Naam, b.Inhoud)), _cc.Length > 0 ? _cc : null);
+        }
+        catch (Exception ex)
+        {
+            _bezig = "";
+            Toon("Mail versturen mislukt; er is niets opgeslagen of veranderd. " + ex.Message, true);
+            return;
+        }
+
+        // De mail is weg: vanaf hier niet meer afbreken, maar wel melden wat misging.
+        await Afronden("Verstuurd naar " + _aan + ".");
+    }
+
+    private async Task AlleenOpslaan()
+    {
+        if (_g is null || !MagInvoeren) return;
+        if (!await Vraag($"Factuur {_g.Factuur.Factuurnummer} niet mailen, maar wel de PDF's bewaren en op verstuurd zetten?"))
+            return;
+        await Afronden("Opgeslagen als verstuurd.");
+    }
+
+    /// <summary>PDF's bewaren, factuur op verstuurd en uren op gefactureerd. Elke stap meldt zelf zijn fout.</summary>
+    private async Task Afronden(string gelukt)
+    {
+        var fouten = new List<string>();
+        var f = _g!.Factuur;
+
+        _bezig = "PDF's bewaren…";
+        StateHasChanged();
+        foreach (var b in _bijlagen)
+        {
+            try
+            {
+                using var stroom = new MemoryStream(b.Inhoud);
+                await Filestore.ToevoegenAsync(stroom, b.Naam, StoreTypeVerkoopfactuur, f.Id, Ik.WerknemerId ?? 0);
+            }
+            catch (Exception ex) { fouten.Add($"{b.Naam} niet in de filestore: {ex.Message}"); }
+
+            // De factuurmap zoals Access hem vulde: <map>\<jaar>\<BV-afkorting>.
+            if (Config["Facturen:Map"] is { Length: > 0 } hoofdmap)
+            {
+                try
+                {
+                    var map = Path.Combine(hoofdmap, DateTime.Today.Year.ToString(), _g.Afzender.Afkorting);
+                    Directory.CreateDirectory(map);
+                    await File.WriteAllBytesAsync(Path.Combine(map, b.Naam), b.Inhoud);
+                }
+                catch (Exception ex) { fouten.Add($"{b.Naam} niet in de factuurmap: {ex.Message}"); }
+            }
+        }
+
+        _bezig = "Factuur op verstuurd zetten…";
+        StateHasChanged();
+        try { await Repo.MarkeerVerstuurdAsync(f.Id); }
+        catch (Exception ex) { fouten.Add("Op verstuurd zetten mislukt: " + ex.Message); }
+
+        _bezig = "";
+        _klaar = true;
+        if (fouten.Count == 0)
+        {
+            Toon(gelukt, false);
+            await Task.Delay(800);
+            await Sluit();
+        }
+        else
+        {
+            Log.LogWarning("Factuur {Nr} afronden: {Fouten}", f.Factuurnummer, string.Join(" | ", fouten));
+            Toon(gelukt + " Maar: " + string.Join(" ", fouten), true);
+        }
+    }
+
+    private async Task Sluit()
+    {
+        _geladenVoor = -1;
+        await WisUrl();
+        await Sluiten.InvokeAsync(_klaar);
+    }
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Sluit();
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await WisUrl(); } catch { }
+    }
+}

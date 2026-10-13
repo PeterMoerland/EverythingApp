@@ -139,7 +139,7 @@ public static class Menu
         new("financien", "Financiën", "cash",
             new MenuGroep("Facturen",
                 new MenuItem("Inkomende facturen", "/financien/facturen", "Financial"),
-                new MenuItem("Uitgaande facturen"),
+                new MenuItem("Uitgaande facturen", "/financien/uitgaande-facturen", "Financial"),
                 new MenuItem("Basecone", "/financien/basecone", "Financial"),
                 new MenuItem("Tarieven berekenen"),
                 new MenuItem("PO klant"),

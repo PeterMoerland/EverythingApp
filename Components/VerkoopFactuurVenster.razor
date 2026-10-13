@@ -1,0 +1,642 @@
+@* Een uitgaande factuur toevoegen of aanpassen; vervangt de Access-formulieren
+   'FacturenUitgaand toevoegen' en 'FacturenUitgaand Aanpassen'.
+   FactuurId: 0 = nieuw, een getal = die factuur, null = venster dicht. *@
+@inject IVerkoopFactuurRepository Repo
+@inject IRelatieRepository Relaties
+@inject IArtikelRepository Artikelen
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@if (FactuurId is not null)
+{
+    @* Sluiten alleen als de klik ook óp de achtergrond begón (zie FactuurVenster). *@
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>
+                    @(_nieuw ? "Uitgaande factuur maken" : $"Factuur {_f.Factuurnummer}")
+                    @if (!_nieuw)
+                    {
+                        <span class="artikel-id">#@_f.Id</span>
+                    }
+                </h2>
+                <button class="klein" @onclick="Afbreken">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_bezig)
+                {
+                    <p class="uitleg">Bezig met ophalen…</p>
+                }
+                else
+                {
+                    @if (_melding is not null)
+                    {
+                        <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                    }
+
+                    @if (Vast)
+                    {
+                        <p class="factuur-waarschuwing">
+                            Deze factuur is verstuurd: klant, datum, omschrijving, termijn en regels liggen vast.
+                            Haal het vinkje Verstuurd weg als er toch iets moet veranderen.
+                        </p>
+                    }
+
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>BV</label>
+                            @if (_nieuw)
+                            {
+                                <select value="@(_f.AdministratieId?.ToString() ?? "")" @onchange="BvGewijzigd">
+                                    <option value="">— kies een BV —</option>
+                                    @foreach (var a in _administraties)
+                                    {
+                                        <option value="@a.Id">@a.Afkorting — @a.Naam</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <span class="alleen-lezen">@BvNaam</span>
+                            }
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Factuurnummer</label>
+                            <span class="alleen-lezen">
+                                @_f.Factuurnummer
+                                @if (_nieuw)
+                                {
+                                    <span class="zij-extra"> · voorstel; het nummer wordt vastgelegd bij het opslaan</span>
+                                }
+                            </span>
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Klant</label>
+                            <div class="factuur-leverancier">
+                                @if (_f.Klant.Length > 0)
+                                {
+                                    <span class="factuur-gekozen">@_f.Klant</span>
+                                }
+                                else
+                                {
+                                    <span class="zij-extra">nog niet gekozen</span>
+                                }
+                                @if (!Vast)
+                                {
+                                    <button class="klein" @onclick="() => _klantZoekOpen = !_klantZoekOpen">🔍 zoeken</button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (_klantZoekOpen)
+                        {
+                            <div class="wn-veld breed">
+                                <label></label>
+                                <div class="factuur-zoekvak">
+                                    <input placeholder="Naam of plaats…" value="@_klantZoek"
+                                           @oninput="KlantZoekGewijzigd" autofocus />
+                                    @if (_klanten.Count == 0 && _klantZoek.Trim().Length >= 2)
+                                    {
+                                        <p class="zij-extra">Niets gevonden. Staat hij als klant bij Relaties?</p>
+                                    }
+                                    <div class="wn-namen kort">
+                                        @foreach (var k in _klanten)
+                                        {
+                                            <button class="wn-naam" @key="k.Id" @onclick="() => KiesKlant(k)">@k.Naam</button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="wn-veld">
+                            <label>Factuurdatum</label>
+                            <span class="factuur-termijn">
+                                <button class="klein" disabled="@Vast" title="Dag eerder" @onclick="() => SchuifDatum(-1)">◀</button>
+                                @if (Vast)
+                                {
+                                    <span class="alleen-lezen">@_f.Factuurdatum?.ToString("dd-MM-yyyy")</span>
+                                }
+                                else
+                                {
+                                    <NlDatum Waarde="_f.Factuurdatum" WaardeChanged="nieuweDatum => _f.Factuurdatum = nieuweDatum" />
+                                }
+                                <button class="klein" disabled="@Vast" title="Dag later" @onclick="() => SchuifDatum(1)">▶</button>
+                            </span>
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Betalingstermijn</label>
+                            <span class="factuur-termijn">
+                                <input class="r smal" value="@_f.Betalingstermijn" disabled="@Vast" @onchange="TermijnGewijzigd" />
+                                <span class="zij-extra">
+                                    dagen
+                                    @if (_f.Factuurdatum is DateOnly vfDatum)
+                                    {
+                                        <text> · vervalt @vfDatum.AddDays(_f.Betalingstermijn).ToString("dd-MM-yyyy")</text>
+                                    }
+                                </span>
+                            </span>
+                        </div>
+
+                        <div class="wn-veld breed">
+                            <label>Omschrijving</label>
+                            <input value="@_f.Omschrijving" maxlength="100" disabled="@Vast"
+                                   @onchange="e => _f.Omschrijving = Tekst(e)" />
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>PO klant</label>
+                            <input value="@_f.PoKlant" maxlength="100" @onchange="e => _f.PoKlant = Tekst(e)" />
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Referentie</label>
+                            <input value="@_f.Referentie" maxlength="100" @onchange="e => _f.Referentie = Tekst(e)" />
+                        </div>
+
+                        <div class="wn-veld breed">
+                            <label>Opmerking</label>
+                            <input value="@_f.Opmerking" maxlength="400" placeholder="Intern; komt niet op de factuur"
+                                   @onchange="e => _f.Opmerking = Tekst(e)" />
+                        </div>
+
+                        <div class="wn-veld">
+                            <label>Soort</label>
+                            <select value="@_f.Herinnering" @onchange="SoortGewijzigd">
+                                <option value="0">Factuur</option>
+                                <option value="4">Proforma</option>
+                                @if (!_nieuw)
+                                {
+                                    <option value="1">1e herinnering</option>
+                                    <option value="2">2e herinnering</option>
+                                    <option value="3">3e herinnering</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="vinkrij">
+                        <label class="vinkje">
+                            <input type="checkbox" checked="@_f.BtwVerlegd" @onchange="e => _f.BtwVerlegd = Vink(e)" />
+                            Btw verlegd
+                        </label>
+                        <label class="vinkje">
+                            <input type="checkbox" checked="@_f.Engels" @onchange="e => _f.Engels = Vink(e)" />
+                            Factuur in het Engels
+                        </label>
+                    </div>
+
+                    @* ---------- de regels ---------- *@
+                    <h3 class="wn-kop">Regels</h3>
+                    <table class="kiezer-tabel vf-regels">
+                        <thead>
+                            <tr>
+                                <th>Omschrijving</th>
+                                <th style="width:6.5rem" class="r">Aantal</th>
+                                <th style="width:7.5rem" class="r" title="Bij uren: het bedrag van die uren samen">Prijs</th>
+                                <th style="width:4.5rem" class="r">Korting %</th>
+                                <th style="width:7.5rem" class="r">Totaal</th>
+                                <th style="width:7rem"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < _f.Regels.Count; i++)
+                            {
+                                var regel = _f.Regels[i];
+                                var plek = i;
+                                <tr @key="regel">
+                                    <td>
+                                        <input value="@regel.Omschrijving" maxlength="200" disabled="@Vast"
+                                               placeholder="@regel.WerkorderOmschrijving"
+                                               @onchange="e => regel.Omschrijving = Tekst(e)" />
+                                        @if (regel.IsUren || regel.Werkorder.Length > 0)
+                                        {
+                                            <span class="zij-extra">@UrenInfo(regel)</span>
+                                        }
+                                    </td>
+                                    <td class="r">
+                                        @if (regel.IsUren)
+                                        {
+                                            <span title="Uren komen uit de urenimport">@Getal(regel.Uren) uur</span>
+                                        }
+                                        else
+                                        {
+                                            <input class="r" value="@Getal(regel.Aantal)" disabled="@Vast"
+                                                   @onchange="e => regel.Aantal = Bedragen.Lees(Tekst(e))" />
+                                        }
+                                    </td>
+                                    <td class="r">
+                                        <input class="r" value="@Geld2(regel.Stuksprijs)" disabled="@Vast"
+                                               @onchange="e => regel.Stuksprijs = Bedragen.Lees(Tekst(e))" />
+                                    </td>
+                                    <td class="r">
+                                        <input class="r" value="@Getal(regel.Korting)" disabled="@Vast"
+                                               @onchange="e => regel.Korting = Bedragen.Lees(Tekst(e))" />
+                                    </td>
+                                    <td class="r">
+                                        @if (regel.Stuksprijs is null)
+                                        {
+                                            @* Zonder prijs telt het ingevulde totaal, zoals in Access. *@
+                                            <input class="r" value="@Geld2(regel.Totaal)" disabled="@Vast"
+                                                   @onchange="e => regel.Totaal = Bedragen.Lees(Tekst(e)) ?? 0" />
+                                        }
+                                        else
+                                        {
+                                            @Geld(regel.Bereken())
+                                        }
+                                    </td>
+                                    <td class="c">
+                                        @if (!Vast)
+                                        {
+                                            <button class="klein" title="Omhoog" disabled="@(plek == 0)"
+                                                    @onclick="() => Verplaats(plek, -1)">▲</button>
+                                            <button class="klein" title="Omlaag" disabled="@(plek == _f.Regels.Count - 1)"
+                                                    @onclick="() => Verplaats(plek, 1)">▼</button>
+                                            <button class="klein" title="Lege regel hieronder"
+                                                    @onclick="() => VoegRegelIn(plek + 1)">＋</button>
+                                            <button class="klein rood" title="Regel weghalen"
+                                                    @onclick="() => _f.Regels.RemoveAt(plek)">✕</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (_f.Regels.Count == 0)
+                            {
+                                <tr><td colspan="6" class="kiezer-info">Nog geen regels.</td></tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="4" class="r">Totaal excl. btw</td>
+                                <td class="r"><b>@Geld(_f.BedragExBtw)</b></td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td colspan="4" class="r">@(_f.BtwVerlegd ? "Btw verlegd" : "Btw 21%")</td>
+                                <td class="r">@Geld(_f.Btw)</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td colspan="4" class="r">Totaal incl. btw</td>
+                                <td class="r"><b>@Geld(_f.BedragInclBtw)</b></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    @if (!Vast)
+                    {
+                        <div class="btngroup">
+                            <button class="klein" @onclick="() => VoegRegelIn(_f.Regels.Count)">＋ Regel</button>
+                            <button class="klein" @onclick="() => _artikelZoekOpen = !_artikelZoekOpen">＋ Artikel</button>
+                            <button class="klein" disabled="@(_f.KlantId is null)" @onclick="() => _urenOpen = true">＋ Uren</button>
+                            @if (_f.KlantId is null)
+                            {
+                                <span class="zij-extra">kies eerst een klant voor de uren</span>
+                            }
+                        </div>
+                    }
+
+                    @if (_artikelZoekOpen && !Vast)
+                    {
+                        <div class="factuur-zoekvak">
+                            <input placeholder="Artikelcode, omschrijving, merk of #nummer…" value="@_artikelZoek"
+                                   @oninput="ArtikelZoekGewijzigd" autofocus />
+                            @if (_artikelen.Count == 0 && _artikelZoek.Trim().Length >= 2)
+                            {
+                                <p class="zij-extra">Niets gevonden.</p>
+                            }
+                            <div class="wn-namen kort">
+                                @foreach (var a in _artikelen)
+                                {
+                                    <button class="wn-naam" @key="a.Id" title="@a.Merk" @onclick="() => KiesArtikel(a)">
+                                        @a.Code — @a.Omschrijving
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @* ---------- stand van zaken, alleen bij een bestaande factuur ---------- *@
+                    @if (!_nieuw)
+                    {
+                        <h3 class="wn-kop">Stand van zaken</h3>
+                        <div class="factuur-stand">
+                            <label class="factuur-standregel @(_f.Verstuurd ? "ja" : "")">
+                                <input type="checkbox" checked="@_f.Verstuurd" @onchange="VerstuurdGewijzigd" />
+                                <span>Verstuurd</span>
+                                <span class="zij-extra">@_f.DatumVerstuurd?.ToString("dd-MM-yyyy HH:mm")</span>
+                            </label>
+                            <label class="factuur-standregel @(_f.Betaald ? "ja" : "")">
+                                <input type="checkbox" checked="@_f.Betaald" @onchange="BetaaldGewijzigd" />
+                                <span>Betaald</span>
+                                @if (_f.Betaald)
+                                {
+                                    <NlDatum Waarde="_f.DatumBetaald" WaardeChanged="betaaldOp => _f.DatumBetaald = betaaldOp" />
+                                }
+                            </label>
+                            <label class="factuur-standregel @(_f.Oninbaar ? "ja" : "")">
+                                <input type="checkbox" checked="@_f.Oninbaar" @onchange="e => _f.Oninbaar = Vink(e)" />
+                                <span>Oninbaar</span>
+                            </label>
+                            <label class="factuur-standregel @(_f.NaarBasecone ? "ja" : "")">
+                                <input type="checkbox" checked="@_f.NaarBasecone" disabled />
+                                <span>Naar Basecone</span>
+                                <span class="zij-extra">@_f.BaseconeOp?.ToString("dd-MM-yyyy") (vinkje in de lijst)</span>
+                            </label>
+                        </div>
+                        <p class="uitleg">
+                            Aangemaakt @_f.Aangemaakt?.ToString("dd-MM-yyyy") @(_f.AangemaaktDoor.Length > 0 ? "door " + _f.AangemaaktDoor : "")
+                        </p>
+                    }
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                @if (MagInvoeren)
+                {
+                    <button class="klein" @onclick="Afbreken">Annuleren</button>
+                    <button class="primair" disabled="@(_bewaren || _bezig)" @onclick="Bewaar">
+                        @(_bewaren ? "Bezig…" : _nieuw ? "Factuur maken" : "Opslaan")
+                    </button>
+                }
+                else
+                {
+                    <span class="zij-extra">Alleen bekijken: je hebt geen recht om facturen aan te passen.</span>
+                    <button class="klein" @onclick="Afbreken">Sluiten</button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Na het factuurvenster in de pagina, zodat het er bovenop ligt. *@
+    <UrenImportVenster Open="_urenOpen" KlantId="_f.KlantId ?? 0" KlantNaam="@_f.Klant" FactuurId="_f.Id"
+                       Sluiten="() => _urenOpen = false" Toegevoegd="UrenToegevoegd" />
+}
+
+@code {
+    /// <summary>0 = nieuw, een getal = die factuur, null = dicht.</summary>
+    [Parameter] public int? FactuurId { get; set; }
+
+    /// <summary>Geeft door of er iets is opgeslagen, zodat de lijst kan verversen.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    /// <summary>Access stond op AUTO als je niets anders koos; dat blijft de standaard.</summary>
+    private const int StandaardBv = 5254;
+
+    private VerkoopFactuur _f = new();
+    private bool _nieuw;
+    private bool _bezig;
+    private bool _bewaren;
+    private bool _overlayDruk;
+    private int? _geladenVoor = -1;
+
+    /// <summary>Verstuurd volgens de database bij het openen; samen met het vinkje bepaalt dat het slot.</summary>
+    private bool _wasVerstuurd;
+
+    /// <summary>Vast zolang de factuur verstuurd is en het vinkje nog aan staat.</summary>
+    private bool Vast => _wasVerstuurd && _f.Verstuurd;
+
+    /// <summary>Zelfde rechten als in de lijst; zonder mag je kijken maar niet opslaan.</summary>
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private string _zoalsGeopend = "";
+
+    private List<Administratie> _administraties = new();
+    private string BvNaam => _administraties.FirstOrDefault(a => a.Id == _f.AdministratieId) is { } bvKeuze
+        ? $"{bvKeuze.Afkorting} — {bvKeuze.Naam}" : "";
+
+    private bool _klantZoekOpen;
+    private string _klantZoek = "";
+    private List<Keuze> _klanten = new();
+
+    private bool _artikelZoekOpen;
+    private string _artikelZoek = "";
+    private List<ArtikelRegel> _artikelen = new();
+
+    private string? _melding;
+    private bool _meldingFout;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+    private static string Geld2(decimal? waarde) => waarde?.ToString("0.00", Nl) ?? "";
+    private static string Getal(decimal? waarde) => waarde?.ToString("0.##", Nl) ?? "";
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    private static string UrenInfo(VerkoopFactuurItem r)
+    {
+        var delen = new List<string>();
+        if (r.Werkorder.Length > 0) delen.Add(r.Werkorder);
+        if (r.Naam.Length > 0) delen.Add(r.Naam);
+        if (r.Uurtype.Length > 0) delen.Add(r.Uurtype);
+        if (r.Kilometers is > 0) delen.Add(Getal(r.Kilometers) + " km");
+        return string.Join(" · ", delen);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (FactuurId == _geladenVoor) return;
+        _geladenVoor = FactuurId;
+
+        _melding = null;
+        _klantZoekOpen = false;
+        _klantZoek = "";
+        _klanten = new();
+        _artikelZoekOpen = false;
+        _artikelZoek = "";
+        _artikelen = new();
+        _f = new();
+
+        if (FactuurId is null) return;
+
+        _bezig = true;
+        try
+        {
+            if (_administraties.Count == 0) _administraties = await Repo.GetAdministratiesAsync();
+
+            _nieuw = FactuurId == 0;
+            if (_nieuw)
+            {
+                _f = new VerkoopFactuur
+                {
+                    AdministratieId = _administraties.Any(a => a.Id == StandaardBv) ? StandaardBv : null,
+                    Factuurdatum = DateOnly.FromDateTime(DateTime.Today),
+                    Betalingstermijn = 30,
+                };
+                if (_f.AdministratieId is int bv) _f.Factuurnummer = await Repo.VolgendNummerAsync(bv);
+                _klantZoekOpen = true;
+            }
+            else
+            {
+                _f = await Repo.GetAsync(FactuurId.Value) ?? new VerkoopFactuur();
+            }
+            _wasVerstuurd = _f.Verstuurd;
+            _zoalsGeopend = Vingerafdruk();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- kop ----
+    private async Task BvGewijzigd(ChangeEventArgs e)
+    {
+        _f.AdministratieId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        _f.Factuurnummer = _f.AdministratieId is int bv ? await Repo.VolgendNummerAsync(bv) : "";
+    }
+
+    private void SchuifDatum(int dagen)
+        => _f.Factuurdatum = (_f.Factuurdatum ?? DateOnly.FromDateTime(DateTime.Today)).AddDays(dagen);
+
+    private void TermijnGewijzigd(ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var v) && v >= 0) _f.Betalingstermijn = v;
+    }
+
+    private void SoortGewijzigd(ChangeEventArgs e)
+        => _f.Herinnering = int.TryParse((string?)e.Value, out var v) ? v : 0;
+
+    private void VerstuurdGewijzigd(ChangeEventArgs e)
+    {
+        _f.Verstuurd = Vink(e);
+        if (!_f.Verstuurd) _f.DatumVerstuurd = null;
+    }
+
+    private void BetaaldGewijzigd(ChangeEventArgs e)
+    {
+        _f.Betaald = Vink(e);
+        _f.DatumBetaald = _f.Betaald ? _f.DatumBetaald ?? DateOnly.FromDateTime(DateTime.Today) : null;
+    }
+
+    private async Task KlantZoekGewijzigd(ChangeEventArgs e)
+    {
+        _klantZoek = (string?)e.Value ?? "";
+        var zoek = _klantZoek.Trim();
+        if (zoek.Length < 2) { _klanten = new(); return; }
+        try { _klanten = await Relaties.ZoekAsync(zoek, true, false, 0, 15); }
+        catch { _klanten = new(); }
+    }
+
+    /// <summary>Zoals Access: de klant brengt termijn, btw verlegd en taal mee.</summary>
+    private async Task KiesKlant(Keuze k)
+    {
+        _f.KlantId = k.Id;
+        _f.Klant = k.Naam;
+        _klantZoekOpen = false;
+        _klantZoek = "";
+        _klanten = new();
+
+        try
+        {
+            var standaard = await Repo.KlantStandaardAsync(k.Id);
+            _f.Betalingstermijn = standaard.Betalingstermijn;
+            _f.BtwVerlegd = standaard.BtwVerlegd;
+            _f.Engels = standaard.Engels;
+        }
+        catch (Exception ex) { Toon("Klantgegevens ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- regels ----
+    private void VoegRegelIn(int plek)
+        => _f.Regels.Insert(Math.Clamp(plek, 0, _f.Regels.Count), new VerkoopFactuurItem { Aantal = 1, Korting = 0 });
+
+    private void Verplaats(int plek, int richting)
+    {
+        var doel = plek + richting;
+        if (doel < 0 || doel >= _f.Regels.Count) return;
+        (_f.Regels[plek], _f.Regels[doel]) = (_f.Regels[doel], _f.Regels[plek]);
+    }
+
+    private async Task ArtikelZoekGewijzigd(ChangeEventArgs e)
+    {
+        _artikelZoek = (string?)e.Value ?? "";
+        var zoek = _artikelZoek.Trim();
+        if (zoek.Length < 2) { _artikelen = new(); return; }
+        try { _artikelen = await Artikelen.ZoekAsync(zoek, null, false, 15); }
+        catch { _artikelen = new(); }
+    }
+
+    /// <summary>Zoals Access' ZoekArtikel: code + omschrijving, 1 stuk, verkoopprijs project.</summary>
+    private async Task KiesArtikel(ArtikelRegel a)
+    {
+        try
+        {
+            var art = await Repo.ArtikelAsync(a.Id);
+            if (art is null) { Toon("Artikel niet gevonden.", true); return; }
+
+            var tekst = (art.Code + " " + art.Omschrijving).Trim();
+            _f.Regels.Add(new VerkoopFactuurItem
+            {
+                Omschrijving = tekst.Length > 200 ? tekst[..200] : tekst,
+                Aantal = 1,
+                Stuksprijs = art.Verkoopprijs,
+                Korting = 0,
+            });
+            if (art.Verkoopprijs == 0) Toon($"{art.Code} heeft geen verkoopprijs; vul de prijs zelf in.", true);
+        }
+        catch (Exception ex) { Toon("Artikel ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- uren ----
+    private bool _urenOpen;
+
+    /// <summary>De geïmporteerde uren komen achteraan; bestaande regels blijven staan.</summary>
+    private void UrenToegevoegd(List<VerkoopFactuurItem> regels)
+    {
+        _f.Regels.AddRange(regels);
+        _urenOpen = false;
+        Toon($"{regels.Count} urenregels toegevoegd. De uren worden gereserveerd zodra je de factuur opslaat.", false);
+    }
+
+    // ---- opslaan en sluiten ----
+    private async Task Bewaar()
+    {
+        if (!MagInvoeren) { Toon("Je hebt hier geen recht voor.", true); return; }
+        if (_f.AdministratieId is null) { Toon("Kies een BV.", true); return; }
+        if (_f.KlantId is null) { Toon("Klant niet ingevuld.", true); return; }
+        if (_f.Omschrijving.Trim().Length == 0) { Toon("Geen omschrijving ingevuld.", true); return; }
+
+        var voorstel = _f.Factuurnummer;
+        _bewaren = true;
+        try
+        {
+            await Repo.BewaarAsync(_f, Ik.WerknemerId);
+            if (_nieuw && voorstel.Length > 0 && voorstel != _f.Factuurnummer)
+                await Vraag($"Let op: het nummer werd {_f.Factuurnummer} (niet {voorstel}); " +
+                            "intussen is er een andere factuur gemaakt.");
+            _geladenVoor = -1;
+            await Sluiten.InvokeAsync(true);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bewaren = false; }
+    }
+
+    /// <summary>Alles wat bewaard wordt, als tekst; zo zie je of er iets veranderd is.</summary>
+    private string Vingerafdruk() => System.Text.Json.JsonSerializer.Serialize(_f);
+
+    private async Task Afbreken()
+    {
+        if (Vingerafdruk() != _zoalsGeopend && !await Vraag("Wijzigingen niet opslaan?")) return;
+        _geladenVoor = -1;
+        await Sluiten.InvokeAsync(false);
+    }
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Afbreken();
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+}

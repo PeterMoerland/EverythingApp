@@ -1,0 +1,204 @@
+@* Openstaande uitgaande facturen tegen de ontvangsten op de bank; vervangt Access'
+   'Check betalingen in transacties'. De app stelt voor, jij vinkt aan, dan pas wegschrijven. *@
+@inject IVerkoopFactuurRepository Repo
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>Betalingen controleren</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+
+                @if (_bezig.Length > 0)
+                {
+                    <div class="factuur-lezen"><span class="draaier"></span><span class="factuur-lezen-tekst">@_bezig</span></div>
+                }
+                else
+                {
+                    <p class="uitleg">
+                        @_aantalOpen openstaande facturen vergeleken met de ontvangsten op de rekeningen van de BV's.
+                        Een betaling telt als het factuurnummer los in de omschrijving staat en het bedrag klopt
+                        (ook als er meerdere facturen in één betaling zitten). Vink aan wat klopt en kies Verwerken.
+                    </p>
+
+                    @foreach (var groep in _voorstellen.GroupBy(v => v.Soort))
+                    {
+                        <h3 class="wn-kop">@Kop(groep.Key) <span class="zij-extra">(@groep.Count())</span></h3>
+                        @if (groep.Key == VoorstelSoort.Afwijkend)
+                        {
+                            <p class="uitleg">Het nummer staat in de betaling, maar het bedrag klopt niet. Zet zo'n factuur zelf op betaald als dat terecht is.</p>
+                        }
+                        <table class="kiezer-tabel bc-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:2.2rem"></th>
+                                    <th>Factuur</th>
+                                    <th style="width:8rem" class="r">Gefactureerd</th>
+                                    <th>Ontvangen</th>
+                                    <th style="width:8rem" class="r">Bedrag</th>
+                                    <th style="width:6rem" class="r">Verschil</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var v in groep)
+                                {
+                                    <tr @key="v" class="@(v.Aangevinkt ? "gekozen-rij" : "")">
+                                        <td class="c">
+                                            @if (v.KanVerwerken)
+                                            {
+                                                <input type="checkbox" checked="@v.Aangevinkt" @onchange="e => v.Aangevinkt = e.Value is bool b && b" />
+                                            }
+                                        </td>
+                                        <td>
+                                            @foreach (var f in v.Facturen)
+                                            {
+                                                <div @key="f.Id">
+                                                    <b>@f.Bv @f.Nummer</b> · @f.Klant
+                                                    <span class="zij-extra">@f.Datum.ToString("dd-MM-yy")</span>
+                                                </div>
+                                            }
+                                            <span class="zij-extra">@v.Uitleg</span>
+                                        </td>
+                                        <td class="r">@Geld(v.Gefactureerd)</td>
+                                        <td>
+                                            @foreach (var o in v.Ontvangsten)
+                                            {
+                                                <div @key="o.Id" title="@o.Omschrijving">
+                                                    @o.Datum.ToString("dd-MM-yy") · @o.Tegenpartij
+                                                    <div class="zij-extra bc-omschrijving">@o.Omschrijving</div>
+                                                </div>
+                                            }
+                                        </td>
+                                        <td class="r">@Geld(v.Ontvangen)</td>
+                                        <td class="r @(Math.Abs(v.Verschil) >= 0.01m ? "factuur-credit" : "")">
+                                            @(Math.Abs(v.Verschil) < 0.01m ? "" : Geld(v.Verschil))
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @if (_voorstellen.Count == 0)
+                    {
+                        <p class="kiezer-info">Geen betalingen gevonden voor de openstaande facturen.</p>
+                    }
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="Sluit">Sluiten</button>
+                @if (MagInvoeren)
+                {
+                    <button class="primair" disabled="@(_bezig.Length > 0 || AantalGekozen == 0)" @onclick="Verwerk">
+                        @AantalGekozen facturen op betaald zetten
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>True als er facturen op betaald zijn gezet, zodat de lijst ververst.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    private List<BetalingVoorstel> _voorstellen = new();
+    private int _aantalOpen;
+    private bool _wasOpen;
+    private bool _overlayDruk;
+    private bool _verwerkt;
+    private string _bezig = "";
+    private string? _melding;
+    private bool _meldingFout;
+
+    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+    private int AantalGekozen => _voorstellen.Where(v => v.Aangevinkt && v.KanVerwerken).Sum(v => v.Facturen.Count);
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+
+    private static string Kop(VoorstelSoort s) => s switch
+    {
+        VoorstelSoort.Zeker => "Betaald volgens de bank",
+        VoorstelSoort.Deelbetalingen => "Betaald in delen",
+        VoorstelSoort.AlleenBedrag => "Mogelijk betaald: zelfde bedrag, geen factuurnummer",
+        _ => "Nummer gevonden, bedrag wijkt af",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open == _wasOpen) return;
+        _wasOpen = Open;
+        if (!Open) return;
+
+        _verwerkt = false;
+        _melding = null;
+        await Zoek();
+    }
+
+    private async Task Zoek()
+    {
+        _bezig = "Facturen en bankafschriften vergelijken…";
+        _voorstellen = new();
+        StateHasChanged();
+        try
+        {
+            var open = await Repo.GetOpenFacturenAsync();
+            _aantalOpen = open.Count;
+            if (open.Count > 0)
+            {
+                var vanaf = open.Min(f => f.Datum).AddDays(-7);
+                _voorstellen = Betalingsmatcher.Zoek(open, await Repo.GetOntvangstenAsync(vanaf));
+            }
+        }
+        catch (Exception ex) { Toon("Vergelijken mislukt: " + ex.Message, true); }
+        finally { _bezig = ""; }
+    }
+
+    private async Task Verwerk()
+    {
+        if (!MagInvoeren) return;
+        var gekozen = _voorstellen.Where(v => v.Aangevinkt && v.KanVerwerken).ToList();
+        if (!await Vraag($"{AantalGekozen} facturen op betaald zetten, met de datum van de ontvangst?")) return;
+
+        try
+        {
+            _bezig = "Verwerken…";
+            var aantal = await Repo.VerwerkBetalingenAsync(gekozen, Ik.WerknemerId);
+            _verwerkt = true;
+            await Zoek();
+            Toon($"{aantal} facturen op betaald gezet.", false);
+        }
+        catch (Exception ex) { _bezig = ""; Toon("Verwerken mislukt; er is niets veranderd. " + ex.Message, true); }
+    }
+
+    private async Task Sluit() => await Sluiten.InvokeAsync(_verwerkt);
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Sluit();
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+}

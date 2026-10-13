@@ -1,0 +1,387 @@
+@* Uren op een uitgaande factuur zetten; vervangt het Access-formulier InvoiceImportHours.
+   Kiezen -> uren tonen (meteen met het opnieuw gerekende tarief) -> toevoegen. Pas bij
+   toevoegen worden de tarieven in Uren bijgewerkt, zoals 'Bereken tarieven' in Access. *@
+@inject IUrenImportRepository Repo
+@inject IJSRuntime JS
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop sleepkop">
+                <h2>Uren importeren · @KlantNaam</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+
+                @* ---------- de keuze ---------- *@
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Project</label>
+                        <select value="@(_selectie.ProjectId?.ToString() ?? "")" @onchange="ProjectGewijzigd">
+                            <option value="">— alle projecten van de klant —</option>
+                            @foreach (var p in _projecten)
+                            {
+                                <option value="@p.Id">@p.Nummer — @p.Omschrijving</option>
+                            }
+                        </select>
+                    </div>
+
+                    @if (_werkorders.Count > 0)
+                    {
+                        <div class="wn-veld breed">
+                            <label>Werkorders</label>
+                            <div class="ui-werkorders">
+                                @foreach (var w in _werkorders)
+                                {
+                                    <label class="vinkje" @key="w.WerkbonId">
+                                        <input type="checkbox" checked="@_selectie.WerkbonIds.Contains(w.WerkbonId)"
+                                               @onchange="e => WerkorderGewijzigd(w.WerkbonId, e)" />
+                                        @w.Nummer @w.Omschrijving
+                                        @if (w.Soort.Length > 0)
+                                        {
+                                            <span class="zij-extra">(@w.Soort)</span>
+                                        }
+                                    </label>
+                                }
+                                <span class="zij-extra">Niets aangevinkt = alle werkorders van het project.</span>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="wn-veld breed">
+                        <label>Periode</label>
+                        <span class="factuur-termijn">
+                            <NlDatum Waarde="_selectie.Van" WaardeChanged="VanGewijzigd" />
+                            <span>t/m</span>
+                            <NlDatum Waarde="_selectie.Tot" WaardeChanged="TotGewijzigd" />
+                            <button class="klein" @onclick="() => ZetMaand(-1)">Vorige maand</button>
+                            <button class="klein" @onclick="() => ZetMaand(0)">Deze maand</button>
+                            <button class="klein" title="Van de eerste tot de laatste dag met uren in deze keuze"
+                                    @onclick="AlleUren">Alle uren</button>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="btngroup">
+                    <button class="primair" disabled="@_bezig" @onclick="Toon">@(_bezig ? "Bezig…" : "Uren tonen")</button>
+                    @if (_uren.Count > 0)
+                    {
+                        <span class="zij-extra">
+                            @_uren.Count regels · @Getal(_uren.Sum(u => u.Uren)) uur · @Geld(_uren.Sum(u => u.BedragVoorFactuur))
+                        </span>
+                    }
+                </div>
+
+                @* ---------- wat er opvalt ---------- *@
+                @if (_getoond && _meldingen.Count > 0)
+                {
+                    <div class="factuur-ai">
+                        <strong>Let op:</strong>
+                        <ul>
+                            @foreach (var m in _meldingen)
+                            {
+                                <li @key="m">@m</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @* ---------- de uren ---------- *@
+                @if (_getoond)
+                {
+                    <div class="ui-lijst">
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:5.6rem">Datum</th>
+                                    <th>Medewerker</th>
+                                    <th style="width:6.5rem">Werkorder</th>
+                                    <th style="width:5.5rem">Uurtype</th>
+                                    <th style="width:3.5rem" class="r">Uren</th>
+                                    <th style="width:3.5rem" class="r">Km</th>
+                                    <th style="width:5rem" class="r">Vast</th>
+                                    <th style="width:6.5rem" class="r" title="Wat nu in de urenregistratie staat">Was</th>
+                                    <th style="width:6.5rem" class="r" title="Opnieuw gerekend met de huidige tarieven">Bedrag</th>
+                                    <th style="width:9rem">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in _uren)
+                                {
+                                    <tr @key="u.UrenId" class="@(AlElders(u) ? "ui-elders" : "")">
+                                        <td>@u.Datum.ToString("dd-MM-yy")</td>
+                                        <td class="omschrijving">@u.Werknemer</td>
+                                        <td title="@u.WerkorderOmschrijving">@u.Wo</td>
+                                        <td>@u.Tariefsoort</td>
+                                        <td class="r">@Getal(u.Uren)</td>
+                                        <td class="r">@(u.Kilometers == 0 ? "" : Getal(u.Kilometers))</td>
+                                        <td class="r">@(u.VastBedrag == 0 ? "" : Geld(u.VastBedrag))</td>
+                                        <td class="r">@Geld(u.Bedrag)</td>
+                                        <td class="r @(u.NieuwBedrag is null ? "factuur-credit" : u.NieuwBedrag != u.Bedrag ? "ui-anders" : "")"
+                                            title="@u.Melding">
+                                            @(u.NieuwBedrag is decimal nieuw ? Geld(nieuw) : "—")
+                                        </td>
+                                        <td class="omschrijving">@Status(u)</td>
+                                    </tr>
+                                }
+                                @if (_uren.Count == 0)
+                                {
+                                    <tr><td colspan="10" class="kiezer-info">Geen uren in deze keuze en periode.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="Sluit">Annuleren</button>
+                <button class="primair" disabled="@(_bezig || _uren.Count == 0)" @onclick="Toevoegen">
+                    @(_bezig ? "Bezig…" : $"Tarieven opslaan en {AantalRegels} regels toevoegen")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int KlantId { get; set; }
+    [Parameter] public string KlantNaam { get; set; } = "";
+
+    /// <summary>De factuur die openstaat (0 = nog nieuw): uren die dáárop staan zijn geen probleem.</summary>
+    [Parameter] public int FactuurId { get; set; }
+
+    [Parameter] public EventCallback Sluiten { get; set; }
+
+    /// <summary>De nieuwe factuurregels, één per project/werkorder/medewerker/uurtype.</summary>
+    [Parameter] public EventCallback<List<VerkoopFactuurItem>> Toegevoegd { get; set; }
+
+    private UrenSelectie _selectie = new();
+    private List<ProjectKeuze> _projecten = new();
+    private List<WerkorderKeuzeUren> _werkorders = new();
+    private List<UurRegel> _uren = new();
+    private List<string> _meldingen = new();
+    private bool _getoond;
+    private bool _bezig;
+    private bool _overlayDruk;
+    private bool _wasOpen;
+
+    private string? _melding;
+    private bool _meldingFout;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal waarde) => waarde.ToString("C2", Nl);
+    private static string Getal(decimal waarde) => waarde.ToString("0.##", Nl);
+
+    private bool AlElders(UurRegel u)
+        => (u.GefactureerdOp is int g && g != FactuurId) || (u.GereserveerdOp is int r && r != FactuurId);
+
+    private string Status(UurRegel u)
+    {
+        if (u.GefactureerdOp is not null) return "gefactureerd " + (u.GefactureerdNr.Length > 0 ? u.GefactureerdNr : "#" + u.GefactureerdOp);
+        if (u.GereserveerdOp is int r)
+            return r == FactuurId && FactuurId != 0 ? "op deze factuur"
+                 : "op factuur " + (u.GereserveerdNr.Length > 0 ? u.GereserveerdNr : "#" + r);
+        return "";
+    }
+
+    private int AantalRegels => Groepeer().Count;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open == _wasOpen) return;
+        _wasOpen = Open;
+        if (!Open) return;
+
+        // Zoals Access: standaard de afgelopen week.
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        _selectie = new UrenSelectie { KlantId = KlantId, Van = vandaag.AddDays(-7), Tot = vandaag };
+        _werkorders = new();
+        _uren = new();
+        _meldingen = new();
+        _getoond = false;
+        _melding = null;
+
+        try { _projecten = await Repo.GetProjectenAsync(KlantId); }
+        catch (Exception ex) { _projecten = new(); Toon("Projecten ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- de keuze ----
+    private async Task ProjectGewijzigd(ChangeEventArgs e)
+    {
+        _selectie.ProjectId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        _selectie.WerkbonIds.Clear();
+        WisLijst();
+        try { _werkorders = _selectie.ProjectId is int p ? await Repo.GetWerkordersAsync(p) : new(); }
+        catch { _werkorders = new(); }
+    }
+
+    private void WerkorderGewijzigd(int werkbonId, ChangeEventArgs e)
+    {
+        if (e.Value is bool aan && aan) { if (!_selectie.WerkbonIds.Contains(werkbonId)) _selectie.WerkbonIds.Add(werkbonId); }
+        else _selectie.WerkbonIds.Remove(werkbonId);
+        WisLijst();
+    }
+
+    private void VanGewijzigd(DateOnly? d) { if (d is DateOnly dag) _selectie.Van = dag; WisLijst(); }
+    private void TotGewijzigd(DateOnly? d) { if (d is DateOnly dag) _selectie.Tot = dag; WisLijst(); }
+
+    private void ZetMaand(int verschuiving)
+    {
+        var eerste = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(verschuiving);
+        _selectie.Van = eerste;
+        _selectie.Tot = eerste.AddMonths(1).AddDays(-1);
+        WisLijst();
+    }
+
+    /// <summary>Access' 'zoek data': de periode van de eerste tot de laatste dag met uren.</summary>
+    private async Task AlleUren()
+    {
+        try
+        {
+            var periode = await Repo.PeriodeVanUrenAsync(_selectie);
+            if (periode is null) { Toon("Geen uren gevonden in deze keuze.", true); return; }
+            _selectie.Van = periode.Value.Van;
+            _selectie.Tot = periode.Value.Tot;
+            WisLijst();
+        }
+        catch (Exception ex) { Toon("Periode ophalen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Andere keuze = de getoonde uren kloppen niet meer.</summary>
+    private void WisLijst()
+    {
+        _uren = new();
+        _meldingen = new();
+        _getoond = false;
+    }
+
+    // ---- tonen en rekenen ----
+    private async Task Toon()
+    {
+        if (_selectie.Tot < _selectie.Van) { Toon("De einddatum ligt voor de begindatum.", true); return; }
+
+        _bezig = true;
+        try
+        {
+            _uren = await Repo.GetUrenAsync(_selectie);
+            await Repo.RekenAsync(KlantId, _uren);
+            _meldingen = Meldingen();
+            _getoond = true;
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("Uren ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Access gaf per uur een venster; hier één samenvatting.</summary>
+    private List<string> Meldingen()
+    {
+        var lijst = _uren.Where(u => u.Melding.Length > 0)
+            .GroupBy(u => u.Melding)
+            .Select(g => g.First().NieuwBedrag is null
+                ? $"{g.Key}: {g.Count()} regel(s) houden het bedrag dat er nu staat " +
+                  $"({string.Join(", ", g.Select(u => u.Datum.ToString("dd-MM")).Distinct().Take(8))}" +
+                  $"{(g.Select(u => u.Datum).Distinct().Count() > 8 ? ", …" : "")})"
+                : $"{g.Key} ({g.Count()}×)")
+            .ToList();
+
+        var elders = _uren.Where(AlElders).ToList();
+        if (elders.Count > 0)
+        {
+            var nummers = elders.Select(u => u.GefactureerdNr.Length > 0 ? u.GefactureerdNr : u.GereserveerdNr)
+                                .Where(n => n.Length > 0).Distinct();
+            lijst.Add($"{elders.Count} regel(s) staan al op een andere factuur ({string.Join(", ", nummers)}); " +
+                      "die zijn oranje gemarkeerd.");
+        }
+
+        var nooit = _uren.Count(u => u.NieuwBedrag is not null && u.Bedrag == 0);
+        var anders = _uren.Count(u => u.NieuwBedrag is decimal n && n != u.Bedrag && u.Bedrag != 0);
+        if (nooit > 0)
+            lijst.Add($"{nooit} regel(s) hadden nog geen bedrag; dat wordt bij toevoegen opgeslagen.");
+        if (anders > 0)
+            lijst.Add($"Bij {anders} regel(s) wijkt het gerekende bedrag af van wat er stond " +
+                      "(vetgedrukt); bij toevoegen wordt het nieuwe bedrag opgeslagen.");
+        return lijst;
+    }
+
+    // ---- toevoegen ----
+
+    /// <summary>
+    /// Zoals Access: één regel per project, werkorder, medewerker en uurtype, met de som van
+    /// uren, kilometers en bedrag. De stuksprijs van een urenregel is dat bedrag.
+    /// </summary>
+    private List<VerkoopFactuurItem> Groepeer()
+        => _uren
+            .GroupBy(u => (u.ProjectId, u.WerkbonId, u.WerknemerId, u.TariefsoortId))
+            .Select(g =>
+            {
+                var eerste = g.First();
+                var bedrag = g.Sum(u => u.BedragVoorFactuur);
+                return new VerkoopFactuurItem
+                {
+                    Werkorder = eerste.Wo,
+                    WerkorderOmschrijving = eerste.WerkorderOmschrijving,
+                    ProjectOmschrijving = eerste.ProjectOmschrijving,
+                    Naam = eerste.Werknemer,
+                    Uurtype = eerste.Tariefsoort,
+                    Uren = g.Sum(u => u.Uren),
+                    Kilometers = g.Sum(u => u.Kilometers),
+                    Stuksprijs = bedrag,
+                    Korting = 0,
+                    Totaal = bedrag,
+                    Herkomst = new UrenHerkomst(eerste.ProjectId, eerste.ProjectOmschrijving, eerste.WerkbonId,
+                                                eerste.WerknemerId, eerste.TariefsoortId, _selectie.Van, _selectie.Tot),
+                };
+            })
+            .OrderBy(r => r.Werkorder).ThenBy(r => r.Naam).ThenBy(r => r.Uurtype)
+            .ToList();
+
+    private async Task Toevoegen()
+    {
+        var elders = _uren.Count(AlElders);
+        if (elders > 0 && !await Vraag($"{elders} urenregel(s) staan al op een andere factuur. Toch toevoegen? " +
+                                       "Dan worden ze bij het opslaan op deze factuur gereserveerd."))
+            return;
+
+        var fout = _uren.Count(u => u.NieuwBedrag is null);
+        if (fout > 0 && !await Vraag($"Bij {fout} urenregel(s) kon het tarief niet gerekend worden; die gaan mee met het " +
+                                     "bedrag dat er nu staat. Doorgaan?"))
+            return;
+
+        _bezig = true;
+        try
+        {
+            var bijgewerkt = await Repo.SchrijfTarievenAsync(_uren);
+            var regels = Groepeer();
+            await Toegevoegd.InvokeAsync(regels);
+            Toon($"{regels.Count} regels toegevoegd" + (bijgewerkt > 0 ? $"; {bijgewerkt} tarieven bijgewerkt." : "."), false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Sluit() => await Sluiten.InvokeAsync();
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Sluit();
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+}
