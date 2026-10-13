@@ -13,7 +13,11 @@ public interface IDriveRepository
 
     // --- typen ---
     Task<List<DriveSoort>> GetTypenAsync();
-    Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode);
+    /// <summary>
+    /// Type bij wat een slave meldt. Met <paramref name="vendorId"/> telt eerst de combinatie fabrikant +
+    /// productcode; een type zonder vastgelegde fabrikantcode wordt op productcode alleen herkend.
+    /// </summary>
+    Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode, string vendorId = "");
     Task<int> BewaarTypeAsync(DriveSoort t, int? door);
     Task VerwijderTypeAsync(int id);
 
@@ -40,7 +44,7 @@ public class NullDriveRepository : IDriveRepository
 {
     public bool Beschikbaar => false;
     public Task<List<DriveSoort>> GetTypenAsync() => Task.FromResult(new List<DriveSoort>());
-    public Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode) => Task.FromResult<DriveSoort?>(null);
+    public Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode, string vendorId = "") => Task.FromResult<DriveSoort?>(null);
     public Task<int> BewaarTypeAsync(DriveSoort t, int? door) => Task.FromResult(0);
     public Task VerwijderTypeAsync(int id) => Task.CompletedTask;
     public Task<List<DriveFirmware>> GetFirmwaresAsync(int driveTypeId) => Task.FromResult(new List<DriveFirmware>());
@@ -86,26 +90,30 @@ public class MySqlDriveRepository : IDriveRepository
     }
 
     // ------------------------------------------------------------------ typen
-    // Kolom Protocol aanwezig? (Controllers_MariaDB.sql) Alleen 'ja' onthouden.
-    private bool? _heeftProtocol;
-    private async Task<bool> HeeftProtocolAsync(MySqlConnection cn)
+    // Latere kolommen (Controllers_MariaDB.sql: Protocol; DriveTypen_Vendor_MariaDB.sql: VendorID).
+    // Alleen 'ja' onthouden, zodat het scherm na het uitvoeren van het script meteen werkt.
+    private readonly Dictionary<string, bool> _kolommen = new(StringComparer.OrdinalIgnoreCase);
+    private async Task<bool> HeeftKolomAsync(MySqlConnection cn, string kolom)
     {
-        if (_heeftProtocol == true) return true;
+        if (_kolommen.TryGetValue(kolom, out var ja) && ja) return true;
         await using var cmd = new MySqlCommand(
             "SELECT COUNT(*) FROM information_schema.columns " +
-            "WHERE table_schema = DATABASE() AND table_name = 'DriveTypen' AND LOWER(column_name) = 'protocol'", cn);
-        _heeftProtocol = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
-        return _heeftProtocol.Value;
+            "WHERE table_schema = DATABASE() AND table_name = 'DriveTypen' AND LOWER(column_name) = @k", cn);
+        cmd.Parameters.AddWithValue("@k", kolom.ToLowerInvariant());
+        ja = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        _kolommen[kolom] = ja;
+        return ja;
     }
 
     public async Task<List<DriveSoort>> GetTypenAsync()
     {
         var lijst = new List<DriveSoort>();
         await using var cn = await OpenAsync();
-        var protocol = await HeeftProtocolAsync(cn) ? "t.`Protocol`" : "'ethercat'";
+        var protocol = await HeeftKolomAsync(cn, "Protocol") ? "t.`Protocol`" : "'ethercat'";
+        var vendor = await HeeftKolomAsync(cn, "VendorID") ? "t.`VendorID`" : "''";
         await using var cmd = new MySqlCommand(
             "SELECT t.`DriveTypeID`, t.`ProductCode`, t.`Naam`, t.`Fabrikant`, t.`Opmerking`, " +
-            $"       (SELECT COUNT(*) FROM `DriveFirmwares` f WHERE f.`DriveTypeID` = t.`DriveTypeID`), {protocol} " +
+            $"       (SELECT COUNT(*) FROM `DriveFirmwares` f WHERE f.`DriveTypeID` = t.`DriveTypeID`), {protocol}, {vendor} " +
             "  FROM `DriveTypen` t ORDER BY t.`Naam`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
@@ -114,31 +122,49 @@ public class MySqlDriveRepository : IDriveRepository
                 Id = r.GetInt32(0), ProductCode = S(r, 1), Naam = S(r, 2), Fabrikant = S(r, 3),
                 Opmerking = S(r, 4), AantalFirmwares = Convert.ToInt32(r.GetValue(5)),
                 Protocol = S(r, 6) is { Length: > 0 } p ? p : DriveProtocol.EtherCat,
+                VendorId = S(r, 7),
             });
         return lijst;
     }
 
-    public async Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode)
+    public async Task<DriveSoort?> ZoekTypeOpCodeAsync(string productCode, string vendorId = "")
     {
         var code = NormaliseerCode(productCode);
-        return (await GetTypenAsync()).FirstOrDefault(t =>
+        var vendor = string.IsNullOrWhiteSpace(vendorId) ? "" : NormaliseerCode(vendorId);
+        var typen = await GetTypenAsync();
+
+        bool CodeKlopt(DriveSoort t) =>
             string.Equals(t.ProductCode, productCode.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            (t.Protocol == DriveProtocol.EtherCat && string.Equals(NormaliseerCode(t.ProductCode), code, StringComparison.OrdinalIgnoreCase)));
+            (DriveProtocol.OpBus(t.Protocol) && string.Equals(NormaliseerCode(t.ProductCode), code, StringComparison.OrdinalIgnoreCase));
+
+        // Eerst de combinatie fabrikant + productcode; daarna een type waarvan de fabrikant nog niet is
+        // vastgelegd (alleen productcode). Een type met een ándere fabrikantcode telt nooit.
+        if (vendor.Length > 0)
+        {
+            var exact = typen.FirstOrDefault(t => CodeKlopt(t) && string.Equals(NormaliseerCode(t.VendorId), vendor, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null) return exact;
+            return typen.FirstOrDefault(t => CodeKlopt(t) && t.VendorId.Trim().Length == 0);
+        }
+        return typen.FirstOrDefault(CodeKlopt);
     }
 
     public async Task<int> BewaarTypeAsync(DriveSoort t, int? door)
     {
         await using var cn = await OpenAsync();
-        var metProtocol = await HeeftProtocolAsync(cn);
+        var metProtocol = await HeeftKolomAsync(cn, "Protocol");
+        var metVendor = await HeeftKolomAsync(cn, "VendorID");
         var velden = "`ProductCode` = @code, `Naam` = @naam, `Fabrikant` = @fab, `Opmerking` = @opm"
-                   + (metProtocol ? ", `Protocol` = @protocol" : "");
+                   + (metProtocol ? ", `Protocol` = @protocol" : "")
+                   + (metVendor ? ", `VendorID` = @vendor" : "");
         var sql = t.Id == 0
             ? $"INSERT INTO `DriveTypen` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
             : $"UPDATE `DriveTypen` SET {velden} WHERE `DriveTypeID` = @id";
         await using var cmd = new MySqlCommand(sql, cn);
-        // Bij EtherCAT is de code een hex-productcode; bij andere protocollen een modelnaam.
-        cmd.Parameters.AddWithValue("@code", t.Protocol == DriveProtocol.EtherCat ? NormaliseerCode(t.ProductCode) : t.ProductCode.Trim());
+        // Op de bus is de code een hex-productcode; bij andere protocollen een modelnaam.
+        var opBus = DriveProtocol.OpBus(t.Protocol);
+        cmd.Parameters.AddWithValue("@code", opBus ? NormaliseerCode(t.ProductCode) : t.ProductCode.Trim());
         if (metProtocol) cmd.Parameters.AddWithValue("@protocol", string.IsNullOrWhiteSpace(t.Protocol) ? DriveProtocol.EtherCat : t.Protocol);
+        if (metVendor) cmd.Parameters.AddWithValue("@vendor", opBus && !string.IsNullOrWhiteSpace(t.VendorId) ? NormaliseerCode(t.VendorId) : "");
         cmd.Parameters.AddWithValue("@naam", t.Naam.Trim());
         cmd.Parameters.AddWithValue("@fab", t.Fabrikant.Trim());
         cmd.Parameters.AddWithValue("@opm", t.Opmerking.Trim());

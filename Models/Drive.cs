@@ -1,9 +1,11 @@
 namespace EverythingApp.Models;
 
-/// <summary>Een drivetype (Everest, Capitan …), herkend aan de EtherCAT-productcode.</summary>
+/// <summary>Een drivetype (Everest, Capitan, M-Pede-WJ1 …), herkend aan EtherCAT-fabrikantcode + productcode.</summary>
 public class DriveSoort
 {
     public int Id { get; set; }
+    /// <summary>EtherCAT Vendor ID als hex (0x000010E3 = MDE); leeg = nog niet vastgelegd, dan alleen op productcode.</summary>
+    public string VendorId { get; set; } = "";
     public string ProductCode { get; set; } = "";
     /// <summary>ethercat | feetech | canopen — bepaalt hoe de agent ermee praat.</summary>
     public string Protocol { get; set; } = DriveProtocol.EtherCat;

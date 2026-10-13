@@ -50,7 +50,7 @@
                         {
                             <tr @key="t.Id" class="klikbaar @(_type?.Id == t.Id ? "gekozen" : "")" @onclick="() => KiesType(t)">
                                 <td><b>@t.Naam</b><br /><small class="uitleg">@t.Fabrikant · @DriveProtocol.Naam(t.Protocol)</small></td>
-                                <td><code>@t.ProductCode</code></td>
+                                <td><code>@t.ProductCode</code>@if (t.VendorId.Length > 0) { <br /><small class="uitleg" title="Fabrikantcode (Vendor ID)">@t.VendorId</small> }</td>
                                 <td>@t.AantalFirmwares</td>
                             </tr>
                         }
@@ -80,6 +80,12 @@
                         <label class="bankveld"><span>@(DriveProtocol.Alle.FirstOrDefault(p => p.Code == _type.Protocol).CodeLabel ?? "Productcode")</span>
                             <input value="@_type.ProductCode" style="width:9rem" placeholder="@CodeVoorbeeld"
                                    @onchange="e => ZetType(v => _type.ProductCode = v, e)" /></label>
+                        @if (DriveProtocol.OpBus(_type.Protocol))
+                        {
+                            <label class="bankveld" title="EtherCAT Vendor ID (0x1018:1). Leeg = nog niet vastgelegd: dan telt alleen de productcode."><span>Fabrikantcode (hex)</span>
+                                <input value="@_type.VendorId" style="width:9rem" placeholder="0x000010E3"
+                                       @onchange="e => ZetType(v => _type.VendorId = v, e)" /></label>
+                        }
                         <label class="bankveld"><span>Fabrikant</span>
                             <input value="@_type.Fabrikant" @onchange="e => ZetType(v => _type.Fabrikant = v, e)" /></label>
                         <label class="bankveld prod-keuze"><span>Opmerking</span>
@@ -88,7 +94,8 @@
                     <div class="btngroup">
                         <button class="klein rood" @onclick="VerwijderType">✕ Type verwijderen</button>
                     </div>
-                    <p class="uitleg">De productcode is wat de drive via EtherCAT meldt (Test PCB toont hem achter het type).
+                    <p class="uitleg">Fabrikantcode en productcode zijn wat de slave via EtherCAT meldt (identity 0x1018; Test PCB toont ze achter
+                       het type). Samen zijn ze de sleutel: MDE (0x000010E3), Ingenia en ZeroErr kunnen zo nooit botsen.
                        De naam in de EEPROM van Ingenia-drives is generiek, de code niet.</p>
                 }
             </section>

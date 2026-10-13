@@ -2861,6 +2861,7 @@
         public int Positie;
         public string As = "";
         public string Naam = "";
+        public string VendorId = "";       // EtherCAT Vendor ID (0x1018:1), hex
         public string ProductCode = "";
         public string Revisie = "";
         public string Serienummer = "";
@@ -2907,10 +2908,10 @@
             var c = new DriveControle { Positie = i + 1, Naam = r.As };
             var verwacht = posities.FirstOrDefault(p => p.Positie == i + 1);
 
-            var type = await Drives.ZoekTypeOpCodeAsync(r.ProductCode);
+            var type = await Drives.ZoekTypeOpCodeAsync(r.ProductCode, r.VendorId);
             if (type is null)
             {
-                c.TypeTekst = $"onbekend type {r.ProductCode}";
+                c.TypeTekst = $"onbekend type {r.ProductCode}" + (r.VendorId.Length > 0 ? $" van fabrikant {r.VendorId}" : "");
                 c.TypeKleur = "s-geel";
                 c.FirmwareTekst = r.Firmware.Length > 0 ? r.Firmware : "—";
                 c.ParametersTekst = "—";
@@ -2935,6 +2936,9 @@
             {
                 c.TypeTekst = type.Naam + (verwacht?.DriveTypeId is null ? " (niet gecontroleerd)" : " ✓");
                 c.TypeKleur = verwacht?.DriveTypeId is null ? "s-grijs" : "s-groen";
+                // Herkend op productcode alleen: de fabrikantcode is bij Controllertypen nog niet vastgelegd.
+                if (type.VendorId.Trim().Length == 0 && r.VendorId.Length > 0)
+                    c.TypeTekst += $" — fabrikantcode {r.VendorId} nog niet vastgelegd";
             }
 
             DriveFirmware? fw = null;
@@ -3023,6 +3027,7 @@
                     {
                         Positie = Getal(d, "slave_position"),
                         Naam = Tekst(d, "name"),
+                        VendorId = Tekst(d, "vendor_id"),
                         ProductCode = Tekst(d, "product_code"),
                         Revisie = Tekst(d, "revision_number"),
                         Serienummer = Tekst(d, "serial_number"),

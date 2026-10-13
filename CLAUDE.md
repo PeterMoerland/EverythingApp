@@ -53,6 +53,16 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   `NAAM`, `OMSCHRIJVING`, `beschikbaar(inst)`, `voer_uit(job, inst, parameters)`; `job.log/voortgang/klaar/mislukt`;
   `job.resultaat` mag tussentijds gezet worden met `"live": True` voor live-weergave in de app
   (`VoerTaakUit(..., live: handler)` in ExemplaarWerk). `job.stop_gevraagd` = Stop-knop.
+- **Slave-identiteit = fabrikantcode + productcode** (okt 2026, `DriveTypen_Vendor_MariaDB.sql`: kolom `VendorID`,
+  uniek op het paar). `ZoekTypeOpCodeAsync(code, vendor)`: eerst het paar, dan een type zonder vastgelegde
+  fabrikantcode (alleen code); een ander vendor telt nooit. Test PCB meldt "fabrikantcode 0x… nog niet
+  vastgelegd" zolang het veld bij Controllertypen leeg is (Ingenia bewust leeg gelaten: invullen na de eerste
+  scan). Bekend: MDE 0x000010E3 (EtherCAT-partner), ZeroErr 0x5A65726F. De agent gaf `vendor_id` al door.
+  Plan daarna: één MDE-profiel in de agent (standaardobjecten 0x1008/0x1009/0x100A/0x1018, control/status
+  0x7000/0x6000, Feetech-doorgeefluik 0x8000, FoE-firmware op elke slave) en testen als recept per type, uit de
+  ESI (`DriveStore.Esi`). Eigen prints: M-Pede-WJ1 (Swivel, 0x00055955: 2 joints ±512, kleppen, druk),
+  6-voudige stappenmotorsturing, Display v2 (ESP32 flashen via USB + EtherCAT voor test/firmware), Gripper.
+  Nog nodig van de gebruiker: bits van 0x7000/0x6000 en het protocol van 0x8000.
 - Hardware: EtherCAT via pysoem (eigen werker-processen voor scans: `--werker drives|coe|alias`),
   Ingenia Summit (Everest/Capitan) via ingeniamotion (`_ingenia.py`: verbinding, STO-check `sto_vrij`,
   `motor_aan`, SDO-herhaling `sdo()` tegen EMI-haperingen, `uid_voor(idx)`), eRob (ZeroErr) via CoE-SDO's en
