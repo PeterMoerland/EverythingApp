@@ -170,6 +170,12 @@ builder.Services.AddSingleton<VaultBackupWaker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 builder.Services.AddSingleton<FactuurLezer>();
 
+// Rabobank Business Account Insight: elk uur de bankafschriften ophalen (sectie
+// "Rabobank" in appsettings.json). In de sandbox wordt er nooit iets weggeschreven.
+builder.Services.AddSingleton<RabobankKoppeling>();
+builder.Services.AddSingleton<RabobankOphaler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RabobankOphaler>());
+
 builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
@@ -443,6 +449,60 @@ app.MapGet("/voorbeeld/{id:int}", async (int id, VoorbeeldService voorbeeld) =>
 //   Z:\Filestore\Artikelen\00000005\00005200.JPG
 // De submap is het artikelnummer gedeeld door duizend, beide met acht cijfers.
 // Pad instelbaar met Artikelen:FotoPad; ontbreekt de foto, dan 404.
+// Rabobank koppelen: eenmalig toestemming geven in Rabo Internetbankieren Professional.
+// /rabobank/terug is de redirect-URI die bij de app op developer.rabobank.nl staat.
+string RabobankTerug(HttpContext ctx, RabobankKoppeling bank)
+    => !string.IsNullOrWhiteSpace(bank.Instellingen.RedirectUri)
+        ? bank.Instellingen.RedirectUri
+        : $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}/rabobank/terug";
+
+// Let op: HuidigeGebruiker leunt op Blazor's AuthenticationStateProvider en werkt
+// buiten een Blazor-pagina niet. Hier dus rechtstreeks uit het inlogcookie.
+async Task<bool> MagRabobank(HttpContext ctx, IUrenRepository repo)
+{
+    if (!loginAan) return true;
+    var email = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+    if (string.IsNullOrWhiteSpace(email)) return false;
+    try
+    {
+        var id = await repo.VindWerknemerOpEmailAsync(email);
+        if (id is null) return false;
+        var velden = await repo.GetWerknemerVeldenAsync(id.Value);
+        bool Recht(string kolom)
+        {
+            if (!velden.TryGetValue(kolom, out var w) || w is null) return false;
+            if (w is bool b) return b;
+            try { return Convert.ToInt64(w) != 0; } catch { return false; }
+        }
+        return Recht("Financial") || Recht("Directie");
+    }
+    catch { return false; }
+}
+
+var rabobankKoppel = app.MapGet("/rabobank/koppel", async (HttpContext ctx, RabobankKoppeling bank, IUrenRepository repo) =>
+{
+    if (!await MagRabobank(ctx, repo)) return Results.Redirect(ctx.Request.PathBase + "/geen-toegang");
+    if (!bank.Instellingen.Ingesteld)
+        return Results.Content(Pagina("Rabobank", "<p>De sectie Rabobank in appsettings.json is nog niet ingevuld.</p>"), "text/html");
+    return Results.Redirect(bank.AutorisatieAdres(RabobankTerug(ctx, bank)));
+});
+
+var rabobankTerug = app.MapGet("/rabobank/terug", async (HttpContext ctx, string? code, string? state, string? error,
+                                                     RabobankKoppeling bank, RabobankOphaler ophaler, IUrenRepository repo) =>
+{
+    if (!await MagRabobank(ctx, repo)) return Results.Redirect(ctx.Request.PathBase + "/geen-toegang");
+    var fout = !string.IsNullOrEmpty(error)
+        ? "De Rabobank meldde: " + error
+        : await bank.RondKoppelingAfAsync(code, state, RabobankTerug(ctx, bank));
+    if (fout is null) _ = ophaler.HaalOpAsync();      // meteen een eerste keer ophalen
+    var terug = ctx.Request.PathBase + "/financien/banktransacties?rabobank=" + (fout is null ? "ok" : "fout");
+    return fout is null
+        ? Results.Redirect(terug)
+        : Results.Content(Pagina("Rabobank", $"<p>{System.Net.WebUtility.HtmlEncode(fout)}</p>" +
+                                             $"<p><a class=\"knop\" href=\"{terug}\">Terug</a></p>"), "text/html");
+});
+if (loginAan) { rabobankKoppel.RequireAuthorization(); rabobankTerug.RequireAuthorization(); }
+
 app.MapGet("/artikelfoto/{nummer:int}", (int nummer, IConfiguration config,
                                          ILoggerFactory logboek, bool? uitleg) =>
 {

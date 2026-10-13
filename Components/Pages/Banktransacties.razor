@@ -1,6 +1,8 @@
 @page "/financien/banktransacties"
 @inject IBankRepository Repo
 @inject HuidigeGebruiker Ik
+@inject RabobankOphaler Rabobank
+@inject NavigationManager Nav
 
 <div class="page">
     <header class="topbar">
@@ -11,6 +13,76 @@
             <button class="klein" @onclick="OpenImport">⭱ Importeren</button>
         }
     </header>
+
+    @if (_rabo is not null)
+    {
+        <section class="rabo-blok @(_rabo.Fout.Length > 0 ? "fout" : "")">
+            <div class="rabo-kop">
+                <strong>Rabobank</strong>
+                @if (_rabo.Sandbox) { <span class="rabo-label">sandbox</span> }
+                else if (!Rabobank.SchrijftWeg) { <span class="rabo-label">alleen kijken</span> }
+
+                @if (!_rabo.Ingesteld)
+                {
+                    <span class="rabo-tekst">Nog niet ingesteld (sectie Rabobank in appsettings.json).</span>
+                }
+                else if (!_rabo.Gekoppeld)
+                {
+                    <span class="rabo-tekst">Niet gekoppeld.</span>
+                    <a class="knop klein" href="rabobank/koppel">Koppelen</a>
+                }
+                else
+                {
+                    <span class="rabo-tekst">
+                        Gekoppeld@(_rabo.GekoppeldOp is DateTime gk ? " sinds " + gk.ToString("d-M-yyyy") : "")
+                        · laatst opgehaald @(_rabo.LaatstOpgehaald is DateTime lo ? lo.ToString("d-M HH:mm") : "nog niet")
+                        @if (_rabo.VolgendeKeer is DateTime vk) { <text> · volgende @vk.ToString("HH:mm")</text> }
+                    </span>
+                    <button class="klein" disabled="@(_rabo.Bezig || _raboBezig)" @onclick="RabobankNu">
+                        @(_rabo.Bezig || _raboBezig ? "Bezig…" : "Nu ophalen")
+                    </button>
+                    <a class="knop klein" href="rabobank/koppel" title="Opnieuw toestemming geven">Opnieuw koppelen</a>
+                }
+            </div>
+
+            @if (_rabo.Fout.Length > 0)
+            {
+                <div class="rabo-fout">@_rabo.Fout</div>
+            }
+
+            @if (_rabo.Rekeningen.Count > 0)
+            {
+                <table class="rabo-rek">
+                    <tr><th>Rekening</th><th>Opgehaald</th><th>@(Rabobank.SchrijftWeg ? "Nieuw" : "Zou nieuw zijn")</th><th>Al aanwezig</th><th>Saldo bank</th></tr>
+                    @foreach (var rr in _rabo.Rekeningen)
+                    {
+                        <tr>
+                            <td>@rr.Iban</td><td>@rr.Opgehaald</td><td>@rr.Toegevoegd</td><td>@rr.AlAanwezig</td>
+                            <td class="bedrag">@Saldo(rr.Saldo)</td>
+                        </tr>
+                    }
+                </table>
+            }
+
+            @if (_rabo.Proef.Count > 0)
+            {
+                <details class="rabo-proef">
+                    <summary>Wat er binnenkwam (@_rabo.Proef.Count regels, niet weggeschreven)</summary>
+                    <table>
+                        <tr><th>Datum</th><th>Rekening</th><th>Volgnr</th><th>Bedrag</th><th>Saldo na</th><th>Tegenpartij</th><th>Omschrijving</th></tr>
+                        @foreach (var pr in _rabo.Proef)
+                        {
+                            <tr>
+                                <td>@pr.Datum.ToString("d-M-yyyy")</td><td>@pr.Rekening</td><td>@pr.Volgnummer</td>
+                                <td class="bedrag">@Bedrag(pr.Bedrag)</td><td class="bedrag">@Bedrag(pr.SaldoNa)</td>
+                                <td>@pr.NaamTegenpartij @pr.Tegenrekening</td><td>@pr.Omschrijving</td>
+                            </tr>
+                        }
+                    </table>
+                </details>
+            }
+        </section>
+    }
 
     @if (!Repo.Beschikbaar)
     {
@@ -303,9 +375,32 @@
 
     private List<string> Alle() => _rekeningen.Select(r => r.Nummer).ToList();
 
+    // ---- Rabobank-koppeling (alleen voor Financial en Directie) ----
+    private RabobankStand? _rabo;
+    private bool _raboBezig;
+
+    private void LeesRabobank()
+        => _rabo = Ik.MagEenVan("Financial", "Directie") ? Rabobank.Stand : null;
+
+    private async Task RabobankNu()
+    {
+        _raboBezig = true;
+        var fout = await Rabobank.HaalOpAsync();
+        _raboBezig = false;
+        LeesRabobank();
+        if (fout is null)
+        {
+            Toon(Rabobank.SchrijftWeg ? "Opgehaald bij de Rabobank." : "Opgehaald bij de Rabobank (niets weggeschreven).", false);
+            if (Rabobank.SchrijftWeg) await Laad();
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
+        LeesRabobank();
+        var vraag = Nav.ToAbsoluteUri(Nav.Uri).Query;
+        if (vraag.Contains("rabobank=ok")) Toon("Gekoppeld met de Rabobank; de eerste keer ophalen loopt.", false);
         if (!Repo.Beschikbaar) return;
 
         try

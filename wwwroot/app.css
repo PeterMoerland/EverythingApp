@@ -1763,3 +1763,17 @@ html[data-thema="donker"] .ui-elders td { background: #33290f; }
 /* ---- Uitgaande factuur: betalingscheck ---- */
 .bc-tabel td { vertical-align: top; }
 .bc-omschrijving { max-width: 26rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Banktransacties: Rabobank-koppeling ---- */
+.rabo-blok { border: 1px solid #c9d6e8; background: #f5f8fc; border-radius: 6px; padding: 6px 10px; margin: 6px 0 8px; font-size: 0.9em; }
+.rabo-blok.fout { border-color: var(--rood); }
+.rabo-kop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rabo-label { background: #fff3cd; border: 1px solid #e0c060; border-radius: 3px; padding: 0 5px; font-size: 0.85em; }
+.rabo-tekst { color: #444; }
+.rabo-fout { color: #8b1a16; margin-top: 4px; }
+.rabo-rek, .rabo-proef table { border-collapse: collapse; margin-top: 6px; }
+.rabo-rek th, .rabo-rek td, .rabo-proef th, .rabo-proef td { padding: 1px 8px; text-align: left; border-bottom: 1px solid #e3e8ef; white-space: nowrap; }
+.rabo-rek td.bedrag, .rabo-proef td.bedrag { text-align: right; }
+.rabo-proef { margin-top: 6px; }
+.rabo-proef summary { cursor: pointer; color: var(--accent); }
+.rabo-proef td:last-child { white-space: normal; max-width: 420px; }

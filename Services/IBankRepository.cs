@@ -40,6 +40,15 @@ public interface IBankRepository
     /// saldo, bedrag en datum) — dubbel importeren kan dus geen kwaad.
     /// </summary>
     Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId);
+
+    /// <summary>
+    /// Zet regels uit de Rabobank-API in banktransacties. Een regel bestaat al als het
+    /// volgnummer op die rekening er staat, óf als rekening, datum, bedrag en saldo
+    /// gelijk zijn — dat vangt ook de regels die eerder uit een CSV kwamen, voor het geval
+    /// de API anders nummert. Met <paramref name="alleenKijken"/> wordt er niets
+    /// weggeschreven en telt 'Toegevoegd' wat er toegevoegd zou worden.
+    /// </summary>
+    Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken);
 }
 
 /// <summary>Doet niets — demo-modus zonder live database.</summary>
@@ -59,6 +68,8 @@ public class GeenBankRepository : IBankRepository
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
     public Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId)
         => Task.FromResult(new BankImportResultaat(0, 0, 0, new List<string> { "Geen live database." }));
+    public Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
+        => Task.FromResult(new BankImportResultaat(regels.Count, 0, 0, new List<string> { "Geen live database." }));
 }
 
 /// <summary>Banktransacties uit banktransacties, Bankrekeningen en BankRekeningRechten.</summary>
@@ -555,6 +566,102 @@ public class MySqlBankRepository : IBankRepository
         }
 
         return new(verwerkt, toegevoegd, alAanwezig, fouten);
+    }
+
+    // ============================================================
+    //  Regels uit de Rabobank-API (RabobankKoppeling)
+    // ============================================================
+    public async Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
+    {
+        var fouten = new List<string>();
+        int toegevoegd = 0, alAanwezig = 0;
+
+        await using var cn = await OpenAsync();
+
+        foreach (var r in regels)
+        {
+            var iban = r.Rekening.Replace(" ", "").ToUpperInvariant();
+
+            await using (var kijk = new MySqlCommand(
+                "SELECT COUNT(*) FROM `banktransacties` " +
+                " WHERE `Rekening` = @r AND ((@v <> 0 AND `VolgNr` = @v) " +
+                "    OR (DATE(`Datum`) = @d AND CAST(`Bedrag` AS DECIMAL(15,2)) = @b " +
+                "        AND CAST(`Saldo na trn` AS DECIMAL(15,2)) = @s))", cn))
+            {
+                kijk.Parameters.AddWithValue("@r", iban);
+                kijk.Parameters.AddWithValue("@v", r.Volgnummer);
+                kijk.Parameters.AddWithValue("@d", r.Datum.Date);
+                kijk.Parameters.AddWithValue("@b", r.Bedrag);
+                kijk.Parameters.AddWithValue("@s", r.SaldoNa);
+                if (Convert.ToInt64(await kijk.ExecuteScalarAsync()) > 0) { alAanwezig++; continue; }
+            }
+
+            if (alleenKijken) { toegevoegd++; continue; }
+
+            // Zelfde opschoning als de CSV-import, zodat de regels niet afwijken.
+            string V(string t) => (t ?? "").Replace('\\', '_').Trim();
+            var omschrijving = ZonderDubbeleSpaties(V(r.Omschrijving).Replace('\'', '_')).Trim();
+
+            await using var voeg = new MySqlCommand(
+                "INSERT INTO `banktransacties` " +
+                "(`Rekening`, `Munt`, `BIC`, `VolgNr`, `Datum`, `RenteDatum`, " +
+                " `Bedrag`, `SomBedrag`, `Saldo na trn`, " +
+                " `Tegenrekening`, `NaamTegenpartij`, `NaamUiteindelijkePartij`, `NaamInitierendePartij`, " +
+                " `BICtegenpartij`, `Code`, `BatchID`, `Transactiereferentie`, `MachtigingsKenmerk`, " +
+                " `IncassantID`, `Betalingskenmerk`, `Omschrijving`, `Pasnummer`, `RedenRetour`, " +
+                " `OorspronkelijkeBedrag`, `OorspronkelijkeMunt`, " +
+                " `Importdatum`, `GeimporteerdDoor`, `Opmerking`) VALUES " +
+                "(@rekening, @munt, @bic, @volgnr, @datum, @rente, " +
+                " @bedrag, @bedrag, @saldo, " +
+                " @tegen, @naamTegen, @naamUit, @naamInit, " +
+                " @bicTegen, @code, @batch, @referentie, @machtiging, " +
+                " @incassant, @kenmerk, @omschrijving, @pas, @retour, " +
+                " @oorBedrag, @oorMunt, " +
+                " @nu, NULL, @opmerking)", cn);
+
+            voeg.Parameters.AddWithValue("@rekening", iban);
+            voeg.Parameters.AddWithValue("@munt", V(r.Munt));
+            voeg.Parameters.AddWithValue("@bic", V(r.Bic));
+            voeg.Parameters.AddWithValue("@volgnr", r.Volgnummer);
+            voeg.Parameters.AddWithValue("@datum", r.Datum.Date);
+            voeg.Parameters.AddWithValue("@rente", (object?)r.Rentedatum?.Date ?? DBNull.Value);
+            voeg.Parameters.AddWithValue("@bedrag", r.Bedrag);
+            voeg.Parameters.AddWithValue("@saldo", r.SaldoNa);
+
+            voeg.Parameters.AddWithValue("@tegen", Kort(V(r.Tegenrekening), 40));
+            voeg.Parameters.AddWithValue("@naamTegen", Kort(V(r.NaamTegenpartij), 50));
+            voeg.Parameters.AddWithValue("@naamUit", Kort(V(r.NaamUiteindelijkePartij), 50));
+            voeg.Parameters.AddWithValue("@naamInit", Kort(V(r.NaamInitierendePartij), 50));
+            voeg.Parameters.AddWithValue("@bicTegen", Kort(V(r.BicTegenpartij), 20));
+            voeg.Parameters.AddWithValue("@code", Kort(V(r.Code), 5));
+            voeg.Parameters.AddWithValue("@batch", Kort(V(r.BatchId), 30));
+            voeg.Parameters.AddWithValue("@referentie", Kort(V(r.Referentie), 50));
+            voeg.Parameters.AddWithValue("@machtiging", Kort(V(r.Machtiging), 50));
+            voeg.Parameters.AddWithValue("@incassant", Kort(V(r.Incassant), 50));
+            voeg.Parameters.AddWithValue("@kenmerk", Kort(V(r.Betalingskenmerk), 50));
+
+            voeg.Parameters.AddWithValue("@omschrijving", omschrijving);
+            voeg.Parameters.AddWithValue("@pas", (object?)PasnummerUit(omschrijving) ?? DBNull.Value);
+            voeg.Parameters.AddWithValue("@retour", V(r.RedenRetour));
+            voeg.Parameters.AddWithValue("@oorBedrag", r.OorspronkelijkBedrag);
+            voeg.Parameters.AddWithValue("@oorMunt", V(r.OorspronkelijkeMunt));
+
+            voeg.Parameters.AddWithValue("@nu", DateTime.Now);
+            voeg.Parameters.AddWithValue("@opmerking", Kort(r.Opmerking ?? "", 50));
+
+            try
+            {
+                await voeg.ExecuteNonQueryAsync();
+                toegevoegd++;
+            }
+            catch (Exception ex)
+            {
+                fouten.Add($"{iban} {r.Datum:dd-MM-yyyy} {r.Bedrag}: opslaan mislukt — {ex.Message}. Gestopt.");
+                break;
+            }
+        }
+
+        return new(regels.Count, toegevoegd, alAanwezig, fouten);
     }
 
     // ------------------------------------------------------------
