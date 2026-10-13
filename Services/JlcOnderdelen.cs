@@ -29,70 +29,148 @@ public class JlcOnderdelen(JlcKoppeling jlc, IJlcComponentRepository repo)
 {
     public bool Beschikbaar => jlc.Beschikbaar && repo.Beschikbaar;
 
+    private static string? Leeg(string s) => s.Length == 0 ? null : s;
+
     /// <summary>
-    /// Haalt de hele bibliotheek op en slaat hem op; bestaande C-nummers
-    /// worden bijgewerkt. Geeft het aantal verwerkte componenten terug,
-    /// plus een foutmelding als het onderweg strandde (wat al verwerkt is,
-    /// blijft dan gewoon staan).
+    /// Zoekt het C-nummer bij één MPN — precies één onderdeel, geen miljoen.
+    ///
+    /// De officiële JLCPCB-interface kan alleen op C-nummer opvragen of de
+    /// hele lijst doorbladeren; zoeken op MPN kan hij niet. Daarvoor gebruiken
+    /// we jlcsearch (jlcsearch.tscircuit.com), een open zoekdienst over de
+    /// voorraad van JLCPCB. Het gevonden C-nummer verifiëren we vervolgens
+    /// bij JLCPCB zelf — die levert de actuele voorraad en of het een
+    /// 'basic' onderdeel is. De uitkomst gaat in de vertaaltabel, zodat
+    /// dezelfde MPN daarna zonder internet gevonden wordt.
     /// </summary>
-    public async Task<(int Totaal, string? Fout)> SyncAsync(IProgress<string>? voortgang = null)
+    public async Task<(JlcComponent? Gevonden, string? Fout)> ZoekOpMpnAsync(string mpn)
     {
-        if (!Beschikbaar)
-            return (0, "JLCPCB-sleutels of database ontbreken.");
+        mpn = mpn.Trim();
+        if (mpn.Length == 0) return (null, null);
 
-        string? lastKey = null;
-        var totaal = 0;
+        // Is het zelf al een C-nummer? Dan rechtstreeks bij JLCPCB opvragen.
+        var isCnummer = mpn.Length > 1 && (mpn[0] is 'C' or 'c') && mpn.Skip(1).All(char.IsDigit);
+        var code = isCnummer ? mpn.ToUpperInvariant() : null;
+        string? zoekFout = null;
 
-        // Ruime bovengrens: 10.000 pagina's van 1.000 = 10 miljoen componenten.
-        for (var ronde = 0; ronde < 10_000; ronde++)
+        if (code is null)
         {
-            var body = JsonSerializer.Serialize(new { lastKey, pageSize = 1000 });
-            var (antwoord, fout) = await jlc.PostAsync(
-                "/overseas/openapi/component/getComponentLibraryList", body);
-            if (fout is not null) return (totaal, fout);
+            var (gevonden, fout) = await ZoekViaJlcsearchAsync(mpn);
+            code = gevonden;
+            zoekFout = fout;
+        }
+        if (code is null) return (null, zoekFout);
 
-            var tekst = antwoord ?? "";
-            using var doc = JsonDocument.Parse(tekst);
-            var root = doc.RootElement;
-
-            if (!root.TryGetProperty("data", out var data) ||
-                data.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-            {
-                var melding = root.TryGetProperty("message", out var m) ? m.GetString() : null;
-                return (totaal, "JLCPCB meldt: " + (melding ?? tekst[..Math.Min(200, tekst.Length)]));
-            }
-
-            var lading = new List<JlcComponent>();
-            if (data.TryGetProperty("componentLibraryInfoVOS", out var lijst) &&
-                lijst.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var c in lijst.EnumerateArray())
-                {
-                    static string S(JsonElement e, string naam)
-                        => e.TryGetProperty(naam, out var v) && v.ValueKind == JsonValueKind.String
-                            ? v.GetString() ?? "" : "";
-
-                    var code = S(c, "componentCode");
-                    if (code.Length == 0) continue;
-                    var spec = S(c, "componentSpecification");
-                    lading.Add(new JlcComponent(code, S(c, "componentModel"),
-                                                spec.Length == 0 ? null : spec));
-                }
-            }
-
-            if (lading.Count == 0) break;   // klaar: lege pagina
-
-            await repo.BewaarBatchAsync(lading);
-            totaal += lading.Count;
-            voortgang?.Report($"{totaal:N0} componenten…");
-
-            var nieuweKey = data.TryGetProperty("lastKey", out var k) &&
-                            k.ValueKind == JsonValueKind.String ? k.GetString() : null;
-            if (string.IsNullOrEmpty(nieuweKey) || nieuweKey == lastKey) break;
-            lastKey = nieuweKey;
+        // Verifiëren en aanvullen bij JLCPCB zelf (voorraad, basic/extended).
+        JlcComponent component;
+        var (detail, _) = jlc.Beschikbaar ? await DetailAsync(code) : (null, null);
+        if (detail is not null)
+        {
+            component = new JlcComponent(
+                detail.Code.Length > 0 ? detail.Code : code,
+                detail.Mpn.Length > 0 ? detail.Mpn : mpn,
+                Leeg(detail.Specificatie), Leeg(detail.Merk), Leeg(detail.Bibliotheek),
+                int.TryParse(detail.Voorraad, out var v) ? v : null,
+                Leeg(detail.Categorie));
+        }
+        else
+        {
+            component = new JlcComponent(code, mpn, null);
         }
 
-        return (totaal, null);
+        if (repo.Beschikbaar)
+        {
+            try { await repo.BewaarBatchAsync(new[] { component }); } catch { /* geen ramp */ }
+        }
+        return (component, null);
+    }
+
+    /// <summary>
+    /// Vraagt jlcsearch om het LCSC-nummer bij een MPN. Alleen een treffer
+    /// waarvan het fabrikantsnummer exact overeenkomt telt mee — anders
+    /// zouden we het verkeerde onderdeel koppelen.
+    /// </summary>
+    private async Task<(string? Code, string? Fout)> ZoekViaJlcsearchAsync(string mpn)
+    {
+        try
+        {
+            var adres = "https://jlcsearch.tscircuit.com/api/search?limit=20&q=" +
+                        Uri.EscapeDataString(mpn);
+            var antwoord = await Zoeker.GetAsync(adres);
+            if (!antwoord.IsSuccessStatusCode)
+                return (null, $"jlcsearch antwoordt {(int)antwoord.StatusCode}.");
+
+            using var doc = JsonDocument.Parse(await antwoord.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("components", out var lijst) ||
+                lijst.ValueKind != JsonValueKind.Array)
+                return (null, null);
+
+            foreach (var c in lijst.EnumerateArray())
+            {
+                var mfr = c.TryGetProperty("mfr", out var m) ? m.GetString() ?? "" : "";
+                if (!Gelijk(mfr, mpn)) continue;
+                if (!c.TryGetProperty("lcsc", out var l)) continue;
+
+                var nummer = l.ValueKind == JsonValueKind.Number ? l.GetInt64().ToString()
+                                                                 : l.GetString() ?? "";
+                if (nummer.Length == 0) continue;
+                return (nummer.StartsWith('C') ? nummer : "C" + nummer, null);
+            }
+            return (null, null);   // geen exacte treffer
+        }
+        catch (Exception ex)
+        {
+            return (null, "jlcsearch niet bereikbaar: " + ex.Message);
+        }
+    }
+
+    /// <summary>Onderdeelnummers vergelijken zonder streepjes en spaties:
+    /// fabrikanten schrijven ze niet altijd hetzelfde.</summary>
+    private static bool Gelijk(string a, string b)
+    {
+        static string Kaal(string s) => new(s.Where(char.IsLetterOrDigit).ToArray());
+        return Kaal(a).Equals(Kaal(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Aparte client voor jlcsearch; die vraagt geen ondertekening.</summary>
+    private static readonly HttpClient Zoeker = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    /// <summary>
+    /// Proefaanvraag op 'Component information interface'
+    /// (getComponentInfos): haalt één pagina op en vertelt wat erin zit —
+    /// hoeveel onderdelen, of er een vervolgpagina is (lastKey) en hoe het
+    /// eerste onderdeel eruitziet. Daarmee kunnen we bepalen of het zinvol
+    /// is die lijst binnen te halen, of dat het er te veel zijn.
+    /// </summary>
+    public async Task<string> ProefAsync(int paginaGrootte = 100)
+    {
+        if (!jlc.Beschikbaar) return "Geen JLCPCB-sleutels ingesteld.";
+
+        var body = JsonSerializer.Serialize(new { lastKey = (string?)null, pageSize = paginaGrootte });
+        var (antwoord, fout) = await jlc.PostAsync(
+            "/overseas/openapi/component/getComponentInfos", body);
+        if (fout is not null) return "Aanvraag mislukt: " + fout;
+
+        var tekst = antwoord ?? "";
+        try
+        {
+            using var doc = JsonDocument.Parse(tekst);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("data", out var data) ||
+                data.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                return "Antwoord zonder gegevens: " + tekst[..Math.Min(400, tekst.Length)];
+
+            var aantal = data.TryGetProperty("componentInfos", out var lijst) &&
+                         lijst.ValueKind == JsonValueKind.Array ? lijst.GetArrayLength() : 0;
+            var lastKey = data.TryGetProperty("lastKey", out var k) ? k.ToString() : "(geen)";
+            var eerste = aantal > 0 ? lijst[0].ToString() : "(leeg)";
+
+            return $"{aantal} onderdelen in deze pagina · vervolgsleutel: {lastKey}\n\n" +
+                   "Eerste onderdeel:\n" + eerste[..Math.Min(800, eerste.Length)];
+        }
+        catch (Exception ex)
+        {
+            return "Antwoord niet te lezen (" + ex.Message + "): " + tekst[..Math.Min(400, tekst.Length)];
+        }
     }
 
     /// <summary>Haalt de detailgegevens van één C-nummer op: voorraad,

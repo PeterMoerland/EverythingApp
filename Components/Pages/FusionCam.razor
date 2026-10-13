@@ -199,6 +199,41 @@
     </div>
 }
 
+@* Zelf een MPN aan een JLCPCB-nummer koppelen. Hun open API kan niet op MPN
+   zoeken (alleen op C-nummer), dus die vertaalslag leggen we één keer zelf
+   vast; daarna kent de app hem voorgoed. *@
+@if (_koppelMpn is not null)
+{
+    <div class="cmdk-overlay midden laag2">
+        <div class="fusion-kijker ec-venster verplaatsbaar">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>Koppelen aan JLCPCB</b>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _koppelMpn = null">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <p class="uitleg">
+                    Zoek <b>@_koppelMpn</b> op bij JLCPCB en plak het C-nummer hieronder.
+                    De koppeling komt in de vertaaltabel; vanaf dan vult hij zichzelf.
+                </p>
+                <div class="btngroup">
+                    <a class="knopje" target="_blank" rel="noopener"
+                       href="@($"https://jlcpcb.com/parts/componentSearch?searchTxt={Uri.EscapeDataString(_koppelMpn)}")">
+                        Opzoeken bij JLCPCB ↗
+                    </a>
+                    <input value="@_koppelCode" placeholder="C14663" style="width:9rem"
+                           @onchange="e => _koppelCode = ((string?)e.Value ?? string.Empty).Trim()" />
+                    <button class="primair" disabled="@_koppelBezig" @onclick="BewaarKoppeling">Koppelen</button>
+                </div>
+                @if (_koppelFout is not null)
+                {
+                    <p class="uitleg">@_koppelFout</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @* Detail van een JLCPCB-onderdeel: voorraad en prijsstaffels, live
    opgehaald bij het platform (getComponentDetailByCode). *@
 @if (_jlcDetailCode is not null)
@@ -338,12 +373,18 @@
             @if (_kijkMpnKolom >= 0)
             {
                 <div class="fusion-kijker-balk">
-                    <button class="klein" disabled="@_controleBezig" @onclick="Controleer">
-                        @(_controleBezig ? _controleStand : "✓ Controleer waardes & prijs (Mouser)")
-                    </button>
-                    <label>Aantal prints
-                        <input type="number" min="1" max="1000" style="width:4.5rem" @bind="_prints" />
-                    </label>
+                    @* Mouser hoort bij de Eurocircuits-route: daar bestellen we
+                       zelf de componenten. Bij JLCPCB doen zij de inkoop, dus
+                       daar zijn hun eigen C-nummers en prijzen leidend. *@
+                    @if (_geconverteerd == "Eurocircuits")
+                    {
+                        <button class="klein" disabled="@_controleBezig" @onclick="Controleer">
+                            @(_controleBezig ? _controleStand : "✓ Controleer waardes & prijs (Mouser)")
+                        </button>
+                        <label>Aantal prints
+                            <input type="number" min="1" max="1000" style="width:4.5rem" @bind="_prints" />
+                        </label>
+                    }
                     @* De check hoort bij de fabrikant van deze weergave:
                        Eurocircuits-conversie krijgt de standaardcheck,
                        JLCPCB-conversie de C-nummercheck. *@
@@ -357,8 +398,8 @@
                     @if (JlcRepo.Beschikbaar && _geconverteerd == "JLCPCB")
                     {
                         <button class="klein" disabled="@_jlcCheckBezig" @onclick="CheckJlc"
-                                title="Per MPN het C-nummer opzoeken in de lokale JLCPCB-bibliotheek">
-                            @(_jlcCheckBezig ? "bezig…" : "▦ Check JLCPCB-parts")
+                                title="Per MPN het JLCPCB-nummer (Cxxxxx) zoeken: eerst in de vertaaltabel, anders bij JLCPCB zelf">
+                            @(_jlcCheckBezig ? _jlcCheckStand : "▦ Check JLCPCB-parts")
                         </button>
                     }
                     @if (_totaalTekst.Length > 0)
@@ -449,6 +490,11 @@
                                         {
                                             <button class="mpn-link" title="Voorraad en prijs opvragen bij JLCPCB"
                                                     @onclick="() => ToonJlc(veld)">@veld</button>
+                                        }
+                                        else if (k == _kijkJlcKolom && RijMpn(regel) is { } koppelMpn)
+                                        {
+                                            <button class="klein" title="Zelf het C-nummer opzoeken en koppelen"
+                                                    @onclick="() => OpenKoppel(regel, koppelMpn)">+ koppel</button>
                                         }
                                         else
                                         {
@@ -676,13 +722,22 @@
     // ===== JLCPCB-check in de kijker =====
 
     private bool _jlcCheckBezig;
+    private string _jlcCheckStand = "";
     private readonly Dictionary<string[], (string Voor, List<JlcComponent>? Lijst)> _jlcChecks = new();
 
-    /// <summary>De echte MPN van een regel: uit de bron (cursief getoond)
-    /// of uit de MPN-kolom — maar nooit het GPN dat daar kan staan.</summary>
+    /// <summary>
+    /// De echte MPN van een regel. De bron-BOM gaat vóór wat er in het
+    /// bestand staat: in de MPN-kolom kan namelijk ook iets anders staan —
+    /// bij Eurocircuits het GPN, en bij JLCPCB mag 'Comment' behalve de MPN
+    /// ook gewoon de waarde van het component bevatten ("100nF"). Is er een
+    /// bron-BOM ingelezen maar heeft deze regel daar geen MPN, dan is er
+    /// geen MPN: null, zodat we nergens met een waarde gaan zoeken.
+    /// </summary>
     private string? RijMpn(string[] regel)
     {
         if (_kijkBronMpns.GetValueOrDefault(regel) is { } bron) return bron;
+        if (_bronMpns.Count > 0) return null;   // bron bekend, deze regel heeft geen MPN
+
         if (_kijkMpnKolom >= 0 && _kijkMpnKolom < regel.Length)
         {
             var veld = regel[_kijkMpnKolom];
@@ -698,95 +753,149 @@
     /// scheidsrechter wanneer één MPN meerdere C-nummers heeft.</summary>
     private async Task CheckJlc()
     {
-        if (_kijkMpnKolom < 0 || _jlcCheckBezig) return;
+        if (_kijkMpnKolom < 0 || _kijkJlcKolom < 0 || _jlcCheckBezig) return;
         _jlcCheckBezig = true;
+        _jlcCheckStand = "bezig…";
         try
         {
             _jlcChecks.Clear();
-            var mpns = _kijkData.Select(RijMpn).Where(m => m is not null).Cast<string>().ToList();
-            var per = await JlcRepo.ZoekOpModellenAsync(mpns);
 
-            if (per.Count == 0 && await JlcRepo.AantalAsync() == 0)
-            {
-                Toon("De JLCPCB-bibliotheek is nog leeg — druk eerst bovenaan op " +
-                     "'Onderdelenbibliotheek verversen'.", true);
-                return;
-            }
-
-            // Heeft de weergave een 'JLCPCB Part #'-kolom (de JLCPCB-BOM),
-            // dan vullen we de gevonden C-nummers dáár in — geen extra kolom.
-            if (_kijkJlcKolom >= 0)
-            {
-                int ingevuld = 0, alGevuld = 0, nietGevonden = 0, dubbelzinnig = 0;
-                foreach (var regel in _kijkData)
-                {
-                    if (_kijkJlcKolom >= regel.Length) continue;
-                    if (regel[_kijkJlcKolom].Length > 0) { alGevuld++; continue; }
-
-                    var mpn = RijMpn(regel);
-                    if (mpn is null) continue;
-                    if (!per.TryGetValue(mpn, out var kandidaten) || kandidaten.Count == 0)
-                    {
-                        nietGevonden++;
-                        continue;
-                    }
-
-                    var maat = _kijkMaten.GetValueOrDefault(regel);
-                    if (maat is not null && kandidaten.Count > 1)
-                    {
-                        var inMaat = kandidaten
-                            .Where(k => k.Specification?.Contains(maat, StringComparison.OrdinalIgnoreCase) ?? false)
-                            .ToList();
-                        if (inMaat.Count > 0) kandidaten = inMaat;
-                    }
-
-                    if (kandidaten.Count == 1)
-                    {
-                        regel[_kijkJlcKolom] = kandidaten[0].Code;
-                        ingevuld++;
-                    }
-                    else
-                    {
-                        dubbelzinnig++;
-                    }
-                }
-
-                Toon($"C-nummers: {ingevuld} ingevuld" +
-                     (alGevuld > 0 ? $", {alGevuld} stonden er al" : "") +
-                     (nietGevonden > 0 ? $", {nietGevonden} niet in de bibliotheek" : "") +
-                     (dubbelzinnig > 0 ? $", {dubbelzinnig} dubbelzinnig (meerdere C-nummers)" : "") +
-                     (ingevuld > 0 ? ". Druk op 'Maak export' om ze ook in het bestand te zetten." : "."),
-                     false);
-                return;
-            }
-
+            // Welke MPN's hebben nog geen C-nummer in de kolom?
+            var teZoeken = new List<string>();
+            var alGevuld = 0;
             foreach (var regel in _kijkData)
             {
+                if (_kijkJlcKolom >= regel.Length) continue;
+                if (regel[_kijkJlcKolom].Length > 0) { alGevuld++; continue; }
+                if (RijMpn(regel) is { } mpn && !teZoeken.Contains(mpn, StringComparer.OrdinalIgnoreCase))
+                    teZoeken.Add(mpn);
+            }
+
+            // Stap 1: de vertaaltabel (gratis en direct).
+            var gevonden = new Dictionary<string, JlcComponent>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (model, kandidaten) in await JlcRepo.ZoekOpModellenAsync(teZoeken))
+                if (kandidaten.Count == 1) gevonden[model] = kandidaten[0];
+                else if (kandidaten.Count > 1) gevonden[model] = kandidaten[0];
+
+            // Stap 2: de rest online opzoeken — per MPN één zoekopdracht.
+            // Wat gevonden wordt, komt in de tabel te staan en hoeft de
+            // volgende keer niet opnieuw.
+            var viaApi = 0;
+            string? apiFout = null;
+            var rest = teZoeken.Where(m => !gevonden.ContainsKey(m)).ToList();
+            if (rest.Count > 0)
+            {
+                var teller = 0;
+                foreach (var mpn in rest)
+                {
+                    _jlcCheckStand = $"opzoeken… {++teller} van {rest.Count}";
+                    StateHasChanged();
+
+                    var (component, fout) = await JlcParts.ZoekOpMpnAsync(mpn);
+                    if (component is not null && component.Code.Length > 0)
+                    {
+                        gevonden[mpn] = component;
+                        viaApi++;
+                    }
+                    else if (fout is not null)
+                    {
+                        // De eerste echte fout onthouden en stoppen: heeft de
+                        // eerste aanvraag al geen zin, dan de rest ook niet.
+                        apiFout ??= fout;
+                        break;
+                    }
+                }
+            }
+
+            // De gevonden C-nummers in de laatste kolom zetten.
+            int ingevuld = 0, nietGevonden = 0, zonderMpn = 0, extended = 0;
+            foreach (var regel in _kijkData)
+            {
+                if (_kijkJlcKolom >= regel.Length) continue;
+                if (regel[_kijkJlcKolom].Length > 0) continue;
+
                 var mpn = RijMpn(regel);
                 if (mpn is null)
                 {
-                    _jlcChecks[regel] = ("–", null);
+                    // Geen MPN bekend; in 'Comment' staat dan de waarde van
+                    // het component. Dat mag bij JLCPCB — zij zoeken er zelf
+                    // een onderdeel bij — maar wij kunnen er niets mee.
+                    zonderMpn++;
                     continue;
                 }
-                if (!per.TryGetValue(mpn, out var kandidaten) || kandidaten.Count == 0)
+                if (gevonden.TryGetValue(mpn, out var component))
                 {
-                    _jlcChecks[regel] = ("✕ niet in de bibliotheek", null);
-                    continue;
+                    regel[_kijkJlcKolom] = component.Code;
+                    ingevuld++;
+                    if (component.Soort is not null && !component.IsBasic) extended++;
                 }
-
-                var maat = _kijkMaten.GetValueOrDefault(regel);
-                if (maat is not null && kandidaten.Count > 1)
+                else
                 {
-                    var inMaat = kandidaten
-                        .Where(k => k.Specification?.Contains(maat, StringComparison.OrdinalIgnoreCase) ?? false)
-                        .ToList();
-                    if (inMaat.Count > 0) kandidaten = inMaat;
+                    nietGevonden++;
                 }
-                _jlcChecks[regel] = ("✔ ", kandidaten);
             }
+
+            Toon($"C-nummers: {ingevuld} ingevuld" +
+                 (extended > 0 ? $" (waarvan {extended} 'extended' — die kosten extra opstartkosten)" : "") +
+                 (viaApi > 0 ? $", {viaApi} nieuw opgezocht" : "") +
+                 (alGevuld > 0 ? $", {alGevuld} stonden er al" : "") +
+                 (nietGevonden > 0 ? $", {nietGevonden} nog onbekend — gebruik '+ koppel' achter die regels" : "") +
+                 (zonderMpn > 0 ? $", {zonderMpn} zonder MPN (waarde in Comment; JLCPCB kiest daar zelf bij)" : "") +
+                 (ingevuld > 0 ? ". Druk op 'Maak export' om ze ook in het bestand te zetten." : ".") +
+                 (apiFout is not null ? $" JLCPCB antwoordde: {apiFout}" : ""),
+                 apiFout is not null);
         }
         catch (Exception ex) { Toon("JLCPCB-check mislukt: " + ex.Message, true); }
-        finally { _jlcCheckBezig = false; }
+        finally { _jlcCheckBezig = false; _jlcCheckStand = ""; }
+    }
+
+    // ---- zelf koppelen: MPN → C-nummer ----
+
+    private string[]? _koppelRegel;
+    private string? _koppelMpn;
+    private string _koppelCode = "";
+    private bool _koppelBezig;
+    private string? _koppelFout;
+
+    private void OpenKoppel(string[] regel, string mpn)
+    {
+        _koppelRegel = regel;
+        _koppelMpn = mpn;
+        _koppelCode = "";
+        _koppelFout = null;
+    }
+
+    private async Task BewaarKoppeling()
+    {
+        if (_koppelMpn is null || _koppelRegel is null || _koppelBezig) return;
+        var code = _koppelCode.Trim();
+        if (code.Length == 0) { _koppelFout = "Vul het C-nummer in."; return; }
+
+        _koppelBezig = true;
+        _koppelFout = null;
+        try
+        {
+            // De behuizing erbij halen als JLCPCB bereikbaar is; niet erg als
+            // dat niet lukt, het C-nummer is wat telt.
+            string? spec = null;
+            try
+            {
+                var (detail, _) = await JlcParts.DetailAsync(code);
+                if (detail is not null && detail.Specificatie.Length > 0) spec = detail.Specificatie;
+            }
+            catch { /* dan zonder behuizing */ }
+
+            await JlcRepo.BewaarBatchAsync(new[] { new JlcComponent(code, _koppelMpn, spec) });
+
+            if (_kijkJlcKolom >= 0 && _kijkJlcKolom < _koppelRegel.Length)
+                _koppelRegel[_kijkJlcKolom] = code;
+
+            Toon($"{_koppelMpn} → {code} gekoppeld. Druk op 'Maak export' om het mee te nemen.", false);
+            _koppelMpn = null;
+            _koppelRegel = null;
+        }
+        catch (Exception ex) { _koppelFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _koppelBezig = false; }
     }
 
     // ---- detailpopup: voorraad en prijs live bij JLCPCB ----
@@ -1137,17 +1246,18 @@
                         .FirstOrDefault();
                     if (eerste is null) continue;
                     if (_bronMaten.TryGetValue(eerste, out var maat)) _kijkMaten[regel] = maat;
-                    if (_kijkGpnKolom < 0 && _bronGpns.TryGetValue(eerste, out var gpn))
+
+                    // Het GPN is een Eurocircuits-nummer; in een JLCPCB-weergave
+                    // heeft die kolom niets te zoeken.
+                    if (_kijkGpnKolom < 0 && _geconverteerd != "JLCPCB" &&
+                        _bronGpns.TryGetValue(eerste, out var gpn))
                         _kijkGpns[regel] = gpn;
 
-                    // Bevat de MPN-cel in het bestand geen echte MPN (leeg, of
-                    // het GPN — Eurocircuits wil het GPN namelijk in de
-                    // MPN-kolom), dan tonen we de MPN uit de bron, cursief.
-                    if (_kijkMpnKolom < regel.Length &&
-                        (regel[_kijkMpnKolom].Length == 0 ||
-                         regel[_kijkMpnKolom].Equals(_kijkGpns.GetValueOrDefault(regel),
-                                                     StringComparison.OrdinalIgnoreCase)) &&
-                        _bronMpns.TryGetValue(eerste, out var bronMpn))
+                    // De MPN uit de bron-BOM onthouden we altijd: hij is de
+                    // betrouwbare waarde voor de checks. In beeld komt hij
+                    // alleen (cursief) als het bestand zelf iets anders in de
+                    // MPN-kolom heeft staan — bij Eurocircuits het GPN.
+                    if (_bronMpns.TryGetValue(eerste, out var bronMpn))
                         _kijkBronMpns[regel] = bronMpn;
                 }
         }
@@ -1423,8 +1533,11 @@
 
         try
         {
-            var groepen = _kijkData.Where(r => _kijkMpnKolom < r.Length && r[_kijkMpnKolom].Length > 0)
-                                   .GroupBy(r => r[_kijkMpnKolom], StringComparer.OrdinalIgnoreCase)
+            // Groeperen op de échte MPN (RijMpn): staat er een GPN in de
+            // MPN-kolom, dan zoekt Mouser met de MPN uit de bron-BOM.
+            var groepen = _kijkData.Select(r => (Regel: r, Mpn: RijMpn(r)))
+                                   .Where(x => x.Mpn is not null)
+                                   .GroupBy(x => x.Mpn!, StringComparer.OrdinalIgnoreCase)
                                    .ToList();
             var teller = 0;
             foreach (var groep in groepen)
@@ -1436,7 +1549,7 @@
                 var tref = treffers.FirstOrDefault(t => t.Mpn.Equals(groep.Key, StringComparison.OrdinalIgnoreCase))
                            ?? treffers.FirstOrDefault();
 
-                foreach (var regel in groep)
+                foreach (var (regel, _) in groep)
                 {
                     if (tref is null)
                     {

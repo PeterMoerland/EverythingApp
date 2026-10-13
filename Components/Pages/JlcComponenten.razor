@@ -2,18 +2,18 @@
 @inject IJlcComponentRepository Repo
 @inject JlcOnderdelen JlcParts
 
-@* De lokale kopie van de JLCPCB-onderdelenbibliotheek: C-nummer, MPN en
-   behuizing. De verversknop haalt de hele bibliotheek op via het JLCPCB
-   Open Platform (cursor met lastKey); bestaande C-nummers worden bijgewerkt.
-   Deze tabel vult bij de JLCPCB-export automatisch de kolom 'JLCPCB Part #'
-   en voedt de JLCPCB-check in de BOM-kijker. *@
+@* De onderdelen van JLCPCB die wíj gebruiken: C-nummer, MPN, behuizing,
+   fabrikant en of het een 'basic' onderdeel is (dat scheelt opstartkosten
+   bij assemblage). Deze lijst groeit vanzelf — elke MPN die de check in de
+   BOM-kijker opzoekt komt hier terecht — en je kunt er zelf koppelingen aan
+   toevoegen. Hiermee vult de JLCPCB-export de kolom 'JLCPCB Part #'. *@
 
 <PageTitle>JLCPCB-componenten — MDE</PageTitle>
 
 <div class="page">
     <header class="topbar">
         <h1>JLCPCB-componenten</h1>
-        <span class="weeklabel">@_aantal.ToString("N0") componenten in de bibliotheek</span>
+        <span class="weeklabel">@_aantal.ToString("N0") onderdelen bekend</span>
     </header>
 
     @if (!Repo.Beschikbaar)
@@ -27,15 +27,35 @@
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
         }
 
-        <div class="btngroup">
-            <button class="primair" disabled="@(_syncBezig || !JlcParts.Beschikbaar)" @onclick="Ververs">
-                @(_syncBezig ? _syncStand : "⟳ Bibliotheek verversen bij JLCPCB")
-            </button>
-            @if (!JlcParts.Beschikbaar)
+        @* Zelf een koppeling toevoegen: het C-nummer opzoeken op jlcpcb.com
+           en hier samen met de MPN vastleggen. Bestaat het C-nummer al, dan
+           wordt de regel bijgewerkt. *@
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>MPN</span>
+                <input value="@_nieuwMpn" placeholder="bv. CL05B222KB5NNNC"
+                       @onchange="e => _nieuwMpn = ((string?)e.Value ?? string.Empty).Trim()" />
+            </label>
+            <label class="bankveld">
+                <span>C-nummer</span>
+                <input value="@_nieuwCode" placeholder="bv. C14663" style="width:9rem"
+                       @onchange="e => _nieuwCode = ((string?)e.Value ?? string.Empty).Trim()" />
+            </label>
+            <label class="bankveld">
+                <span>Behuizing</span>
+                <input value="@_nieuweSpec" placeholder="bv. 0402" style="width:8rem"
+                       @onchange="e => _nieuweSpec = ((string?)e.Value ?? string.Empty).Trim()" />
+            </label>
+            <button class="primair" disabled="@_bezig" @onclick="Koppel">+ Koppeling opslaan</button>
+            @if (JlcParts.Beschikbaar)
             {
-                <span class="zij-extra">De JLCPCB-sleutels zijn nog niet ingesteld (Jlcpcb:AppId, AccessKey, SecretKey).</span>
+                <button class="klein" disabled="@_bezig" @onclick="HaalOp"
+                        title="MPN en behuizing ophalen bij JLCPCB aan de hand van het C-nummer">
+                    ⟳ Gegevens bij C-nummer ophalen
+                </button>
             }
         </div>
+
 
         <div class="bankfilters">
             <label class="bankveld">
@@ -48,9 +68,13 @@
             <table class="kiezer-tabel banktabel">
                 <thead>
                     <tr>
-                        <th style="width:9rem">C-nummer</th>
-                        <th style="width:24rem">MPN</th>
-                        <th>Behuizing</th>
+                        <th style="width:8rem">C-nummer</th>
+                        <th style="width:18rem">MPN</th>
+                        <th style="width:7rem">Behuizing</th>
+                        <th style="width:12rem">Fabrikant</th>
+                        <th style="width:6rem">Soort</th>
+                        <th style="width:7rem" class="r">Voorraad</th>
+                        <th style="width:3rem"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -63,18 +87,32 @@
                             </td>
                             <td class="nummer">@c.Model</td>
                             <td>@c.Specification</td>
+                            <td class="omschrijving" title="@c.Categorie">@c.Fabrikant</td>
+                            <td>
+                                @if (c.Soort is not null)
+                                {
+                                    <span class="stand-chip @(c.IsBasic ? "s-groen" : "s-oranje")">
+                                        @(c.IsBasic ? "basic" : "extended")
+                                    </span>
+                                }
+                            </td>
+                            <td class="r">@(c.Voorraad?.ToString("N0"))</td>
+                            <td class="c">
+                                <button class="klein rood" title="Uit de lijst verwijderen"
+                                        @onclick="() => Verwijder(c)">✕</button>
+                            </td>
                         </tr>
                     }
                     @if (_lijst.Count == 0)
                     {
-                        <tr><td colspan="3" class="kiezer-info">
-                            @(_aantal == 0 ? "De bibliotheek is nog leeg — druk op de verversknop hierboven."
+                        <tr><td colspan="7" class="kiezer-info">
+                            @(_aantal == 0 ? "Nog leeg — haal de onderdelenlijst op met de knop hierboven."
                                            : "Niets gevonden.")
                         </td></tr>
                     }
                     @if (_lijst.Count >= 500)
                     {
-                        <tr><td colspan="3" class="kiezer-info">
+                        <tr><td colspan="7" class="kiezer-info">
                             De eerste 500 worden getoond; verfijn de zoekopdracht voor de rest.
                         </td></tr>
                     }
@@ -83,8 +121,10 @@
         </div>
 
         <footer class="voet">
-            Bron: het JLCPCB Open Platform. Verversen werkt bestaande C-nummers bij;
-            er ontstaan geen dubbelen. Klik op een C-nummer voor actuele voorraad en prijs.
+            Deze lijst vertaalt een MPN naar het JLCPCB-nummer (Cxxxxx) en vult daarmee
+            de kolom 'JLCPCB Part #' bij de export. 'Basic' onderdelen kosten bij
+            assemblage geen extra opstartkosten, 'extended' wel. Klik op een C-nummer
+            voor de actuele voorraad en prijs bij JLCPCB.
         </footer>
     }
 </div>
@@ -147,8 +187,10 @@
     private int _aantal;
     private string _zoek = "";
     private List<JlcComponent> _lijst = new();
-    private bool _syncBezig;
-    private string _syncStand = "";
+    private bool _bezig;
+    private string _nieuwMpn = "";
+    private string _nieuwCode = "";
+    private string _nieuweSpec = "";
     private string? _melding;
     private bool _fout;
 
@@ -178,29 +220,61 @@
         await Laad();
     }
 
-    private async Task Ververs()
+    /// <summary>Een koppeling MPN → C-nummer vastleggen (of bijwerken).</summary>
+    private async Task Koppel()
     {
-        if (_syncBezig) return;
-        _syncBezig = true;
-        _syncStand = "bezig…";
+        if (_bezig) return;
+        if (_nieuwCode.Length == 0 || _nieuwMpn.Length == 0)
+        {
+            Toon("Vul zowel de MPN als het C-nummer in.", true);
+            return;
+        }
+
+        _bezig = true;
         try
         {
-            var voortgang = new Progress<string>(s =>
+            await Repo.BewaarBatchAsync(new[]
             {
-                _syncStand = s;
-                InvokeAsync(StateHasChanged);
+                new JlcComponent(_nieuwCode, _nieuwMpn, _nieuweSpec.Length == 0 ? null : _nieuweSpec)
             });
-            var (totaal, fout) = await JlcParts.SyncAsync(voortgang);
-            Toon(fout is null
-                ? $"Bibliotheek ververst: {totaal:N0} componenten verwerkt."
-                : $"Verversen strandde na {totaal:N0} componenten: {fout}", fout is not null);
+            Toon($"{_nieuwMpn} → {_nieuwCode} opgeslagen.", false);
+            _nieuwMpn = _nieuwCode = _nieuweSpec = "";
             await Laad();
         }
-        finally
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>MPN en behuizing bij het ingevulde C-nummer ophalen bij JLCPCB,
+    /// zodat je ze niet zelf hoeft over te typen.</summary>
+    private async Task HaalOp()
+    {
+        if (_bezig) return;
+        if (_nieuwCode.Length == 0) { Toon("Vul eerst een C-nummer in.", true); return; }
+
+        _bezig = true;
+        try
         {
-            _syncBezig = false;
-            _syncStand = "";
+            var (detail, fout) = await JlcParts.DetailAsync(_nieuwCode);
+            if (detail is null) { Toon(fout ?? "Niets gevonden.", true); return; }
+            _nieuwMpn = detail.Mpn;
+            _nieuweSpec = detail.Specificatie;
+            Toon($"Gevonden: {detail.Mpn} ({detail.Merk}) — controleer en sla op.", false);
         }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+
+    private async Task Verwijder(JlcComponent c)
+    {
+        try
+        {
+            await Repo.VerwijderAsync(c.Code);
+            await Laad();
+            Toon($"{c.Model} → {c.Code} verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
     }
 
     // ---- detailpopup ----
