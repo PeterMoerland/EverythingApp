@@ -1,0 +1,164 @@
+@page "/beheer/computers"
+@inject IComputerRepository Repo
+@inject IJSRuntime JS
+
+@* De tabel Computers: elke pc/laptop meldt zichzelf bij het starten van de app
+   (MDE-Starten.bat → computer-registreren.ps1). Hier zie je wat er in huis is
+   en wie erachter zit, met de Dell service tag als link naar de supportpagina
+   van precies dat apparaat. *@
+
+<PageTitle>Computers — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Computers</h1>
+        <span class="weeklabel">@_regels.Count geregistreerd</span>
+        <input class="zoekveld" value="@_zoek" placeholder="zoek computer, gebruiker, tag…"
+               @oninput="e => _zoek = ((string?)e.Value ?? string.Empty).Trim()" />
+        <button class="klein" @onclick="Laad">⟳ Verversen</button>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @if (_regels.Count == 0)
+        {
+            <section class="module-placeholder">
+                <p>
+                    Nog geen computers gemeld. Start de app op een pc via
+                    <code>MDE-Starten.bat</code> (staat op de share, naast de app) —
+                    die meldt de computer onzichtbaar aan en opent daarna de browser.
+                </p>
+            </section>
+        }
+        else
+        {
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel comp-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:10rem">Computer</th>
+                            <th style="width:12rem">Gebruiker</th>
+                            <th style="width:7.5rem">Service tag</th>
+                            <th style="width:14rem">Merk / type</th>
+                            <th>Processor</th>
+                            <th style="width:4rem" class="r" title="Geheugen">GB</th>
+                            <th style="width:14rem">Schijven</th>
+                            <th style="width:12rem">Grafisch</th>
+                            <th style="width:6.5rem" title="Laatste melding">Laatst</th>
+                            <th style="width:2.4rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in Gefilterd())
+                        {
+                            <tr @key="c.Id">
+                                <td><b>@c.Computernaam</b></td>
+                                <td title="@c.Gebruiker">
+                                    @(c.GebruikerNaam.Length > 0 ? c.GebruikerNaam : c.Gebruiker)
+                                    @if (c.GebruikerNaam.Length > 0 && !string.Equals(c.GebruikerNaam, c.Gebruiker, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <br /><small class="uitleg">@c.Gebruiker</small>
+                                    }
+                                </td>
+                                <td>
+                                    @if (c.ServiceTag.Length > 0)
+                                    {
+                                        <a href="@("https://www.dell.com/support/home/nl-nl/product-support/servicetag/" + c.ServiceTag)"
+                                           target="_blank" rel="noopener" title="Openen bij Dell Support">@c.ServiceTag</a>
+                                    }
+                                </td>
+                                <td class="omschrijving">@c.MerkType</td>
+                                <td class="omschrijving" title="@c.Processor">@KorteCpu(c.Processor)</td>
+                                <td class="r">@(c.GeheugenGb?.ToString() ?? "")</td>
+                                <td class="omschrijving" title="@c.Schijven">
+                                    @(c.SchijvenGb is int gb ? $"{gb} GB" : "")
+                                    @if (c.Schijven.Length > 0)
+                                    {
+                                        <br /><small class="uitleg">@c.Schijven</small>
+                                    }
+                                </td>
+                                <td class="omschrijving" title="@c.GrafischeKaarten">@c.GrafischeKaarten</td>
+                                <td title="@($"aangemaakt {c.Aangemaakt:dd-MM-yyyy}, bijgewerkt {c.Bijgewerkt:dd-MM-yyyy HH:mm}")">
+                                    @(c.Bijgewerkt?.ToString("dd-MM-yy") ?? "")
+                                </td>
+                                <td class="c">
+                                    <button class="klein rood" title="Uit de tabel halen" @onclick="() => Verwijder(c)">✕</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="uitleg">
+                Computers melden zichzelf via MDE-Starten.bat; herkenning op service tag (anders op
+                computernaam), dus dezelfde machine komt nooit dubbel voor — alleen bijgewerkt.
+                Verwijderde regels komen bij de eerstvolgende start terug; verwijderen is dus voor
+                afgevoerde apparaten.
+            </p>
+        }
+    }
+</div>
+
+@code {
+    private List<ComputerRegel> _regels = new();
+    private string _zoek = "";
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Repo.Beschikbaar) return;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try { _regels = await Repo.GetAllesAsync(); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private IEnumerable<ComputerRegel> Gefilterd()
+    {
+        if (_zoek.Length == 0) return _regels;
+        return _regels.Where(c =>
+            c.Computernaam.Contains(_zoek, StringComparison.OrdinalIgnoreCase) ||
+            c.Gebruiker.Contains(_zoek, StringComparison.OrdinalIgnoreCase) ||
+            c.GebruikerNaam.Contains(_zoek, StringComparison.OrdinalIgnoreCase) ||
+            c.ServiceTag.Contains(_zoek, StringComparison.OrdinalIgnoreCase) ||
+            c.MerkType.Contains(_zoek, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task Verwijder(ComputerRegel c)
+    {
+        try
+        {
+            var zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"{c.Computernaam} ({c.Gebruiker}) uit de tabel halen?");
+            if (!zeker) return;
+        }
+        catch { return; }
+
+        try
+        {
+            await Repo.VerwijderAsync(c.Id);
+            _regels.Remove(c);
+            Toon("Verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>"Intel(R) Core(TM) i7-1185G7 @ 3.00GHz" is een mond vol; de merkfranje mag eraf.</summary>
+    private static string KorteCpu(string cpu)
+        => cpu.Replace("(R)", "").Replace("(TM)", "").Replace("CPU ", "").Replace("  ", " ").Trim();
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

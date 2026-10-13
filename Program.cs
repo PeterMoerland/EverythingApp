@@ -132,7 +132,7 @@ if (liveDb)
     builder.Services.AddSingleton<ILiquiditeitRepository>(_ => new MySqlLiquiditeitRepository(cs!));
     builder.Services.AddSingleton<IInstellingRepository>(_ => new MySqlInstellingRepository(cs!));
     builder.Services.AddSingleton<IPlanningRepository>(_ => new MySqlPlanningRepository(cs!));
-    builder.Services.AddSingleton<ILaptopRepository>(_ => new MySqlLaptopRepository(cs!));
+    builder.Services.AddSingleton<IComputerRepository>(_ => new MySqlComputerRepository(cs!));
     builder.Services.AddSingleton<IBaseconeRepository>(_ => new MySqlBaseconeRepository(cs!));
     builder.Services.AddSingleton<IEcComponentRepository>(_ => new MySqlEcComponentRepository(cs!));
     builder.Services.AddSingleton<IJlcComponentRepository>(_ => new MySqlJlcComponentRepository(cs!));
@@ -156,7 +156,7 @@ else
     builder.Services.AddSingleton<IVasteLastenRepository, GeenVasteLastenRepository>();
     builder.Services.AddSingleton<ILiquiditeitRepository, GeenLiquiditeitRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();
-    builder.Services.AddSingleton<ILaptopRepository, GeenLaptopRepository>();
+    builder.Services.AddSingleton<IComputerRepository, GeenComputerRepository>();
     builder.Services.AddSingleton<IBaseconeRepository, GeenBaseconeRepository>();
     builder.Services.AddSingleton<IEcComponentRepository, GeenEcComponentRepository>();
     builder.Services.AddSingleton<IJlcComponentRepository, GeenJlcComponentRepository>();
@@ -813,26 +813,46 @@ app.MapGet("/werknemerfoto/{werknemerId:int}", async (int werknemerId,
 });
 
 // ---------------------------------------------------------------------------
-// Laptops melden zichzelf hier bij het starten van de app (MDE-Starten.bat →
-// laptop-registreren.ps1). Geen Google-login — het script heeft geen browser —
-// maar wel een gedeelde sleutel in de kop, zodat niet iedereen zomaar het
-// register kan vullen. Sleutel leeg = meldpunt uit.
+// Computers melden zichzelf hier bij het starten van de app (MDE-Starten.bat →
+// computer-registreren.ps1) in de tabel Computers. Geen Google-login — het
+// script heeft geen browser — maar wel een gedeelde sleutel in de kop, zodat
+// niet iedereen zomaar de tabel kan vullen. Sleutel leeg = meldpunt uit.
+// /api/laptop blijft bestaan voor pc's met het oude script.
 // ---------------------------------------------------------------------------
-app.MapPost("/api/laptop", async (HttpContext ctx, ILaptopRepository laptops,
-                                  IConfiguration config) =>
+async Task<IResult> ComputerMelden(HttpContext ctx, IComputerRepository computers, IConfiguration config)
 {
     var sleutel = config["Laptops:Sleutel"] ?? "";
-    if (sleutel.Length == 0 || !laptops.Beschikbaar) return Results.NotFound();
+    if (sleutel.Length == 0 || !computers.Beschikbaar) return Results.NotFound();
     if (ctx.Request.Headers["X-Sleutel"] != sleutel) return Results.Unauthorized();
 
-    LaptopMelding? melding;
-    try { melding = await ctx.Request.ReadFromJsonAsync<LaptopMelding>(); }
+    // Nieuw én oud formaat lezen: het oude script stuurt gebruikersnaam/merk/model/geheugenGB.
+    System.Text.Json.JsonElement json;
+    try { json = await ctx.Request.ReadFromJsonAsync<System.Text.Json.JsonElement>(); }
     catch { return Results.BadRequest(); }
-    if (melding is null || string.IsNullOrWhiteSpace(melding.Computernaam)) return Results.BadRequest();
+    if (json.ValueKind != System.Text.Json.JsonValueKind.Object) return Results.BadRequest();
 
-    await laptops.MeldAsync(melding);
+    string T(params string[] namen)
+    {
+        foreach (var n in namen)
+            foreach (var p in json.EnumerateObject())
+                if (string.Equals(p.Name, n, StringComparison.OrdinalIgnoreCase))
+                    return p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString();
+        return "";
+    }
+    int? G(params string[] namen) => int.TryParse(T(namen), out var v) ? v : null;
+
+    var computernaam = T("computernaam");
+    if (computernaam.Length == 0) return Results.BadRequest();
+    var merkType = T("merkType");
+    if (merkType.Length == 0) merkType = (T("merk") + " " + T("model")).Trim();
+
+    await computers.MeldAsync(new ComputerMelding(
+        computernaam, T("gebruiker", "gebruikersnaam"), T("gebruikerNaam"), T("serviceTag"), merkType,
+        T("processor"), G("geheugenGb", "geheugenGB"), T("schijven"), G("schijvenGb"), T("grafischeKaarten")));
     return Results.Ok();
-});
+}
+app.MapPost("/api/computer", ComputerMelden);
+app.MapPost("/api/laptop", ComputerMelden);
 
 // ---------------------------------------------------------------------------
 // Fusion → CAM: het zip-pakket als echte download. De pagina zet het pakket

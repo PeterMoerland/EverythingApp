@@ -190,7 +190,7 @@ public static class Menu
                 new MenuItem("Algemene instellingen", "/beheer/instellingen")),
             new MenuGroep("Systeem",
                 new MenuItem("Verbinding & schema", "/diag"),
-                new MenuItem("Laptops", "/beheer/laptops"))),
+                new MenuItem("Computers", "/beheer/computers"))),
     };
 
     /// <summary>Alle modules, inclusief de onderliggende (Tools ▸ Inventor enzovoort).</summary>
