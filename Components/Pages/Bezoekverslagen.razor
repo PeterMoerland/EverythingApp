@@ -1,0 +1,282 @@
+@page "/relaties/bezoekverslagen"
+@page "/relaties/bezoekverslagen/{Id:int}"
+@inject IBezoekRepository Repo
+@inject IUrenRepository Uren
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+
+@* Bezoekverslagen: elk contactmoment met een relatie (bij de klant, een leverancier bij MDE, online,
+   beurs) met wie erbij was, het verslag, actiepunten en foto's. Nieuw in de app (geen Access-formulier).
+   /relaties/bezoekverslagen/{Id} opent meteen dat verslag (link vanuit Relaties);
+   ?relatie=123 opent een nieuw verslag voor die relatie. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Bezoekverslagen</h1>
+        <span class="weeklabel">@_lijst.Count verslagen@(_lijst.Count >= Max ? "+" : "")</span>
+        @if (_aanwezig && Ik.Gekoppeld)
+        {
+            <button class="klein" @onclick="() => { _nieuwRelatie = null; _open = 0; }">＋ Bezoekverslag</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_aanwezig)
+    {
+        <section class="module-placeholder">
+            <p>De tabellen voor bezoekverslagen bestaan nog niet. Voer eenmalig <code>Bezoekverslagen_MariaDB.sql</code>
+               uit op de MDE-database en vernieuw dit scherm.</p>
+        </section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-tabs">
+            <button class="@(_tab == TabVerslagen ? "actief" : "")" @onclick="() => _tab = TabVerslagen">Verslagen</button>
+            <button class="@(_tab == TabActies ? "actief" : "")" @onclick="() => _tab = TabActies">
+                Open acties @if (_acties.Count(a => a.WerknemerId == Ik.WerknemerId) is int mijn && mijn > 0) { <span class="stand-chip s-geel">@mijn voor jou</span> }
+            </button>
+            <button class="@(_tab == TabVervolg ? "actief" : "")" @onclick="() => _tab = TabVervolg">
+                Volgend contact @if (_vervolg.Count > 0) { <span class="uitleg">(@_vervolg.Count)</span> }
+            </button>
+        </div>
+
+        @if (_tab == TabVerslagen)
+        {
+            <div class="bankfilters">
+                <label class="bankveld groei">
+                    <span>Zoeken</span>
+                    <span class="zoekregel">
+                        <input placeholder="Titel, verslag, relatie, project, locatie…" value="@_filter.Zoek" @onchange="ZoekGewijzigd" />
+                        <button class="klein" disabled="@(_filter.Zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </span>
+                </label>
+                <label class="bankveld">
+                    <span>Soort</span>
+                    <select value="@_filter.Soort" @onchange="SoortGewijzigd">
+                        <option value="">Alle</option>
+                        @foreach (var s in BezoekSoort.Alle)
+                        {
+                            <option value="@s">@BezoekSoort.Pictogram(s) @s</option>
+                        }
+                    </select>
+                </label>
+                <label class="bankveld">
+                    <span>Collega</span>
+                    <select value="@(_filter.WerknemerId?.ToString() ?? "")" @onchange="CollegaGewijzigd">
+                        <option value="">Iedereen</option>
+                        @foreach (var w in _werknemers)
+                        {
+                            <option value="@w.WerknemerId">@w.Naam</option>
+                        }
+                    </select>
+                </label>
+                <div class="btngroup">
+                    <button class="klein @(_filter.WerknemerId == Ik.WerknemerId && Ik.WerknemerId is not null ? "actief" : "")" @onclick="AlleenMijn">Alleen mijn</button>
+                    <button class="klein" @onclick="FiltersOpheffen">Filters opheffen</button>
+                </div>
+            </div>
+
+            @if (_lijst.Count == 0)
+            {
+                <section class="module-placeholder">
+                    <p>@(_filter.Zoek.Length > 0 || _filter.Soort.Length > 0 || _filter.WerknemerId is not null
+                         ? "Geen verslagen binnen dit filter." : "Nog geen bezoekverslagen. Begin met ＋ Bezoekverslag.")</p>
+                </section>
+            }
+            <div class="bz-lijst">
+                @foreach (var b in _lijst)
+                {
+                    <button class="bz-kaart" @key="b.Id" @onclick="() => _open = b.Id">
+                        <span class="bz-datum">
+                            <strong>@b.Datum.ToString("d MMM", Nl)</strong>
+                            <span>@b.Datum.ToString("yyyy")</span>
+                        </span>
+                        <span class="bz-inhoud">
+                            <span class="bz-kop">
+                                <span title="@b.Soort">@BezoekSoort.Pictogram(b.Soort)</span>
+                                <strong>@b.Titel</strong>
+                                @if (b.Vertrouwelijk) { <span class="stand-chip s-geel" title="Vertrouwelijk">🔒</span> }
+                            </span>
+                            <span class="bz-sub">
+                                @if (b.Relatie.Length > 0) { <span>@b.Relatie</span> }
+                                @if (b.Project.Length > 0) { <span>· 📁 @b.Project</span> }
+                                @if (b.AantalBijlagen > 0) { <span>· 📎 @b.AantalBijlagen</span> }
+                            </span>
+                            <span class="bz-sub">
+                                @foreach (var d in b.Collegas)
+                                {
+                                    <span class="br-chip">@d.Naam</span>
+                                }
+                                @foreach (var g in b.Gasten)
+                                {
+                                    <span class="br-chip bz-gast">@g.Naam</span>
+                                }
+                            </span>
+                            @if (b.Verslag.Length > 0)
+                            {
+                                <span class="bz-fragment">@Fragment(b.Verslag)</span>
+                            }
+                        </span>
+                    </button>
+                }
+            </div>
+        }
+        else if (_tab == TabActies)
+        {
+            <div class="bankfilters">
+                <div class="btngroup">
+                    <button class="klein @(_alleenMijnActies ? "actief" : "")" @onclick="() => _alleenMijnActies = true">Mijn acties</button>
+                    <button class="klein @(!_alleenMijnActies ? "actief" : "")" @onclick="() => _alleenMijnActies = false">Iedereen</button>
+                </div>
+            </div>
+            <table class="kiezer-tabel bz-actielijst">
+                <thead>
+                    <tr><th class="c" style="width:3rem">Klaar</th><th>Actie</th><th style="width:11rem">Wie</th><th style="width:7rem">Deadline</th><th>Uit bezoek</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in ZichtbareActies)
+                    {
+                        <tr @key="a.Id" class="@(a.Deadline < Vandaag ? "bz-te-laat" : "")">
+                            <td class="c"><input type="checkbox" checked="@a.Gereed" disabled="@(!MagActie(a))" @onchange="e => ActieGereed(a, e)" /></td>
+                            <td>@a.Omschrijving</td>
+                            <td>@a.Wie</td>
+                            <td>@(a.Deadline?.ToString("d-M-yyyy"))</td>
+                            <td><button class="link" @onclick="() => _open = a.BezoekId">@(a.BezoekDatum?.ToString("d-M-yyyy")) · @a.BezoekTitel</button>
+                                @if (a.Relatie.Length > 0) { <span class="uitleg"> · @a.Relatie</span> }</td>
+                        </tr>
+                    }
+                    @if (!ZichtbareActies.Any())
+                    {
+                        <tr><td colspan="5" class="uitleg">Geen open actiepunten @(_alleenMijnActies ? "voor jou" : "").</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="uitleg">Verslagen met een datum voor het volgende contact, vanaf vandaag.</p>
+            <table class="kiezer-tabel bz-actielijst">
+                <thead><tr><th style="width:7rem">Wanneer</th><th>Relatie</th><th>Laatste bezoek</th><th>Wie</th></tr></thead>
+                <tbody>
+                    @foreach (var b in _vervolg)
+                    {
+                        <tr @key="b.Id" class="po-regel-klik" @onclick="() => _open = b.Id">
+                            <td><strong>@(b.Vervolg?.ToString("d-M-yyyy"))</strong></td>
+                            <td>@b.Relatie</td>
+                            <td>@b.Datum.ToString("d-M-yyyy") · @b.Titel</td>
+                            <td>@string.Join(", ", b.Collegas.Select(c => c.Naam))</td>
+                        </tr>
+                    }
+                    @if (_vervolg.Count == 0)
+                    {
+                        <tr><td colspan="4" class="uitleg">Geen geplande vervolgcontacten.</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+</div>
+
+<BezoekVenster BezoekId="_open" RelatieId="_nieuwRelatie" Sluiten="VensterDicht" />
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "relatie")] public int? NieuwVoorRelatie { get; set; }
+
+    private const string TabVerslagen = "verslagen", TabActies = "acties", TabVervolg = "vervolg";
+    private const int Max = 300;
+
+    private string _tab = TabVerslagen;
+    private bool _aanwezig;
+    private BezoekFilter _filter = new();
+    private List<Bezoek> _lijst = new();
+    private List<BezoekActie> _acties = new();
+    private List<Bezoek> _vervolg = new();
+    private List<Werknemer> _werknemers = new();
+    private bool _alleenMijnActies = true;
+    private int? _open;
+    private int? _nieuwRelatie;
+    private string? _melding;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static DateOnly Vandaag => DateOnly.FromDateTime(DateTime.Today);
+    private bool Directie => Ik.Mag("Directie");
+
+    private IEnumerable<BezoekActie> ZichtbareActies
+        => _alleenMijnActies ? _acties.Where(a => a.WerknemerId == Ik.WerknemerId) : _acties;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        _aanwezig = await Repo.TabellenAanwezigAsync();
+        if (!_aanwezig) return;
+        try { _werknemers = (await Uren.GetWerknemersAsync()).OrderBy(w => w.Naam).ToList(); } catch { }
+        await Laad();
+
+        if (Id is int id) _open = id;
+        else if (NieuwVoorRelatie is int rel && Ik.Gekoppeld) { _nieuwRelatie = rel; _open = 0; }
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lijst = await Repo.ZoekAsync(_filter, Ik.WerknemerId, Directie, Max);
+            _acties = await Repo.OpenActiesAsync(null, Ik.WerknemerId, Directie);
+            _vervolg = await Repo.VervolgAsync(Vandaag, Ik.WerknemerId, Directie);
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+    }
+
+    private async Task VensterDicht(bool gewijzigd)
+    {
+        _open = null;
+        _nieuwRelatie = null;
+        // het adres weer zonder id of ?relatie, zodat vernieuwen niet opnieuw het venster opent
+        if (Id is not null || NieuwVoorRelatie is not null) Nav.NavigateTo("relaties/bezoekverslagen", replace: true);
+        if (gewijzigd) await Laad();
+    }
+
+    private async Task ZoekGewijzigd(ChangeEventArgs e) { _filter.Zoek = ((string?)e.Value ?? "").Trim(); await Laad(); }
+    private async Task WisZoek() { _filter.Zoek = ""; await Laad(); }
+    private async Task SoortGewijzigd(ChangeEventArgs e) { _filter.Soort = (string?)e.Value ?? ""; await Laad(); }
+
+    private async Task CollegaGewijzigd(ChangeEventArgs e)
+    {
+        _filter.WerknemerId = int.TryParse((string?)e.Value, out var w) ? w : null;
+        await Laad();
+    }
+
+    private async Task AlleenMijn() { _filter.WerknemerId = Ik.WerknemerId; await Laad(); }
+    private async Task FiltersOpheffen() { _filter = new BezoekFilter(); await Laad(); }
+
+    /// <summary>Een actie afvinken mag wie hem heeft, wie het verslag maakte, en Directie.</summary>
+    private bool MagActie(BezoekActie a) => Directie || a.WerknemerId == Ik.WerknemerId || a.WerknemerId is null;
+
+    private async Task ActieGereed(BezoekActie a, ChangeEventArgs e)
+    {
+        var klaar = e.Value is bool g && g;
+        try
+        {
+            await Repo.ZetActieGereedAsync(a.Id, klaar);
+            if (klaar) _acties.Remove(a);
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+    }
+
+    /// <summary>De eerste ~220 tekens van het verslag, op één regel.</summary>
+    private static string Fragment(string tekst)
+    {
+        var t = string.Join(' ', tekst.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return t.Length <= 220 ? t : t[..220].TrimEnd() + "…";
+    }
+}

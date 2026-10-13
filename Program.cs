@@ -138,6 +138,7 @@ if (liveDb)
     builder.Services.AddSingleton<ILiquiditeitRepository>(_ => new MySqlLiquiditeitRepository(cs!));
     builder.Services.AddSingleton<IBetalingRepository>(_ => new MySqlBetalingRepository(cs!));
     builder.Services.AddSingleton<IPOKlantRepository>(_ => new MySqlPOKlantRepository(cs!));
+    builder.Services.AddSingleton<IBezoekRepository>(_ => new MySqlBezoekRepository(cs!));
     builder.Services.AddSingleton<IInstellingRepository>(_ => new MySqlInstellingRepository(cs!));
     builder.Services.AddSingleton<IPlanningRepository>(_ => new MySqlPlanningRepository(cs!));
     builder.Services.AddSingleton<IComputerRepository>(_ => new MySqlComputerRepository(cs!));
@@ -167,6 +168,7 @@ else
     builder.Services.AddSingleton<ILiquiditeitRepository, GeenLiquiditeitRepository>();
     builder.Services.AddSingleton<IBetalingRepository, GeenBetalingRepository>();
     builder.Services.AddSingleton<IPOKlantRepository, GeenPOKlantRepository>();
+    builder.Services.AddSingleton<IBezoekRepository, GeenBezoekRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();
     builder.Services.AddSingleton<IComputerRepository, GeenComputerRepository>();
     builder.Services.AddSingleton<IBaseconeRepository, GeenBaseconeRepository>();

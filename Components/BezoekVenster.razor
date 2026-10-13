@@ -1,0 +1,601 @@
+@* Een bezoekverslag maken of bekijken. BezoekId: 0 = nieuw, een getal = dat verslag, null = dicht.
+   Bij een nieuw verslag vult RelatieId (bv. vanuit Relaties) de relatie alvast in. *@
+@inject IBezoekRepository Repo
+@inject IRelatieRepository Relaties
+@inject IProjectRepository Projecten
+@inject IBestelRepository Bestel
+@inject IUrenRepository Uren
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Filestore
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (BezoekId is not null)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster bz-venster" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@BezoekSoort.Pictogram(_b.Soort) @(_b.Id == 0 ? "Nieuw bezoekverslag" : _b.Titel)</h2>
+                <button class="klein" @onclick="Afbreken">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+                @if (_b.Id > 0 && !MagBewerken)
+                {
+                    <div class="melding bz-info">Alleen lezen: aanpassen kan de maker, wie erbij was en Directie.</div>
+                }
+
+                <input class="bz-titel" placeholder="Titel, bv. Kennismaking nieuwe lijn bij Tembo" value="@_b.Titel" maxlength="150"
+                       disabled="@(!MagBewerken)" @onchange="e => _b.Titel = Tekst(e)" />
+
+                <div class="bz-soorten">
+                    @foreach (var s in BezoekSoort.Alle)
+                    {
+                        <button class="klein @(_b.Soort == s ? "actief" : "")" disabled="@(!MagBewerken)" @onclick="() => _b.Soort = s">
+                            @BezoekSoort.Pictogram(s) @s
+                        </button>
+                    }
+                </div>
+
+                <div class="bz-tweeluik">
+                    <div class="bz-links">
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld">
+                                <label>Datum en tijd</label>
+                                <span class="bz-regel">
+                                    <NlDatum Waarde="DateOnly.FromDateTime(_b.Datum)" WaardeChanged="DatumGewijzigd" />
+                                    <input type="time" value="@_b.Datum.ToString("HH:mm")" disabled="@(!MagBewerken)" @onchange="TijdGewijzigd" />
+                                </span>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Relatie</label>
+                                @if (_relatieZoekOpen || _b.RelatieId is null)
+                                {
+                                    <div class="po-zoek">
+                                        <input placeholder="Zoek klant of leverancier…" value="@_relatieZoek" disabled="@(!MagBewerken)" @oninput="RelatieZoekGewijzigd" />
+                                        @if (_relaties.Count > 0)
+                                        {
+                                            <div class="po-keuzes">
+                                                @foreach (var rel in _relaties)
+                                                {
+                                                    <button class="wn-naam" @key="rel.Id" @onclick="() => KiesRelatie(rel)">@rel.Naam</button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="bz-regel">
+                                        <a href="relaties?id=@_b.RelatieId" target="_blank"><strong>@_b.Relatie</strong></a>
+                                        @if (MagBewerken) { <button class="klein" @onclick="() => _relatieZoekOpen = true">Wijzig</button> }
+                                    </span>
+                                }
+                            </div>
+                            <div class="wn-veld">
+                                <label>Project</label>
+                                @if (_projectZoekOpen)
+                                {
+                                    <div class="po-zoek">
+                                        <input placeholder="Projectnummer of omschrijving…" value="@_projectZoek" @oninput="ProjectZoekGewijzigd" />
+                                        @if (_projecten.Count > 0)
+                                        {
+                                            <div class="po-keuzes">
+                                                @foreach (var pr in _projecten)
+                                                {
+                                                    <button class="wn-naam" @key="pr.Id" @onclick="() => KiesProject(pr)">@pr.Nummer · @pr.Omschrijving</button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="bz-regel">
+                                        <span>@(_b.ProjectId is null ? "—" : _b.Project)</span>
+                                        @if (MagBewerken)
+                                        {
+                                            <button class="klein" @onclick="() => _projectZoekOpen = true">@(_b.ProjectId is null ? "Koppelen" : "Wijzig")</button>
+                                            @if (_b.ProjectId is not null) { <button class="klein" @onclick="() => { _b.ProjectId = null; _b.Project = string.Empty; }">✕</button> }
+                                        }
+                                    </span>
+                                }
+                            </div>
+                            <div class="wn-veld">
+                                <label>Locatie</label>
+                                <input value="@_b.Locatie" maxlength="150" placeholder="@(_b.Soort == BezoekSoort.BijMde ? "MDE, Tholen" : "")"
+                                       disabled="@(!MagBewerken)" @onchange="e => _b.Locatie = Tekst(e)" />
+                            </div>
+                        </div>
+
+                        @* ---------- wie waren erbij ---------- *@
+                        <h3 class="wn-kop">Wie waren erbij</h3>
+                        <div class="bz-deelnemers">
+                            <span class="bz-groep">MDE</span>
+                            @foreach (var d in _b.Collegas.ToList())
+                            {
+                                <span class="br-chip bz-chip">@d.Naam
+                                    @if (MagBewerken) { <button class="bz-weg" title="Weghalen" @onclick="() => _b.Deelnemers.Remove(d)">×</button> }
+                                </span>
+                            }
+                            @if (MagBewerken)
+                            {
+                                <select class="bz-erbij" value="" @onchange="CollegaErbij">
+                                    <option value="">＋ collega</option>
+                                    @foreach (var w in _werknemers.Where(w => _b.Deelnemers.All(x => x.WerknemerId != w.WerknemerId)))
+                                    {
+                                        <option value="@w.WerknemerId">@w.Naam</option>
+                                    }
+                                </select>
+                            }
+                        </div>
+                        <div class="bz-deelnemers">
+                            <span class="bz-groep">@(_b.Relatie.Length > 0 ? _b.Relatie : "Relatie")</span>
+                            @foreach (var g in _b.Gasten.ToList())
+                            {
+                                <span class="br-chip bz-chip bz-gast">@g.Naam
+                                    @if (MagBewerken) { <button class="bz-weg" title="Weghalen" @onclick="() => _b.Deelnemers.Remove(g)">×</button> }
+                                </span>
+                            }
+                            @if (MagBewerken)
+                            {
+                                @if (_contacten.Count > 0)
+                                {
+                                    <select class="bz-erbij" value="" @onchange="ContactErbij">
+                                        <option value="">＋ contactpersoon</option>
+                                        @foreach (var c in _contacten.Where(c => _b.Deelnemers.All(x => x.ContactId != c.Id)))
+                                        {
+                                            <option value="@c.Id">@c.Naam</option>
+                                        }
+                                    </select>
+                                }
+                                <input @key="_losseTeller" class="bz-erbij" placeholder="＋ andere naam" @onchange="LosseNaamErbij" />
+                            }
+                        </div>
+
+                        @* ---------- verslag ---------- *@
+                        <h3 class="wn-kop">Verslag</h3>
+                        <textarea class="bz-verslag" placeholder="Wat is er besproken? Afspraken, indrukken, kansen…" disabled="@(!MagBewerken)"
+                                  @onchange="e => _b.Verslag = (string?)e.Value ?? string.Empty">@_b.Verslag</textarea>
+
+                        @* ---------- actiepunten ---------- *@
+                        <h3 class="wn-kop">Actiepunten</h3>
+                        <table class="kiezer-tabel bz-acties">
+                            <tbody>
+                                @foreach (var a in _b.Acties)
+                                {
+                                    var actie = a;
+                                    <tr @key="actie" class="@(actie.Gereed ? "bz-gereed" : "")">
+                                        <td style="width:2rem" class="c">
+                                            <input type="checkbox" checked="@actie.Gereed" disabled="@(!MagBewerken)" title="Gereed"
+                                                   @onchange="e => ActieGereed(actie, e)" />
+                                        </td>
+                                        <td><input value="@actie.Omschrijving" maxlength="250" placeholder="Wat moet er gebeuren?" disabled="@(!MagBewerken)"
+                                                   @onchange="e => actie.Omschrijving = Tekst(e)" /></td>
+                                        <td style="width:11rem">
+                                            <select value="@(actie.WerknemerId?.ToString() ?? "")" disabled="@(!MagBewerken)"
+                                                    @onchange="e => actie.WerknemerId = int.TryParse((string?)e.Value, out var wieId) ? wieId : null">
+                                                <option value="">— wie —</option>
+                                                @foreach (var wn in _werknemers)
+                                                {
+                                                    <option value="@wn.WerknemerId">@wn.Naam</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td style="width:8rem"><NlDatum Waarde="actie.Deadline" WaardeChanged="dl => actie.Deadline = dl" /></td>
+                                        <td style="width:2rem">
+                                            @if (MagBewerken) { <button class="klein rood" title="Actie wissen" @onclick="() => _b.Acties.Remove(actie)">✕</button> }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (MagBewerken)
+                        {
+                            <button class="klein" @onclick="NieuweActie">＋ Actiepunt</button>
+                        }
+
+                        <div class="wn-velden een-kolom bz-onder">
+                            <div class="wn-veld">
+                                <label>Volgend contact</label>
+                                <NlDatum Waarde="_b.Vervolg" WaardeChanged="v => _b.Vervolg = v" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Vertrouwelijk</label>
+                                <label class="bz-vink">
+                                    <input type="checkbox" checked="@_b.Vertrouwelijk" disabled="@(!MagBewerken)"
+                                           @onchange="e => _b.Vertrouwelijk = e.Value is bool vb && vb" />
+                                    alleen zichtbaar voor wie erbij was, de maker en Directie
+                                </label>
+                            </div>
+                            @if (_b.Id > 0)
+                            {
+                                <div class="wn-veld">
+                                    <label>Vastgelegd</label>
+                                    <span class="wn-vast">
+                                        @(_b.AangemaaktOp?.ToString("d-M-yyyy HH:mm")) door @_b.AangemaaktDoor
+                                        @if (_b.GewijzigdOp is DateTime gw && _b.GewijzigdDoor.Length > 0) { <text> · gewijzigd @gw.ToString("d-M HH:mm") door @_b.GewijzigdDoor</text> }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* ---------- foto's en bijlagen ---------- *@
+                    <div class="bz-rechts">
+                        <h3 class="wn-kop">Foto's en bijlagen</h3>
+                        @if (MagBewerken)
+                        {
+                            <div class="bz-upload">
+                                <label class="knopje bz-knop">📷 Foto maken
+                                    <InputFile OnChange="BestandenGekozen" accept="image/*" capture="environment" class="bz-verborgen" />
+                                </label>
+                                <label class="knopje bz-knop">📎 Bestanden kiezen
+                                    <InputFile OnChange="BestandenGekozen" multiple class="bz-verborgen" />
+                                </label>
+                            </div>
+                        }
+                        <div class="bz-fotos">
+                            @foreach (var doc in _documenten)
+                            {
+                                <div class="bz-foto">
+                                    @if (IsAfbeelding(doc.Bestandsnaam))
+                                    {
+                                        <img src="@("bestand/" + doc.FileStoreId)" alt="@doc.Bestandsnaam" loading="lazy" @onclick="() => _groot = doc.FileStoreId" />
+                                    }
+                                    else
+                                    {
+                                        <a class="bz-bestand" href="@("bestand/" + doc.FileStoreId)" target="_blank">📄 @doc.Bestandsnaam</a>
+                                    }
+                                    <span class="bz-fotoknoppen">
+                                        <a class="knopje" href="@("bestand/" + doc.FileStoreId + "/download")" title="Downloaden">⭳</a>
+                                        @if (MagBewerken) { <button class="klein rood" title="Wissen" @onclick="() => WisDocument(doc)">✕</button> }
+                                    </span>
+                                </div>
+                            }
+                            @foreach (var wt in _wachtrij)
+                            {
+                                <div class="bz-foto bz-wacht">
+                                    <span>⏳ @wt.Naam</span>
+                                    <span class="uitleg">wordt opgeslagen bij Opslaan</span>
+                                    <button class="klein rood" @onclick="() => _wachtrij.Remove(wt)">✕</button>
+                                </div>
+                            }
+                        </div>
+                        @if (_documenten.Count == 0 && _wachtrij.Count == 0)
+                        {
+                            <p class="uitleg">Nog niets. Op een telefoon opent "Foto maken" direct de camera.</p>
+                        }
+                    </div>
+                </div>
+
+                <div class="btngroep-rand">
+                    @if (_b.Id > 0 && MagWissen)
+                    {
+                        <button class="klein rood" @onclick="Wis">Verslag wissen</button>
+                    }
+                    <button class="klein" title="Het verslag als tekst op het klembord, om te mailen" @onclick="Kopieer">📋 Kopieer als tekst</button>
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="Afbreken">@(MagBewerken ? "Annuleren" : "Sluiten")</button>
+                    @if (MagBewerken)
+                    {
+                        <button class="klein" disabled="@_bezig" @onclick="() => Bewaar(false)">Opslaan</button>
+                        <button class="primair" disabled="@_bezig" @onclick="() => Bewaar(true)">Opslaan en sluiten</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_groot is int grootId)
+    {
+        <div class="cmdk-overlay midden bz-lichtbak" @onclick="() => _groot = null">
+            <img src="@("bestand/" + grootId)" alt="" />
+        </div>
+    }
+}
+
+@code {
+    /// <summary>0 = nieuw, een getal = dat verslag, null = dicht.</summary>
+    [Parameter] public int? BezoekId { get; set; }
+
+    /// <summary>Bij een nieuw verslag: deze relatie alvast invullen.</summary>
+    [Parameter] public int? RelatieId { get; set; }
+
+    /// <summary>true als er iets is opgeslagen of gewist.</summary>
+    [Parameter] public EventCallback<bool> Sluiten { get; set; }
+
+    public const int StoreTypeBezoek = 330;     // FileStoreType 'Bezoekverslag' (Bezoekverslagen_MariaDB.sql)
+
+    private Bezoek _b = new();
+    private int? _geladenVoor = -1;
+    private string _zoalsGeopend = "";
+    private bool _gewijzigd, _bezig, _fout, _overlayDruk, _relatieZoekOpen, _projectZoekOpen;
+    private string? _melding;
+    private string _relatieZoek = "", _projectZoek = "";
+    private int _losseTeller;
+    private List<Keuze> _relaties = new();
+    private List<ProjectRegel> _projecten = new();
+    private List<Keuze> _contacten = new();
+    private List<Werknemer> _werknemers = new();
+    private List<Bestand> _documenten = new();
+    private record Wachtend(string Naam, byte[] Inhoud);
+    private List<Wachtend> _wachtrij = new();
+    private int? _groot;
+
+    private bool Directie => Ik.Mag("Directie");
+    private bool MagBewerken => Ik.Gekoppeld && (_b.Id == 0 || Directie || _b.AangemaaktDoorId == Ik.WerknemerId
+                                                 || _b.Deelnemers.Any(d => d.WerknemerId == Ik.WerknemerId));
+    private bool MagWissen => Directie || _b.AangemaaktDoorId == Ik.WerknemerId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (BezoekId == _geladenVoor) return;
+        _geladenVoor = BezoekId;
+        _melding = null; _relatieZoek = ""; _projectZoek = ""; _relaties = new(); _projecten = new();
+        _contacten = new(); _documenten = new(); _wachtrij = new(); _gewijzigd = false; _groot = null;
+        _projectZoekOpen = false;
+        if (BezoekId is null) return;
+
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            if (_werknemers.Count == 0) _werknemers = (await Uren.GetWerknemersAsync()).OrderBy(w => w.Naam).ToList();
+
+            if (BezoekId == 0)
+            {
+                _b = new Bezoek { Datum = new DateTime(DateTime.Today.Year, DateTime.Today.Month, DateTime.Today.Day, DateTime.Now.Hour, 0, 0) };
+                // wie het verslag maakt was er meestal bij
+                if (Ik.WerknemerId is int ik) _b.Deelnemers.Add(new BezoekDeelnemer { WerknemerId = ik, Naam = Ik.Naam });
+                if (RelatieId is int rel)
+                {
+                    var velden = await Relaties.GetVeldenAsync(rel);
+                    _b.RelatieId = rel;
+                    _b.Relatie = velden.GetValueOrDefault("name")?.ToString() ?? "";
+                }
+                _relatieZoekOpen = _b.RelatieId is null;
+            }
+            else
+            {
+                _b = await Repo.GetAsync(BezoekId.Value, Ik.WerknemerId, Directie) ?? new Bezoek();
+                if (_b.Id == 0) Toon("Dit verslag bestaat niet (meer), of is vertrouwelijk.", true);
+                _relatieZoekOpen = false;
+                await LaadDocumenten();
+            }
+            await LaadContacten();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        _zoalsGeopend = Vingerafdruk();
+    }
+
+    private string Vingerafdruk() => System.Text.Json.JsonSerializer.Serialize(_b) + _wachtrij.Count;
+
+    private async Task LaadContacten()
+    {
+        try { _contacten = _b.RelatieId is int r ? await Bestel.GetContactenAsync(r) : new(); }
+        catch { _contacten = new(); }
+    }
+
+    private async Task LaadDocumenten()
+    {
+        if (_b.Id == 0 || !WnRepo.Beschikbaar) { _documenten = new(); return; }
+        try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeBezoek, _b.Id); }
+        catch { _documenten = new(); }
+    }
+
+    // ---- datum ----
+    private void DatumGewijzigd(DateOnly? d)
+    {
+        if (d is DateOnly dag) _b.Datum = dag.ToDateTime(TimeOnly.FromDateTime(_b.Datum));
+    }
+
+    private void TijdGewijzigd(ChangeEventArgs e)
+    {
+        if (TimeOnly.TryParse((string?)e.Value, out var t)) _b.Datum = DateOnly.FromDateTime(_b.Datum).ToDateTime(t);
+    }
+
+    // ---- relatie en project ----
+    private async Task RelatieZoekGewijzigd(ChangeEventArgs e)
+    {
+        _relatieZoek = (string?)e.Value ?? "";
+        var zoek = _relatieZoek.Trim();
+        if (zoek.Length < 2) { _relaties = new(); return; }
+        try { _relaties = await Relaties.ZoekAsync(zoek, false, false, 0, 15); }
+        catch { _relaties = new(); }
+    }
+
+    private async Task KiesRelatie(Keuze k)
+    {
+        if (_b.RelatieId != k.Id)
+            _b.Deelnemers.RemoveAll(d => d.ContactId is not null);    // contactpersonen horen bij de vorige relatie
+        _b.RelatieId = k.Id;
+        _b.Relatie = k.Naam;
+        _relatieZoekOpen = false; _relatieZoek = ""; _relaties = new();
+        await LaadContacten();
+    }
+
+    private async Task ProjectZoekGewijzigd(ChangeEventArgs e)
+    {
+        _projectZoek = (string?)e.Value ?? "";
+        var zoek = _projectZoek.Trim();
+        if (zoek.Length < 2) { _projecten = new(); return; }
+        try { _projecten = await Projecten.ZoekProjectenAsync(null, zoek, null, 0, 15); }
+        catch { _projecten = new(); }
+    }
+
+    private void KiesProject(ProjectRegel p)
+    {
+        _b.ProjectId = p.Id;
+        _b.Project = $"{p.Nummer} · {p.Omschrijving}";
+        _projectZoekOpen = false; _projectZoek = ""; _projecten = new();
+    }
+
+    // ---- deelnemers ----
+    private void CollegaErbij(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var id)) return;
+        var w = _werknemers.FirstOrDefault(x => x.WerknemerId == id);
+        if (w is not null && _b.Deelnemers.All(d => d.WerknemerId != id))
+            _b.Deelnemers.Add(new BezoekDeelnemer { WerknemerId = id, Naam = w.Naam });
+    }
+
+    private void ContactErbij(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var id)) return;
+        var c = _contacten.FirstOrDefault(x => x.Id == id);
+        if (c is not null && _b.Deelnemers.All(d => d.ContactId != id))
+            _b.Deelnemers.Add(new BezoekDeelnemer { ContactId = id, Naam = c.Naam });
+    }
+
+    private void LosseNaamErbij(ChangeEventArgs e)
+    {
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (naam.Length > 0) _b.Deelnemers.Add(new BezoekDeelnemer { Naam = naam });
+        _losseTeller++;          // veld opnieuw tekenen, dus leeg
+    }
+
+    // ---- acties ----
+    private void NieuweActie() => _b.Acties.Add(new BezoekActie { WerknemerId = Ik.WerknemerId });
+
+    private void ActieGereed(BezoekActie a, ChangeEventArgs e)
+    {
+        a.Gereed = e.Value is bool g && g;
+        a.GereedOp = a.Gereed ? DateTime.Now : null;
+    }
+
+    // ---- foto's en bijlagen ----
+    private static bool IsAfbeelding(string naam)
+        => Path.GetExtension(naam).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".bmp" or ".heic";
+
+    private async Task BestandenGekozen(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount > 30) { Toon("Maximaal 30 bestanden tegelijk.", true); return; }
+        var fouten = new List<string>();
+        foreach (var f in e.GetMultipleFiles(30))
+        {
+            try
+            {
+                using var ms = new MemoryStream();
+                await f.OpenReadStream(40 * 1024 * 1024).CopyToAsync(ms);
+                // een foto van de telefooncamera heet vaak gewoon image.jpg
+                var naam = f.Name.Equals("image.jpg", StringComparison.OrdinalIgnoreCase)
+                    ? $"Foto {DateTime.Now:yyyy-MM-dd HH.mm.ss}.jpg" : f.Name;
+                _wachtrij.Add(new Wachtend(naam, ms.ToArray()));
+            }
+            catch (Exception ex) { fouten.Add($"{f.Name}: {ex.Message}"); }
+        }
+        if (fouten.Count > 0) Toon(string.Join(" ", fouten), true);
+        if (_b.Id > 0) await UploadWachtrij();
+    }
+
+    private async Task UploadWachtrij()
+    {
+        var fouten = new List<string>();
+        foreach (var w in _wachtrij.ToList())
+        {
+            try
+            {
+                using var stroom = new MemoryStream(w.Inhoud);
+                await Filestore.ToevoegenAsync(stroom, w.Naam, StoreTypeBezoek, _b.Id, Ik.WerknemerId ?? 0);
+                _wachtrij.Remove(w);
+            }
+            catch (Exception ex) { fouten.Add($"{w.Naam}: {ex.Message}"); }
+        }
+        await LaadDocumenten();
+        if (fouten.Count > 0) Toon("Niet opgeslagen: " + string.Join(" ", fouten), true);
+    }
+
+    private async Task WisDocument(Bestand d)
+    {
+        if (!await Bevestig($"{d.Bestandsnaam} wissen?")) return;
+        try { await Filestore.VerwijderAsync(d.FileStoreId); await LaadDocumenten(); }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- kopiëren als tekst (om te mailen) ----
+    private async Task Kopieer()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(_b.Titel);
+        sb.AppendLine($"{_b.Soort} · {_b.Datum:dddd d MMMM yyyy HH:mm}".Replace("  ", " "));
+        if (_b.Relatie.Length > 0) sb.AppendLine("Relatie: " + _b.Relatie);
+        if (_b.Project.Length > 0) sb.AppendLine("Project: " + _b.Project);
+        if (_b.Locatie.Length > 0) sb.AppendLine("Locatie: " + _b.Locatie);
+        if (_b.Collegas.Any()) sb.AppendLine("MDE: " + string.Join(", ", _b.Collegas.Select(d => d.Naam)));
+        if (_b.Gasten.Any()) sb.AppendLine((_b.Relatie.Length > 0 ? _b.Relatie : "Relatie") + ": " + string.Join(", ", _b.Gasten.Select(d => d.Naam)));
+        sb.AppendLine();
+        sb.AppendLine(_b.Verslag.Trim());
+        if (_b.Acties.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Actiepunten:");
+            foreach (var a in _b.Acties)
+            {
+                var wie = _werknemers.FirstOrDefault(w => w.WerknemerId == a.WerknemerId)?.Naam;
+                sb.AppendLine($"- {(a.Gereed ? "[x] " : "")}{a.Omschrijving}{(wie is null ? "" : " (" + wie + ")")}{(a.Deadline is DateOnly dl ? " vóór " + dl.ToString("d-M-yyyy") : "")}");
+            }
+        }
+        if (_b.Vervolg is DateOnly v) { sb.AppendLine(); sb.AppendLine("Volgend contact: " + v.ToString("d-M-yyyy")); }
+
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", sb.ToString()); Toon("Verslag als tekst gekopieerd; plak het in een mail.", false); }
+        catch { Toon("Kopiëren lukte niet (de browser staat het klembord niet toe).", true); }
+    }
+
+    // ---- opslaan, wissen, sluiten ----
+    private async Task Bewaar(bool sluiten)
+    {
+        if (!MagBewerken) return;
+        if (_b.Titel.Trim().Length == 0) { Toon("Geef het verslag een titel.", true); return; }
+
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAsync(_b, Ik.WerknemerId);
+            if (_wachtrij.Count > 0) await UploadWachtrij();
+            _gewijzigd = true;
+            if (sluiten && _wachtrij.Count == 0) { _geladenVoor = -1; await Sluiten.InvokeAsync(true); return; }
+
+            var vers = await Repo.GetAsync(_b.Id, Ik.WerknemerId, Directie);
+            if (vers is not null) _b = vers;
+            _zoalsGeopend = Vingerafdruk();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Wis()
+    {
+        if (!await Bevestig($"Verslag '{_b.Titel}' wissen, met de actiepunten?\n\nFoto's en bijlagen blijven in de filestore.")) return;
+        try { await Repo.WisAsync(_b.Id); _geladenVoor = -1; await Sluiten.InvokeAsync(true); }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Afbreken()
+    {
+        if (MagBewerken && Vingerafdruk() != _zoalsGeopend && !await Bevestig("Wijzigingen niet opslaan?")) return;
+        _geladenVoor = -1;
+        await Sluiten.InvokeAsync(_gewijzigd);
+    }
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Afbreken();
+    }
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+}

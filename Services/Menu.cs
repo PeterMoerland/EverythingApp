@@ -52,6 +52,7 @@ public static class Menu
         new("relaties", "Relaties", "users",
             new MenuGroep("Onderhoud",
                 new MenuItem("Relaties (klanten en leveranciers)", "/relaties"),
+                new MenuItem("Bezoekverslagen", "/relaties/bezoekverslagen"),
                 new MenuItem("Tariefafspraken", "/relaties/tarieven"),
                 new MenuItem("Geheimhoudingsovereenkomsten", "/relaties/nda"))),
 

@@ -7,6 +7,7 @@
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject IBezoekRepository Bezoeken
 
 <div class="page">
     <header class="topbar">
@@ -89,6 +90,11 @@
                                 @onclick="KiesDocumenten">Documenten (@_documenten.Count)</button>
                         <button class="@("Mail" == _tab ? "actief" : "")"
                                 @onclick="KiesMail">Mail</button>
+                        @if (Bezoeken.Beschikbaar)
+                        {
+                            <button class="@("Bezoeken" == _tab ? "actief" : "")"
+                                    @onclick="KiesBezoeken">Bezoeken@(_bezoekenGeladen ? $" ({_bezoeken.Count})" : "")</button>
+                        }
                     </div>
 
                     @if (_tab == "Contactpersonen")
@@ -247,6 +253,41 @@
                                                        title="In Gmail openen">↗</a>
                                                 }
                                             </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    }
+                    else if (_tab == "Bezoeken")
+                    {
+                        <div class="tl-balk">
+                            @if (Ik.Gekoppeld && _bezoekenAanwezig)
+                            {
+                                <a class="knopje" href="@($"relaties/bezoekverslagen?relatie={_gekozenId}")">＋ Bezoekverslag</a>
+                            }
+                            <a class="knopje" href="relaties/bezoekverslagen">Alle bezoekverslagen</a>
+                        </div>
+                        @if (!_bezoekenAanwezig)
+                        {
+                            <p class="uitleg">De tabellen voor bezoekverslagen bestaan nog niet (Bezoekverslagen_MariaDB.sql).</p>
+                        }
+                        else if (_bezoeken.Count == 0)
+                        {
+                            <p class="uitleg">Nog geen bezoekverslagen bij deze relatie.</p>
+                        }
+                        else
+                        {
+                            <table class="kiezer-tabel">
+                                <thead><tr><th style="width:7rem">Datum</th><th>Titel</th><th style="width:16rem">Wie</th></tr></thead>
+                                <tbody>
+                                    @foreach (var bz in _bezoeken)
+                                    {
+                                        <tr @key="bz.Id">
+                                            <td>@bz.Datum.ToString("d-M-yyyy")</td>
+                                            <td>@BezoekSoort.Pictogram(bz.Soort) <a href="@($"relaties/bezoekverslagen/{bz.Id}")">@bz.Titel</a>
+                                                @if (bz.Vertrouwelijk) { <span title="Vertrouwelijk"> 🔒</span> }</td>
+                                            <td>@string.Join(", ", bz.Collegas.Select(c => c.Naam))</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -641,6 +682,31 @@
          : !string.IsNullOrWhiteSpace(c.Telefoon) ? c.Telefoon
          : "";
 
+    // ---- tabblad Bezoeken: verwijzingen naar de bezoekverslagen van deze relatie ----
+    private List<Bezoek> _bezoeken = new();
+    private bool _bezoekenGeladen, _bezoekenAanwezig;
+
+    private async Task KiesBezoeken()
+    {
+        _tab = "Bezoeken";
+        await LaadBezoeken();
+    }
+
+    private async Task LaadBezoeken()
+    {
+        _bezoeken = new();
+        _bezoekenGeladen = false;
+        if (_gekozenId is not int id) return;
+        try
+        {
+            _bezoekenAanwezig = await Bezoeken.TabellenAanwezigAsync();
+            if (_bezoekenAanwezig)
+                _bezoeken = await Bezoeken.ZoekAsync(new BezoekFilter { RelatieId = id }, Ik.WerknemerId, Ik.Mag("Directie"), 200);
+            _bezoekenGeladen = true;
+        }
+        catch (Exception ex) { Toon("Bezoekverslagen ophalen mislukt: " + ex.Message, true); }
+    }
+
     private async Task KiesDocumenten()
     {
         _tab = "Documenten";
@@ -787,6 +853,7 @@
         _mails = new();          // mail hoort bij de vorige relatie
         _mailZoek = "";
         if (_tab == "Mail") await KiesMail();      // meteen opnieuw zoeken voor deze relatie
+        if (_tab == "Bezoeken") await LaadBezoeken(); else { _bezoeken = new(); _bezoekenGeladen = false; }
     }
 
     private async Task VerwijderRelatie()
