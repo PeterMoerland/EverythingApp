@@ -265,6 +265,7 @@ button.rood { color: var(--rood); border-color: var(--rood); background: #fff; }
 .wn-filters input:not([type="checkbox"]) { width: 100%; }
 .zoekregel { display: flex; gap: .25rem; }
 .zoekregel input { flex: 1; min-width: 0; }
+.zoekregel select { flex: 1; min-width: 0; }
 .wn-naam.laden { color: #bbb; }
 .kiezer-tabel td.wijzer { color: var(--accent); font-weight: 700; padding: 0; }
 
@@ -1775,6 +1776,22 @@ html[data-thema="donker"] .banktotalen { box-shadow: 0 2px 12px rgba(0,0,0,.45);
 .bevestig-ja { background: #c62828; color: #fff; }
 .bevestig-ja:hover { background: #a81e1e; }
 .bevestig-ja:focus { outline: 3px solid #f9c74f; outline-offset: 1px; }
+
+/* ---- Groepenkiezer: nieuwe (sub)groep maken ---- */
+.grplus { margin-left: auto; padding: 0 .45rem; line-height: 1.2; font-size: .85rem; color: #789; background: transparent; border: 1px solid transparent; border-radius: 4px; opacity: 0; }
+.grrij:hover .grplus { opacity: 1; }
+.grplus:hover { border-color: #ccd5e0; background: #f0f3f7; color: var(--accent); }
+.grnieuw { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; padding: .5rem .6rem; border: 1px dashed #ccd5e0; border-radius: 6px; background: #fafbfd; }
+.grnieuw input { flex: 1; min-width: 12rem; }
+html[data-thema="donker"] .grnieuw { background: var(--d1); border-color: var(--d3); }
+
+/* ---- Artikelfoto: plakken uit klembord / bestand kiezen ---- */
+.foto-knoppen { justify-content: center; margin-top: .4rem; gap: .4rem; }
+.foto-knoppen label.knopje { cursor: pointer; }
+
+/* ---- Merkkiezer (combobox met NotInList) ---- */
+.merk-kiezer { display: inline-flex; flex-direction: column; gap: .15rem; width: 100%; }
+.merk-kiezer input { width: 100%; }
 
 /* ---- Uitgaande factuur: de regeltabel in het venster ---- */
 .vf-regels input { width: 100%; box-sizing: border-box; }

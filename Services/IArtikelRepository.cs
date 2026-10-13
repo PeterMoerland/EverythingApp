@@ -33,11 +33,24 @@ public interface IArtikelRepository
     /// <summary>Bewaart de bewerkbare velden van een artikel.</summary>
     Task BewaarArtikelAsync(Artikel artikel, int? doorWerknemerId);
 
+    /// <summary>
+    /// Nieuw artikel (zoals het Access-formulier ArtikelNieuw): code MDE, omschrijving,
+    /// merk, fabrikantcode en optioneel een artikelgroep. Geeft het nieuwe ArtikelID.
+    /// </summary>
+    Task<int> NieuwArtikelAsync(string code, string omschrijving, int? merkId, string? fabrikantCode,
+                                int? groepId, int? doorWerknemerId);
+
     /// <summary>Koppelt een artikel aan een groep, of haalt de koppeling weg.</summary>
     Task ZetGroepAsync(int artikelId, int groepId, bool aan);
 
+    /// <summary>Nieuwe artikelgroep, onder <paramref name="ouderId"/> of als hoofdgroep (null). Levert het nieuwe ArtikelGroepID.</summary>
+    Task<int> NieuweGroepAsync(string naam, int? ouderId);
+
     /// <summary>De merken voor het keuzelijstje, op naam gesorteerd.</summary>
     Task<List<(int Id, string Naam)>> GetMerkenAsync();
+
+    /// <summary>Nieuw merk in de merkentabel; bestaat de naam al (hoofdletterongevoelig), dan dat bestaande ID.</summary>
+    Task<int> NieuwMerkAsync(string naam);
 
     /// <summary>Aliassen uit SEE Electrical en Inventor.</summary>
     Task<List<(string Alias, string Bron)>> GetAliassenAsync(int artikelId);
@@ -82,8 +95,12 @@ public class GeenArtikelRepository : IArtikelRepository
     public Task<List<Groepknoop>> GetGroepenBoomAsync() => Task.FromResult(new List<Groepknoop>());
     public string GroepenHerkomst => "geen database";
     public Task BewaarArtikelAsync(Artikel artikel, int? doorWerknemerId) => Task.CompletedTask;
+    public Task<int> NieuwArtikelAsync(string code, string omschrijving, int? merkId, string? fabrikantCode,
+                                       int? groepId, int? doorWerknemerId) => Task.FromResult(0);
     public Task ZetGroepAsync(int artikelId, int groepId, bool aan) => Task.CompletedTask;
+    public Task<int> NieuweGroepAsync(string naam, int? ouderId) => Task.FromResult(0);
     public Task<List<(int Id, string Naam)>> GetMerkenAsync() => Task.FromResult(new List<(int, string)>());
+    public Task<int> NieuwMerkAsync(string naam) => Task.FromResult(0);
     public Task<List<(string Alias, string Bron)>> GetAliassenAsync(int artikelId)
         => Task.FromResult(new List<(string, string)>());
     public Task<List<Samenstellingregel>> GetSamenstellingAsync(int artikelId)
@@ -105,7 +122,14 @@ public class MySqlArtikelRepository : IArtikelRepository
     private Dictionary<int, string>? _merkNamen;
     private string? _eenheidTabel;
 
-    public MySqlArtikelRepository(string connectionString) => _cs = connectionString;
+    /// <summary>ArtikelEenheidID voor een nieuw artikel (Productie:StandaardArtikelEenheidId; 2 = stuks).</summary>
+    private readonly int _standaardEenheidId;
+
+    public MySqlArtikelRepository(string connectionString, int standaardEenheidId = 2)
+    {
+        _cs = connectionString;
+        _standaardEenheidId = standaardEenheidId;
+    }
 
     public bool Beschikbaar => true;
 
@@ -660,6 +684,53 @@ public class MySqlArtikelRepository : IArtikelRepository
         return _ouderKolom;
     }
 
+    public async Task<int> NieuweGroepAsync(string naam, int? ouderId)
+    {
+        naam = (naam ?? "").Trim();
+        if (naam.Length == 0) throw new ArgumentException("Geef de groep een naam.");
+        if (naam.IndexOfAny(new[] { '\\', '/', '>', '|' }) >= 0) throw new ArgumentException("Een groepsnaam mag geen \\ / > of | bevatten (dat zijn padscheiders).");
+
+        await using var cn = await OpenAsync();
+        var ouderKolom = await OuderKolomAsync(cn);
+
+        // ParentTree = het pad bóven de nieuwe groep (zoals Access het bijhoudt):
+        // het volledige pad van de ouder, inclusief de naam van de ouder zelf.
+        var boom = "";
+        if (ouderId is int o)
+        {
+            await using var ouder = new MySqlCommand(
+                "SELECT COALESCE(`Omschrijving`, ''), COALESCE(`ParentTree`, '') FROM `ArtikelGroep` WHERE `ArtikelGroepID` = @id", cn);
+            ouder.Parameters.AddWithValue("@id", o);
+            await using var r = await ouder.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) throw new InvalidOperationException($"Bovenliggende groep #{o} bestaat niet.");
+            var ouderNaam = r.GetString(0).Trim();
+            var ouderTree = r.GetString(1).Trim();
+            var scheider = Scheider(new[] { ouderTree });
+            boom = VolledigPad(ouderNaam, ouderTree, scheider);
+        }
+
+        // Dezelfde naam op dezelfde plek is bijna altijd een vergissing.
+        await using (var dubbel = new MySqlCommand(
+            "SELECT `ArtikelGroepID` FROM `ArtikelGroep` WHERE `Omschrijving` = @naam " +
+            (ouderKolom is null ? "" : $"AND COALESCE(`{ouderKolom}`, 0) = @ouder ") + "LIMIT 1", cn))
+        {
+            dubbel.Parameters.AddWithValue("@naam", naam);
+            if (ouderKolom is not null) dubbel.Parameters.AddWithValue("@ouder", ouderId ?? 0);
+            var bestaat = await dubbel.ExecuteScalarAsync();
+            if (bestaat is not null and not DBNull)
+                throw new InvalidOperationException($"Er bestaat hier al een groep '{naam}' (#{bestaat}).");
+        }
+
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ArtikelGroep` SET `Omschrijving` = @naam, `ParentTree` = @tree" +
+            (ouderKolom is null ? "" : $", `{ouderKolom}` = @ouder"), cn);
+        cmd.Parameters.AddWithValue("@naam", naam);
+        cmd.Parameters.AddWithValue("@tree", boom);
+        if (ouderKolom is not null) cmd.Parameters.AddWithValue("@ouder", (object?)ouderId ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+        return (int)cmd.LastInsertedId;
+    }
+
     /// <summary>Welk teken de niveaus in het pad scheidt; dat verschilt per database.</summary>
     private static char Scheider(IEnumerable<string> paden)
     {
@@ -832,6 +903,44 @@ public class MySqlArtikelRepository : IArtikelRepository
     //  Alleen de velden die het scherm laat bewerken. De kolommen die de
     //  database zelf bijhoudt (aantal in voorraad, uitgeleend) blijven met rust.
     // ============================================================
+    public async Task<int> NieuwArtikelAsync(string code, string omschrijving, int? merkId, string? fabrikantCode,
+                                             int? groepId, int? doorWerknemerId)
+    {
+        if (string.IsNullOrWhiteSpace(code)) throw new ArgumentException("Artikelcode MDE is verplicht.");
+        static object Los(string? tekst) => string.IsNullOrWhiteSpace(tekst) ? DBNull.Value : tekst.Trim();
+
+        await using var cn = await OpenAsync();
+
+        // Dezelfde code twee keer is bijna altijd een vergissing.
+        await using (var dubbel = new MySqlCommand(
+            "SELECT `ArtikelID` FROM `Artikelen` WHERE `ArtikelCodeMDE` = @code LIMIT 1", cn))
+        {
+            dubbel.Parameters.AddWithValue("@code", code.Trim());
+            var bestaat = await dubbel.ExecuteScalarAsync();
+            if (bestaat is not null and not DBNull)
+                throw new InvalidOperationException($"Er bestaat al een artikel met code '{code.Trim()}' (#{bestaat}).");
+        }
+
+        int id;
+        await using (var cmd = new MySqlCommand(
+            "INSERT INTO `Artikelen` SET `ArtikelCodeMDE` = @code, `OmschrijvingNL` = @nl, `BrandID` = @merk, " +
+            "  `ArtikelCodeFactory` = @fab, `ArtikelEenheidID` = @eenheid, `DatumLaatsteAanpassing` = @nu, `AangepastDoor` = @door", cn))
+        {
+            cmd.Parameters.AddWithValue("@code", code.Trim());
+            cmd.Parameters.AddWithValue("@eenheid", _standaardEenheidId);   // stuks
+            cmd.Parameters.AddWithValue("@nl", Los(omschrijving));
+            cmd.Parameters.AddWithValue("@merk", (object?)merkId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@fab", Los(fabrikantCode));
+            cmd.Parameters.AddWithValue("@nu", DateTime.Now);
+            cmd.Parameters.AddWithValue("@door", (object?)doorWerknemerId ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+            id = (int)cmd.LastInsertedId;
+        }
+
+        if (groepId is int g) await ZetGroepAsync(id, g, true);
+        return id;
+    }
+
     public async Task BewaarArtikelAsync(Artikel artikel, int? doorWerknemerId)
     {
         await using var cn = await OpenAsync();
@@ -920,6 +1029,28 @@ public class MySqlArtikelRepository : IArtikelRepository
         }
         catch { }
         return lijst;
+    }
+
+    public async Task<int> NieuwMerkAsync(string naam)
+    {
+        naam = (naam ?? "").Trim();
+        if (naam.Length == 0) throw new ArgumentException("Geef het merk een naam.");
+        var merk = await MerkTabelAsync() ?? throw new InvalidOperationException("Geen merkentabel gevonden in de database.");
+
+        await using var cn = await OpenAsync();
+        await using (var bestaat = new MySqlCommand(
+            $"SELECT `{merk.Id}` FROM `{merk.Tabel}` WHERE LOWER(TRIM(`{merk.Naam}`)) = LOWER(@naam) LIMIT 1", cn))
+        {
+            bestaat.Parameters.AddWithValue("@naam", naam);
+            var id = await bestaat.ExecuteScalarAsync();
+            if (id is not null and not DBNull) return Convert.ToInt32(id);
+        }
+
+        await using var cmd = new MySqlCommand($"INSERT INTO `{merk.Tabel}` SET `{merk.Naam}` = @naam", cn);
+        cmd.Parameters.AddWithValue("@naam", naam);
+        await cmd.ExecuteNonQueryAsync();
+        _merkNamen = null;   // cache van merknamen verversen
+        return (int)cmd.LastInsertedId;
     }
 
     // ============================================================

@@ -5,6 +5,8 @@
 @inject LabelService Labels
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject ArtikelFotoService Fotos
+@implements IAsyncDisposable
 
 <div class="page">
     <header class="topbar">
@@ -67,6 +69,9 @@
                             </button>
                         }
                     }
+                </div>
+                <div class="btngroep-rand">
+                    <button class="klein" @onclick="OpenNieuw" title="Nieuw artikel aanmaken (zoals ArtikelNieuw in Access)">+ Artikel</button>
                 </div>
             </aside>
 
@@ -217,16 +222,9 @@
 
                                     <div class="wn-veld">
                                         <label>Merk</label>
-                                        @if (_bewerken && _merken.Count > 0)
+                                        @if (_bewerken)
                                         {
-                                            <select value="@(_artikel.MerkId?.ToString() ?? "")"
-                                                    @onchange="MerkGewijzigd">
-                                                <option value="">—</option>
-                                                @foreach (var m in _merken)
-                                                {
-                                                    <option value="@m.Id">@m.Naam</option>
-                                                }
-                                            </select>
+                                            <MerkKiezer Waarde="_artikel.MerkId" WaardeChanged="MerkGekozen" OpNieuwMerk="MerkToegevoegd" />
                                         }
                                         else
                                         {
@@ -419,34 +417,17 @@
 
                                     @if (_printers.Count > 0)
                                     {
-                                        <select value="@_printer" @onchange="PrinterGewijzigd">
-                                            @foreach (var p in _printers)
-                                            {
-                                                <option value="@p">@p</option>
-                                            }
-                                        </select>
-                                        @* Een Twin Turbo heeft twee rollen; welke welk
-                                           label heeft weet alleen de gebruiker. *@
-                                        @if (_printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            <select value="@_rol" @onchange="RolGewijzigd">
-                                                <option value="Auto">Rol: vanzelf</option>
-                                                <option value="Left">Rol: links</option>
-                                                <option value="Right">Rol: rechts</option>
-                                            </select>
-                                        }
-
                                         <input class="aantal" type="number" min="1" max="20"
                                                value="@_labelAantal" @onchange="LabelAantalGewijzigd" />
                                         <button class="primair" disabled="@_printBezig" @onclick="PrintLabel">
                                             @(_printBezig ? "Bezig…" : "🖨 Printen")
                                         </button>
-                                        <button class="klein" @onclick="ZoekPrinters" title="Opnieuw zoeken">⟳</button>
+                                        @* Printer en rol per label staan bij Beheer ▸ Labelprinter (deze pc). *@
                                     }
                                     else
                                     {
                                         <button class="klein" @onclick="ZoekPrinters">Printers zoeken</button>
-                                        <button class="klein" @onclick="DymoDiagnose">Diagnose</button>
+                                        <a class="knopje" href="beheer/labelprinter">⚙ Labelprinter instellen</a>
                                         <span class="uitleg">@_dymoMelding</span>
                                     }
                                 </div>
@@ -482,7 +463,7 @@
                                        De @key dwingt een vers element af per artikel: anders blijft
                                        het 'display:none' van een artikel zonder foto plakken en
                                        lijkt de foto daarna bij élk artikel te ontbreken. *@
-                                    <div class="artikelfoto-vak" @key="_artikelId">
+                                    <div class="artikelfoto-vak" @key="@($"{_artikelId}-{_fotoVersie}")" data-plak-url="@FotoUploadUrl">
                                         <img class="artikelfoto-groot" src="@ArtikelFoto()" alt=""
                                              title="@_artikel.Code"
                                              onload="this.style.display='';
@@ -491,6 +472,20 @@
                                                       this.nextElementSibling.style.display='block'" />
                                         <span class="geen-foto">Geen foto bij dit artikel.</span>
                                     </div>
+                                    <div class="btngroup foto-knoppen">
+                                        <button class="klein" disabled="@_fotoBezig" @onclick="PlakFoto"
+                                                title="Afbeelding van het klembord als foto van dit artikel opslaan (of druk Ctrl+V op dit scherm)">
+                                            @(_fotoBezig ? "Bezig…" : "📋 Plakken uit klembord")
+                                        </button>
+                                        <label class="klein knopje" title="Een afbeeldingsbestand kiezen">
+                                            📁 Bestand…
+                                            <InputFile OnChange="FotoBestandGekozen" accept="image/*" style="display:none" />
+                                        </label>
+                                    </div>
+                                    @if (_fotoMelding is not null)
+                                    {
+                                        <p class="uitleg @(_fotoFout ? "fout-tekst" : "")">@_fotoMelding</p>
+                                    }
                                 </ZijBlok>
 
                                 <ZijBlok Titel="Prijzen">
@@ -651,6 +646,62 @@
 @* ===== boom met artikelgroepen =====
    Dezelfde popup voor twee dingen: de zoeklijst filteren, en het artikel dat
    je bekijkt in een groep zetten. *@
+@* ---------- nieuw artikel (popup, naar het voorbeeld van ArtikelNieuw in Access) ---------- *@
+@if (_nieuwOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker ec-venster verplaatsbaar art-nieuw">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>Artikel toevoegen</b>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _nieuwOpen = false">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Artikelcode MDE *</label>
+                        <input value="@_nieuwCode" maxlength="100" autofocus @oninput="e => _nieuwCode = (string?)e.Value ?? string.Empty" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Omschrijving NL</label>
+                        <textarea rows="3" value="@_nieuwOms" @oninput="e => _nieuwOms = (string?)e.Value ?? string.Empty"></textarea>
+                    </div>
+                    <div class="wn-veld">
+                        <label>Merk</label>
+                        @* Typen met suggesties; een onbekend merk wordt na bevestiging toegevoegd (NotInList). *@
+                        <MerkKiezer @bind-Waarde="_nieuwMerk" OpNieuwMerk="MerkToegevoegd" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Fabrikantcode</label>
+                        <input value="@_nieuwFab" maxlength="100" @oninput="e => _nieuwFab = (string?)e.Value ?? string.Empty" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Artikelgroep</label>
+                        <div class="prod-artikel">
+                            <span class="stand-chip s-blauw">@(_nieuwGroep?.Pad ?? "— geen —")</span>
+                            <button class="klein" @onclick="OpenGroepNieuw" title="Door de groepen bladeren">🗂 Kiezen</button>
+                            @if (_nieuwGroep is not null)
+                            {
+                                <button class="klein" @onclick="() => _nieuwGroep = null">✕</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+                @if (_nieuwFout is not null)
+                {
+                    <p class="uitleg fout-tekst">@_nieuwFout</p>
+                }
+                <div class="btngroup">
+                    <button class="primair" disabled="@(_nieuwBezig || _nieuwCode.Trim().Length == 0)" @onclick="() => MaakNieuw(true)">OK</button>
+                    <button class="klein" disabled="@(_nieuwBezig || _nieuwCode.Trim().Length == 0)" @onclick="() => MaakNieuw(false)"
+                            title="Aanmaken en het formulier open laten voor het volgende artikel">Toepassen</button>
+                    <button class="klein" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <GroepenKiezer Open="@(_groepKiezer is not null)" Titel="@GroepTitel"
                Filteren="@(_groepKiezer == "filter")" ToonWissen="@(_groepKiezer == "filter")"
                Gekozen="@(_groepKiezer == "filter" ? _groep : null)"
@@ -741,8 +792,71 @@
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
         if (!eerste) return;
+        // Ctrl+V op dit scherm: afbeelding van het klembord als artikelfoto (mdeFoto in App.razor)
+        _fotoRef = DotNetObjectReference.Create(this);
+        try { await JS.InvokeVoidAsync("mdeFoto.koppel", _fotoRef); } catch { }
         await ZoekPrintersStil();
         StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdeFoto.los"); } catch { }
+        _fotoRef?.Dispose();
+    }
+
+    // ---- artikelfoto uit het klembord of een bestand ----
+    private DotNetObjectReference<Artikelen>? _fotoRef;
+    private int _fotoVersie;          // telt op na een nieuwe foto, zodat de browser hem opnieuw ophaalt
+    private bool _fotoBezig;
+    private string? _fotoMelding;
+    private bool _fotoFout;
+
+    private string FotoUploadUrl => _artikelId is int id ? $"api/artikelfoto/{id}" : "";
+
+    /// <summary>Knop: het klembord uitlezen via de browser en de afbeelding opsturen.</summary>
+    private async Task PlakFoto()
+    {
+        if (_artikelId is null || _fotoBezig) return;
+        _fotoBezig = true; _fotoMelding = null;
+        try
+        {
+            var uitkomst = await JS.InvokeAsync<string>("mdeFoto.plak", FotoUploadUrl);
+            VerwerkFotoUitkomst(uitkomst);
+        }
+        catch (Exception ex) { _fotoMelding = "Plakken mislukt: " + ex.Message; _fotoFout = true; }
+        finally { _fotoBezig = false; }
+    }
+
+    /// <summary>Ctrl+V (vanuit App.razor): de browser heeft de afbeelding al opgestuurd.</summary>
+    [JSInvokable]
+    public Task FotoGeplakt(string uitkomst)
+    {
+        VerwerkFotoUitkomst(uitkomst);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void VerwerkFotoUitkomst(string uitkomst)
+    {
+        _fotoFout = !uitkomst.StartsWith("OK");
+        _fotoMelding = uitkomst.Length > 4 ? uitkomst[(uitkomst.IndexOf(' ') + 1)..] : uitkomst;
+        if (!_fotoFout) _fotoVersie++;
+    }
+
+    /// <summary>Bestand gekozen: via de server rechtstreeks in de fotomap zetten.</summary>
+    private async Task FotoBestandGekozen(InputFileChangeEventArgs e)
+    {
+        if (_artikelId is null) return;
+        _fotoBezig = true; _fotoMelding = null;
+        try
+        {
+            using var ms = new MemoryStream();
+            await e.File.OpenReadStream(20 * 1024 * 1024).CopyToAsync(ms);
+            _fotoMelding = await Fotos.BewaarAsync(_artikelId.Value, e.File.ContentType, ms.ToArray(), Ik.Email);
+            _fotoFout = false; _fotoVersie++;
+        }
+        catch (Exception ex) { _fotoMelding = "Opslaan mislukt: " + ex.Message; _fotoFout = true; }
+        finally { _fotoBezig = false; }
     }
 
     private async Task Laad()
@@ -831,7 +945,7 @@
     /// <summary>Een ja/nee-vraag aan de gebruiker; bij twijfel: niet doorgaan.</summary>
     private async Task<bool> Vraag(string tekst)
     {
-        try { return await JS.InvokeAsync<bool>("confirm", tekst); }
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
         catch { return true; }   // lukt de vraag niet, dan de gebruiker niet blokkeren
     }
 
@@ -926,16 +1040,22 @@
         finally { _bewaren = false; }
     }
 
-    private void MerkGewijzigd(ChangeEventArgs e)
+    /// <summary>Merk gekozen in de MerkKiezer (bewerken): id en naam op het artikel zetten.</summary>
+    private void MerkGekozen(int? merkId)
     {
         var artikel = _artikel;
         if (artikel is null) return;
-
-        var waarde = (string?)e.Value ?? "";
-        artikel.MerkId = int.TryParse(waarde, out var id) ? id : null;
-
-        var gevonden = _merken.FirstOrDefault(m => m.Id == artikel.MerkId);
+        artikel.MerkId = merkId;
+        var gevonden = _merken.FirstOrDefault(m => m.Id == merkId);
         artikel.Merk = gevonden.Id == 0 ? "" : gevonden.Naam;
+    }
+
+    /// <summary>Nieuw merk toegevoegd via de MerkKiezer: eigen lijst bijwerken (voor naam bij het artikel en het filter).</summary>
+    private async Task MerkToegevoegd((int Id, string Naam) merk)
+    {
+        try { _merken = await Repo.GetMerkenAsync(); } catch { }
+        if (_artikel is not null && _artikel.MerkId == merk.Id) _artikel.Merk = merk.Naam;
+        Toon($"Merk '{merk.Naam}' toegevoegd aan de merkentabel.", false);
     }
 
     /// <summary>De ja/nee-velden als één rij, zodat de opsomming maar op één plek staat.</summary>
@@ -1004,12 +1124,59 @@
 
     private void OpenGroepFilter() => _groepKiezer = "filter";
     private void OpenGroepToevoegen() => _groepKiezer = "artikel";
+    private void OpenGroepNieuw() => _groepKiezer = "nieuw";
     private void SluitGroepKiezer() => _groepKiezer = null;
+
+    // ---- nieuw artikel ----
+    private bool _nieuwOpen, _nieuwBezig;
+    private string _nieuwCode = "", _nieuwOms = "", _nieuwFab = "";
+    private int? _nieuwMerk;
+    private Groepknoop? _nieuwGroep;
+    private string? _nieuwFout;
+
+    private async Task OpenNieuw()
+    {
+        if (_merken.Count == 0) { try { _merken = await Repo.GetMerkenAsync(); } catch { } }
+        _nieuwCode = ""; _nieuwOms = ""; _nieuwFab = ""; _nieuwMerk = null; _nieuwFout = null;
+        // Zoek je binnen een groep, dan is dat waarschijnlijk ook de groep van het nieuwe artikel.
+        _nieuwGroep = null;
+        _nieuwOpen = true;
+    }
+
+    /// <summary>OK = aanmaken en openen; Toepassen = aanmaken en het formulier leeg laten staan.</summary>
+    private async Task MaakNieuw(bool sluiten)
+    {
+        _nieuwBezig = true; _nieuwFout = null;
+        try
+        {
+            var id = await Repo.NieuwArtikelAsync(_nieuwCode, _nieuwOms, _nieuwMerk, _nieuwFab, _nieuwGroep?.Id, Ik.WerknemerId);
+            Toon($"Artikel #{id} '{_nieuwCode.Trim()}' aangemaakt.", false);
+            if (sluiten)
+            {
+                _nieuwOpen = false;
+                _zoek = _nieuwCode.Trim();
+                await Laad();
+                await Kies(new ArtikelRegel(id, _nieuwCode.Trim(), _nieuwOms, ""));
+            }
+            else
+            {
+                _nieuwCode = ""; _nieuwOms = ""; _nieuwFab = "";   // merk en groep blijven staan voor het volgende
+            }
+        }
+        catch (Exception ex) { _nieuwFout = ex.Message; }
+        finally { _nieuwBezig = false; }
+    }
 
     private async Task GroepGekozen(Groepknoop? knoop)
     {
         var waarvoor = _groepKiezer;
         _groepKiezer = null;
+
+        if (waarvoor == "nieuw")
+        {
+            if (knoop is not null) _nieuwGroep = knoop;
+            return;
+        }
 
         if (waarvoor == "filter")
         {
@@ -1116,9 +1283,11 @@
     private string _printer = "";
     private string _labelsoort = "klein";
     private int _labelAantal = 1;
-    private string _rol = "Auto";
+    private DymoLabel.Instellingen _dymo = new("", "Auto", "Auto");   // Beheer ▸ Labelprinter (deze pc)
     private bool _printBezig;
     private string _dymoMelding = "Nog niet gezocht.";
+
+    private bool IsTwinTurbo => _printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase);
 
     private async Task ZoekPrintersStil()
     {
@@ -1141,15 +1310,12 @@
                 return;
             }
 
-            // vorige keuze van deze pc terughalen
-            var bewaard = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoPrinter");
-            _printer = _printers.Contains(bewaard ?? "") ? bewaard! : _printers[0];
+            // instellingen van deze pc (Beheer ▸ Labelprinter): printer en rol per label
+            _dymo = await DymoLabel.LeesAsync(JS);
+            _printer = _printers.Contains(_dymo.Printer) ? _dymo.Printer : _printers[0];
 
             var soort = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoLabel");
             if (soort is "klein" or "groot") _labelsoort = soort;
-
-            var rol = await JS.InvokeAsync<string?>("mdeOpslag.lees", "dymoRol");
-            if (rol is "Auto" or "Left" or "Right") _rol = rol;
         }
         catch (Exception ex) { _dymoMelding = "DYMO Connect niet bereikbaar: " + ex.Message; }
     }
@@ -1171,18 +1337,6 @@
         _dymoDiagnose = "Bezig…";
         try { _dymoDiagnose = await JS.InvokeAsync<string>("mdeDymo.diagnose"); }
         catch (Exception ex) { _dymoDiagnose = "Diagnose mislukt: " + ex.Message; }
-    }
-
-    private async Task PrinterGewijzigd(ChangeEventArgs e)
-    {
-        _printer = (string?)e.Value ?? "";
-        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "dymoPrinter", _printer); } catch { }
-    }
-
-    private async Task RolGewijzigd(ChangeEventArgs e)
-    {
-        _rol = (string?)e.Value ?? "Auto";
-        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "dymoRol", _rol); } catch { }
     }
 
     private async Task LabelsoortGewijzigd(ChangeEventArgs e)
@@ -1210,8 +1364,10 @@
             var xml = await Labels.ArtikelLabelAsync(_artikelId.Value, _artikel?.Code ?? "",
                                                      _artikel?.OmschrijvingNl ?? "",
                                                      _labelsoort == "groot");
-            await JS.InvokeVoidAsync("mdeDymo.print", _printer, xml, aantal, _rol);
-            Toon($"{aantal} label(s) naar {_printer}.", false);
+            // de rol volgt uit het gekozen label (Beheer ▸ Labelprinter)
+            var rol = IsTwinTurbo ? _dymo.RolVoor(_labelsoort) : "Auto";
+            await JS.InvokeVoidAsync("mdeDymo.print", _printer, xml, aantal, rol);
+            Toon($"{aantal} label(s) naar {_printer}" + (IsTwinTurbo ? $" (rol {DymoLabel.RolTekst(rol)})" : "") + ".", false);
         }
         catch (Exception ex) { Toon("Printen mislukt: " + ex.Message, true); }
         finally { _printBezig = false; }
@@ -1314,7 +1470,7 @@
 
     private string EanUrl() => "https://www.ean-search.org/?q=" + Uri.EscapeDataString(_artikel?.Ean ?? "");
 
-    private string ArtikelFoto() => _artikelId is int id ? $"artikelfoto/{id}" : "";
+    private string ArtikelFoto() => _artikelId is int id ? $"artikelfoto/{id}?v={_fotoVersie}" : "";
 
     // De diagnose van de fotomap heeft geen knop meer, maar blijft bereikbaar
     // via het adres artikelfoto/{nummer}?uitleg=true (en voor het label

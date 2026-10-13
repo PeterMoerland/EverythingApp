@@ -4,8 +4,9 @@
 
 @if (Open)
 {
-    <div class="cmdk-overlay" @onclick="Sluit">
-        <div class="grvenster" @onclick:stopPropagation="true">
+    @* Sluit niet bij een klik buiten het venster: alleen via Sluiten, Esc of een keuze (dubbelklik). *@
+    <div class="cmdk-overlay">
+        <div class="grvenster">
             <div class="grkop">
                 <strong>@Titel</strong>
                 <button class="klein" @onclick="Sluit">Sluiten</button>
@@ -28,9 +29,21 @@
                     @foreach (var knoop in _zichtbaar)
                     {
                         <GroepTak @key="knoop.Pad" Knoop="knoop" Gekozen="@Gekozen"
-                                  OpenPaden="_open" OpKeuze="Kies" OpKlap="Klap" />
+                                  OpenPaden="_open" OpKeuze="Kies" OpKlap="Klap" OpNieuw="NieuwOnder" />
                     }
                 </ul>
+            }
+
+            @if (_nieuwOpen)
+            {
+                <div class="grnieuw">
+                    <span class="uitleg">Nieuwe groep @(_nieuwOnder is null ? "als hoofdgroep" : "onder " + _nieuwOnder.Pad.Replace("\\", " ▸ ")):</span>
+                    <input placeholder="Naam van de groep" value="@_nieuwNaam" @oninput="e => _nieuwNaam = (string?)e.Value ?? string.Empty"
+                           @onkeydown="NieuwToets" disabled="@_bezig" />
+                    <button class="primair klein" disabled="@(_bezig || _nieuwNaam.Trim().Length == 0)" @onclick="NieuwOpslaan">Toevoegen</button>
+                    <button class="klein" disabled="@_bezig" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                </div>
+                @if (_nieuwFout is not null) { <p class="uitleg fout-tekst">@_nieuwFout</p> }
             }
 
             <div class="grvoet">
@@ -38,8 +51,9 @@
                 {
                     <button class="klein" @onclick="Wis">Geen groep</button>
                 }
+                <button class="klein" title="Nieuwe groep op het hoogste niveau (subgroep: '+' achter een groep)" @onclick="() => NieuwOnder(null)">+ Hoofdgroep</button>
                 <span class="uitleg">
-                    Het getal achter een groep is het aantal artikelen erin.
+                    Klik = openklappen, <b>dubbelklik = kiezen</b>. Het getal achter een groep is het aantal artikelen erin.
                     <span class="grbron">Structuur uit @Repo.GroepenHerkomst.</span>
                 </span>
             </div>
@@ -77,6 +91,47 @@
 
     private string _filter = "";
     private bool _bezig;
+
+    // nieuwe groep maken (hoofdgroep of subgroep onder _nieuwOnder)
+    private bool _nieuwOpen;
+    private Groepknoop? _nieuwOnder;
+    private string _nieuwNaam = "";
+    private string? _nieuwFout;
+
+    private void NieuwOnder(Groepknoop? onder)
+    {
+        _nieuwOnder = onder; _nieuwOpen = true; _nieuwNaam = ""; _nieuwFout = null;
+    }
+
+    private async Task NieuwToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await NieuwOpslaan();
+        else if (e.Key == "Escape") _nieuwOpen = false;
+    }
+
+    private async Task NieuwOpslaan()
+    {
+        var naam = _nieuwNaam.Trim();
+        if (naam.Length == 0) return;
+        _bezig = true; _nieuwFout = null;
+        try
+        {
+            await Repo.NieuweGroepAsync(naam, _nieuwOnder?.Id);
+            // boom opnieuw ophalen en openklappen tot de nieuwe groep
+            _boom = await Repo.GetGroepenBoomAsync();
+            _geladen = _boom.Count > 0;
+            _filter = "";
+            ZetZichtbaar();
+            if (_nieuwOnder is not null)
+            {
+                var delen = _nieuwOnder.Pad.Split('\\');
+                for (var i = 1; i <= delen.Length; i++) _open.Add(string.Join("\\", delen.Take(i)));
+            }
+            _nieuwOpen = false; _nieuwNaam = "";
+        }
+        catch (Exception ex) { _nieuwFout = ex.Message; }
+        finally { _bezig = false; }
+    }
     private bool _geladen;
     private bool _wasOpen;
 

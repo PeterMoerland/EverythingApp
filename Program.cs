@@ -123,7 +123,8 @@ if (liveDb)
     builder.Services.AddSingleton<IProductRepository>(_ => new MySqlProductRepository(cs!));
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
-    builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!));
+    builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
+        builder.Configuration.GetValue<int?>("Productie:StandaardArtikelEenheidId") ?? 2));
     builder.Services.AddSingleton<IOrderBatchRepository>(_ => new MySqlOrderBatchRepository(cs!));
     builder.Services.AddSingleton<IFactuurRepository>(_ => new MySqlFactuurRepository(cs!));
     builder.Services.AddSingleton<IVerkoopFactuurRepository>(_ => new MySqlVerkoopFactuurRepository(cs!));
@@ -184,6 +185,7 @@ builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
 builder.Services.AddSingleton<FactuurPdfService>();
+builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
 
 // NDA: document maken uit het Word-sjabloon, opslaan in de filestore, en de
 // eenmalige overname van de oude Python-app.
@@ -456,6 +458,20 @@ app.MapGet("/voorbeeld/{id:int}", async (int id, VoorbeeldService voorbeeld) =>
 //   Z:\Filestore\Artikelen\00000005\00005200.JPG
 // De submap is het artikelnummer gedeeld door duizend, beide met acht cijfers.
 // Pad instelbaar met Artikelen:FotoPad; ontbreekt de foto, dan 404.
+// Foto van een artikel vervangen/toevoegen: de browser stuurt de afbeelding (uit het
+// klembord of een bestand) als body; hij komt in de fotomap als 0000xxxx.jpg/.png en een
+// eventuele oude foto met dat nummer gaat weg.
+app.MapPost("/api/artikelfoto/{nummer:int}", async (int nummer, HttpRequest req, ArtikelFotoService fotos, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    if (!fotos.Beschikbaar) return Results.Problem("Artikelen:FotoPad staat niet in appsettings.json.");
+    using var ms = new MemoryStream();
+    await req.Body.CopyToAsync(ms);
+    try { return Results.Text(await fotos.BewaarAsync(nummer, req.ContentType, ms.ToArray(), ik.Email)); }
+    catch (ArgumentException ex) { return Results.BadRequest(ex.Message); }
+    catch (Exception ex) { return Results.Problem("Opslaan mislukt: " + ex.Message); }
+});
+
 // Rabobank koppelen: eenmalig toestemming geven in Rabo Internetbankieren Professional.
 // /rabobank/terug is de redirect-URI die bij de app op developer.rabobank.nl staat.
 string RabobankTerug(HttpContext ctx, RabobankKoppeling bank)

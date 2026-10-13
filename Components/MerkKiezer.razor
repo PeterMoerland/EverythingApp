@@ -1,0 +1,93 @@
+@inject IArtikelRepository Repo
+@inject IJSRuntime JS
+
+@* Merk kiezen zoals een Access-combobox met NotInList: typen met suggesties uit de
+   merkentabel; staat de getypte naam er niet in, dan vraagt de app of hij toegevoegd
+   moet worden en doet dat na bevestiging. Leegmaken = geen merk. *@
+
+<span class="merk-kiezer">
+    <input list="@ListId" value="@_tekst" placeholder="Merk typen of kiezen…" maxlength="60" disabled="@(_bezig || Disabled)"
+           autocomplete="off" @onchange="Gewijzigd" title="@Titel" />
+    <datalist id="@ListId">
+        @foreach (var m in _merken)
+        {
+            <option value="@m.Naam"></option>
+        }
+    </datalist>
+    @if (_fout is not null) { <small class="fout-tekst"> @_fout</small> }
+</span>
+
+@code {
+    /// <summary>Gekozen MerkID (null = geen merk).</summary>
+    [Parameter] public int? Waarde { get; set; }
+    [Parameter] public EventCallback<int?> WaardeChanged { get; set; }
+    /// <summary>Na het toevoegen van een nieuw merk (naam en id), zodat de aanroeper zijn lijst kan verversen.</summary>
+    [Parameter] public EventCallback<(int Id, string Naam)> OpNieuwMerk { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private static int _teller;
+    private readonly string ListId = $"merken-{Interlocked.Increment(ref _teller)}";
+    private List<(int Id, string Naam)> _merken = new();
+    private string _tekst = "";
+    private bool _bezig;
+    private string? _fout;
+    private int? _getoond;
+
+    private string Titel => "Typ een merk; onbekende naam + Enter = toevoegen aan de merkentabel (na bevestiging)";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _merken = await Repo.GetMerkenAsync(); } catch { _merken = new(); }
+        ZetTekst();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_getoond != Waarde) ZetTekst();
+    }
+
+    private void ZetTekst()
+    {
+        _getoond = Waarde;
+        _tekst = _merken.FirstOrDefault(m => m.Id == Waarde).Naam ?? "";
+    }
+
+    private async Task Gewijzigd(ChangeEventArgs e)
+    {
+        var naam = ((string?)e.Value ?? "").Trim();
+        _fout = null;
+
+        if (naam.Length == 0)
+        {
+            await Kies(null);
+            return;
+        }
+
+        var tref = _merken.FirstOrDefault(m => string.Equals(m.Naam.Trim(), naam, StringComparison.OrdinalIgnoreCase));
+        if (tref.Id != 0) { await Kies(tref.Id); return; }
+
+        // NotInList: toevoegen?
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Merk '{naam}' staat nog niet in de lijst.\n\nToevoegen aan de merkentabel? Het wordt dan ook in Access zichtbaar."); }
+        catch { ja = false; }
+        if (!ja) { ZetTekst(); StateHasChanged(); return; }
+
+        _bezig = true;
+        try
+        {
+            var id = await Repo.NieuwMerkAsync(naam);
+            _merken = await Repo.GetMerkenAsync();
+            await OpNieuwMerk.InvokeAsync((id, naam));
+            await Kies(id);
+        }
+        catch (Exception ex) { _fout = "Toevoegen mislukt: " + ex.Message; ZetTekst(); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Kies(int? id)
+    {
+        Waarde = id;
+        ZetTekst();
+        await WaardeChanged.InvokeAsync(id);
+    }
+}

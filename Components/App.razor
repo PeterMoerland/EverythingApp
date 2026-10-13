@@ -541,6 +541,51 @@
             });
         };
 
+        // Artikelfoto uit het klembord: via de knop (navigator.clipboard.read, Chrome/Edge over
+        // https) of met Ctrl+V terwijl het artikelscherm open staat. De afbeelding gaat als
+        // body naar POST api/artikelfoto/{nummer}; Blazor krijgt de uitkomst als tekst.
+        window.mdeFoto = {
+            _dotnet: null,
+            koppel: function (dotnet) { window.mdeFoto._dotnet = dotnet; },
+            los: function () { window.mdeFoto._dotnet = null; },
+            upload: async function (url, blob) {
+                try {
+                    var r = await fetch(url, { method: 'POST', body: blob, headers: { 'Content-Type': blob.type || 'image/png' }, credentials: 'same-origin' });
+                    var t = await r.text();
+                    return (r.ok ? 'OK ' : 'FOUT ') + t;
+                } catch (e) { return 'FOUT ' + (e && e.message ? e.message : e); }
+            },
+            plak: async function (url) {
+                if (!navigator.clipboard || !navigator.clipboard.read)
+                    return 'FOUT Deze browser kan het klembord niet lezen; gebruik Ctrl+V op het scherm, of Chrome/Edge.';
+                var items;
+                try { items = await navigator.clipboard.read(); }
+                catch (e) { return 'FOUT Geen toegang tot het klembord (' + (e && e.message ? e.message : e) + '). Probeer Ctrl+V.'; }
+                for (const item of items) {
+                    var type = item.types.find(function (t) { return t.indexOf('image/') === 0; });
+                    if (type) return await window.mdeFoto.upload(url, await item.getType(type));
+                }
+                return 'FOUT Er staat geen afbeelding op het klembord.';
+            }
+        };
+        document.addEventListener('paste', async function (e) {
+            var doel = document.querySelector('[data-plak-url]');
+            if (!doel || !window.mdeFoto._dotnet) return;
+            // niet in een invoerveld: daar betekent Ctrl+V gewoon tekst plakken
+            var actief = document.activeElement;
+            if (actief && (actief.tagName === 'INPUT' || actief.tagName === 'TEXTAREA' || actief.isContentEditable)) return;
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type && item.type.indexOf('image/') === 0) {
+                    e.preventDefault();
+                    var uitkomst = await window.mdeFoto.upload(doel.dataset.plakUrl, item.getAsFile());
+                    try { await window.mdeFoto._dotnet.invokeMethodAsync('FotoGeplakt', uitkomst); } catch (err) { console.warn(err); }
+                    return;
+                }
+            }
+        });
+
         // volledig scherm (kiosk-modus)
         window.mdeVolledig = {
             aan: function () {

@@ -13,11 +13,17 @@
             <span class="grpijl leeg"></span>
         }
 
-        <button class="grnaam" @onclick="Kies">@Knoop.Naam</button>
+        @* Enkele klik = open-/dichtklappen, dubbelklik = kiezen (zoals in Access). *@
+        <button class="grnaam" @onclick="KlapOfNiets" @ondblclick="Kies"
+                title="@Tip">@Knoop.Naam</button>
 
         @if (Knoop.Aantal > 0)
         {
             <span class="graantal">@Knoop.Aantal</span>
+        }
+        @if (Knoop.Id != 0 && OpNieuw.HasDelegate)
+        {
+            <button class="grplus" title="Nieuwe subgroep onder @Knoop.Naam" @onclick="Nieuw">+</button>
         }
     </div>
 
@@ -27,7 +33,7 @@
             @foreach (var kind in Knoop.Kinderen)
             {
                 <GroepTak @key="kind.Pad" Knoop="kind" Gekozen="@Gekozen"
-                          OpenPaden="OpenPaden" OpKeuze="OpKeuze" OpKlap="OpKlap" />
+                          OpenPaden="OpenPaden" OpKeuze="OpKeuze" OpKlap="OpKlap" OpNieuw="OpNieuw" />
             }
         </ul>
     }
@@ -47,9 +53,14 @@
 
     [Parameter] public EventCallback<Groepknoop> OpKeuze { get; set; }
     [Parameter] public EventCallback<string> OpKlap { get; set; }
+    /// <summary>'+' achter de groep: een nieuwe subgroep eronder maken.</summary>
+    [Parameter] public EventCallback<Groepknoop> OpNieuw { get; set; }
 
     private bool Open => OpenPaden.Contains(Knoop.Pad);
 
     private Task Klap() => OpKlap.InvokeAsync(Knoop.Pad);
+    private string Tip => Knoop.Kinderen.Count > 0 ? "Klik: openklappen · dubbelklik: kiezen" : "Dubbelklik: kiezen";
+    private Task KlapOfNiets() => Knoop.Kinderen.Count > 0 ? Klap() : Task.CompletedTask;
     private Task Kies() => OpKeuze.InvokeAsync(Knoop);
+    private Task Nieuw() => OpNieuw.InvokeAsync(Knoop);
 }
