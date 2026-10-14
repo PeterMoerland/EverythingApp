@@ -372,6 +372,24 @@ def _werker_monitor(d: _Drive, o: dict, log) -> dict:
     return {"metingen": n, "waarden": laatste, **_identiteit(d)}
 
 
+_TOESTANDEN = {0x01: "INIT", 0x02: "PRE-OP", 0x03: "BOOT", 0x04: "SAFE-OP", 0x08: "OP"}
+# AL-statuscodes (ETG.1000.6) die bij een geweigerde toestandsovergang voorkomen
+_AL_STATUS = {0x0000: "geen fout", 0x0011: "ongeldige toestandsovergang", 0x0012: "onbekende gevraagde toestand",
+              0x0013: "bootstrap niet ondersteund", 0x0014: "geen geldige firmware", 0x0015: "ongeldige mailboxconfiguratie",
+              0x0016: "ongeldige mailboxconfiguratie (PRE-OP)", 0x0017: "ongeldige sync-managerconfiguratie",
+              0x001A: "synchronisatiefout", 0x001B: "sync-manager-watchdog", 0x0024: "ongeldige input-configuratie",
+              0x0025: "ongeldige output-configuratie", 0x002D: "geen geldige inputs en outputs"}
+
+
+def _toestand(code: int) -> str:
+    basis = code & 0x0F
+    return f"{_TOESTANDEN.get(basis, f'0x{basis:02X}')}{' + foutvlag' if code & 0x10 else ''}"
+
+
+def _al_status(code: int) -> str:
+    return f"0x{code:04X} {_AL_STATUS.get(code, '')}".strip()
+
+
 def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
     import pysoem
     pad = o["bestand"]
@@ -383,19 +401,41 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
     ident_voor = _identiteit(d)
     log(f"Slave {ident_voor['naam'] or ident_voor['eeprom_naam']} meldt nu firmware {ident_voor['firmware'] or '?'}.")
 
+    in_boot = False
     if o.get("boot", True):
-        # INIT → BOOT: de bootstrap-mailbox komt uit de EEPROM (ESI: <BootStrap>)
+        # INIT → BOOT: de bootstrap-mailbox komt uit de EEPROM (ESI: <BootStrap>). Gaat de slave niet naar
+        # BOOT, dan doet zijn firmware de toestandsovergang niet (slave-stack zonder bootstrap-modus) en
+        # proberen we FoE via de gewone mailbox in PRE-OP; dat werkt alleen als de firmware FoE daar aanbiedt.
         s.state = pysoem.INIT_STATE
         s.write_state()
         s.state_check(pysoem.INIT_STATE, 2_000_000)
         s.state = pysoem.BOOT_STATE
         s.write_state()
-        if s.state_check(pysoem.BOOT_STATE, 5_000_000) != pysoem.BOOT_STATE:
-            raise RuntimeError(f"Slave komt niet in BOOT (toestand 0x{s.state:02X}, AL-status 0x{s.al_status:04X}). Ondersteunt de bootloader FoE?")
-        log("Slave in BOOT.")
+        bereikt = s.state_check(pysoem.BOOT_STATE, 5_000_000)
+        if bereikt == pysoem.BOOT_STATE:
+            in_boot = True
+            log("Slave in BOOT.")
+        else:
+            log(f"Slave gaat niet naar BOOT (toestand {_toestand(bereikt)}, AL-status {_al_status(s.al_status)}); "
+                "FoE via de gewone mailbox in PRE-OP proberen …")
+            s.state = pysoem.INIT_STATE
+            s.write_state()
+            s.state_check(pysoem.INIT_STATE, 2_000_000)
+    if not in_boot:
+        s.state = pysoem.PREOP_STATE
+        s.write_state()
+        if s.state_check(pysoem.PREOP_STATE, 5_000_000) != pysoem.PREOP_STATE:
+            raise RuntimeError(f"Slave komt niet in PRE-OP (toestand {_toestand(s.state)}, AL-status {_al_status(s.al_status)}).")
     log(f"FoE: {bestandsnaam} ({len(data):,} bytes) schrijven …".replace(",", "."))
     begin = time.time()
-    s.foe_write(bestandsnaam, wachtwoord, data)
+    try:
+        s.foe_write(bestandsnaam, wachtwoord, data)
+    except Exception as e:  # noqa: BLE001
+        if in_boot:
+            raise RuntimeError(f"FoE-overdracht mislukt in BOOT: {e}. Klopt de bestandsnaam of het wachtwoord dat de bootloader verwacht?") from e
+        raise RuntimeError(f"FoE-overdracht mislukt ({e}). De slave gaat niet naar BOOT en neemt in PRE-OP geen FoE aan: "
+                           "de firmware van de print moet de bootstrap-toestand en FoE ondersteunen (slave-stack: "
+                           "BOOTSTRAPMODE_SUPPORTED en FOE_SUPPORTED), of FoE in PRE-OP toestaan.") from e
     log(f"Overdracht klaar in {time.time() - begin:.1f} s.")
 
     # terug naar INIT; de slave start opnieuw met de nieuwe firmware

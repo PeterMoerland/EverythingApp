@@ -305,6 +305,11 @@
                    : _technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "STM32 programmeren…"
                    : "Chip programmeren (ESP32/STM32)…")
             </button>
+            @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
+            {
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(SerieelCode)"
+                        title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
+            }
         </div>
     }
 }
@@ -442,6 +447,30 @@
                                 }
                             </div>
                         }
+                    }
+                    @if (_testCode == SerieelCode)
+                    {
+                        <div class="bankfilters">
+                            <label class="bankveld"><span>Poort</span>
+                                <input value="@_serPoort" placeholder="automatisch" style="width:7rem" disabled="@_taakBezig"
+                                       @onchange="e => _serPoort = ((string?)e.Value ?? string.Empty).Trim()" /></label>
+                            <label class="bankveld"><span>Baud</span>
+                                <select value="@_serBaud" disabled="@_taakBezig" @onchange="e => _serBaud = int.TryParse((string?)e.Value, out var v) ? v : 115200">
+                                    @foreach (var b in new[] { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 }) { <option value="@b">@b</option> }
+                                </select></label>
+                            <label class="bankveld"><span>Seconden</span>
+                                <input type="number" min="5" max="3600" style="width:5rem" value="@_serSeconden" disabled="@_taakBezig"
+                                       @onchange="e => _serSeconden = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 5, 3600) : 600" /></label>
+                            <label class="bankveld prod-vink"><span>&nbsp;</span>
+                                <label><input type="checkbox" checked="@_serReset" disabled="@_taakBezig" @onchange="e => _serReset = e.Value is bool b && b" /> ESP32 eerst resetten (opstartregels zien)</label></label>
+                        </div>
+                        <div class="bankfilters prod-serieel-invoer">
+                            <label class="bankveld prod-keuze"><span>Tekst naar de ESP32 (Enter = sturen)</span>
+                                <input value="@_serInvoer" @key="_serInvoerVersie" placeholder="bv. help" disabled="@(!_taakBezig || _taakJobId is null)"
+                                       @oninput="e => _serInvoer = (string?)e.Value ?? string.Empty" @onkeydown="SerieelToets" /></label>
+                            <button class="klein" disabled="@(!_taakBezig || _taakJobId is null || _serInvoer.Length == 0)" @onclick="StuurSerieel">Stuur</button>
+                        </div>
+                        <p class="uitleg">De ontvangen regels komen hieronder in het logboek; Stop sluit de poort weer. Zolang de monitor loopt kan esptool de poort niet gebruiken.</p>
                     }
                     @if (_testCode == "dualmotion")
                     {
@@ -1984,6 +2013,7 @@
         var test = _testen.FirstOrDefault(t => t.Code == _testCode);
         if (test.Code is null) return;
         _taakIsTest = true;
+        if (_testCode == SerieelCode) { _taakIsTest = false; await StartSerieel(); return; }
         if (_testCode.StartsWith("monitor:", StringComparison.Ordinal)) { _taakIsTest = false; await StartMonitor(); return; }
         if (_testCode.StartsWith("recept:", StringComparison.Ordinal)) { _mdeWaarden = new(); _mdeReeks = new(); await StartRecept(); return; }
         if (IsStroomlus) { await StartStroomlus(); await LaadTestHistorie(); return; }
@@ -2341,9 +2371,10 @@
     private string _testLaatste = "";
     private List<ProductGebeurtenis> _testHistorie = new();
     private bool IsStroomlus => _testCode == "stroomlus";
-    private string TestNaam => MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
+    private string TestNaam => _testCode == SerieelCode ? "Seriële monitor (ESP32)"
+        : MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
     private string TestUitleg => TestUitlegVoor(_testCode);
-    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", _ => "🧪" };
+    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", SerieelCode => "🖥", _ => "🧪" };
     private bool IsDriveTest => _testCode is "stroomlus" or "encodertest" or "phasing" or "motiontest" or "dualmotion";
 
     // ---- testrecepten (mde.test) en meekijken (mde.monitor): live waarden uit de agent ----
@@ -2384,6 +2415,40 @@
     }
 
     private static string MonitorCode(DrivePositie p) => "monitor:" + p.Positie;
+
+    // ---- seriële monitor (serieel.monitor): uitvoer van de ESP32 via de USB-UART, tekst sturen via /jobs/<id>/invoer ----
+    private const string SerieelCode = "serieel";
+    private string _serPoort = "";
+    private int _serBaud = 115200;
+    private int _serSeconden = 600;
+    private bool _serReset = true;
+    private string _serInvoer = "";
+    private int _serInvoerVersie;
+
+    private async Task StartSerieel()
+    {
+        var body = JsonSerializer.Serialize(new { poort = _serPoort, baud = _serBaud, seconden = _serSeconden, reset = _serReset });
+        await VoerTaakUit("serieel.monitor", body, $"Seriële monitor {(_serPoort.Length > 0 ? _serPoort : "")} {_serBaud} baud".Replace("  ", " "), _serSeconden + 60,
+            res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "regels")} regels van {Tekst(res, "poort")}" : "klaar"));
+    }
+
+    private async Task SerieelToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await StuurSerieel();
+    }
+
+    private async Task StuurSerieel()
+    {
+        if (_taakJobId is null || !_taakBezig || _serInvoer.Length == 0) return;
+        var tekst = _serInvoer;
+        _serInvoer = ""; _serInvoerVersie++;
+        try
+        {
+            var r = await Agent($"/jobs/{_taakJobId}/invoer", 10, JsonSerializer.Serialize(new { tekst }));
+            if (r.status != 200) Toon("Sturen mislukt: " + (FoutUit(r.tekst) ?? r.tekst), true);
+        }
+        catch (Exception ex) { Toon("Sturen mislukt: " + ex.Message, true); }
+    }
 
     private int? MonitorPositie(string code)
         => code.StartsWith("monitor:", StringComparison.Ordinal) && int.TryParse(code[8..], out var p) ? p : null;
@@ -2443,6 +2508,7 @@
     private string TestUitlegVoor(string code) => ReceptVan(code) is { } rc
         ? (rc.Recept.Omschrijving.Length > 0 ? rc.Recept.Omschrijving + " " : "") + $"Testrecept van {rc.Positie.DriveTypeNaam} ({rc.Recept.StapNamen().Count} stappen), uitgevoerd door de werkplek-agent op slave {rc.Positie.Positie}."
         : MonitorPositie(code) is not null ? "Objecten van de slave live meekijken: de agent leest ze elke 0,2 s en het scherm toont de waarden en het verloop. Er wordt niets geschreven."
+        : code == SerieelCode ? "De seriële uitvoer van de ESP32 (USB-UART) live meelezen, met reset om de opstartregels te zien; tekst terugsturen kan ook. Zoals de seriële monitor van de Arduino-IDE, maar via de werkplek-agent."
         : TestUitlegVast(code);
 
     private static string TestUitlegVast(string code) => code switch

@@ -24,7 +24,18 @@ class Job:
         self.begin = time.time()
         self.einde: float | None = None
         self.stop_gevraagd = False    # gezet via POST /jobs/<id>/stop; de taak kijkt er zelf naar en rondt af
+        self._invoer: list[str] = []  # tekst van de gebruiker via POST /jobs/<id>/invoer (seriële monitor)
         self._slot = threading.Lock()
+
+    def stuur(self, tekst: str) -> None:
+        """Invoer van de gebruiker klaarzetten; een taak die ermee werkt haalt hem op met lees_invoer()."""
+        with self._slot:
+            self._invoer.append(tekst)
+
+    def lees_invoer(self) -> list[str]:
+        with self._slot:
+            uit, self._invoer = self._invoer, []
+        return uit
 
     # -- door de taak aan te roepen ---------------------------------------
     def log(self, tekst: str) -> None:

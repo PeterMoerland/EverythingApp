@@ -91,6 +91,17 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   ESP32-type of extra positie nodig). Terugval op alle typen alleen als geen enkele positie een type heeft.
   `ChipCodeVanType` geeft bij een MDE-type "" (agent herkent de chip zelf). Na een USB-flash van MDE-firmware
   wordt ook `drive:<positie>:firmware` gezet, zoals bij FoE.
+- **Seriële monitor** (agent 1.13.0, `taken/serieel.py`, taak `serieel.monitor`): uitvoer van de ESP32 via de
+  USB-UART als logregels van de job (poort zoals esp32.flashen, baud, seconden, reset via DTR/RTS zoals esptool
+  default_reset; zonder reset DTR/RTS laag laten, anders blijft de ESP32 in reset). Tekst sturen: nieuw
+  `POST /jobs/<id>/invoer` {"tekst"} → `Job.stuur`/`lees_invoer`. App: knop 🖥 Seriële monitor… bij de chipknoppen
+  (techniek esp32), testvenster met code `serieel` (`StartSerieel`, `StuurSerieel`). Eén taak tegelijk: tijdens
+  de monitor kan esptool de poort niet gebruiken.
+- **Eerste echte FoE-test op de Swivel (14-10-2026)**: de slave gaat niet naar BOOT (blijft INIT, AL-status
+  0x0000 = geen fout, dus de firmware doet de overgang gewoon niet) en 0x1008/0x100A gaven niets terug. Agent
+  1.12.1: lukt BOOT niet, dan FoE via de gewone mailbox in PRE-OP proberen; foutmeldingen noemen de toestand en
+  de AL-statuscode in woorden (`_toestand`, `_al_status`). Blijft het mislukken, dan moet de slave-firmware
+  bootstrap + FoE aanzetten (SSC: BOOTSTRAPMODE_SUPPORTED, FOE_SUPPORTED) of FoE in PRE-OP toestaan.
   Eigen prints: M-Pede-WJ1 (Swivel, 0x00055955: 2 joints ±512, kleppen,
   druk), 6-voudige stappenmotorsturing, Display v2 (ESP32 flashen via USB + EtherCAT voor test/firmware),
   Gripper. Nog nodig van de gebruiker: bits van 0x7000/0x6000 en bevestiging van het 0x8000-protocol.

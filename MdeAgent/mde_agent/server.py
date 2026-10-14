@@ -8,6 +8,7 @@ GET  /drives[?ifname=]          drives synchroon uitlezen (snel; voor Test PCB)
 POST /taken/<naam>              job starten, body = JSON-parameters → {"job": id}
 GET  /jobs/<id>[?vanaf=n]       status + logregels vanaf n
 POST /jobs/<id>/stop            (voorlopig: alleen markeren; processen lopen af via time-out)
+POST /jobs/<id>/invoer          {"tekst": "..."} naar een lopende taak (seriële monitor)
 
 Beveiliging: alleen localhost; CORS alleen voor de origins in "toegestaan";
 een token (X-Agent-Token of ?token=) als er een is ingesteld. Reads (/health)
@@ -174,6 +175,18 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 job.stop_gevraagd = True
                 job.log("Stop gevraagd door gebruiker — taak rondt af.")
+                self._stuur(200, {"ok": True})
+            return
+
+        if pad.startswith("/jobs/") and pad.endswith("/invoer"):
+            # tekst naar een lopende taak (seriële monitor): {"tekst": "..."}
+            job = self.jobs.haal(pad.split("/")[2])
+            if job is None:
+                self._stuur(404, {"fout": "Onbekende job."})
+            elif job.stand != "bezig":
+                self._stuur(409, {"fout": "De taak loopt niet meer."})
+            else:
+                job.stuur(str(self._body().get("tekst", "")))
                 self._stuur(200, {"ok": True})
             return
 
