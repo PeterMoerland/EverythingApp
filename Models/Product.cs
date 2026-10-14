@@ -42,6 +42,8 @@ public static class ProductTechniek
     /// (een regel = géén parameters), zodat bestaande producten zonder deze regel parametersets houden.
     /// </summary>
     public const string GeenParameters = "geenparams";
+    /// <summary>Sub-vinkje onder EtherCAT: het serienummer van het exemplaar in de EEPROM van de eigen MDE-slave(s) schrijven.</summary>
+    public const string SerienummerSchrijven = "ecatsn";
 
     public static readonly (string Code, string Naam, string Uitleg)[] Alle =
     {

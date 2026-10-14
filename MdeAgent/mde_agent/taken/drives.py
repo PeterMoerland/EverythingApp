@@ -96,6 +96,15 @@ def _ingebouwd_scan(ifname: str) -> list[dict]:
                         break
                 except Exception as e:  # noqa: BLE001
                     rec["errors"].append(f"{naam}: {e}")
+            if eigen and rec["serial_number"] in ("", "0"):
+                # MDE-slave: het serienummer staat in de EEPROM (SII 0x0E, door mde.serienummer gezet), ook als
+                # de firmware het (nog) niet in 0x1018:4 zet
+                try:
+                    sii = int.from_bytes(bytes(slave.eeprom_read(0x000E))[:4], "little")
+                    if sii not in (0, 0xFFFFFFFF):
+                        rec["serial_number"] = str(sii)
+                except Exception:  # noqa: BLE001
+                    pass
             if rec["serial_number"] not in ("", "0"):
                 rec["errors"] = []   # de fallback lukte, eerdere poging is niet relevant
             uit.append(rec)

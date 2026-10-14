@@ -229,6 +229,11 @@
                         title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
                 <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
                         title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
+                @if (SnSchrijven)
+                {
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
+                            title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")">🔢 Serienummer schrijven</button>
+                }
             }
             @if (!IsCoe(p))
             {
@@ -1297,6 +1302,41 @@
         .Where(p => !(p.DriveTypeId is int t && _driveTypen.FirstOrDefault(x => x.Id == t) is { } dt && DriveProtocol.IsChip(dt.Protocol)))
         .ToList();
     private bool HeeftChip => _technieken.Contains(ProductTechniek.Esp32) || _technieken.Contains(ProductTechniek.Stm32);
+    /// <summary>Serienummer in de EEPROM schrijven (Producten ▸ Techniek ▸ EtherCAT ▸ "Serienummer schrijven").</summary>
+    private bool SnSchrijven => _technieken.Contains(ProductTechniek.SerienummerSchrijven);
+
+    /// <summary>Het serienummer van het exemplaar als getal (de cijfers eruit, bv. "MPR-0036" → 36); null als er geen cijfers in staan.</summary>
+    private uint? SerienummerGetal
+    {
+        get
+        {
+            var cijfers = new string((Exemplaar.Serienummer ?? "").Where(char.IsDigit).ToArray());
+            return uint.TryParse(cijfers, out var n) && n > 0 ? n : null;
+        }
+    }
+
+    private async Task SchrijfSerienummer(DrivePositie p, bool overschrijven = false)
+    {
+        if (SerienummerGetal is not uint sn) return;
+        if (!overschrijven && !await Bevestig($"Serienummer {sn} in de EEPROM van slave {p.Positie} ({p.Naam}) zetten?")) return;
+        var body = JsonSerializer.Serialize(new { positie = p.Positie, serienummer = sn, overschrijven });
+        string? bestaand = null;
+        await VoerTaakUit("mde.serienummer", body, $"Serienummer {sn} → slave {p.Positie} ({p.Naam})", 90, async res =>
+        {
+            var coe = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("coe", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt64() : (long?)null;
+            await ZetViaBron($"drive:{p.Positie}:serienummer", sn.ToString());
+            await Repo.VoegHistorieToeAsync(ProductId, $"Slave {p.Positie} ({p.Naam}): serienummer {sn} in de EEPROM gezet" + Opm(),
+                                            SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
+            return $"serienummer {sn} geschreven" + (coe is long w && w != sn ? $"; 0x1018:4 meldt nog {w} (firmware leest de EEPROM pas na een herstart, of niet)" : "");
+        });
+        // stond er al een ander nummer: vragen of het overschreven mag, en dan nog eens
+        if (_taakFout is { } f && f.Contains("staat al serienummer", StringComparison.OrdinalIgnoreCase))
+            bestaand = f;
+        if (bestaand is not null && !overschrijven
+            && await Bevestig($"{bestaand}\n\nOverschrijven met {sn}?"))
+            await SchrijfSerienummer(p, overschrijven: true);
+    }
+
     /// <summary>Parametersets laden (Producten ▸ Techniek ▸ EtherCAT ▸ "Parametersets laden"); standaard aan.</summary>
     private bool MetParameters => !_technieken.Contains(ProductTechniek.GeenParameters);
     private bool HeeftCan => _technieken.Contains(ProductTechniek.Can);

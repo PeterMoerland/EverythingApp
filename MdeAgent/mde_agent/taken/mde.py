@@ -32,6 +32,10 @@ Taak mde.test           parameters: positie, stappen (lijst), naam. Een testrece
                                        live naar de app ({"live": {"t": s, "waarden": {naam: waarde}}})
 Taak mde.monitor        parameters: positie, objecten (zoals bij de bouwsteen monitor), seconden (120), interval (0.2).
                         Alleen lezen, live naar de app; Stop = eerder klaar.
+Taak mde.serienummer    parameters: positie, serienummer (getal), overschrijven? (false). Het serienummer in de
+                        EEPROM (SII) van de ESC zetten, woord 0x0E/0x0F: de vaste plek uit ETG.1000.6, buiten
+                        de checksum en onafhankelijk van de firmware. Staat er al een ánder nummer (niet 0),
+                        dan alleen met overschrijven. Leest daarna SII en 0x1018:4 terug.
 Taak mde.firmware       parameters: positie, firmware (URL/pad), versie, bestandsnaam?, wachtwoord? (0),
                         boot? (true). FoE: slave naar BOOT, bestand schrijven, terug naar INIT/PREOP, 0x100A lezen.
 """
@@ -414,6 +418,54 @@ def _bootstrap_mailbox(s, log) -> None:
         log(f"SM0/SM1 op de bootstrap-mailbox zetten mislukt ({e}); standaardmailbox blijft.")
 
 
+SII_SERIENUMMER = 0x000E    # EEPROM-woordadres van het serienummer (2 woorden, little-endian; niet in de CRC)
+
+
+def lees_sii_serienummer(s) -> int | None:
+    try:
+        return int.from_bytes(bytes(s.eeprom_read(SII_SERIENUMMER))[:4], "little")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _werker_serienummer(d: _Drive, o: dict, log) -> dict:
+    import pysoem
+    s = d.slave
+    nieuw = int(o["serienummer"])
+    if not 0 < nieuw <= 0xFFFFFFFF:
+        raise RuntimeError(f"Serienummer {nieuw} past niet in 32 bits of is 0.")
+    oud = lees_sii_serienummer(s)
+    if oud is None:
+        raise RuntimeError("De EEPROM van de slave is niet te lezen.")
+    log(f"EEPROM (SII 0x0E) bevat nu serienummer {oud}.")
+    if oud == nieuw:
+        log("Staat er al; niets geschreven.")
+    else:
+        if oud not in (0, 0xFFFFFFFF) and not o.get("overschrijven"):
+            raise RuntimeError(f"In de EEPROM staat al serienummer {oud}. Alleen overschrijven als dat zeker de bedoeling is.")
+        # in INIT schrijven: dan gebruikt de firmware de EEPROM niet tegelijk via de PDI
+        _vraag_toestand(s, log, pysoem.INIT_STATE, 2.0)
+        data = nieuw.to_bytes(4, "little")
+        s.eeprom_write(SII_SERIENUMMER, data[:2])
+        time.sleep(0.05)
+        s.eeprom_write(SII_SERIENUMMER + 1, data[2:])
+        time.sleep(0.05)
+        terug = lees_sii_serienummer(s)
+        if terug != nieuw:
+            raise RuntimeError(f"EEPROM leest {terug} terug in plaats van {nieuw}.")
+        log(f"Serienummer {nieuw} in de EEPROM gezet en teruggelezen.")
+    coe = None
+    try:
+        _vraag_toestand(s, log, pysoem.PREOP_STATE, 3.0)
+        coe = struct.unpack("<I", s.sdo_read(0x1018, 4)[:4])[0]
+    except Exception:  # noqa: BLE001
+        pass
+    if coe is not None and coe != nieuw:
+        log(f"Let op: 0x1018:4 meldt {coe}. De firmware moet het serienummer uit de EEPROM (SII 0x0E) in 0x1018:4 zetten; "
+            "dat gebeurt meestal pas na een herstart, en anders niet.")
+    return {"serienummer": nieuw, "was": oud, "coe": coe, "positie": d.positie}
+
+
 def _vraag_toestand(s, log, toestand: int, wacht_s: float) -> int:
     """Een toestand vragen en laten zien wat er gebeurt: de schrijfactie (wkc), AL control meteen teruggelezen
     (komt onze vraag aan?), en tijdens het wachten elke verandering van AL control/status/code. Komt de
@@ -607,6 +659,8 @@ def werker(ifname: str, opdracht_json: str) -> dict:
             uit = _werker_test(d, o, log)
         elif soort == "monitor":
             uit = _werker_monitor(d, o, log)
+        elif soort == "serienummer":
+            uit = _werker_serienummer(d, o, log)
         elif soort == "firmware":
             uit = _werker_firmware(master, d, o, log)
         else:
@@ -672,6 +726,20 @@ class Monitor:
             res = {**(job.resultaat if isinstance(job.resultaat, dict) else {}), "gestopt": True}
             res.pop("live", None)
         job.klaar(res)
+
+
+class Serienummer:
+    NAAM = "mde.serienummer"
+    OMSCHRIJVING = "MDE-slave: serienummer in de EEPROM (SII) schrijven"
+    beschikbaar = staticmethod(beschikbaar)
+
+    @staticmethod
+    def voer_uit(job, inst: dict, parameters: dict) -> None:
+        o = {"wat": "serienummer", "positie": int(parameters.get("positie") or 1),
+             "serienummer": int(str(parameters.get("serienummer") or "0").strip()),
+             "overschrijven": bool(parameters.get("overschrijven", False))}
+        job.log(f"Serienummer {o['serienummer']} naar slave {o['positie']} …")
+        job.klaar(_draai(inst, job, o, 60, werker_naam="mde"))
 
 
 class Firmware:

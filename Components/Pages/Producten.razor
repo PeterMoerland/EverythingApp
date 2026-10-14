@@ -914,6 +914,10 @@
                                         <input type="checkbox" checked="@MetParameters" @onchange="ZetMetParameters" />
                                         <b>Parametersets laden</b> <small class="uitleg">per positie een parameterset (.xcf / .json) bij de firmware; uit als deze print alleen firmware krijgt</small>
                                     </label>
+                                    <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints: het serienummer van het exemplaar in de EEPROM van de ESC zetten (SII 0x0E), zodat de print zijn eigen nummer meldt">
+                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.SerienummerSchrijven)" @onchange="e => ZetTechniek(ProductTechniek.SerienummerSchrijven, e)" />
+                                        <b>Serienummer schrijven</b> <small class="uitleg">het serienummer van het exemplaar in de EEPROM van de eigen MDE-slave zetten (knop in Programmeren)</small>
+                                    </label>
                                 }
                             }
                         </div>
