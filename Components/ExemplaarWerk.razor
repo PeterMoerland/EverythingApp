@@ -99,7 +99,7 @@
                 <th style="width:9rem">Drive</th>
                 <th>Type</th>
                 <th>Firmware</th>
-                <th>Parameterset</th>
+                @if (MetParameters) { <th>Parameterset</th> }
             </tr>
         </thead>
         <tbody>
@@ -109,7 +109,7 @@
                     <td><b>@c.Positie</b> @c.Naam</td>
                     <td><span class="stand-chip @c.TypeKleur">@c.TypeTekst</span></td>
                     <td><span class="stand-chip @c.FirmwareKleur">@c.FirmwareTekst</span></td>
-                    <td>@c.ParametersTekst</td>
+                    @if (MetParameters) { <td>@c.ParametersTekst</td> }
                 </tr>
             }
         </tbody>
@@ -1413,6 +1413,11 @@
             _driveTypen = await Drives.GetTypenAsync();
             // Stroomlus alleen bij EtherCAT-drives van Ingenia (niet bij eRob/CoE)
             _testen.RemoveAll(t => t.Code is "stroomlus" or "encodertest" or "phasing" or "motiontest" or "dualmotion");
+            // Basistest (serienummers) en IO-test (uitgangen 0x2602/0x2601) zijn voor Ingenia-drives: een eRob of
+            // MDE-slave heeft geen elektronisch serienummer en die registers niet. Alleen tonen als er een
+            // Ingenia-positie is (of als de posities nog niet zijn vastgelegd).
+            if (DrivePosities.Count > 0 && !DrivePosities.Any(p => ProtocolVan(p) == DriveProtocol.EtherCat))
+                _testen.RemoveAll(t => t.Code is "basistest" or "iotest");
             if (DrivePosities.Any(p => !IsCoe(p)))
             {
                 _testen.Add(("stroomlus", "Stroomlus"));
