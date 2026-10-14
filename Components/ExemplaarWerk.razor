@@ -1136,7 +1136,7 @@
                     }
                     @if (_chip == "esp32" && !FirmwareIsHex)
                     {
-                        <label class="bankveld">
+                        <label class="bankveld" title="0x0 voor een samengevoegd image (bootloader + partitietabel + app), 0x10000 voor een los app-image. De agent herkent het soort bestand en zet een app-image nooit op 0x0 (dat overschrijft de bootloader).">
                             <span>Offset</span>
                             <input value="@_offset" style="width:7rem" disabled="@(_flashJob is not null)"
                                    @onchange="OffsetGewijzigd" />

@@ -112,6 +112,48 @@ def lees_mac(inst, job, poort: str, chip: str) -> tuple[str, str]:
     return mac, chipnaam
 
 
+APP_OFFSET = 0x10000          # standaard partitietabel van ESP-IDF/Arduino: eerste app-partitie (factory/ota_0)
+
+
+def soort_image(pad: str) -> str:
+    """'app' (ESP-IDF app-image: 0xE9 + esp_app_desc_t-magic 0xABCD5432 op 0x20), 'samengevoegd' (bootloader op 0x0
+    én partitietabel 0xAA50 op 0x8000, zoals `idf.py merge-bin`), 'bootloader' (0xE9 zonder app-beschrijving) of ''."""
+    try:
+        with open(pad, "rb") as f:
+            kop = f.read(0x30)
+            f.seek(0x8000)
+            pt = f.read(2)
+    except OSError:
+        return ""
+    if len(kop) < 0x30 or kop[0] != 0xE9:
+        return ""
+    if pt == b"\xAA\x50":
+        return "samengevoegd"
+    if int.from_bytes(kop[0x20:0x24], "little") == 0xABCD5432:
+        return "app"
+    return "bootloader"
+
+
+def _juiste_offset(pad: str, gevraagd: str, job) -> str:
+    """Een los app-image op 0x0 overschrijft de bootloader: de ROM laadt de app dan als bootloader, met
+    'SHA-256 comparison failed' en een watchdog-lus (gezien op de Swivel, 14-10-2026). Dan naar 0x10000."""
+    soort = soort_image(pad)
+    try:
+        offset = int(gevraagd, 0)
+    except ValueError:
+        offset = 0
+    naam = os.path.basename(pad)
+    if soort == "app" and offset == 0:
+        job.log(f"{naam} is een los app-image: niet op 0x0 (daar staat de bootloader) maar op 0x{APP_OFFSET:X}.")
+        return f"0x{APP_OFFSET:X}"
+    if soort == "samengevoegd" and offset != 0:
+        job.log(f"{naam} is een samengevoegd image (bootloader + partitietabel + app): op 0x0 in plaats van {gevraagd}.")
+        return "0x0"
+    if soort:
+        job.log(f"{naam}: {soort}-image op {gevraagd}.")
+    return gevraagd
+
+
 def voer_uit(job, inst: dict, parameters: dict) -> None:
     _hulp.ruim_werkmap_op()
     chip = (parameters.get("chip") or "auto").lower()
@@ -128,7 +170,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             job.log(f"Intel HEX-bestand: adressen komen uit het bestand ({os.path.basename(pad)}).")
             paren += ["0x0", pad]
         else:
-            paren += [str(d.get("offset") or "0x0"), pad]
+            paren += [_juiste_offset(pad, str(d.get("offset") or "0x0"), job), pad]
 
     job.voortgang(5)
     mac, chipnaam = lees_mac(inst, job, poort, chip)
@@ -139,6 +181,11 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
     job.voortgang(10)
 
     basis = ["--chip", chip, "--port", poort, "--baud", baud, "--before", "default_reset", "--after", "hard_reset"]
+    bestanden = [p for i, p in enumerate(paren) if i % 2 == 1]
+    if parameters.get("wissen") and bestanden and all(soort_image(p) == "app" for p in bestanden):
+        # erase_flash wist ook bootloader en partitietabel; met alleen een app-image start de chip daarna niet meer
+        raise RuntimeError("'Eerst flash wissen' met alleen een app-image zou de bootloader en partitietabel weghalen. "
+                           "Gebruik een samengevoegd image (idf.py merge-bin) of laat 'wissen' uit.")
     if parameters.get("wissen"):
         job.log("Flash wissen …")
         if _esptool(inst, job, basis + [_cmd("erase_flash")], 120) != 0:
