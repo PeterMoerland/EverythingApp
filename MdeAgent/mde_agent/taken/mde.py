@@ -493,6 +493,73 @@ def _werker_serienummer(d: _Drive, o: dict, log) -> dict:
     return {"serienummer": nieuw, "was": oud, "coe": coe, "positie": d.positie}
 
 
+def _lees_eeprom(s, aantal_bytes: int) -> bytes:
+    """De eerste `aantal_bytes` van de EEPROM (eeprom_read geeft 4 bytes = 2 woorden per keer)."""
+    uit = b""
+    for w in range(0, (aantal_bytes + 3) // 2, 2):
+        uit += bytes(s.eeprom_read(w))[:4]
+    return uit[:aantal_bytes]
+
+
+def _gebieden(oud: bytes, nieuw: bytes) -> list[str]:
+    """Welke delen van de EEPROM verschillen, in woorden ('kop 0x00-0x07: …')."""
+    namen = [(0x00, 0x08, "kop (PDI, alias, checksum)"), (0x08, 0x10, "identiteit"), (0x14, 0x18, "bootstrap-mailbox"),
+             (0x18, 0x1D, "standaardmailbox/protocollen"), (0x3E, 0x40, "grootte/versie"), (0x40, 0x10000, "categorieën")]
+    uit = []
+    for van, tot, naam in namen:
+        a, b = oud[van * 2:tot * 2], nieuw[van * 2:tot * 2]
+        if a != b:
+            uit.append(f"{naam}: nu {a[:16].hex(' ')}{' …' if len(a) > 16 else ''} → {b[:16].hex(' ')}{' …' if len(b) > 16 else ''}")
+    return uit
+
+
+def _werker_eeprom(d: _Drive, o: dict, log) -> dict:
+    """EEPROM (SII) vullen uit het ESI; met alleen_vergelijken wordt er niets geschreven."""
+    import pysoem
+    from . import sii
+    s = d.slave
+    nieuw, info = sii.maak(o["esi"], int(o.get("serienummer") or 0))
+    log(f"Uit het ESI: {info['naam']} {info['vendor']}/{info['productcode']} rev {info['revisie']}, sn {info['serienummer'] or '-'}, "
+        f"PDI {info['pdi']}, mailbox {info['mailbox']}, {info['protocollen']}; {info['bytes']} van {info['eeprom']} bytes.")
+    oud = _lees_eeprom(s, len(nieuw))
+    v, p, r, sn = sii.lees_identiteit(oud)
+    leeg = all(b == 0xFF for b in oud[0x10:0x20]) or all(b == 0 for b in oud[0x10:0x20])
+    log("EEPROM nu: " + ("leeg" if leeg else f"0x{v:08X}/0x{p:08X} rev 0x{r:08X}, sn {sn}"))
+    # het node-adres (alias, woord 4) van de print laten staan; dat zet 'Node-adressen…'
+    alias = struct.unpack_from("<H", oud, 8)[0]
+    if not leeg and alias not in (0, 0xFFFF):
+        nieuw, info = sii.maak(o["esi"], int(o.get("serienummer") or 0), alias=alias)
+        log(f"Node-adres (alias) {alias} blijft staan.")
+    verschil = _gebieden(oud, nieuw)
+    for regel in verschil:
+        log("  verschilt: " + regel)
+    if not verschil:
+        log("De EEPROM is al precies zo; niets te schrijven.")
+        return {"geschreven": 0, "gelijk": True, **info}
+    if o.get("alleen_vergelijken"):
+        return {"geschreven": 0, "gelijk": False, "verschillen": verschil, **info}
+
+    nieuw_sn = int(info["serienummer"] or 0)
+    ander = not leeg and ((v, p, r) != (int(info["vendor"], 16), int(info["productcode"], 16), int(info["revisie"], 16))
+                          or (sn not in (0, 0xFFFFFFFF) and nieuw_sn and sn != nieuw_sn))
+    if ander and not o.get("overschrijven"):
+        raise RuntimeError(f"De EEPROM bevat al een andere identiteit (0x{v:08X}/0x{p:08X} rev 0x{r:08X}, sn {sn}). "
+                           "Alleen overschrijven als dat zeker de bedoeling is.")
+    _vraag_toestand(s, log, pysoem.INIT_STATE, 2.0)
+    woorden = [w for w in range(len(nieuw) // 2) if oud[w * 2:w * 2 + 2] != nieuw[w * 2:w * 2 + 2]]
+    log(f"{len(woorden)} woorden schrijven …")
+    for i, w in enumerate(woorden, start=1):
+        s.eeprom_write(w, nieuw[w * 2:w * 2 + 2])
+        if i % 50 == 0:
+            log(f"  … {i}/{len(woorden)}")
+    terug = _lees_eeprom(s, len(nieuw))
+    if terug != nieuw:
+        fout = [w for w in range(len(nieuw) // 2) if terug[w * 2:w * 2 + 2] != nieuw[w * 2:w * 2 + 2]]
+        raise RuntimeError(f"Teruglezen klopt niet op {len(fout)} woorden (eerste: 0x{fout[0]:04X}). Probeer opnieuw.")
+    log("Geschreven en teruggelezen. Geef de print spanning uit/aan: de ESC leest de EEPROM alleen bij het opstarten.")
+    return {"geschreven": len(woorden), "gelijk": False, "herstartNodig": True, **info}
+
+
 def _vraag_toestand(s, log, toestand: int, wacht_s: float) -> int:
     """Een toestand vragen en laten zien wat er gebeurt: de schrijfactie (wkc), AL control meteen teruggelezen
     (komt onze vraag aan?), en tijdens het wachten elke verandering van AL control/status/code. Komt de
@@ -677,7 +744,8 @@ def werker(ifname: str, opdracht_json: str) -> dict:
         d.live = live
         d.t0 = time.time()
         d.monitor = None
-        if o.get("eis_mde", True) and d.slave.man != MDE_VENDOR and o.get("wat") != "identiteit":
+        # identiteit en eeprom ook op een slave met een lege of verkeerde EEPROM (die meldt nog geen MDE-vendor)
+        if o.get("eis_mde", True) and d.slave.man != MDE_VENDOR and o.get("wat") not in ("identiteit", "eeprom"):
             raise RuntimeError(f"Slave op positie {positie} is geen MDE-slave (vendor 0x{d.slave.man:08X}).")
         soort = o.get("wat")
         if soort in ("identiteit", "test", "monitor"):
@@ -694,6 +762,8 @@ def werker(ifname: str, opdracht_json: str) -> dict:
             uit = _werker_monitor(d, o, log)
         elif soort == "serienummer":
             uit = _werker_serienummer(d, o, log)
+        elif soort == "eeprom":
+            uit = _werker_eeprom(d, o, log)
         elif soort == "firmware":
             uit = _werker_firmware(master, d, o, log)
         else:
@@ -773,6 +843,23 @@ class Serienummer:
              "overschrijven": bool(parameters.get("overschrijven", False))}
         job.log(f"Serienummer {o['serienummer']} naar slave {o['positie']} …")
         job.klaar(_draai(inst, job, o, 60, werker_naam="mde"))
+
+
+class Eeprom:
+    NAAM = "mde.eeprom"
+    OMSCHRIJVING = "MDE-slave: EEPROM (SII) vullen uit het ESI, of alleen vergelijken"
+    beschikbaar = staticmethod(beschikbaar)
+
+    @staticmethod
+    def voer_uit(job, inst: dict, parameters: dict) -> None:
+        _hulp.ruim_werkmap_op()
+        esi = _hulp.haal_firmware(parameters.get("esi") or "", job, "esi.xml")
+        o = {"wat": "eeprom", "positie": int(parameters.get("positie") or 1), "esi": esi,
+             "serienummer": int(str(parameters.get("serienummer") or "0").strip() or 0),
+             "overschrijven": bool(parameters.get("overschrijven", False)),
+             "alleen_vergelijken": bool(parameters.get("alleen_vergelijken", False))}
+        job.log(("EEPROM vergelijken met" if o["alleen_vergelijken"] else "EEPROM vullen uit") + f" het ESI, slave {o['positie']} …")
+        job.klaar(_draai(inst, job, o, 180, werker_naam="mde"))
 
 
 class Firmware:

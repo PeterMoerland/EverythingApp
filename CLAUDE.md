@@ -143,6 +143,17 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   Agent 1.14.2: identiteit/test/monitor vragen eerst PRE-OP via `_vraag_toestand`, en `drives.py` wacht bij een
   MDE-slave op PRE-OP voor het uitlezen (daarom stond firmware op "niet gelezen"). Blijkt daarna dat PDO-objecten
   niet via SDO gaan, dan moeten lees/beweging/monitor via procesdata (config_map, SAFE-OP) — nog niet gebouwd.
+- **EEPROM vullen uit het ESI** (agent 1.15.0, `taken/sii.py` + `mde.eeprom`; sub-vinkje "EEPROM vullen uit
+  ESI", techniek `ecateeprom`; knoppen 🧩 EEPROM vergelijken en 💾 EEPROM vullen… in de positierij). `sii.maak`
+  bouwt de SII volgens ETG.1000.6/ETG.2010: ConfigData (PDI-control: 0x80 = SPI op de LAN9252-familie, 0x05 = SPI
+  op ET1100), CRC-8, vendor/product/revisie/serienummer, bootstrap- en standaardmailbox, protocollen, grootte,
+  categorieën Strings/General/FMMU/SyncM/TxPDO/RxPDO/End. Het node-adres (alias, woord 4) van een gevulde EEPROM
+  blijft staan. De werker leest eerst, logt per gebied wat verschilt, schrijft alleen afwijkende woorden in INIT en
+  leest terug; een andere identiteit of een ander serienummer alleen na bevestiging. Daarna spanning uit/aan.
+  Getoetst met het ESI van de M-Pede-WJ1 (444 bytes, `siitoets.py`) en een nep-EEPROM in zes gevallen
+  (`eepromtoets.py`); **niet op de print**. Eerst "vergelijken" op een door TwinCAT geschreven EEPROM draaien om de
+  omzetting te controleren. Productcode 0x00055955 moet 0x0000DA93 worden (fout van de firmwarebouwer): nieuw ESI,
+  firmware 0x1018:2 en Controllertypen aanpassen, dan EEPROM vullen.
 - **Meekijk-objecten uit het ESI** (14-10-2026): bij het openen van Meekijken leest `LaadMonitorUitEsi` het ESI
   van het type (actuele firmware eerst) en zet alle PDO-entries als vinkjes neer: TxPdo ("wat de print meldt")
   standaard aan, RxPdo ("wat hij krijgt") uit; opvulbits en onbekende types vallen weg, dubbele namen krijgen

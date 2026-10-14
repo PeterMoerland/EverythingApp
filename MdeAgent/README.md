@@ -21,6 +21,8 @@ Taken (uitbreidbaar, zie `mde_agent/taken/`):
 | `feetech.parameters` | Feetech-servo programmeren met een JSON-parameterset (zie `voorbeelden/feetech-sts3215.json`), terugleescontrole, ID/baud als laatste | idem |
 | `mde.identiteit`  | Eigen MDE-slave (vendor 0x10E3): standaardobjecten 0x1008/0x1009/0x100A/0x1018, control-/statusword | Npcap |
 | `mde.test`        | Testrecept op een MDE-slave: bouwstenen identiteit, lees, schrijf, wacht, beweging, doorgeefluik (0x8000), monitor (live meelezen) | Npcap |
+| `mde.serienummer` | Serienummer in de EEPROM (SII 0x0E) van een MDE-slave schrijven | Npcap |
+| `mde.eeprom`      | EEPROM (SII) van een MDE-slave vullen uit het ESI, of alleen vergelijken (`alleen_vergelijken`) | Npcap |
 | `mde.monitor`     | Objecten van een MDE-slave live meekijken (alleen lezen), tot Stop of `seconden` | Npcap |
 | `serieel.monitor` | Seriële monitor: uitvoer van de ESP32 via USB-UART live meelezen; tekst sturen via `POST /jobs/<id>/invoer` | USB-UART-driver |
 | `mde.firmware`    | Firmware via EtherCAT/FoE in een MDE-slave laden (pysoem, BOOT-toestand), daarna 0x100A teruglezen | Npcap |

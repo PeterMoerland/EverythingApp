@@ -230,6 +230,13 @@
                         title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
                 <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
                         title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
+                @if (EepromVullenAan)
+                {
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VergelijkEeprom(p)"
+                            title="@(EsiVoor(p) is null ? "Geen ESI-bestand bij dit controllertype" : "De EEPROM van de slave vergelijken met wat het ESI zou schrijven; er wordt niets veranderd")">🧩 EEPROM vergelijken</button>
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VulEeprom(p)"
+                            title="De complete EEPROM-inhoud uit het ESI schrijven (PDI/SPI, identiteit, serienummer, mailboxen, PDO's); daarna spanning uit/aan">💾 EEPROM vullen…</button>
+                }
                 @if (SnSchrijven)
                 {
                     <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
@@ -1303,6 +1310,53 @@
         .Where(p => !(p.DriveTypeId is int t && _driveTypen.FirstOrDefault(x => x.Id == t) is { } dt && DriveProtocol.IsChip(dt.Protocol)))
         .ToList();
     private bool HeeftChip => _technieken.Contains(ProductTechniek.Esp32) || _technieken.Contains(ProductTechniek.Stm32);
+    // ---- EEPROM vullen uit het ESI (mde.eeprom) ----
+    private bool EepromVullenAan => _technieken.Contains(ProductTechniek.EepromVullen);
+
+    /// <summary>De firmwareversie van dit type met een ESI-bestand (actueel eerst); null als er geen ESI is.</summary>
+    private DriveFirmware? EsiVoor(DrivePositie p)
+        => _alleFirmwares.Where(f => f.DriveTypeId == p.DriveTypeId && f.EsiFileId is not null)
+                         .OrderBy(f => f.Status == DriveStatus.Actueel ? 0 : 1).FirstOrDefault();
+
+    private object EepromBody(DrivePositie p, bool vergelijken, bool overschrijven) => new
+    {
+        positie = p.Positie, esi = BestandUrl(EsiVoor(p)!.EsiFileId!.Value), serienummer = SerienummerGetal ?? 0,
+        alleen_vergelijken = vergelijken, overschrijven,
+    };
+
+    private async Task VergelijkEeprom(DrivePositie p)
+    {
+        if (EsiVoor(p) is null) return;
+        await VoerTaakUit("mde.eeprom", JsonSerializer.Serialize(EepromBody(p, true, false)), $"EEPROM vergelijken — slave {p.Positie} ({p.Naam})", 120,
+            res => Task.FromResult(res.ValueKind == JsonValueKind.Object && res.TryGetProperty("gelijk", out var g) && g.ValueKind == JsonValueKind.True
+                ? "de EEPROM is gelijk aan het ESI"
+                : $"de EEPROM wijkt af van het ESI ({(res.ValueKind == JsonValueKind.Object && res.TryGetProperty("verschillen", out var v) && v.ValueKind == JsonValueKind.Array ? v.GetArrayLength() : 0)} delen, zie het logboek)"));
+    }
+
+    private async Task VulEeprom(DrivePositie p, bool overschrijven = false)
+    {
+        var fw = EsiVoor(p);
+        if (fw is null) return;
+        var sn = SerienummerGetal;
+        if (!overschrijven && !await Bevestig($"De EEPROM van slave {p.Positie} ({p.Naam}) vullen uit het ESI {fw.EsiBestand} (firmware {fw.Versie})" +
+                                              (sn is uint n ? $", met serienummer {n}" : ", zonder serienummer") +
+                                              "?\n\nDaarna moet de print spanning uit/aan krijgen.")) return;
+        await VoerTaakUit("mde.eeprom", JsonSerializer.Serialize(EepromBody(p, false, overschrijven)), $"EEPROM vullen — slave {p.Positie} ({p.Naam})", 240, async res =>
+        {
+            var geschreven = res.ValueKind == JsonValueKind.Object ? Getal(res, "geschreven") : 0;
+            if (geschreven == 0) return "de EEPROM was al gelijk aan het ESI";
+            if (sn is uint n) await ZetViaBron($"drive:{p.Positie}:serienummer", n.ToString());
+            await Repo.VoegHistorieToeAsync(ProductId,
+                $"Slave {p.Positie} ({p.Naam}): EEPROM gevuld uit ESI {fw.EsiBestand} — {Tekst(res, "productcode")}, rev {Tekst(res, "revisie")}, sn {(sn?.ToString() ?? "-")}, PDI {Tekst(res, "pdi")}" + Opm(),
+                SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
+            try { await JS.InvokeVoidAsync("mdeMelding", "EEPROM geschreven. Geef de print nu spanning uit/aan: de EtherCAT-chip leest de EEPROM alleen bij het opstarten.", "✅ Spanning uit/aan nodig"); } catch { }
+            return $"{geschreven} woorden geschreven en teruggelezen";
+        });
+        if (!overschrijven && _taakFout is { } f && f.Contains("andere identiteit", StringComparison.OrdinalIgnoreCase)
+            && await Bevestig($"{f}\n\nToch overschrijven met wat het ESI zegt?"))
+            await VulEeprom(p, overschrijven: true);
+    }
+
     /// <summary>Serienummer in de EEPROM schrijven (Producten ▸ Techniek ▸ EtherCAT ▸ "Serienummer schrijven").</summary>
     private bool SnSchrijven => _technieken.Contains(ProductTechniek.SerienummerSchrijven);
 

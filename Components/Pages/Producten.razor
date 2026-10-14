@@ -918,6 +918,10 @@
                                         <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.SerienummerSchrijven)" @onchange="e => ZetTechniek(ProductTechniek.SerienummerSchrijven, e)" />
                                         <b>Serienummer schrijven</b> <small class="uitleg">het serienummer van het exemplaar in de EEPROM van de eigen MDE-slave zetten (knop in Programmeren)</small>
                                     </label>
+                                    <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints met een lege of verkeerde EEPROM: de complete EEPROM-inhoud (PDI/SPI, identiteit, mailboxen, PDO's) uit het ESI van het controllertype schrijven, zoals TwinCAT 'Write EEPROM'">
+                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.EepromVullen)" @onchange="e => ZetTechniek(ProductTechniek.EepromVullen, e)" />
+                                        <b>EEPROM vullen uit ESI</b> <small class="uitleg">nieuwe print met lege EEPROM: PDI (SPI), fabrikant, productcode, revisie, serienummer, mailboxen en PDO's uit het ESI</small>
+                                    </label>
                                 }
                             }
                         </div>
