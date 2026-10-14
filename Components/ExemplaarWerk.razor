@@ -422,8 +422,36 @@
                     {
                         <p class="uitleg">Alleen lezen: de agent leest deze objecten elke 0,2 s uit en toont ze hieronder, tot Stop of tot de tijd om is.
                            Index, sub, type en naam per object; type UINT/INT/UDINT/DINT/BOOL/USINT/SINT/REAL/STRING.</p>
-                        <textarea class="drv-stappen prod-monitor-objecten" spellcheck="false" value="@_monitorObjecten"
-                                  @onchange="e => _monitorObjecten = (string?)e.Value ?? string.Empty"></textarea>
+                        @if (_esiObjecten.Count > 0)
+                        {
+                            <div class="prod-esi-objecten">
+                                <div class="prod-esi-kop"><b>Uit het ESI</b> <span class="uitleg">@_esiBron</span>
+                                    <button class="klein" disabled="@_taakBezig" @onclick="() => ZetEsiAlles(true)">alles</button>
+                                    <button class="klein" disabled="@_taakBezig" @onclick="() => ZetEsiAlles(false)">niets</button></div>
+                                @foreach (var groep in _esiObjecten.GroupBy(x => x.Groep))
+                                {
+                                    <div class="prod-esi-groep"><small class="uitleg">@groep.Key</small>
+                                        @foreach (var x in groep)
+                                        {
+                                            var o = x;
+                                            <label class="of-vink" title="@($"{o.Index}:{o.Sub} · {o.Type}")">
+                                                <input type="checkbox" checked="@o.Aan" disabled="@_taakBezig" @onchange="e => ZetEsiObject(o, e.Value is bool b && b)" /> @o.Naam
+                                            </label>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <details class="prod-esi-json"><summary class="uitleg">objectenlijst als JSON (bewerken kan ook)</summary>
+                                <textarea class="drv-stappen prod-monitor-objecten" spellcheck="false" value="@_monitorObjecten"
+                                          @onchange="e => _monitorObjecten = (string?)e.Value ?? string.Empty"></textarea>
+                            </details>
+                        }
+                        else
+                        {
+                            @if (_esiBron.Length > 0) { <p class="uitleg">@_esiBron</p> }
+                            <textarea class="drv-stappen prod-monitor-objecten" spellcheck="false" value="@_monitorObjecten"
+                                      @onchange="e => _monitorObjecten = (string?)e.Value ?? string.Empty"></textarea>
+                        }
                         <label class="bankveld"><span>Seconden</span>
                             <input type="number" min="5" max="1800" style="width:5rem" value="@_monitorSeconden" disabled="@_taakBezig"
                                    @onchange="e => _monitorSeconden = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 5, 1800) : 120" /></label>
@@ -2626,6 +2654,77 @@
 
     private static string MonitorCode(DrivePositie p) => "monitor:" + p.Positie;
 
+    // ---- meekijk-objecten uit het ESI van het controllertype: alle PDO-objecten (wat de print meldt en wat hij krijgt) ----
+    private sealed class EsiObject
+    {
+        public string Groep = "", Naam = "", Index = "", Type = "";
+        public int Sub;
+        public bool Aan;
+    }
+    private List<EsiObject> _esiObjecten = new();
+    private string _esiBron = "";
+
+    /// <summary>Datatypes uit het ESI die de agent kan lezen (mde._lees_waarde: TYPEN plus STRING).</summary>
+    private static string? AgentType(string esiType)
+    {
+        var t = esiType.Trim().ToUpperInvariant();
+        if (t.StartsWith("STRING")) return "STRING";
+        return t is "BOOL" or "USINT" or "SINT" or "UINT" or "INT" or "UDINT" or "DINT" or "ULINT" or "LINT" or "REAL" ? t : null;
+    }
+
+    private static string EsiHex(string s)
+    {
+        s = s.Trim();
+        if (s.StartsWith("#x", StringComparison.OrdinalIgnoreCase)) return "0x" + s[2..].ToUpperInvariant().PadLeft(4, '0');
+        return int.TryParse(s, out var d) ? $"0x{d:X4}" : s;
+    }
+
+    private async Task LaadMonitorUitEsi(DrivePositie p)
+    {
+        _esiObjecten = new(); _esiBron = "";
+        var fw = _alleFirmwares.Where(f => f.DriveTypeId == p.DriveTypeId && f.EsiFileId is not null)
+                               .OrderBy(f => f.Status == DriveStatus.Actueel ? 0 : 1).FirstOrDefault();
+        if (fw?.EsiFileId is null) { _esiBron = "Geen ESI-bestand bij dit controllertype (Controllertypen ▸ firmware ▸ ESI); vul de objecten hieronder zelf in."; return; }
+        try
+        {
+            var gevonden = await Store.ZoekAsync(fw.EsiFileId.Value);
+            if (gevonden is null) { _esiBron = "ESI-bestand niet gevonden in de filestore."; return; }
+            var doc = System.Xml.Linq.XDocument.Load(gevonden.Value.Pad);
+            var lijst = new List<EsiObject>();
+            // TxPdo = wat de slave meldt (standen, druk, statusword): standaard aan. RxPdo = wat hij krijgt (doelen,
+            // kleppen, controlword): ook te volgen, standaard uit.
+            foreach (var (soort, groep, aan) in new[] { ("TxPdo", "Wat de print meldt (TxPDO)", true), ("RxPdo", "Wat de print krijgt (RxPDO)", false) })
+                foreach (var pdo in doc.Descendants(soort))
+                    foreach (var e in pdo.Elements("Entry"))
+                    {
+                        var index = EsiHex(e.Element("Index")?.Value ?? "");
+                        if (index is "0x0000" or "") continue;                      // opvulbits
+                        var type = AgentType(e.Element("DataType")?.Value ?? "");
+                        if (type is null) continue;
+                        var sub = int.TryParse((e.Element("SubIndex")?.Value ?? "0").Replace("#x", ""), System.Globalization.NumberStyles.HexNumber, null, out var s) ? s : 0;
+                        if (lijst.Any(x => x.Index == index && x.Sub == sub)) continue;
+                        lijst.Add(new EsiObject { Groep = groep, Index = index, Sub = sub, Type = type, Aan = aan,
+                                                  Naam = (e.Element("Name")?.Value ?? $"{index}:{sub}").Trim() });
+                    }
+            // dubbele namen (Joint 1 in 0x6010 én 0x7010) onderscheiden
+            foreach (var g in lijst.GroupBy(x => x.Naam).Where(g => g.Count() > 1))
+                foreach (var x in g) x.Naam += x.Groep.Contains("krijgt") ? " (doel)" : " (stand)";
+            _esiObjecten = lijst;
+            _esiBron = $"{gevonden.Value.Naam} · {lijst.Count} objecten";
+            if (lijst.Count > 0) ZetMonitorJson();
+            else _esiBron += " — geen PDO-objecten gevonden; vul de objecten hieronder zelf in.";
+        }
+        catch (Exception ex) { _esiBron = "ESI lezen mislukt: " + ex.Message; }
+    }
+
+    private void ZetEsiObject(EsiObject o, bool aan) { o.Aan = aan; ZetMonitorJson(); }
+    private void ZetEsiAlles(bool aan) { foreach (var o in _esiObjecten) o.Aan = aan; ZetMonitorJson(); }
+
+    /// <summary>De aangevinkte ESI-objecten als objectenlijst voor de agent (zelfde vorm als het JSON-vak).</summary>
+    private void ZetMonitorJson()
+        => _monitorObjecten = JsonSerializer.Serialize(_esiObjecten.Where(o => o.Aan).Select(o => new { index = o.Index, sub = o.Sub, type = o.Type, naam = o.Naam }),
+                                                        new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+
     private int? MonitorPositie(string code)
         => code.StartsWith("monitor:", StringComparison.Ordinal) && int.TryParse(code[8..], out var p) ? p : null;
 
@@ -2708,6 +2807,7 @@
         if (code != "motiontest") _mt = null;
         if (code != "phasing") _ph = new();
         if (_slPositie == 0) _slPositie = DrivePosities.FirstOrDefault(p => !IsCoe(p))?.Positie ?? 0;
+        if (MonitorPositie(code) is int mp && DrivePosities.FirstOrDefault(x => x.Positie == mp) is { } mpos) await LaadMonitorUitEsi(mpos);
         await LaadTestHistorie();
     }
 
