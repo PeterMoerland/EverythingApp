@@ -2503,10 +2503,18 @@ html[data-thema="donker"] .drv-recept { border-color: #2b4a73; }
 
 /* ---- Test PCB: live waarden van een MDE-slave (recept met monitor, Meekijken) ---- */
 .prod-mde-waarden { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .3rem .8rem; margin: .4rem 0; }
-.prod-mde-waarden div { display: flex; justify-content: space-between; gap: .5rem; border-bottom: 1px dotted #c9d3df; padding: .1rem 0; }
+.prod-mde-waarden div, .prod-mde-waarde { display: flex; justify-content: space-between; align-items: center; gap: .5rem; border-bottom: 1px dotted #c9d3df; padding: .15rem .3rem; }
+.prod-mde-waarde { background: none; border: 1px solid transparent; border-bottom: 1px dotted #c9d3df; border-radius: 4px; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+.prod-mde-waarde:hover { background: var(--hover, #eef2f7); }
+.prod-mde-waarde.aan { border-color: #c9d3df; background: #f6f8fb; }
+.prod-mde-waarde > span:nth-child(2) { flex: 1; }
+.prod-mde-kleur { width: .8rem; height: .8rem; border-radius: 2px; border: 1px solid #aab; flex: none; }
+.prod-mde-opties { margin: .2rem 0; }
+.prod-mde-grafiek { height: 16rem; width: 100%; }
 .prod-mde-waarden b { font-variant-numeric: tabular-nums; }
 .prod-monitor-objecten { min-height: 6.5rem; }
-html[data-thema="donker"] .prod-mde-waarden div { border-color: #2b4a73; }
+html[data-thema="donker"] .prod-mde-waarden div, html[data-thema="donker"] .prod-mde-waarde { border-color: #2b4a73; }
+html[data-thema="donker"] .prod-mde-waarde.aan { background: #1b2f48; }
 
 /* ---- Producten > Techniek: parametersets (twee regels per set, past in de kaart) ---- */
 .drv-posities { width: 100%; table-layout: fixed; }

@@ -430,23 +430,41 @@
                     }
                     @if (_mdeReeks.Count > 0 || _mdeWaarden.Count > 0)
                     {
+                        @* Per waarde een knopje: aan = lijn in de grafiek, in de kleur van het blokje. *@
                         <div class="prod-mde-waarden">
                             @foreach (var kv in _mdeWaarden)
                             {
-                                <div><span>@kv.Key</span><b>@(kv.Value ?? "—")</b></div>
+                                var naam = kv.Key;
+                                var kleur = MdeKleur(naam);
+                                var aan = kleur is not null;
+                                <button class="prod-mde-waarde @(aan ? "aan" : "")" title="@(aan ? "Uit de grafiek halen" : "In de grafiek zetten")"
+                                        @onclick="() => WisselMdeLijn(naam)">
+                                    <span class="prod-mde-kleur" style="@(aan ? $"background:{kleur}" : "")"></span>
+                                    <span>@naam</span><b>@(kv.Value ?? "—")</b>
+                                </button>
                             }
-                            @if (_mdeReeks.Count > 0) { <div><span>Tijd</span><b>@_mdeReeks[^1].T.ToString("0.0") s · @_mdeReeks.Count metingen</b></div> }
+                            @if (_mdeReeks.Count > 0) { <div class="prod-mde-tijd"><span>Tijd</span><b>@_mdeReeks[^1].T.ToString("0.0") s · @_mdeReeks.Count metingen</b></div> }
                         </div>
-                        var namen = _mdeWaarden.Where(kv => _mdeReeks.Any(r => r.Waarden.TryGetValue(kv.Key, out var v) && v.HasValue)).Select(kv => kv.Key).Take(4).ToList();
-                        @if (namen.Count > 0)
+                        @if (_mdeGekozen.Any(_mdeWaarden.ContainsKey) && _mdeReeks.Count > 1)
                         {
-                            <div class="prod-scopes-rij">
-                                @for (var i = 0; i < namen.Count; i += 2)
-                                {
-                                    var a = namen[i]; var b = i + 1 < namen.Count ? namen[i + 1] : "";
-                                    @SporenGrafiek(_mdeReeks.Select(r => (r.T, Lees(r.Waarden, a), b.Length > 0 ? Lees(r.Waarden, b) : null)).ToList(), a, b, "")
-                                }
+                            <div class="bankfilters prod-mde-opties">
+                                <label class="bankveld prod-vink"><span>&nbsp;</span>
+                                    <label title="Elke lijn op zijn eigen hoogte schalen (handig als druk en joints samen in beeld staan); uit = één gezamenlijke as">
+                                        <input type="checkbox" checked="@_mdeEigenSchaal" @onchange="e => _mdeEigenSchaal = e.Value is bool b && b" /> eigen schaal per lijn</label></label>
+                                <label class="bankveld"><span>Venster</span>
+                                    <select value="@_mdeVenster" @onchange="e => _mdeVenster = int.TryParse((string?)e.Value, out var v) ? v : 0">
+                                        <option value="0">alles</option>
+                                        <option value="10">laatste 10 s</option>
+                                        <option value="30">laatste 30 s</option>
+                                        <option value="60">laatste minuut</option>
+                                        <option value="300">laatste 5 min</option>
+                                    </select></label>
                             </div>
+                            @MdeGrafiek()
+                        }
+                        else if (_mdeWaarden.Count > 0)
+                        {
+                            <p class="uitleg">Klik op een waarde om hem in de grafiek te zetten.</p>
                         }
                     }
                     @if (_testCode == "dualmotion")
@@ -2517,6 +2535,71 @@
 
     private static double? Lees(Dictionary<string, double?> w, string naam) => w.TryGetValue(naam, out var v) ? v : null;
 
+    // ---- grafiek bij meekijken/recepten: één grafiek, lijnen aan/uit per waarde ----
+    private readonly List<string> _mdeGekozen = new();          // op volgorde van aanzetten; bepaalt de kleur
+    private bool _mdeEigenSchaal = true;
+    private int _mdeVenster;                                    // seconden; 0 = alles
+    private static readonly string[] MdeKleuren = { "#e53935", "#ffb300", "#43a047", "#1e88e5", "#8e24aa", "#00acc1", "#f4511e", "#c0ca33" };
+
+    private string? MdeKleur(string naam)
+    {
+        var i = _mdeGekozen.IndexOf(naam);
+        return i < 0 ? null : MdeKleuren[i % MdeKleuren.Length];
+    }
+
+    private void WisselMdeLijn(string naam)
+    {
+        if (!_mdeGekozen.Remove(naam)) _mdeGekozen.Add(naam);
+    }
+
+    private RenderFragment MdeGrafiek() => __builder =>
+    {
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var tEind = _mdeReeks[^1].T;
+        var tBegin = _mdeVenster > 0 ? Math.Max(_mdeReeks[0].T, tEind - _mdeVenster) : _mdeReeks[0].T;
+        var reeks = _mdeReeks.Where(r => r.T >= tBegin).ToList();
+        var tSpan = Math.Max(0.5, tEind - tBegin);
+        string X(double t) => ((t - tBegin) / tSpan * 800).ToString("0.#", ci);
+
+        // schaal per lijn of gezamenlijk; een vlakke lijn krijgt een kleine marge zodat hij in beeld blijft
+        (double Min, double Max) Bereik(IEnumerable<double> w)
+        {
+            var l = w.ToList();
+            if (l.Count == 0) return (0, 1);
+            double lo = l.Min(), hi = l.Max();
+            if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+            var m = (hi - lo) * 0.08;
+            return (lo - m, hi + m);
+        }
+        var lijnen = _mdeGekozen.Where(_mdeWaarden.ContainsKey).ToList();
+        var perLijn = lijnen.ToDictionary(n => n, n => Bereik(reeks.Select(r => Lees(r.Waarden, n)).Where(v => v.HasValue).Select(v => v!.Value)));
+        var samen = Bereik(perLijn.Values.SelectMany(b => new[] { b.Min, b.Max }));
+        <svg class="prod-scope prod-mde-grafiek" viewBox="0 0 800 260" preserveAspectRatio="none">
+            <rect x="0" y="0" width="800" height="260" fill="#111" />
+            @for (var g = 1; g < 5; g++) { <line x1="0" y1="@(20 + g * 46)" x2="800" y2="@(20 + g * 46)" stroke="#333" stroke-width="1" /> }
+            @foreach (var naam in lijnen)
+            {
+                var (lo, hi) = _mdeEigenSchaal ? perLijn[naam] : samen;
+                string Y(double v) => (250 - (v - lo) / (hi - lo) * 230).ToString("0.#", ci);
+                var punten = string.Join(" ", reeks.Where(r => Lees(r.Waarden, naam).HasValue).Select(r => X(r.T) + "," + Y(Lees(r.Waarden, naam)!.Value)));
+                <polyline points="@punten" fill="none" stroke="@MdeKleur(naam)" stroke-width="1.6" vector-effect="non-scaling-stroke" />
+            }
+            @for (var i = 0; i < lijnen.Count; i++)
+            {
+                var naam = lijnen[i];
+                var (lo, hi) = _mdeEigenSchaal ? perLijn[naam] : samen;
+                var bereik = _mdeEigenSchaal ? $" ({lo.ToString("0.##", ci)} … {hi.ToString("0.##", ci)})" : "";
+                @SvgTekst(6, 14 + i * 15, naam + bereik, MdeKleur(naam)!, 12, false, "start")
+            }
+            @if (!_mdeEigenSchaal)
+            {
+                @SvgTekst(794, 14, samen.Max.ToString("0.##", ci), "#aaa", 11, false, "end")
+                @SvgTekst(794, 252, samen.Min.ToString("0.##", ci), "#aaa", 11, false, "end")
+            }
+            @SvgTekst(400, 252, $"{tSpan.ToString("0.0", ci)} s", "#888", 11)
+        </svg>
+    };
+
     /// <summary>Tussenstand van de agent: {"t": s, "waarden": {naam: waarde}} — tabel bijwerken en aan de reeks toevoegen.</summary>
     private void MdeLive(JsonElement res)
     {
@@ -2537,6 +2620,7 @@
             };
         }
         _mdeReeks.Add((t, getallen));
+        if (!_mdeGekozen.Any(getallen.ContainsKey) && getallen.FirstOrDefault(kv => kv.Value.HasValue).Key is { } eerste) _mdeGekozen.Add(eerste);
         if (_mdeReeks.Count > 3000) _mdeReeks.RemoveRange(0, _mdeReeks.Count - 3000);
     }
 
