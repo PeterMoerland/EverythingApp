@@ -106,7 +106,8 @@
             @foreach (var c in _controles)
             {
                 <tr>
-                    <td><b>@c.Positie</b> @c.Naam</td>
+                    <td><b>@c.Positie</b> @c.Naam
+                        <small class="uitleg">@(c.Serienummer.Length > 0 ? $"SN {c.Serienummer}" : "geen SN")</small></td>
                     <td><span class="stand-chip @c.TypeKleur">@c.TypeTekst</span></td>
                     <td><span class="stand-chip @c.FirmwareKleur">@c.FirmwareTekst</span></td>
                     @if (MetParameters) { <td>@c.ParametersTekst</td> }
@@ -3427,6 +3428,7 @@
     {
         public int Positie;
         public string Naam = "";
+        public string Serienummer = "";
         public string TypeTekst = "", TypeKleur = "s-grijs";
         public string FirmwareTekst = "", FirmwareKleur = "s-grijs";
         public string ParametersTekst = "";
@@ -3483,7 +3485,7 @@
         for (var i = 0; i < regels.Count; i++)
         {
             var r = regels[i];
-            var c = new DriveControle { Positie = i + 1, Naam = r.As };
+            var c = new DriveControle { Positie = i + 1, Naam = r.As, Serienummer = r.Serienummer };
             var verwacht = posities.FirstOrDefault(p => p.Positie == i + 1);
 
             var type = await Drives.ZoekTypeOpCodeAsync(r.ProductCode, r.VendorId);

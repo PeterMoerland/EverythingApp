@@ -246,7 +246,14 @@ public class MySqlDriveRepository : IDriveRepository
         }
 
         private static string[] Delen(string? s)
-            => (s ?? "").Split(new[] { '.', '-', '_', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            => ZonderV(s).Split(new[] { '.', '-', '_', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+        /// <summary>Een 'v' vooraan telt niet: firmware meldt 'v1.0.4', de tabel heeft '1.0.4'.</summary>
+        private static string ZonderV(string? s)
+        {
+            var t = (s ?? "").Trim();
+            return t.Length > 1 && (t[0] == 'v' || t[0] == 'V') && char.IsDigit(t[1]) ? t[1..] : t;
+        }
 
         /// <summary>Gelijk op inhoud: nullen aan het eind tellen niet ('2.10.0' == '2.10.0.000', '2.10' == '2.10.0').</summary>
         public static bool Gelijk(string? a, string? b)
