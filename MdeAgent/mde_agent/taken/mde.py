@@ -319,6 +319,33 @@ _STAPPEN = {"identiteit": _stap_identiteit, "lees": _stap_lees, "schrijf": _stap
             "beweging": _stap_beweging, "doorgeefluik": _stap_doorgeefluik, "monitor": _stap_monitor}
 
 
+# Veelvoorkomende SDO-abortcodes (ETG.1000.6 / CiA 301) in woorden
+_SDO_ABORT = {0x05040000: "time-out (geen antwoord van de slave)", 0x06010000: "toegang niet ondersteund",
+              0x06010001: "alleen schrijven (lezen kan niet)", 0x06010002: "alleen lezen (schrijven kan niet)",
+              0x06020000: "object bestaat niet in de dictionary", 0x06040041: "object kan niet in een PDO",
+              0x06070010: "datatype/lengte klopt niet", 0x06090011: "subindex bestaat niet",
+              0x06090030: "waarde buiten bereik", 0x08000000: "algemene fout", 0x08000020: "kan nu niet (toestand)",
+              0x08000021: "kan nu niet (lokale besturing)", 0x08000022: "kan nu niet (toestand van het apparaat)"}
+
+
+def fouttekst(e: Exception) -> str:
+    """Leesbare fout, ook als pysoem een exceptie zonder tekst geeft: soort, abortcode en omschrijving."""
+    delen = [type(e).__name__]
+    code = getattr(e, "abort_code", None)
+    if isinstance(code, int):
+        delen.append(f"abortcode 0x{code:08X} {_SDO_ABORT.get(code, '')}".strip())
+    for naam in ("desc", "wkc"):
+        w = getattr(e, naam, None)
+        if w not in (None, ""):
+            delen.append(f"{naam} {w}")
+    tekst = str(e).strip()
+    if tekst and not isinstance(code, int):
+        delen.append(tekst)
+    if len(delen) == 1:
+        delen.append("geen omschrijving (meestal: de slave antwoordde niet, mailbox-time-out)")
+    return ", ".join(delen)
+
+
 def _voer_stappen(d: _Drive, stappen: list, log, uit: list, prefix: str = "") -> bool:
     """De stappen na elkaar; `uit` krijgt per stap de uitkomst. Geeft False zodra een stap mislukt en het recept
     daar moet stoppen (standaard), of als er een stap mislukt is met "stoppen": false."""
@@ -334,7 +361,7 @@ def _voer_stappen(d: _Drive, stappen: list, log, uit: list, prefix: str = "") ->
             try:
                 ok, tekst = fn(d, s, log)
             except Exception as e:  # noqa: BLE001
-                ok, tekst = False, f"fout: {e}"
+                ok, tekst = False, "fout: " + fouttekst(e)
         _monitor_meet(d, altijd=True)
         uit.append({"nr": f"{prefix}{nr}", "stap": soort, "naam": titel, "geslaagd": ok, "tekst": tekst})
         log(("  ✓ " if ok else "  ✗ ") + tekst)
@@ -653,6 +680,12 @@ def werker(ifname: str, opdracht_json: str) -> dict:
         if o.get("eis_mde", True) and d.slave.man != MDE_VENDOR and o.get("wat") != "identiteit":
             raise RuntimeError(f"Slave op positie {positie} is geen MDE-slave (vendor 0x{d.slave.man:08X}).")
         soort = o.get("wat")
+        if soort in ("identiteit", "test", "monitor"):
+            # Eerst echt in PRE-OP: pas dan zet de slave zijn mailbox (SM0/SM1) open. Zonder deze stap vroegen we te
+            # vroeg en gaf elke SDO 'WkcError, wkc 0' (Swivel, 14-10-2026); config_init wacht daar niet op.
+            stand = _vraag_toestand(d.slave, log, pysoem.PREOP_STATE, 5.0)
+            if stand != pysoem.PREOP_STATE:
+                log(f"Let op: slave staat in {_toestand(stand)} in plaats van PRE-OP; SDO's kunnen mislukken.")
         if soort == "identiteit":
             uit = _identiteit(d)
         elif soort == "test":

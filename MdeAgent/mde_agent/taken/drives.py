@@ -71,11 +71,18 @@ def _ingebouwd_scan(ifname: str) -> list[dict]:
                     return slave.sdo_read(index, sub).split(b"\0")[0].decode("ascii", "ignore").strip()
                 except Exception:  # noqa: BLE001
                     return ""
-            rec["device_name"] = tekst(0x1008)
-            rec["hardware_version"] = tekst(0x1009)
             # Eigen MDE-slaves (vendor 0x10E3) kennen alleen de standaardobjecten; de Ingenia-registers
             # (0x26E4, 0x5EE4, 0x26E1, 0x26E6) zouden daar alleen SDO-aborts en foutmeldingen geven.
             eigen = slave.man == 0x000010E3
+            if eigen:
+                # De MDE-slave opent zijn mailbox pas in PRE-OP en is daar trager in dan een Ingenia-drive: wachten,
+                # anders geeft elke SDO 'wkc 0' en blijven naam/firmware leeg. Komt hij er niet zelf, nog eens vragen.
+                if slave.state_check(pysoem.PREOP_STATE, 3_000_000) != pysoem.PREOP_STATE:
+                    slave.state = pysoem.PREOP_STATE
+                    slave.write_state()
+                    slave.state_check(pysoem.PREOP_STATE, 3_000_000)
+            rec["device_name"] = tekst(0x1008)
+            rec["hardware_version"] = tekst(0x1009)
             rec["software_version"] = tekst(0x100A) if eigen else (tekst(0x26E4) or tekst(0x100A))
             rec["coco_software_version"] = "" if eigen else tekst(0x5EE4)
             rec["ingenia_product_code"] = None
