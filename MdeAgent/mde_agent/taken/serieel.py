@@ -1,8 +1,9 @@
 """
 Taak serieel.monitor: de seriële uitvoer van een ESP32 (of een andere print aan de USB-UART) live
-meelezen, zoals de seriële monitor van de Arduino-IDE / idf.py monitor. Elke ontvangen regel komt als
-logregel in de job; de app toont ze in het taakvenster. Tekst terugsturen kan met POST /jobs/<id>/invoer
-({"tekst": "..."}); de taak stuurt dat met een regeleinde naar de poort.
+meelezen, zoals de seriële monitor van de Arduino-IDE / idf.py monitor. Debug-gereedschap: de ontvangen
+regels gaan NIET in het joblog maar in de aparte uitvoer van de job (GET /jobs/<id>/uitvoer?vanaf=n); de
+app toont ze in een eigen terminalvenster. Tekst terugsturen kan met POST /jobs/<id>/invoer
+({"tekst": "..."}); de taak stuurt dat met een regeleinde naar de poort en zet het als "» tekst" in de uitvoer.
 
 Parameters:
     poort       COM-poort; leeg = instelling esptool_poort of automatisch zoeken (zoals esp32.flashen)
@@ -60,6 +61,8 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
     n_bytes = 0
     begin = time.time()
     rest = b""
+    vorige_cr = False
+    job.resultaat = {"poort": poort}          # de app toont de poort in de status zolang de taak loopt
     try:
         # Zonder reset laten we DTR/RTS met rust: anders houdt de USB-UART de ESP32 in reset of in de bootloader.
         if reset:
@@ -74,18 +77,23 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             for tekst in job.lees_invoer():
                 data = (tekst + regeleinde).encode("utf-8", "replace")
                 ser.write(data)
-                job.log("» " + tekst)
+                job.uitvoer_toevoegen("» " + tekst)
             # dan wat er binnenkomt
             data = ser.read(4096)
             if data:
                 n_bytes += len(data)
-                rest += data
+                # Regeleinden: \r\n, \n en een losse \r tellen alle drie. Een \r\n die over twee leesbeurten
+                # valt mag geen lege regel geven: de \n na een \r aan het einde van de vorige beurt slaan we over.
+                if vorige_cr and data.startswith(b"\n"):
+                    data = data[1:]
+                vorige_cr = data.endswith(b"\r")
+                rest += data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
                 while b"\n" in rest:
                     regel, rest = rest.split(b"\n", 1)
-                    job.log(regel.decode("utf-8", "replace").rstrip("\r"))
+                    job.uitvoer_toevoegen(regel.decode("utf-8", "replace"))
                     n_regels += 1
                 if len(rest) > 2000:            # geen regeleinde (binaire rommel of verkeerde baud): toch tonen
-                    job.log(rest.decode("utf-8", "replace"))
+                    job.uitvoer_toevoegen(rest.decode("utf-8", "replace"))
                     rest = b""
             if time.time() - laatste_voortgang > 2:
                 job.voortgang(int(min(99, (time.time() - begin) / seconden * 100)))
@@ -96,7 +104,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         except Exception:  # noqa: BLE001
             pass
     if rest:
-        job.log(rest.decode("utf-8", "replace"))
+        job.uitvoer_toevoegen(rest.decode("utf-8", "replace"))
         n_regels += 1
     job.log(f"Klaar: {n_regels} regels, {n_bytes} bytes in {time.time() - begin:.0f} s.")
     job.klaar({"poort": poort, "regels": n_regels, "bytes": n_bytes, "gestopt": bool(getattr(job, "stop_gevraagd", False))})

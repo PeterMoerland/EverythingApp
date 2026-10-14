@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=205" />
+    <link rel="stylesheet" href="app.css?v=207" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -613,6 +613,11 @@
                 }
             }
         });
+
+        // console van de seriële monitor onderaan houden
+        window.mdeConsole = {
+            onder: function (id) { var el = document.getElementById(id); if (el) el.scrollTop = el.scrollHeight; }
+        };
 
         // volledig scherm (kiosk-modus)
         window.mdeVolledig = {

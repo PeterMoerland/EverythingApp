@@ -37,6 +37,26 @@ class Job:
             uit, self._invoer = self._invoer, []
         return uit
 
+    # -- aparte uitvoer (seriële monitor): niet in het joblog, de app haalt hem op via GET /jobs/<id>/uitvoer --
+    def uitvoer_toevoegen(self, regel: str) -> None:
+        with self._slot:
+            if not hasattr(self, "_uitvoer"):
+                self._uitvoer: list[str] = []
+                self._uitvoer_verwijderd = 0
+            self._uitvoer.append(regel)
+            if len(self._uitvoer) > 5000:
+                weg = len(self._uitvoer) - 5000
+                del self._uitvoer[:weg]
+                self._uitvoer_verwijderd += weg
+
+    def uitvoer_vanaf(self, vanaf: int) -> tuple[list[str], int]:
+        """Regels vanaf volgnummer `vanaf` en het totaal tot nu toe (ook de al weggegooide tellen mee)."""
+        with self._slot:
+            lijst = getattr(self, "_uitvoer", [])
+            basis = getattr(self, "_uitvoer_verwijderd", 0)
+            totaal = basis + len(lijst)
+            return lijst[max(0, vanaf - basis):], totaal
+
     # -- door de taak aan te roepen ---------------------------------------
     def log(self, tekst: str) -> None:
         with self._slot:

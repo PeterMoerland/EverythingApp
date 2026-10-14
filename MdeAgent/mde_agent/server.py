@@ -9,6 +9,7 @@ POST /taken/<naam>              job starten, body = JSON-parameters → {"job": 
 GET  /jobs/<id>[?vanaf=n]       status + logregels vanaf n
 POST /jobs/<id>/stop            (voorlopig: alleen markeren; processen lopen af via time-out)
 POST /jobs/<id>/invoer          {"tekst": "..."} naar een lopende taak (seriële monitor)
+GET  /jobs/<id>/uitvoer[?vanaf=n]  aparte uitvoer van een taak (seriële monitor), buiten het joblog
 
 Beveiliging: alleen localhost; CORS alleen voor de origins in "toegestaan";
 een token (X-Agent-Token of ?token=) als er een is ingesteld. Reads (/health)
@@ -132,6 +133,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with _drives_slot:
                 self._stuur(200, drives.lees(self.inst, (vraag.get("ifname") or [""])[0], log.info))
+        elif pad.startswith("/jobs/") and pad.endswith("/uitvoer"):
+            # aparte uitvoer van een taak (seriële monitor), buiten het joblog
+            job = self.jobs.haal(pad.split("/")[2])
+            if job is None:
+                self._stuur(404, {"fout": "Onbekende job."})
+            else:
+                vanaf = int((vraag.get("vanaf") or ["0"])[0])
+                regels, totaal = job.uitvoer_vanaf(vanaf)
+                res = job.resultaat if isinstance(job.resultaat, dict) else {}
+                self._stuur(200, {"regels": regels, "totaal": totaal, "stand": job.stand, "fout": job.fout,
+                                  "poort": res.get("poort", "")})
         elif pad.startswith("/jobs/"):
             job = self.jobs.haal(pad.split("/")[2])
             if job is None:

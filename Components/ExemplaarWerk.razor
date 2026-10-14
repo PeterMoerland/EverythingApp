@@ -307,7 +307,7 @@
             </button>
             @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
             {
-                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(SerieelCode)"
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="OpenSerieel"
                         title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
             }
         </div>
@@ -447,30 +447,6 @@
                                 }
                             </div>
                         }
-                    }
-                    @if (_testCode == SerieelCode)
-                    {
-                        <div class="bankfilters">
-                            <label class="bankveld"><span>Poort</span>
-                                <input value="@_serPoort" placeholder="automatisch" style="width:7rem" disabled="@_taakBezig"
-                                       @onchange="e => _serPoort = ((string?)e.Value ?? string.Empty).Trim()" /></label>
-                            <label class="bankveld"><span>Baud</span>
-                                <select value="@_serBaud" disabled="@_taakBezig" @onchange="e => _serBaud = int.TryParse((string?)e.Value, out var v) ? v : 115200">
-                                    @foreach (var b in new[] { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 }) { <option value="@b">@b</option> }
-                                </select></label>
-                            <label class="bankveld"><span>Seconden</span>
-                                <input type="number" min="5" max="3600" style="width:5rem" value="@_serSeconden" disabled="@_taakBezig"
-                                       @onchange="e => _serSeconden = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 5, 3600) : 600" /></label>
-                            <label class="bankveld prod-vink"><span>&nbsp;</span>
-                                <label><input type="checkbox" checked="@_serReset" disabled="@_taakBezig" @onchange="e => _serReset = e.Value is bool b && b" /> ESP32 eerst resetten (opstartregels zien)</label></label>
-                        </div>
-                        <div class="bankfilters prod-serieel-invoer">
-                            <label class="bankveld prod-keuze"><span>Tekst naar de ESP32 (Enter = sturen)</span>
-                                <input value="@_serInvoer" @key="_serInvoerVersie" placeholder="bv. help" disabled="@(!_taakBezig || _taakJobId is null)"
-                                       @oninput="e => _serInvoer = (string?)e.Value ?? string.Empty" @onkeydown="SerieelToets" /></label>
-                            <button class="klein" disabled="@(!_taakBezig || _taakJobId is null || _serInvoer.Length == 0)" @onclick="StuurSerieel">Stuur</button>
-                        </div>
-                        <p class="uitleg">De ontvangen regels komen hieronder in het logboek; Stop sluit de poort weer. Zolang de monitor loopt kan esptool de poort niet gebruiken.</p>
                     }
                     @if (_testCode == "dualmotion")
                     {
@@ -839,6 +815,56 @@
 }
 
 @* ---------- encoder live: wijzerplaat met de actuele singleturn-hoek, ruwe positie en multiturn ---------- *@
+@* ---------- seriële monitor: eigen venster, als een terminal; de uitvoer komt niet in het joblog ---------- *@
+@if (_serOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker ec-venster verplaatsbaar prod-serieel-venster">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>🖥 Seriële monitor — @Naam.Naam · @Exemplaar.Serienummer</b>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="SluitSerieel">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud prod-serieel">
+                <div class="bankfilters">
+                    <label class="bankveld"><span>Poort</span>
+                        <input value="@_serPoort" placeholder="automatisch" style="width:7rem" disabled="@_serLoopt"
+                               @onchange="e => _serPoort = ((string?)e.Value ?? string.Empty).Trim()" /></label>
+                    <label class="bankveld"><span>Baud</span>
+                        <select value="@_serBaud" disabled="@_serLoopt" @onchange="e => _serBaud = int.TryParse((string?)e.Value, out var v) ? v : 115200">
+                            @foreach (var b in new[] { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 }) { <option value="@b">@b</option> }
+                        </select></label>
+                    <label class="bankveld"><span>Max. minuten</span>
+                        <input type="number" min="1" max="60" style="width:4.5rem" value="@(_serSeconden / 60)" disabled="@_serLoopt"
+                               @onchange="e => _serSeconden = (int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 1, 60) : 10) * 60" /></label>
+                    <label class="bankveld prod-vink"><span>&nbsp;</span>
+                        <label><input type="checkbox" checked="@_serReset" disabled="@_serLoopt" @onchange="e => _serReset = e.Value is bool b && b" /> eerst resetten</label></label>
+                    @if (!_serLoopt)
+                    {
+                        <button class="primair klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="StartSerieel">▶ Start</button>
+                    }
+                    else
+                    {
+                        <button class="klein rood" @onclick="StopSerieel">■ Stop</button>
+                    }
+                    <button class="klein" @onclick="() => _serRegels.Clear()">Wis</button>
+                    <label class="bankveld prod-vink"><span>&nbsp;</span>
+                        <label><input type="checkbox" checked="@_serAutoScroll" @onchange="e => _serAutoScroll = e.Value is bool b && b" /> meescrollen</label></label>
+                    <span class="uitleg">@_serStatus</span>
+                </div>
+                @* elke regel een blok-element: dan houdt ook kopiëren uit het venster de regeleinden *@
+                <pre id="prod-console" class="prod-console">@foreach (var r in _serRegels) { <span class="regel @(r.Verzonden ? "verzonden" : "")">@r.Tekst</span> }</pre>
+                <div class="prod-serieel-stuur">
+                    <input value="@_serInvoer" @key="_serInvoerVersie" placeholder="@(_serLoopt ? "tekst naar de ESP32 — Enter = sturen" : "start eerst de monitor")" disabled="@(!_serLoopt)"
+                           @oninput="e => _serInvoer = (string?)e.Value ?? string.Empty" @onkeydown="SerieelToets" />
+                    <button class="klein" disabled="@(!_serLoopt || _serInvoer.Length == 0)" @onclick="StuurSerieel">Stuur</button>
+                </div>
+                <p class="uitleg">Debug-gereedschap: wat hier langskomt gaat niet in het logboek of de historie. Zolang de monitor loopt kan esptool de poort niet gebruiken.</p>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_encOpen && _encPositie is { } ep)
 {
     <div class="cmdk-overlay midden">
@@ -2010,11 +2036,11 @@
     /// <summary>Een test op de print uitvoeren via de agent; uitkomst in de historie.</summary>
     private async Task StartTest()
     {
+        // Meekijken staat niet in _testen (geen test); eerst afhandelen, anders stopt de controle hieronder hem.
+        if (_testCode.StartsWith("monitor:", StringComparison.Ordinal)) { _taakIsTest = false; await StartMonitor(); return; }
         var test = _testen.FirstOrDefault(t => t.Code == _testCode);
         if (test.Code is null) return;
         _taakIsTest = true;
-        if (_testCode == SerieelCode) { _taakIsTest = false; await StartSerieel(); return; }
-        if (_testCode.StartsWith("monitor:", StringComparison.Ordinal)) { _taakIsTest = false; await StartMonitor(); return; }
         if (_testCode.StartsWith("recept:", StringComparison.Ordinal)) { _mdeWaarden = new(); _mdeReeks = new(); await StartRecept(); return; }
         if (IsStroomlus) { await StartStroomlus(); await LaadTestHistorie(); return; }
         if (_testCode == "encodertest") { await StartEncodertest(); return; }
@@ -2326,6 +2352,114 @@
     }
 
 
+    // ---- seriële monitor (serieel.monitor): eigen venster als terminal; uitvoer via /jobs/<id>/uitvoer, dus niet in het joblog ----
+    private bool _serOpen, _serLoopt, _serAutoScroll = true;
+    private string _serPoort = "";
+    private int _serBaud = 115200;
+    private int _serSeconden = 600;
+    private bool _serReset = true;
+    private string _serInvoer = "";
+    private int _serInvoerVersie;
+    private string? _serJobId;
+    private CancellationTokenSource? _serStop;
+    private string _serStatus = "";
+    private readonly List<(string Tekst, bool Verzonden)> _serRegels = new();
+
+    private void OpenSerieel() { _serOpen = true; _serStatus = ""; }
+
+    private async Task StartSerieel()
+    {
+        if (_serLoopt) return;
+        _serLoopt = true; _serStatus = "poort openen …";
+        _serStop = new CancellationTokenSource();
+        var ct = _serStop.Token;
+        try
+        {
+            var body = JsonSerializer.Serialize(new { poort = _serPoort, baud = _serBaud, seconden = _serSeconden, reset = _serReset });
+            var start = await Agent("/taken/serieel.monitor", 30, body);
+            if (start.status != 202)
+            {
+                _serStatus = start.status switch
+                {
+                    404 => "de agent kent serieel.monitor niet (agent bijwerken naar 1.13)",
+                    409 => "er loopt al een taak bij de agent",
+                    _ => FoutUit(start.tekst) ?? $"agent antwoordde {start.status}",
+                };
+                return;
+            }
+            using (var doc = JsonDocument.Parse(start.tekst)) _serJobId = doc.RootElement.GetProperty("job").GetString();
+            var vanaf = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(300, ct);
+                var st = await Agent($"/jobs/{_serJobId}/uitvoer?vanaf={vanaf}", 10);
+                if (st.status != 200) continue;
+                using var d = JsonDocument.Parse(st.tekst);
+                var w = d.RootElement;
+                var nieuw = false;
+                if (w.TryGetProperty("regels", out var regels) && regels.ValueKind == JsonValueKind.Array)
+                    foreach (var r in regels.EnumerateArray())
+                        if (r.GetString() is { } tekst)
+                        {
+                            _serRegels.Add(tekst.StartsWith("» ", StringComparison.Ordinal) ? (tekst[2..], true) : (tekst, false));
+                            nieuw = true;
+                        }
+                vanaf = Getal(w, "totaal");
+                if (_serRegels.Count > 3000) _serRegels.RemoveRange(0, _serRegels.Count - 3000);
+                var stand = Tekst(w, "stand");
+                _serStatus = stand == "bezig" ? $"verbonden ({Tekst(w, "poort")} · {vanaf} regels)" : stand;
+                if (stand == "klaar") { _serStatus = "gestopt"; break; }
+                if (stand == "mislukt") { _serStatus = "fout: " + Tekst(w, "fout"); break; }
+                StateHasChanged();
+                if (nieuw && _serAutoScroll)
+                {
+                    await Task.Yield();
+                    try { await JS.InvokeVoidAsync("mdeConsole.onder", "prod-console"); } catch { }
+                }
+            }
+        }
+        catch (TaskCanceledException) { _serStatus = "gestopt"; }
+        catch (Exception ex) { _serStatus = "fout: " + ex.Message; }
+        finally
+        {
+            _serLoopt = false;
+            _serStop?.Dispose(); _serStop = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopSerieel()
+    {
+        if (_serJobId is not null)
+            try { await Agent($"/jobs/{_serJobId}/stop", 10, "{}"); } catch { }
+        _serStop?.Cancel();
+    }
+
+    private async Task SluitSerieel()
+    {
+        await StopSerieel();
+        _serOpen = false;
+    }
+
+    private async Task SerieelToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await StuurSerieel();
+    }
+
+    private async Task StuurSerieel()
+    {
+        if (_serJobId is null || !_serLoopt || _serInvoer.Length == 0) return;
+        var tekst = _serInvoer;
+        _serInvoer = ""; _serInvoerVersie++;
+        try
+        {
+            // de agent zet de verstuurde tekst zelf als "» tekst" in de uitvoer, dus hier niets toevoegen
+            var r = await Agent($"/jobs/{_serJobId}/invoer", 10, JsonSerializer.Serialize(new { tekst }));
+            if (r.status != 200) _serStatus = "sturen mislukt: " + (FoutUit(r.tekst) ?? r.tekst);
+        }
+        catch (Exception ex) { _serStatus = "sturen mislukt: " + ex.Message; }
+    }
+
     // ---- nulpunt (positie-offset 0x2438) en phasing — agenttaak drives.nulpunt
     private string _nulpuntUitslag = "";
 
@@ -2371,10 +2505,9 @@
     private string _testLaatste = "";
     private List<ProductGebeurtenis> _testHistorie = new();
     private bool IsStroomlus => _testCode == "stroomlus";
-    private string TestNaam => _testCode == SerieelCode ? "Seriële monitor (ESP32)"
-        : MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
+    private string TestNaam => MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
     private string TestUitleg => TestUitlegVoor(_testCode);
-    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", SerieelCode => "🖥", _ => "🧪" };
+    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", _ => "🧪" };
     private bool IsDriveTest => _testCode is "stroomlus" or "encodertest" or "phasing" or "motiontest" or "dualmotion";
 
     // ---- testrecepten (mde.test) en meekijken (mde.monitor): live waarden uit de agent ----
@@ -2415,40 +2548,6 @@
     }
 
     private static string MonitorCode(DrivePositie p) => "monitor:" + p.Positie;
-
-    // ---- seriële monitor (serieel.monitor): uitvoer van de ESP32 via de USB-UART, tekst sturen via /jobs/<id>/invoer ----
-    private const string SerieelCode = "serieel";
-    private string _serPoort = "";
-    private int _serBaud = 115200;
-    private int _serSeconden = 600;
-    private bool _serReset = true;
-    private string _serInvoer = "";
-    private int _serInvoerVersie;
-
-    private async Task StartSerieel()
-    {
-        var body = JsonSerializer.Serialize(new { poort = _serPoort, baud = _serBaud, seconden = _serSeconden, reset = _serReset });
-        await VoerTaakUit("serieel.monitor", body, $"Seriële monitor {(_serPoort.Length > 0 ? _serPoort : "")} {_serBaud} baud".Replace("  ", " "), _serSeconden + 60,
-            res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "regels")} regels van {Tekst(res, "poort")}" : "klaar"));
-    }
-
-    private async Task SerieelToets(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await StuurSerieel();
-    }
-
-    private async Task StuurSerieel()
-    {
-        if (_taakJobId is null || !_taakBezig || _serInvoer.Length == 0) return;
-        var tekst = _serInvoer;
-        _serInvoer = ""; _serInvoerVersie++;
-        try
-        {
-            var r = await Agent($"/jobs/{_taakJobId}/invoer", 10, JsonSerializer.Serialize(new { tekst }));
-            if (r.status != 200) Toon("Sturen mislukt: " + (FoutUit(r.tekst) ?? r.tekst), true);
-        }
-        catch (Exception ex) { Toon("Sturen mislukt: " + ex.Message, true); }
-    }
 
     private int? MonitorPositie(string code)
         => code.StartsWith("monitor:", StringComparison.Ordinal) && int.TryParse(code[8..], out var p) ? p : null;
@@ -2508,7 +2607,6 @@
     private string TestUitlegVoor(string code) => ReceptVan(code) is { } rc
         ? (rc.Recept.Omschrijving.Length > 0 ? rc.Recept.Omschrijving + " " : "") + $"Testrecept van {rc.Positie.DriveTypeNaam} ({rc.Recept.StapNamen().Count} stappen), uitgevoerd door de werkplek-agent op slave {rc.Positie.Positie}."
         : MonitorPositie(code) is not null ? "Objecten van de slave live meekijken: de agent leest ze elke 0,2 s en het scherm toont de waarden en het verloop. Er wordt niets geschreven."
-        : code == SerieelCode ? "De seriële uitvoer van de ESP32 (USB-UART) live meelezen, met reset om de opstartregels te zien; tekst terugsturen kan ook. Zoals de seriële monitor van de Arduino-IDE, maar via de werkplek-agent."
         : TestUitlegVast(code);
 
     private static string TestUitlegVast(string code) => code switch

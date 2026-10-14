@@ -2523,3 +2523,14 @@ html[data-thema="donker"] .prod-mde-waarden div { border-color: #2b4a73; }
 .drv-params tr.drv-opm input { font-size: .85rem; color: #556; }
 .drv-params small.uitleg { display: block; }
 html[data-thema="donker"] .drv-params tr.drv-opm input { color: #9fb0c4; }
+
+/* ---- Test PCB: seriële monitor (terminal) ---- */
+.prod-serieel-venster { width: min(72rem, 96vw); }
+.prod-serieel-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; }
+.prod-console { background: #111; color: #d8d8d8; font-family: Consolas, "Cascadia Mono", monospace; font-size: .85rem; line-height: 1.3;
+                padding: .5rem .7rem; border-radius: 6px; height: 52vh; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.prod-console .regel { display: block; min-height: 1.3em; }
+.prod-console .verzonden { color: #ffb300; }
+.prod-console .verzonden::before { content: "» "; }
+.prod-serieel-stuur { display: flex; gap: .4rem; }
+.prod-serieel-stuur input { flex: 1; font-family: Consolas, "Cascadia Mono", monospace; }
