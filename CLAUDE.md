@@ -85,6 +85,12 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   tot een waarde een grens haalt) en `herhaal` (keer, stappen [ … ]; genest, stapnummers "3.1"); `_voer_stappen`
   is de recursieve uitvoerder, `DriveRecept.Controleer` valideert genest. `"stoppen": false` op een stap of blok
   laat het recept doorlopen; de einduitslag is dan toch MISLUKT als er iets fout ging.
+- **Chip programmeren beperkt tot het halffabricaat** (14-10-2026, op verzoek): `ChipFirmwares` toont alleen
+  firmware van de typen op de posities van dit product met het gekozen chip-protocol **of protocol mde** (een
+  M-Pede-print krijgt de eerste firmware via USB en daarna via FoE: hetzelfde bestand, hetzelfde type; geen apart
+  ESP32-type of extra positie nodig). Terugval op alle typen alleen als geen enkele positie een type heeft.
+  `ChipCodeVanType` geeft bij een MDE-type "" (agent herkent de chip zelf). Na een USB-flash van MDE-firmware
+  wordt ook `drive:<positie>:firmware` gezet, zoals bij FoE.
   Eigen prints: M-Pede-WJ1 (Swivel, 0x00055955: 2 joints ±512, kleppen,
   druk), 6-voudige stappenmotorsturing, Display v2 (ESP32 flashen via USB + EtherCAT voor test/firmware),
   Gripper. Nog nodig van de gebruiker: bits van 0x7000/0x6000 en bevestiging van het 0x8000-protocol.

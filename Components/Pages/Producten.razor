@@ -949,27 +949,28 @@
                             }
                             else
                             {
-                                <text>Welke drives er op deze print zitten (per positie op de EtherCAT-bus) en welke
-                                parameterset (.xcf) erin moet — die hoort bij een firmwareversie, want elke
-                                firmware heeft haar eigen set.</text>
+                                <text>Welke slaves er op deze print zitten (per positie op de EtherCAT-bus) en welke
+                                parameterset erin moet (.xcf voor Ingenia-drives, .json met SDO's voor eRob en MDE-slaves) — die hoort
+                                bij een firmwareversie, want elke firmware heeft haar eigen set. Het firmwarebestand zelf staat bij
+                                Productie ▸ Controllertypen.</text>
                             }
                         </p>
 
                         <h4 class="prod-subkop">Posities</h4>
-                        <table class="kiezer-tabel">
+                        <table class="kiezer-tabel drv-posities">
                             <thead>
                                 <tr>
                                     <th style="width:5rem">Positie</th>
                                     <th style="width:12rem">Naam</th>
                                     <th>Verwacht controllertype</th>
-                                    <th style="width:3rem"></th>
+                                    <th style="width:4rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var p in _posities)
                                 {
                                     <tr @key="p.Id">
-                                        <td><input type="number" min="1" max="16" value="@p.Positie" style="width:4rem"
+                                        <td><input type="number" min="1" max="16" value="@p.Positie"
                                                    @onchange="e => ZetPositie(p, () => p.Positie = int.TryParse((string?)e.Value, out var n) ? n : p.Positie)" /></td>
                                         <td><input value="@p.Naam" placeholder="bv. R-as" @onchange="e => ZetPositie(p, () => p.Naam = (string?)e.Value ?? string.Empty)" /></td>
                                         <td>
@@ -1002,23 +1003,24 @@
                     @if (_tab == "Techniek" && _productId is null && HeeftDrivesOfServo)
                     {
                         <h4 class="prod-subkop">Parametersets</h4>
+                        <div class="drv-params-wrap">
                         <table class="kiezer-tabel drv-params">
                             <thead>
                                 <tr>
-                                    <th style="width:5rem">Positie</th>
-                                    <th style="width:16rem">Firmwareversie</th>
-                                    <th style="width:14rem">Omschrijving</th>
-                                    <th>Bestand (.xcf)</th>
-                                    <th style="width:8rem">Status</th>
-                                    <th>Opmerking</th>
-                                    <th style="width:3rem"></th>
+                                    <th style="width:8rem">Positie</th>
+                                    <th>Firmwareversie</th>
+                                    <th style="width:11rem">Omschrijving</th>
+                                    <th title="De parameterset zelf: .xcf voor Ingenia-drives, .json (SDO's of Feetech-registers) voor eRob, MDE-slaves en servo's. Het firmwarebestand staat bij Controllertypen.">Parameterbestand (.xcf / .json)</th>
+                                    <th style="width:7rem">Status</th>
+                                    <th style="width:4rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @* Vaste volgorde (aanmaakvolgorde), zodat een regel niet verspringt als je de positie of firmware wijzigt. *@
                                 @foreach (var ps in _parametersets.OrderBy(x => x.Id))
                                 {
-                                    <tr @key="ps.Id">
+                                    var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json";
+                                    <tr @key="ps.Id" class="drv-rij">
                                         <td>
                                             <select value="@ps.Positie" @onchange="e => ZetParam(ps, () => ps.Positie = int.TryParse((string?)e.Value, out var n) ? n : ps.Positie)">
                                                 @foreach (var p in _posities.OrderBy(p => p.Positie))
@@ -1050,6 +1052,7 @@
                                             else
                                             {
                                                 <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                <small class="uitleg">@extensie</small>
                                             }
                                         </td>
                                         <td>
@@ -1061,22 +1064,28 @@
                                                 }
                                             </select>
                                         </td>
-                                        <td><input value="@ps.Opmerking" @onchange="e => ZetParam(ps, () => ps.Opmerking = (string?)e.Value ?? string.Empty)" /></td>
-                                        <td class="c">
+                                        <td class="c drv-knoppen">
                                             @if (IsFeetechSet(ps))
                                             {
                                                 <button class="klein" title="Registers bewerken in de app" @onclick="() => _editorPs = ps">✎</button>
                                             }
-                                            <button class="klein rood" @onclick="() => VerwijderParam(ps)">✕</button>
+                                            <button class="klein rood" title="Parameterset verwijderen" @onclick="() => VerwijderParam(ps)">✕</button>
+                                        </td>
+                                    </tr>
+                                    <tr @key="@($"{ps.Id}-opm")" class="drv-opm">
+                                        <td colspan="6">
+                                            <input value="@ps.Opmerking" placeholder="Opmerking bij deze parameterset…"
+                                                   @onchange="e => ZetParam(ps, () => ps.Opmerking = (string?)e.Value ?? string.Empty)" />
                                         </td>
                                     </tr>
                                 }
                                 @if (_parametersets.Count == 0)
                                 {
-                                    <tr><td colspan="7" class="kiezer-info">Nog geen parametersets.</td></tr>
+                                    <tr><td colspan="6" class="kiezer-info">Nog geen parametersets.</td></tr>
                                 }
                             </tbody>
                         </table>
+                        </div>
                         <div class="btngroup">
                             <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweParam"
                                     title="@(_alleFirmwares.Count == 0 ? "Maak eerst een firmwareversie aan bij Productie ▸ Drivetypen" : "")">+ Parameterset</button>

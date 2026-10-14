@@ -136,7 +136,7 @@
                     <tr>
                         <th style="width:4rem">Pos.</th>
                         <th style="width:12rem" title="Attribuut waarin het serienummer komt">Naar attribuut</th>
-                        <th>Drive</th>
+                        <th title="Type volgens de productcode (Controllertypen); daarachter de naam zoals die in de EEPROM van de drive staat — bij Ingenia is die generiek en zegt hij niets over het model">Type (EEPROM-naam)</th>
                         <th style="width:9rem">Productcode</th>
                         <th style="width:8rem">Revisie</th>
                         <th style="width:8rem">Firmware</th>
@@ -150,7 +150,10 @@
                         <tr class="@(d.Ok ? "" : "ec-fout")">
                             <td>@d.Positie</td>
                             <td>@d.As</td>
-                            <td>@d.Naam</td>
+                            <td title="@($"EEPROM-naam: {d.Naam}" + (d.ApparaatNaam.Length > 0 ? $" · 0x1008: {d.ApparaatNaam}" : ""))">
+                                @if (d.TypeUitTabel.Length > 0) { <b>@d.TypeUitTabel</b> <small class="uitleg">@d.Naam</small> }
+                                else { @d.Naam }
+                            </td>
                             <td>@d.ProductCode</td>
                             <td>@d.Revisie</td>
                             <td>@d.Firmware</td>
@@ -1062,6 +1065,12 @@
                                 <option value="0">— eigen bestand kiezen… —</option>
                             </select>
                         </label>
+                    }
+                    @if (!ChipFirmwares.Any())
+                    {
+                        <span class="uitleg">@(ChipTypenOpPrint.Count == 0 && _posities.Any(p => p.DriveTypeId is not null)
+                            ? $"Geen positie van dit halffabricaat heeft een {_chip.ToUpper()}- of MDE-controllertype; alleen een eigen bestand kan."
+                            : "Geen firmwareversies in de tabel voor dit halffabricaat (Controllertypen ▸ firmware).")</span>
                     }
                     @if (_firmwareKeuzeId == 0)
                     {
@@ -3546,20 +3555,31 @@
     private string? _flashResultaat;
     private CancellationTokenSource? _flashStop;
 
-    /// <summary>Firmwareversies voor de gekozen chip: van het type op een positie van dit product,
-    /// anders van alle typen met dat protocol. Actueel eerst, geblokkeerd achteraan.</summary>
+    /// <summary>
+    /// Firmwareversies voor de gekozen chip, beperkt tot dit halffabricaat: de typen op zijn posities met dat
+    /// chip-protocol, én de MDE-slaves erop (een M-Pede-print krijgt de eerste firmware via USB en daarna via
+    /// EtherCAT/FoE; het is hetzelfde bestand van hetzelfde type). Zo kan er geen Display-firmware in een Swivel.
+    /// Alleen als het product nog helemaal geen typen op zijn posities heeft, vallen we terug op alle typen met
+    /// dat protocol. Actueel eerst, geblokkeerd achteraan.
+    /// </summary>
     private IEnumerable<DriveFirmware> ChipFirmwares
     {
         get
         {
-            var typen = _driveTypen.Where(t => t.Protocol == _chip).Select(t => t.Id).ToHashSet();
-            var opPrint = _posities.Where(p => p.DriveTypeId is int t && typen.Contains(t)).Select(p => p.DriveTypeId!.Value).ToHashSet();
-            if (opPrint.Count > 0) typen = opPrint;
+            var typen = ChipTypenOpPrint;
+            if (typen.Count == 0 && !_posities.Any(p => p.DriveTypeId is not null))
+                typen = _driveTypen.Where(t => t.Protocol == _chip).Select(t => t.Id).ToHashSet();
             return _alleFirmwares.Where(f => typen.Contains(f.DriveTypeId))
                 .OrderBy(f => f.Status == DriveStatus.Actueel ? 0 : f.Status == DriveStatus.Geblokkeerd ? 2 : 1)
                 .ThenByDescending(f => f.Versie);
         }
     }
+
+    /// <summary>Typen op de posities van dit product die met de gekozen chip geprogrammeerd worden: het chip-protocol zelf, of een MDE-slave.</summary>
+    private HashSet<int> ChipTypenOpPrint
+        => _posities.Where(p => p.DriveTypeId is int t && _driveTypen.FirstOrDefault(x => x.Id == t) is { } dt
+                              && (dt.Protocol == _chip || dt.Protocol == DriveProtocol.Mde))
+                    .Select(p => p.DriveTypeId!.Value).ToHashSet();
 
     private DriveFirmware? GekozenFirmware => _firmwareKeuzeId == 0 ? null : _alleFirmwares.FirstOrDefault(f => f.Id == _firmwareKeuzeId);
 
@@ -3576,12 +3596,15 @@
         ? f.FirmwareFileId is not null && f.Status != DriveStatus.Geblokkeerd
         : _firmwareId is not null;
 
-    /// <summary>De chip- of targetnaam uit het controllertype van de gekozen firmware (Productcode).</summary>
+    /// <summary>De chip- of targetnaam uit het controllertype van de gekozen firmware (Productcode bij een chip-type).
+    /// Bij een MDE-slave is de productcode de EtherCAT-code, dus dan laat de agent de chip zelf herkennen.</summary>
     private string ChipCodeVanType
     {
         get
         {
-            var code = _driveTypen.FirstOrDefault(t => t.Id == GekozenFirmware?.DriveTypeId)?.ProductCode.Trim() ?? "";
+            var type = _driveTypen.FirstOrDefault(t => t.Id == GekozenFirmware?.DriveTypeId);
+            if (type is null || !DriveProtocol.IsChip(type.Protocol)) return "";
+            var code = type.ProductCode.Trim();
             return code.Length == 0 || code.Equals(_chip, StringComparison.OrdinalIgnoreCase) ? "" : code;
         }
     }
@@ -3760,6 +3783,10 @@
         }
         // Attribuut 'firmware:versie': de versie uit de tabel, of anders de bestandsnaam.
         await ZetViaBron("firmware:versie", _flashNaam);
+        // Firmware van een MDE-slave via USB geladen: ook de drive-positie(s) van dat type bijwerken, zoals bij FoE.
+        if (GekozenFirmware is { } gf)
+            foreach (var p in _posities.Where(p => p.DriveTypeId == gf.DriveTypeId && !DriveProtocol.IsChip(ProtocolVan(p))))
+                await ZetViaBron($"drive:{p.Positie}:firmware", _flashNaam);
         if (nietOpgeslagen.Count > 0)
             Toon($"Gelezen maar niet opgeslagen: het producttype heeft geen attribuut met bron {string.Join("/", nietOpgeslagen)} " +
                  "(instellen bij Producten ▸ Attributen ▸ Automatisch gevuld uit).", true);

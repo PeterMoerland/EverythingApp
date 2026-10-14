@@ -2507,3 +2507,19 @@ html[data-thema="donker"] .drv-recept { border-color: #2b4a73; }
 .prod-mde-waarden b { font-variant-numeric: tabular-nums; }
 .prod-monitor-objecten { min-height: 6.5rem; }
 html[data-thema="donker"] .prod-mde-waarden div { border-color: #2b4a73; }
+
+/* ---- Producten > Techniek: parametersets (twee regels per set, past in de kaart) ---- */
+.drv-posities { width: 100%; table-layout: fixed; }
+.drv-posities input, .drv-posities select { width: 100%; box-sizing: border-box; min-width: 0; }
+.drv-posities td.c { white-space: nowrap; }
+.drv-params-wrap { overflow-x: auto; }
+.drv-params { width: 100%; min-width: 50rem; table-layout: fixed; }
+.drv-params input, .drv-params select { width: 100%; box-sizing: border-box; min-width: 0; }
+.drv-params td { vertical-align: top; overflow: hidden; }
+.drv-params td a.knopje { display: inline-block; max-width: calc(100% - 2.4rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.drv-params td.drv-knoppen { white-space: nowrap; overflow: visible; }
+.drv-params tr.drv-rij td { border-bottom: none; padding-bottom: .15rem; }
+.drv-params tr.drv-opm td { padding-top: 0; }
+.drv-params tr.drv-opm input { font-size: .85rem; color: #556; }
+.drv-params small.uitleg { display: block; }
+html[data-thema="donker"] .drv-params tr.drv-opm input { color: #9fb0c4; }

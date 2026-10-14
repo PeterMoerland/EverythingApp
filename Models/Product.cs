@@ -40,10 +40,10 @@ public static class ProductTechniek
 
     public static readonly (string Code, string Naam, string Uitleg)[] Alle =
     {
-        (Drives,  "EtherCAT-drives", "Ingenia/Novanta Everest of Capitan (en later eRobs in een robot): uitlezen, firmware, parameters, IO- en motiontest over EtherCAT"),
+        (Drives,  "EtherCAT-slaves", "Alles aan de EtherCAT-bus: Ingenia/Novanta Everest of Capitan, ZeroErr eRob en eigen MDE-slaves (M-Pede-WJ1 …): uitlezen, firmware, parameters, testen; per slave één positie hieronder"),
         (Can,     "eRob via CAN",    "Losse ZeroErr eRob aan de USBCAN: serienummer, model, hardware en partnummer uitlezen over CAN (ZeroErr-protocol)"),
-        (Esp32,   "ESP32",           "programmeren via USB-UART (esptool)"),
-        (Stm32,   "STM32",           "programmeren via ST-LINK"),
+        (Esp32,   "ESP32",           "programmeren via USB-UART (esptool); alleen firmware van de typen op de posities van dit halffabricaat — bij een MDE-slave de eerste keer, daarna via EtherCAT met hetzelfde bestand"),
+        (Stm32,   "STM32",           "programmeren via ST-LINK; alleen firmware van de typen op de posities van dit halffabricaat"),
         (Feetech, "Feetech-servo",   "STS/SMS-servomotor: uitlezen en programmeren met een JSON-parameterset via de USB-TTL-adapter"),
     };
 

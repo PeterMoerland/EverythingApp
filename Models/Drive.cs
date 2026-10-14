@@ -201,7 +201,7 @@ public static class DriveProtocol
         Stm32 => ".hex/.bin/.elf",
         Feetech => ".bin",
         Coe => "n.v.t. — alleen de versie, ter controle",
-        Mde => ".bin (FoE)",
+        Mde => ".bin (FoE; de eerste keer via USB/ST-LINK met hetzelfde bestand)",
         _ => ".lfu/.sfu",
     };
 }
