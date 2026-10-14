@@ -390,6 +390,41 @@ def _al_status(code: int) -> str:
     return f"0x{code:04X} {_AL_STATUS.get(code, '')}".strip()
 
 
+def _bootstrap_mailbox(s, log) -> None:
+    """De bootstrap-mailbox (SII BOOT_RX_MBX / BOOT_TX_MBX: adres in het lage woord, grootte in het hoge) in
+    SM0/SM1 van de ESC programmeren en de master dezelfde adressen laten gebruiken (pysoem amend_mbx; alleen
+    in INIT). Mislukt het, dan gaan we door met de standaardmailbox — bij de M-Pede-WJ1 zijn ze gelijk."""
+    import pysoem
+    try:
+        rx = s.eeprom_read(int(pysoem.SiiOffset.BOOT_RX_MBX))
+        tx = s.eeprom_read(int(pysoem.SiiOffset.BOOT_TX_MBX))
+        rx_adr, rx_len = struct.unpack("<HH", rx[:4])
+        tx_adr, tx_len = struct.unpack("<HH", tx[:4])
+    except Exception as e:  # noqa: BLE001
+        log(f"Bootstrap-mailbox uit de EEPROM lezen mislukt ({e}); standaardmailbox blijft.")
+        return
+    if not (0 < rx_len < 0x1000 and 0 < tx_len < 0x1000 and rx_adr and tx_adr):
+        log(f"Geen bruikbare bootstrap-mailbox in de EEPROM (uit 0x{rx_adr:04X}/{rx_len}, in 0x{tx_adr:04X}/{tx_len}); standaardmailbox blijft.")
+        return
+    try:
+        s.amend_mbx("out", rx_adr, rx_len)
+        s.amend_mbx("in", tx_adr, tx_len)
+        log(f"Bootstrap-mailbox in SM0/SM1 gezet: uit 0x{rx_adr:04X} ({rx_len} B), in 0x{tx_adr:04X} ({tx_len} B).")
+    except Exception as e:  # noqa: BLE001
+        log(f"SM0/SM1 op de bootstrap-mailbox zetten mislukt ({e}); standaardmailbox blijft.")
+
+
+def _esc_registers(s) -> str:
+    """AL control (0x0120), AL status (0x0130) en AL-statuscode (0x0134) rechtstreeks uit de ESC, voor de diagnose."""
+    try:
+        ctl = struct.unpack("<H", s._fprd(0x0120, 2)[:2])[0]
+        st = struct.unpack("<H", s._fprd(0x0130, 2)[:2])[0]
+        code = struct.unpack("<H", s._fprd(0x0134, 2)[:2])[0]
+        return f"; ESC: AL control 0x{ctl:04X}, AL status 0x{st:04X}, code {_al_status(code)}"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
     import pysoem
     pad = o["bestand"]
@@ -403,21 +438,23 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
 
     in_boot = False
     if o.get("boot", True):
-        # INIT → BOOT: de bootstrap-mailbox komt uit de EEPROM (ESI: <BootStrap>). Gaat de slave niet naar
-        # BOOT, dan doet zijn firmware de toestandsovergang niet (slave-stack zonder bootstrap-modus) en
-        # proberen we FoE via de gewone mailbox in PRE-OP; dat werkt alleen als de firmware FoE daar aanbiedt.
+        # INIT → BOOT, zoals SOEM's firm_update-voorbeeld en TwinCAT het doen: in INIT eerst de bootstrap-
+        # mailbox uit de EEPROM (SII woord 0x14/0x16; ESI <BootStrap>) in SM0/SM1 zetten, dan pas BOOT vragen.
+        # Zonder die stap weigert een slave-stack de overgang stil (blijft INIT, AL-status 0): dat zagen we bij
+        # de Swivel, terwijl TwinCAT hem wél in BOOT kreeg. Lukt BOOT dan nog niet, dan FoE in PRE-OP proberen.
         s.state = pysoem.INIT_STATE
         s.write_state()
         s.state_check(pysoem.INIT_STATE, 2_000_000)
+        _bootstrap_mailbox(s, log)
         s.state = pysoem.BOOT_STATE
         s.write_state()
-        bereikt = s.state_check(pysoem.BOOT_STATE, 5_000_000)
+        bereikt = s.state_check(pysoem.BOOT_STATE, 10_000_000)
         if bereikt == pysoem.BOOT_STATE:
             in_boot = True
             log("Slave in BOOT.")
         else:
-            log(f"Slave gaat niet naar BOOT (toestand {_toestand(bereikt)}, AL-status {_al_status(s.al_status)}); "
-                "FoE via de gewone mailbox in PRE-OP proberen …")
+            log(f"Slave gaat niet naar BOOT (toestand {_toestand(bereikt)}, AL-status {_al_status(s.al_status)}"
+                f"{_esc_registers(s)}); FoE via de gewone mailbox in PRE-OP proberen …")
             s.state = pysoem.INIT_STATE
             s.write_state()
             s.state_check(pysoem.INIT_STATE, 2_000_000)
