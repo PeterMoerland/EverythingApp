@@ -414,6 +414,59 @@ def _bootstrap_mailbox(s, log) -> None:
         log(f"SM0/SM1 op de bootstrap-mailbox zetten mislukt ({e}); standaardmailbox blijft.")
 
 
+def _vraag_toestand(s, log, toestand: int, wacht_s: float) -> int:
+    """Een toestand vragen en laten zien wat er gebeurt: de schrijfactie (wkc), AL control meteen teruggelezen
+    (komt onze vraag aan?), en tijdens het wachten elke verandering van AL control/status/code. Komt de
+    schrijfactie niet aan (wkc 0), dan nog eens rechtstreeks met FPWR, die een duidelijke fout geeft."""
+    import pysoem
+    s.state = toestand
+    wkc = s.write_state()
+    time.sleep(0.05)
+    ctl = _al_control(s)
+    log(f"AL control ← {_toestand(toestand)} (0x{toestand:04X}): wkc {wkc}, teruggelezen "
+        f"{'0x%04X' % ctl if ctl is not None else '?'}.")
+    if ctl is not None and (ctl & 0x0F) != toestand:
+        log("  De vraag staat niet in het register; nog eens rechtstreeks schrijven (FPWR 0x0120) …")
+        try:
+            s._fpwr(0x0120, struct.pack("<H", toestand))
+            ctl = _al_control(s)
+            log(f"  teruggelezen {'0x%04X' % ctl if ctl is not None else '?'}.")
+        except Exception as e:  # noqa: BLE001
+            log(f"  FPWR naar 0x0120 mislukt: {e}")
+    einde = time.time() + wacht_s
+    vorige = None
+    bereikt = None
+    while True:
+        try:
+            ctl = struct.unpack("<H", s._fprd(0x0120, 2)[:2])[0]
+            st = struct.unpack("<H", s._fprd(0x0130, 2)[:2])[0]
+            code = struct.unpack("<H", s._fprd(0x0134, 2)[:2])[0]
+            nu = (ctl, st, code)
+            if nu != vorige:
+                log(f"  t+{wacht_s - (einde - time.time()):.1f}s: AL control 0x{ctl:04X}, AL status 0x{st:04X} ({_toestand(st)}), code {_al_status(code)}")
+                vorige = nu
+            bereikt = st & 0x0F
+            if bereikt == toestand:
+                break
+        except Exception as e:  # noqa: BLE001
+            log(f"  registers lezen mislukt: {e}")
+        if time.time() >= einde:
+            break
+        time.sleep(0.25)
+    if bereikt is None:
+        bereikt = s.state_check(toestand, 200_000)
+    else:
+        s.state_check(toestand, 100_000)     # SOEM's eigen beeld van de slave bijwerken (ec_slave[].state)
+    return bereikt
+
+
+def _al_control(s) -> int | None:
+    try:
+        return struct.unpack("<H", s._fprd(0x0120, 2)[:2])[0]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _esc_registers(s) -> str:
     """AL control (0x0120), AL status (0x0130) en AL-statuscode (0x0134) rechtstreeks uit de ESC, voor de diagnose."""
     try:
@@ -442,22 +495,23 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
         # mailbox uit de EEPROM (SII woord 0x14/0x16; ESI <BootStrap>) in SM0/SM1 zetten, dan pas BOOT vragen.
         # Zonder die stap weigert een slave-stack de overgang stil (blijft INIT, AL-status 0): dat zagen we bij
         # de Swivel, terwijl TwinCAT hem wél in BOOT kreeg. Lukt BOOT dan nog niet, dan FoE in PRE-OP proberen.
-        s.state = pysoem.INIT_STATE
-        s.write_state()
-        s.state_check(pysoem.INIT_STATE, 2_000_000)
+        _vraag_toestand(s, log, pysoem.INIT_STATE, 2.0)
         _bootstrap_mailbox(s, log)
-        s.state = pysoem.BOOT_STATE
-        s.write_state()
-        bereikt = s.state_check(pysoem.BOOT_STATE, 10_000_000)
+        bereikt = _vraag_toestand(s, log, pysoem.BOOT_STATE, 10.0)
         if bereikt == pysoem.BOOT_STATE:
             in_boot = True
             log("Slave in BOOT.")
         else:
+            # Staat er in AL control (0x0120) iets anders dan onze BOOT-vraag terwijl die wél was aangekomen, dan
+            # schrijft een ándere master dat register: doorgaan heeft dan geen zin, die trekt de slave steeds terug.
+            ctl = _al_control(s)
+            if ctl is not None and (ctl & 0x0F) != pysoem.BOOT_STATE:
+                raise RuntimeError(f"AL control staat op 0x{ctl:04X} ({_toestand(ctl)}) terwijl wij BOOT (0x0003) schreven: een andere "
+                                   "EtherCAT-master schrijft dit register, of onze schrijfactie komt niet aan (zie de regels hierboven: "
+                                   "'teruggelezen'). Koppel andere masters los en probeer opnieuw.")
             log(f"Slave gaat niet naar BOOT (toestand {_toestand(bereikt)}, AL-status {_al_status(s.al_status)}"
                 f"{_esc_registers(s)}); FoE via de gewone mailbox in PRE-OP proberen …")
-            s.state = pysoem.INIT_STATE
-            s.write_state()
-            s.state_check(pysoem.INIT_STATE, 2_000_000)
+            _vraag_toestand(s, log, pysoem.INIT_STATE, 2.0)
     if not in_boot:
         s.state = pysoem.PREOP_STATE
         s.write_state()
@@ -485,24 +539,31 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
     log(f"Wachten tot de slave terug is (max. {wacht:g} s) …")
     einde = time.time() + wacht
     gemeld = ""
+    terug = False
+    vendor, product = s.man, s.id
     while time.time() < einde:
         time.sleep(2)
         try:
             n = master.config_init()
             if n >= d.positie:
                 d2 = _Drive(master, d.positie)
-                gemeld = d2.tekst(0x100A)
-                if gemeld:
+                # Terug = dezelfde slave op dezelfde positie. Niet eisen dat 0x100A gevuld is: niet elke
+                # firmware vult die (de eerste Swivel-firmware niet), en dan stond de slave er gewoon.
+                if d2.slave.man == vendor and d2.slave.id == product:
+                    terug = True
+                    gemeld = d2.tekst(0x100A)
                     break
         except Exception:  # noqa: BLE001
             pass
-    if not gemeld:
+    if not terug:
         raise RuntimeError("De slave kwam niet terug op de bus na het laden; controleer voeding en kabel. "
                            "De firmware is mogelijk wel geladen.")
-    log(f"Slave is terug en meldt firmware {gemeld}.")
+    log(f"Slave is terug en meldt firmware {gemeld or '? (0x100A leeg)'}.")
     verwacht = (o.get("versie") or "").strip()
-    if verwacht and not coe_versie_gelijk(gemeld, verwacht):
+    if verwacht and gemeld and not coe_versie_gelijk(gemeld, verwacht):
         raise RuntimeError(f"Slave meldt firmware {gemeld}, verwacht {verwacht}. Laden lijkt niet gelukt.")
+    if verwacht and not gemeld:
+        log(f"Versie niet te controleren: de slave vult 0x100A niet (verwacht {verwacht}).")
     return {"versie": gemeld, "positie": d.positie, "was": ident_voor["firmware"]}
 
 
