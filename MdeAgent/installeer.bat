@@ -81,3 +81,4 @@ rem De eerste /health kan even duren (agent laadt zijn bibliotheken); ruim wacht
 powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5055/health -TimeoutSec 40).Content } catch { 'Agent antwoordt nog niet: ' + $_.Exception.Message + ' -- probeer http://127.0.0.1:5055/health in de browser.' }"
 echo.
 pause
+exit
