@@ -2493,3 +2493,17 @@ html[data-thema="donker"] .zweefkop, html[data-thema="donker"] .zweefkop a.klein
 .zweefinhoud .sonos-speaker { grid-template-columns: minmax(7rem, 10rem) auto 1fr 2.2rem; }
 html[data-thema="donker"] .sonos-speelt { color: #b7c4d4; }
 html[data-thema="donker"] .sonos-speelt.stil { color: #7d8ea3; }
+
+/* ---- Controllertypen: testrecepten ---- */
+.drv-receptkop { margin-top: 1.2rem; }
+.drv-recept { border: 1px solid #dde3ea; border-radius: 6px; padding: .5rem .7rem; margin-bottom: .6rem; }
+.drv-stappen { width: 100%; min-height: 9rem; resize: vertical; font-family: Consolas, monospace; font-size: .85em; box-sizing: border-box; margin-top: .3rem; }
+.prod-recept-stappen { margin: .2rem 0 .5rem; padding-left: 1.4rem; font-size: .9em; }
+html[data-thema="donker"] .drv-recept { border-color: #2b4a73; }
+
+/* ---- Test PCB: live waarden van een MDE-slave (recept met monitor, Meekijken) ---- */
+.prod-mde-waarden { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .3rem .8rem; margin: .4rem 0; }
+.prod-mde-waarden div { display: flex; justify-content: space-between; gap: .5rem; border-bottom: 1px dotted #c9d3df; padding: .1rem 0; }
+.prod-mde-waarden b { font-variant-numeric: tabular-nums; }
+.prod-monitor-objecten { min-height: 6.5rem; }
+html[data-thema="donker"] .prod-mde-waarden div { border-color: #2b4a73; }

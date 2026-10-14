@@ -235,6 +235,8 @@
                         title="Fabrikant, productcode, revisie, naam, hardware- en firmwareversie, serienummer, control-/statusword (standaardobjecten)">🪪 Identiteit</button>
                 <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
                         title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
+                        title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
             </div>
         }
         @if (IsErob(p))
@@ -397,6 +399,47 @@
                     }
                     <button class="primair" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || _testCode.Length == 0 || (IsDriveTest && _testCode != "dualmotion" && StroomlusFirmware(_slPositie) is null) || (_testCode == "dualmotion" && !DualKlaar))" @onclick="StartTest">▶ Start</button>
                     @if (IsDriveTest && _testCode != "dualmotion" && StroomlusFirmware(_slPositie) is null) { <span class="uitleg">geen firmware met dictionary (.xdf) voor dit drivetype</span> }
+                    @if (ReceptVan(_testCode) is { } rc)
+                    {
+                        <ol class="prod-recept-stappen">
+                            @foreach (var s in rc.Recept.StapNamen()) { <li>@s</li> }
+                        </ol>
+                        @if (!rc.Recept.Stappen.Contains("\"monitor\"", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <p class="uitleg">Tip: een stap <code>{"stap": "monitor", "objecten": [ … ]}</code> bovenaan het recept laat de waarden hieronder live meelopen.</p>
+                        }
+                    }
+                    @if (MonitorPositie(_testCode) is { } mp)
+                    {
+                        <p class="uitleg">Alleen lezen: de agent leest deze objecten elke 0,2 s uit en toont ze hieronder, tot Stop of tot de tijd om is.
+                           Index, sub, type en naam per object; type UINT/INT/UDINT/DINT/BOOL/USINT/SINT/REAL/STRING.</p>
+                        <textarea class="drv-stappen prod-monitor-objecten" spellcheck="false" value="@_monitorObjecten"
+                                  @onchange="e => _monitorObjecten = (string?)e.Value ?? string.Empty"></textarea>
+                        <label class="bankveld"><span>Seconden</span>
+                            <input type="number" min="5" max="1800" style="width:5rem" value="@_monitorSeconden" disabled="@_taakBezig"
+                                   @onchange="e => _monitorSeconden = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 5, 1800) : 120" /></label>
+                    }
+                    @if (_mdeReeks.Count > 0 || _mdeWaarden.Count > 0)
+                    {
+                        <div class="prod-mde-waarden">
+                            @foreach (var kv in _mdeWaarden)
+                            {
+                                <div><span>@kv.Key</span><b>@(kv.Value ?? "—")</b></div>
+                            }
+                            @if (_mdeReeks.Count > 0) { <div><span>Tijd</span><b>@_mdeReeks[^1].T.ToString("0.0") s · @_mdeReeks.Count metingen</b></div> }
+                        </div>
+                        var namen = _mdeWaarden.Where(kv => _mdeReeks.Any(r => r.Waarden.TryGetValue(kv.Key, out var v) && v.HasValue)).Select(kv => kv.Key).Take(4).ToList();
+                        @if (namen.Count > 0)
+                        {
+                            <div class="prod-scopes-rij">
+                                @for (var i = 0; i < namen.Count; i += 2)
+                                {
+                                    var a = namen[i]; var b = i + 1 < namen.Count ? namen[i + 1] : "";
+                                    @SporenGrafiek(_mdeReeks.Select(r => (r.T, Lees(r.Waarden, a), b.Length > 0 ? Lees(r.Waarden, b) : null)).ToList(), a, b, "")
+                                }
+                            </div>
+                        }
+                    }
                     @if (_testCode == "dualmotion")
                     {
                         <div class="prod-dual-teach">
@@ -1311,6 +1354,16 @@
                 _testen.Add(("motiontest", "Motiontest"));
                 if (DrivePosities.Count(p => !IsCoe(p)) >= 2) _testen.Add(("dualmotion", "Dual motion"));
             }
+            // Testrecepten van de controllertypen op de posities (Controllertypen ▸ Testrecepten): één knop per slave × recept.
+            _recepten = new();
+            _testen.RemoveAll(t => t.Code.StartsWith("recept:", StringComparison.Ordinal));
+            var receptTypen = DrivePosities.Where(p => p.DriveTypeId is int t && DriveProtocol.ViaSdo(ProtocolVan(p))).Select(p => p.DriveTypeId!.Value).ToList();
+            foreach (var r in await Drives.GetReceptenVoorTypenAsync(receptTypen))
+                foreach (var p in DrivePosities.Where(p => p.DriveTypeId == r.DriveTypeId))
+                {
+                    _recepten.Add((p, r));
+                    _testen.Add(($"recept:{r.Id}:{p.Positie}", DrivePosities.Count > 1 ? $"{r.Naam} · {p.Naam}" : r.Naam));
+                }
             foreach (var t in _driveTypen)
                 _alleFirmwares.AddRange(await Drives.GetFirmwaresAsync(t.Id));
             _parametersets = await Drives.GetParametersetsAsync(Naam.Id);
@@ -1922,6 +1975,8 @@
         var test = _testen.FirstOrDefault(t => t.Code == _testCode);
         if (test.Code is null) return;
         _taakIsTest = true;
+        if (_testCode.StartsWith("monitor:", StringComparison.Ordinal)) { _taakIsTest = false; await StartMonitor(); return; }
+        if (_testCode.StartsWith("recept:", StringComparison.Ordinal)) { _mdeWaarden = new(); _mdeReeks = new(); await StartRecept(); return; }
         if (IsStroomlus) { await StartStroomlus(); await LaadTestHistorie(); return; }
         if (_testCode == "encodertest") { await StartEncodertest(); return; }
         if (_testCode == "phasing") { await StartPhasingTest(); return; }
@@ -2277,11 +2332,111 @@
     private string _testLaatste = "";
     private List<ProductGebeurtenis> _testHistorie = new();
     private bool IsStroomlus => _testCode == "stroomlus";
-    private string TestNaam => _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
+    private string TestNaam => MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
     private string TestUitleg => TestUitlegVoor(_testCode);
-    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", _ => "🧪" };
+    private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", _ => "🧪" };
     private bool IsDriveTest => _testCode is "stroomlus" or "encodertest" or "phasing" or "motiontest" or "dualmotion";
-    private static string TestUitlegVoor(string code) => code switch
+
+    // ---- testrecepten (mde.test) en meekijken (mde.monitor): live waarden uit de agent ----
+    private List<(DrivePositie Positie, DriveRecept Recept)> _recepten = new();
+    private Dictionary<string, string?> _mdeWaarden = new();                       // laatste waarde per object, op volgorde
+    private List<(double T, Dictionary<string, double?> Waarden)> _mdeReeks = new(); // verloop voor de grafiek
+    private string _monitorObjecten = MonitorStandaard;
+    private int _monitorSeconden = 120;
+    private const string MonitorStandaard =
+        "[\n  {\"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"naam\": \"Druk (bar x100)\"},\n" +
+        "  {\"index\": \"0x6010\", \"sub\": 1, \"type\": \"INT\", \"naam\": \"Joint 1\"},\n" +
+        "  {\"index\": \"0x6010\", \"sub\": 2, \"type\": \"INT\", \"naam\": \"Joint 2\"},\n" +
+        "  {\"index\": \"0x6000\", \"sub\": 0, \"type\": \"UINT\", \"naam\": \"Statusword\"}\n]";
+
+    private static double? Lees(Dictionary<string, double?> w, string naam) => w.TryGetValue(naam, out var v) ? v : null;
+
+    /// <summary>Tussenstand van de agent: {"t": s, "waarden": {naam: waarde}} — tabel bijwerken en aan de reeks toevoegen.</summary>
+    private void MdeLive(JsonElement res)
+    {
+        if (!res.TryGetProperty("waarden", out var w) || w.ValueKind != JsonValueKind.Object) return;
+        var t = res.TryGetProperty("t", out var tt) && tt.ValueKind == JsonValueKind.Number ? tt.GetDouble() : 0;
+        if (_mdeReeks.Count > 0 && Math.Abs(_mdeReeks[^1].T - t) < 1e-6) return;   // dezelfde meting nog eens gepolld
+        var getallen = new Dictionary<string, double?>();
+        foreach (var p in w.EnumerateObject())
+        {
+            double? g = p.Value.ValueKind == JsonValueKind.Number ? p.Value.GetDouble()
+                      : p.Value.ValueKind == JsonValueKind.True ? 1 : p.Value.ValueKind == JsonValueKind.False ? 0 : null;
+            getallen[p.Name] = g;
+            _mdeWaarden[p.Name] = p.Value.ValueKind switch
+            {
+                JsonValueKind.Null => null,
+                JsonValueKind.Number => p.Value.GetRawText(),
+                _ => p.Value.ToString(),
+            };
+        }
+        _mdeReeks.Add((t, getallen));
+        if (_mdeReeks.Count > 3000) _mdeReeks.RemoveRange(0, _mdeReeks.Count - 3000);
+    }
+
+    private static string MonitorCode(DrivePositie p) => "monitor:" + p.Positie;
+
+    private int? MonitorPositie(string code)
+        => code.StartsWith("monitor:", StringComparison.Ordinal) && int.TryParse(code[8..], out var p) ? p : null;
+
+    private async Task StartMonitor()
+    {
+        if (MonitorPositie(_testCode) is not int pos) return;
+        var p = DrivePosities.FirstOrDefault(x => x.Positie == pos);
+        JsonElement objecten;
+        try
+        {
+            objecten = JsonDocument.Parse(_monitorObjecten).RootElement.Clone();
+            if (objecten.ValueKind != JsonValueKind.Array || objecten.GetArrayLength() == 0) { Toon("Geef een lijst objecten op.", true); return; }
+        }
+        catch (Exception ex) { Toon("De objectenlijst is geen geldige JSON: " + ex.Message, true); return; }
+        _mdeWaarden = new(); _mdeReeks = new();
+        var body = JsonSerializer.Serialize(new { positie = pos, objecten, seconden = _monitorSeconden });
+        await VoerTaakUit("mde.monitor", body, $"Meekijken — slave {pos}{(p is null ? "" : $" ({p.Naam})")}", _monitorSeconden + 60,
+            res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "metingen")} metingen" : "klaar"), live: MdeLive);
+    }
+
+    private (DrivePositie Positie, DriveRecept Recept)? ReceptVan(string code)
+    {
+        var d = code.Split(':');
+        if (d.Length != 3 || d[0] != "recept" || !int.TryParse(d[1], out var id) || !int.TryParse(d[2], out var pos)) return null;
+        var x = _recepten.FirstOrDefault(r => r.Recept.Id == id && r.Positie.Positie == pos);
+        return x.Recept is null ? null : x;
+    }
+
+    private async Task StartRecept()
+    {
+        if (ReceptVan(_testCode) is not { } rc) return;
+        var (p, r) = rc;
+        JsonElement stappen;
+        try { stappen = JsonDocument.Parse(r.Stappen).RootElement.Clone(); }
+        catch (Exception ex) { Toon("Het recept is geen geldige JSON: " + ex.Message, true); return; }
+        var body = JsonSerializer.Serialize(new { positie = p.Positie, naam = r.Naam, stappen });
+        var titel = $"{r.Naam} — slave {p.Positie} ({p.Naam})";
+        await VoerTaakUit("mde.test", body, titel, 900, async res =>
+        {
+            var geslaagd = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("geslaagd", out var g) && g.ValueKind == JsonValueKind.True;
+            var samenvatting = res.ValueKind == JsonValueKind.Object ? Tekst(res, "samenvatting") : "";
+            // per stap de uitkomst in het logboek van het venster
+            if (res.ValueKind == JsonValueKind.Object && res.TryGetProperty("stappen", out var st) && st.ValueKind == JsonValueKind.Array)
+                foreach (var s in st.EnumerateArray())
+                    _taakRegels.Add($"{(s.TryGetProperty("geslaagd", out var ok) && ok.ValueKind == JsonValueKind.True ? "✓" : "✗")} {Tekst(s, "naam")}: {Tekst(s, "tekst")}");
+            await Repo.VoegHistorieToeAsync(ProductId,
+                $"{titel}: {(geslaagd ? "GESLAAGD" : "MISLUKT")}" + (samenvatting.Length > 0 ? " — " + samenvatting : "") + Opm(),
+                SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
+            _testLaatste = $"{r.Naam} {(geslaagd ? "GESLAAGD" : "MISLUKT")}";
+            await LaadTestHistorie();
+            if (!geslaagd) throw new InvalidOperationException(samenvatting.Length > 0 ? samenvatting : "recept niet geslaagd");
+            return samenvatting;
+        }, live: MdeLive);
+    }
+
+    private string TestUitlegVoor(string code) => ReceptVan(code) is { } rc
+        ? (rc.Recept.Omschrijving.Length > 0 ? rc.Recept.Omschrijving + " " : "") + $"Testrecept van {rc.Positie.DriveTypeNaam} ({rc.Recept.StapNamen().Count} stappen), uitgevoerd door de werkplek-agent op slave {rc.Positie.Positie}."
+        : MonitorPositie(code) is not null ? "Objecten van de slave live meekijken: de agent leest ze elke 0,2 s en het scherm toont de waarden en het verloop. Er wordt niets geschreven."
+        : TestUitlegVast(code);
+
+    private static string TestUitlegVast(string code) => code switch
     {
         "stroomlus" => "Current Direct Tuning zoals in MotionLab: controle van de STO, modus Current, enable, blokgolf ±amplitude op de d-as (geen beweging) via de disturbance van de drive; demand en werkelijke stroom via monitoring. GO bij stijgtijd, overshoot, fout en rimpel binnen de grenzen (Productie:Stroomlus).",
         "encodertest" => "Zoals de feedback-test in MotionLab: het veld wordt in open lus (interne generator) precies één mechanische omwenteling vooruit en één terug gedraaid; de encoder moet daarbij het verwachte aantal increments laten zien (±marge) en vooruit/terug moeten symmetrisch zijn. De motor draait écht: as vrij laten.",
@@ -2297,7 +2452,7 @@
     {
         _testCode = code; _testOpen = true;
         if (!_taakBezig) { _taakTitel = ""; _taakRegels = new(); _taakFout = null; _taakResultaat = null; _taakKlaar = false; _taakProcent = 0; }
-        _etLive = null; _mtReeks = new();
+        _etLive = null; _mtReeks = new(); _mdeWaarden = new(); _mdeReeks = new();
         if (code != "stroomlus") _sl = null;
         if (code != "encodertest") _et = null;
         if (code != "motiontest") _mt = null;

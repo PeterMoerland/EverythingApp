@@ -16,5 +16,5 @@ ALLE = {t.NAAM: t for t in (drives, drives_firmware, drives_parameters, drives_s
                             drives_motion.Encodertest_, drives_motion.Motiontest_, drives_encoderlive, drives_nulpunt, drives_phasing, drives_registers, drives_dual, esp32, stm32, test, uitgangen,
                             feetech, feetech.Parameters,
                             coe, coe.Hoek, coe.Positie, coe.Vrijgeven, coe.Scan, coe.Sdo,
-                            mde, mde.Test, mde.Firmware,
+                            mde, mde.Test, mde.Monitor, mde.Firmware,
                             can_sniff, erob_can, ecat_alias)}

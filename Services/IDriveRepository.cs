@@ -38,6 +38,13 @@ public interface IDriveRepository
 
     /// <summary>De actuele parameterset voor halffabricaat × positie × firmwareversie; null als die er niet is.</summary>
     Task<DriveParameterset?> ZoekParametersetAsync(int productNameId, int positie, int driveFirmwareId);
+
+    // --- testrecepten per type (DriveRecepten_MariaDB.sql) ---
+    Task<List<DriveRecept>> GetReceptenAsync(int driveTypeId);
+    /// <summary>Recepten van meerdere typen in één keer; leeg (geen fout) als de tabel nog ontbreekt.</summary>
+    Task<List<DriveRecept>> GetReceptenVoorTypenAsync(IEnumerable<int> driveTypeIds);
+    Task<int> BewaarReceptAsync(DriveRecept r, int? door);
+    Task VerwijderReceptAsync(int id);
 }
 
 public class NullDriveRepository : IDriveRepository
@@ -59,6 +66,10 @@ public class NullDriveRepository : IDriveRepository
     public Task<int> BewaarParametersetAsync(DriveParameterset p, int? door) => Task.FromResult(0);
     public Task VerwijderParametersetAsync(int id) => Task.CompletedTask;
     public Task<DriveParameterset?> ZoekParametersetAsync(int productNameId, int positie, int driveFirmwareId) => Task.FromResult<DriveParameterset?>(null);
+    public Task<List<DriveRecept>> GetReceptenAsync(int driveTypeId) => Task.FromResult(new List<DriveRecept>());
+    public Task<List<DriveRecept>> GetReceptenVoorTypenAsync(IEnumerable<int> driveTypeIds) => Task.FromResult(new List<DriveRecept>());
+    public Task<int> BewaarReceptAsync(DriveRecept r, int? door) => Task.FromResult(0);
+    public Task VerwijderReceptAsync(int id) => Task.CompletedTask;
 }
 
 public class MySqlDriveRepository : IDriveRepository
@@ -436,6 +447,74 @@ public class MySqlDriveRepository : IDriveRepository
     {
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand("DELETE FROM `DriveParameters` WHERE `DriveParameterID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // --------------------------------------------------------------- recepten
+    private const string ReceptSelect =
+        "SELECT `DriveReceptID`, `DriveTypeID`, `Volgorde`, `Naam`, COALESCE(`Omschrijving`, ''), `Stappen`, `Verplicht` FROM `DriveRecepten` ";
+
+    private static DriveRecept LeesRecept(MySqlDataReader r) => new()
+    {
+        Id = r.GetInt32(0), DriveTypeId = r.GetInt32(1), Volgorde = Convert.ToInt32(r.GetValue(2)), Naam = S(r, 3),
+        Omschrijving = S(r, 4), Stappen = S(r, 5), Verplicht = !r.IsDBNull(6) && Convert.ToInt32(r.GetValue(6)) != 0,
+    };
+
+    public async Task<List<DriveRecept>> GetReceptenAsync(int driveTypeId)
+    {
+        var lijst = new List<DriveRecept>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(ReceptSelect + "WHERE `DriveTypeID` = @t ORDER BY `Volgorde`, `DriveReceptID`", cn);
+        cmd.Parameters.AddWithValue("@t", driveTypeId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(LeesRecept(r));
+        return lijst;
+    }
+
+    public async Task<List<DriveRecept>> GetReceptenVoorTypenAsync(IEnumerable<int> driveTypeIds)
+    {
+        var ids = driveTypeIds.Distinct().ToList();
+        var lijst = new List<DriveRecept>();
+        if (ids.Count == 0) return lijst;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(ReceptSelect + $"WHERE `DriveTypeID` IN ({string.Join(",", ids)}) ORDER BY `DriveTypeID`, `Volgorde`, `DriveReceptID`", cn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) lijst.Add(LeesRecept(r));
+        }
+        catch (MySqlException ex) when (ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase))
+        {
+            // DriveRecepten_MariaDB.sql nog niet uitgevoerd: Test PCB werkt dan zonder recepten.
+        }
+        return lijst;
+    }
+
+    public async Task<int> BewaarReceptAsync(DriveRecept x, int? door)
+    {
+        await using var cn = await OpenAsync();
+        const string velden = "`DriveTypeID` = @t, `Volgorde` = @v, `Naam` = @n, `Omschrijving` = @o, `Stappen` = @s, `Verplicht` = @p";
+        var sql = x.Id == 0
+            ? $"INSERT INTO `DriveRecepten` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
+            : $"UPDATE `DriveRecepten` SET {velden} WHERE `DriveReceptID` = @id";
+        await using var cmd = new MySqlCommand(sql, cn);
+        cmd.Parameters.AddWithValue("@t", x.DriveTypeId);
+        cmd.Parameters.AddWithValue("@v", x.Volgorde);
+        cmd.Parameters.AddWithValue("@n", x.Naam.Trim());
+        cmd.Parameters.AddWithValue("@o", x.Omschrijving.Trim());
+        cmd.Parameters.AddWithValue("@s", x.Stappen);
+        cmd.Parameters.AddWithValue("@p", x.Verplicht ? 1 : 0);
+        if (x.Id == 0) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        else cmd.Parameters.AddWithValue("@id", x.Id);
+        await cmd.ExecuteNonQueryAsync();
+        return x.Id == 0 ? (int)cmd.LastInsertedId : x.Id;
+    }
+
+    public async Task VerwijderReceptAsync(int id)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `DriveRecepten` WHERE `DriveReceptID` = @id", cn);
         cmd.Parameters.AddWithValue("@id", id);
         await cmd.ExecuteNonQueryAsync();
     }

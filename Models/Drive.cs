@@ -34,6 +34,105 @@ public class DriveFirmware
     public DateTime? StatusOp { get; set; }
 }
 
+/// <summary>
+/// Testrecept bij een controllertype (tabel DriveRecepten): een lijst stappen uit vaste bouwstenen die de
+/// werkplek-agent uitvoert (mde.test). Stappen is JSON, zoals in MdeAgent/mde_agent/taken/mde.py beschreven.
+/// </summary>
+public class DriveRecept
+{
+    public int Id { get; set; }
+    public int DriveTypeId { get; set; }
+    public int Volgorde { get; set; } = 1;
+    public string Naam { get; set; } = "";
+    public string Omschrijving { get; set; } = "";
+    public string Stappen { get; set; } = "[]";
+    public bool Verplicht { get; set; } = true;
+
+    /// <summary>Voorbeeldrecept (Swivel) om van te starten; alle bouwstenen komen erin voor.</summary>
+    public const string Voorbeeld =
+        "[\n" +
+        "  {\"stap\": \"monitor\", \"objecten\": [{\"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"naam\": \"Druk (bar x100)\"},\n" +
+        "                                 {\"index\": \"0x6010\", \"sub\": 1, \"type\": \"INT\", \"naam\": \"Joint 1\"}]},\n" +
+        "  {\"stap\": \"identiteit\", \"vendor\": \"0x000010E3\", \"productcode\": \"0x00055955\", \"revisie\": \"0x00000001\"},\n" +
+        "  {\"stap\": \"lees\", \"naam\": \"Druk (bar x100)\", \"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"min\": 0, \"max\": 4500},\n" +
+        "  {\"stap\": \"doorgeefluik\", \"naam\": \"Motor 1 firmware\", \"motor\": 1, \"register\": 3, \"index\": \"0x8000\"},\n" +
+        "  {\"stap\": \"herhaal\", \"naam\": \"Joint 1 heen en terug\", \"keer\": 10, \"stappen\": [\n" +
+        "    {\"stap\": \"beweging\", \"naam\": \"naar +300\", \"doel_index\": \"0x7010\", \"doel_sub\": 1, \"stand_index\": \"0x6010\", \"stand_sub\": 1,\n" +
+        "     \"type\": \"INT\", \"doel\": 300, \"tolerantie\": 5, \"timeout\": 5, \"controlword\": {\"index\": \"0x7000\", \"sub\": 0, \"aan\": 1, \"uit\": 0}},\n" +
+        "    {\"stap\": \"pauze\", \"seconden\": 0.5},\n" +
+        "    {\"stap\": \"beweging\", \"naam\": \"terug naar 0\", \"doel_index\": \"0x7010\", \"doel_sub\": 1, \"stand_index\": \"0x6010\", \"stand_sub\": 1,\n" +
+        "     \"type\": \"INT\", \"doel\": 0, \"tolerantie\": 5, \"timeout\": 5, \"controlword\": {\"index\": \"0x7000\", \"sub\": 0, \"aan\": 1, \"uit\": 0}}\n" +
+        "  ]},\n" +
+        "  {\"stap\": \"schrijf\", \"naam\": \"Vacuum aan\", \"index\": \"0x7020\", \"sub\": 1, \"type\": \"BOOL\", \"waarde\": 1},\n" +
+        "  {\"stap\": \"wacht_tot\", \"naam\": \"Druk zakt onder 0,50 bar\", \"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"max\": 50, \"timeout\": 5},\n" +
+        "  {\"stap\": \"schrijf\", \"naam\": \"Vacuum uit\", \"index\": \"0x7020\", \"sub\": 1, \"type\": \"BOOL\", \"waarde\": 0, \"stoppen\": false}\n" +
+        "]";
+
+    /// <summary>Controleert de JSON: een lijst van objecten met een bekende "stap" (ook binnen "herhaal"). Geeft de fout, of null.</summary>
+    public static string? Controleer(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return ControleerLijst(doc.RootElement, "");
+        }
+        catch (System.Text.Json.JsonException ex) { return "Geen geldige JSON: " + ex.Message; }
+    }
+
+    private static string? ControleerLijst(System.Text.Json.JsonElement lijst, string prefix)
+    {
+        if (lijst.ValueKind != System.Text.Json.JsonValueKind.Array) return prefix.Length == 0 ? "Het recept moet een lijst [ … ] zijn." : $"Stap {prefix.TrimEnd('.')}: \"stappen\" moet een lijst zijn.";
+        var nr = 0;
+        foreach (var s in lijst.EnumerateArray())
+        {
+            nr++;
+            if (s.ValueKind != System.Text.Json.JsonValueKind.Object) return $"Stap {prefix}{nr} is geen object {{ … }}.";
+            var stap = s.TryGetProperty("stap", out var st) ? st.GetString() ?? "" : "";
+            if (!Bouwstenen.Contains(stap)) return $"Stap {prefix}{nr}: onbekende bouwsteen '{stap}' (bekend: {string.Join(", ", Bouwstenen)}).";
+            if (stap == "herhaal")
+            {
+                if (!s.TryGetProperty("stappen", out var binnen)) return $"Stap {prefix}{nr}: herhaal heeft geen \"stappen\".";
+                var fout = ControleerLijst(binnen, $"{prefix}{nr}.");
+                if (fout is not null) return fout;
+            }
+        }
+        return nr == 0 ? (prefix.Length == 0 ? "Het recept heeft geen stappen." : $"Stap {prefix.TrimEnd('.')}: het herhaal-blok is leeg.") : null;
+    }
+
+    public static readonly string[] Bouwstenen = { "identiteit", "lees", "schrijf", "wacht", "pauze", "wacht_tot", "herhaal", "beweging", "doorgeefluik", "monitor" };
+
+    /// <summary>De namen van de stappen, voor de weergave; een herhaal-blok als "naam (herhaal 10×: a → b)".</summary>
+    public List<string> StapNamen()
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            return Namen(doc.RootElement);
+        }
+        catch { return new(); }
+    }
+
+    private static List<string> Namen(System.Text.Json.JsonElement lijst)
+    {
+        var uit = new List<string>();
+        if (lijst.ValueKind != System.Text.Json.JsonValueKind.Array) return uit;
+        foreach (var s in lijst.EnumerateArray())
+        {
+            if (s.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            var stap = s.TryGetProperty("stap", out var st) ? st.GetString() ?? "" : "";
+            var naam = s.TryGetProperty("naam", out var n) ? n.GetString() ?? "" : "";
+            if (stap == "herhaal")
+            {
+                var keer = s.TryGetProperty("keer", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.Number ? k.GetInt32() : 1;
+                var binnen = s.TryGetProperty("stappen", out var b) ? Namen(b) : new();
+                stap = $"herhaal {keer}×: {string.Join(" → ", binnen)}";
+            }
+            uit.Add(naam.Length > 0 ? $"{naam} ({stap})" : stap);
+        }
+        return uit;
+    }
+}
+
 /// <summary>Wat er op een drive-positie van een halffabricaat verwacht wordt.</summary>
 public class DrivePositie
 {

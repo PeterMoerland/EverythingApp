@@ -548,6 +548,9 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
                     continue
                 if isinstance(obj, dict) and set(obj.keys()) == {"log"}:
                     job.log(obj["log"])
+                elif isinstance(obj, dict) and set(obj.keys()) == {"live"} and isinstance(obj["live"], dict):
+                    # tussenstand (mde: monitor-waarden): de app pollt job.resultaat zolang de job loopt
+                    job.resultaat = {**obj["live"], "live": True}
                 else:
                     laatste = obj
                 if time.time() - begin > timeout:

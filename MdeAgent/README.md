@@ -20,7 +20,8 @@ Taken (uitbreidbaar, zie `mde_agent/taken/`):
 | `feetech.uitlezen` | Feetech-servo (STS3215) uitlezen: ID's op de bus, versie, alle registers | USB-TTL-adapter (FE-URT-1), `feetech_poort` optioneel |
 | `feetech.parameters` | Feetech-servo programmeren met een JSON-parameterset (zie `voorbeelden/feetech-sts3215.json`), terugleescontrole, ID/baud als laatste | idem |
 | `mde.identiteit`  | Eigen MDE-slave (vendor 0x10E3): standaardobjecten 0x1008/0x1009/0x100A/0x1018, control-/statusword | Npcap |
-| `mde.test`        | Testrecept op een MDE-slave: bouwstenen identiteit, lees, schrijf, wacht, beweging, doorgeefluik (0x8000) | Npcap |
+| `mde.test`        | Testrecept op een MDE-slave: bouwstenen identiteit, lees, schrijf, wacht, beweging, doorgeefluik (0x8000), monitor (live meelezen) | Npcap |
+| `mde.monitor`     | Objecten van een MDE-slave live meekijken (alleen lezen), tot Stop of `seconden` | Npcap |
 | `mde.firmware`    | Firmware via EtherCAT/FoE in een MDE-slave laden (pysoem, BOOT-toestand), daarna 0x100A teruglezen | Npcap |
 
 ## Snelste weg

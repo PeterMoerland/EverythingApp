@@ -178,6 +178,53 @@
                             en, per halffabricaat, haar eigen parameterset (.xcf).</text>
                         }
                     </p>
+
+                    @* ---------- testrecepten: alleen bij slaves die via SDO's gaan (MDE-slaves, eRob) ---------- *@
+                    @if (DriveProtocol.ViaSdo(_type.Protocol))
+                    {
+                        <h3 class="wn-kop drv-receptkop">Testrecepten van @_type.Naam</h3>
+                        @if (_receptTabelOntbreekt)
+                        {
+                            <div class="melding fout">De tabel DriveRecepten ontbreekt nog: voer <code>DriveRecepten_MariaDB.sql</code> uit.</div>
+                        }
+                        @foreach (var r in _recepten)
+                        {
+                            <div class="drv-recept" @key="r.Id">
+                                <div class="bankfilters">
+                                    <label class="bankveld"><span>Volgorde</span>
+                                        <input type="number" style="width:4rem" value="@r.Volgorde" @onchange="e => ZetRecept(r, () => r.Volgorde = int.TryParse((string?)e.Value, out var v) ? v : r.Volgorde)" /></label>
+                                    <label class="bankveld"><span>Naam</span>
+                                        <input value="@r.Naam" maxlength="60" @onchange="e => ZetRecept(r, () => r.Naam = ((string?)e.Value ?? string.Empty).Trim())" /></label>
+                                    <label class="bankveld prod-keuze"><span>Omschrijving</span>
+                                        <input value="@r.Omschrijving" maxlength="500" @onchange="e => ZetRecept(r, () => r.Omschrijving = ((string?)e.Value ?? string.Empty).Trim())" /></label>
+                                    <label class="of-vink" title="Hoort bij de eindcontrole van de print"><input type="checkbox" checked="@r.Verplicht" @onchange="e => ZetRecept(r, () => r.Verplicht = e.Value is bool b && b)" /> verplicht</label>
+                                    <button class="klein rood" title="Recept verwijderen" @onclick="() => VerwijderRecept(r)">✕</button>
+                                </div>
+                                <textarea class="drv-stappen" spellcheck="false" value="@r.Stappen" @key="(r.Id, _receptVersie)"
+                                          @onchange="e => ZetStappen(r, (string?)e.Value ?? string.Empty)"></textarea>
+                                @if (_receptFouten.TryGetValue(r.Id, out var fout)) { <div class="melding fout">@fout</div> }
+                                else { <small class="uitleg">@r.StapNamen().Count stappen: @string.Join(" → ", r.StapNamen())</small> }
+                            </div>
+                        }
+                        @if (_recepten.Count == 0 && !_receptTabelOntbreekt) { <p class="kiezer-info">Nog geen testrecepten voor dit type.</p> }
+                        <div class="btngroup">
+                            <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="NieuwRecept">+ Recept</button>
+                            <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="VoorbeeldRecept" title="Een recept met alle bouwstenen als voorbeeld (Swivel) toevoegen, om aan te passen">+ Voorbeeldrecept</button>
+                        </div>
+                        <p class="uitleg">
+                            Een recept is een lijst stappen (JSON) die de werkplek-agent op de slave uitvoert; Test PCB toont per
+                            slave van dit type een knop per recept en zet de uitslag in de historie. Bouwstenen:
+                            <b>identiteit</b> (vendor, productcode, revisie, firmware), <b>lees</b> (index, sub, type, min/max of gelijk),
+                            <b>schrijf</b> (index, sub, type, waarde; teruglezen), <b>wacht</b> of <b>pauze</b> (seconden),
+                            <b>wacht_tot</b> (index, sub, type, gelijk/min/max, timeout: wachten tot een waarde een grens haalt),
+                            <b>herhaal</b> (keer, stappen [ … ]: een blok n keer),
+                            <b>beweging</b> (doel_index/sub, stand_index/sub, type, doel, tolerantie, timeout, controlword {aan, uit}),
+                            <b>doorgeefluik</b> (motor, register, verwacht of waarde; via 0x8000),
+                            <b>monitor</b> (objecten [{index, sub, type, naam}]: vanaf die stap leest de agent ze elke 0,2 s en laat Test PCB
+                            de waarden en het verloop live zien). <code>"stoppen": false</code> laat het recept doorlopen na een mislukte
+                            stap. Het recept stopt anders bij de eerste fout.
+                        </p>
+                    }
                 }
             </section>
         </div>
@@ -192,9 +239,72 @@
     private List<DriveSoort> _typen = new();
     private DriveSoort? _type;
     private List<DriveFirmware> _firmwares = new();
+    private List<DriveRecept> _recepten = new();
+    private readonly Dictionary<int, string> _receptFouten = new();
+    private bool _receptTabelOntbreekt;
+    private int _receptVersie;
     private string? _melding;
     private bool _fout;
     private bool _tabelOntbreekt;
+
+    // ---- testrecepten ----
+    private async Task LaadRecepten()
+    {
+        _recepten = new(); _receptFouten.Clear(); _receptTabelOntbreekt = false;
+        if (_type is null || !DriveProtocol.ViaSdo(_type.Protocol)) return;
+        try { _recepten = await Drives.GetReceptenAsync(_type.Id); }
+        catch (Exception ex)
+        {
+            _receptTabelOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
+            if (!_receptTabelOntbreekt) Toon("Recepten laden mislukt: " + ex.Message, true);
+        }
+        _receptVersie++;
+    }
+
+    private async Task NieuwRecept() => await MaakRecept("Nieuw recept", "[\n  {\"stap\": \"identiteit\", \"vendor\": \"" + (_type?.VendorId ?? "") + "\", \"productcode\": \"" + (_type?.ProductCode ?? "") + "\"}\n]");
+
+    private async Task VoorbeeldRecept() => await MaakRecept("Voorbeeld (alle bouwstenen)", DriveRecept.Voorbeeld);
+
+    private async Task MaakRecept(string naam, string stappen)
+    {
+        if (_type is null) return;
+        try
+        {
+            var r = new DriveRecept { DriveTypeId = _type.Id, Naam = naam, Stappen = stappen, Volgorde = _recepten.Count + 1 };
+            await Drives.BewaarReceptAsync(r, Ik.WerknemerId);
+            await LaadRecepten();
+        }
+        catch (Exception ex) { Toon("Recept toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetRecept(DriveRecept r, Action zet)
+    {
+        zet();
+        try { await Drives.BewaarReceptAsync(r, Ik.WerknemerId); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>De stappen-JSON: eerst controleren, pas opslaan als hij klopt (anders de fout onder het vak).</summary>
+    private async Task ZetStappen(DriveRecept r, string json)
+    {
+        var fout = DriveRecept.Controleer(json);
+        if (fout is not null) { _receptFouten[r.Id] = fout; return; }
+        _receptFouten.Remove(r.Id);
+        r.Stappen = json;
+        try { await Drives.BewaarReceptAsync(r, Ik.WerknemerId); Toon($"Recept '{r.Naam}' opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderRecept(DriveRecept r)
+    {
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Recept '{r.Naam}' verwijderen?")) return;
+            await Drives.VerwijderReceptAsync(r.Id);
+            await LaadRecepten();
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -218,6 +328,7 @@
         _type = t;
         try { _firmwares = await Drives.GetFirmwaresAsync(t.Id); }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        await LaadRecepten();
     }
 
     private async Task NieuwType()
