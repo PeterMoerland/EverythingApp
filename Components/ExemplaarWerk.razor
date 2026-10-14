@@ -207,41 +207,42 @@
             </label>
             <button class="klein" disabled="@(!Mag || _taakBezig || !KanFirmware(keuze))" @onclick="() => LaadDriveFirmware(p)"
                     title="Firmware via EtherCAT in de drive laden (FoE)">⚡ Firmware laden</button>
-            <label class="bankveld">
-                <span>Parameterset</span>
-                <select value="@keuze.ParametersId" disabled="@_taakBezig" @onchange="e => KiesParameters(p.Positie, e)">
-                    <option value="0">— kies —</option>
-                    @foreach (var ps in ParametersVoor(p, keuze.FirmwareId))
-                    {
-                        <option value="@ps.Id">@(ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand) · fw @ps.FirmwareVersie@(ps.ParameterFileId is null ? " (geen bestand)" : "")</option>
-                    }
-                </select>
-            </label>
-            <button class="klein" disabled="@(!Mag || _taakBezig || !KanParameters(keuze, p))" @onclick="() => LaadParameters(p)"
-                    title="@ParamTitel(p)">⚙ Parameters laden</button>
+            @if (MetParameters)
+            {
+                <label class="bankveld">
+                    <span>Parameterset</span>
+                    <select value="@keuze.ParametersId" disabled="@_taakBezig" @onchange="e => KiesParameters(p.Positie, e)">
+                        <option value="0">— kies —</option>
+                        @foreach (var ps in ParametersVoor(p, keuze.FirmwareId))
+                        {
+                            <option value="@ps.Id">@(ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand) · fw @ps.FirmwareVersie@(ps.ParameterFileId is null ? " (geen bestand)" : "")</option>
+                        }
+                    </select>
+                </label>
+                <button class="klein" disabled="@(!Mag || _taakBezig || !KanParameters(keuze, p))" @onclick="() => LaadParameters(p)"
+                        title="@ParamTitel(p)">⚙ Parameters laden</button>
+            }
+            @if (IsMde(p))
+            {
+                @* Eigen MDE-slave: objectdictionary/losse SDO's en live meekijken, in dezelfde rij. *@
+                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
+                        title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
+                        title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
+            }
             @if (!IsCoe(p))
             {
-                <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
-                        title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven">⇄ Vergelijken</button>
+                @if (MetParameters)
+                {
+                    <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
+                            title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven">⇄ Vergelijken</button>
+                }
                 <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => LeesRegisters(p)"
                         title="Alle registers uit de dictionary van de drive lezen, ook de alleen-lezen statusregisters (duurt ½–2 minuten)">📋 Alle registers…</button>
                 <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => OpenEncoder(p)"
                         title="Encoderwaarde live: wijzerplaat (singleturn), ruwe positie, omwentelingen en waarschuwing bij de 32-bit-grens">◎ Encoder…</button>
             }
         </div>
-        @if (IsMde(p))
-        {
-            @* Eigen MDE-slave: identiteit en standaardobjecten; de objectdictionary en losse SDO's zoals bij de eRob. *@
-            <div class="bankfilters prod-prog prod-hoek">
-                <span class="prod-prog-pos"><small class="uitleg">slave @p.Positie</small></span>
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => LeesIdentiteit(p)"
-                        title="Fabrikant, productcode, revisie, naam, hardware- en firmwareversie, serienummer, control-/statusword (standaardobjecten)">🪪 Identiteit</button>
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
-                        title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
-                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
-                        title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
-            </div>
-        }
         @if (IsErob(p))
         {
             @* eRob e.d.: de as in een hoek zetten (profile position) en de positie uitlezen. *@
@@ -1250,6 +1251,8 @@
         .Where(p => !(p.DriveTypeId is int t && _driveTypen.FirstOrDefault(x => x.Id == t) is { } dt && DriveProtocol.IsChip(dt.Protocol)))
         .ToList();
     private bool HeeftChip => _technieken.Contains(ProductTechniek.Esp32) || _technieken.Contains(ProductTechniek.Stm32);
+    /// <summary>Parametersets laden (Producten ▸ Techniek ▸ EtherCAT ▸ "Parametersets laden"); standaard aan.</summary>
+    private bool MetParameters => !_technieken.Contains(ProductTechniek.GeenParameters);
     private bool HeeftCan => _technieken.Contains(ProductTechniek.Can);
     private int AantalTechnieken => _technieken.Count;
     private bool HeeftFeetech => _technieken.Contains(ProductTechniek.Feetech) || (MotorModus && AantalTechnieken == 0);
@@ -1490,21 +1493,6 @@
     private bool IsCoe(DrivePositie p) => DriveProtocol.ViaSdo(ProtocolVan(p));
     private bool IsErob(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Coe;
     private bool IsMde(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Mde;
-
-    /// <summary>MDE-slave: de standaardobjecten lezen (mde.identiteit) en in het logboek tonen.</summary>
-    private async Task LeesIdentiteit(DrivePositie p)
-    {
-        var body = JsonSerializer.Serialize(new { positie = p.Positie });
-        await VoerTaakUit("mde.identiteit", body, $"Slave {p.Positie} ({p.Naam}): identiteit lezen", 40, res =>
-        {
-            if (res.ValueKind != JsonValueKind.Object) return Task.FromResult("geen gegevens");
-            var mde = res.TryGetProperty("mde", out var m) && m.ValueKind == JsonValueKind.True;
-            var tekst = $"{Tekst(res, "naam")} · {Tekst(res, "vendor")}/{Tekst(res, "productcode")} rev {Tekst(res, "revisie")} · " +
-                        $"hw {Tekst(res, "hardware")} · fw {Tekst(res, "firmware")} · sn {(Tekst(res, "serienummer") is { Length: > 0 } sn ? sn : "—")} · " +
-                        $"status {Tekst(res, "statusword")} control {Tekst(res, "controlword")}" + (mde ? "" : " · GEEN MDE-slave");
-            return Task.FromResult(tekst);
-        });
-    }
 
     private string ParamTitel(DrivePositie p) => IsCoe(p)
         ? "Parameterset (.json met SDO's) in de actuator schrijven, teruglezen en opslaan in EEPROM"

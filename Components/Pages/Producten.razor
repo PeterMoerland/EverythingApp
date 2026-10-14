@@ -908,6 +908,13 @@
                                     <input type="checkbox" checked="@_technieken.Contains(code)" @onchange="e => ZetTechniek(code, e)" />
                                     <b>@t.Naam</b> <small class="uitleg">@t.Uitleg</small>
                                 </label>
+                                @if (code == ProductTechniek.Drives && _technieken.Contains(ProductTechniek.Drives))
+                                {
+                                    <label class="prod-techniek-vink prod-techniek-sub" title="Uit = op deze print wordt alleen firmware geladen; de keuze en knop voor parametersets verdwijnen uit Programmeren">
+                                        <input type="checkbox" checked="@MetParameters" @onchange="ZetMetParameters" />
+                                        <b>Parametersets laden</b> <small class="uitleg">per positie een parameterset (.xcf / .json) bij de firmware; uit als deze print alleen firmware krijgt</small>
+                                    </label>
+                                }
                             }
                         </div>
                         @if (_drvOntbreekt)
@@ -1000,7 +1007,7 @@
                             }
                         </div>
                     }
-                    @if (_tab == "Techniek" && _productId is null && HeeftDrivesOfServo)
+                    @if (_tab == "Techniek" && _productId is null && HeeftDrivesOfServo && (MetParameters || _technieken.Contains(ProductTechniek.Feetech)))
                     {
                         <h4 class="prod-subkop">Parametersets</h4>
                         <div class="drv-params-wrap">
@@ -2744,6 +2751,12 @@
         }
         catch (Exception ex) { Toon(ex.Message, true); }
     }
+
+    /// <summary>Parametersets laden staat aan zolang er géén regel 'geenparams' is (zie ProductTechniek.GeenParameters).</summary>
+    private bool MetParameters => !_technieken.Contains(ProductTechniek.GeenParameters);
+
+    private Task ZetMetParameters(ChangeEventArgs e)
+        => ZetTechniek(ProductTechniek.GeenParameters, new ChangeEventArgs { Value = !(e.Value is bool b && b) });
 
     private async Task ZetTechniek(string code, ChangeEventArgs e)
     {

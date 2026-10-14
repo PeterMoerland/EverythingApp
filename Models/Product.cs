@@ -37,6 +37,11 @@ public static class ProductTechniek
     public const string Stm32 = "stm32";
     public const string Feetech = "feetech";
     public const string Can = "can";
+    /// <summary>
+    /// Sub-vinkje onder EtherCAT: dit product krijgt geen parametersets (alleen firmware). Omgekeerd opgeslagen
+    /// (een regel = géén parameters), zodat bestaande producten zonder deze regel parametersets houden.
+    /// </summary>
+    public const string GeenParameters = "geenparams";
 
     public static readonly (string Code, string Naam, string Uitleg)[] Alle =
     {
