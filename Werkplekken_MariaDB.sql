@@ -51,6 +51,10 @@ ALTER TABLE `WerkplekApparaten`
     ADD COLUMN IF NOT EXISTS `MedewerkerSinds`   DATETIME NULL,
     ADD COLUMN IF NOT EXISTS `LaatsteActiviteit` DATETIME NULL;
 
+-- Wie zich op een werkplek mag aanmelden ("Wie ben jij?"): vinkje Werkplek gebruiker bij Werknemers ▸ Status.
+ALTER TABLE `Werknemers`
+    ADD COLUMN IF NOT EXISTS `Werkplekgebruiker` TINYINT(1) NOT NULL DEFAULT 0;
+
 -- Pincode per werknemer (4 cijfers) om op een werkplek aan te geven wie er werkt. Alleen een hash (PBKDF2-SHA256 met
 -- zout), nooit de code zelf. Instellen: Werknemers ▸ Mijn pincode (op je eigen pc); wissen: Beheer ▸ Werkplekken.
 CREATE TABLE IF NOT EXISTS `WerknemerPincodes` (

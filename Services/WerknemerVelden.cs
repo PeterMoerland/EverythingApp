@@ -74,6 +74,8 @@ public static class WerknemerVelden
             new Veld("Bedrijfsauto", VeldType.JaNee, new[] { "CompanyCar", "companycar", "Bedrijfsauto" }),
             new Veld("Betaalpas van de zaak", VeldType.JaNee, new[] { "CompanyCard", "companycard", "Betaalpas" }),
             new Veld("Directie", VeldType.JaNee, new[] { "Directie", "directie" }),
+            // mag zich aanmelden op een werkplek (gedeelde pc, "Wie ben jij?"); kolom uit Werkplekken_MariaDB.sql
+            new Veld("Werkplek gebruiker", VeldType.JaNee, new[] { "Werkplekgebruiker" }),
             new Veld("Contracturen", VeldType.Getal, new[] { "Contracturen", "contracturen", "Contract_uren" }),
             new Veld("Burgerlijke staat", VeldType.Tekst, new[] { "Burgerlijke staat", "BurgerlijkeStaat", "burgerlijke_staat" }),
             new Veld("Trouwdatum", VeldType.Datum, new[] { "Trouwdatum", "trouwdatum" })),

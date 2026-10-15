@@ -46,7 +46,10 @@ public interface IWerkplekRepository
     Task<List<Keuze>> NietPersonenAsync();
 
     // ---- wie werkt er aan de pc ("Wie ben jij?" + pincode) ----
-    /// <summary>Echte personen in dienst: de keuze bij "Wie ben jij?".</summary>
+    /// <summary>
+    /// De keuze bij "Wie ben jij?": personen in dienst met het vinkje Werkplek gebruiker (Werknemers ▸ Status). Zolang
+    /// die kolom er nog niet is: alle personen in dienst.
+    /// </summary>
     Task<List<Keuze>> PersonenAsync();
     /// <summary>Wie er op dit apparaat werkt en wanneer er voor het laatst iets gebeurde; null = niemand.</summary>
     Task<(int MedewerkerId, DateTime LaatsteActiviteit)?> MedewerkerAsync(int apparaatId);
@@ -211,7 +214,7 @@ public class GeheugenWerkplekRepository : IWerkplekRepository
     private static readonly List<Keuze> _personen = new()
     {
         new(1, "Arian Duine"), new(2, "Niek Verschuure"), new(3, "Freek Moerland"), new(4, "Edwin Denissen"),
-        new(5, "Kees Blok"), new(6, "Peter Moerland"),
+        new(5, "Kees Blok"),
     };
     private readonly Dictionary<int, (int Id, DateTime Laatst)> _medewerkers = new();
     // alleen voor lokaal testen: Kees Blok heeft testpincode 2580
@@ -416,13 +419,23 @@ public class MySqlWerkplekRepository : IWerkplekRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    private bool _kolomWerkplekgebruiker;
+
     public async Task<List<Keuze>> PersonenAsync()
     {
         var lijst = new List<Keuze>();
         await using var cn = await OpenAsync();
+        if (!_kolomWerkplekgebruiker)
+        {
+            await using var k = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'Werknemers' AND COLUMN_NAME = 'Werkplekgebruiker'", cn);
+            _kolomWerkplekgebruiker = Convert.ToInt32(await k.ExecuteScalarAsync()) > 0;
+        }
         await using var cmd = new MySqlCommand(
             "SELECT `Werknemer-id`, COALESCE(`NaamVoluit`, CONCAT_WS(' ', `Voornaam`, `Achternaam`)) AS naam FROM `Werknemers` " +
-            " WHERE COALESCE(`Persoon`, 0) <> 0 AND COALESCE(`Uit dienst`, 0) = 0 ORDER BY naam", cn);
+            " WHERE COALESCE(`Persoon`, 0) <> 0 AND COALESCE(`Uit dienst`, 0) = 0" +
+            (_kolomWerkplekgebruiker ? " AND COALESCE(`Werkplekgebruiker`, 0) <> 0" : "") + " ORDER BY naam", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), S(r, 1) is { Length: > 0 } n ? n : "(geen naam)"));
         return lijst;

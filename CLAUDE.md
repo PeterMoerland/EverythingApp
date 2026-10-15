@@ -509,6 +509,17 @@ Pc's waar meerdere mensen aan werken (robots, magazijn/inboeken). Besluit gebrui
   weer niemand. Pincode: tabel `WerknemerPincodes`, PBKDF2-SHA256 met zout (`Pincode`), 5 fout = 5 min wachten (in het
   geheugen van de server). Instellen: Werknemers ▸ Mijn pincode (`/mijn-pincode`, niet op een werkplek; 0000/1234 e.d.
   geweigerd); wissen: Beheer ▸ Werkplekken. Geheugenversie: Kees Blok (5) heeft testpincode 2580.
+- **Werkplek gebruiker** (vinkje bij Werknemers ▸ Status, kolom `Werknemers.Werkplekgebruiker` uit het script): alleen
+  die personen staan bij "Wie ben jij?" en alleen zij kunnen zich aanmelden (`MeldAanAsync` controleert het ook). Zonder
+  de kolom: alle personen in dienst (`PersonenAsync` kijkt een keer of de kolom er is).
+- **Op slot** (besluit gebruiker): zolang niemand aangemeld is (ook na Ik stop en na 30 min) ligt er een dicht scherm
+  over de app met dezelfde naam/pincodekeuze, zonder Annuleren. Tweede `<WerkplekMedewerker Slot="true" />` los van de
+  bovenbalk, omdat die in volledig-schermmodus verborgen is; de app eronder blijft staan, dus na aanmelden ga je verder
+  waar je was. Verlopen van de 30 min geeft geen eigen gebeurtenis: `TikAsync` meldt `MedewerkerGewijzigd` als het
+  resultaat anders is dan de vorige keer. Geen slot zolang geen enkele werkplekgebruiker een pincode heeft.
+  **Valkuil (gevonden bij de eerste test op de server):** `HuidigeGebruiker.ZorgGeladenAsync` zette eerst `_geladen` en
+  laadde daarna; een tweede onderdeel dat tegelijk startte kreeg dan een lege gebruiker (geen werkplek → geen slot).
+  Nu wacht iedereen op dezelfde `Task`. Lokaal met de geheugenversie zie je zoiets niet (die antwoordt meteen).
 - Lokaal testen: `Werkplekken__Geheugen=true`. Getest: aanmaken, code, koppelen (ook met kleine letters/streepje),
   foute code, startpagina, label, geen uitlog/Beheer/Productie, Agenda dicht, mailformulier (met een nep-serviceaccount,
   **niets verstuurd**), uitgelogd na verdwijnen van het apparaat; wie-werkt-er: foute/goede pincode, geen pincode, 5x fout = geblokkeerd, Ik stop,

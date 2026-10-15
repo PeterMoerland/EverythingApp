@@ -2994,3 +2994,10 @@ html[data-thema="donker"] .wp-bijlage { background: var(--d2); }
 .wp-pin { background: #f1f4f8; border-radius: 6px; padding: .2rem .3rem .2rem .55rem; display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; }
 html[data-thema="donker"] .wpm-knop:not(.wpm-wieben), html[data-thema="donker"] .wpm-persoon, html[data-thema="donker"] .wpm-blok button { background: var(--d2); border-color: var(--d3); color: var(--dt); }
 html[data-thema="donker"] .wp-pin { background: var(--d2); }
+
+/* Werkplek op slot: dicht scherm over de hele app tot iemand zich aanmeldt (WerkplekMedewerker, Slot) */
+.wpm-slot { position: fixed; inset: 0; z-index: 3000; background: #dfe5ec; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.wpm-slot:focus { outline: none; }
+.wpm-slotkop { margin: 0 0 .3rem; font-size: .85rem; font-weight: 600; color: #667; letter-spacing: .02em; }
+html[data-thema="donker"] .wpm-slot { background: #15181c; }
+html[data-thema="donker"] .wpm-slotkop { color: var(--dt); }

@@ -5,74 +5,52 @@
 
 @* Op een werkplek (gedeelde pc): "Wie ben jij?" → naam kiezen → pincode. Daarna staat de naam in de bovenbalk en komt
    het werk op die naam (HuidigeGebruiker.WerknemerId); de rechten blijven die van de werkplek. "Ik stop", of na
-   Pincode.Duur (30) minuten zonder activiteit (wwwroot/werkplek.js), is er weer niemand. *@
+   Pincode.Duur (30) minuten zonder activiteit (wwwroot/werkplek.js), is er weer niemand.
+   Twee plekken in MainLayout: in de bovenbalk (naam / knop, Slot = false) en los daarvan als vergrendeling (Slot = true):
+   zolang niemand aangemeld is, ligt er een dicht scherm over de app met dezelfde naam- en pincodekeuze. Los van de
+   bovenbalk omdat die in volledig-schermmodus verborgen is. Heeft nog geen enkele werkplekgebruiker (Werknemers ▸
+   Status) een pincode, dan geen vergrendeling (anders kan niemand de werkplek gebruiken). *@
 
-@if (Ik.IsWerkplek)
+@if (Slot)
+{
+    @if (Vergrendeld)
+    {
+        <div class="wpm-slot" @onkeydown="Toets" tabindex="-1" @ref="_venster">
+            <div class="snel-mbox wpm-mbox" role="dialog" aria-modal="true" aria-label="Werkplek vergrendeld">
+                <p class="wpm-slotkop">🔒 @Ik.Werkplek?.Naam</p>
+                @Kiezer
+            </div>
+        </div>
+    }
+}
+else if (Ik.IsWerkplek)
 {
     @if (Ik.Medewerker is { } m)
     {
         <span class="wpm-wie" title="Aangemeld op deze werkplek; na @Pincode.Duur minuten zonder activiteit weer niemand">
             <span class="ab-av" style="background:@ActKleur.Avatar(m.Naam)">@ActKleur.Initialen(m.Naam)</span>@m.Naam
         </span>
-        <button type="button" class="wpm-knop" @onclick="IkStop" title="Afmelden; het werk komt dan weer op naam van de werkplek">Ik stop</button>
+        <button type="button" class="wpm-knop" @onclick="IkStop" title="Afmelden; het scherm gaat dan op slot">Ik stop</button>
     }
     else
     {
         <button type="button" class="wpm-knop wpm-wieben" @onclick="Open" title="Geef aan wie er aan deze pc werkt">🙋 Wie ben jij?</button>
     }
-}
 
-@if (_open)
-{
-    <div class="snel-modal" @onkeydown="Toets" tabindex="-1" @ref="_venster">
-        <div class="snel-mbox wpm-mbox" role="dialog" aria-modal="true" aria-label="Wie ben jij?">
-            @if (_gekozen is not { } g)
-            {
-                <h3>Wie ben jij?</h3>
-                <input class="snel-zoek" id="wpm-zoek" placeholder="Zoek je naam…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
-                <div class="wpm-personen">
-                    @foreach (var p in Gefilterd)
-                    {
-                        var k = p;
-                        <button type="button" class="wpm-persoon" @onclick="() => Kies(k)">
-                            <span class="ab-av wpm-av" style="background:@ActKleur.Avatar(k.Naam)">@ActKleur.Initialen(k.Naam)</span>
-                            <span>@k.Naam</span>
-                        </button>
-                    }
-                    @if (!Gefilterd.Any()) { <p class="uitleg">Niemand gevonden.</p> }
-                </div>
-                <div class="snel-knoppen"><span style="flex:1"></span><button type="button" class="klein" @onclick="Sluit">Annuleren</button></div>
-            }
-            else
-            {
-                <h3><span class="ab-av wpm-av" style="background:@ActKleur.Avatar(g.Naam)">@ActKleur.Initialen(g.Naam)</span> @g.Naam</h3>
-                <p class="uitleg">Je pincode (4 cijfers):</p>
-                <div class="wpm-stippen">
-                    @for (var i = 0; i < 4; i++) { <span class="@(i < _pin.Length ? "vol" : "")"></span> }
-                </div>
-                @if (_fout is not null) { <p class="wpm-fout">@_fout</p> }
-                <div class="wpm-blok">
-                    @foreach (var c in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫" })
-                    {
-                        var cijfer = c;
-                        if (cijfer.Length == 0) { <span></span> }
-                        else
-                        {
-                            <button type="button" disabled="@_bezig" @onclick="() => Druk(cijfer)">@cijfer</button>
-                        }
-                    }
-                </div>
-                <div class="snel-knoppen">
-                    <button type="button" class="klein" @onclick="Terug">◀ Andere naam</button>
-                    <span style="flex:1"></span>
-                    <button type="button" class="klein" @onclick="Sluit">Annuleren</button>
-                </div>
-            }
+    @if (_open)
+    {
+        <div class="snel-modal" @onkeydown="Toets" tabindex="-1" @ref="_venster">
+            <div class="snel-mbox wpm-mbox" role="dialog" aria-modal="true" aria-label="Wie ben jij?">
+                @Kiezer
+            </div>
         </div>
-    </div>
+    }
 }
 
 @code {
+    /// <summary>True = de vergrendeling over de hele app (los van de bovenbalk).</summary>
+    [Parameter] public bool Slot { get; set; }
+
     private bool _open, _bezig;
     private List<Keuze> _personen = new();
     private string _zoek = "";
@@ -82,23 +60,93 @@
     private ElementReference _venster;
     private DotNetObjectReference<WerkplekMedewerker>? _zelf;
     private bool _focusVenster;
+    private bool _iemandHeeftPincode;
+    private bool _wasVergrendeld;
+
+    private bool Vergrendeld => Slot && Ik.IsWerkplek && Ik.Medewerker is null && _iemandHeeftPincode;
 
     private IEnumerable<Keuze> Gefilterd
         => _personen.Where(p => _zoek.Trim().Length == 0 || p.Naam.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Naam kiezen, dan pincode; gedeeld door het venster ("Wie ben jij?") en de vergrendeling.</summary>
+    private RenderFragment Kiezer => @<text>
+        @if (_gekozen is not { } g)
+        {
+            <h3>Wie ben jij?</h3>
+            <input class="snel-zoek" id="wpm-zoek" placeholder="Zoek je naam…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            <div class="wpm-personen">
+                @foreach (var p in Gefilterd)
+                {
+                    var k = p;
+                    <button type="button" class="wpm-persoon" @onclick="() => Kies(k)">
+                        <span class="ab-av wpm-av" style="background:@ActKleur.Avatar(k.Naam)">@ActKleur.Initialen(k.Naam)</span>
+                        <span>@k.Naam</span>
+                    </button>
+                }
+                @if (_personen.Count == 0) { <p class="uitleg">Nog niemand is werkplekgebruiker (Werknemers ▸ Status).</p> }
+                else if (!Gefilterd.Any()) { <p class="uitleg">Niemand gevonden.</p> }
+            </div>
+            @if (!Slot)
+            {
+                <div class="snel-knoppen"><span style="flex:1"></span><button type="button" class="klein" @onclick="Sluit">Annuleren</button></div>
+            }
+        }
+        else
+        {
+            <h3><span class="ab-av wpm-av" style="background:@ActKleur.Avatar(g.Naam)">@ActKleur.Initialen(g.Naam)</span> @g.Naam</h3>
+            <p class="uitleg">Je pincode (4 cijfers):</p>
+            <div class="wpm-stippen">
+                @for (var i = 0; i < 4; i++) { <span class="@(i < _pin.Length ? "vol" : "")"></span> }
+            </div>
+            @if (_fout is not null) { <p class="wpm-fout">@_fout</p> }
+            <div class="wpm-blok">
+                @foreach (var c in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫" })
+                {
+                    var cijfer = c;
+                    if (cijfer.Length == 0) { <span></span> }
+                    else
+                    {
+                        <button type="button" disabled="@_bezig" @onclick="() => Druk(cijfer)">@cijfer</button>
+                    }
+                }
+            </div>
+            <div class="snel-knoppen">
+                <button type="button" class="klein" @onclick="Terug">◀ Andere naam</button>
+                <span style="flex:1"></span>
+                @if (!Slot)
+                {
+                    <button type="button" class="klein" @onclick="Sluit">Annuleren</button>
+                }
+            </div>
+        }
+    </text>;
 
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
         Ik.MedewerkerGewijzigd += OpGewijzigd;
+        if (Slot && Ik.IsWerkplek)
+        {
+            await LaadPersonen();
+            try
+            {
+                var metPincode = (await Repo.MetPincodeAsync()).Select(k => k.Id).ToHashSet();
+                _iemandHeeftPincode = _personen.Any(p => metPincode.Contains(p.Id));
+            }
+            catch { _iemandHeeftPincode = false; }
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
-        if (eerste && Ik.IsWerkplek)
+        if (eerste && !Slot && Ik.IsWerkplek)
         {
             _zelf = DotNetObjectReference.Create(this);
             try { await JS.InvokeVoidAsync("mdeWerkplek.koppel", _zelf); } catch { }
         }
+        // Net op slot gegaan (of de pagina opent op slot): het venster de focus geven, zodat cijfers en Esc werken
+        if (Vergrendeld && !_wasVergrendeld) _focusVenster = true;
+        _wasVergrendeld = Vergrendeld;
         if (_focusVenster)
         {
             _focusVenster = false;
@@ -106,7 +154,21 @@
         }
     }
 
-    private void OpGewijzigd() => _ = InvokeAsync(StateHasChanged);
+    private void OpGewijzigd() => _ = InvokeAsync(async () =>
+    {
+        // De vergrendeling begint elke keer opnieuw bij de namenlijst
+        if (Slot && Ik.Medewerker is null && !_wasVergrendeld)
+        {
+            _gekozen = null; _pin = ""; _fout = null; _zoek = "";
+            await LaadPersonen();
+        }
+        StateHasChanged();
+    });
+
+    private async Task LaadPersonen()
+    {
+        try { _personen = await Repo.PersonenAsync(); } catch { _personen = new(); }
+    }
 
     /// <summary>Elke minuut vanuit werkplek.js.</summary>
     [JSInvokable]
@@ -119,7 +181,7 @@
     private async Task Open()
     {
         _open = true; _gekozen = null; _pin = ""; _fout = null; _zoek = "";
-        try { _personen = await Repo.PersonenAsync(); } catch { _personen = new(); }
+        await LaadPersonen();
         _focusVenster = true;
     }
 
@@ -144,7 +206,7 @@
         try
         {
             _fout = await Ik.MeldAanAsync(g.Id, g.Naam, _pin);
-            if (_fout is null) Sluit();
+            if (_fout is null) { Sluit(); _zoek = ""; }
         }
         catch (Exception ex) { _fout = "Aanmelden mislukt: " + ex.Message; }
         finally { _pin = ""; _bezig = false; }
@@ -152,7 +214,7 @@
 
     private async Task Toets(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape") { Sluit(); return; }
+        if (e.Key == "Escape") { if (Slot) Terug(); else Sluit(); return; }
         if (_gekozen is null) return;
         if (e.Key is { Length: 1 } k && char.IsAsciiDigit(k[0])) await Druk(k);
         else if (e.Key == "Backspace") await Druk("⌫");
@@ -163,7 +225,10 @@
     public async ValueTask DisposeAsync()
     {
         Ik.MedewerkerGewijzigd -= OpGewijzigd;
-        try { await JS.InvokeVoidAsync("mdeWerkplek.los"); } catch { }
-        _zelf?.Dispose();
+        if (_zelf is not null)
+        {
+            try { await JS.InvokeVoidAsync("mdeWerkplek.los"); } catch { }
+            _zelf.Dispose();
+        }
     }
 }

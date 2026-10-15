@@ -23,7 +23,6 @@ public class HuidigeGebruiker
     private readonly AuthenticationStateProvider _auth;
     private readonly IUrenRepository _repo;
     private readonly IWerkplekRepository _werkplekken;
-    private bool _geladen;
     private Dictionary<string, object?> _velden = new(StringComparer.OrdinalIgnoreCase);
 
     public HuidigeGebruiker(AuthenticationStateProvider auth, IUrenRepository repo, IWerkplekRepository werkplekken)
@@ -47,6 +46,7 @@ public class HuidigeGebruiker
     private string _medewerkerNaam = "";
     private DateTime _laatsteActiviteit;
     private DateTime _laatstGemeld;
+    private int? _doorgegevenId;   // laatst doorgegeven via MedewerkerGewijzigd (de 30 minuten verlopen zonder gebeurtenis)
 
     /// <summary>Wie er op deze werkplek aangemeld is (en nog actief), of null.</summary>
     public (int Id, string Naam)? Medewerker
@@ -83,6 +83,8 @@ public class HuidigeGebruiker
         if (ApparaatId is not int a) return "Deze pc is geen gekoppelde werkplek.";
         if (Pincode.Geblokkeerd(werknemerId) is { } wacht)
             return $"Te vaak een verkeerde pincode. Probeer het over {Math.Ceiling(wacht.TotalMinutes)} minuten opnieuw.";
+        if (!(await _werkplekken.PersonenAsync()).Any(p => p.Id == werknemerId))
+            return "Je staat niet als werkplekgebruiker in Werknemers (Status).";
         var hash = await _werkplekken.PincodeHashAsync(werknemerId);
         if (hash is null) return "Je hebt nog geen pincode. Stel die in op je eigen pc: Werknemers ▸ Mijn pincode.";
         if (!Pincode.Klopt(pincode, hash)) { Pincode.Fout(werknemerId); return "Die pincode klopt niet."; }
@@ -117,6 +119,12 @@ public class HuidigeGebruiker
             try { await _werkplekken.ActiviteitAsync(a); } catch { }
         }
         await LeesMedewerkerAsync();
+        // Tijd om (of anders veranderd): doorgeven, zodat de werkplek op slot gaat (WerkplekMedewerker, Slot)
+        if (_doorgegevenId != Medewerker?.Id)
+        {
+            _doorgegevenId = Medewerker?.Id;
+            MedewerkerGewijzigd?.Invoke();
+        }
     }
 
     /// <summary>Is er iemand ingelogd (Google)?</summary>
@@ -145,11 +153,15 @@ public class HuidigeGebruiker
     /// <summary>Alle velden van de werknemer — handig om te controleren welke rechten er zijn.</summary>
     public IReadOnlyDictionary<string, object?> Velden => _velden;
 
-    /// <summary>Eén keer per sessie ophalen. Veilig om vaker aan te roepen.</summary>
-    public async Task ZorgGeladenAsync()
+    /// <summary>
+    /// Eén keer per sessie ophalen. Veilig om vaker aan te roepen: wie tijdens het laden komt (meerdere onderdelen
+    /// starten tegelijk), wacht op hetzelfde laden in plaats van meteen terug te krijgen wat er nog niet is.
+    /// </summary>
+    public Task ZorgGeladenAsync() => _laden ??= LaadAsync();
+    private Task? _laden;
+
+    private async Task LaadAsync()
     {
-        if (_geladen) return;
-        _geladen = true;
         try
         {
             var status = await _auth.GetAuthenticationStateAsync();
