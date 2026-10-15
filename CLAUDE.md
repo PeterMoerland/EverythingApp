@@ -412,6 +412,43 @@ het huidige scherm (`MenuModule.Venster`, `MainLayout`: `_venster`, Esc of ✕ s
 Geldt voor Verlichting, Zonwering, Compressor, Sonos, Alarm en Camera's (die laatste is de pagina zelf, breder
 venster). De pagina's onder `/gebouw/...` blijven bestaan (links, zoekpalet). Energie heeft nog geen scherm.
 
+## Activity board (15-10-2026, fase 1)
+
+Naar "Design specificatie MDE Activity Board" (Claude Doc van Freek Moerland, gedeeld artifact) en prototype
+`MDE_Activity_Board.html` v0.5 (in de code v0.4; lag in Downloads van de gebruiker). Besluiten gebruiker: in de app
+(de spec liet het nog los), database in plaats van browseropslag, stijl van de app (MDE-rood als accent, chip- en
+statuskleuren uit het prototype), eigen menu-item (`/activityboard`, project kiezen op het startscherm), in fasen.
+- **SQL:** `ActivityBoard_MariaDB.sql` (gebruiker voert uit): `ActivityBoards` (Project -> Board een-op-veel,
+  release 1 één per project via `ZorgVoorBoardAsync`), `ActivityBoardProblemen` (Positie = prioriteit),
+  `ActivityBoardTypes`, `ActivityBoardActiviteiten` (status als code: backlog/next/bezig/testen/beoordeling/
+  opgelost/nietopgelost; prioriteit 1-3; zes tekstkolommen) en koppeltabellen voor problemen, types en personen
+  (Werknemers). Namen uniek per board via unieke index (general_ci: hoofdletters tellen niet). Verwijzingen op id.
+- **Code:** `Models/ActivityBoard.cs` (statussen, prioriteit, palet, initialen/avatarkleur zoals het prototype),
+  `Services/IActivityBoardRepository.cs` (elke wijziging direct, per veld of koppeling; slepen in één transactie),
+  `Services/ActivityBoardLive.cs` (singleton-event: andere schermen op hetzelfde board laden opnieuw; niet tijdens
+  slepen), `Components/Pages/ActivityBoard.razor`, `wwwroot/activityboard.js` (slepen van kaarten en problemen met
+  muis en touch, 300 ms vasthouden; pijltjes op de greep), CSS met prefix `ab-` in app.css.
+- **Kernregel:** een kaart staat in de baan van het gekoppelde probleem met de laagste Positie (`Lane`). Slepen
+  volgt spec §4 (andere baan vervangt het probleem van de bronbaan; "Geen probleem" wist alle koppelingen;
+  ingeklapte baankop = alleen het probleem), daarna wordt het doelvak 0..n genummerd.
+- **Nieuw via "+ Activiteit"** komt pas in de database als er een titel is (`_open.Id == 0` tot dan). Verwijderen
+  van een activiteit gaat zonder vraag, met "Ongedaan maken" (zet een kopie terug, nieuw id).
+- **Lokaal testen zonder database:** `ActivityBoard__Geheugen=true` (GeheugenActivityBoardRepository). Getest
+  15-10-2026 in de browser: problemen/types toevoegen, hernoemen, dubbele naam, verwijderen met bevestiging,
+  prioriteit met pijltjes, snel aanmaken, detailpaneel, slepen (kolom, baan, volgorde, ingeklapte kop),
+  tabellen, filters, zoeken, verwijderen + ongedaan, live in een tweede tabblad.
+- **Soorten board** (15-10-2026, op verzoek): een board hoort bij een project, een klant (relatie, `RelatieID`;
+  één per klant) of niets (vrij board met alleen een naam). Script `ActivityBoard_Soorten_MariaDB.sql` (ProjectID
+  NULL, kolom RelatieID); zonder dat script werkt alles als voorheen en verbergt het scherm klant/vrij/Koppelen
+  (`SoortenAanwezigAsync`). Startscherm: filter op soort, "Board openen of maken" met Project / Klant (zoekt via
+  `IRelatieRepository.ZoekAsync`, alleen klanten) / Vrij board. Kop: naam als invoerveld (leeg = naam van project
+  of klant; een vrij board moet een naam hebben) en **Koppelen…** (zelfde zoekvak): `KoppelBoardAsync` weigert een
+  project of klant die al een board heeft; Losmaken bewaart eerst de huidige titel als naam. De gegevens hangen aan
+  het board, dus koppelen verplaatst alles mee. `In dienst` in Werknemers is een datum; in dienst = `Uit dienst` = 0.
+- **Fase 2 (nog niet):** snel-editor met Wie/Type/Probleem/Prio en toetsenbord (Tab/komma/Backspace), kaartmenu
+  (drie bolletjes), ongedaan maken van alle eigen wijzigingen (40 stappen), Tab binnen het detailpaneel houden,
+  FLIP-animatie. Open vragen spec §6: wie toewijsbaar is (nu iedereen in dienst; uit dienst blijft zichtbaar).
+
 ## Historie van een exemplaar opschonen (15-10-2026)
 
 Op verzoek (testen van de software gaf veel niet-relevante rode regels): met het recht **Directie** staat op

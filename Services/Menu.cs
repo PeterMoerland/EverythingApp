@@ -83,6 +83,9 @@ public static class Menu
                 new MenuItem("WBSO-uren"),
                 new MenuItem("Nacalculatie"))),
 
+        // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
+        new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
+
         new("artikelen", "Artikelen", "package",
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen"),

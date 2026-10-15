@@ -151,6 +151,7 @@ if (liveDb)
     builder.Services.AddSingleton<IJlcComponentRepository>(_ => new MySqlJlcComponentRepository(cs!));
     builder.Services.AddSingleton<IDriveRepository>(_ => new MySqlDriveRepository(cs!));
     builder.Services.AddSingleton<IOpbouwRepository>(_ => new MySqlOpbouwRepository(cs!));
+    builder.Services.AddSingleton<IActivityBoardRepository>(_ => new MySqlActivityBoardRepository(cs!));
 }
 else
 {
@@ -173,6 +174,7 @@ else
     builder.Services.AddSingleton<IBetalingRepository, GeenBetalingRepository>();
     builder.Services.AddSingleton<IPOKlantRepository, GeenPOKlantRepository>();
     builder.Services.AddSingleton<IBezoekRepository, GeenBezoekRepository>();
+    builder.Services.AddSingleton<IActivityBoardRepository, GeenActivityBoardRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
@@ -188,6 +190,10 @@ else
 
 builder.Services.AddSingleton<CameraService>();
 builder.Services.AddSingleton<BatchBel>();
+builder.Services.AddSingleton<ActivityBoardLive>();   // Activity board: wijzigingen direct bij collega's
+// Alleen om het Activity board lokaal te testen zonder database: ActivityBoard__Geheugen=true
+if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
+    builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 
