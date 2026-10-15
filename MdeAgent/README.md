@@ -25,6 +25,7 @@ Taken (uitbreidbaar, zie `mde_agent/taken/`):
 | `mde.eeprom`      | EEPROM (SII) van een MDE-slave vullen uit het ESI, of alleen vergelijken (`alleen_vergelijken`) | Npcap |
 | `mde.monitor`     | Objecten van een MDE-slave live meekijken (alleen lezen), tot Stop of `seconden` | Npcap |
 | `serieel.monitor` | Seriële monitor: uitvoer van de ESP32 via USB-UART live meelezen; tekst sturen via `POST /jobs/<id>/invoer` | USB-UART-driver |
+| `ecat.io`         | Digitale EtherCAT-IO (Omron GX-MD1622 e.d.) live: alle slaves naar OP met een procesdata-cyclus (~2 ms), ingangen live, uitgangen via `POST /jobs/<id>/invoer` | Npcap |
 | `mde.firmware`    | Firmware via EtherCAT/FoE in een MDE-slave laden (pysoem, BOOT-toestand), daarna 0x100A teruglezen | Npcap |
 
 ## Snelste weg

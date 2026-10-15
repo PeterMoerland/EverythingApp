@@ -167,6 +167,15 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   Geen SQL nodig: het vinkje is een regel in de bestaande tabel `ProductTechnieken`. Uit = ook de kolom
   Parameterset in de uitleescontrole weg. Basistest en IO-test (Ingenia: serienummers, 0x2602/0x2601) staan
   alleen nog bij een product met een Ingenia-positie (of zonder vastgelegde posities).
+- **EtherCAT IO** (agent 1.16.0, 15-10-2026): taak `ecat.io` (`taken/ecat_io.py`, werker `--werker ecatio`). De agent
+  is master met een procesdata-cyclus (2 ms, `timeBeginPeriod(1)`): alle slaves naar OP; digitale kanalen per slave
+  uit de PDO-toewijzing via SDO (0x3020/0x6000/0x6100 in, 0x3220/0x6200/0x6300 uit; Omron GX: Sysmac-foutbyte
+  0x2002:01). Opdrachten als JSON-regels via `POST /jobs/<id>/invoer` → stdin van de werker (uit per bit of masker,
+  filter = Omron 0x3000, stop); live in job.resultaat (bij verandering, anders 2x/s). Stop = uitgangen 0, 20 cycli,
+  INIT. Scherm Productie ▸ EtherCAT IO (`Components/Pages/EthercatIo.razor`): LED's voor ingangen, knoppen voor
+  uitgangen, ingangsfilter bij Omron; GX-MD16xx toont 8+8 (PDO's hebben 16). Getest met een nagebootste pysoem
+  (scratchpad `nep_gx.py`, cyclus ~2,0 ms, max ~2,6 ms) en een nep-agent voor het scherm; **werkt op een echte GX-MD1622** (gebruiker, 15-10-2026).
+  Bedoeld als eerste stap naar de testrig (robot + GX in één keten, optie 1: agent als enige master).
 - **Indeling Programmeren** (15-10-2026, op verzoek): eerst per positie de firmwarekeuze (en parameterset), dan
   het kader **USB** (chip programmeren, seriële monitor; ESP32 programmeren kiest de bovenaan gekozen firmware voor
   als die bij de chip hoort), dan het kader **EtherCAT** met per node een eigen kader (`prod-node`): Firmware laden,

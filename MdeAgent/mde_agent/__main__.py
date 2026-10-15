@@ -54,6 +54,10 @@ def _werker(argv: list[str]) -> int:
         from .taken import mde
         print(json.dumps(mde.werker(rest[0], rest[1]), ensure_ascii=False))
         return 0
+    if taak == "ecatio":
+        from .taken import ecat_io
+        print(json.dumps(ecat_io.werker(rest[0], rest[1]), ensure_ascii=False))
+        return 0
     if taak == "alias":
         from .taken import ecat_alias
         print(json.dumps(ecat_alias.werker(rest[0], rest[1]), ensure_ascii=False))

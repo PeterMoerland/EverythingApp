@@ -135,7 +135,8 @@ public static class Menu
         new("productie", "Productie", "zap",
             new MenuGroep("Opbouw en test",
                 new MenuItem("Half-fabricaten", "/productie/test-pcb"),
-                new MenuItem("Producten", "/productie/product")),
+                new MenuItem("Producten", "/productie/product"),
+                new MenuItem("EtherCAT IO", "/productie/ethercat-io")),
             new MenuGroep("Onderhoud",
                 new MenuItem("Controllertypen en firmware", "/productie/drivetypen"))),
 

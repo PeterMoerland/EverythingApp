@@ -1,0 +1,279 @@
+@page "/productie/ethercat-io"
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@implements IDisposable
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+@* Productie ▸ EtherCAT IO: digitale IO op de EtherCAT-bus van deze werkplek (bijv. Omron GX-MD1622) live bedienen.
+   De werkplek-agent (taak ecat.io, agent 1.16) is master met een procesdata-cyclus: alle slaves naar OP, ingangen
+   live, uitgangen via opdrachten (POST /jobs/<id>/invoer). Stop of sluiten = uitgangen uit, bus naar INIT. *@
+
+<PageTitle>EtherCAT IO — MDE</PageTitle>
+
+<div class="page eio">
+    <header class="topbar"><h1>EtherCAT IO</h1></header>
+    <p class="uitleg">Digitale in- en uitgangen op de EtherCAT-bus van deze pc (bijv. Omron GX-MD1622), via de werkplek-agent.
+        De agent zet alle slaves in OP en ververst ze elke 2 ms. Uitgangen blijven alleen aan zolang dit loopt; Stop zet ze uit.
+        Drives op dezelfde bus gaan mee naar OP maar worden niet ingeschakeld.</p>
+
+    <div class="toolbar eio-balk">
+        @if (!_loopt)
+        {
+            <button class="primair" disabled="@(_agentUrl.Length == 0 || _start)" @onclick="Start">▶ Start</button>
+        }
+        else
+        {
+            <button class="eio-stop" @onclick="Stop">■ Stop (uitgangen uit)</button>
+        }
+        <span class="eio-status @(_fout ? "fout" : "")">@_status</span>
+        @if (_loopt && _cyclus is not null)
+        {
+            <span class="uitleg">cyclus @_cyclus ms (langste @_max ms) · wkc @_wkc@(_wkcVerwacht is null ? "" : "/" + _wkcVerwacht)</span>
+        }
+    </div>
+    @if (_agentUrl.Length == 0)
+    {
+        <div class="melding fout">Productie:UitleesAgent is niet ingesteld.</div>
+    }
+
+    @foreach (var s in _slaves)
+    {
+        var nIn = AantalIn(s);
+        var nUit = AantalUit(s);
+        <section class="eio-slave" @key="s.Positie">
+            <div class="eio-kop">
+                <b>@s.Positie</b> @s.Naam
+                <span class="eio-toestand @(s.Toestand == "OP" ? "op" : "")">@s.Toestand</span>
+                <small class="uitleg">@s.Vendor / @s.Product</small>
+                @if (s.Fout is int f && f != 0) { <span class="eio-foutcode">Sysmac-fout 0x@(f.ToString("X2"))</span> }
+            </div>
+            @if (nIn == 0 && nUit == 0)
+            {
+                <p class="uitleg">Geen digitale IO (bijv. een drive).</p>
+            }
+            @if (nIn > 0)
+            {
+                <div class="eio-rij">
+                    <span class="eio-lab">Ingangen</span>
+                    @for (var i = 0; i < nIn; i++)
+                    {
+                        var aan = i < s.In.Count && s.In[i] == 1;
+                        <span class="eio-led @(aan ? "aan" : "")" title="@("Ingang " + i + (aan ? ": hoog" : ": laag"))">@i</span>
+                    }
+                </div>
+            }
+            @if (nUit > 0)
+            {
+                <div class="eio-rij">
+                    <span class="eio-lab">Uitgangen</span>
+                    @for (var i = 0; i < nUit; i++)
+                    {
+                        var k = i;
+                        var aan = i < s.Uit.Count && s.Uit[i] == 1;
+                        <button type="button" class="eio-uit @(aan ? "aan" : "")" disabled="@(!_loopt)" aria-pressed="@aan"
+                                title="@("Uitgang " + i + (aan ? " uitzetten" : " aanzetten"))" @onclick="() => Wissel(s, k)">@i</button>
+                    }
+                    <button type="button" class="klein" disabled="@(!_loopt)" @onclick="() => AllesUit(s)">Alles uit</button>
+                </div>
+            }
+            @if (IsOmron(s) && nIn > 0)
+            {
+                <div class="eio-rij">
+                    <span class="eio-lab">Ingangsfilter</span>
+                    <select disabled="@(!_loopt)" @onchange="e => ZetFilter(s, e)" title="Omron 0x3000 Input Time Constant">
+                        <option value="">— ongewijzigd —</option>
+                        @for (var c = 0; c < Filters.Length; c++)
+                        {
+                            <option value="@c">@Filters[c]</option>
+                        }
+                    </select>
+                    <small class="uitleg">lager = sneller reageren (lichtsluis: 0 of 0,5 ms)</small>
+                </div>
+            }
+        </section>
+    }
+
+    @if (_regels.Count > 0)
+    {
+        <details class="eio-log" open="@_fout">
+            <summary>Log van de agent (@_regels.Count)</summary>
+            <pre>@string.Join("\n", _regels)</pre>
+        </details>
+    }
+</div>
+
+@code {
+    private static readonly string[] Filters = { "0 ms", "0,5 ms", "1 ms", "2 ms", "4 ms", "8 ms", "16 ms", "32 ms" };
+
+    private sealed class Slave
+    {
+        public int Positie;
+        public string Naam = "", Vendor = "", Product = "", Toestand = "";
+        public List<int> In = new(), Uit = new();
+        public int? Fout;
+    }
+
+    private string _agentUrl = "", _agentToken = "";
+    private string? _jobId;
+    private bool _loopt, _start, _fout;
+    private string _status = "niet gestart";
+    private string? _cyclus, _max;
+    private int _wkc;
+    private int? _wkcVerwacht;
+    private List<Slave> _slaves = new();
+    private readonly List<string> _regels = new();
+    private CancellationTokenSource? _stop;
+
+    protected override void OnInitialized()
+    {
+        _agentUrl = (Config["Productie:UitleesAgent"] ?? "").Trim().TrimEnd('/');
+        _agentToken = (Config["Productie:AgentToken"] ?? "").Trim();
+    }
+
+    /// <summary>Omron GX-MD16xx = 8 in + 8 uit, GX-MD32xx = 16 + 16; de PDO's hebben er altijd 16. Anders wat er gemapt is.</summary>
+    private static int AantalIn(Slave s)
+        => Regex.Match(s.Naam, @"GX-MD(\d\d)") is { Success: true } m ? Math.Min(s.In.Count, int.Parse(m.Groups[1].Value) / 2) : s.In.Count;
+    private static int AantalUit(Slave s)
+        => Regex.Match(s.Naam, @"GX-MD(\d\d)") is { Success: true } m ? Math.Min(s.Uit.Count, int.Parse(m.Groups[1].Value) / 2) : s.Uit.Count;
+    private static bool IsOmron(Slave s) => s.Vendor.Equals("0x00000083", StringComparison.OrdinalIgnoreCase);
+
+    private async Task Start()
+    {
+        if (_loopt || _start) return;
+        _start = true; _fout = false; _status = "starten …"; _regels.Clear(); _slaves = new();
+        _stop = new CancellationTokenSource();
+        var ct = _stop.Token;
+        try
+        {
+            var r = await Agent("/taken/ecat.io", 30, JsonSerializer.Serialize(new { seconden = 7200, cyclus_ms = 2 }));
+            if (r.status != 202)
+            {
+                _fout = true;
+                _status = r.status switch
+                {
+                    404 => "de agent kent ecat.io niet (agent bijwerken naar 1.16)",
+                    409 => "er loopt al een taak bij de agent",
+                    _ => $"agent antwoordde {r.status}: {r.tekst}",
+                };
+                return;
+            }
+            using (var doc = JsonDocument.Parse(r.tekst)) _jobId = doc.RootElement.GetProperty("job").GetString();
+            _loopt = true; _start = false;
+            _status = "bus opstarten …";
+            var vanaf = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(150, ct);
+                var st = await Agent($"/jobs/{_jobId}?vanaf={vanaf}", 10);
+                if (st.status != 200) continue;
+                using var d = JsonDocument.Parse(st.tekst);
+                var w = d.RootElement;
+                if (w.TryGetProperty("regels", out var regels) && regels.ValueKind == JsonValueKind.Array)
+                    foreach (var x in regels.EnumerateArray()) if (x.GetString() is { } t) _regels.Add(t);
+                if (Getal(w, "regelsTotaal") is int n) vanaf = n;
+                if (w.TryGetProperty("resultaat", out var res) && res.ValueKind == JsonValueKind.Object) LeesLive(res);
+                var stand = w.TryGetProperty("stand", out var sv) ? sv.GetString() : "";
+                if (stand == "klaar") { _status = "gestopt; uitgangen uit, bus in INIT"; break; }
+                if (stand == "mislukt")
+                {
+                    _fout = true;
+                    _status = "fout: " + (w.TryGetProperty("fout", out var f) ? f.GetString() : "");
+                    break;
+                }
+                if (_slaves.Count > 0) _status = $"loopt · {_slaves.Count} slave(s)";
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException) { }
+        catch (Exception ex) { _fout = true; _status = "fout: " + ex.Message; }
+        finally
+        {
+            _loopt = false; _start = false;
+            StateHasChanged();
+        }
+    }
+
+    private void LeesLive(JsonElement r)
+    {
+        if (!r.TryGetProperty("slaves", out var sl) || sl.ValueKind != JsonValueKind.Array) return;
+        var lijst = new List<Slave>();
+        foreach (var x in sl.EnumerateArray())
+        {
+            var s = new Slave
+            {
+                Positie = Getal(x, "positie") ?? 0,
+                Naam = x.TryGetProperty("naam", out var nm) ? nm.GetString() ?? "" : "",
+                Vendor = x.TryGetProperty("vendor", out var v) ? v.GetString() ?? "" : "",
+                Product = x.TryGetProperty("product", out var pr) ? pr.GetString() ?? "" : "",
+                Toestand = x.TryGetProperty("toestand", out var t) ? t.GetString() ?? "" : "",
+                Fout = Getal(x, "fout"),
+            };
+            if (x.TryGetProperty("in", out var i) && i.ValueKind == JsonValueKind.Array)
+                s.In = i.EnumerateArray().Select(b => b.ValueKind == JsonValueKind.Number ? b.GetInt32() : 0).ToList();
+            if (x.TryGetProperty("uit", out var u) && u.ValueKind == JsonValueKind.Array)
+                s.Uit = u.EnumerateArray().Select(b => b.ValueKind == JsonValueKind.Number ? b.GetInt32() : 0).ToList();
+            lijst.Add(s);
+        }
+        _slaves = lijst;
+        _cyclus = r.TryGetProperty("cyclus_ms", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDouble().ToString("0.0#") : null;
+        _max = r.TryGetProperty("max_ms", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetDouble().ToString("0.0") : null;
+        _wkc = Getal(r, "wkc") ?? 0;
+        _wkcVerwacht = Getal(r, "wkc_verwacht");
+    }
+
+    /// <summary>Een geheel getal uit de tussenstand; null (of iets anders) = geen waarde.</summary>
+    private static int? Getal(JsonElement x, string naam)
+        => x.TryGetProperty(naam, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i) ? i : null;
+
+    private Task Opdracht(object opdracht)
+        => _jobId is null ? Task.CompletedTask
+            : Agent($"/jobs/{_jobId}/invoer", 10, JsonSerializer.Serialize(new { tekst = JsonSerializer.Serialize(opdracht) })).AsTask();
+
+    private async Task Wissel(Slave s, int bit)
+    {
+        var aan = !(bit < s.Uit.Count && s.Uit[bit] == 1);
+        if (bit < s.Uit.Count) s.Uit[bit] = aan ? 1 : 0;      // meteen tonen; de volgende tussenstand bevestigt
+        await Opdracht(new { uit = new { positie = s.Positie, bit, aan } });
+    }
+
+    private async Task AllesUit(Slave s)
+    {
+        for (var i = 0; i < s.Uit.Count; i++) s.Uit[i] = 0;
+        await Opdracht(new { uit = new { positie = s.Positie, masker = 0 } });
+    }
+
+    private async Task ZetFilter(Slave s, ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var code)) return;
+        await Opdracht(new { filter = new { positie = s.Positie, code } });
+    }
+
+    private async Task Stop()
+    {
+        if (_jobId is not null)
+            try { await Agent($"/jobs/{_jobId}/stop", 10, "{}"); } catch { }
+        _status = "stoppen …";
+    }
+
+    private sealed class AgentAntwoord
+    {
+        public int status { get; set; }
+        public string tekst { get; set; } = "";
+    }
+
+    private async ValueTask<AgentAntwoord> Agent(string pad, int seconden, string? body = null)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(seconden + 15));
+        try { return await JS.InvokeAsync<AgentAntwoord>("mdeAgent.haal", cts.Token, _agentUrl + pad, seconden, _agentToken, body); }
+        catch (OperationCanceledException) { return new AgentAntwoord { status = 0, tekst = "time-out" }; }
+        catch (JSException ex) { return new AgentAntwoord { status = 0, tekst = ex.Message }; }
+    }
+
+    public void Dispose()
+    {
+        // pagina weg = stoppen, zodat er geen uitgangen aan blijven staan
+        if (_loopt && _jobId is not null) _ = Agent($"/jobs/{_jobId}/stop", 10, "{}").AsTask();
+        _stop?.Cancel();
+    }
+}
