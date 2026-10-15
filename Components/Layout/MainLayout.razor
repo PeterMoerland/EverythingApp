@@ -64,6 +64,7 @@
     <div class="hoofdvlak">
         <header class="shell-top">
             @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
+            <Snelbalk @ref="_snelbalk" OpenVenster="OpenVenster" Gewijzigd="StateHasChanged" />
             <span class="shell-top-vulling"></span>
             @if (Ik.Ingelogd)
             {
@@ -124,6 +125,12 @@
         <header class="zweefkop">
             <b>@v.Naam</b>
             <span class="groei"></span>
+            @if (_snelbalk?.Actief == true)
+            {
+                var vast = _snelbalk.IsVast(v.Adres);
+                <button class="klein snel-vensterster @(vast ? "aan" : "")" title="@(vast ? "Uit de snelbalk halen" : "Aan de snelbalk toevoegen")"
+                        @onclick="() => SnelbalkVenster(v)">@(vast ? "★" : "☆")</button>
+            }
             <a class="klein" href="@v.Adres" title="Als losse pagina openen" @onclick="() => _venster = null">↗</a>
             <button class="klein" title="Sluiten (Esc)" @onclick="() => _venster = null">✕</button>
         </header>
@@ -267,6 +274,10 @@
 
     // ===== Gebouwbeheer als zwevend venster =====
     private MenuModule? _venster;
+    private Snelbalk? _snelbalk;
+
+    /// <summary>☆ in de kop van een zwevend venster: dat venster in de snelbalk (de tegel opent het weer als venster).</summary>
+    private Task SnelbalkVenster(MenuModule m) => _snelbalk?.WisselAsync(m.Adres, m.Naam) ?? Task.CompletedTask;
     private ElementReference _vensterRef;
 
     private async Task OpenVenster(MenuModule m)

@@ -1,0 +1,383 @@
+@using EverythingApp.Services
+@implements IDisposable
+@inject ISnelkoppelingRepository Repo
+@inject SnelIconen Iconen
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+@* Snelbalk bovenin: per gebruiker maximaal 10 tegels (icoon of eigen plaatje + naam) naar een scherm.
+   ☆ zet het scherm waar je bent erbij (of haalt het eraf), rechts klikken of ✎ = bewerken, slepen = volgorde,
+   Alt+1 … Alt+0 = tegel 1 … 10 (wwwroot/snelbalk.js). Opslag: Snelkoppelingen_MariaDB.sql. *@
+
+@if (_sleutel is not null && _klaar)
+{
+    <div class="snelbalk @(_bewerkmodus ? "bewerkmodus" : "")" role="toolbar" aria-label="Snelkoppelingen">
+        @for (var i = 0; i < _lijst.Count; i++)
+        {
+            var s = _lijst[i];
+            var nr = i + 1;
+            <a class="snel-tegel @(IsHier(s) ? "hier" : "") @(_sleep == s.Id ? "sleept" : "")" href="@Href(s)" data-nr="@nr" @key="s.Id"
+               title="@Tip(s, nr)" draggable="true"
+               @ondragstart="() => _sleep = s.Id" @ondragend="() => _sleep = null"
+               @ondragover="() => { }" @ondragover:preventDefault @ondrop="() => Neerzetten(s.Id)"
+               @onclick="() => TegelKlik(s)" @onclick:preventDefault="@(_bewerkmodus || Venster(s.Url) is not null)"
+               @oncontextmenu="() => Bewerk(s, false)" @oncontextmenu:preventDefault>
+                <span class="snel-ico">@Beeld(s)</span>
+                <span class="snel-naam">@s.Naam</span>
+            </a>
+        }
+        <button type="button" class="snel-ster @(HierVast ? "aan" : "")" @onclick="WisselHier" disabled="@(!HierVast && _lijst.Count >= ISnelkoppelingRepository.Max)"
+                title="@(HierVast ? "Dit scherm uit de snelbalk halen" : _lijst.Count >= ISnelkoppelingRepository.Max ? "De snelbalk is vol (10); haal er eerst een af" : "Dit scherm aan de snelbalk toevoegen")">
+            @(HierVast ? "★" : "☆")
+        </button>
+        @if (_lijst.Count > 0)
+        {
+            <button type="button" class="snel-potlood @(_bewerkmodus ? "aan" : "")" @onclick="() => _bewerkmodus = !_bewerkmodus"
+                    title="@(_bewerkmodus ? "Klaar met bewerken" : "Snelbalk bewerken: klik een tegel om naam, icoon of plaatje te wijzigen")">
+                @(_bewerkmodus ? "✓ Klaar" : "✎")
+            </button>
+        }
+        @if (_bewerkmodus)
+        {
+            <span class="snel-hint">klik een tegel om te bewerken · sleep om te verplaatsen</span>
+        }
+        @if (_melding is not null)
+        {
+            <span class="snel-hint fout">@_melding</span>
+        }
+    </div>
+}
+
+@if (_bewerk is { } b)
+{
+    <div class="snel-modal" @onkeydown="ModalToets">
+        <div class="snel-mbox" role="dialog" aria-modal="true" aria-label="Snelkoppeling bewerken">
+            <h3>@(_bewerkNieuw ? "Toegevoegd aan de snelbalk" : "Snelkoppeling bewerken")</h3>
+            <div class="snel-voorbeeld">
+                <span class="snel-tegel snel-tegel-groot"><span class="snel-ico">@Beeld(b)</span><span class="snel-naam">@(b.Naam.Length > 0 ? b.Naam : "…")</span></span>
+                <small class="uitleg">@(_lijstIndex(b) is int nr and > 0 ? $"Tegel {nr} · Alt+{(nr == 10 ? 0 : nr)}" : "")</small>
+            </div>
+            <label class="snel-veld"><span>Naam</span>
+                <input id="snel-naam" maxlength="40" value="@b.Naam" autocomplete="off" @oninput="e => b.Naam = (string?)e.Value ?? string.Empty" />
+            </label>
+            <label class="snel-veld"><span>Adres</span>
+                <input value="@b.Url" autocomplete="off" @onchange="AdresGewijzigd" title="Adres binnen de app (bv. activityboard/12), of een volledige http(s)-link" />
+            </label>
+            <div class="snel-tabs">
+                <button type="button" class="@(_tab == TabIcoon ? "actief" : "")" @onclick="() => KiesTab(TabIcoon)">Icoon</button>
+                <button type="button" class="@(_tab == TabPlaatje ? "actief" : "")" @onclick="() => KiesTab(TabPlaatje)">Eigen plaatje</button>
+            </div>
+            @if (_tab == "icoon")
+            {
+                <input class="snel-zoek" placeholder="Zoek een icoon, bv. doos, robot, kalender, factory…" value="@_iconZoek"
+                       @oninput="e => _iconZoek = (string?)e.Value ?? string.Empty" />
+                @if (b.Plaatje is not null)
+                {
+                    <p class="uitleg">Er staat een eigen plaatje; dat gaat voor het icoon. Haal het weg onder "Eigen plaatje" om een icoon te gebruiken.</p>
+                }
+                <div class="snel-iconen">
+                    <button type="button" class="snel-icoon @(b.Icoon is null ? "gekozen" : "")" title="Automatisch: het icoon van de module"
+                            @onclick="() => b.Icoon = null">
+                        @((MarkupString)(Iconen.Svg(Iconen.AutoIcoon(b.Url)) ?? ""))<small>auto</small>
+                    </button>
+                    @foreach (var naam in Iconen.Zoek(_iconZoek))
+                    {
+                        var n = naam;
+                        <button type="button" class="snel-icoon @(b.Icoon == n ? "gekozen" : "")" title="@n" @onclick="() => b.Icoon = n">
+                            @((MarkupString)(Iconen.Svg(n) ?? ""))
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="snel-plaatje">
+                    <input type="file" id="snel-bestand" accept="image/*" @onchange="PlaatjeGekozen" />
+                    <p class="uitleg">Een foto of logo; wordt vierkant (uit het midden) en klein (64×64) opgeslagen.</p>
+                    @if (b.Plaatje is not null)
+                    {
+                        <button type="button" class="klein" @onclick="() => b.Plaatje = null">Plaatje weghalen</button>
+                    }
+                </div>
+            }
+            <div class="snel-knoppen">
+                @if (b.Id > 0)
+                {
+                    <button type="button" class="klein gevaar" @onclick="Verwijder">Verwijderen</button>
+                    <button type="button" class="klein" title="Naar links" disabled="@(_lijstIndex(b) <= 1)" @onclick="() => Schuif(b, -1)">◀</button>
+                    <button type="button" class="klein" title="Naar rechts" disabled="@(_lijstIndex(b) >= _lijst.Count)" @onclick="() => Schuif(b, 1)">▶</button>
+                }
+                <span style="flex:1"></span>
+                <button type="button" class="klein" @onclick="() => _bewerk = null">Annuleren</button>
+                <button type="button" class="primair klein" @onclick="Opslaan">Opslaan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string? _sleutel;                 // 'w:<werknemer-id>' of 'e:<e-mail>'
+    private bool _klaar;
+    private List<Snelkoppeling> _lijst = new();
+    private bool _bewerkmodus;
+    private int? _sleep;
+    private string? _melding;
+    private Snelkoppeling? _bewerk;
+    private bool _bewerkNieuw;
+    private string _tab = "icoon";
+    private string _iconZoek = "";
+    private string? _focus;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += OpLocatie;
+        await Ik.ZorgGeladenAsync();
+        _sleutel = Ik.WerknemerId is int w ? "w:" + w
+                 : Ik.Email.Length > 0 ? "e:" + Ik.Email.ToLowerInvariant()
+                 : Config.GetValue<bool>("Snelbalk:Geheugen") ? "lokaal" : null;
+        if (_sleutel is null || !Repo.Beschikbaar) return;
+        try
+        {
+            if (!await Repo.TabelAanwezigAsync()) { _sleutel = null; return; }
+            _lijst = await Repo.GetAsync(_sleutel);
+            _klaar = true;
+        }
+        catch { _sleutel = null; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (_focus is { } f)
+        {
+            _focus = null;
+            try { await JS.InvokeVoidAsync("mdeSnel.focus", f); } catch { }
+        }
+    }
+
+    private void OpLocatie(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Nav.LocationChanged -= OpLocatie;
+
+    // ---------------------------------------------------------------- weergave
+
+    /// <summary>Het huidige adres binnen de app, zonder #.</summary>
+    private string Hier => Nav.ToBaseRelativePath(Nav.Uri).Split('#')[0].TrimEnd('/');
+
+    private bool IsHier(Snelkoppeling s) => !IsExtern(s.Url) && s.Url.TrimEnd('/') == Hier;
+    private bool HierVast => _lijst.Any(IsHier);
+    private static bool IsExtern(string url) => url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    private string Href(Snelkoppeling s) => IsExtern(s.Url) ? s.Url : Nav.BaseUri + s.Url;
+    private static string Tip(Snelkoppeling s, int nr) => $"{s.Naam} (Alt+{(nr == 10 ? 0 : nr)}) · rechts klikken om te bewerken";
+    private int? _lijstIndex(Snelkoppeling b) { var i = _lijst.FindIndex(x => x.Id == b.Id); return i < 0 ? null : i + 1; }
+
+    private RenderFragment Beeld(Snelkoppeling s) => __b =>
+    {
+        if (s.Plaatje is { Length: > 0 } p)
+        {
+            __b.OpenElement(0, "img");
+            __b.AddAttribute(1, "src", "data:image/png;base64," + Convert.ToBase64String(p));
+            __b.AddAttribute(2, "alt", "");
+            __b.CloseElement();
+        }
+        else
+            __b.AddMarkupContent(3, Iconen.Svg(s.Icoon is not null && Iconen.Bestaat(s.Icoon) ? s.Icoon : Iconen.AutoIcoon(s.Url)) ?? "");
+    };
+
+    // ---------------------------------------------------------------- acties
+
+    private async Task Herlaad()
+    {
+        if (_sleutel is null) return;
+        try { _lijst = await Repo.GetAsync(_sleutel); } catch { }
+        await Gewijzigd.InvokeAsync();            // MainLayout: de ster in de kop van een zwevend venster bijwerken
+    }
+
+    private async Task TegelKlik(Snelkoppeling s)
+    {
+        if (_bewerkmodus) Bewerk(s, false);
+        else if (Venster(s.Url) is { } m) await OpenVenster.InvokeAsync(m);   // Gebouwbeheer: als zwevend venster
+        // anders gewoon de link volgen
+    }
+
+    // ---- zwevende vensters (Gebouwbeheer): tegel opent het venster, de ster staat in de kop van het venster ----
+
+    /// <summary>MainLayout opent hiermee een zwevend venster (MenuModule.Venster).</summary>
+    [Parameter] public EventCallback<MenuModule> OpenVenster { get; set; }
+    /// <summary>Na elke wijziging van de lijst, zodat MainLayout de ster in een venster bijwerkt.</summary>
+    [Parameter] public EventCallback Gewijzigd { get; set; }
+
+    /// <summary>De module die als zwevend venster opent op dit adres, of null.</summary>
+    private static MenuModule? Venster(string url)
+    {
+        var pad = url.TrimStart('/').TrimEnd('/');
+        MenuModule? Zoek(IEnumerable<MenuModule> lijst)
+        {
+            foreach (var m in lijst)
+            {
+                if (m.Venster && (m.Url ?? "").TrimStart('/').TrimEnd('/') == pad) return m;
+                if (Zoek(m.Onder) is { } o) return o;
+            }
+            return null;
+        }
+        return pad.Length == 0 ? null : Zoek(Menu.Modules);
+    }
+
+    /// <summary>Kan deze gebruiker de snelbalk gebruiken (gekoppeld en tabel aanwezig)?</summary>
+    public bool Actief => _sleutel is not null && _klaar;
+
+    public bool IsVast(string url) => _lijst.Any(s => !IsExtern(s.Url) && s.Url.TrimEnd('/') == url.TrimStart('/').TrimEnd('/'));
+
+    /// <summary>Vanuit een zwevend venster: dat venster erbij (en het bewerkvenster openen), of eraf.</summary>
+    public async Task WisselAsync(string url, string naam)
+    {
+        await Wissel(url.TrimStart('/').TrimEnd('/'), naam);
+        StateHasChanged();
+    }
+
+    private void Bewerk(Snelkoppeling s, bool nieuw)
+    {
+        _bewerk = s.Kopie();
+        _bewerkNieuw = nieuw;
+        _tab = s.Plaatje is not null ? "plaatje" : "icoon";
+        _iconZoek = "";
+        _melding = null;
+        _focus = "#snel-naam";
+    }
+
+    /// <summary>☆: dit scherm erbij (met de paginatitel als naam), of ★: eraf.</summary>
+    private async Task WisselHier()
+    {
+        if (_lijst.Any(IsHier)) { await Wissel(Hier, ""); return; }
+        var titel = "";
+        try { titel = await JS.InvokeAsync<string>("mdeSnel.titel"); } catch { }
+        var naam = Naam(titel);
+        if (naam == "Start" && Hier.Length > 0) naam = Naam(SnelIconen.MenuNaam(Hier) ?? "");   // pagina zonder eigen titel
+        await Wissel(Hier, naam);
+    }
+
+    /// <summary>Het adres staat al in de balk: eraf. Anders erbij met deze naam, en het bewerkvenster open.</summary>
+    private async Task Wissel(string url, string naam)
+    {
+        if (_sleutel is null) return;
+        _melding = null;
+        var al = _lijst.FirstOrDefault(s => !IsExtern(s.Url) && s.Url.TrimEnd('/') == url);
+        if (al is not null)
+        {
+            // ★ uitzetten: eerst vragen (de dialoog van de app, mdeBevestig); lukt de vraag niet, dan niets weghalen
+            bool zeker;
+            try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"\"{al.Naam}\" uit de snelbalk halen?\n\nZeker weten?"); }
+            catch { zeker = false; }
+            if (!zeker) return;
+            await Repo.VerwijderAsync(_sleutel, al.Id);
+            await Herlaad();
+            return;
+        }
+        if (_lijst.Count >= ISnelkoppelingRepository.Max) { _melding = "De snelbalk is vol (10)."; return; }
+        var s = new Snelkoppeling { Naam = naam, Url = url };
+        try
+        {
+            s.Id = await Repo.VoegToeAsync(_sleutel, s);
+            if (s.Id == 0) { _melding = "De snelbalk is vol (10)."; return; }
+            await Herlaad();
+            Bewerk(_lijst.FirstOrDefault(x => x.Id == s.Id) ?? s, true);
+        }
+        catch (Exception ex) { _melding = "Toevoegen mislukt: " + ex.Message; }
+    }
+
+    /// <summary>Paginatitel zonder het merk erachter ("EtherCAT IO — MDE" → "EtherCAT IO"), kort genoeg voor een tegel.</summary>
+    private static string Naam(string titel)
+    {
+        var t = titel.Trim();
+        foreach (var achter in new[] { " — MDE", " - MDE", " · MDE", " | MDE" })
+            if (t.EndsWith(achter, StringComparison.Ordinal)) t = t[..^achter.Length];
+        if (t.StartsWith("Activity board · ", StringComparison.Ordinal)) t = t["Activity board · ".Length..];
+        if (t is "" or "MDE") t = "Start";
+        return t.Length > 24 ? t[..24].TrimEnd() + "…" : t;
+    }
+
+    private void AdresGewijzigd(ChangeEventArgs e)
+    {
+        if (_bewerk is null) return;
+        var a = ((string?)e.Value ?? "").Trim();
+        if (a.StartsWith(Nav.BaseUri, StringComparison.OrdinalIgnoreCase)) a = a[Nav.BaseUri.Length..];
+        else if (!IsExtern(a)) a = a.TrimStart('/');
+        // alleen adressen binnen de app of gewone http(s)-links
+        if (a.Contains(':') && !IsExtern(a)) { _melding = "Alleen een adres binnen de app of een http(s)-link."; return; }
+        _bewerk.Url = a;
+    }
+
+    private async Task PlaatjeGekozen(ChangeEventArgs e)
+    {
+        if (_bewerk is null) return;
+        string data = "";
+        try { data = await JS.InvokeAsync<string>("mdeSnel.plaatje", "snel-bestand"); } catch { }
+        const string kop = "data:image/png;base64,";
+        if (!data.StartsWith(kop, StringComparison.Ordinal)) { _melding = "Dit bestand is geen plaatje."; return; }
+        try
+        {
+            var bytes = Convert.FromBase64String(data[kop.Length..]);
+            if (bytes.Length > 100_000) { _melding = "Plaatje te groot."; return; }
+            _bewerk.Plaatje = bytes;
+            _melding = null;
+        }
+        catch { _melding = "Plaatje lezen mislukt."; }
+    }
+
+    private async Task Opslaan()
+    {
+        if (_bewerk is not { } b || _sleutel is null) return;
+        if (b.Naam.Trim().Length == 0) b.Naam = Naam("");
+        try
+        {
+            if (b.Id > 0) await Repo.BewaarAsync(_sleutel, b);
+            _bewerk = null;
+            await Herlaad();
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+    }
+
+    private async Task Verwijder()
+    {
+        if (_bewerk is not { } b || _sleutel is null) return;
+        await Repo.VerwijderAsync(_sleutel, b.Id);
+        _bewerk = null;
+        await Herlaad();
+        if (_lijst.Count == 0) _bewerkmodus = false;
+    }
+
+    private async Task Schuif(Snelkoppeling b, int richting)
+    {
+        if (_sleutel is null) return;
+        var ids = _lijst.Select(x => x.Id).ToList();
+        var i = ids.IndexOf(b.Id);
+        var j = i + richting;
+        if (i < 0 || j < 0 || j >= ids.Count) return;
+        (ids[i], ids[j]) = (ids[j], ids[i]);
+        await Repo.ZetVolgordeAsync(_sleutel, ids);
+        await Herlaad();
+    }
+
+    /// <summary>Slepen: de gesleepte tegel komt op de plek van de tegel waarop hij wordt losgelaten.</summary>
+    private async Task Neerzetten(int doelId)
+    {
+        if (_sleep is not int id || id == doelId || _sleutel is null) { _sleep = null; return; }
+        var ids = _lijst.Select(x => x.Id).ToList();
+        var doel = ids.IndexOf(doelId);
+        ids.Remove(id);
+        ids.Insert(doel, id);
+        _sleep = null;
+        _lijst = ids.Select(x => _lijst.First(s => s.Id == x)).ToList();     // meteen tonen
+        await Repo.ZetVolgordeAsync(_sleutel, ids);
+    }
+
+    private void ModalToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _bewerk = null;
+    }
+
+    private const string TabIcoon = "icoon", TabPlaatje = "plaatje";
+    private void KiesTab(string tab) => _tab = tab;
+}

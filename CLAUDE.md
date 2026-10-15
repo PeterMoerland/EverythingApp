@@ -458,6 +458,25 @@ statuskleuren uit het prototype), eigen menu-item (`/activityboard`, project kie
   (drie bolletjes), ongedaan maken van alle eigen wijzigingen (40 stappen), Tab binnen het detailpaneel houden,
   FLIP-animatie. Open vragen spec §6: wie toewijsbaar is (nu iedereen in dienst; uit dienst blijft zichtbaar).
 
+## Snelbalk bovenin (15-10-2026)
+
+Op verzoek: per gebruiker maximaal 10 tegels (icoon of eigen plaatje + naam) in de bovenbalk van elke pagina
+(`Components/Layout/Snelbalk.razor`, in MainLayout links van de gebruikersnaam). ☆ zet het huidige scherm erbij (naam
+= paginatitel zonder " — MDE", anders de naam uit het menu via `SnelIconen.MenuNaam`) en opent het bewerkvenster; ★ haalt
+het eraf. Rechts klikken of ✎ (bewerkmodus) = naam, adres (binnen de app of http(s)), icoon of eigen plaatje, ◀ ▶,
+verwijderen; slepen = volgorde; Alt+1 … Alt+0 (`wwwroot/snelbalk.js`, op `e.code`).
+- **Opslag:** `Snelkoppelingen_MariaDB.sql` (gebruiker voert uit), `ISnelkoppelingRepository` (MySql / Geen / Geheugen via
+  `Snelbalk__Geheugen=true`). Gebruiker = `w:<Werknemer-id>`, zonder koppeling `e:<e-mail>`. Zonder tabel geen balk.
+- **Iconen:** Lucide v0.460.0 (ISC) in `wwwroot/iconen` (sprite + tags + licentie), gecontroleerd: alleen vormen.
+  `SnelIconen` leest de sprite één keer; zoeken op naam, Engelse trefwoorden en een lijst Nederlandse woorden.
+  Geen icoon gekozen = automatisch het icoon van de module (Menu.cs, `AutoIcoon`).
+- **Eigen plaatje:** de browser verkleint naar 64x64 PNG (canvas, vierkant uit het midden); de server accepteert alleen
+  een PNG-data-URL tot 100 kB en bewaart de bytes in `Plaatje`.
+- **Zwevende vensters** (Gebouwbeheer, MenuModule.Venster): een tegel met zo'n adres opent het venster (EventCallback
+  OpenVenster naar MainLayout) in plaats van de pagina; de ster staat in de kop van het venster (MainLayout roept
+  Snelbalk.WisselAsync aan; Gewijzigd laat MainLayout opnieuw tekenen). .snel-modal z-index 1000 (boven het venster).
+- **Nog niet:** standaardset van Beheer, tellingen op tegels.
+
 ## Historie van een exemplaar opschonen (15-10-2026)
 
 Op verzoek (testen van de software gaf veel niet-relevante rode regels): met het recht **Directie** staat op

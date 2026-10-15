@@ -2874,3 +2874,61 @@ html[data-thema="donker"] .eio-uit { background: var(--d2); border-color: var(--
 html[data-thema="donker"] .eio-led.aan { background: #3fbf5f; border-color: #6fe08a; color: #fff; }
 html[data-thema="donker"] .eio-uit.aan { background: #f0a020; border-color: #ffc060; color: #fff; }
 html[data-thema="donker"] .eio-log pre { background: var(--d2); }
+
+/* Snelbalk bovenin (Components/Layout/Snelbalk.razor): tegels met icoon of eigen plaatje */
+.snelbalk { display: flex; align-items: center; gap: .25rem; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.snel-tegel { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 4.4rem; min-width: 4.4rem;
+              padding: .25rem .2rem; border-radius: 6px; color: #333; text-decoration: none; border: 1px solid transparent; cursor: pointer; user-select: none; }
+.snel-tegel:hover { background: #f1f4f8; border-color: #dde3ea; color: var(--accent); }
+.snel-tegel.hier { background: var(--selected); border-color: #c3d4ea; color: var(--accent); }
+.snel-tegel.sleept { opacity: .4; }
+.snel-ico { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
+.snel-ico svg { width: 22px; height: 22px; }
+.snel-ico img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; }
+.snel-naam { font-size: .68rem; line-height: 1.15; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snelbalk.bewerkmodus .snel-tegel { border: 1px dashed #b8c2cf; }
+.snelbalk.bewerkmodus .snel-tegel:hover { border-color: var(--accent); }
+.snel-ster, .snel-potlood { background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; color: #8a939e; font-size: 1.15rem;
+                            padding: .2rem .45rem; line-height: 1; white-space: nowrap; }
+.snel-potlood { font-size: .9rem; }
+.snel-ster:hover, .snel-potlood:hover { color: var(--accent); border-color: #dde3ea; background: #f6f8fb; }
+.snel-ster.aan { color: #e0a100; }
+.snel-potlood.aan { color: #fff; background: var(--accent); border-color: var(--accent); font-size: .8rem; }
+.snel-ster:disabled { opacity: .35; cursor: default; }
+.snel-hint { font-size: .75rem; color: #777; white-space: nowrap; }
+.snel-hint.fout { color: var(--rood); }
+.snel-modal { position: fixed; inset: 0; background: rgba(17, 17, 17, .32); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.snel-mbox { background: #fff; border-top: 3px solid var(--accent); border-radius: 6px; width: min(560px, 96vw); max-height: 92vh; overflow: auto;
+             padding: 1rem 1.2rem; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); display: flex; flex-direction: column; gap: .6rem; }
+.snel-mbox h3 { margin: 0; font-size: 1.05rem; }
+.snel-voorbeeld { display: flex; align-items: center; gap: .8rem; }
+.snel-tegel-groot { width: 5.5rem; min-width: 5.5rem; background: var(--selected); color: var(--accent); cursor: default; }
+.snel-tegel-groot .snel-ico, .snel-tegel-groot .snel-ico img { width: 34px; height: 34px; }
+.snel-tegel-groot .snel-ico svg { width: 30px; height: 30px; }
+.snel-tegel-groot .snel-naam { font-size: .78rem; }
+.snel-veld { display: grid; grid-template-columns: 4.5rem 1fr; align-items: center; gap: .6rem; }
+.snel-veld span { font-size: .8rem; color: #666; }
+.snel-veld input, .snel-zoek { font: inherit; padding: .35rem .5rem; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+.snel-tabs { display: flex; gap: .3rem; border-bottom: 1px solid #ddd; }
+.snel-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: .35rem .7rem; cursor: pointer; font: inherit; color: #666; }
+.snel-tabs button.actief { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.snel-iconen { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.7rem, 1fr)); gap: .3rem; max-height: 15rem; overflow: auto; padding: .1rem; }
+.snel-icoon { height: 2.7rem; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #e3e3e3;
+              border-radius: 6px; background: #fff; cursor: pointer; color: #333; padding: 0; }
+.snel-icoon svg { width: 20px; height: 20px; }
+.snel-icoon small { font-size: .55rem; color: #888; }
+.snel-icoon:hover { border-color: var(--accent); color: var(--accent); }
+.snel-icoon.gekozen { border: 2px solid var(--accent); background: var(--selected); color: var(--accent); }
+.snel-plaatje { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
+.snel-knoppen { display: flex; gap: .4rem; align-items: center; margin-top: .3rem; }
+.snel-knoppen .gevaar:hover { background: var(--rood); border-color: var(--rood); color: #fff; }
+html[data-thema="donker"] .snel-tegel { color: var(--dt2); }
+html[data-thema="donker"] .snel-tegel:hover { background: var(--d2); border-color: var(--d3); color: var(--accent); }
+html[data-thema="donker"] .snel-tegel.hier { border-color: var(--d3); }
+html[data-thema="donker"] .snel-ster:hover, html[data-thema="donker"] .snel-potlood:hover { background: var(--d2); border-color: var(--d3); }
+html[data-thema="donker"] .snel-mbox { background: var(--d1); color: var(--dt); }
+html[data-thema="donker"] .snel-veld input, html[data-thema="donker"] .snel-zoek { background: var(--d2); border-color: var(--d3); color: var(--dt); }
+html[data-thema="donker"] .snel-icoon { background: var(--d2); border-color: var(--d3); color: var(--dt2); }
+html[data-thema="donker"] .snel-tabs { border-bottom-color: var(--d3); }
+.snel-vensterster { color: #8a939e; font-size: 1rem; }
+.snel-vensterster.aan { color: #e0a100; }

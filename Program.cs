@@ -152,6 +152,7 @@ if (liveDb)
     builder.Services.AddSingleton<IDriveRepository>(_ => new MySqlDriveRepository(cs!));
     builder.Services.AddSingleton<IOpbouwRepository>(_ => new MySqlOpbouwRepository(cs!));
     builder.Services.AddSingleton<IActivityBoardRepository>(_ => new MySqlActivityBoardRepository(cs!));
+    builder.Services.AddSingleton<ISnelkoppelingRepository>(_ => new MySqlSnelkoppelingRepository(cs!));
 }
 else
 {
@@ -175,6 +176,7 @@ else
     builder.Services.AddSingleton<IPOKlantRepository, GeenPOKlantRepository>();
     builder.Services.AddSingleton<IBezoekRepository, GeenBezoekRepository>();
     builder.Services.AddSingleton<IActivityBoardRepository, GeenActivityBoardRepository>();
+    builder.Services.AddSingleton<ISnelkoppelingRepository, GeenSnelkoppelingRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
@@ -194,6 +196,10 @@ builder.Services.AddSingleton<ActivityBoardLive>();   // Activity board: wijzigi
 // Alleen om het Activity board lokaal te testen zonder database: ActivityBoard__Geheugen=true
 if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
+builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
+// Alleen om de snelbalk lokaal te testen zonder database: Snelbalk__Geheugen=true
+if (builder.Configuration.GetValue<bool>("Snelbalk:Geheugen"))
+    builder.Services.AddSingleton<ISnelkoppelingRepository, GeheugenSnelkoppelingRepository>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 
