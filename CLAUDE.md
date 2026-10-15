@@ -169,10 +169,11 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   alleen nog bij een product met een Ingenia-positie (of zonder vastgelegde posities).
 - **Indeling Programmeren** (15-10-2026, op verzoek): eerst per positie de firmwarekeuze (en parameterset), dan
   het kader **USB** (chip programmeren, seriële monitor; ESP32 programmeren kiest de bovenaan gekozen firmware voor
-  als die bij de chip hoort), dan het kader **EtherCAT** (per positie een regel zonder eigen kader: Firmware laden,
-  Parameters laden, Vergelijken/registers/encoder; daaronder op een eigen regel onder elkaar EEPROM vergelijken,
-  EEPROM vullen, Serienummer schrijven, Objecten, Monitoring; eRob-hoekregel erin). Alle knoppen van Test PCB (ook
-  uitlezen, node-adressen en testen) staan onder elkaar, links, 12rem breed (de maat van "ESP32 programmeren…"). Meekijken heet nu **Monitoring**. Objecten en Monitoring zijn
+  als die bij de chip hoort), dan het kader **EtherCAT** met per node een eigen kader (`prod-node`): Firmware laden,
+  Parameters laden, Vergelijken/registers/encoder, EEPROM vergelijken, EEPROM vullen, Serienummer schrijven,
+  Objecten, Monitoring achter elkaar; de eRob-hoekregel in hetzelfde node-kader. Alle knoppen van Test PCB (ook
+  uitlezen, node-adressen en testen) staan achter elkaar, links, 9rem breed (eerst 12rem, op verzoek 25% smaller) en vast 2 regels hoog; icoon in `<span class="ico">` in een vaste kolom links, tekst ernaast;
+  onder elkaar gaf bij meerdere nodes een te lange pagina. Meekijken heet nu **Monitoring**. Objecten en Monitoring zijn
   sub-vinkjes onder EtherCAT (`ecatobj`, `ecatmon`, opt-in zoals `ecatsn`; Objecten geldt ook voor de eRob-regel).
   De controletabel noemt de kolom Node.
 - **ESP32: app-image nooit op 0x0** (agent 1.13.6, `esp32.soort_image`/`_juiste_offset`): een los ESP-IDF
