@@ -96,8 +96,8 @@
     <table class="kiezer-tabel prod-controle">
         <thead>
             <tr>
-                <th style="width:9rem">Drive</th>
-                <th>Type</th>
+                <th style="width:17rem">Node</th>
+                <th style="width:16rem">Type</th>
                 <th>Firmware</th>
                 @if (MetParameters) { <th>Parameterset</th> }
             </tr>
@@ -183,6 +183,24 @@
 @if (ToonProgrammeren)
 {
     @Kop(NrProgrammeren, "Programmeren")
+    @if (HeeftChip || AantalTechnieken == 0)
+    {
+        @* Alles wat via de USB-kabel gaat: chip programmeren en de seriële monitor *@
+        <div class="bankfilters prod-prog prod-usb">
+            <span class="prod-prog-pos"><b>USB</b> <small class="uitleg">@(_technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "ST-LINK" : "USB-UART")</small></span>
+            <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="OpenFirmware"
+                    title="ESP32 of STM32 op de print programmeren">
+                ⚡ @(_technieken.Contains(ProductTechniek.Esp32) && !_technieken.Contains(ProductTechniek.Stm32) ? "ESP32 programmeren…"
+                   : _technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "STM32 programmeren…"
+                   : "Chip programmeren (ESP32/STM32)…")
+            </button>
+            @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
+            {
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="OpenSerieel"
+                        title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
+            }
+        </div>
+    }
     @if (AantalTechnieken == 0 && DrivePosities.Count == 0)
     {
         <p class="uitleg">Bij dit producttype is nog niet vastgelegd wat erop zit (Producten ▸ tab Techniek).</p>
@@ -230,17 +248,27 @@
                         title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
                 <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
                         title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
-                @if (EepromVullenAan)
+                @if (EepromVullenAan || SnSchrijven)
                 {
-                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VergelijkEeprom(p)"
-                            title="@(EsiVoor(p) is null ? "Geen ESI-bestand bij dit controllertype" : "De EEPROM van de slave vergelijken met wat het ESI zou schrijven; er wordt niets veranderd")">🧩 EEPROM vergelijken</button>
-                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VulEeprom(p)"
-                            title="De complete EEPROM-inhoud uit het ESI schrijven (PDI/SPI, identiteit, serienummer, mailboxen, PDO's); daarna spanning uit/aan">💾 EEPROM vullen…</button>
-                }
-                @if (SnSchrijven)
-                {
-                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
-                            title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")">🔢 Serienummer schrijven</button>
+                    @* EEPROM-acties onder elkaar: eerst de hele EEPROM, daaronder alleen het serienummer *@
+                    <div class="prod-eeprom">
+                        @if (EepromVullenAan)
+                        {
+                            <div>
+                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VergelijkEeprom(p)"
+                                        title="@(EsiVoor(p) is null ? "Geen ESI-bestand bij dit controllertype" : "De EEPROM van de slave vergelijken met wat het ESI zou schrijven; er wordt niets veranderd")">🧩 EEPROM vergelijken</button>
+                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VulEeprom(p)"
+                                        title="De complete EEPROM-inhoud uit het ESI schrijven (PDI/SPI, identiteit, serienummer, mailboxen, PDO's); daarna spanning uit/aan">💾 EEPROM vullen…</button>
+                            </div>
+                        }
+                        @if (SnSchrijven)
+                        {
+                            <div>
+                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
+                                        title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")">🔢 Serienummer schrijven</button>
+                            </div>
+                        }
+                    </div>
                 }
             }
             @if (!IsCoe(p))
@@ -310,22 +338,6 @@
         }
     }
 
-    @if (HeeftChip || AantalTechnieken == 0)
-    {
-        <div class="btngroup">
-            <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="OpenFirmware"
-                    title="ESP32 of STM32 op de print programmeren">
-                ⚡ @(_technieken.Contains(ProductTechniek.Esp32) && !_technieken.Contains(ProductTechniek.Stm32) ? "ESP32 programmeren…"
-                   : _technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "STM32 programmeren…"
-                   : "Chip programmeren (ESP32/STM32)…")
-            </button>
-            @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
-            {
-                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="OpenSerieel"
-                        title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
-            }
-        </div>
-    }
 }
 
 @* ---------- testen ---------- *@
