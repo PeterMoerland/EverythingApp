@@ -55,6 +55,9 @@ public interface IProductRepository
     Task<List<ProductGebeurtenis>> GetHistorieAsync(int productId);
     /// <param name="uitkomst">true = geslaagd, false = mislukt, null = neutraal (kleur in de historie).</param>
     Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null);
+    /// <summary>Historieregels definitief wissen (opschonen, alleen Directie; de rechtencontrole zit in het scherm).
+    /// Geeft het aantal gewiste regels.</summary>
+    Task<int> VerwijderHistorieAsync(IReadOnlyCollection<int> historieIds);
 
     /// <summary>Indeling van halffabricaten (Motor, PCBA, Kabel …) en de koppeling naar een artikel.</summary>
     Task<List<Keuze>> GetProductgroepenAsync();
@@ -151,6 +154,7 @@ public class GeenProductRepository : IProductRepository
     public Task ZetTechniekAsync(int productNameId, string techniek, bool aan) => Task.CompletedTask;
     public Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null)
         => Task.CompletedTask;
+    public Task<int> VerwijderHistorieAsync(IReadOnlyCollection<int> historieIds) => Task.FromResult(0);
     public Task<List<ProductAttribuut>> GetAttributenAsync(int productId)
         => Task.FromResult(new List<ProductAttribuut>());
     public Task<int> BewaarAttribuutAsync(int productId, ProductAttribuut attribuut, int? door)
@@ -835,6 +839,18 @@ public class MySqlProductRepository : IProductRepository
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         if (metUitkomst) cmd.Parameters.AddWithValue("@uitkomst", uitkomst!.Value ? 1 : 0);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<int> VerwijderHistorieAsync(IReadOnlyCollection<int> historieIds)
+    {
+        var ids = historieIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        var namen = ids.Select((_, i) => "@h" + i).ToList();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            $"DELETE FROM `ProductHistorie` WHERE `ProductHistorieID` IN ({string.Join(", ", namen)})", cn);
+        for (var i = 0; i < ids.Count; i++) cmd.Parameters.AddWithValue(namen[i], ids[i]);
+        return await cmd.ExecuteNonQueryAsync();
     }
 
     // Kolom Uitkomst aanwezig? (ProductTechniek_MariaDB.sql) Alleen 'ja' wordt onthouden.

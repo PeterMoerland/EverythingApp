@@ -459,11 +459,21 @@
                             {
                                 <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; }">✕ wissen</button>
                             }
+                            @if (MagHistorieWissen && HistGekozen.Count > 0)
+                            {
+                                <button class="klein rood" @onclick="WisHistorie"
+                                        title="De aangevinkte regels definitief uit de historie halen (alleen Directie)">🗑 @HistGekozen.Count regel(s) wissen…</button>
+                            }
                         </div>
 
                         <table class="kiezer-tabel">
                             <thead>
                                 <tr>
+                                    @if (MagHistorieWissen)
+                                    {
+                                        <th style="width:2rem"><input type="checkbox" checked="@AlleHistGekozen" @onchange="KiesAlleHist"
+                                                                      title="Alle getoonde regels aanvinken (combineer met het filter 'alleen mislukt')" /></th>
+                                    }
                                     <th style="width:10rem">Wanneer</th>
                                     @if (_histMetOnderdelen) { <th style="width:12rem">Van</th> }
                                     <th style="width:10rem">Soort</th>
@@ -476,6 +486,10 @@
                                 {
                                     var hvan = _histVan.TryGetValue(h.Id, out var hvw) ? hvw : "";
                                     <tr @key="h.Id" class="@(h.Uitkomst is null ? "" : h.Uitkomst.Value ? "hist-ok" : "hist-fout") @(hvan.Length > 0 ? "hist-onderdeel" : "")">
+                                        @if (MagHistorieWissen)
+                                        {
+                                            <td><input type="checkbox" checked="@_histGekozen.Contains(h.Id)" @onchange="e => KiesHist(h.Id, e)" /></td>
+                                        }
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
                                         @if (_histMetOnderdelen) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
@@ -485,11 +499,11 @@
                                 }
                                 @if (_historie.Count == 0)
                                 {
-                                    <tr><td colspan="4" class="kiezer-info">Nog geen historie.</td></tr>
+                                    <tr><td colspan="@HistKolommen" class="kiezer-info">Nog geen historie.</td></tr>
                                 }
                                 else if (HistorieGefilterd.Count == 0)
                                 {
-                                    <tr><td colspan="4" class="kiezer-info">Niets gevonden voor dit filter.</td></tr>
+                                    <tr><td colspan="@HistKolommen" class="kiezer-info">Niets gevonden voor dit filter.</td></tr>
                                 }
                             </tbody>
                         </table>
@@ -2277,6 +2291,58 @@
     private bool _histMetOnderdelen;
     private List<ProductGebeurtenis> _histOnderdelen = new();            // historie van de gekoppelde halffabricaten
     private readonly Dictionary<int, string> _histVan = new();           // historie-id → 'code · serienummer' van het onderdeel
+
+    // ---- historie opschonen: regels aanvinken en wissen, alleen Directie ----
+    private bool MagHistorieWissen => Ik.Mag("Directie");
+    private readonly HashSet<int> _histGekozen = new();
+    /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
+    private List<ProductGebeurtenis> HistGekozen => HistorieGefilterd.Where(h => _histGekozen.Contains(h.Id)).ToList();
+    private int HistKolommen => 4 + (_histMetOnderdelen ? 1 : 0) + (MagHistorieWissen ? 1 : 0);
+    private bool AlleHistGekozen
+    {
+        get { var z = HistorieGefilterd; return z.Count > 0 && z.All(h => _histGekozen.Contains(h.Id)); }
+    }
+
+    private void KiesHist(int id, ChangeEventArgs e)
+    {
+        if (e.Value is bool b && b) _histGekozen.Add(id); else _histGekozen.Remove(id);
+    }
+
+    private void KiesAlleHist(ChangeEventArgs e)
+    {
+        var aan = e.Value is bool b && b;
+        foreach (var h in HistorieGefilterd)
+            if (aan) _histGekozen.Add(h.Id); else _histGekozen.Remove(h.Id);
+    }
+
+    private async Task WisHistorie()
+    {
+        if (!MagHistorieWissen || _productId is null) return;
+        var regels = HistGekozen;
+        if (regels.Count == 0) return;
+
+        var vanOnderdelen = regels.Count(h => _histVan.ContainsKey(h.Id));
+        var voorbeeld = string.Join("\n", regels.Take(6).Select(h =>
+            $"• {h.Wanneer:dd-MM-yyyy HH:mm}  {(h.Event.Length > 70 ? h.Event[..70] + "…" : h.Event)}"));
+        if (regels.Count > 6) voorbeeld += $"\n… en nog {regels.Count - 6}";
+        var vraag = $"{regels.Count} historieregel(s) definitief wissen?\n\n{voorbeeld}" +
+                    (vanOnderdelen > 0 ? $"\n\n{vanOnderdelen} daarvan horen bij een onderdeel en verdwijnen ook daar." : "") +
+                    "\n\nDit kan niet ongedaan worden gemaakt.";
+        // geen terugval op 'ja' als de vraag niet getoond kan worden
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", vraag); } catch { ja = false; }
+        if (!ja) return;
+
+        try
+        {
+            var n = await Repo.VerwijderHistorieAsync(regels.Select(h => h.Id).ToList());
+            _histGekozen.Clear();
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            if (_histMetOnderdelen) await LaadHistorieOnderdelen();
+            Toon($"{n} historieregel(s) gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
 
     private async Task HistOnderdelenGewijzigd(ChangeEventArgs e)
     {
