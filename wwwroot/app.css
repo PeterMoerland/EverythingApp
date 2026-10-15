@@ -683,7 +683,9 @@ button.klein.metbijlage { border-color: var(--accent); color: var(--accent); fon
 .wn-tabs button.actief { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wn-velden { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: .5rem 1.5rem; }
 .wn-velden.een-kolom { grid-template-columns: 1fr; max-width: 46rem; }
-.wn-veld { display: grid; grid-template-columns: 12rem 1fr; align-items: center; gap: .5rem; }
+/* minmax(0, 1fr): een invoerveld mag smaller dan zijn eigen breedte, anders schuift het over het volgende label */
+.wn-veld { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); align-items: center; gap: .5rem; }
+.wn-veld > input:not([type="checkbox"]), .wn-veld > select { min-width: 0; box-sizing: border-box; }
 .wn-veld.breed { grid-column: 1 / -1; align-items: start; }
 .wn-veld label { font-weight: 600; font-size: .92em; }
 .wn-veld input[type="checkbox"] { width: auto; }

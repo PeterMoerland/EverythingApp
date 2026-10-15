@@ -210,18 +210,29 @@ public class HuidigeGebruiker
 
     /// <summary>
     /// Rechten die op een werkplek (gedeelde pc) nooit gelden, ook niet als de werknemer van de werkplek ze heeft:
-    /// financiën, en Directie (die geeft overal ook toegang tot financiën). Zie ook <see cref="IsFinancien"/>.
+    /// financiën, personeelszaken (HRM), en Directie (die geeft overal ook toegang tot financiën en personeelsgegevens).
+    /// Zie ook <see cref="DichtOpWerkplek"/>.
     /// </summary>
     private static readonly HashSet<string> NietOpWerkplek = new(StringComparer.OrdinalIgnoreCase)
-        { "Financial", "MagFacturenGoedkeuren", "Directie" };
+        { "Financial", "MagFacturenGoedkeuren", "HRM", "Directie" };
 
-    /// <summary>Hoort dit adres (binnen de app) bij Financiën? Op een werkplek staat dat helemaal uit.</summary>
-    public static bool IsFinancien(string pad)
+    /// <summary>Modules die op een werkplek helemaal uit staan (menu, zoekvenster en adres), ook met rechten.</summary>
+    public static readonly string[] ModulesNietOpWerkplek = { "financien", "werknemers" };
+
+    /// <summary>
+    /// Naam van de module als dit adres (binnen de app) op een werkplek dicht is (Financiën, Werknemers), anders null.
+    /// </summary>
+    public static string? DichtOpWerkplek(string pad)
     {
         pad = pad.Split('?', '#')[0].Trim('/');
-        return pad.Equals("financien", StringComparison.OrdinalIgnoreCase)
-            || pad.StartsWith("financien/", StringComparison.OrdinalIgnoreCase)
-            || pad.Equals("module/financien", StringComparison.OrdinalIgnoreCase);
+        foreach (var m in Menu.Modules.Where(m => ModulesNietOpWerkplek.Contains(m.Sleutel)))
+        {
+            if (pad.Equals(m.Sleutel, StringComparison.OrdinalIgnoreCase)
+                || pad.StartsWith(m.Sleutel + "/", StringComparison.OrdinalIgnoreCase)
+                || pad.Equals("module/" + m.Sleutel, StringComparison.OrdinalIgnoreCase))
+                return m.Naam;
+        }
+        return null;
     }
 
     /// <summary>Mag minstens één van deze rechten.</summary>

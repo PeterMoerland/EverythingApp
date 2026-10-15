@@ -89,13 +89,13 @@
            zolang alles klopt (en voor iedereen zonder directierecht). *@
         <VaultBackupBalk />
         <main class="inhoud">
-            @if (Ik.IsWerkplek && HuidigeGebruiker.IsFinancien(Nav.ToBaseRelativePath(Nav.Uri)))
+            @if (Ik.IsWerkplek && HuidigeGebruiker.DichtOpWerkplek(Nav.ToBaseRelativePath(Nav.Uri)) is { } dicht)
             {
                 <div class="page">
-                    <header class="topbar"><h1>Financiën</h1></header>
+                    <header class="topbar"><h1>@dicht</h1></header>
                     <section class="module-placeholder">
                         <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
-                        <p>Financiën staat op een werkplek altijd uit, ook als de rechten het toestaan. Open het op je eigen pc.</p>
+                        <p>@dicht staat op een werkplek altijd uit, ook als de rechten het toestaan. Open het op je eigen pc.</p>
                     </section>
                 </div>
             }
@@ -280,8 +280,8 @@
         if (m.Sleutel == "beheer")
             return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
 
-        // Financiën nooit op een werkplek (gedeelde pc), ook niet met rechten
-        if (Ik.IsWerkplek && m.Sleutel == "financien") return false;
+        // Financiën en Werknemers nooit op een werkplek (gedeelde pc), ook niet met rechten
+        if (Ik.IsWerkplek && HuidigeGebruiker.ModulesNietOpWerkplek.Contains(m.Sleutel)) return false;
 
         // Productie (werkplek: uitlezen, programmeren, testen) alleen op een pc met de werkplek-agent,
         // en niet op een werkplek waar Productie uit staat (Beheer ▸ Werkplekken, bv. de inboek-pc).
@@ -404,9 +404,10 @@
         (string.IsNullOrWhiteSpace(_zoek)
             ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
             : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase)))
-        .Where(d => !(Ik.IsWerkplek && NietOpWerkplek(d.Url)));   // gedeelde werkplek: geen Agenda en Financiën (Mail = alleen versturen)
+        .Where(d => !(Ik.IsWerkplek && NietOpWerkplek(d)));   // gedeelde werkplek: geen Agenda, Financiën en Werknemers (Mail = alleen versturen)
 
-    private static bool NietOpWerkplek(string url) => url == "agenda" || HuidigeGebruiker.IsFinancien(url);
+    private static bool NietOpWerkplek(Doel d)
+        => d.Url == "agenda" || d.Categorie == "Werknemers" || HuidigeGebruiker.DichtOpWerkplek(d.Url) is not null;
 
     private void Toets(KeyboardEventArgs e)
     {
@@ -421,7 +422,7 @@
     private void Ga(Doel d)
     {
         Sluit();
-        if (Ik.IsWerkplek && NietOpWerkplek(d.Url)) return;
+        if (Ik.IsWerkplek && NietOpWerkplek(d)) return;
         Nav.NavigateTo(d.Url);
     }
 
