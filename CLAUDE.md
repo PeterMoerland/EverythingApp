@@ -475,6 +475,8 @@ verwijderen; slepen = volgorde; Alt+1 … Alt+0 (`wwwroot/snelbalk.js`, op `e.co
 - **Zwevende vensters** (Gebouwbeheer, MenuModule.Venster): een tegel met zo'n adres opent het venster (EventCallback
   OpenVenster naar MainLayout) in plaats van de pagina; de ster staat in de kop van het venster (MainLayout roept
   Snelbalk.WisselAsync aan; Gewijzigd laat MainLayout opnieuw tekenen). .snel-modal z-index 1000 (boven het venster).
+- **Zijbalk:** de blokjes "Snel" (Ureningave, Mail, Agenda) en "Recent" zijn weg (verzoek gebruiker); Ureningave, Mail en
+  Agenda staan in het zoekvenster (Ctrl+K). RecentPagesService houdt nog bij, maar wordt niet meer getoond.
 - **Nog niet:** standaardset van Beheer, tellingen op tegels.
 
 ## Historie van een exemplaar opschonen (15-10-2026)

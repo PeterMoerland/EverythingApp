@@ -2460,7 +2460,7 @@ html[data-thema="donker"] .av-plus { color: #8fd18f; }
 
 /* ---- Gebouwbeheer: Sonos (volume) ---- */
 .sonos-lijst { display: flex; flex-direction: column; gap: .5rem; max-width: 44rem; }
-.sonos-speaker { display: grid; grid-template-columns: minmax(9rem, 14rem) auto 1fr 2.5rem; gap: .7rem; align-items: center;
+.sonos-speaker { display: grid; grid-template-columns: minmax(8rem, 14rem) auto auto 1fr 2.2rem; gap: .7rem; align-items: center;
                  border: 1px solid #dde3ea; border-radius: 8px; padding: .55rem .8rem; background: #fff; }
 .sonos-speaker.weg { opacity: .55; grid-template-columns: minmax(9rem, 14rem) 1fr; }
 .sonos-naam { font-weight: 600; }
@@ -2469,16 +2469,19 @@ html[data-thema="donker"] .av-plus { color: #8fd18f; }
 .sonos-demp.aan { background: #fbeeee; border-color: #e2a6a6; }
 .sonos-schuif { width: 100%; accent-color: var(--accent); }
 .sonos-waarde { text-align: right; font-variant-numeric: tabular-nums; }
-@media (max-width: 40rem) { .sonos-speaker { grid-template-columns: 1fr auto; } .sonos-schuif { grid-column: 1 / -1; } }
+@media (max-width: 40rem) { .sonos-speaker { grid-template-columns: 1fr auto auto; } .sonos-schuif { grid-column: 1 / -1; } }
 html[data-thema="donker"] .sonos-speaker { background: #16273d; border-color: #2b4a73; }
 html[data-thema="donker"] .sonos-demp { border-color: #2b4a73; }
 html[data-thema="donker"] .sonos-demp.aan { background: #3a2222; border-color: #7a3a3a; }
 
 /* ---- Gebouwbeheer als zwevend venster (MainLayout) ---- */
-.zweefvenster { position: fixed; top: 4rem; right: 1.2rem; z-index: 900; width: min(30rem, calc(100vw - 2rem));
-                max-height: calc(100vh - 5.5rem); display: flex; flex-direction: column; background: var(--bg, #fff);
+.zweefvenster { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 900; width: min(30rem, calc(100vw - 2rem));
+                max-height: calc(100vh - 2rem); display: flex; flex-direction: column; background: var(--bg, #fff);
                 border: 1px solid #c9d3df; border-radius: 10px; box-shadow: 0 12px 32px rgba(20, 30, 50, .25); outline: none; }
 .zweefvenster.breed { width: min(60rem, calc(100vw - 2rem)); }
+.zweefvenster.extra-breed { width: min(90rem, calc(100vw - 2rem)); }
+.zweefvenster.extra-breed .hmi-kolom { max-width: none; }
+.zweefvenster.extra-breed .hmi.zonwering { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .9rem; }
 .zweefkop { display: flex; align-items: center; gap: .4rem; padding: .5rem .7rem; border-bottom: 1px solid #dde3ea; }
 .zweefkop a.klein { text-decoration: none; padding: .1rem .45rem; border: 1px solid #c9d3df; border-radius: 5px; color: inherit; }
 .zweefinhoud { overflow: auto; padding: .7rem; }
@@ -2494,7 +2497,7 @@ html[data-thema="donker"] .zweefkop, html[data-thema="donker"] .zweefkop a.klein
 .sonos-speelt .sonos-tekst > * { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sonos-speelt b { color: var(--accent); }
 .sonos-speelt.stil { color: #99a; }
-.zweefinhoud .sonos-speaker { grid-template-columns: minmax(7rem, 10rem) auto 1fr 2.2rem; }
+.zweefinhoud .sonos-speaker { grid-template-columns: minmax(6.5rem, 10rem) auto auto 1fr 2rem; gap: .5rem; }
 html[data-thema="donker"] .sonos-speelt { color: #b7c4d4; }
 html[data-thema="donker"] .sonos-speelt.stil { color: #7d8ea3; }
 
@@ -2932,3 +2935,9 @@ html[data-thema="donker"] .snel-icoon { background: var(--d2); border-color: var
 html[data-thema="donker"] .snel-tabs { border-bottom-color: var(--d3); }
 .snel-vensterster { color: #8a939e; font-size: 1rem; }
 .snel-vensterster.aan { color: #e0a100; }
+.sonos-speel.aan { background: #e8f3ea; border-color: #9fcfaa; }
+html[data-thema="donker"] .sonos-speel.aan { background: #17301d; border-color: #2f6b3d; }
+.sonos-demp:disabled { opacity: .35; cursor: default; }
+/* lijst met nummer + naam: een lange naam loopt op de volgende regel door onder de naam, niet onder het nummer */
+.wn-naam.hangend { padding-left: calc(.5rem + 5.7rem); text-indent: -5.7rem; }
+.wn-naam.hangend .nummer { text-indent: 0; margin-right: .3rem; }

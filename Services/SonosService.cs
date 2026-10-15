@@ -26,8 +26,8 @@ public record SonosSpeelt(string Staat, string Titel, string Artiest, string Alb
 /// <summary>
 /// Volume en "wat speelt er" van de Sonos-speakers, lokaal over het netwerk (UPnP/SOAP op poort 1400, geen account
 /// of cloud nodig). In appsettings staat onder Sonos:Adressen minstens één IP-adres; de andere speakers komen uit de
-/// groepsindeling die elke speaker kent (ZoneGroupTopology). Bedienen: alleen volume en dempen, op verzoek van de
-/// gebruiker; afspelen zelf wordt alleen gelezen.
+/// groepsindeling die elke speaker kent (ZoneGroupTopology). Bedienen: volume, dempen, en afspelen/pauzeren (via de
+/// hoofdspeaker van de groep, AVTransport Play/Pause).
 /// </summary>
 public class SonosService
 {
@@ -101,6 +101,24 @@ public class SonosService
         Controleer(adres);
         await RenderingAsync(adres, "SetVolume",
             $"<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{Math.Clamp(volume, 0, 100)}</DesiredVolume>");
+    }
+
+    /// <summary>
+    /// Afspelen of pauzeren. Gaat naar de hoofdspeaker (coordinator) van de groep, dus de hele groep doet mee.
+    /// Kan pauzeren niet (TV, line-in geven dan een fout), dan stoppen.
+    /// </summary>
+    public async Task AfspelenAsync(string adres, bool afspelen)
+    {
+        Controleer(adres);
+        var lid = _indeling?.FirstOrDefault(l => l.Adres == adres);
+        var hoofd = (lid is null ? null : _indeling!.FirstOrDefault(l => l.Uuid == lid.Coordinator))?.Adres ?? adres;
+        if (afspelen)
+        {
+            await SoapAsync(hoofd, AvPad, AvTransport, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
+            return;
+        }
+        try { await SoapAsync(hoofd, AvPad, AvTransport, "Pause", "<InstanceID>0</InstanceID>"); }
+        catch (InvalidOperationException) { await SoapAsync(hoofd, AvPad, AvTransport, "Stop", "<InstanceID>0</InstanceID>"); }
     }
 
     public async Task ZetGedemptAsync(string adres, bool gedempt)

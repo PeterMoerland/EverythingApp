@@ -14,11 +14,8 @@
             <span>🔍 Zoeken…</span><kbd>Ctrl+K</kbd>
         </button>
         <nav>
-            <div class="navkop">Snel</div>
-            <NavLink href="" Match="NavLinkMatch.All">Ureningave</NavLink>
-            <NavLink href="mail">Mail</NavLink>
-            <NavLink href="agenda">Agenda</NavLink>
-
+            @* "Snel" en "Recent" zijn vervangen door de snelbalk bovenin (15-10-2026); Ureningave, Mail en Agenda staan
+               in het zoekvenster (Ctrl+K). *@
             <div class="navkop">Modules</div>
             @foreach (var m in Menu.Modules.Where(ModuleZichtbaar))
             {
@@ -51,14 +48,6 @@
                 }
             }
 
-            @if (Recent.Items.Count > 1)
-            {
-                <div class="navkop">Recent</div>
-                @foreach (var r in Recent.Items.Skip(1).Take(4))
-                {
-                    <a href="@r.Url">@r.Titel</a>
-                }
-            }
         </nav>
     </aside>
     <div class="hoofdvlak">
@@ -121,7 +110,7 @@
 @* Gebouwbeheer als zwevend venster: het scherm eronder blijft gewoon staan. *@
 @if (_venster is { } v)
 {
-    <div class="zweefvenster @(v.Sleutel == "cameras" ? "breed" : "")" tabindex="-1" @onkeydown="VensterToets" @ref="_vensterRef">
+    <div class="zweefvenster @VensterBreedte(v)" tabindex="-1" @onkeydown="VensterToets" @ref="_vensterRef">
         <header class="zweefkop">
             <b>@v.Naam</b>
             <span class="groei"></span>
@@ -187,6 +176,11 @@
     {
         Nav.LocationChanged += LocatieGewijzigd;
         await Ik.ZorgGeladenAsync();
+
+        // Vaste schermen die niet in het menu staan (vroeger het blokje "Snel" in de zijbalk)
+        _alles.Add(new("Schermen", "Ureningave", ""));
+        _alles.Add(new("Schermen", "Mail", "mail"));
+        _alles.Add(new("Schermen", "Agenda", "agenda"));
 
         // Werkende schermen uit het menu
         foreach (var (module, item) in Menu.WerkendeItems())
@@ -275,6 +269,9 @@
     // ===== Gebouwbeheer als zwevend venster =====
     private MenuModule? _venster;
     private Snelbalk? _snelbalk;
+
+    /// <summary>Camera's breed; Verlichting (3 kolommen) en Zonwering (6 kolommen) extra breed, zodat de kolommen naast elkaar staan en het venster kort is.</summary>
+    private static string VensterBreedte(MenuModule m) => m.Sleutel switch { "cameras" => "breed", "verlichting" => "extra-breed", "zonwering" => "extra-breed", _ => "" };
 
     /// <summary>☆ in de kop van een zwevend venster: dat venster in de snelbalk (de tegel opent het weer als venster).</summary>
     private Task SnelbalkVenster(MenuModule m) => _snelbalk?.WisselAsync(m.Adres, m.Naam) ?? Task.CompletedTask;

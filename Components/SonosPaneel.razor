@@ -36,6 +36,9 @@ else
                 }
                 else
                 {
+                    <button class="sonos-demp sonos-speel @(s.Speelt?.Afspelen == true ? "aan" : "")" disabled="@(s.Speelt is null)"
+                            title="@SpeelTitel(s)"
+                            @onclick="() => Afspelen(s)">@(s.Speelt?.Afspelen == true ? "⏸" : "▶")</button>
                     <button class="sonos-demp @(s.Gedempt ? "aan" : "")" title="@(s.Gedempt ? "Geluid aan" : "Dempen")" @onclick="() => Demp(s)">@(s.Gedempt ? "🔇" : "🔊")</button>
                     <input type="range" min="0" max="100" step="1" class="sonos-schuif" value="@s.Volume" @key="(s.Uuid, _versie)"
                            @oninput="e => Schuif(s, e)" @onchange="e => Schuif(s, e)" />
@@ -112,6 +115,28 @@ else
         }
         catch (Exception ex) { Melding($"{s.Naam}: dempen mislukt: {ex.Message}", true); }
     }
+
+    /// <summary>Afspelen of pauzeren; geldt voor de hele groep. Meteen tonen, en na een seconde de echte stand ophalen.</summary>
+    private async Task Afspelen(SonosSpeaker s)
+    {
+        if (s.Speelt is not { } p) return;
+        var afspelen = !p.Afspelen;
+        _laatsteWijziging = DateTime.UtcNow;
+        try
+        {
+            await Sonos.AfspelenAsync(s.Adres, afspelen);
+            var nieuw = p with { Staat = afspelen ? "PLAYING" : "PAUSED_PLAYBACK" };
+            foreach (var x in _speakers.Where(x => x.Uuid == s.Uuid || (s.Groep.Length > 0 && x.Groep == s.Groep)).ToList())
+                Vervang(x.Uuid, y => y with { Speelt = nieuw });
+            StateHasChanged();
+            await Task.Delay(1200);
+            await Verversen(false);
+        }
+        catch (Exception ex) { Melding($"{s.Naam}: {(afspelen ? "afspelen" : "pauzeren")} mislukt: {ex.Message}", true); }
+    }
+
+    private static string SpeelTitel(SonosSpeaker s)
+        => (s.Speelt?.Afspelen == true ? "Pauzeren" : "Afspelen") + (s.Groep.Length > 0 ? " (hele groep)" : "");
 
     private async Task AllesDempen()
     {

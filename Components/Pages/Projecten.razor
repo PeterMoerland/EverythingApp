@@ -88,9 +88,9 @@
                         <Virtualize @ref="_virtualize" ItemsProvider="Ophalen" ItemSize="29" OverscanCount="12"
                                     Context="p" TItem="ProjectRegel">
                             <ItemContent>
-                                <button class="wn-naam @(p.Id == _projectId ? "actief" : "")"
+                                <button class="wn-naam hangend @(p.Id == _projectId ? "actief" : "")"
                                         @onclick="() => KiesProject(p)">
-                                    <span class="nummer">@p.Nummer</span> @p.Omschrijving
+                                    <span class="nummer">@p.Nummer</span>@p.Omschrijving
                                 </button>
                             </ItemContent>
                             <Placeholder>
