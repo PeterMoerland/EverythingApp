@@ -936,6 +936,14 @@
                                         <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.EepromVullen)" @onchange="e => ZetTechniek(ProductTechniek.EepromVullen, e)" />
                                         <b>EEPROM vullen uit ESI</b> <small class="uitleg">nieuwe print met lege EEPROM: PDI (SPI), fabrikant, productcode, revisie, serienummer, mailboxen en PDO's uit het ESI</small>
                                     </label>
+                                    <label class="prod-techniek-vink prod-techniek-sub" title="Knop Objecten in Programmeren: de complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">
+                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Objecten)" @onchange="e => ZetTechniek(ProductTechniek.Objecten, e)" />
+                                        <b>Objecten</b> <small class="uitleg">objectdictionary lezen en losse SDO's lezen/schrijven (eigen MDE-slave, eRob)</small>
+                                    </label>
+                                    <label class="prod-techniek-vink prod-techniek-sub" title="Knop Monitoring in Programmeren: objecten van de eigen MDE-slave live volgen in een grafiek, alleen lezen">
+                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Monitoring)" @onchange="e => ZetTechniek(ProductTechniek.Monitoring, e)" />
+                                        <b>Monitoring</b> <small class="uitleg">objecten van de eigen MDE-slave live volgen (druk, joints, statusword …), alleen lezen</small>
+                                    </label>
                                 }
                             }
                         </div>

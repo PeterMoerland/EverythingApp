@@ -183,24 +183,6 @@
 @if (ToonProgrammeren)
 {
     @Kop(NrProgrammeren, "Programmeren")
-    @if (HeeftChip || AantalTechnieken == 0)
-    {
-        @* Alles wat via de USB-kabel gaat: chip programmeren en de seriële monitor *@
-        <div class="bankfilters prod-prog prod-usb">
-            <span class="prod-prog-pos"><b>USB</b> <small class="uitleg">@(_technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "ST-LINK" : "USB-UART")</small></span>
-            <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="OpenFirmware"
-                    title="ESP32 of STM32 op de print programmeren">
-                ⚡ @(_technieken.Contains(ProductTechniek.Esp32) && !_technieken.Contains(ProductTechniek.Stm32) ? "ESP32 programmeren…"
-                   : _technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "STM32 programmeren…"
-                   : "Chip programmeren (ESP32/STM32)…")
-            </button>
-            @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
-            {
-                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="OpenSerieel"
-                        title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
-            }
-        </div>
-    }
     @if (AantalTechnieken == 0 && DrivePosities.Count == 0)
     {
         <p class="uitleg">Bij dit producttype is nog niet vastgelegd wat erop zit (Producten ▸ tab Techniek).</p>
@@ -209,7 +191,8 @@
     {
         <p class="uitleg">Dit producttype heeft drives maar nog geen drive-posities (Producten ▸ tab Techniek).</p>
     }
-    @foreach (var p in HeeftDrives ? DrivePosities : new List<DrivePositie>())
+    @* 1. Eerst per positie de firmware (en parameterset) kiezen; USB en EtherCAT hieronder gebruiken die keuze. *@
+    @foreach (var p in DriveRijen)
     {
         var keuze = Keuze(p.Positie);
         <div class="bankfilters prod-prog">
@@ -224,8 +207,6 @@
                     }
                 </select>
             </label>
-            <button class="klein" disabled="@(!Mag || _taakBezig || !KanFirmware(keuze))" @onclick="() => LaadDriveFirmware(p)"
-                    title="Firmware via EtherCAT in de drive laden (FoE)">⚡ Firmware laden</button>
             @if (MetParameters)
             {
                 <label class="bankveld">
@@ -238,77 +219,122 @@
                         }
                     </select>
                 </label>
-                <button class="klein" disabled="@(!Mag || _taakBezig || !KanParameters(keuze, p))" @onclick="() => LaadParameters(p)"
-                        title="@ParamTitel(p)">⚙ Parameters laden</button>
-            }
-            @if (IsMde(p))
-            {
-                @* Eigen MDE-slave: objectdictionary/losse SDO's en live meekijken, in dezelfde rij. *@
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
-                        title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
-                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
-                        title="Objecten van deze slave live meekijken (druk, joints, statusword …), alleen lezen">📈 Meekijken…</button>
-                @if (EepromVullenAan || SnSchrijven)
-                {
-                    @* EEPROM-acties onder elkaar: eerst de hele EEPROM, daaronder alleen het serienummer *@
-                    <div class="prod-eeprom">
-                        @if (EepromVullenAan)
-                        {
-                            <div>
-                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VergelijkEeprom(p)"
-                                        title="@(EsiVoor(p) is null ? "Geen ESI-bestand bij dit controllertype" : "De EEPROM van de slave vergelijken met wat het ESI zou schrijven; er wordt niets veranderd")">🧩 EEPROM vergelijken</button>
-                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VulEeprom(p)"
-                                        title="De complete EEPROM-inhoud uit het ESI schrijven (PDI/SPI, identiteit, serienummer, mailboxen, PDO's); daarna spanning uit/aan">💾 EEPROM vullen…</button>
-                            </div>
-                        }
-                        @if (SnSchrijven)
-                        {
-                            <div>
-                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
-                                        title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")">🔢 Serienummer schrijven</button>
-                            </div>
-                        }
-                    </div>
-                }
-            }
-            @if (!IsCoe(p))
-            {
-                @if (MetParameters)
-                {
-                    <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
-                            title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven">⇄ Vergelijken</button>
-                }
-                <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => LeesRegisters(p)"
-                        title="Alle registers uit de dictionary van de drive lezen, ook de alleen-lezen statusregisters (duurt ½–2 minuten)">📋 Alle registers…</button>
-                <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => OpenEncoder(p)"
-                        title="Encoderwaarde live: wijzerplaat (singleturn), ruwe positie, omwentelingen en waarschuwing bij de 32-bit-grens">◎ Encoder…</button>
             }
         </div>
-        @if (IsErob(p))
+    }
+    @* 2. Alles via de USB-kabel *@
+    @if (HeeftChip || AantalTechnieken == 0)
+    {
+        <div class="bankfilters prod-kader prod-usb">
+            <span class="prod-prog-pos"><b>USB</b> <small class="uitleg">@(_technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "ST-LINK" : "USB-UART")</small></span>
+            <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="OpenFirmware"
+                    title="ESP32 of STM32 op de print programmeren">
+                ⚡ @(_technieken.Contains(ProductTechniek.Esp32) && !_technieken.Contains(ProductTechniek.Stm32) ? "ESP32 programmeren…"
+                   : _technieken.Contains(ProductTechniek.Stm32) && !_technieken.Contains(ProductTechniek.Esp32) ? "STM32 programmeren…"
+                   : "Chip programmeren (ESP32/STM32)…")
+            </button>
+            @if (_technieken.Contains(ProductTechniek.Esp32) || AantalTechnieken == 0)
+            {
+                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="OpenSerieel"
+                        title="De seriële uitvoer van de ESP32 via de USB-UART live meelezen en tekst sturen, zoals de seriële monitor van de Arduino-IDE">🖥 Seriële monitor…</button>
+            }
+        </div>
+    }
+    @* 3. Alles via EtherCAT, per positie een regel; EEPROM-acties onder elkaar op een eigen regel *@
+    @if (DriveRijen.Count > 0)
+    {
+        <div class="prod-kader prod-ecat">
+        @foreach (var p in DriveRijen)
         {
-            @* eRob e.d.: de as in een hoek zetten (profile position) en de positie uitlezen. *@
-            <div class="bankfilters prod-prog prod-hoek">
-                <span class="prod-prog-pos"><small class="uitleg">as @p.Positie</small></span>
-                <label class="bankveld">
-                    <span>Hoek (°, absoluut)</span>
-                    <input type="number" step="0.01" style="width:7rem" value="@HoekVoor(p.Positie)" disabled="@_taakBezig"
-                           @onchange="e => _hoek[p.Positie] = (string?)e.Value ?? string.Empty" />
-                </label>
-                <label class="bankveld">
-                    <span>Snelheid (°/s)</span>
-                    <input type="number" step="1" min="1" max="60" style="width:5rem" value="@_hoekSnelheid" disabled="@_taakBezig"
-                           @onchange="e => _hoekSnelheid = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 1, 60) : 10" />
-                </label>
-                <button class="primair klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || HoekVoor(p.Positie).Length == 0)" @onclick="() => NaarHoek(p)"
-                        title="De actuator via EtherCAT naar deze hoek bewegen (48 V en STO nodig); de gemeten hoek komt in de historie">↻ Naar hoek</button>
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => LeesPositie(p)"
-                        title="Positie, statusword, foutcode en temperatuur lezen">📍 Positie</button>
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => VrijgevenAs(p)"
-                        title="Motor uitschakelen (rem valt in)">⏻ Vrijgeven</button>
-                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
-                        title="De complete objectdictionary van de drive lezen (ook ongedocumenteerde objecten) en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+            var keuze = Keuze(p.Positie);
+            <div class="bankfilters prod-ecat-rij">
+                <span class="prod-prog-pos">@if (p == DriveRijen[0]) { <b>EtherCAT</b> }
+                    <small class="uitleg">@(DriveRijen.Count > 1 ? $"{p.Positie} {p.Naam}" : "FoE · SDO")</small></span>
+                <button class="klein" disabled="@(!Mag || _taakBezig || !KanFirmware(keuze))" @onclick="() => LaadDriveFirmware(p)"
+                        title="Firmware via EtherCAT in de drive laden (FoE)">⚡ Firmware laden</button>
+                @if (MetParameters)
+                {
+                    <button class="klein" disabled="@(!Mag || _taakBezig || !KanParameters(keuze, p))" @onclick="() => LaadParameters(p)"
+                            title="@ParamTitel(p)">⚙ Parameters laden</button>
+                }
+                @if (!IsCoe(p))
+                {
+                    @if (MetParameters)
+                    {
+                        <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
+                                title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven">⇄ Vergelijken</button>
+                    }
+                    <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => LeesRegisters(p)"
+                            title="Alle registers uit de dictionary van de drive lezen, ook de alleen-lezen statusregisters (duurt ½–2 minuten)">📋 Alle registers…</button>
+                    <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => OpenEncoder(p)"
+                            title="Encoderwaarde live: wijzerplaat (singleturn), ruwe positie, omwentelingen en waarschuwing bij de 32-bit-grens">◎ Encoder…</button>
+                }
+                @if (IsMde(p))
+                {
+                    @if (EepromVullenAan || SnSchrijven || ObjectenAan || MonitoringAan)
+                    {
+                        @* Onder elkaar: EEPROM, serienummer, dan Objecten en Monitoring *@
+                        <div class="prod-eeprom">
+                            @if (EepromVullenAan)
+                            {
+                                <div>
+                                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VergelijkEeprom(p)"
+                                            title="@(EsiVoor(p) is null ? "Geen ESI-bestand bij dit controllertype" : "De EEPROM van de slave vergelijken met wat het ESI zou schrijven; er wordt niets veranderd")">🧩 EEPROM vergelijken</button>
+                                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || EsiVoor(p) is null)" @onclick="() => VulEeprom(p)"
+                                            title="De complete EEPROM-inhoud uit het ESI schrijven (PDI/SPI, identiteit, serienummer, mailboxen, PDO's); daarna spanning uit/aan">💾 EEPROM vullen…</button>
+                                </div>
+                            }
+                            @if (SnSchrijven)
+                            {
+                                <div>
+                                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
+                                            title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")">🔢 Serienummer schrijven</button>
+                                </div>
+                            }
+                            @if (ObjectenAan)
+                            {
+                                <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
+                                        title="De complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+                            }
+                            @if (MonitoringAan)
+                            {
+                                <button class="klein" disabled="@(!Mag || _agentUrl.Length == 0)" @onclick="() => OpenTest(MonitorCode(p))"
+                                        title="Objecten van deze slave live volgen (druk, joints, statusword …), alleen lezen">📈 Monitoring…</button>
+                            }
+                        </div>
+                    }
+                }
             </div>
+            @if (IsErob(p))
+            {
+                @* eRob e.d.: de as in een hoek zetten (profile position) en de positie uitlezen. *@
+                <div class="bankfilters prod-prog prod-hoek">
+                    <span class="prod-prog-pos"><small class="uitleg">as @p.Positie</small></span>
+                    <label class="bankveld">
+                        <span>Hoek (°, absoluut)</span>
+                        <input type="number" step="0.01" style="width:7rem" value="@HoekVoor(p.Positie)" disabled="@_taakBezig"
+                               @onchange="e => _hoek[p.Positie] = (string?)e.Value ?? string.Empty" />
+                    </label>
+                    <label class="bankveld">
+                        <span>Snelheid (°/s)</span>
+                        <input type="number" step="1" min="1" max="60" style="width:5rem" value="@_hoekSnelheid" disabled="@_taakBezig"
+                               @onchange="e => _hoekSnelheid = int.TryParse((string?)e.Value, out var v) ? Math.Clamp(v, 1, 60) : 10" />
+                    </label>
+                    <button class="primair klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || HoekVoor(p.Positie).Length == 0)" @onclick="() => NaarHoek(p)"
+                            title="De actuator via EtherCAT naar deze hoek bewegen (48 V en STO nodig); de gemeten hoek komt in de historie">↻ Naar hoek</button>
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => LeesPositie(p)"
+                            title="Positie, statusword, foutcode en temperatuur lezen">📍 Positie</button>
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => VrijgevenAs(p)"
+                            title="Motor uitschakelen (rem valt in)">⏻ Vrijgeven</button>
+                    @if (ObjectenAan)
+                    {
+                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="() => OpenDictionary(p)"
+                            title="De complete objectdictionary van de drive lezen (ook ongedocumenteerde objecten) en losse SDO's lezen/schrijven">🔎 Objecten…</button>
+                    }
+                </div>
+            }
         }
+        </div>
     }
     @if (HeeftFeetech)
     {
@@ -1324,6 +1350,12 @@
     private bool HeeftChip => _technieken.Contains(ProductTechniek.Esp32) || _technieken.Contains(ProductTechniek.Stm32);
     // ---- EEPROM vullen uit het ESI (mde.eeprom) ----
     private bool EepromVullenAan => _technieken.Contains(ProductTechniek.EepromVullen);
+    /// <summary>Knop Objecten (objectdictionary, losse SDO's): sub-vinkje onder EtherCAT in Techniek.</summary>
+    private bool ObjectenAan => _technieken.Contains(ProductTechniek.Objecten);
+    /// <summary>Knop Monitoring (objecten live volgen, mde.monitor): sub-vinkje onder EtherCAT in Techniek.</summary>
+    private bool MonitoringAan => _technieken.Contains(ProductTechniek.Monitoring);
+    /// <summary>Posities die in Programmeren een regel krijgen (alleen als het product drives/EtherCAT heeft).</summary>
+    private List<DrivePositie> DriveRijen => HeeftDrives ? DrivePosities : new List<DrivePositie>();
 
     /// <summary>De firmwareversie van dit type met een ESI-bestand (actueel eerst); null als er geen ESI is.</summary>
     private DriveFirmware? EsiVoor(DrivePositie p)
@@ -2651,7 +2683,7 @@
     private string _testLaatste = "";
     private List<ProductGebeurtenis> _testHistorie = new();
     private bool IsStroomlus => _testCode == "stroomlus";
-    private string TestNaam => MonitorPositie(_testCode) is int mp ? $"Meekijken — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
+    private string TestNaam => MonitorPositie(_testCode) is int mp ? $"Monitoring — slave {mp}" : _testen.FirstOrDefault(t => t.Code == _testCode).Naam ?? _testCode;
     private string TestUitleg => TestUitlegVoor(_testCode);
     private static string TestIcoon(string code) => code switch { "stroomlus" => "〜", "encodertest" => "◎", "phasing" => "⟳", "motiontest" => "↻", "dualmotion" => "⇄", "iotest" => "💡", "basistest" => "🔌", var c when c.StartsWith("recept:") => "📋", var c when c.StartsWith("monitor:") => "📈", _ => "🧪" };
     private bool IsDriveTest => _testCode is "stroomlus" or "encodertest" or "phasing" or "motiontest" or "dualmotion";
@@ -2848,7 +2880,7 @@
         catch (Exception ex) { Toon("De objectenlijst is geen geldige JSON: " + ex.Message, true); return; }
         _mdeWaarden = new(); _mdeReeks = new();
         var body = JsonSerializer.Serialize(new { positie = pos, objecten, seconden = _monitorSeconden });
-        await VoerTaakUit("mde.monitor", body, $"Meekijken — slave {pos}{(p is null ? "" : $" ({p.Naam})")}", _monitorSeconden + 60,
+        await VoerTaakUit("mde.monitor", body, $"Monitoring — slave {pos}{(p is null ? "" : $" ({p.Naam})")}", _monitorSeconden + 60,
             res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "metingen")} metingen" : "klaar"), live: MdeLive);
     }
 
@@ -4084,6 +4116,11 @@
         _flashResultaat = null;
         _flashProcent = 0;
         KiesActueleChipFirmware();
+        // de firmware die bovenaan bij een positie gekozen is (zelfde bestand via USB en via EtherCAT)
+        var lijst = ChipFirmwares.ToList();
+        var boven = DriveRijen.Select(p => Keuze(p.Positie).FirmwareId)
+                              .FirstOrDefault(id => id != 0 && lijst.Any(f => f.Id == id));
+        if (boven != 0) _firmwareKeuzeId = boven;
     }
 
     private void SluitFirmware()

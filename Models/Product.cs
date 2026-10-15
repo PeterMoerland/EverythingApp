@@ -46,6 +46,10 @@ public static class ProductTechniek
     public const string SerienummerSchrijven = "ecatsn";
     /// <summary>Sub-vinkje onder EtherCAT: de EEPROM (SII) van de eigen MDE-slave vullen uit het ESI (lege of verkeerde EEPROM).</summary>
     public const string EepromVullen = "ecateeprom";
+    /// <summary>Sub-vinkje onder EtherCAT: knop Objecten (objectdictionary lezen, losse SDO's) in Programmeren.</summary>
+    public const string Objecten = "ecatobj";
+    /// <summary>Sub-vinkje onder EtherCAT: knop Monitoring (objecten live volgen) in Programmeren.</summary>
+    public const string Monitoring = "ecatmon";
 
     public static readonly (string Code, string Naam, string Uitleg)[] Alle =
     {

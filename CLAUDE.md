@@ -167,6 +167,14 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   Geen SQL nodig: het vinkje is een regel in de bestaande tabel `ProductTechnieken`. Uit = ook de kolom
   Parameterset in de uitleescontrole weg. Basistest en IO-test (Ingenia: serienummers, 0x2602/0x2601) staan
   alleen nog bij een product met een Ingenia-positie (of zonder vastgelegde posities).
+- **Indeling Programmeren** (15-10-2026, op verzoek): eerst per positie de firmwarekeuze (en parameterset), dan
+  het kader **USB** (chip programmeren, seriële monitor; ESP32 programmeren kiest de bovenaan gekozen firmware voor
+  als die bij de chip hoort), dan het kader **EtherCAT** (per positie een regel zonder eigen kader: Firmware laden,
+  Parameters laden, Vergelijken/registers/encoder; daaronder op een eigen regel onder elkaar EEPROM vergelijken,
+  EEPROM vullen, Serienummer schrijven, Objecten, Monitoring; eRob-hoekregel erin). Alle knoppen van Test PCB (ook
+  uitlezen, node-adressen en testen) staan onder elkaar, links, 12rem breed (de maat van "ESP32 programmeren…"). Meekijken heet nu **Monitoring**. Objecten en Monitoring zijn
+  sub-vinkjes onder EtherCAT (`ecatobj`, `ecatmon`, opt-in zoals `ecatsn`; Objecten geldt ook voor de eRob-regel).
+  De controletabel noemt de kolom Node.
 - **ESP32: app-image nooit op 0x0** (agent 1.13.6, `esp32.soort_image`/`_juiste_offset`): een los ESP-IDF
   app-image (0xE9 + `esp_app_desc_t`-magic 0xABCD5432 op 0x20) op 0x0 overschrijft de bootloader; de ROM laadt de
   app dan als bootloader → "SHA-256 comparison failed" + TG0WDT-lus (twee keer gezien op de Swivel; het venster
