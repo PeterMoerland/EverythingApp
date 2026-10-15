@@ -88,7 +88,22 @@
         @* Waarschuwing voor de directie als de Vault-backup hapert; onzichtbaar
            zolang alles klopt (en voor iedereen zonder directierecht). *@
         <VaultBackupBalk />
-        <main class="inhoud">@Body</main>
+        <main class="inhoud">
+            @if (Ik.IsWerkplek && HuidigeGebruiker.IsFinancien(Nav.ToBaseRelativePath(Nav.Uri)))
+            {
+                <div class="page">
+                    <header class="topbar"><h1>Financiën</h1></header>
+                    <section class="module-placeholder">
+                        <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
+                        <p>Financiën staat op een werkplek altijd uit, ook als de rechten het toestaan. Open het op je eigen pc.</p>
+                    </section>
+                </div>
+            }
+            else
+            {
+                @Body
+            }
+        </main>
     </div>
 </div>
 
@@ -265,6 +280,9 @@
         if (m.Sleutel == "beheer")
             return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
 
+        // Financiën nooit op een werkplek (gedeelde pc), ook niet met rechten
+        if (Ik.IsWerkplek && m.Sleutel == "financien") return false;
+
         // Productie (werkplek: uitlezen, programmeren, testen) alleen op een pc met de werkplek-agent,
         // en niet op een werkplek waar Productie uit staat (Beheer ▸ Werkplekken, bv. de inboek-pc).
         if (m.Sleutel == "productie" && (Agent.Aanwezig != true || Ik.Werkplek?.Productie == false))
@@ -386,7 +404,9 @@
         (string.IsNullOrWhiteSpace(_zoek)
             ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
             : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase)))
-        .Where(d => !(Ik.IsWerkplek && d.Url == "agenda"));   // gedeelde werkplek: geen Agenda (Mail = alleen versturen)
+        .Where(d => !(Ik.IsWerkplek && NietOpWerkplek(d.Url)));   // gedeelde werkplek: geen Agenda en Financiën (Mail = alleen versturen)
+
+    private static bool NietOpWerkplek(string url) => url == "agenda" || HuidigeGebruiker.IsFinancien(url);
 
     private void Toets(KeyboardEventArgs e)
     {
@@ -401,7 +421,7 @@
     private void Ga(Doel d)
     {
         Sluit();
-        if (Ik.IsWerkplek && d.Url == "agenda") return;
+        if (Ik.IsWerkplek && NietOpWerkplek(d.Url)) return;
         Nav.NavigateTo(d.Url);
     }
 

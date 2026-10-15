@@ -201,10 +201,27 @@ public class HuidigeGebruiker
     public bool Mag(string recht)
     {
         if (string.IsNullOrWhiteSpace(recht)) return false;
+        if (IsWerkplek && NietOpWerkplek.Contains(recht)) return false;
         if (!_velden.TryGetValue(recht, out var waarde) || waarde is null) return false;
         if (waarde is bool b) return b;
         try { return Convert.ToInt64(waarde) != 0; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Rechten die op een werkplek (gedeelde pc) nooit gelden, ook niet als de werknemer van de werkplek ze heeft:
+    /// financiën, en Directie (die geeft overal ook toegang tot financiën). Zie ook <see cref="IsFinancien"/>.
+    /// </summary>
+    private static readonly HashSet<string> NietOpWerkplek = new(StringComparer.OrdinalIgnoreCase)
+        { "Financial", "MagFacturenGoedkeuren", "Directie" };
+
+    /// <summary>Hoort dit adres (binnen de app) bij Financiën? Op een werkplek staat dat helemaal uit.</summary>
+    public static bool IsFinancien(string pad)
+    {
+        pad = pad.Split('?', '#')[0].Trim('/');
+        return pad.Equals("financien", StringComparison.OrdinalIgnoreCase)
+            || pad.StartsWith("financien/", StringComparison.OrdinalIgnoreCase)
+            || pad.Equals("module/financien", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Mag minstens één van deze rechten.</summary>

@@ -496,7 +496,10 @@ Pc's waar meerdere mensen aan werken (robots, magazijn/inboeken). Besluit gebrui
   en zoekvenster); Mail = alleen een verstuurformulier vanaf de alias (`MailPostbussen.Werkplek`, `MailPostbus.Afzender`:
   serviceaccount werkt namens MailAccount, From = alias; `Voor(ik)` geeft op een werkplek niets, dus ook geen mail lezen bij
   Relaties); Productie alleen met agent én Productie aan (menu + tab Programmeren); startpagina bij openen op "/";
-  snelbalk per werkplek (`p:<id>`). Andere verstuurplekken (factuur, NDA) gebruiken nog `MailService.Eigen(Ik.Email)`.
+  snelbalk per werkplek (`p:<id>`). **Financiën nooit op een werkplek** (besluit gebruiker, ook niet met rechten):
+  `Mag()` geeft daar false voor Financial, MagFacturenGoedkeuren en **Directie** (Directie opent overal ook financiën);
+  module verborgen, zoekvenster zonder financiën, en `MainLayout` toont op `financien/*` en `module/financien` een melding
+  in plaats van de pagina (`HuidigeGebruiker.IsFinancien`). Rabobank-koppeling gaat op e-mail, dus al dicht. Andere verstuurplekken (factuur, NDA) gebruiken nog `MailService.Eigen(Ik.Email)`.
 - **Wie werkt er** (`Components/Layout/WerkplekMedewerker.razor`, besluit gebruiker: naam + pincode, 30 min): "🙋 Wie ben
   jij?" → naam (personen in dienst) → pincode van 4 cijfers via cijferblok of toetsenbord. Aangemeld = op dat apparaat
   `WerkplekApparaten.MedewerkerID`; `HuidigeGebruiker.WerknemerId` wordt dan die persoon (historie, "Mijn activiteiten"),
