@@ -50,7 +50,8 @@ public static class Menu
     {
         new("werknemers", "Werknemers", "id-badge",
             new MenuGroep("Onderhoud",
-                new MenuItem("Werknemers bekijken/wijzigen", "/werknemers")),
+                new MenuItem("Werknemers bekijken/wijzigen", "/werknemers"),
+                new MenuItem("Mijn pincode (werkplekken)", "/mijn-pincode")),
             new MenuGroep("Overzichten",
                 new MenuItem("Verjaardagen", "/werknemers/kalender/verjaardagen"),
                 new MenuItem("Jubilea", "/werknemers/kalender/jubilea"))),
@@ -226,7 +227,8 @@ public static class Menu
             new MenuGroep("Systeem",
                 new MenuItem("Verbinding & schema", "/diag"),
                 new MenuItem("Filestore", "/beheer/filestore"),
-                new MenuItem("Computers", "/beheer/computers"))),
+                new MenuItem("Computers", "/beheer/computers"),
+                new MenuItem("Werkplekken", "/beheer/werkplekken"))),
     };
 
     /// <summary>Alle modules, inclusief de onderliggende (Tools ▸ Inventor enzovoort).</summary>

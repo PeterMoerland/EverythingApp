@@ -153,6 +153,7 @@ if (liveDb)
     builder.Services.AddSingleton<IOpbouwRepository>(_ => new MySqlOpbouwRepository(cs!));
     builder.Services.AddSingleton<IActivityBoardRepository>(_ => new MySqlActivityBoardRepository(cs!));
     builder.Services.AddSingleton<ISnelkoppelingRepository>(_ => new MySqlSnelkoppelingRepository(cs!));
+    builder.Services.AddSingleton<IWerkplekRepository>(_ => new MySqlWerkplekRepository(cs!));
 }
 else
 {
@@ -177,6 +178,7 @@ else
     builder.Services.AddSingleton<IBezoekRepository, GeenBezoekRepository>();
     builder.Services.AddSingleton<IActivityBoardRepository, GeenActivityBoardRepository>();
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeenSnelkoppelingRepository>();
+    builder.Services.AddSingleton<IWerkplekRepository, GeenWerkplekRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
@@ -200,6 +202,9 @@ builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit ww
 // Alleen om de snelbalk lokaal te testen zonder database: Snelbalk__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Snelbalk:Geheugen"))
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeheugenSnelkoppelingRepository>();
+// Alleen om werkplekken lokaal te testen zonder database: Werkplekken__Geheugen=true
+if (builder.Configuration.GetValue<bool>("Werkplekken:Geheugen"))
+    builder.Services.AddSingleton<IWerkplekRepository, GeheugenWerkplekRepository>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 
@@ -286,6 +291,8 @@ var authBuilder = builder.Services
         o.SlidingExpiration = true;
         o.LoginPath = "/login";
         o.AccessDeniedPath = "/geen-toegang";
+        // Werkplek (gekoppelde pc): bij elk verzoek kijken of het apparaat nog gekoppeld is (WerkplekLogin).
+        o.Events.OnValidatePrincipal = WerkplekLogin.ControleerAsync;
     });
 
 if (loginAan)
@@ -449,6 +456,46 @@ a.knop:hover{background:#14498a}
 
     return sjabloon.Replace("[TITEL]", titel).Replace("[INHOUD]", inhoud);
 }
+
+// --- werkplek koppelen: een pc met een code uit Beheer ▸ Werkplekken als werkplek laten inloggen (geen Google) ---
+static string KoppelFormulier(string pathBase, string? fout) =>
+    (fout is null ? "" : $"<p style=\"color:#a01200\"><b>{System.Net.WebUtility.HtmlEncode(fout)}</b></p>") +
+    "<p>Vul de koppelcode in die Beheer bij de werkplek heeft gemaakt (Beheer ▸ Werkplekken). Deze pc blijft daarna " +
+    "ingelogd als die werkplek, tot hij in het beheerscherm wordt ontkoppeld.</p>" +
+    $"<form method=\"post\" action=\"{pathBase}/werkplek/koppelen\">" +
+    "<input name=\"code\" autocomplete=\"off\" autofocus maxlength=\"12\" placeholder=\"bv. K7MQ2P\" " +
+    "style=\"font-size:1.4rem;letter-spacing:.2em;text-transform:uppercase;padding:.4rem .6rem;width:10rem;border:1px solid #bbb;border-radius:5px\"> " +
+    "<button type=\"submit\" style=\"font-size:1rem;padding:.55rem 1rem;background:#1a5fb4;color:#fff;border:none;border-radius:5px;cursor:pointer\">Koppelen</button>" +
+    "</form><p class=\"klein\">Geen code? Vraag iemand met het recht Beheer of Directie.</p>";
+
+app.MapGet("/werkplek/koppelen", (HttpContext ctx) =>
+{
+    var nu = WerkplekLogin.WerkplekId(ctx.User) is not null
+        ? $"<p>Deze pc is nu gekoppeld als werkplek <b>{System.Net.WebUtility.HtmlEncode(ctx.User.Identity?.Name ?? "")}</b>. " +
+          "Een nieuwe code vervangt dat.</p>"
+        : "";
+    return Results.Content(Pagina("Werkplek koppelen", nu + KoppelFormulier(ctx.Request.PathBase, null)), "text/html");
+});
+
+app.MapPost("/werkplek/koppelen", async (HttpContext ctx, IWerkplekRepository repo) =>
+{
+    var form = await ctx.Request.ReadFormAsync();
+    var omschrijving = $"{ctx.Request.Headers.UserAgent} · {ctx.Connection.RemoteIpAddress}";
+    (Werkplek Werkplek, int ApparaatId)? gekoppeld = null;
+    try { gekoppeld = await repo.KoppelAsync(form["code"].ToString(), omschrijving); }
+    catch { }
+    if (gekoppeld is not { } g)
+    {
+        await Task.Delay(600);                                   // raden van codes ontmoedigen
+        return Results.Content(Pagina("Werkplek koppelen",
+            KoppelFormulier(ctx.Request.PathBase, "Deze code klopt niet of is verlopen (een code is 30 minuten geldig).")), "text/html");
+    }
+    WerkplekLogin.Vergeet(g.ApparaatId);                         // geen oude uitkomst van de controle laten hangen
+    await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+        WerkplekLogin.Maak(g.Werkplek, g.ApparaatId), WerkplekLogin.Eigenschappen());
+    var start = g.Werkplek.Startpagina.Trim().TrimStart('/');
+    return Results.Redirect(ctx.Request.PathBase + "/" + (start.Contains(':') ? "" : start));
+}).DisableAntiforgery();
 
 // --- bestand uit de filestore ophalen ---
 // /bestand/12          -> in de browser bekijken (pdf's, afbeeldingen)

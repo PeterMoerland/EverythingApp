@@ -18,11 +18,6 @@ public class WerkplekAgent
     public string Versie { get; private set; } = "";
     public string Hostnaam { get; private set; } = "";
     public string Reden { get; private set; } = "";
-    /// <summary>
-    /// Gedeelde werkplek (agent.json: gedeelde_werkplek = true): meerdere mensen werken aan deze pc. De app blokkeert
-    /// dan Mail en Agenda (persoonlijk) en toont bovenin een label. Alleen waar als de agent er is en het zegt.
-    /// </summary>
-    public bool Gedeeld { get; private set; }
     public event Action? Gewijzigd;
 
     public WerkplekAgent(IConfiguration config)
@@ -58,7 +53,6 @@ public class WerkplekAgent
                     Versie = doc.RootElement.TryGetProperty("versie", out var v) ? v.GetString() ?? "" : "";
                     Hostnaam = doc.RootElement.TryGetProperty("hostnaam", out var h) ? h.GetString() ?? ""
                              : doc.RootElement.TryGetProperty("pc", out var pc) ? pc.GetString() ?? "" : "";
-                    Gedeeld = doc.RootElement.TryGetProperty("gedeeld", out var g) && g.ValueKind == JsonValueKind.True;
                 }
                 catch { }
             }

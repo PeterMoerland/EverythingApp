@@ -1207,7 +1207,7 @@
 
     private string[] Tabs => _productId is null
         ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
-        : Agent.Aanwezig == true
+        : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
             ? new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
             : new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
 

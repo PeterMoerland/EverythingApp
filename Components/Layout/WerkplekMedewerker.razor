@@ -1,0 +1,169 @@
+@implements IAsyncDisposable
+@inject HuidigeGebruiker Ik
+@inject IWerkplekRepository Repo
+@inject IJSRuntime JS
+
+@* Op een werkplek (gedeelde pc): "Wie ben jij?" → naam kiezen → pincode. Daarna staat de naam in de bovenbalk en komt
+   het werk op die naam (HuidigeGebruiker.WerknemerId); de rechten blijven die van de werkplek. "Ik stop", of na
+   Pincode.Duur (30) minuten zonder activiteit (wwwroot/werkplek.js), is er weer niemand. *@
+
+@if (Ik.IsWerkplek)
+{
+    @if (Ik.Medewerker is { } m)
+    {
+        <span class="wpm-wie" title="Aangemeld op deze werkplek; na @Pincode.Duur minuten zonder activiteit weer niemand">
+            <span class="ab-av" style="background:@ActKleur.Avatar(m.Naam)">@ActKleur.Initialen(m.Naam)</span>@m.Naam
+        </span>
+        <button type="button" class="wpm-knop" @onclick="IkStop" title="Afmelden; het werk komt dan weer op naam van de werkplek">Ik stop</button>
+    }
+    else
+    {
+        <button type="button" class="wpm-knop wpm-wieben" @onclick="Open" title="Geef aan wie er aan deze pc werkt">🙋 Wie ben jij?</button>
+    }
+}
+
+@if (_open)
+{
+    <div class="snel-modal" @onkeydown="Toets" tabindex="-1" @ref="_venster">
+        <div class="snel-mbox wpm-mbox" role="dialog" aria-modal="true" aria-label="Wie ben jij?">
+            @if (_gekozen is not { } g)
+            {
+                <h3>Wie ben jij?</h3>
+                <input class="snel-zoek" id="wpm-zoek" placeholder="Zoek je naam…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+                <div class="wpm-personen">
+                    @foreach (var p in Gefilterd)
+                    {
+                        var k = p;
+                        <button type="button" class="wpm-persoon" @onclick="() => Kies(k)">
+                            <span class="ab-av wpm-av" style="background:@ActKleur.Avatar(k.Naam)">@ActKleur.Initialen(k.Naam)</span>
+                            <span>@k.Naam</span>
+                        </button>
+                    }
+                    @if (!Gefilterd.Any()) { <p class="uitleg">Niemand gevonden.</p> }
+                </div>
+                <div class="snel-knoppen"><span style="flex:1"></span><button type="button" class="klein" @onclick="Sluit">Annuleren</button></div>
+            }
+            else
+            {
+                <h3><span class="ab-av wpm-av" style="background:@ActKleur.Avatar(g.Naam)">@ActKleur.Initialen(g.Naam)</span> @g.Naam</h3>
+                <p class="uitleg">Je pincode (4 cijfers):</p>
+                <div class="wpm-stippen">
+                    @for (var i = 0; i < 4; i++) { <span class="@(i < _pin.Length ? "vol" : "")"></span> }
+                </div>
+                @if (_fout is not null) { <p class="wpm-fout">@_fout</p> }
+                <div class="wpm-blok">
+                    @foreach (var c in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫" })
+                    {
+                        var cijfer = c;
+                        if (cijfer.Length == 0) { <span></span> }
+                        else
+                        {
+                            <button type="button" disabled="@_bezig" @onclick="() => Druk(cijfer)">@cijfer</button>
+                        }
+                    }
+                </div>
+                <div class="snel-knoppen">
+                    <button type="button" class="klein" @onclick="Terug">◀ Andere naam</button>
+                    <span style="flex:1"></span>
+                    <button type="button" class="klein" @onclick="Sluit">Annuleren</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _open, _bezig;
+    private List<Keuze> _personen = new();
+    private string _zoek = "";
+    private Keuze? _gekozen;
+    private string _pin = "";
+    private string? _fout;
+    private ElementReference _venster;
+    private DotNetObjectReference<WerkplekMedewerker>? _zelf;
+    private bool _focusVenster;
+
+    private IEnumerable<Keuze> Gefilterd
+        => _personen.Where(p => _zoek.Trim().Length == 0 || p.Naam.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        Ik.MedewerkerGewijzigd += OpGewijzigd;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (eerste && Ik.IsWerkplek)
+        {
+            _zelf = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("mdeWerkplek.koppel", _zelf); } catch { }
+        }
+        if (_focusVenster)
+        {
+            _focusVenster = false;
+            try { await _venster.FocusAsync(); } catch { }
+        }
+    }
+
+    private void OpGewijzigd() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>Elke minuut vanuit werkplek.js.</summary>
+    [JSInvokable]
+    public async Task Tik(bool actief)
+    {
+        await Ik.TikAsync(actief);
+        StateHasChanged();
+    }
+
+    private async Task Open()
+    {
+        _open = true; _gekozen = null; _pin = ""; _fout = null; _zoek = "";
+        try { _personen = await Repo.PersonenAsync(); } catch { _personen = new(); }
+        _focusVenster = true;
+    }
+
+    private void Sluit() { _open = false; _pin = ""; _gekozen = null; }
+    private void Kies(Keuze k) { _gekozen = k; _pin = ""; _fout = null; _focusVenster = true; }
+    private void Terug() { _gekozen = null; _pin = ""; _fout = null; }
+
+    private async Task Druk(string c)
+    {
+        if (_bezig) return;
+        _fout = null;
+        if (c == "⌫") { if (_pin.Length > 0) _pin = _pin[..^1]; return; }
+        if (_pin.Length >= 4) return;
+        _pin += c;
+        if (_pin.Length == 4) await Controleer();
+    }
+
+    private async Task Controleer()
+    {
+        if (_gekozen is not { } g) return;
+        _bezig = true;
+        try
+        {
+            _fout = await Ik.MeldAanAsync(g.Id, g.Naam, _pin);
+            if (_fout is null) Sluit();
+        }
+        catch (Exception ex) { _fout = "Aanmelden mislukt: " + ex.Message; }
+        finally { _pin = ""; _bezig = false; }
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { Sluit(); return; }
+        if (_gekozen is null) return;
+        if (e.Key is { Length: 1 } k && char.IsAsciiDigit(k[0])) await Druk(k);
+        else if (e.Key == "Backspace") await Druk("⌫");
+    }
+
+    private async Task IkStop() => await Ik.MeldAfAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        Ik.MedewerkerGewijzigd -= OpGewijzigd;
+        try { await JS.InvokeVoidAsync("mdeWerkplek.los"); } catch { }
+        _zelf?.Dispose();
+    }
+}

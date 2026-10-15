@@ -55,13 +55,15 @@
             @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
             <Snelbalk @ref="_snelbalk" OpenVenster="OpenVenster" Gewijzigd="StateHasChanged" />
             <span class="shell-top-vulling"></span>
-            @if (Agent.Gedeeld)
+            @if (Ik.Werkplek is { } wp)
             {
-                <span class="gedeeld-label" title="Meerdere mensen werken aan deze pc; Mail en Agenda zijn hier geblokkeerd">
-                    👥 Gedeelde werkplek@(Agent.Hostnaam.Length > 0 ? " · " + Agent.Hostnaam : "")
+                @* Gekoppelde pc (Beheer ▸ Werkplekken): geen uitlogknop, want dan moet de pc opnieuw gekoppeld worden *@
+                <span class="gedeeld-label" title="Gedeelde werkplek: meerdere mensen werken aan deze pc; Mail lezen en Agenda staan hier uit. Ontkoppelen kan in Beheer ▸ Werkplekken.">
+                    👥 @wp.Naam
                 </span>
+                <WerkplekMedewerker />
             }
-            @if (Ik.Ingelogd)
+            else if (Ik.Ingelogd)
             {
                 <span class="gebruiker" title="@Ik.Email">
                     @Ik.Naam
@@ -173,8 +175,6 @@
 @code {
     private record Doel(string Categorie, string Label, string Url);
 
-    /// <summary>Persoonlijke schermen die op een gedeelde werkplek geblokkeerd zijn.</summary>
-    private static bool IsPersoonlijk(string url) => url.TrimStart('/').Split('?', '#')[0] is "mail" or "agenda";
 
     private bool _open;
     private bool _kiosk;
@@ -211,6 +211,10 @@
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
         if (!eerste) return;
+        // Werkplek met een startpagina (Beheer ▸ Werkplekken): wie de app op de beginpagina opent, komt daar terecht
+        if (Ik.Werkplek is { Startpagina.Length: > 0 } wp && Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Length == 0
+            && !wp.Startpagina.Contains(':'))
+            Nav.NavigateTo(wp.Startpagina.TrimStart('/'));
         await LeesThema();
         await MobielCheck();
         // Productie hoort alleen in het menu op een pc met de MDE Werkplek-agent (EtherCAT/USB).
@@ -261,8 +265,9 @@
         if (m.Sleutel == "beheer")
             return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
 
-        // Productie (werkplek: uitlezen, programmeren, testen) alleen op een pc met de werkplek-agent.
-        if (m.Sleutel == "productie" && Agent.Aanwezig != true)
+        // Productie (werkplek: uitlezen, programmeren, testen) alleen op een pc met de werkplek-agent,
+        // en niet op een werkplek waar Productie uit staat (Beheer ▸ Werkplekken, bv. de inboek-pc).
+        if (m.Sleutel == "productie" && (Agent.Aanwezig != true || Ik.Werkplek?.Productie == false))
             return false;
 
         // Een klapper is zichtbaar als er tenminste één pakket eronder zichtbaar is.
@@ -381,7 +386,7 @@
         (string.IsNullOrWhiteSpace(_zoek)
             ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
             : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase)))
-        .Where(d => !(Agent.Gedeeld && IsPersoonlijk(d.Url)));   // gedeelde werkplek: geen Mail en Agenda
+        .Where(d => !(Ik.IsWerkplek && d.Url == "agenda"));   // gedeelde werkplek: geen Agenda (Mail = alleen versturen)
 
     private void Toets(KeyboardEventArgs e)
     {
@@ -396,7 +401,7 @@
     private void Ga(Doel d)
     {
         Sluit();
-        if (Agent.Gedeeld && IsPersoonlijk(d.Url)) return;
+        if (Ik.IsWerkplek && d.Url == "agenda") return;
         Nav.NavigateTo(d.Url);
     }
 

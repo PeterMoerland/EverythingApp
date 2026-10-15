@@ -386,7 +386,7 @@ public class MailService
 
         var client = await ClientOfFoutAsync(postbus);
 
-        var raw = BouwBericht(postbus.Adres, naar, cc, onderwerp, tekst, bijlagen);
+        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar, cc, onderwerp, tekst, bijlagen);
         var json = JsonSerializer.Serialize(new { raw = NaarBase64Url(Encoding.UTF8.GetBytes(raw)) });
 
         var antwoord = await client.PostAsync($"{Basis}/messages/send",
@@ -410,7 +410,7 @@ public class MailService
     {
         var client = await ClientOfFoutAsync(postbus);
 
-        var raw = BouwBericht(postbus.Adres, naar ?? "", cc, onderwerp, tekst, bijlagen);
+        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar ?? "", cc, onderwerp, tekst, bijlagen);
         var json = JsonSerializer.Serialize(new { message = new { raw = NaarBase64Url(Encoding.UTF8.GetBytes(raw)) } });
 
         var antwoord = await client.PostAsync($"{Basis}/drafts",

@@ -134,7 +134,8 @@
     {
         Nav.LocationChanged += OpLocatie;
         await Ik.ZorgGeladenAsync();
-        _sleutel = Ik.WerknemerId is int w ? "w:" + w
+        _sleutel = Ik.Werkplek is { } wp ? "p:" + wp.Id                    // gekoppelde pc: eigen balk per werkplek
+                 : Ik.WerknemerId is int w ? "w:" + w
                  : Ik.Email.Length > 0 ? "e:" + Ik.Email.ToLowerInvariant()
                  : Config.GetValue<bool>("Snelbalk:Geheugen") ? "lokaal" : null;
         if (_sleutel is null || !Repo.Beschikbaar) return;

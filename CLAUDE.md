@@ -479,14 +479,36 @@ verwijderen; slepen = volgorde; Alt+1 … Alt+0 (`wwwroot/snelbalk.js`, op `e.co
   Agenda staan in het zoekvenster (Ctrl+K). RecentPagesService houdt nog bij, maar wordt niet meer getoond.
 - **Nog niet:** standaardset van Beheer, tellingen op tegels.
 
-## Gedeelde werkplek (15-10-2026, agent 1.17.0)
+## Werkplekken: gedeelde pc's zonder Google-account (15-10-2026)
 
-Productie-pc's aan de wand waar meerdere mensen aan werken (bijv. de robots): `agent.json` →
-`"gedeelde_werkplek": true`. `/health` geeft dan `gedeeld: true`; `WerkplekAgent.Gedeeld` (per circuit). De app toont
-bovenin "👥 Gedeelde werkplek · <pc-naam>" en blokkeert Mail en Agenda: niet in het zoekvenster (`IsPersoonlijk` in
-MainLayout), en de pagina's laden pas na de agentcontrole in `OnAfterRenderAsync` (dus ook niets bij het voorrenderen)
-en tonen anders "Niet beschikbaar op een gedeelde werkplek". Advies aan de gebruiker: zo'n pc inloggen met een apart
-werkplekaccount, niet persoonlijk (het blokkeren beschermt alleen de app, niet Gmail zelf). Getest met een nep-agent.
+Pc's waar meerdere mensen aan werken (robots, magazijn/inboeken). Besluit gebruiker: **geen Google-account per werkplek**
+(licentiekosten) en de keuzes **in de app**, niet in de agent (de agent-instelling `gedeelde_werkplek` uit 1.17 is in
+1.18.0 weer weg; de agent doet alleen hardware). Mailen vanaf een werkplek = **een alias per werkplek**.
+- **Tabellen** `Werkplekken_MariaDB.sql` (gebruiker voert uit): `Werkplekken` (naam, WerknemerID = een niet-persoon in
+  Werknemers voor rechten en historie, Productie, Startpagina, MailAfzender = alias, MailAccount = het account waar de
+  alias als "verzenden als" op staat, Actief, KoppelCode + KoppelCodeTot) en `WerkplekApparaten` (gekoppelde pc's).
+- **Koppelen**: Beheer ▸ Werkplekken (recht Beheer of Directie) maakt een code van 6 tekens (30 min, eenmalig); op de pc
+  `/werkplek/koppelen` (minimal API + `Pagina()`, geen Google nodig, `DisableAntiforgery`) → cookie met claims
+  `mde:werkplek`/`mde:apparaat`, 365 dagen glijdend (`WerkplekLogin`). `OnValidatePrincipal` = `WerkplekLogin.ControleerAsync`:
+  per minuut per apparaat naar de database; ontkoppeld of werkplek uit = uitgelogd bij het volgende laden (een lopend
+  Blazor-circuit merkt het pas bij herladen). `Vergeet` na koppelen/ontkoppelen.
+- **In de app** (`HuidigeGebruiker.Werkplek`): label "👥 <werkplek>" in plaats van naam + Uitloggen; Agenda uit (pagina
+  en zoekvenster); Mail = alleen een verstuurformulier vanaf de alias (`MailPostbussen.Werkplek`, `MailPostbus.Afzender`:
+  serviceaccount werkt namens MailAccount, From = alias; `Voor(ik)` geeft op een werkplek niets, dus ook geen mail lezen bij
+  Relaties); Productie alleen met agent én Productie aan (menu + tab Programmeren); startpagina bij openen op "/";
+  snelbalk per werkplek (`p:<id>`). Andere verstuurplekken (factuur, NDA) gebruiken nog `MailService.Eigen(Ik.Email)`.
+- **Wie werkt er** (`Components/Layout/WerkplekMedewerker.razor`, besluit gebruiker: naam + pincode, 30 min): "🙋 Wie ben
+  jij?" → naam (personen in dienst) → pincode van 4 cijfers via cijferblok of toetsenbord. Aangemeld = op dat apparaat
+  `WerkplekApparaten.MedewerkerID`; `HuidigeGebruiker.WerknemerId` wordt dan die persoon (historie, "Mijn activiteiten"),
+  `Mag()` blijft de rechten van de werkplek. `wwwroot/werkplek.js` meldt elke minuut of er geklikt/getypt is
+  (`TikAsync`: LaatsteActiviteit bijwerken en ander tabblad volgen); na `Pincode.Duur` = 30 min zonder activiteit is er
+  weer niemand. Pincode: tabel `WerknemerPincodes`, PBKDF2-SHA256 met zout (`Pincode`), 5 fout = 5 min wachten (in het
+  geheugen van de server). Instellen: Werknemers ▸ Mijn pincode (`/mijn-pincode`, niet op een werkplek; 0000/1234 e.d.
+  geweigerd); wissen: Beheer ▸ Werkplekken. Geheugenversie: Kees Blok (5) heeft testpincode 2580.
+- Lokaal testen: `Werkplekken__Geheugen=true`. Getest: aanmaken, code, koppelen (ook met kleine letters/streepje),
+  foute code, startpagina, label, geen uitlog/Beheer/Productie, Agenda dicht, mailformulier (met een nep-serviceaccount,
+  **niets verstuurd**), uitgelogd na verdwijnen van het apparaat; wie-werkt-er: foute/goede pincode, geen pincode, 5x fout = geblokkeerd, Ik stop,
+  blijft na herladen. Niet getest: echt versturen via een alias, en het verlopen na 30 minuten (niet afgewacht).
 
 ## Historie van een exemplaar opschonen (15-10-2026)
 

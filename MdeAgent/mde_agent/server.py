@@ -1,7 +1,7 @@
 """
 De HTTP-API van de agent, alleen op 127.0.0.1.
 
-GET  /health                    versie, hostnaam, taken + beschikbaarheid, gedeeld (gedeelde werkplek)
+GET  /health                    versie, hostnaam, taken + beschikbaarheid
 GET  /adapters                  netwerkadapters (EtherCAT)
 GET  /poorten                   COM-poorten (ESP32)
 GET  /drives[?ifname=]          drives synchroon uitlezen (snel; voor Test PCB)
@@ -116,8 +116,7 @@ class Handler(BaseHTTPRequestHandler):
             lopend = self.jobs.bezig()
             self._stuur(200, {"ok": True, "versie": VERSIE, "pc": socket.gethostname(),
                               "taken": taken, "bezig": lopend.id if lopend else None,
-                              "tokenVereist": bool(self.inst.get("token")),
-                              "gedeeld": bool(self.inst.get("gedeelde_werkplek"))})
+                              "tokenVereist": bool(self.inst.get("token"))})
             return
 
         if not self._token_ok(vraag):

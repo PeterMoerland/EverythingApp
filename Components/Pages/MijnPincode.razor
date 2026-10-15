@@ -1,0 +1,81 @@
+@page "/mijn-pincode"
+@inject IWerkplekRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Je eigen pincode (4 cijfers) instellen, om op een werkplek (gedeelde pc) aan te geven dat jij er werkt. Alleen op je
+   eigen account, niet op een werkplek zelf. Opgeslagen als hash (IWerkplekRepository, Pincode). *@
+
+<PageTitle>Mijn pincode — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar"><h1>Mijn pincode</h1></header>
+    <p class="uitleg">Met je pincode geef je op een werkplek (een pc waar meerdere mensen aan werken) aan dat jij eraan werkt:
+        "Wie ben jij?" bovenin, je naam kiezen, pincode intikken. Wat je dan doet komt op jouw naam.</p>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (Ik.IsWerkplek)
+    {
+        <div class="melding fout">Dit is een werkplek. Stel je pincode in op je eigen pc of telefoon.</div>
+    }
+    else if (Ik.WerknemerId is null)
+    {
+        <div class="melding fout">Je account is niet aan een werknemer gekoppeld.</div>
+    }
+    else if (_tabellen == false)
+    {
+        <div class="melding fout">De tabellen voor werkplekken ontbreken nog (Werkplekken_MariaDB.sql).</div>
+    }
+    else if (_tabellen == true)
+    {
+        <section class="wp-mail wpm-pin">
+            <p>@(_heeft ? "Je hebt een pincode. Hieronder kies je een nieuwe." : "Je hebt nog geen pincode.")</p>
+            <label><span>Nieuwe pincode</span>
+                <input type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" value="@_nieuw"
+                       @oninput="e => _nieuw = (string?)e.Value ?? string.Empty" /></label>
+            <label><span>Nog een keer</span>
+                <input type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" value="@_herhaal"
+                       @oninput="e => _herhaal = (string?)e.Value ?? string.Empty" /></label>
+            <div class="btngroup"><button class="primair" @onclick="Opslaan">Opslaan</button></div>
+            <p class="uitleg">4 cijfers. Kies er geen die anderen makkelijk raden (zoals 1234 of je geboortejaar). Vergeten?
+                Iemand met het recht Beheer kan hem wissen; dan stel je hier een nieuwe in.</p>
+        </section>
+    }
+</div>
+
+@code {
+    private bool? _tabellen;
+    private bool _heeft;
+    private string _nieuw = "", _herhaal = "";
+    private string? _melding;
+    private bool _fout;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Ik.IsWerkplek || Ik.WerknemerId is null || !Repo.Beschikbaar) return;
+        _tabellen = await Repo.TabellenAanwezigAsync();
+        if (_tabellen == true) _heeft = await Repo.HeeftPincodeAsync(Ik.WerknemerId.Value);
+    }
+
+    private async Task Opslaan()
+    {
+        if (Ik.WerknemerId is not int id || Ik.IsWerkplek) return;
+        if (!Pincode.Geldig(_nieuw)) { Toon("Een pincode is precies 4 cijfers.", true); return; }
+        if (_nieuw != _herhaal) { Toon("De twee pincodes zijn niet gelijk.", true); return; }
+        if (_nieuw is "0000" or "1111" or "1234" or "4321" or "0123") { Toon("Kies een pincode die minder makkelijk te raden is.", true); return; }
+        try
+        {
+            await Repo.ZetPincodeAsync(id, _nieuw);
+            _heeft = true;
+            _nieuw = _herhaal = "";
+            Toon("Pincode opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

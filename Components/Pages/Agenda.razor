@@ -1,8 +1,6 @@
 @page "/agenda"
 @inject HuidigeGebruiker Ik
 @inject AgendaService Api
-@inject WerkplekAgent Agent
-@inject IJSRuntime JS
 
 @if (_werkplek is null)
 {
@@ -165,21 +163,14 @@ else
     private string? _melding;
     private bool _fout;
 
-    // Gedeelde werkplek (MDE Werkplek-agent, agent.json: gedeelde_werkplek): geen agenda. Pas na de eerste weergave
-    // laden, want de agent is alleen vanuit de browser te bereiken.
+    // Werkplek (gekoppelde pc, Beheer ▸ Werkplekken): geen agenda, die is persoonlijk.
     private bool? _werkplek;
 
-    protected override async Task OnAfterRenderAsync(bool eerste)
+    protected override async Task OnInitializedAsync()
     {
-        if (!eerste) return;
-        try { await Agent.ControleerAsync(JS); } catch { }
-        _werkplek = Agent.Gedeeld;
-        if (_werkplek == false)
-        {
-            await Ik.ZorgGeladenAsync();
-            await Laad();
-        }
-        StateHasChanged();
+        await Ik.ZorgGeladenAsync();
+        _werkplek = Ik.IsWerkplek;
+        if (_werkplek == false) await Laad();
     }
 
     private static NieuweAfspraak LeegAfspraak() => new();

@@ -5,7 +5,6 @@
 @inject IRelatieRepository RelatieRepo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
-@inject WerkplekAgent Agent
 
 @if (_werkplek is null)
 {
@@ -13,12 +12,40 @@
 }
 else if (_werkplek == true)
 {
+    @* Werkplek (gedeelde pc): geen postbus lezen, alleen versturen vanaf de alias van de werkplek *@
     <div class="page">
-        <header class="topbar"><h1>Mail</h1></header>
-        <section class="module-placeholder">
-            <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
-            <p>Mail is persoonlijk. Op deze pc werken meerdere mensen, dus hier staat hij uit. Open hem op je eigen pc of telefoon.</p>
-        </section>
+        <header class="topbar"><h1>Mail versturen</h1><span class="weeklabel">@Ik.Naam</span></header>
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
+        }
+        @if (Postbussen.WerkplekReden(Ik) is { } reden)
+        {
+            <section class="module-placeholder"><p>@reden</p></section>
+        }
+        else
+        {
+            <section class="wp-mail">
+                <label><span>Van</span><input value="@_wpPostbus?.Afzender" disabled /></label>
+                <label><span>Aan</span><input value="@_wpAan" @oninput="e => _wpAan = (string?)e.Value ?? string.Empty" placeholder="naam@bedrijf.nl; nog@een.nl" /></label>
+                <label><span>CC</span><input value="@_wpCc" @oninput="e => _wpCc = (string?)e.Value ?? string.Empty" /></label>
+                <label><span>Onderwerp</span><input value="@_wpOnderwerp" @oninput="e => _wpOnderwerp = (string?)e.Value ?? string.Empty" /></label>
+                <label class="wp-tekst"><span>Bericht</span>
+                    <textarea rows="10" @oninput="e => _wpTekst = (string?)e.Value ?? string.Empty">@_wpTekst</textarea></label>
+                <div class="wp-bijlagen">
+                    <InputFile OnChange="WpBijlagen" multiple />
+                    @foreach (var b in _wpBijlagen)
+                    {
+                        var naam = b.Naam;
+                        <span class="wp-bijlage">📎 @naam <button type="button" class="klein" @onclick="() => _wpBijlagen.RemoveAll(x => x.Naam == naam)">✕</button></span>
+                    }
+                </div>
+                <div class="btngroup">
+                    <button class="primair" disabled="@_wpBezig" @onclick="WpVersturen">@(_wpBezig ? "Versturen…" : "Versturen")</button>
+                </div>
+                <p class="uitleg">Antwoorden op @_wpPostbus?.Afzender komen binnen in de postbus van @_wpPostbus?.Adres; die is op deze werkplek niet te lezen.</p>
+            </section>
+        }
     </div>
 }
 else
@@ -221,22 +248,57 @@ else
 
     private string RelatieTekst => _relatieId is int id ? id.ToString() : "";
 
-    // Gedeelde werkplek (MDE Werkplek-agent, agent.json: gedeelde_werkplek): geen mail. De agent is alleen vanuit de
-    // browser te bereiken, dus pas na de eerste weergave laden; zo komt er ook bij het voorrenderen niets mee.
+    // Werkplek (gekoppelde pc, Beheer ▸ Werkplekken): geen postbus lezen, alleen versturen vanaf de alias.
     private bool? _werkplek;
+    private MailPostbus? _wpPostbus;
+    private string _wpAan = "", _wpCc = "", _wpOnderwerp = "", _wpTekst = "";
+    private readonly List<(string Naam, byte[] Inhoud)> _wpBijlagen = new();
+    private bool _wpBezig;
 
-    protected override async Task OnAfterRenderAsync(bool eerste)
+    protected override async Task OnInitializedAsync()
     {
-        if (!eerste) return;
-        try { await Agent.ControleerAsync(JS); } catch { }
-        _werkplek = Agent.Gedeeld;
-        if (_werkplek == false) await Starten();
-        StateHasChanged();
+        await Ik.ZorgGeladenAsync();
+        _werkplek = Ik.IsWerkplek;
+        if (_werkplek == true) { _wpPostbus = Postbussen.Werkplek(Ik); return; }
+        await Starten();
+    }
+
+    private async Task WpBijlagen(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            foreach (var f in e.GetMultipleFiles(10))
+            {
+                using var ms = new MemoryStream();
+                await f.OpenReadStream(20 * 1024 * 1024).CopyToAsync(ms);
+                _wpBijlagen.Add((f.Name, ms.ToArray()));
+            }
+        }
+        catch (Exception ex) { _melding = "Bijlage lezen mislukt: " + ex.Message; _fout = true; }
+    }
+
+    private async Task WpVersturen()
+    {
+        if (_wpPostbus is null) return;
+        if (_wpAan.Trim().Length == 0) { _melding = "Vul in aan wie de mail gaat."; _fout = true; return; }
+        if (_wpOnderwerp.Trim().Length == 0) { _melding = "Vul een onderwerp in."; _fout = true; return; }
+        _wpBezig = true;
+        try
+        {
+            static string Lijst(string s) => string.Join(", ", s.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            await Post.VerstuurAsync(_wpPostbus, Lijst(_wpAan), _wpOnderwerp.Trim(), _wpTekst,
+                _wpBijlagen.Count > 0 ? _wpBijlagen.ToList() : null, _wpCc.Trim().Length > 0 ? Lijst(_wpCc) : null);
+            _melding = $"Verstuurd naar {_wpAan.Trim()}.";
+            _fout = false;
+            _wpAan = _wpCc = _wpOnderwerp = _wpTekst = "";
+            _wpBijlagen.Clear();
+        }
+        catch (Exception ex) { _melding = "Versturen mislukt: " + ex.Message; _fout = true; }
+        finally { _wpBezig = false; }
     }
 
     private async Task Starten()
     {
-        await Ik.ZorgGeladenAsync();
         _postbussen = Postbussen.Voor(Ik);
         _postbus = _postbussen.FirstOrDefault();
         _postbusSleutel = _postbus?.Sleutel ?? "eigen";

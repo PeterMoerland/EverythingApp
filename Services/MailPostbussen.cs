@@ -10,6 +10,12 @@
 /// </summary>
 public record MailPostbus(string Naam, string Adres, string? Recht, bool Eigen)
 {
+    /// <summary>
+    /// Verzenden als een alias van <see cref="Adres"/> (Gmail "verzenden als"): het serviceaccount werkt namens Adres,
+    /// de mail gaat uit van Afzender. Gebruikt door werkplekken (Beheer ▸ Werkplekken).
+    /// </summary>
+    public string? Afzender { get; init; }
+
     /// <summary>Sleutel voor keuzelijsten en onthouden welke postbus open stond.</summary>
     public string Sleutel => Eigen ? "eigen" : Adres.ToLowerInvariant();
 }
@@ -66,6 +72,9 @@ public class MailPostbussen
     /// </summary>
     public List<MailPostbus> Voor(HuidigeGebruiker ik)
     {
+        // Een werkplek (gedeelde pc) leest geen mail; versturen gaat via Werkplek(ik).
+        if (ik.IsWerkplek) return new();
+
         var uit = new List<MailPostbus>
         {
             new("Mijn mail", ik.Email, null, Eigen: true),
@@ -85,6 +94,25 @@ public class MailPostbussen
         }
         return uit;
     }
+
+    /// <summary>
+    /// De afzender van een werkplek: zijn alias, verstuurd namens het account waar die alias op staat. Null als de
+    /// werkplek geen afzender heeft of het serviceaccount niet werkt.
+    /// </summary>
+    public MailPostbus? Werkplek(HuidigeGebruiker ik)
+    {
+        var w = ik.Werkplek;
+        if (w is null || w.MailAfzender.Trim().Length == 0 || w.MailAccount.Trim().Length == 0 || !_serviceaccount.Beschikbaar) return null;
+        return new MailPostbus(w.Naam, w.MailAccount.Trim(), null, Eigen: false) { Afzender = w.MailAfzender.Trim() };
+    }
+
+    /// <summary>Waarom een werkplek (nog) niet kan mailen; null als het wel kan.</summary>
+    public string? WerkplekReden(HuidigeGebruiker ik)
+        => ik.Werkplek is not { } w ? null
+         : w.MailAfzender.Trim().Length == 0 || w.MailAccount.Trim().Length == 0
+             ? "Voor deze werkplek is nog geen afzender ingesteld (Beheer ▸ Werkplekken)."
+         : !_serviceaccount.Beschikbaar ? "Mail versturen werkt niet: " + _serviceaccount.Beschrijf()
+         : null;
 
     public MailPostbus? Zoek(HuidigeGebruiker ik, string? sleutel)
         => Voor(ik).FirstOrDefault(p => p.Sleutel == (sleutel ?? "eigen"));

@@ -1,0 +1,284 @@
+@page "/beheer/werkplekken"
+@inject IWerkplekRepository Repo
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* Beheer ▸ Werkplekken: pc's waar meerdere mensen aan werken (robots, magazijn). Een werkplek is geen Google-account
+   (geen licentie): met een koppelcode wordt een pc die werkplek (WerkplekLogin, /werkplek/koppelen). Rechten en historie
+   via een niet-persoon in Werknemers; Mail lezen en Agenda staan op een werkplek uit, versturen gaat vanaf de alias.
+   Alleen voor het recht Beheer of Directie. Tabellen: Werkplekken_MariaDB.sql. *@
+
+<PageTitle>Werkplekken — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Werkplekken</h1>
+        @if (Mag && _tabellen == true)
+        {
+            <button class="primair" @onclick="Nieuw">+ Nieuwe werkplek</button>
+        }
+    </header>
+    <p class="uitleg">Pc's waar meerdere mensen aan werken. Zo'n pc logt niet in met Google maar wordt hier gekoppeld met een
+        code. Op een werkplek staan Mail lezen en Agenda uit; mailen kan vanaf de alias van de werkplek.</p>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!Mag)
+    {
+        <div class="melding fout">Werkplekken beheren mag met het recht Beheer of Directie.</div>
+    }
+    else if (_tabellen == false)
+    {
+        <div class="melding fout">De tabellen ontbreken nog: voer <code>Werkplekken_MariaDB.sql</code> uit op de MDE-database.</div>
+    }
+    else if (_tabellen == true)
+    {
+        <table class="kiezer-tabel wp-lijst">
+            <thead><tr><th>Werkplek</th><th>Rechten / historie als</th><th>Productie</th><th>Startpagina</th><th>Mailt als</th><th>Pc's</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var w in _lijst)
+            {
+                var id = w.Id;
+                <tr class="@(w.Id == _bewerk?.Id ? "gekozen" : "") @(w.Actief ? "" : "vervallen")" @key="w.Id" @onclick="() => Kies(id)" style="cursor:pointer">
+                    <td><b>@w.Naam</b>@if (!w.Actief) { <small class="uitleg"> (uit)</small> }</td>
+                    <td>@NaamVan(w.WerknemerId)</td>
+                    <td>@(w.Productie ? "ja" : "nee")</td>
+                    <td>@w.Startpagina</td>
+                    <td>@w.MailAfzender</td>
+                    <td>@(_aantallen.GetValueOrDefault(w.Id))</td>
+                    <td><button class="klein" @onclick:stopPropagation @onclick="() => Kies(id)">Bewerken</button></td>
+                </tr>
+            }
+            @if (_lijst.Count == 0)
+            {
+                <tr><td colspan="7" class="kiezer-info">Nog geen werkplekken. Maak er een met + Nieuwe werkplek.</td></tr>
+            }
+            </tbody>
+        </table>
+
+        <section class="wp-bewerk wp-pincodes">
+            <h3>Pincodes</h3>
+            <p class="uitleg">Met een pincode geeft iemand op een werkplek aan dat hij eraan werkt. Iedereen stelt die zelf in
+                (Werknemers ▸ Mijn pincode). Vergeten: hier wissen, dan stelt hij een nieuwe in.</p>
+            @if (_pincodes.Count == 0)
+            {
+                <p class="uitleg">Nog niemand heeft een pincode.</p>
+            }
+            else
+            {
+                <div class="wp-pinlijst">
+                    @foreach (var k in _pincodes)
+                    {
+                        var kid = k.Id;
+                        var knaam = k.Naam;
+                        <span class="wp-pin">@k.Naam <button class="klein" @onclick="() => WisPincode(kid, knaam)">Wissen</button></span>
+                    }
+                </div>
+            }
+        </section>
+
+        @if (_bewerk is { } b)
+        {
+            <section class="wp-bewerk">
+                <h2>@(b.Id == 0 ? "Nieuwe werkplek" : b.Naam)</h2>
+                <div class="wp-velden">
+                    <label><span>Naam</span><input value="@b.Naam" @oninput="e => b.Naam = (string?)e.Value ?? string.Empty" placeholder="bv. Robotplek 1, Magazijn inboeken" /></label>
+                    <label><span>Rechten en historie als</span>
+                        <select value="@b.WerknemerId" @onchange="e => b.WerknemerId = int.TryParse((string?)e.Value, out var x) ? x : 0">
+                            <option value="0">— kies een werknemer die geen persoon is —</option>
+                            @foreach (var k in _nietPersonen)
+                            {
+                                <option value="@k.Id">@k.Naam</option>
+                            }
+                        </select>
+                        <small class="uitleg">De rechten (Werknemers) en de naam in de historie. Staat de juiste er niet bij, maak dan in
+                            Werknemers een werknemer aan met Persoon = nee.</small>
+                    </label>
+                    <label class="vink"><input type="checkbox" checked="@b.Productie" @onchange="e => b.Productie = e.Value is true" /> Productie tonen
+                        <small class="uitleg">(alleen als er ook een MDE Werkplek-agent op de pc staat)</small></label>
+                    <label><span>Startpagina</span><input value="@b.Startpagina" list="wp-paginas" @oninput="e => b.Startpagina = (string?)e.Value ?? string.Empty" placeholder="bv. voorraad/dragers (leeg = Ureningave)" /></label>
+                    <datalist id="wp-paginas">
+                        @foreach (var (_, item) in Menu.WerkendeItems())
+                        {
+                            <option value="@item.Url.TrimStart('/')">@item.Label</option>
+                        }
+                    </datalist>
+                    <label><span>Mailt als (alias)</span><input value="@b.MailAfzender" @oninput="e => b.MailAfzender = (string?)e.Value ?? string.Empty" placeholder="bv. magazijn@mde-automation.nl" /></label>
+                    <label><span>Alias staat op account</span><input value="@b.MailAccount" @oninput="e => b.MailAccount = (string?)e.Value ?? string.Empty" placeholder="bv. inkoop@mde-automation.nl" />
+                        <small class="uitleg">Het bestaande Google-account waar de alias als "verzenden als" op staat (Gmail ▸ Instellingen ▸
+                            Accounts). De app verstuurt namens dat account; antwoorden komen daar binnen.</small></label>
+                    <label class="vink"><input type="checkbox" checked="@b.Actief" @onchange="e => b.Actief = e.Value is true" /> Actief
+                        <small class="uitleg">(uit = gekoppelde pc's worden buitengesloten)</small></label>
+                </div>
+                <div class="btngroup">
+                    <button class="primair" @onclick="Opslaan">Opslaan</button>
+                    <button @onclick="() => _bewerk = null">Sluiten</button>
+                </div>
+
+                @if (b.Id > 0)
+                {
+                    <h3>Pc koppelen</h3>
+                    @if (_code is { } c)
+                    {
+                        <div class="wp-code">
+                            <div>Open op de pc: <b>@KoppelAdres</b></div>
+                            <div class="wp-code-groot">@c.Code</div>
+                            <div class="uitleg">Geldig tot @c.Tot.ToString("HH:mm"); één keer te gebruiken.</div>
+                        </div>
+                    }
+                    <button class="klein" @onclick="MaakCode">@(_code is null ? "Koppelcode maken" : "Nieuwe code")</button>
+
+                    <h3>Gekoppelde pc's</h3>
+                    @if (_apparaten.Count == 0)
+                    {
+                        <p class="uitleg">Nog geen pc gekoppeld.</p>
+                    }
+                    else
+                    {
+                        <table class="kiezer-tabel">
+                            <thead><tr><th>Gekoppeld op</th><th>Laatst gezien</th><th>Browser en adres</th><th></th></tr></thead>
+                            <tbody>
+                            @foreach (var a in _apparaten)
+                            {
+                                var aid = a.Id;
+                                <tr @key="a.Id">
+                                    <td>@a.GekoppeldOp.ToString("dd-MM-yyyy HH:mm")</td>
+                                    <td>@(a.LaatstGezien?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                    <td><small>@a.Omschrijving</small></td>
+                                    <td><button class="klein rood" @onclick="() => Ontkoppel(aid)">Ontkoppelen</button></td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private bool? _tabellen;
+    private List<Werkplek> _lijst = new();
+    private Dictionary<int, int> _aantallen = new();
+    private List<Keuze> _nietPersonen = new();
+    private List<Keuze> _pincodes = new();
+    private Werkplek? _bewerk;
+    private List<WerkplekApparaat> _apparaten = new();
+    private (string Code, DateTime Tot)? _code;
+    private string? _melding;
+    private bool _fout;
+
+    /// <summary>Beheer of Directie; zonder inlog (lokaal testen) ook.</summary>
+    private bool Mag => Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Ingelogd;
+    private string KoppelAdres => Nav.BaseUri + "werkplek/koppelen";
+    private string NaamVan(int werknemerId) => _nietPersonen.FirstOrDefault(k => k.Id == werknemerId)?.Naam ?? $"#{werknemerId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Mag || !Repo.Beschikbaar) { _tabellen = Repo.Beschikbaar ? null : false; return; }
+        _tabellen = await Repo.TabellenAanwezigAsync();
+        if (_tabellen != true) return;
+        try
+        {
+            _nietPersonen = await Repo.NietPersonenAsync();
+            _pincodes = await Repo.MetPincodeAsync();
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Laad()
+    {
+        _lijst = await Repo.LijstAsync();
+        _aantallen = new();
+        foreach (var w in _lijst) _aantallen[w.Id] = (await Repo.ApparatenAsync(w.Id)).Count;
+    }
+
+    private void Nieuw()
+    {
+        _bewerk = new Werkplek { Productie = true, Actief = true };
+        _apparaten = new();
+        _code = null;
+    }
+
+    private async Task Kies(int id)
+    {
+        var w = _lijst.FirstOrDefault(x => x.Id == id);
+        if (w is null) return;
+        _bewerk = w.Kopie();
+        _code = w.KoppelCodeTot > DateTime.Now && w.KoppelCode.Length > 0 ? (w.KoppelCode, w.KoppelCodeTot!.Value) : null;
+        _apparaten = await Repo.ApparatenAsync(id);
+    }
+
+    private async Task Opslaan()
+    {
+        if (_bewerk is not { } b) return;
+        b.Naam = b.Naam.Trim();
+        if (b.Naam.Length == 0) { Toon("Geef de werkplek een naam.", true); return; }
+        if (b.WerknemerId == 0) { Toon("Kies voor wie de werkplek rechten krijgt (een werknemer die geen persoon is).", true); return; }
+        if ((b.MailAfzender.Trim().Length > 0) != (b.MailAccount.Trim().Length > 0))
+        { Toon("Vul voor mailen zowel de alias als het account in (of allebei leeg).", true); return; }
+        if (b.MailAfzender.Trim().Length > 0 && (!b.MailAfzender.Contains('@') || !b.MailAccount.Contains('@')))
+        { Toon("Alias en account moeten e-mailadressen zijn.", true); return; }
+        try
+        {
+            var nieuw = b.Id == 0;
+            b.Id = await Repo.BewaarAsync(b);
+            await Laad();
+            Toon(nieuw ? $"Werkplek '{b.Naam}' aangemaakt. Maak nu een koppelcode voor de pc." : "Opgeslagen.", false);
+            await Kies(b.Id);
+        }
+        catch (Exception ex)
+        {
+            Toon(ex.Message.Contains("Duplicate", StringComparison.OrdinalIgnoreCase) || ex.Message.Contains("al een werkplek")
+                ? "Er is al een werkplek met deze naam." : "Opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    private async Task MaakCode()
+    {
+        if (_bewerk is not { Id: > 0 } b) return;
+        try { _code = await Repo.MaakKoppelCodeAsync(b.Id); }
+        catch (Exception ex) { Toon("Code maken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Ontkoppel(int apparaatId)
+    {
+        bool zeker;
+        try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", "Deze pc ontkoppelen?\n\nHij wordt bij het volgende laden van een pagina uitgelogd en moet opnieuw gekoppeld worden."); }
+        catch { zeker = false; }
+        if (!zeker || _bewerk is null) return;
+        try
+        {
+            await Repo.OntkoppelAsync(apparaatId);
+            WerkplekLogin.Vergeet(apparaatId);
+            _apparaten = await Repo.ApparatenAsync(_bewerk.Id);
+            _aantallen[_bewerk.Id] = _apparaten.Count;
+            Toon("Pc ontkoppeld.", false);
+        }
+        catch (Exception ex) { Toon("Ontkoppelen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisPincode(int werknemerId, string naam)
+    {
+        bool zeker;
+        try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"De pincode van {naam} wissen?\n\nDiegene kan zich dan pas weer op een werkplek aanmelden na het instellen van een nieuwe pincode."); }
+        catch { zeker = false; }
+        if (!zeker) return;
+        try
+        {
+            await Repo.WisPincodeAsync(werknemerId);
+            _pincodes = await Repo.MetPincodeAsync();
+            Toon($"Pincode van {naam} gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
