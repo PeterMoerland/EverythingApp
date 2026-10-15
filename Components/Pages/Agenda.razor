@@ -1,7 +1,25 @@
 @page "/agenda"
 @inject HuidigeGebruiker Ik
 @inject AgendaService Api
+@inject WerkplekAgent Agent
+@inject IJSRuntime JS
 
+@if (_werkplek is null)
+{
+    <div class="page"><header class="topbar"><h1>Agenda</h1></header><p class="uitleg">Laden…</p></div>
+}
+else if (_werkplek == true)
+{
+    <div class="page">
+        <header class="topbar"><h1>Agenda</h1></header>
+        <section class="module-placeholder">
+            <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
+            <p>De agenda is persoonlijk. Op deze pc werken meerdere mensen, dus hier staat hij uit. Open hem op je eigen pc of telefoon.</p>
+        </section>
+    </div>
+}
+else
+{
 <div class="page">
     <header class="topbar">
         <h1>Agenda</h1>
@@ -124,6 +142,7 @@
         maakt komen direct in je agenda te staan — genodigden krijgen een uitnodiging.
     </footer>
 </div>
+}
 
 @code {
     private static readonly System.Globalization.CultureInfo _nl = new("nl-NL");
@@ -146,10 +165,21 @@
     private string? _melding;
     private bool _fout;
 
-    protected override async Task OnInitializedAsync()
+    // Gedeelde werkplek (MDE Werkplek-agent, agent.json: gedeelde_werkplek): geen agenda. Pas na de eerste weergave
+    // laden, want de agent is alleen vanuit de browser te bereiken.
+    private bool? _werkplek;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
     {
-        await Ik.ZorgGeladenAsync();
-        await Laad();
+        if (!eerste) return;
+        try { await Agent.ControleerAsync(JS); } catch { }
+        _werkplek = Agent.Gedeeld;
+        if (_werkplek == false)
+        {
+            await Ik.ZorgGeladenAsync();
+            await Laad();
+        }
+        StateHasChanged();
     }
 
     private static NieuweAfspraak LeegAfspraak() => new();

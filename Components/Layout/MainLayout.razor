@@ -55,6 +55,12 @@
             @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
             <Snelbalk @ref="_snelbalk" OpenVenster="OpenVenster" Gewijzigd="StateHasChanged" />
             <span class="shell-top-vulling"></span>
+            @if (Agent.Gedeeld)
+            {
+                <span class="gedeeld-label" title="Meerdere mensen werken aan deze pc; Mail en Agenda zijn hier geblokkeerd">
+                    👥 Gedeelde werkplek@(Agent.Hostnaam.Length > 0 ? " · " + Agent.Hostnaam : "")
+                </span>
+            }
             @if (Ik.Ingelogd)
             {
                 <span class="gebruiker" title="@Ik.Email">
@@ -166,6 +172,9 @@
 
 @code {
     private record Doel(string Categorie, string Label, string Url);
+
+    /// <summary>Persoonlijke schermen die op een gedeelde werkplek geblokkeerd zijn.</summary>
+    private static bool IsPersoonlijk(string url) => url.TrimStart('/').Split('?', '#')[0] is "mail" or "agenda";
 
     private bool _open;
     private bool _kiosk;
@@ -369,9 +378,10 @@
     private void ZoekInput(ChangeEventArgs e) => _zoek = (string?)e.Value ?? "";
 
     private IEnumerable<Doel> Resultaten() =>
-        string.IsNullOrWhiteSpace(_zoek)
+        (string.IsNullOrWhiteSpace(_zoek)
             ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
-            : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase));
+            : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase)))
+        .Where(d => !(Agent.Gedeeld && IsPersoonlijk(d.Url)));   // gedeelde werkplek: geen Mail en Agenda
 
     private void Toets(KeyboardEventArgs e)
     {
@@ -386,6 +396,7 @@
     private void Ga(Doel d)
     {
         Sluit();
+        if (Agent.Gedeeld && IsPersoonlijk(d.Url)) return;
         Nav.NavigateTo(d.Url);
     }
 

@@ -479,6 +479,15 @@ verwijderen; slepen = volgorde; Alt+1 … Alt+0 (`wwwroot/snelbalk.js`, op `e.co
   Agenda staan in het zoekvenster (Ctrl+K). RecentPagesService houdt nog bij, maar wordt niet meer getoond.
 - **Nog niet:** standaardset van Beheer, tellingen op tegels.
 
+## Gedeelde werkplek (15-10-2026, agent 1.17.0)
+
+Productie-pc's aan de wand waar meerdere mensen aan werken (bijv. de robots): `agent.json` →
+`"gedeelde_werkplek": true`. `/health` geeft dan `gedeeld: true`; `WerkplekAgent.Gedeeld` (per circuit). De app toont
+bovenin "👥 Gedeelde werkplek · <pc-naam>" en blokkeert Mail en Agenda: niet in het zoekvenster (`IsPersoonlijk` in
+MainLayout), en de pagina's laden pas na de agentcontrole in `OnAfterRenderAsync` (dus ook niets bij het voorrenderen)
+en tonen anders "Niet beschikbaar op een gedeelde werkplek". Advies aan de gebruiker: zo'n pc inloggen met een apart
+werkplekaccount, niet persoonlijk (het blokkeren beschermt alleen de app, niet Gmail zelf). Getest met een nep-agent.
+
 ## Historie van een exemplaar opschonen (15-10-2026)
 
 Op verzoek (testen van de software gaf veel niet-relevante rode regels): met het recht **Directie** staat op

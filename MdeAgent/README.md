@@ -45,6 +45,10 @@ Taken (uitbreidbaar, zie `mde_agent/taken/`):
    per taak of hij beschikbaar is (en anders waarom niet).
 
 Instellingen: `C:\ProgramData\MDE\Agent\agent.json`; log: `...\Agent\log\agent.log`.
+
+**Gedeelde werkplek** (pc waar meerdere mensen aan werken, bijv. een robotplek): zet in `agent.json`
+`"gedeelde_werkplek": true` en herstart de service. De app toont dan bovenin "Gedeelde werkplek" en blokkeert
+Mail en Agenda. Log zo'n pc in met een apart werkplekaccount, niet met een persoonlijk Google-account.
 Meestal hoef je niets in te stellen — de EtherCAT-adapter wordt gezocht en onthouden,
 de COM-poort van de ESP32 wordt herkend, STM32CubeProgrammer wordt gevonden als hij er is.
 

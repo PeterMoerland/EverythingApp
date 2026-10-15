@@ -5,7 +5,24 @@
 @inject IRelatieRepository RelatieRepo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject WerkplekAgent Agent
 
+@if (_werkplek is null)
+{
+    <div class="page"><header class="topbar"><h1>Mail</h1></header><p class="uitleg">Laden…</p></div>
+}
+else if (_werkplek == true)
+{
+    <div class="page">
+        <header class="topbar"><h1>Mail</h1></header>
+        <section class="module-placeholder">
+            <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
+            <p>Mail is persoonlijk. Op deze pc werken meerdere mensen, dus hier staat hij uit. Open hem op je eigen pc of telefoon.</p>
+        </section>
+    </div>
+}
+else
+{
 <div class="page">
     <header class="topbar">
         <h1>Mail</h1>
@@ -167,6 +184,7 @@
         serviceaccount, zodat iedereen met het juiste recht hetzelfde ziet.
     </footer>
 </div>
+}
 
 @code {
     private record MailMap(string Naam, string Vraag);
@@ -203,7 +221,20 @@
 
     private string RelatieTekst => _relatieId is int id ? id.ToString() : "";
 
-    protected override async Task OnInitializedAsync()
+    // Gedeelde werkplek (MDE Werkplek-agent, agent.json: gedeelde_werkplek): geen mail. De agent is alleen vanuit de
+    // browser te bereiken, dus pas na de eerste weergave laden; zo komt er ook bij het voorrenderen niets mee.
+    private bool? _werkplek;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        try { await Agent.ControleerAsync(JS); } catch { }
+        _werkplek = Agent.Gedeeld;
+        if (_werkplek == false) await Starten();
+        StateHasChanged();
+    }
+
+    private async Task Starten()
     {
         await Ik.ZorgGeladenAsync();
         _postbussen = Postbussen.Voor(Ik);

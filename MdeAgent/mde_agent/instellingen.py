@@ -28,6 +28,7 @@ STANDAARD = {
     "feetech_poort": "",               # COM-poort van de Feetech USB-adapter; leeg = automatisch zoeken
     "feetech_baud": 0,                 # 0 = gangbare baudrates proberen (1M, 115200, …)
     "drive_boot_in_app": None,         # ingeniamotion load_firmware_ecat; None = uit de bestandsextensie bepalen (aanbevolen)
+    "gedeelde_werkplek": False,        # true = pc waar meerdere mensen aan werken: de app blokkeert dan Mail en Agenda
 }
 
 
