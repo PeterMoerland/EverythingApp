@@ -134,9 +134,11 @@
     {
         Nav.LocationChanged += OpLocatie;
         await Ik.ZorgGeladenAsync();
+        // E-mail voor werknemernummer: zo stonden de balken er al (door een laadfout was het nummer eerder vaak nog
+        // niet bekend), en het e-mailadres is er altijd meteen
         _sleutel = Ik.Werkplek is { } wp ? "p:" + wp.Id                    // gekoppelde pc: eigen balk per werkplek
-                 : Ik.WerknemerId is int w ? "w:" + w
                  : Ik.Email.Length > 0 ? "e:" + Ik.Email.ToLowerInvariant()
+                 : Ik.WerknemerId is int w ? "w:" + w
                  : Config.GetValue<bool>("Snelbalk:Geheugen") ? "lokaal" : null;
         if (_sleutel is null || !Repo.Beschikbaar) return;
         try
