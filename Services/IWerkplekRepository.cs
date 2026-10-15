@@ -264,10 +264,10 @@ public class MySqlWerkplekRepository : IWerkplekRepository
         {
             await using var cn = await OpenAsync();
             await using var cmd = new MySqlCommand(
-                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() " +
-                "   AND TABLE_NAME IN ('Werkplekken', 'WerkplekApparaten', 'WerknemerPincodes') " +
-                "   + (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
-                "        AND TABLE_NAME = 'WerkplekApparaten' AND COLUMN_NAME = 'LaatsteActiviteit')", cn);
+                "SELECT (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() " +
+                "          AND TABLE_NAME IN ('Werkplekken', 'WerkplekApparaten', 'WerknemerPincodes')) " +
+                "     + (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "          AND TABLE_NAME = 'WerkplekApparaten' AND COLUMN_NAME = 'LaatsteActiviteit')", cn);
             // 3 tabellen + de kolommen van "wie werkt er" (die kwamen later; een oudere versie van het script had ze niet)
             _tabellen = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 4;
         }
