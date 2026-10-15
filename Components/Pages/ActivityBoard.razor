@@ -366,15 +366,30 @@ else
                 </div>
 
                 <div class="ab-lab">Toegewezen aan</div>
+                @* Toegewezen personen als chips met ×; toevoegen via een keuzelijst (de hele lijst werknemers was te lang) *@
                 <div class="ab-kiezer">
-                    @foreach (var m in KiesPersonen(o))
+                    @foreach (var mid in o.Personen.ToList())
                     {
-                        var mid = m.Id;
-                        var aan = o.Personen.Contains(mid);
-                        <button type="button" class="ab-kies @(aan ? "aan ab-k-gray" : "")" aria-pressed="@aan" @onclick="() => Wissel(KoppelPersonen, mid)">
+                        var pid = mid;
+                        var m = _persoonOpId.GetValueOrDefault(pid);
+                        if (m is null) continue;
+                        <span class="ab-kies aan ab-k-gray ab-persoon">
                             <span class="ab-av" style="background:@ActKleur.Avatar(m.Naam)">@ActKleur.Initialen(m.Naam)</span>@m.Naam@(m.InDienst ? "" : " (uit dienst)")
-                        </button>
+                            <button type="button" class="ab-x" title="@("Haal " + m.Naam + " eraf")" aria-label="@(m.Naam + " eraf halen")"
+                                    @onclick="() => Wissel(KoppelPersonen, pid)">×</button>
+                        </span>
                     }
+                    <select class="ab-persoonkies" @key="PersoonKiesSleutel" @onchange="PersoonGekozen" aria-label="Persoon toevoegen">
+                        <option value="">+ persoon toevoegen…</option>
+                        @if (Ik.WerknemerId is int ik && !o.Personen.Contains(ik) && _persoonOpId.GetValueOrDefault(ik)?.Kiesbaar == true)
+                        {
+                            <option value="@ik">Ik (@_persoonOpId[ik].Naam)</option>
+                        }
+                        @foreach (var m in _personen.Where(x => x.Kiesbaar && !o.Personen.Contains(x.Id)))
+                        {
+                            <option value="@m.Id">@m.Naam</option>
+                        }
+                    </select>
                 </div>
 
                 <div class="ab-lab">Type</div>
@@ -899,15 +914,19 @@ else
         return true;
     }
 
-    /// <summary>Personen in de filter: wie in dienst is, plus wie uit dienst nog op een activiteit staat.</summary>
-    private IEnumerable<ActPersoon> FilterPersonen()
-    {
-        var gebruikt = _data?.Activiteiten.SelectMany(a => a.Personen).ToHashSet() ?? new();
-        return _personen.Where(p => p.InDienst || gebruikt.Contains(p.Id));
-    }
+    /// <summary>Personen in de filter: alleen echte personen die in dienst zijn (`Uit dienst` = nee, `Persoon` = ja).</summary>
+    private IEnumerable<ActPersoon> FilterPersonen() => _personen.Where(p => p.Kiesbaar);
 
-    private IEnumerable<ActPersoon> KiesPersonen(Activiteit o)
-        => _personen.Where(p => p.InDienst || o.Personen.Contains(p.Id));
+    private int _persoonKiesVersie;
+    private string PersoonKiesSleutel => $"pk-{_open?.Id}-{_persoonKiesVersie}";
+
+    /// <summary>Persoon uit de keuzelijst toevoegen; de lijst springt daarna terug op "+ persoon toevoegen…".</summary>
+    private async Task PersoonGekozen(ChangeEventArgs e)
+    {
+        _persoonKiesVersie++;
+        if (_open is null || !int.TryParse((string?)e.Value, out var id) || _open.Personen.Contains(id)) return;
+        await Wissel(KoppelPersonen, id);
+    }
 
     private static void ZetStatus(Activiteit a, string nieuw)
     {

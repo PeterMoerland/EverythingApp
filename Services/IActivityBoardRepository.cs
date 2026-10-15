@@ -3,8 +3,14 @@ using MySqlConnector;
 
 namespace EverythingApp.Services;
 
-/// <summary>Persoon voor "Toegewezen aan": alle werknemers, ook uit dienst (dan alleen nog tonen, niet kiezen).</summary>
-public record ActPersoon(int Id, string Naam, bool InDienst);
+/// <summary>
+/// Persoon voor "Toegewezen aan": alle werknemers, ook uit dienst of geen persoon (dan alleen nog tonen, niet kiezen).
+/// Kiesbaar = in dienst (`Uit dienst` = nee) en een echt persoon (`Persoon` = ja, dus niet "MDE Server" of "Niemand").
+/// </summary>
+public record ActPersoon(int Id, string Naam, bool InDienst, bool Persoon = true)
+{
+    public bool Kiesbaar => InDienst && Persoon;
+}
 
 /// <summary>
 /// Activity board (ActivityBoard_MariaDB.sql). Elke wijziging gaat direct naar de database; het scherm
@@ -309,11 +315,12 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             // `In dienst` is de datum van indiensttreding; het vlaggetje is `Uit dienst`
-            "SELECT `Werknemer-id`, COALESCE(`NaamVoluit`, CONCAT_WS(' ', `Voornaam`, `Achternaam`)) AS naam, COALESCE(`Uit dienst`, 0) = 0 " +
+            "SELECT `Werknemer-id`, COALESCE(`NaamVoluit`, CONCAT_WS(' ', `Voornaam`, `Achternaam`)) AS naam, COALESCE(`Uit dienst`, 0) = 0, COALESCE(`Persoon`, 0) <> 0 " +
             "  FROM `Werknemers` ORDER BY naam", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
-            lijst.Add(new ActPersoon(r.GetInt32(0), S(r, 1) is { Length: > 0 } n ? n : "(geen naam)", !r.IsDBNull(2) && Convert.ToInt32(r.GetValue(2)) != 0));
+            lijst.Add(new ActPersoon(r.GetInt32(0), S(r, 1) is { Length: > 0 } n ? n : "(geen naam)",
+                                     Convert.ToInt32(r.GetValue(2)) != 0, Convert.ToInt32(r.GetValue(3)) != 0));
         return lijst;
     }
 
