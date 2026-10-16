@@ -82,6 +82,11 @@ public interface IProductRepository
 
     // --- samenstelling (ParentProductenID) ---
     Task<List<SamenstellingRegel>> GetOnderdelenAsync(int productId);
+    /// <summary>
+    /// Het halffabricaat dat dit drive-serienummer bij zijn eigen test kreeg: een exemplaar met een attribuut waarvan de
+    /// bron 'drive:n:serienummer' of 'can:n:serienummer' is en de waarde dit nummer. Null = onbekend.
+    /// </summary>
+    Task<SamenstellingRegel?> ZoekOpDriveSerienummerAsync(string serienummer);
     Task<SamenstellingRegel?> GetGebruiktInAsync(int productId);
 
     /// <summary>Hangt een exemplaar onder een ander exemplaar.</summary>
@@ -161,6 +166,7 @@ public class GeenProductRepository : IProductRepository
         => Task.FromResult(0);
     public Task VerwijderAttribuutAsync(int productAttributeId) => Task.CompletedTask;
     public Task<int> SyncAttributenAsync(int productId, int productNameId, int? door) => Task.FromResult(0);
+    public Task<SamenstellingRegel?> ZoekOpDriveSerienummerAsync(string serienummer) => Task.FromResult<SamenstellingRegel?>(null);
     public Task<List<SamenstellingRegel>> GetOnderdelenAsync(int productId)
         => Task.FromResult(new List<SamenstellingRegel>());
     public Task<SamenstellingRegel?> GetGebruiktInAsync(int productId)
@@ -1036,6 +1042,24 @@ public class MySqlProductRepository : IProductRepository
             $" ORDER BY n.`ProductName`, p.`{serie}`", cn);
         cmd.Parameters.AddWithValue("@id", productId);
         return await LeesSamenstelling(cmd);
+    }
+
+    public async Task<SamenstellingRegel?> ZoekOpDriveSerienummerAsync(string serienummer)
+    {
+        if (string.IsNullOrWhiteSpace(serienummer)) return null;
+        var serie = await Kolom("Serienummer", "SerieNummer");
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            SamenstellingSelect + $", p.`{serie}` " +
+            "  FROM `Producten` p " +
+            "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
+            "  LEFT JOIN `ProductTypes` t ON t.`ProductTypeID` = n.`ProductTypeID` " +
+            " WHERE p.`ProductenID` = (SELECT a.`ProductID` FROM `ProductAttributes` a " +
+            "                            JOIN `ProductNameAttributes` na ON na.`ProductNameAttributeID` = a.`ProductNameAttributeID` " +
+            "                           WHERE (na.`Bron` LIKE 'drive:%:serienummer' OR na.`Bron` LIKE 'can:%:serienummer') " +
+            "                             AND TRIM(a.`AttributeValue`) = @sn ORDER BY a.`ProductID` DESC LIMIT 1)", cn);
+        cmd.Parameters.AddWithValue("@sn", serienummer.Trim());
+        return (await LeesSamenstelling(cmd)).FirstOrDefault();
     }
 
     public async Task<SamenstellingRegel?> GetGebruiktInAsync(int productId)

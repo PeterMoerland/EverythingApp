@@ -229,6 +229,18 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Product uitlezen: drives via de halffabricaten (16-10-2026)
+
+"Automatisch uitlezen" (ExemplaarWerk) eiste attributen met een bron `drive:n:serienummer`; een product (bv. MPR-1) heeft
+die niet, zijn drives horen bij de halffabricaten in de samenstelling. Nu **productmodus** (`ProductModus`: geen
+drive-attributen, wel driveposities bij het producttype): de verwachte assen zijn de driveposities (`VerwachteAssen`),
+type/firmware worden per positie gecontroleerd zoals altijd, en per gelezen serienummer zoekt
+`IProductRepository.ZoekOpDriveSerienummerAsync` het halffabricaat (attribuut met bron drive:/can:…:serienummer) en
+`KoppelHalffabricaten` vergelijkt met `GetOnderdelenAsync` (Producten.ParentProductenID): ✓ / "niet in de samenstelling"
+(NO-GO) / onbekend (melding). Er wordt **niets opgeslagen** in productmodus. eRob via SDO heeft geen elektronisch
+serienummer en is niet te koppelen. Query getest: SN 2148397740 → MPR-PCBA-RZ (576) in MPR-1 (330). Niet getest met
+de agent/hardware.
+
 ## Materiaal inboeken (16-10-2026)
 
 `/bestellingen/ontvangst` (Bestellingen ▸ Ontvangst ▸ Materiaal inboeken), `Components/Pages/Ontvangst.razor` +
@@ -246,6 +258,10 @@ bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 - Weggelaten (besluit gebruiker): projectkrat scannen (nooit gebruikt), voorraadorders verdelen (4 van 1.362, in Access
   waarschijnlijk stuk door `MagazijnID`), mail per regel (nooit gebruikt).
 - Lokaal getest t/m het scherm (PO-18351); **Aftekenen niet getest** (schrijft in de echte database).
+- **Oude bestellingen opruimen** (alleen Directie, knop 🧹 bovenaan): bestellingen in status 4/5 besteld vóór een datum
+  (standaard 1 januari van dit jaar; besteldatum leeg telt mee), vinkje per bestelling, dan `OpruimenAsync`: Status 6,
+  Delivered date/by, logregel "opgeruimd, niet afgetekend". **Geen** leveringen of voorraadmutaties, AllesIsGeleverd
+  ongewijzigd, geen mails/meldingen. Niet in de browser getest (lokaal geen Directie).
 
 ## Bestellingen: mail aan de leverancier (16-10-2026)
 

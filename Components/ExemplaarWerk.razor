@@ -124,7 +124,7 @@
         <div class="prod-drives-kop">
             <b>@(_drivesGo ? "GO" : "NO-GO")</b>
             <span>@_drivesOordeel</span>
-            @if (_drivesGo && !_drivesOpgeslagen)
+            @if (_drivesGo && !_drivesOpgeslagen && !ProductModus)
             {
                 <button class="primair klein" disabled="@(!Mag || _bezig)" @onclick="BewaarDrives">Alsnog opslaan</button>
             }
@@ -136,7 +136,15 @@
                 <thead>
                     <tr>
                         <th style="width:4rem">Pos.</th>
-                        <th style="width:12rem" title="Attribuut waarin het serienummer komt">Naar attribuut</th>
+                        @if (ProductModus)
+                        {
+                            <th style="width:11rem">Positie</th>
+                            <th style="width:16rem" title="Het halffabricaat dat dit serienummer bij zijn eigen test kreeg">Halffabricaat</th>
+                        }
+                        else
+                        {
+                            <th style="width:12rem" title="Attribuut waarin het serienummer komt">Naar attribuut</th>
+                        }
                         <th title="Type volgens de productcode (Controllertypen); daarachter de naam zoals die in de EEPROM van de drive staat — bij Ingenia is die generiek en zegt hij niets over het model">Type (EEPROM-naam)</th>
                         <th style="width:9rem">Productcode</th>
                         <th style="width:8rem">Revisie</th>
@@ -151,6 +159,7 @@
                         <tr class="@(d.Ok ? "" : "ec-fout")">
                             <td>@d.Positie</td>
                             <td>@d.As</td>
+                            @if (ProductModus) { <td><span class="stand-chip @d.HalfKleur">@d.Halffabricaat</span></td> }
                             <td title="@($"EEPROM-naam: {d.Naam}" + (d.ApparaatNaam.Length > 0 ? $" · 0x1008: {d.ApparaatNaam}" : ""))">
                                 @if (d.TypeUitTabel.Length > 0) { <b>@d.TypeUitTabel</b> <small class="uitleg">@d.Naam</small> }
                                 else { @d.Naam }
@@ -1572,6 +1581,17 @@
 
     /// <summary>De drives volgens het product: één per 'drive:n:serienummer'-attribuut, op
     /// volgorde van n. Leeg = het type heeft geen automatisch te vullen attributen.</summary>
+    /// <summary>
+    /// Product (bv. MPR) zonder eigen drive-attributen, wel met driveposities: de drives horen bij de halffabricaten in
+    /// de samenstelling. Uitlezen controleert dan type/firmware per positie en zoekt bij elk serienummer het
+    /// halffabricaat op (ZoekOpDriveSerienummerAsync); er wordt niets in attributen gezet.
+    /// </summary>
+    private bool ProductModus => Assen().Length == 0 && DrivePosities.Count > 0;
+
+    /// <summary>Wat er per positie op de bus verwacht wordt: de attributen, of in productmodus de driveposities.</summary>
+    private string[] VerwachteAssen()
+        => ProductModus ? DrivePosities.OrderBy(p => p.Positie).Select(p => p.Naam.Length > 0 ? p.Naam : $"Drive {p.Positie}").ToArray() : Assen();
+
     private string[] Assen()
     {
         var drives = _sjabloon
@@ -3540,6 +3560,9 @@
     {
         public int Positie;
         public string As = "";
+        /// <summary>Productmodus: het halffabricaat bij dit serienummer, en of het in de samenstelling zit.</summary>
+        public string Halffabricaat = "", HalfKleur = "s-grijs";
+        public bool HalfOnbekend, HalfVreemd;
         public string Naam = "";
         public string VendorId = "";       // EtherCAT Vendor ID (0x1018:1), hex
         public string ProductCode = "";
@@ -3665,8 +3688,8 @@
     {
         if (_leest || _agentUrl.Length == 0) return;
 
-        // Zonder aangewezen attributen valt er niets te plaatsen — dan ook niet uitlezen.
-        if (Assen().Length == 0)
+        // Zonder aangewezen attributen of driveposities valt er niets te controleren — dan ook niet uitlezen.
+        if (VerwachteAssen().Length == 0)
         {
             Toon($"'{Naam.Naam}' heeft geen attributen met een automatische bron (drive 1/2 · serienummer). " +
                  "Stel die in bij Producten ▸ producttype ▸ Attributen ▸ 'Automatisch gevuld uit'" +
@@ -3725,15 +3748,17 @@
             }
 
             regels = regels.OrderBy(r => r.Positie).ToList();
-            var assen = Assen();
+            var assen = VerwachteAssen();
             for (var i = 0; i < regels.Count; i++)
                 regels[i].As = i < assen.Length ? assen[i] : "";
 
             await ControleerDrives(regels);
+            if (ProductModus) await KoppelHalffabricaten(regels);
             Beoordeel(regels);
 
-            // GO? Dan meteen opslaan. Alleen als er al een (andere) waarde in een attribuut staat, eerst vragen.
-            if (_drivesGo)
+            // GO? Dan meteen opslaan (niet bij een product: daar horen de nummers bij de halffabricaten).
+            // Alleen als er al een (andere) waarde in een attribuut staat, eerst vragen.
+            if (_drivesGo && !ProductModus)
             {
                 var overschrijft = new List<string>();
                 for (var i = 0; i < regels.Count; i++)
@@ -3855,17 +3880,48 @@
         finally { _leest = false; }
     }
 
+    /// <summary>
+    /// Productmodus: bij elk gelezen serienummer het halffabricaat zoeken en vergelijken met de samenstelling van dit
+    /// product. Een eRob via SDO heeft geen elektronisch serienummer en is dus niet te koppelen.
+    /// </summary>
+    private async Task KoppelHalffabricaten(List<DriveRegel> regels)
+    {
+        List<SamenstellingRegel> onderdelen;
+        try { onderdelen = await Repo.GetOnderdelenAsync(ProductId); } catch { onderdelen = new(); }
+        foreach (var r in regels)
+        {
+            if (r.Serienummer.Length == 0)
+            {
+                r.Halffabricaat = r.ZonderElektronischSn ? "geen elektronisch serienummer" : "geen serienummer";
+                r.HalfKleur = "s-grijs";
+                continue;
+            }
+            SamenstellingRegel? h = null;
+            try { h = await Repo.ZoekOpDriveSerienummerAsync(r.Serienummer); } catch { }
+            if (h is null) { r.Halffabricaat = "onbekend serienummer"; r.HalfKleur = "s-geel"; r.HalfOnbekend = true; continue; }
+            var tekst = $"{h.Code} {h.Serienummer}".Trim();
+            if (onderdelen.Any(o => o.ProductId == h.ProductId)) { r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen"; }
+            else { r.Halffabricaat = tekst + " — niet in de samenstelling"; r.HalfKleur = "s-rood"; r.HalfVreemd = true; }
+        }
+    }
+
     private void Beoordeel(List<DriveRegel> regels)
     {
         _drives = regels;
-        var assen = Assen();
+        var assen = VerwachteAssen();
         var redenen = new List<string>();
         if (regels.Count != assen.Length)
             redenen.Add($"{regels.Count} drive(s) gevonden, {assen.Length} verwacht ({string.Join(", ", assen)})");
         var zonder = regels.Count(r => r.Serienummer.Length == 0 && !r.ZonderElektronischSn);
         if (zonder > 0) redenen.Add($"{zonder} drive(s) zonder serienummer");
         var handmatig = regels.Count(r => r.Serienummer.Length == 0 && r.ZonderElektronischSn);
-        if (handmatig > 0) _driveFouten.Add($"{handmatig} drive(s) zonder elektronisch serienummer (eRob): vul het nummer van het typeplaatje in bij het attribuut.");
+        if (handmatig > 0) _driveFouten.Add(ProductModus
+            ? $"{handmatig} drive(s) zonder elektronisch serienummer (eRob): niet aan een halffabricaat te koppelen."
+            : $"{handmatig} drive(s) zonder elektronisch serienummer (eRob): vul het nummer van het typeplaatje in bij het attribuut.");
+        var vreemd = regels.Count(r => r.HalfVreemd);
+        if (vreemd > 0) redenen.Add($"{vreemd} drive(s) van een halffabricaat dat niet in de samenstelling zit");
+        var onbekend = regels.Count(r => r.HalfOnbekend);
+        if (onbekend > 0) _driveFouten.Add($"{onbekend} serienummer(s) niet gevonden bij een getest halffabricaat.");
         var metFout = regels.Count(r => r.Fouten.Count > 0);
         if (metFout > 0) redenen.Add($"{metFout} drive(s) met meldingen");
         var verkeerdType = _controles.Count(c => c.TypeFout);
@@ -3874,7 +3930,7 @@
 
         _drivesGo = redenen.Count == 0;
         _drivesOordeel = _drivesGo
-            ? $"{regels.Count} drives, alle serienummers gelezen."
+            ? (ProductModus ? $"{regels.Count} drives op de juiste posities." : $"{regels.Count} drives, alle serienummers gelezen.")
             : string.Join(" · ", redenen);
         if (_driveAdapter.Length > 0) _drivesOordeel += $" (adapter: {_driveAdapter})";
     }

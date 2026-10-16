@@ -20,7 +20,46 @@
     <header class="topbar">
         <h1>Materiaal inboeken</h1>
         <span class="weeklabel">@_orders.Count bestelling(en) wachten op levering</span>
+        @if (Ik.Mag("Directie"))
+        {
+            <button class="klein" @onclick="OpenOpruimen" title="Oude bestellingen die nooit helemaal zijn afgetekend op Gereed zetten">🧹 Oude bestellingen opruimen…</button>
+        }
     </header>
+
+    @if (_opruimOpen)
+    {
+        <div class="cmdk-overlay midden" @onclick="() => _opruimOpen = false">
+            <div class="kiezer opr-venster" @onclick:stopPropagation role="dialog" aria-label="Oude bestellingen opruimen">
+                <div class="kiezer-kop"><b>🧹 Oude bestellingen op Gereed zetten</b><span style="flex:1"></span>
+                    <button class="klein" @onclick="() => _opruimOpen = false">✕</button></div>
+                <div class="opr-inhoud">
+                    <p class="uitleg">Bestellingen die op levering wachten en besteld zijn vóór de gekozen datum. Ze gaan naar
+                        <b>Gereed</b> zonder dat er leveringen of voorraad worden geboekt; in het orderlogboek komt
+                        "opgeruimd, niet afgetekend". Er gaan geen mails of meldingen uit.</p>
+                    <label class="opr-datum"><span>Besteld vóór</span>
+                        <NlDatum Waarde="_opruimVoor" WaardeChanged="OpruimDatum" />
+                        <small>@OpruimLijst.Count bestelling(en), @_opruimUit.Count uitgezet</small>
+                    </label>
+                    <div class="opr-lijst">
+                        @foreach (var o in OpruimLijst)
+                        {
+                            var oo = o;
+                            <label class="vink">
+                                <input type="checkbox" checked="@(!_opruimUit.Contains(o.OrderId))" @onchange="e => OpruimVink(oo.OrderId, e.Value is true)" />
+                                <b>PO-@o.OrderId</b> @o.Leverancier
+                                <small>@(o.Besteld?.ToString("dd-MM-yyyy") ?? "?") · @o.Werkorder @o.Project · @o.BesteldDoor · @o.OpenRegels open</small>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="kiezer-voet">
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="() => _opruimOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(OpruimAantal == 0 || _bezig)" @onclick="Opruimen">Op Gereed zetten (@OpruimAantal)</button>
+                </div>
+            </div>
+        </div>
+    }
 
     @if (_melding is not null)
     {
@@ -285,6 +324,47 @@
         }
         catch (Exception ex) { extra = " Mail versturen mislukt: " + ex.Message; }
         return extra;
+    }
+
+    // ---- oude bestellingen opruimen (Directie) ----
+    private bool _opruimOpen;
+    private DateOnly? _opruimVoor;
+    private HashSet<int> _opruimUit = new();
+
+    /// <summary>Op levering wachtend en besteld (of aangemaakt, als de besteldatum ontbreekt) vóór de gekozen datum.</summary>
+    private List<OntvangstOrder> OpruimLijst
+        => _opruimVoor is not { } voor ? new()
+         : _orders.Where(o => o.Besteld is null || DateOnly.FromDateTime(o.Besteld.Value) < voor).OrderBy(o => o.OrderId).ToList();
+    private int OpruimAantal => OpruimLijst.Count(o => !_opruimUit.Contains(o.OrderId));
+
+    private async Task OpenOpruimen()
+    {
+        _zoek = "";
+        await Laad();                                               // de hele lijst, niet alleen de zoekresultaten
+        _opruimVoor = new DateOnly(DateTime.Today.Year, 1, 1);      // standaard: alles van vóór dit jaar
+        _opruimUit = new();
+        _opruimOpen = true;
+    }
+
+    private void OpruimDatum(DateOnly? d) { _opruimVoor = d; _opruimUit.Clear(); }
+    private void OpruimVink(int id, bool aan) { if (aan) _opruimUit.Remove(id); else _opruimUit.Add(id); }
+
+    private async Task Opruimen()
+    {
+        var ids = OpruimLijst.Where(o => !_opruimUit.Contains(o.OrderId)).Select(o => o.OrderId).ToList();
+        if (ids.Count == 0 || Ik.WerknemerId is not int door || !Ik.Mag("Directie")) return;
+        if (!await Bevestig($"{ids.Count} bestelling(en) op Gereed zetten zonder af te tekenen?")) return;
+        _bezig = true;
+        try
+        {
+            var n = await Repo.OpruimenAsync(ids, door);
+            _opruimOpen = false;
+            if (_gekozen is { } g && ids.Contains(g.OrderId)) { _gekozen = null; _regels = new(); _leveringen = new(); }
+            await Laad();
+            Toon($"{n} oude bestelling(en) op Gereed gezet.", false);
+        }
+        catch (Exception ex) { Toon("Opruimen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
     }
 
     private static string Getal(double d) => d.ToString("0.###", new System.Globalization.CultureInfo("nl-NL"));

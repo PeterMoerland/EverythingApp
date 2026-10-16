@@ -39,6 +39,11 @@ public interface IOntvangstRepository
     Task<List<OntvangstLevering>> LeveringenAsync(int orderId);
     Task<OntvangstUitkomst> AftekenenAsync(int orderId, string pakbon, string opmerking, int door, IReadOnlyList<(int RegelId, double Aantal)> regels);
     Task<GeleverdMailGegevens?> GeleverdMailAsync(int orderId, int ontvanger);
+    /// <summary>
+    /// Oude bestellingen opruimen (Directie): status Gereed, Delivered date/by en een logregel, zonder leveringen te
+    /// registreren (er komt dus geen voorraadmutatie en AllesIsGeleverd blijft zoals het was). Alleen status 4/5.
+    /// </summary>
+    Task<int> OpruimenAsync(IReadOnlyCollection<int> orderIds, int door);
 }
 
 public class GeenOntvangstRepository : IOntvangstRepository
@@ -50,6 +55,7 @@ public class GeenOntvangstRepository : IOntvangstRepository
     public Task<OntvangstUitkomst> AftekenenAsync(int orderId, string pakbon, string opmerking, int door, IReadOnlyList<(int RegelId, double Aantal)> regels)
         => Task.FromResult(new OntvangstUitkomst(0, false, null, false));
     public Task<GeleverdMailGegevens?> GeleverdMailAsync(int orderId, int ontvanger) => Task.FromResult<GeleverdMailGegevens?>(null);
+    public Task<int> OpruimenAsync(IReadOnlyCollection<int> orderIds, int door) => Task.FromResult(0);
 }
 
 public class MySqlOntvangstRepository : IOntvangstRepository
@@ -241,6 +247,35 @@ public class MySqlOntvangstRepository : IOntvangstRepository
         }
         await tx.CommitAsync();
         return new OntvangstUitkomst(mee.Count, compleet, notifyTo ?? besteller, mailGevraagd);
+    }
+
+    public async Task<int> OpruimenAsync(IReadOnlyCollection<int> orderIds, int door)
+    {
+        var aantal = 0;
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        foreach (var id in orderIds.Distinct())
+        {
+            int n;
+            await using (var cmd = new MySqlCommand(
+                "UPDATE `Orders` SET `Status` = 6, `Delivered date` = NOW(), `Delivered by` = @d " +
+                " WHERE `Order-id` = @o AND `Status` IN (4, 5)", cn, tx))
+            {
+                cmd.Parameters.AddWithValue("@d", door);
+                cmd.Parameters.AddWithValue("@o", id);
+                n = await cmd.ExecuteNonQueryAsync();
+            }
+            if (n == 0) continue;
+            aantal++;
+            await using var log = new MySqlCommand(
+                "INSERT INTO `Log_Orderchanges` (`Order-ID`, `Toegevoegd`, `LogTekst`, `Groep`, `Door`) " +
+                "VALUES (@o, NOW(), 'Status: 6 bij opruimen oude bestellingen (niet afgetekend).', 'Status', @d)", cn, tx);
+            log.Parameters.AddWithValue("@o", id);
+            log.Parameters.AddWithValue("@d", door);
+            await log.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+        return aantal;
     }
 
     public async Task<GeleverdMailGegevens?> GeleverdMailAsync(int orderId, int ontvanger)

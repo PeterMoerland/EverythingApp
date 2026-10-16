@@ -3191,3 +3191,11 @@ html[data-thema="donker"] .vg-wie { color: #aab; }
 @media (max-width: 900px) { .ont-scherm { flex-direction: column; } .ont-lijst { width: auto; flex: none; } }
 html[data-thema="donker"] .ont-lijst, html[data-thema="donker"] .ont-detail { background: var(--d1); border-color: var(--d3); }
 html[data-thema="donker"] .ont-opm { background: #3a3014; }
+.opr-venster { width: min(56rem, 96vw); }
+.opr-inhoud { padding: .6rem .9rem; display: flex; flex-direction: column; gap: .5rem; min-height: 0; }
+.opr-datum { display: flex; align-items: center; gap: .6rem; }
+.opr-datum span { font-weight: 600; }
+.opr-datum small { color: #778; }
+.opr-lijst { display: flex; flex-direction: column; gap: .15rem; max-height: 50vh; overflow: auto; border: 1px solid #e3e8ef; border-radius: 6px; padding: .3rem .5rem; }
+.opr-lijst small { color: #889; margin-left: .3rem; }
+html[data-thema="donker"] .opr-lijst { border-color: var(--d3); }
