@@ -213,6 +213,58 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Bestellingen: popup Nieuwe bestelling (16-10-2026)
+
+Op verzoek: "+ Nieuwe bestelling" opent `Components/NieuweBestellingVenster.razor` (was een blok met twee lange
+keuzelijsten). Links leverancier, rechts werkorder; leeg zoekveld = wat deze werknemer de laatste tijd gebruikte
+(`IBestelRepository.RecentGebruiktAsync`: Supplier en Workorder-id uit Orders op Created by, nieuwste eerst), typen zoekt
+op alle woorden (leveranciers; open werkorders op nummer, omschrijving, project, klant). Pijltjes + Enter kiezen en gaan
+door naar het volgende veld, daarna staat de focus op Aanmaken; Ctrl+Enter = aanmaken, Esc = sluiten. Werkorder mag
+leeg ("Zonder werkorder"); "Uitgebreid zoeken" opent de bestaande `WerkorderKiezer` (ook gesloten, Recent, Persoonlijk).
+Aanmaken zelf is ongewijzigd (`NieuweBestellingAsync`). Lokaal getest zonder op Aanmaken te drukken (zou in de echte
+database schrijven).
+**Alleen werkorders met `Workorders.InkoopToegestaan <> 0`** (besluit gebruiker; waarden -1/1 = ja, 0/NULL = nee):
+`Workorder.InkoopToegestaan` (uit `WorkorderQuery`, ontbreekt de kolom dan ja). Geldt in de popup (lijst en
+`WerkorderKiezer AlleenInkoop`), in de keuzelijst Werkorder van het orderformulier (`_werkorders`; de huidige werkorder van
+een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
+bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
+
+## Bestellingen: standaardwaarden van de leverancier en afleveradres (16-10-2026)
+
+Zoals `FillInDefaults_Order` in Access (na aanmaken en na wisselen van leverancier, `OrderSupplier_AfterUpdate`):
+`IBestelRepository.LeverancierStandaardAsync` + `VulStandaardAsync` zetten contactpersoon (`Relations.OrderContact-id`),
+taal (`OrderLanguage`), standaard leverdatum (`OrderTime`, alleen als `Orders.DefaultLeverDatum` leeg is; volgende werkdag
+ma-vr + levertijd - 1, Access telde vanaf het weekend een dag verder) en het afleveradres. Heeft de leverancier een
+`DefaultVerzendAdres`, dan de vraag "Afleveren bij … ?": in de popup Nieuwe bestelling als Ja/Nee (Aanmaken wacht erop),
+bij wisselen van leverancier via `Bevestig`. Ja = `AfleverKlant-id`/`AfleverTAV-id` van de leverancier, Nee = leeg.
+"Ter attentie van" toont nu de contactpersonen van het afleveradres (lijst `AfleverContact`; was die van de leverancier).
+**CC bij bestelling** (`CCbijBestelling`, `CCmailadressBijBestelling`) vroeg Access pas bij het versturen van de mail; die
+staat nog niet in de app, dus nu alleen zichtbaar in het blok Leverancier. De vraag hoort bij het toekomstige versturen.
+Lokaal getest t/m de vraag (Schur B.V. -> Smits Service); het wegschrijven niet (echte database).
+
+## Bestellingen: werkbalk boven de regels, Plakken uit klembord (16-10-2026)
+
+**Plek van knoppen die regels toevoegen** (besluit gebruiker): de werkbalk boven de regels: "+ Regel", "📋 Plakken uit
+klembord" en het menu "Importeren ▾". Daar komen de andere imports uit het Access-formulier "Order sub form" (SMC- en
+Solar-website, Materialise-prijzen; nu grijs met "volgt").
+
+**Plakken uit klembord** (`Components/PlakVenster.razor`) vervangt `PasteFromClipboard_Click` (Access, "Order sub form"):
+- Klembord via `wwwroot/klembord.js` (`navigator.clipboard.readText`); mag dat niet, dan Ctrl+V in het vak.
+- Lezen in `Services/KlembordBestelling.cs`: tabs, kopregel; kopwoorden uit Access' lokale tabel `General_Settings`
+  (Keyword…) staan nu als constanten daar. Inventor-add-in: `BomExport` (Aantal, Artikelnummer, Omschrijving). Regels
+  zonder aantal doen niet mee.
+- Artikel zoeken `ZoekPlakArtikelAsync` in de volgorde van Access (ArtikelSupplier bij deze leverancier, ArtikelCodeMDE,
+  ArtikelID, `@ArtikelSearchlist.Filtered`, ArtikelCodeFactory); gevonden = fabriekscode en OmschrijvingNL.
+- Geen prijs geplakt: schatting zoals `GetSchatting` (`KlembordBestelling.Schatting`). **Anders dan Access**: de schatting
+  wordt niet teruggeschreven in `Artikelen.SchattingsKostprijsStuk`, en `needed-by` wordt niet gezet (net als "+ Regel").
+- Bijlages zoals `VoegBijlagesToe`: per soort die de leverancier wil (`Relations.ExportPDF/DXF/STP/STL`), alleen voor
+  artikelen in `@ArtikelListInventor`, nieuwste versie per bestandsnaam (zoals `sp_FileStore_Order_Bijlages`); precies
+  één = gekopieerd als StoreType 3, geen of meer = opmerking (zelf toevoegen via 📎).
+- **Nieuw t.o.v. Access**: eerst een voorbeeld (gevonden artikel, prijs/schatting, bijlages ✓/ontbreekt/meerdere, vinkje
+  per regel), dan Toevoegen; daarna een verslag.
+- Lokaal getest t/m het voorbeeld (PO-18352, Jansen Tholen: PDF/DXF/STP); **Toevoegen niet getest** (schrijft in de
+  echte database), en het automatisch lezen van het klembord op de server (https, browser vraagt toestemming) ook niet.
+
 ## Migratie Uitgaande facturen (okt 2026)
 - Analyse van het Access-formulier: `..\FacturenUitgaand_analyse.md`. In fasen (besluit gebruiker):
   1 overzicht (klaar: `Pages/UitgaandeFacturen.razor`, `IVerkoopFactuurRepository`), 2 nieuw/aanpassen met

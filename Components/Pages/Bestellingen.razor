@@ -66,35 +66,8 @@
                     </div>
                 </div>
 
-                @if (_nieuwOpen)
-                {
-                    <div class="nieuw-blok">
-                        <div class="wn-veld">
-                            <label>Leverancier</label>
-                            <select value="@NieuwLeverancierTekst" @onchange="NieuwLeverancierGewijzigd">
-                                <option value="">— kies —</option>
-                                @foreach (var l in _leveranciers)
-                                {
-                                    <option value="@l.Id">@l.Naam</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="wn-veld">
-                            <label>Werkorder</label>
-                            <select value="@NieuwWerkorderTekst" @onchange="NieuwWerkorderGewijzigd">
-                                <option value="">— kies —</option>
-                                @foreach (var w in _werkorders)
-                                {
-                                    <option value="@w.Id">@w.Naam</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="btngroup">
-                            <button class="primair" @onclick="MaakBestelling">Aanmaken</button>
-                            <button class="klein" @onclick="SluitNieuw">Annuleren</button>
-                        </div>
-                    </div>
-                }
+                <NieuweBestellingVenster Open="_nieuwOpen" Leveranciers="_leveranciers" Werkorders="_openWerkorders"
+                                         WerknemerId="Ik.WerknemerId" OpAanmaken="MaakBestelling" OpGesloten="SluitNieuw" />
 
                 @* tabindex maakt de lijst zelf bereikbaar, zodat de pijltjestoetsen
                    hier binnenkomen in plaats van bij de losse knoppen *@
@@ -211,7 +184,22 @@
                                     <div class="zij-regel">
                                         <span class="zij-naam">@LeverancierNaam()</span>
                                         <span class="zij-extra">@ContactNaam()</span>
+                                        @if (_levStandaard is { Cc: true } cc)
+                                        {
+                                            <span class="zij-extra" title="Relaties: CC bij bestelling. Access vroeg dit bij het versturen van de bestelling.">CC bij bestelling: @cc.CcAdres</span>
+                                        }
                                     </div>
+                                </ZijBlok>
+
+                                <ZijBlok Titel="Werkorder" Leeg="@(_werkorder is null)" LeegTekst="Geen werkorder gekozen.">
+                                    @if (_werkorder is { } wo)
+                                    {
+                                        <div class="zij-regel">
+                                            <span class="zij-naam">@wo.Weergave · @wo.Omschrijving</span>
+                                            <span class="zij-extra">Project: @(string.IsNullOrWhiteSpace(wo.Project) ? "—" : wo.Project)</span>
+                                            <span class="zij-extra">Klant: @(string.IsNullOrWhiteSpace(wo.Klant) ? "—" : wo.Klant)</span>
+                                        </div>
+                                    }
                                 </ZijBlok>
 
                                 <ZijBlok Titel="Regels" Aantal="_regels.Count"
@@ -227,23 +215,44 @@
                         </DetailMetZij>
                     }
 
-                    @* ---------- de regels ---------- *@
-                    <h3 class="wn-kop">Regels</h3>
+                    @* ---------- de regels ----------
+                       Werkbalk: alles wat regels toevoegt staat hier (besluit gebruiker 16-10-2026). Nieuwe imports
+                       (SMC-, Solar-website, Materialise-prijzen uit Access) komen in het menu Importeren. *@
+                    <div class="regels-balk">
+                        <h3 class="wn-kop">Regels</h3>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="NieuweRegel">+ Regel</button>
+                            <button class="klein" @onclick="() => _plakOpen = true"
+                                    title="Onderdelen van het klembord toevoegen, bv. uit Inventor (Collect Parts ▸ stuklijst naar klembord)">📋 Plakken uit klembord</button>
+                            <div class="menu-knop">
+                                <button class="klein" @onclick="() => _importMenu = !_importMenu">Importeren ▾</button>
+                                @if (_importMenu)
+                                {
+                                    <div class="menu-dicht" @onclick="() => _importMenu = false"></div>
+                                    <div class="menu-lijst" @onclick="() => _importMenu = false">
+                                        <button disabled title="Volgt: staat nog in Access">SMC-website <small>volgt</small></button>
+                                        <button disabled title="Volgt: staat nog in Access">Solar-website <small>volgt</small></button>
+                                        <button disabled title="Volgt: staat nog in Access">Materialise-prijzen <small>volgt</small></button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
                     <div class="regels-omhulsel">
                         <table class="kiezer-tabel regels">
                             <thead>
                                 <tr>
-                                    <th style="width:4.5rem" class="r">Aantal</th>
-                                    <th style="width:5rem">Eenheid</th>
-                                    <th style="width:11rem">Artikelcode</th>
+                                    <th style="width:3.6rem" class="r">Aantal</th>
+                                    <th style="width:4.2rem">Eenh.</th>
+                                    <th style="width:10rem">Artikelcode</th>
                                     <th>Omschrijving</th>
-                                    <th style="width:6rem">MDE</th>
-                                    <th style="width:7.5rem">Leverdatum</th>
-                                    <th style="width:6rem" class="r">Prijs</th>
-                                    <th style="width:4.5rem" class="r">Korting</th>
-                                    <th style="width:7rem" class="r">Totaal</th>
-                                    <th style="width:5rem" class="c" title="Geleverd">Gelev.</th>
-                                    <th style="width:6rem"></th>
+                                    <th style="width:5.5rem">MDE</th>
+                                    <th style="width:6.6rem">Leverdatum</th>
+                                    <th style="width:5.5rem" class="r">Prijs</th>
+                                    <th style="width:3.8rem" class="r" title="Korting in procenten">Korting</th>
+                                    <th style="width:6rem" class="r">Totaal</th>
+                                    <th style="width:3.6rem" class="c" title="Geleverd">Gelev.</th>
+                                    <th style="width:4.6rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -314,9 +323,8 @@
                         </table>
                     </div>
 
-                    <div class="btngroup">
-                        <button class="klein" @onclick="NieuweRegel">+ Regel toevoegen</button>
-                    </div>
+                    <PlakVenster Open="_plakOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
+                                 OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                 }
             </section>
         </div>
@@ -478,13 +486,12 @@
     private List<Keuze> _eenheden = new();
     private List<Keuze> _leveranciers = new();
     private List<Keuze> _werkorders = new();
+    private List<Workorder> _openWerkorders = new();
 
     private List<Bestand> _documenten = new();
     private bool _sleepActief;
 
     private bool _nieuwOpen;
-    private int? _nieuwLeverancier;
-    private int? _nieuwWerkorder;
 
     private string? _melding;
     private bool _fout;
@@ -497,8 +504,6 @@
 
     private string StatusFilterTekst => _statusFilter is int s ? s.ToString() : "";
     private string BesteldDoorTekst => _besteldDoor is int d ? d.ToString() : "";
-    private string NieuwLeverancierTekst => _nieuwLeverancier is int l ? l.ToString() : "";
-    private string NieuwWerkorderTekst => _nieuwWerkorder is int w ? w.ToString() : "";
 
     private List<Keuze> Lijst(string naam) => _lijsten.TryGetValue(naam, out var l) ? l : GeenLijst;
 
@@ -538,7 +543,11 @@
             try
             {
                 var open = await Uren.GetOpenWorkordersAsync();
-                _werkorders = open.Select(w => new Keuze(w.WerkbonId, $"{w.Nummer} · {w.Omschrijving}")).ToList();
+                _openWerkorders = open;
+                // alleen werkorders waarop ingekocht mag worden (Workorders.InkoopToegestaan); de huidige van een
+                // bestelling komt er per bestelling bij (WerkorderLijst), anders is het veld leeg
+                _werkorders = open.Where(w => w.InkoopToegestaan)
+                                  .Select(w => new Keuze(w.WerkbonId, WerkorderTekst(w))).ToList();
             }
             catch { }
 
@@ -674,17 +683,95 @@
         try { _velden = await Repo.GetVeldenAsync(b.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
 
+        await WerkorderLijst();
+        await LaadWerkorder();
         await LaadContacten();
+        await LaadStandaard();
         await LaadRegels();
         await LaadDocumenten();
     }
 
-    /// <summary>De contactpersonen horen bij de gekozen leverancier.</summary>
+    /// <summary>
+    /// Keuzelijst Werkorder in het orderformulier: de werkorders waarop ingekocht mag worden, plus de huidige van deze
+    /// bestelling als die er niet bij zit (gesloten of geen inkoop toegestaan), zodat het veld niet leeg lijkt.
+    /// </summary>
+    private async Task WerkorderLijst()
+    {
+        var lijst = _werkorders;
+        if (Nummer("Workorder-id") is int huidig && !lijst.Any(k => k.Id == huidig))
+        {
+            string naam;
+            try
+            {
+                var w = await Uren.GetWorkorderAsync(huidig);
+                naam = w is null ? $"#{huidig}"
+                     : WerkorderTekst(w) + (w.InkoopToegestaan ? " (gesloten)" : " (geen inkoop toegestaan)");
+            }
+            catch { naam = $"#{huidig}"; }
+            lijst = lijst.Prepend(new Keuze(huidig, naam)).ToList();
+        }
+        _lijsten["Werkorder"] = lijst;
+    }
+
+    /// <summary>
+    /// Tekst in de keuzelijst Werkorder: nummer · project · werkorder ("Inkoop" alleen zegt weinig). De klant staat
+    /// bewust niet in de lijst maar rechts in het blok Werkorder (wens gebruiker).
+    /// </summary>
+    private static string WerkorderTekst(Workorder w)
+        => string.Join(" · ", new[] { w.Weergave, w.Project?.Trim(), w.Omschrijving?.Trim() }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+    /// <summary>De werkorder van de gekozen bestelling, voor het blok Werkorder rechts (project en klant).</summary>
+    private Workorder? _werkorder;
+
+    private async Task LaadWerkorder()
+    {
+        _werkorder = null;
+        if (Nummer("Workorder-id") is not int id) return;
+        _werkorder = _openWerkorders.FirstOrDefault(w => w.WerkbonId == id);
+        if (_werkorder is null)
+        {
+            try { _werkorder = await Uren.GetWorkorderAsync(id); } catch { }
+        }
+    }
+
+    /// <summary>Mag er op deze werkorder ingekocht worden? Null = ja (geen werkorder); anders de reden van niet.</summary>
+    private async Task<string?> WerkorderNiet(int? werkorderId)
+    {
+        if (werkorderId is not int id) return null;
+        if (_werkorders.Any(k => k.Id == id)) return null;
+        try
+        {
+            var w = await Uren.GetWorkorderAsync(id);
+            if (w is null) return "Die werkorder bestaat niet.";
+            if (!w.InkoopToegestaan) return $"Op werkorder {w.Weergave} mag niet ingekocht worden.";
+            return null;
+        }
+        catch (Exception ex) { return "Werkorder controleren mislukt: " + ex.Message; }
+    }
+
+    /// <summary>
+    /// De contactpersonen horen bij de gekozen leverancier; die van "Ter attentie van" bij het afleveradres
+    /// (in Access: TAVselect volgt Afleverselect).
+    /// </summary>
     private async Task LaadContacten()
     {
         var leverancier = Nummer("Supplier");
         try { _lijsten["Contact"] = await Repo.GetContactenAsync(leverancier); }
         catch { _lijsten["Contact"] = new List<Keuze>(); }
+        try { _lijsten["AfleverContact"] = Nummer("AfleverKlant-id") is int a ? await Repo.GetContactenAsync(a) : new List<Keuze>(); }
+        catch { _lijsten["AfleverContact"] = new List<Keuze>(); }
+    }
+
+    /// <summary>Standaardwaarden van de leverancier van deze bestelling (voor CC bij bestelling in het blok rechts).</summary>
+    private LeverancierStandaard? _levStandaard;
+
+    private async Task LaadStandaard()
+    {
+        _levStandaard = null;
+        if (Nummer("Supplier") is int lev)
+        {
+            try { _levStandaard = await Repo.LeverancierStandaardAsync(lev); } catch { }
+        }
     }
 
     private async Task LaadRegels()
@@ -721,17 +808,42 @@
         try
         {
             var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
+            if (wijziging.Kolom.Equals("Workorder-id", StringComparison.OrdinalIgnoreCase)
+                && await WerkorderNiet(opslaan is null ? null : Convert.ToInt32(opslaan)) is { } niet)
+            {
+                Toon(niet, true);
+                return;
+            }
             await Repo.UpdateVeldAsync(_orderId.Value, wijziging.Kolom, opslaan);
             _velden[wijziging.Kolom] = opslaan;
 
-            // andere leverancier betekent andere contactpersonen
+            // andere leverancier: zijn standaardwaarden (contact, taal, leverdatum als die leeg is) en de vraag over
+            // het afleveradres, zoals OrderSupplier_AfterUpdate -> FillInDefaults_Order in Access
             if (wijziging.Kolom.Equals("Supplier", StringComparison.OrdinalIgnoreCase))
             {
-                await Repo.UpdateVeldAsync(_orderId.Value, "Contact", null);
-                _velden["Contact"] = null;
+                if (opslaan is not null && await Repo.LeverancierStandaardAsync(Convert.ToInt32(opslaan)) is { } st)
+                {
+                    var aflever = st.HeeftAfleveradres && await Bevestig($"Wil je de bestelling laten afleveren bij {st.AfleverTekst}?");
+                    await Repo.VulStandaardAsync(_orderId.Value, st, aflever);
+                }
+                else
+                {
+                    await Repo.UpdateVeldAsync(_orderId.Value, "Contact", null);
+                }
+                _velden = await Repo.GetVeldenAsync(_orderId.Value);
                 await LaadContacten();
+                await LaadStandaard();
                 await Laad();
             }
+            else if (wijziging.Kolom.Equals("AfleverKlant-id", StringComparison.OrdinalIgnoreCase))
+            {
+                // ander afleveradres: de contactpersoon (t.a.v.) hoort bij dat adres
+                await Repo.UpdateVeldAsync(_orderId.Value, "AfleverTAV-id", null);
+                _velden["AfleverTAV-id"] = null;
+                await LaadContacten();
+            }
+            else if (wijziging.Kolom.Equals("Workorder-id", StringComparison.OrdinalIgnoreCase))
+                await LaadWerkorder();
             else if (wijziging.Kolom.Equals("Description", StringComparison.OrdinalIgnoreCase))
                 await Laad();
 
@@ -760,28 +872,20 @@
     // ================================================================
     //  Nieuwe bestelling
     // ================================================================
-    private void OpenNieuw()
-    {
-        _nieuwOpen = true;
-        _nieuwLeverancier = null;
-        _nieuwWerkorder = null;
-    }
+    // Popup: Components/NieuweBestellingVenster.razor (leverancier en werkorder kiezen)
+    private void OpenNieuw() => _nieuwOpen = true;
 
     private void SluitNieuw() => _nieuwOpen = false;
 
-    private void NieuwLeverancierGewijzigd(ChangeEventArgs e)
-        => _nieuwLeverancier = int.TryParse((string?)e.Value, out var v) ? v : null;
-
-    private void NieuwWerkorderGewijzigd(ChangeEventArgs e)
-        => _nieuwWerkorder = int.TryParse((string?)e.Value, out var v) ? v : null;
-
-    private async Task MaakBestelling()
+    private async Task MaakBestelling((int Leverancier, int? Werkorder, bool AfleverenBijStandaard) keuze)
     {
-        if (_nieuwLeverancier is null) { Toon("Kies eerst een leverancier.", true); return; }
-
         try
         {
-            var id = await Repo.NieuweBestellingAsync(_nieuwLeverancier, _nieuwWerkorder, Ik.WerknemerId);
+            if (await WerkorderNiet(keuze.Werkorder) is { } niet) { Toon(niet, true); return; }
+            var id = await Repo.NieuweBestellingAsync(keuze.Leverancier, keuze.Werkorder, Ik.WerknemerId);
+            // standaardwaarden van de leverancier, zoals FillInDefaults_Order in Access
+            if (await Repo.LeverancierStandaardAsync(keuze.Leverancier) is { } st)
+                await Repo.VulStandaardAsync(id, st, keuze.AfleverenBijStandaard);
             _nieuwOpen = false;
             await Laad();
             var nieuw = _lijst.FirstOrDefault(b => b.Id == id);
@@ -857,6 +961,20 @@
     {
         regel.Leverdatum = datum;
         await BewaarRegel(regel);
+    }
+
+    // ---- Plakken uit klembord (Components/PlakVenster.razor) en het menu Importeren ----
+    private bool _plakOpen, _importMenu;
+
+    private int? LeverancierVanOrder => Nummer("Supplier");
+
+    private DateOnly? StandaardLeverdatum
+        => _velden.TryGetValue("DefaultLeverDatum", out var d) && d is DateTime dt ? DateOnly.FromDateTime(dt) : null;
+
+    private async Task NaPlakken()
+    {
+        await LaadRegels();
+        await Laad();
     }
 
     private async Task NieuweRegel()

@@ -324,12 +324,14 @@ public class MySqlUrenRepository : IUrenRepository
         var bon = Col(w, "WerkbonNummer", "Werkbonnummer", "werkbonnummer", "Werkbonnr", "werkbonnr",
                          "Bonnummer", "bonnummer");
         var projFk = Col(w, "Project-id", "Project-Id", "project_id", "projectid", "Projectid");
+        var inkoop = Col(w, "InkoopToegestaan", "inkooptoegestaan");
 
         // Projecttabel (optioneel) voor het projectnummer
         var p = TblOpt("Projects", "projects", "Projecten", "projecten");
-        string? projNr = null, projOms = null, projPk = null;
+        string? projNr = null, projOms = null, projPk = null, projKlant = null;
         if (p != null)
         {
+            projKlant = Col(p, "Customer-id", "Customer-Id", "customer_id");
             projNr = Col(p, "Projectnumber", "projectnumber", "Projectnummer", "projectnummer",
                             "Project_number", "project_number", "Projectnr", "projectnr");
             projOms = Col(p, "Projectdescription", "projectdescription", "Projectomschrijving",
@@ -350,7 +352,9 @@ public class MySqlUrenRepository : IUrenRepository
 
         // projectnaam (voor weergave bij de werkorder)
         string projectExpr = (kanJoinen && projOms != null) ? $"p.`{projOms}`" : "NULL";
-        string klantExpr = klant != null ? $"w.`{klant}`" : "NULL";
+        // Klant: een eigen kolom in Workorders, anders via het project (Projects.Customer-id -> Relations.name)
+        var r = kanJoinen && klant == null && projKlant != null ? TblOpt("Relations", "relations") : null;
+        string klantExpr = klant != null ? $"w.`{klant}`" : r != null ? "k.`name`" : "NULL";
 
         var sel = string.Join(",", new[]
         {
@@ -359,11 +363,13 @@ public class MySqlUrenRepository : IUrenRepository
             $"{klantExpr} AS klant",
             $"{projectExpr} AS project",
             status != null ? $"w.`{status}` AS status" : "1 AS status",
-            $"{nummer} AS nummer"
+            $"{nummer} AS nummer",
+            inkoop != null ? $"COALESCE(w.`{inkoop}`, 0) AS inkoop" : "1 AS inkoop"
         });
 
         var from = kanJoinen
             ? $"`{w}` w LEFT JOIN `{p}` p ON w.`{projFk}` = p.`{projPk}`"
+              + (r != null ? $" LEFT JOIN `{r}` k ON k.`id_supplier` = p.`{projKlant}`" : "")
             : $"`{w}` w";
 
         // Alles waarop gezocht mag worden, in één tekst (nummer, omschrijving, project, klant)
@@ -372,6 +378,7 @@ public class MySqlUrenRepository : IUrenRepository
         if (kanJoinen && projOms != null) zoekDelen.Add($"p.`{projOms}`");
         if (kanJoinen && projNr != null) zoekDelen.Add($"p.`{projNr}`");
         if (klant != null) zoekDelen.Add($"w.`{klant}`");
+        else if (r != null) zoekDelen.Add("k.`name`");
         var zoekExpr = $"CONCAT_WS(' ', {string.Join(", ", zoekDelen)})";
 
         return (sel, from, status, id, zoekExpr);
@@ -516,7 +523,8 @@ public class MySqlUrenRepository : IUrenRepository
         Klant = S(r["klant"]),
         WorkorderStatus = I(r["status"]),
         Nummer = S(r["nummer"]),
-        Project = S(r["project"])
+        Project = S(r["project"]),
+        InkoopToegestaan = I(r["inkoop"]) != 0
     };
 
     public async Task<List<Workorder>> GetOpenWorkordersAsync()

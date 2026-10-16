@@ -33,6 +33,27 @@ public interface IBestelRepository
 
     // --- keuzelijsten ---
     Task<List<Keuze>> GetLeveranciersAsync();
+    /// <summary>Leveranciers en werkorders van de laatste bestellingen van deze werknemer, nieuwste eerst (popup Nieuwe bestelling).</summary>
+    Task<(List<int> Leveranciers, List<int> Werkorders)> RecentGebruiktAsync(int werknemerId, int max);
+
+    // ---- standaardwaarden van de leverancier (FillInDefaults_Order in Access) ----
+    Task<LeverancierStandaard?> LeverancierStandaardAsync(int leverancierId);
+    /// <summary>
+    /// Zet de standaardwaarden op een bestelling: contactpersoon, taal, leverdatum (alleen als die leeg is) en het
+    /// afleveradres: <paramref name="afleverenBijStandaard"/> = het standaard afleveradres van de leverancier, anders leeg.
+    /// </summary>
+    Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard);
+
+    // ---- Plakken uit klembord (PasteFromClipboard_Click in Access) ----
+    /// <summary>
+    /// Artikel bij een geplakt nummer, in de volgorde van Access: bestelnummer bij deze leverancier (ArtikelSupplier),
+    /// MDE-code, ArtikelID (als het een getal is), @ArtikelSearchlist.Filtered, fabriekscode. Null = niet gevonden.
+    /// </summary>
+    Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId);
+    Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId);
+    /// <summary>Komt het artikel uit Inventor (@ArtikelListInventor)? Alleen dan gaan er bijlages mee.</summary>
+    Task<bool> IsInventorArtikelAsync(int artikelId);
+    Task ZetEanAsync(int regelId, string ean);
     Task<List<Keuze>> GetContactenAsync(int? leverancierId);
     Task<List<Keuze>> GetEenhedenAsync();
     Task<List<Keuze>> GetTalenAsync();
@@ -56,6 +77,14 @@ public class GeenBestelRepository : IBestelRepository
     public Task<int> BewaarRegelAsync(Orderregel regel) => Task.FromResult(0);
     public Task VerwijderRegelAsync(int orderitemId) => Task.CompletedTask;
     public Task<List<Keuze>> GetLeveranciersAsync() => Task.FromResult(new List<Keuze>());
+    public Task<(List<int> Leveranciers, List<int> Werkorders)> RecentGebruiktAsync(int werknemerId, int max)
+        => Task.FromResult((new List<int>(), new List<int>()));
+    public Task<LeverancierStandaard?> LeverancierStandaardAsync(int leverancierId) => Task.FromResult<LeverancierStandaard?>(null);
+    public Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard) => Task.CompletedTask;
+    public Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId) => Task.FromResult<PlakArtikel?>(null);
+    public Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId) => Task.FromResult(PlakLeverancier.Geen);
+    public Task<bool> IsInventorArtikelAsync(int artikelId) => Task.FromResult(false);
+    public Task ZetEanAsync(int regelId, string ean) => Task.CompletedTask;
     public Task<List<Keuze>> GetContactenAsync(int? leverancierId) => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetEenhedenAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetTalenAsync() => Task.FromResult(new List<Keuze>());
@@ -382,6 +411,26 @@ public class MySqlBestelRepository : IBestelRepository
     // ============================================================
     //  Keuzelijsten
     // ============================================================
+    public async Task<(List<int> Leveranciers, List<int> Werkorders)> RecentGebruiktAsync(int werknemerId, int max)
+    {
+        var lev = new List<int>();
+        var wo = new List<int>();
+        var kolommen = await KolommenAsync();
+        if (!kolommen.Contains("Created by")) return (lev, wo);
+        max = Math.Clamp(max, 1, 50);
+        await using var cn = await OpenAsync();
+        foreach (var (kolom, lijst) in new[] { ("Supplier", lev), ("Workorder-id", wo) })
+        {
+            await using var cmd = new MySqlCommand(
+                $"SELECT `{kolom}` FROM `Orders` WHERE `Created by` = @door AND `{kolom}` IS NOT NULL AND `{kolom}` <> 0 " +
+                $" GROUP BY `{kolom}` ORDER BY MAX(`Order-id`) DESC LIMIT {max}", cn);
+            cmd.Parameters.AddWithValue("@door", werknemerId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) lijst.Add(Convert.ToInt32(r.GetValue(0)));
+        }
+        return (lev, wo);
+    }
+
     public async Task<List<Keuze>> GetLeveranciersAsync()
     {
         var lijst = new List<Keuze>();
@@ -461,6 +510,124 @@ public class MySqlBestelRepository : IBestelRepository
             catch { /* volgende naam proberen */ }
         }
         return _eenheden = new List<Keuze>();
+    }
+
+    // ============================================================
+    //  Standaardwaarden van de leverancier (FillInDefaults_Order)
+    // ============================================================
+    public async Task<LeverancierStandaard?> LeverancierStandaardAsync(int leverancierId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT r.`OrderContact-id`, r.`OrderLanguage`, COALESCE(r.`OrderTime`, 0), r.`DefaultVerzendAdres`, " +
+            "       COALESCE(a.`name`, ''), COALESCE(a.`town`, ''), r.`DefaultVerzendContact`, " +
+            "       COALESCE(r.`CCbijBestelling`, 0), COALESCE(r.`CCmailadressBijBestelling`, '') " +
+            "  FROM `Relations` r LEFT JOIN `Relations` a ON a.`id_supplier` = r.`DefaultVerzendAdres` " +
+            " WHERE r.`id_supplier` = @l LIMIT 1", cn);
+        cmd.Parameters.AddWithValue("@l", leverancierId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return null;
+        int? N(int i) => r.IsDBNull(i) || Convert.ToInt64(r.GetValue(i)) == 0 ? null : Convert.ToInt32(r.GetValue(i));
+        var cc = Convert.ToInt64(r.GetValue(7)) != 0;
+        var ccAdres = r.GetValue(8).ToString()?.Trim() ?? "";
+        return new LeverancierStandaard(N(0), r.IsDBNull(1) ? null : Convert.ToInt32(r.GetValue(1)), Convert.ToInt32(r.GetValue(2)),
+                                        N(3), r.GetValue(4).ToString() ?? "", r.GetValue(5).ToString() ?? "", N(6),
+                                        cc && ccAdres.Length > 0 && ccAdres != "0", ccAdres);
+    }
+
+    public async Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard)
+    {
+        var kolommen = await KolommenAsync();
+        var sets = new List<string>();
+        if (kolommen.Contains("Contact")) sets.Add("`Contact` = @contact");
+        if (kolommen.Contains("Language")) sets.Add("`Language` = @taal");
+        if (kolommen.Contains("DefaultLeverDatum")) sets.Add("`DefaultLeverDatum` = COALESCE(`DefaultLeverDatum`, @datum)");
+        if (kolommen.Contains("AfleverKlant-id")) sets.Add("`AfleverKlant-id` = @aflever");
+        if (kolommen.Contains("AfleverTAV-id")) sets.Add("`AfleverTAV-id` = @tav");
+        if (sets.Count == 0) return;
+
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand($"UPDATE `Orders` SET {string.Join(", ", sets)} WHERE `Order-id` = @id", cn);
+        object Of(object? w) => w ?? DBNull.Value;
+        cmd.Parameters.AddWithValue("@contact", Of(s.ContactId));
+        cmd.Parameters.AddWithValue("@taal", s.Taal ?? 0);
+        cmd.Parameters.AddWithValue("@datum", s.Leverdatum(DateOnly.FromDateTime(DateTime.Today)).ToDateTime(TimeOnly.MinValue));
+        cmd.Parameters.AddWithValue("@aflever", Of(afleverenBijStandaard ? s.AfleverId : null));
+        cmd.Parameters.AddWithValue("@tav", Of(afleverenBijStandaard ? s.AfleverContactId : null));
+        cmd.Parameters.AddWithValue("@id", orderId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ============================================================
+    //  Plakken uit klembord
+    // ============================================================
+    public async Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId)
+    {
+        nummer = (nummer ?? "").Trim();
+        if (nummer.Length == 0) return null;
+        await using var cn = await OpenAsync();
+
+        async Task<int?> Eerste(string sql, params (string, object)[] pars)
+        {
+            await using var cmd = new MySqlCommand(sql + " LIMIT 1", cn);
+            foreach (var (n, w) in pars) cmd.Parameters.AddWithValue(n, w);
+            var r = await cmd.ExecuteScalarAsync();
+            return r is null or DBNull ? null : Convert.ToInt32(r);
+        }
+
+        int? id = null;
+        if (leverancierId is int lev)
+            id = await Eerste("SELECT `ArtikelID` FROM `ArtikelSupplier` WHERE `ArtikelNummerSupplier` = @n AND `SupplierID` = @l",
+                              ("@n", nummer), ("@l", lev));
+        id ??= await Eerste("SELECT `ArtikelID` FROM `Artikelen` WHERE `ArtikelCodeMDE` = @n", ("@n", nummer));
+        if (id is null && nummer.All(char.IsAsciiDigit) && int.TryParse(nummer, out var nr))
+            id = await Eerste("SELECT `ArtikelID` FROM `Artikelen` WHERE `ArtikelID` = @n", ("@n", nr));
+        id ??= await Eerste("SELECT `ArtikelID` FROM `@ArtikelSearchlist` WHERE `Filtered` = @n",
+                            ("@n", KlembordBestelling.Gefilterd(nummer)));
+        id ??= await Eerste("SELECT `ArtikelID` FROM `Artikelen` WHERE `ArtikelCodeFactory` = @n", ("@n", nummer));
+        if (id is null) return null;
+
+        await using var lees = new MySqlCommand(
+            "SELECT COALESCE(`ArtikelCodeFactory`, ''), COALESCE(`OmschrijvingNL`, ''), COALESCE(`Material`, ''), " +
+            "       COALESCE(`Gewicht`, 0), COALESCE(`SchattingsKostprijsStuk`, 0) FROM `Artikelen` WHERE `ArtikelID` = @id", cn);
+        lees.Parameters.AddWithValue("@id", id.Value);
+        await using var r = await lees.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return null;
+        return new PlakArtikel(id.Value, r.GetValue(0).ToString() ?? "", r.GetValue(1).ToString() ?? "", r.GetValue(2).ToString() ?? "",
+                               Convert.ToDecimal(r.GetValue(3)), Convert.ToDecimal(r.GetValue(4)));
+    }
+
+    public async Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId)
+    {
+        if (leverancierId is not int lev) return PlakLeverancier.Geen;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COALESCE(`ExportPDF`, 0), COALESCE(`ExportDXF`, 0), COALESCE(`ExportSTP`, 0), COALESCE(`ExportSTL`, 0), " +
+            "       COALESCE(`KiloprijsALU`, 0), COALESCE(`KiloprijsRVS`, 0), COALESCE(`KiloprijsStaal`, 0), COALESCE(`Instelkosten`, 0) " +
+            "  FROM `Relations` WHERE `id_supplier` = @l LIMIT 1", cn);
+        cmd.Parameters.AddWithValue("@l", lev);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return PlakLeverancier.Geen;
+        bool B(int i) => Convert.ToInt64(r.GetValue(i)) != 0;
+        decimal D(int i) => Convert.ToDecimal(r.GetValue(i));
+        return new PlakLeverancier(B(0), B(1), B(2), B(3), D(4), D(5), D(6), D(7));
+    }
+
+    public async Task<bool> IsInventorArtikelAsync(int artikelId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT 1 FROM `@ArtikelListInventor` WHERE `ArtikelID` = @id LIMIT 1", cn);
+        cmd.Parameters.AddWithValue("@id", artikelId);
+        return await cmd.ExecuteScalarAsync() is not (null or DBNull);
+    }
+
+    public async Task ZetEanAsync(int regelId, string ean)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("UPDATE `Orderitems` SET `EAN` = @e WHERE `Orderitem-id` = @id", cn);
+        cmd.Parameters.AddWithValue("@e", ean.Length > 45 ? ean[..45] : ean);
+        cmd.Parameters.AddWithValue("@id", regelId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>Talen van het orderformulier; 0 = Nederlands, zoals de VBA het zet.</summary>

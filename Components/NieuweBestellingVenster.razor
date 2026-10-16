@@ -1,0 +1,297 @@
+@inject IBestelRepository Repo
+
+@* ============================================================================
+   Nieuwe bestelling: leverancier en werkorder kiezen in een popup (Bestellingen ▸ + Nieuwe bestelling).
+   Leeg zoekveld = wat deze werknemer de laatste tijd gebruikte (IBestelRepository.RecentGebruiktAsync); typen zoekt in
+   alle leveranciers en alle open werkorders. Toetsen: pijltjes + Enter kiezen, dan gaat de cursor door naar het
+   volgende veld; Ctrl+Enter = aanmaken; Esc = sluiten. "Uitgebreid zoeken" opent de WerkorderKiezer (ook gesloten
+   werkorders, Recent en Persoonlijk).
+   Heeft de leverancier een standaard afleveradres (Relations.DefaultVerzendAdres), dan komt de vraag van Access
+   (FillInDefaults_Order) hier: "Afleveren bij … ?" Ja/Nee; Aanmaken wacht op het antwoord. Alleen werkorders met InkoopToegestaan (besluit gebruiker, 16-10-2026).
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer nb-venster" @onclick:stopPropagation @onkeydown="VensterToets" role="dialog" aria-modal="true" aria-label="Nieuwe bestelling">
+            <div class="kiezer-kop">
+                <b>Nieuwe bestelling</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="nb-kolommen">
+                <section class="nb-kolom">
+                    <h4>1. Leverancier</h4>
+                    @if (_lev is { } l)
+                    {
+                        <div class="nb-gekozen">
+                            <span>@l.Naam</span>
+                            <button class="klein" @onclick="AndereLeverancier" title="Een andere leverancier kiezen">Wijzig</button>
+                        </div>
+                        @if (_standaard is { HeeftAfleveradres: true } st)
+                        {
+                            <div class="nb-vraag @(_aflever is null ? "open" : "")">
+                                <span>Afleveren bij <b>@st.AfleverTekst</b>?</span>
+                                <div class="btngroup">
+                                    <button class="klein @(_aflever == true ? "gekozen" : "")" @onclick="() => KiesAflever(true)">Ja</button>
+                                    <button class="klein @(_aflever == false ? "gekozen" : "")" @onclick="() => KiesAflever(false)">Nee, bij MDE</button>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <input @ref="_levVeld" class="nb-zoek" placeholder="Zoek leverancier…" value="@_levZoek"
+                               @oninput="LevZoekInput" @onkeydown="LevToets" autocomplete="off" />
+                        <div class="nb-lijst">
+                            @if (_levZoek.Trim().Length == 0)
+                            {
+                                <div class="nb-kopje">@(LevLijst.Count > 0 ? "Laatst door jou gebruikt" : "Typ om te zoeken.")</div>
+                            }
+                            else if (LevLijst.Count == 0)
+                            {
+                                <div class="nb-kopje">Niets gevonden.</div>
+                            }
+                            @for (var i = 0; i < LevLijst.Count; i++)
+                            {
+                                var k = LevLijst[i];
+                                <button type="button" class="nb-item @(i == _levIndex ? "actief" : "")" @onclick="() => KiesLeverancier(k)">@k.Naam</button>
+                            }
+                        </div>
+                    }
+                </section>
+
+                <section class="nb-kolom">
+                    <h4>2. Werkorder</h4>
+                    @if (_woGekozen)
+                    {
+                        <div class="nb-gekozen">
+                            @if (_wo is { } w)
+                            {
+                                <span><b>@w.Weergave</b> @w.Omschrijving<small>@WoExtra(w)</small></span>
+                            }
+                            else
+                            {
+                                <span class="nb-geen">Zonder werkorder</span>
+                            }
+                            <button class="klein" @onclick="AndereWerkorder" title="Een andere werkorder kiezen">Wijzig</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <input @ref="_woVeld" class="nb-zoek" placeholder="Nummer, omschrijving, project of klant…" value="@_woZoek"
+                               @oninput="WoZoekInput" @onkeydown="WoToets" autocomplete="off" />
+                        <div class="nb-lijst">
+                            @if (_woZoek.Trim().Length == 0)
+                            {
+                                <div class="nb-kopje">@(WoLijst.Count > 0 ? "Laatst door jou gebruikt" : "Typ om te zoeken in de open werkorders.")</div>
+                            }
+                            else if (WoLijst.Count == 0)
+                            {
+                                <div class="nb-kopje">Geen open werkorder gevonden waarop ingekocht mag worden. Probeer uitgebreid zoeken.</div>
+                            }
+                            @for (var i = 0; i < WoLijst.Count; i++)
+                            {
+                                var k = WoLijst[i];
+                                <button type="button" class="nb-item @(i == _woIndex ? "actief" : "")" @onclick="() => KiesWerkorder(k)">
+                                    <b>@k.Weergave</b> @k.Omschrijving<small>@WoExtra(k)</small>
+                                </button>
+                            }
+                        </div>
+                        <div class="nb-onder">
+                            <button class="klein" @onclick="() => KiesWerkorder(null)">Zonder werkorder</button>
+                            <button class="klein" @onclick="() => _kiezerOpen = true" title="Ook gesloten werkorders, Recent en Persoonlijk">🔎 Uitgebreid zoeken…</button>
+                        </div>
+                    }
+                </section>
+            </div>
+
+            <div class="kiezer-voet">
+                <span class="klein-info">Pijltjes en Enter om te kiezen · Ctrl+Enter = aanmaken · Esc = sluiten</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="Sluit">Annuleren</button>
+                <button @ref="_aanmaakKnop" class="primair" disabled="@(!KanAanmaken)" @onclick="Aanmaken"
+                        title="@(VraagOpen ? "Beantwoord eerst de vraag over het afleveradres" : "")">Aanmaken</button>
+            </div>
+        </div>
+    </div>
+
+    <WerkorderKiezer Open="_kiezerOpen" WerknemerId="WerknemerId ?? 0" AlleenInkoop="true" OpGekozen="UitKiezer" OpGesloten="() => _kiezerOpen = false" />
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public List<Keuze> Leveranciers { get; set; } = new();
+    /// <summary>De open werkorders (om in te zoeken); alleen die met InkoopToegestaan doen mee.</summary>
+    [Parameter] public List<Workorder> Werkorders { get; set; } = new();
+
+    private IEnumerable<Workorder> Toegestaan => Werkorders.Where(w => w.InkoopToegestaan);
+    [Parameter] public int? WerknemerId { get; set; }
+    /// <summary>Aanmaken met leverancier en (eventueel) werkorder; het venster sluit de pagina zelf.</summary>
+    /// <summary>Leverancier, werkorder, en of er bij het standaard afleveradres van de leverancier afgeleverd wordt.</summary>
+    [Parameter] public EventCallback<(int Leverancier, int? Werkorder, bool AfleverenBijStandaard)> OpAanmaken { get; set; }
+
+    private LeverancierStandaard? _standaard;
+    private bool? _aflever;                         // antwoord op "Afleveren bij … ?"; null = nog niet gevraagd/beantwoord
+    private bool VraagOpen => _standaard is { HeeftAfleveradres: true } && _aflever is null;
+    private bool KanAanmaken => _lev is not null && !_bezig && !VraagOpen;
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private const int Max = 40;
+    private bool _wasOpen, _bezig, _kiezerOpen;
+    private string _levZoek = "", _woZoek = "";
+    private int _levIndex, _woIndex;
+    private Keuze? _lev;
+    private Workorder? _wo;
+    private bool _woGekozen;
+    private List<int> _recentLev = new(), _recentWo = new();
+    private List<Workorder> _extraWo = new();          // gekozen via uitgebreid zoeken (bv. gesloten)
+    private ElementReference _levVeld, _woVeld, _aanmaakKnop;
+    private string? _focus;                             // "lev", "wo" of "knop": na het renderen
+
+    private List<Keuze> LevLijst { get; set; } = new();
+    private List<Workorder> WoLijst { get; set; } = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)
+        {
+            _wasOpen = true;
+            _lev = null; _wo = null; _woGekozen = false; _standaard = null; _aflever = null; _kiezerOpen = false; _bezig = false;
+            _levZoek = _woZoek = "";
+            _extraWo.Clear();
+            if (WerknemerId is int w)
+            {
+                try { (_recentLev, _recentWo) = await Repo.RecentGebruiktAsync(w, 12); }
+                catch { _recentLev = new(); _recentWo = new(); }
+            }
+            VulLev(); VulWo();
+            _focus = "lev";
+        }
+        else if (!Open && _wasOpen) _wasOpen = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (_focus is null || _kiezerOpen) return;
+        var f = _focus; _focus = null;
+        try
+        {
+            if (f == "lev" && _lev is null) await _levVeld.FocusAsync();
+            else if (f == "wo" && !_woGekozen) await _woVeld.FocusAsync();
+            else if (f == "knop") await _aanmaakKnop.FocusAsync();
+        }
+        catch { }
+    }
+
+    // ---- zoeken ----
+
+    /// <summary>Alle woorden moeten voorkomen; wat met de zoektekst begint komt eerst.</summary>
+    private static bool Past(string tekst, string[] woorden)
+        => woorden.All(w => tekst.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+    private static string[] Woorden(string zoek) => zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+    private void VulLev()
+    {
+        var woorden = Woorden(_levZoek);
+        LevLijst = woorden.Length == 0
+            ? _recentLev.Select(id => Leveranciers.FirstOrDefault(l => l.Id == id)).OfType<Keuze>().ToList()
+            : Leveranciers.Where(l => Past(l.Naam, woorden))
+                          .OrderBy(l => l.Naam.StartsWith(_levZoek.Trim(), StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                          .ThenBy(l => l.Naam).Take(Max).ToList();
+        _levIndex = 0;
+    }
+
+    private static string WoTekst(Workorder w) => $"{w.Weergave} {w.Nummer} {w.Omschrijving} {w.Project} {w.Klant}";
+
+    private void VulWo()
+    {
+        var woorden = Woorden(_woZoek);
+        WoLijst = woorden.Length == 0
+            ? _recentWo.Select(id => Toegestaan.FirstOrDefault(w => w.WerkbonId == id)).OfType<Workorder>().ToList()
+            : Toegestaan.Where(w => Past(WoTekst(w), woorden))
+                        .OrderBy(w => w.Weergave.StartsWith(_woZoek.Trim(), StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                        .ThenByDescending(w => w.WerkbonId).Take(Max).ToList();
+        _woIndex = 0;
+    }
+
+    private static string WoExtra(Workorder w)
+    {
+        var delen = new[] { w.Project, w.Klant }.Where(s => !string.IsNullOrWhiteSpace(s) && !(w.Omschrijving ?? "").Contains(s!)).ToList();
+        if (w.WorkorderStatus == 0) delen.Add("gesloten");
+        return delen.Count == 0 ? "" : " · " + string.Join(" · ", delen);
+    }
+
+    private void LevZoekInput(ChangeEventArgs e) { _levZoek = (string?)e.Value ?? ""; VulLev(); }
+    private void WoZoekInput(ChangeEventArgs e) { _woZoek = (string?)e.Value ?? ""; VulWo(); }
+
+    // ---- toetsen ----
+
+    private void LevToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowDown") _levIndex = Math.Min(_levIndex + 1, Math.Max(LevLijst.Count - 1, 0));
+        else if (e.Key == "ArrowUp") _levIndex = Math.Max(_levIndex - 1, 0);
+        else if (e.Key == "Enter" && !e.CtrlKey && _levIndex < LevLijst.Count) _ = KiesLeverancier(LevLijst[_levIndex]);
+    }
+
+    private void WoToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowDown") _woIndex = Math.Min(_woIndex + 1, Math.Max(WoLijst.Count - 1, 0));
+        else if (e.Key == "ArrowUp") _woIndex = Math.Max(_woIndex - 1, 0);
+        else if (e.Key == "Enter" && !e.CtrlKey && _woIndex < WoLijst.Count) KiesWerkorder(WoLijst[_woIndex]);
+    }
+
+    private async Task VensterToets(KeyboardEventArgs e)
+    {
+        if (_kiezerOpen) return;
+        if (e.Key == "Escape") await Sluit();
+        else if (e.Key == "Enter" && e.CtrlKey) await Aanmaken();
+    }
+
+    // ---- kiezen ----
+
+    private async Task KiesLeverancier(Keuze k)
+    {
+        _lev = k;
+        _standaard = null; _aflever = null;
+        _focus = _woGekozen ? "knop" : "wo";
+        try { _standaard = await Repo.LeverancierStandaardAsync(k.Id); } catch { }
+        StateHasChanged();
+    }
+
+    private void KiesAflever(bool ja)
+    {
+        _aflever = ja;
+        if (_woGekozen) _focus = "knop";
+    }
+
+    private void AndereLeverancier() { _lev = null; _standaard = null; _aflever = null; _levZoek = ""; VulLev(); _focus = "lev"; }
+
+    private void KiesWerkorder(Workorder? w)
+    {
+        _wo = w; _woGekozen = true;
+        _focus = _lev is null ? "lev" : "knop";
+    }
+
+    private void AndereWerkorder() { _wo = null; _woGekozen = false; _woZoek = ""; VulWo(); _focus = "wo"; }
+
+    private void UitKiezer(Workorder w)
+    {
+        _kiezerOpen = false;
+        if (!w.InkoopToegestaan) return;
+        if (!Werkorders.Any(x => x.WerkbonId == w.WerkbonId) && !_extraWo.Any(x => x.WerkbonId == w.WerkbonId)) _extraWo.Add(w);
+        KiesWerkorder(w);
+    }
+
+    private async Task Aanmaken()
+    {
+        if (_lev is not { } l || !KanAanmaken) return;
+        _bezig = true;
+        try { await OpAanmaken.InvokeAsync((l.Id, _wo?.WerkbonId, _aflever == true)); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Sluit() => await OpGesloten.InvokeAsync();
+}

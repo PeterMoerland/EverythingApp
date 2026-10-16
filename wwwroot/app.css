@@ -564,6 +564,15 @@ button.klein.metbijlage { border-color: var(--accent); color: var(--accent); fon
 .kiezer-tabel.regels input, .kiezer-tabel.regels select { width: 100%; }
 .kiezer-tabel.regels tfoot td { border-top: 2px solid #ddd; padding-top: .4rem; }
 .kiezer-tabel.regels tr.geleverd td { background: #f5fbf6; }
+/* Compact (verzoek gebruiker 16-10-2026): lage regels, velden zonder rand tot je erop staat of klikt */
+.kiezer-tabel.regels { min-width: 68rem; font-size: .88rem; }   /* vaste kolommen ~53rem + Omschrijving minstens ~15rem */
+.kiezer-tabel.regels th { font-size: .8rem; padding: .15rem .25rem; white-space: nowrap; }
+.kiezer-tabel.regels td { padding: 1px .2rem; }
+.kiezer-tabel.regels input, .kiezer-tabel.regels select { padding: .12rem .3rem; font-size: inherit; border-color: transparent; background: transparent; }
+.kiezer-tabel.regels tr:hover input, .kiezer-tabel.regels tr:hover select,
+.kiezer-tabel.regels input:focus, .kiezer-tabel.regels select:focus { border-color: #bbb; background: #fff; }
+.kiezer-tabel.regels button.klein { padding: .05rem .3rem; }
+.kiezer-tabel.regels tr:hover td { cursor: default; }
 
 /* ===== gebouwbeheer: knoppen in de stijl van het HMI-paneel ===== */
 .hmi { display: flex; gap: 1.2rem; margin-top: .8rem; flex-wrap: wrap; align-items: flex-start; }
@@ -3001,3 +3010,65 @@ html[data-thema="donker"] .wp-pin { background: var(--d2); }
 .wpm-slotkop { margin: 0 0 .3rem; font-size: .85rem; font-weight: 600; color: #667; letter-spacing: .02em; }
 html[data-thema="donker"] .wpm-slot { background: #15181c; }
 html[data-thema="donker"] .wpm-slotkop { color: var(--dt); }
+
+/* Nieuwe bestelling: leverancier en werkorder kiezen (Components/NieuweBestellingVenster.razor) */
+.nb-venster { width: min(64rem, 96vw); }
+.nb-kolommen { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1rem; padding: .6rem .9rem; min-height: 0; }
+.nb-kolom { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.nb-kolom h4 { margin: 0; font-size: .95rem; color: var(--accent); }
+.nb-zoek { width: 100%; box-sizing: border-box; font-size: 1rem; padding: .45rem .6rem; }
+.nb-lijst { display: flex; flex-direction: column; height: 20rem; overflow-y: auto; overflow-x: hidden; border: 1px solid #e2e6ea; border-radius: 6px; padding: .2rem; }
+.nb-kopje { font-size: .8rem; color: #778; padding: .3rem .45rem; }
+.nb-item { text-align: left; border: 0; background: none; padding: .38rem .5rem; border-radius: 4px; cursor: pointer; font: inherit; }
+.nb-item small, .nb-gekozen small { color: #778; }
+.nb-item:hover { background: var(--selected); }
+.nb-item.actief { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.nb-gekozen { display: flex; align-items: center; gap: .6rem; justify-content: space-between; padding: .55rem .7rem; border: 1px solid var(--accent);
+              border-radius: 6px; background: var(--selected); }
+.nb-geen { color: #667; font-style: italic; }
+.nb-onder { display: flex; gap: .4rem; justify-content: space-between; }
+@media (max-width: 700px) { .nb-kolommen { grid-template-columns: 1fr; } .nb-lijst { height: 12rem; } }
+html[data-thema="donker"] .nb-lijst { border-color: var(--d3); }
+html[data-thema="donker"] .nb-item { color: var(--dt); }
+
+/* Bestellingen: werkbalk boven de regels en Plakken uit klembord (Components/PlakVenster.razor) */
+.regels-balk { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 1.2rem 0 .3rem; }
+.regels-balk .wn-kop { margin: 0; }
+.menu-knop { position: relative; display: inline-block; }
+.menu-dicht { position: fixed; inset: 0; z-index: 49; }
+.menu-lijst { position: absolute; right: 0; top: calc(100% + 2px); z-index: 50; background: #fff; border: 1px solid #ccd; border-radius: 6px;
+              box-shadow: 0 6px 18px rgba(0,0,0,.15); display: flex; flex-direction: column; min-width: 13rem; padding: .25rem; }
+.menu-lijst button { text-align: left; border: 0; background: none; padding: .4rem .6rem; border-radius: 4px; font: inherit; cursor: pointer; }
+.menu-lijst button:hover:not(:disabled) { background: var(--selected); }
+.menu-lijst button:disabled { color: #999; cursor: default; }
+.menu-lijst small { color: #aaa; margin-left: .3rem; }
+.pk-venster { width: min(70rem, 96vw); }
+.pk-inhoud { padding: .6rem .9rem; overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: .5rem; }
+.pk-plakvak { width: 100%; box-sizing: border-box; height: 10rem; font-family: ui-monospace, Consolas, monospace; font-size: .85rem; }
+.pk-tabelvak { max-height: 55vh; overflow: auto; border: 1px solid #e2e6ea; border-radius: 6px; }
+.pk-tabel th { position: sticky; top: 0; background: #f4f6f8; text-align: left; font-size: .82rem; padding: .35rem .45rem; }
+.pk-tabel td { padding: .3rem .45rem; vertical-align: top; border-top: 1px solid #eef0f3; }
+.pk-tabel td small { display: block; color: #778; font-size: .78rem; }
+.pk-tabel .r { text-align: right; white-space: nowrap; }
+.pk-tabel tr.pk-uit td { opacity: .45; }
+.pk-tabel tr.pk-klaar td { background: #ecf7ec; }
+.pk-niet { color: #a66; }
+.pk-bijlage { display: inline-block; font-size: .75rem; padding: .05rem .4rem; border-radius: 10px; margin: 0 .2rem .2rem 0; white-space: nowrap; }
+.pk-bijlage.ok { background: #e3f4e3; color: #276227; }
+.pk-bijlage.mist { background: #fbe9e9; color: #a33; }
+.pk-bijlage.meer { background: #fff3dc; color: #8a5a00; }
+.pk-verslag { margin: 0; padding-left: 1.2rem; font-size: .85rem; color: #8a5a00; }
+html[data-thema="donker"] .menu-lijst { background: var(--d1); border-color: var(--d3); }
+html[data-thema="donker"] .menu-lijst button { color: var(--dt); }
+html[data-thema="donker"] .pk-tabel th { background: var(--d2); }
+html[data-thema="donker"] .pk-tabel td { border-color: var(--d3); }
+html[data-thema="donker"] .pk-tabel tr.pk-klaar td { background: #1f3a24; }
+html[data-thema="donker"] .kiezer-tabel.regels tr:hover input, html[data-thema="donker"] .kiezer-tabel.regels tr:hover select,
+html[data-thema="donker"] .kiezer-tabel.regels input:focus, html[data-thema="donker"] .kiezer-tabel.regels select:focus { border-color: var(--d3); background: var(--d2); }
+
+/* Nieuwe bestelling: vraag over het afleveradres (FillInDefaults_Order) */
+.nb-vraag { display: flex; flex-direction: column; gap: .35rem; padding: .5rem .7rem; border: 1px solid #ddd; border-radius: 6px; font-size: .92rem; }
+.nb-vraag.open { border-color: #e0a800; background: #fff8e1; }
+.nb-vraag button.gekozen { background: var(--accent); color: #fff; border-color: var(--accent); }
+html[data-thema="donker"] .nb-vraag { border-color: var(--d3); }
+html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7a6320; }

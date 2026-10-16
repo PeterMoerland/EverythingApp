@@ -1,0 +1,348 @@
+@inject IBestelRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* ============================================================================
+   Bestellingen ▸ Plakken uit klembord. Vervangt PasteFromClipboard_Click uit het Access-formulier "Order sub form".
+   1. Klembord lezen (mag de browser dat niet: Ctrl+V in het vak). Tabel met tabs en een kopregel, bv. van de
+      Inventor-add-in (Collect Parts ▸ stuklijst naar klembord). Lezen: Services/KlembordBestelling.cs.
+   2. Per regel het artikel zoeken (IBestelRepository.ZoekPlakArtikelAsync, volgorde van Access) en een voorbeeld tonen,
+      met de bijlages die mee gaan: per bestandssoort die de leverancier wil (Relations.ExportPDF/DXF/STP/STL), alleen bij
+      Inventor-artikelen, de nieuwste versie uit de filestore. Eén bestand = mee; geen of meer = melding (zelf toevoegen).
+      Access voegde meteen toe en gaf per regel een melding; nu eerst kijken, dan Toevoegen.
+   3. Toevoegen: orderregels (stuks, standaard leverdatum, prijs of schatting) en de bijlages (StoreType 3).
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer pk-venster" @onclick:stopPropagation @onkeydown="Toets" role="dialog" aria-modal="true" aria-label="Plakken uit klembord">
+            <div class="kiezer-kop">
+                <b>📋 Plakken uit klembord</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="pk-inhoud">
+                @if (_fase == Fase.Plakken)
+                {
+                    @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+                    <p class="uitleg">Zet de onderdelen op het klembord (Inventor: Collect Parts ▸ stuklijst naar klembord, of een
+                        tabel uit Excel met de koppen Aantal, Artikelnummer en Omschrijving) en druk hieronder op Ctrl+V.</p>
+                    <textarea @ref="_plakvak" class="pk-plakvak" placeholder="Klik hier en druk Ctrl+V" @oninput="Geplakt"></textarea>
+                }
+                else if (_fase == Fase.Zoeken)
+                {
+                    <p class="uitleg">@_voortgang</p>
+                }
+                else
+                {
+                    <p class="uitleg pk-lev">
+                        @if (_lev.Extensies().Any())
+                        {
+                            <span>Deze leverancier krijgt als bijlage: <b>@string.Join(", ", _lev.Extensies().Select(e => e.TrimStart('.').ToUpperInvariant()))</b> (alleen bij Inventor-artikelen).</span>
+                        }
+                        else
+                        {
+                            <span>Deze leverancier krijgt geen bijlages mee (Relaties: export PDF/DXF/STP/STL staat uit).</span>
+                        }
+                    </p>
+                    <div class="pk-tabelvak">
+                        <table class="kiezer-tabel pk-tabel">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" checked="@_rijen.All(r => r.Mee)" @onchange="AllesMee" title="Alles aan of uit" /></th>
+                                    <th class="r">Aantal</th>
+                                    <th>Geplakt</th>
+                                    <th>Artikel</th>
+                                    <th class="r">Prijs</th>
+                                    <th>Bijlages</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in _rijen)
+                                {
+                                    var rij = r;
+                                    <tr class="@(rij.Mee ? "" : "pk-uit") @(rij.Toegevoegd ? "pk-klaar" : "")">
+                                        <td><input type="checkbox" checked="@rij.Mee" disabled="@_bezig" @onchange="e => rij.Mee = e.Value is true" /></td>
+                                        <td class="r">@rij.Invoer.Aantal.ToString("0.##")</td>
+                                        <td><b>@rij.Invoer.Nummer</b><small>@rij.Invoer.Omschrijving</small></td>
+                                        <td>
+                                            @if (rij.Artikel is { } a)
+                                            {
+                                                <span>#@a.Id @(a.FabriekCode.Length > 0 && a.FabriekCode != rij.Invoer.Nummer ? "· " + a.FabriekCode : "")</span>
+                                                <small>@a.Omschrijving</small>
+                                            }
+                                            else
+                                            {
+                                                <span class="pk-niet">niet in Artikelen</span><small>komt erin zoals geplakt</small>
+                                            }
+                                        </td>
+                                        <td class="r">
+                                            @if (rij.Invoer.Bruto is decimal b) { <span>@Bedrag(b)</span> }
+                                            else if (rij.Schatting is decimal s && s > 0) { <span title="Schatting (geen prijs geplakt)">≈ @Bedrag(s)</span> }
+                                        </td>
+                                        <td>
+                                            @foreach (var bl in rij.Bijlagen)
+                                            {
+                                                <span class="pk-bijlage @bl.Klasse" title="@bl.Uitleg">@bl.Soort @bl.Teken</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (_verslag.Count > 0)
+                    {
+                        <ul class="pk-verslag">@foreach (var v in _verslag) { <li>@v</li> }</ul>
+                    }
+                }
+            </div>
+
+            <div class="kiezer-voet">
+                @if (_fase == Fase.Voorbeeld && !_klaar)
+                {
+                    <button class="klein" disabled="@_bezig" @onclick="OpnieuwPlakken">Opnieuw plakken</button>
+                }
+                <span class="klein-info">@_voortgang</span>
+                <span style="flex:1"></span>
+                @if (_klaar)
+                {
+                    <button class="primair" @onclick="Sluit">Sluiten</button>
+                }
+                else
+                {
+                    <button class="klein" @onclick="Sluit">Annuleren</button>
+                    @if (_fase == Fase.Voorbeeld)
+                    {
+                        <button class="primair" disabled="@(_bezig || !_rijen.Any(r => r.Mee))" @onclick="Toevoegen">
+                            @(_bezig ? "Bezig…" : $"Toevoegen ({_rijen.Count(r => r.Mee)})")
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int? OrderId { get; set; }
+    [Parameter] public int? LeverancierId { get; set; }
+    /// <summary>Standaard leverdatum van de bestelling (DefaultLeverDatum), zoals bij een nieuwe regel.</summary>
+    [Parameter] public DateOnly? Leverdatum { get; set; }
+    /// <summary>Er zijn regels toegevoegd: de pagina laadt ze opnieuw.</summary>
+    [Parameter] public EventCallback OpToegevoegd { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private enum Fase { Plakken, Zoeken, Voorbeeld }
+    private const int StoreTypeArtikel = 2;
+
+    private sealed class Bijlage
+    {
+        public string Soort = "";           // PDF, DXF, ...
+        public int? FileStoreId;            // precies één gevonden: die gaat mee
+        public int Aantal;                  // gevonden versies (nieuwste per naam)
+        public string Teken => FileStoreId is not null ? "✓" : Aantal == 0 ? "ontbreekt" : "meerdere";
+        public string Klasse => FileStoreId is not null ? "ok" : Aantal == 0 ? "mist" : "meer";
+        public string Uitleg => FileStoreId is not null ? "Gaat mee als bijlage"
+                              : Aantal == 0 ? "Niet gevonden in de filestore; voeg hem later zelf toe (📎 bij de regel)"
+                              : $"{Aantal} bestanden gevonden; kies zelf welke (📎 bij de regel)";
+    }
+
+    private sealed class Rij
+    {
+        public PlakInvoer Invoer = null!;
+        public PlakArtikel? Artikel;
+        public decimal? Schatting;
+        public List<Bijlage> Bijlagen = new();
+        public bool Mee = true;
+        public bool Toegevoegd;
+    }
+
+    private bool _wasOpen, _bezig, _klaar, _focusPlakvak;
+    private Fase _fase;
+    private string? _fout;
+    private string _voortgang = "";
+    private List<Rij> _rijen = new();
+    private List<string> _verslag = new();
+    private PlakLeverancier _lev = PlakLeverancier.Geen;
+    private ElementReference _plakvak;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)
+        {
+            _wasOpen = true;
+            _fase = Fase.Plakken; _fout = null; _voortgang = ""; _rijen = new(); _verslag = new(); _klaar = false; _bezig = false;
+            // Eerst zelf het klembord proberen; mag de browser dat niet, dan Ctrl+V in het vak
+            string? tekst = null;
+            try { tekst = await JS.InvokeAsync<string?>("mdeKlembord.lees"); } catch { }
+            if (!string.IsNullOrWhiteSpace(tekst) && tekst.Contains('\t')) await Verwerk(tekst);
+            else _focusPlakvak = true;
+        }
+        else if (!Open && _wasOpen) _wasOpen = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_focusPlakvak || _fase != Fase.Plakken) return;
+        _focusPlakvak = false;
+        try { await _plakvak.FocusAsync(); } catch { }
+    }
+
+    private async Task Geplakt(ChangeEventArgs e)
+    {
+        var tekst = (string?)e.Value ?? "";
+        if (tekst.Trim().Length == 0) return;
+        await Verwerk(tekst);
+    }
+
+    private void OpnieuwPlakken() { _fase = Fase.Plakken; _fout = null; _voortgang = ""; _focusPlakvak = true; }
+
+    private async Task Verwerk(string tekst)
+    {
+        var (invoer, fout) = KlembordBestelling.Lees(tekst);
+        if (fout is not null) { _fout = fout; _fase = Fase.Plakken; _focusPlakvak = true; return; }
+
+        _fase = Fase.Zoeken;
+        _fout = null;
+        StateHasChanged();
+        try
+        {
+            _lev = await Repo.PlakLeverancierAsync(LeverancierId);
+            var rijen = new List<Rij>();
+            foreach (var i in invoer)
+            {
+                _voortgang = $"Opzoeken {rijen.Count + 1} van {invoer.Count}…";
+                if (rijen.Count % 5 == 0) StateHasChanged();
+                var rij = new Rij { Invoer = i, Artikel = await Repo.ZoekPlakArtikelAsync(i.Nummer, LeverancierId) };
+                if (rij.Artikel is { } a)
+                {
+                    if (i.Bruto is null)
+                        rij.Schatting = KlembordBestelling.Schatting(a.Schatting, a.Materiaal, a.Gewicht,
+                                                                     _lev.KiloAlu, _lev.KiloRvs, _lev.KiloStaal, _lev.Instelkosten, i.Aantal);
+                    if (_lev.Extensies().Any() && await Repo.IsInventorArtikelAsync(a.Id))
+                        rij.Bijlagen = await ZoekBijlagen(a.Id);
+                }
+                rijen.Add(rij);
+            }
+            _rijen = rijen;
+            _voortgang = $"{rijen.Count} regels, {rijen.Count(r => r.Artikel is not null)} gevonden in Artikelen.";
+            _fase = Fase.Voorbeeld;
+        }
+        catch (Exception ex) { _fout = "Opzoeken mislukt: " + ex.Message; _fase = Fase.Plakken; }
+    }
+
+    /// <summary>Per gewenste soort de nieuwste versie per bestandsnaam (zoals sp_FileStore_Order_Bijlages).</summary>
+    private async Task<List<Bijlage>> ZoekBijlagen(int artikelId)
+    {
+        var alles = await WnRepo.GetBestandenAsync(StoreTypeArtikel, artikelId);
+        var nieuwste = alles.GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                            .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).ThenByDescending(d => d.FileStoreId).First())
+                            .ToList();
+        var lijst = new List<Bijlage>();
+        foreach (var ext in _lev.Extensies())
+        {
+            var treffers = nieuwste.Where(d => d.Bestandsnaam.EndsWith(ext, StringComparison.OrdinalIgnoreCase)).ToList();
+            lijst.Add(new Bijlage
+            {
+                Soort = ext.TrimStart('.').ToUpperInvariant(),
+                Aantal = treffers.Count,
+                FileStoreId = treffers.Count == 1 ? treffers[0].FileStoreId : null,
+            });
+        }
+        return lijst;
+    }
+
+    private void AllesMee(ChangeEventArgs e)
+    {
+        var aan = e.Value is true;
+        foreach (var r in _rijen) r.Mee = aan;
+    }
+
+    private async Task Toevoegen()
+    {
+        if (OrderId is not int order || _bezig) return;
+        _bezig = true;
+        _verslag = new();
+        int regels = 0, bijlagen = 0;
+        var mee = _rijen.Where(r => r.Mee && !r.Toegevoegd).ToList();
+        try
+        {
+            foreach (var rij in mee)
+            {
+                _voortgang = $"Toevoegen {regels + 1} van {mee.Count}…";
+                StateHasChanged();
+                var i = rij.Invoer;
+                var a = rij.Artikel;
+                var code = a is { FabriekCode.Length: > 0 } ? a.FabriekCode : i.Nummer;
+                var oms = a is { Omschrijving.Length: > 0 } ? a.Omschrijving : i.Omschrijving;
+                decimal? korting = i.Bruto is decimal b && b != 0 && i.Netto is decimal n ? Math.Round((b - n) / b, 2) : null;
+
+                var id = await Repo.BewaarRegelAsync(new Orderregel
+                {
+                    OrderId = order,
+                    Aantal = i.Aantal,
+                    EenheidId = 2,                    // stuks, zoals een nieuwe regel
+                    Artikelcode = code.Length > 100 ? code[..100] : code,
+                    Omschrijving = oms.Length > 400 ? oms[..400] : oms,
+                    MdeCode = a?.Id.ToString() ?? "",
+                    Leverdatum = Leverdatum,
+                    Prijs = i.Bruto,
+                    Korting = korting,
+                    Schatprijs = i.Bruto is null ? rij.Schatting : null,
+                });
+                if (i.Ean.Length > 0) await Repo.ZetEanAsync(id, i.Ean);
+                rij.Toegevoegd = true;
+                regels++;
+
+                foreach (var bl in rij.Bijlagen)
+                {
+                    if (bl.FileStoreId is not int fid)
+                    {
+                        _verslag.Add($"#{a?.Id} {code}: {bl.Soort} {(bl.Aantal == 0 ? "ontbreekt" : $"{bl.Aantal}x gevonden, kies zelf")}.");
+                        continue;
+                    }
+                    try
+                    {
+                        var gevonden = await Store.ZoekAsync(fid);
+                        if (gevonden is null) { _verslag.Add($"#{a?.Id} {code}: {bl.Soort} staat niet meer in de filestore."); continue; }
+                        await using var bron = File.OpenRead(gevonden.Value.Pad);
+                        await Store.ToevoegenAsync(bron, gevonden.Value.Naam, BestelVelden.StoreTypeOrderregel, id, Ik.WerknemerId ?? 0);
+                        bijlagen++;
+                    }
+                    catch (Exception ex) { _verslag.Add($"#{a?.Id} {code}: {bl.Soort} kopiëren mislukt ({ex.Message})."); }
+                }
+            }
+            _voortgang = $"{regels} regels en {bijlagen} bijlages toegevoegd." + (_verslag.Count > 0 ? " Zie de opmerkingen hieronder." : "");
+            _klaar = true;
+        }
+        catch (Exception ex)
+        {
+            _voortgang = $"Gestopt na {regels} regels: {ex.Message}";
+            _verslag.Insert(0, "Toevoegen is niet afgemaakt; de groene regels staan er al in. Opnieuw Toevoegen voegt alleen de rest toe.");
+        }
+        finally
+        {
+            _bezig = false;
+            if (regels > 0) await OpToegevoegd.InvokeAsync();
+        }
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && !_bezig) await Sluit();
+    }
+
+    private async Task Sluit()
+    {
+        if (_bezig) return;
+        await OpGesloten.InvokeAsync();
+    }
+
+    private static string Bedrag(decimal waarde) => waarde.ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+}

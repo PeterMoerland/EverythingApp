@@ -53,6 +53,9 @@ public class Workorder
     /// <summary>Projectnaam/-omschrijving uit Projects (Projectdescription).</summary>
     public string Project { get; set; } = "";
 
+    /// <summary>Workorders.InkoopToegestaan &lt;&gt; 0: er mag op deze werkorder besteld worden (Bestellingen).</summary>
+    public bool InkoopToegestaan { get; set; } = true;
+
     /// <summary>Wat op het scherm komt: het werkordernummer, of de interne id als dat nummer ontbreekt.</summary>
     public string Weergave => string.IsNullOrWhiteSpace(Nummer) ? WerkbonId.ToString() : Nummer;
 

@@ -21,7 +21,7 @@ public static class BestelVelden
 
         new("Afleveradres", null,
             new Veld("Afleveren bij", VeldType.Keuze, new[] { "AfleverKlant-id" }, Lijst: "Leverancier"),
-            new Veld("Ter attentie van", VeldType.Keuze, new[] { "AfleverTAV-id" }, Lijst: "Contact"))
+            new Veld("Ter attentie van", VeldType.Keuze, new[] { "AfleverTAV-id" }, Lijst: "AfleverContact"))
             { EenKolom = true },
 
         new("Opties", null,

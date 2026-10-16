@@ -99,6 +99,9 @@
     /// <summary>Wordt aangeroepen bij sluiten/annuleren.</summary>
     [Parameter] public EventCallback OpGesloten { get; set; }
 
+    /// <summary>Alleen werkorders met InkoopToegestaan (Bestellingen).</summary>
+    [Parameter] public bool AlleenInkoop { get; set; }
+
     private Tab _tab = Tab.Recent;      // begin bij 'Recent': meestal de snelste route
     private string _zoek = "";
     private bool _alleenOpen = true;
@@ -155,6 +158,7 @@
                         ? new List<Workorder>()
                         : await Repo.ZoekWerkordersAsync(_zoek, _alleenOpen, 100)
             };
+            if (AlleenInkoop) _resultaat = _resultaat.Where(w => w.InkoopToegestaan).ToList();
         }
         catch
         {
