@@ -127,6 +127,8 @@ if (liveDb)
     builder.Services.AddSingleton<IProductRepository>(_ => new MySqlProductRepository(cs!,
         builder.Configuration.GetValue<int?>("Productie:StandaardKlantId")));
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
+    builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
+    builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
         builder.Configuration.GetValue<int?>("Productie:StandaardArtikelEenheidId") ?? 2));
@@ -164,6 +166,8 @@ else
     builder.Services.AddSingleton<INdaRepository, GeenNdaRepository>();
     builder.Services.AddSingleton<IProductRepository, GeenProductRepository>();
     builder.Services.AddSingleton<IBestelRepository, GeenBestelRepository>();
+    builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
+    builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
     builder.Services.AddSingleton<IBankRepository, GeenBankRepository>();
     builder.Services.AddSingleton<IArtikelRepository, GeenArtikelRepository>();
     builder.Services.AddSingleton<IInstellingRepository, GeenInstellingRepository>();
@@ -236,6 +240,7 @@ builder.Services.AddSingleton<NdaDocumentService>();
 // Typeplaatje voor de laser (SVG + PDF)
 builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<SonosService>();
+builder.Services.AddSingleton<MeldingSignaal>();
 builder.Services.AddSingleton<AltecPrinter>();
 builder.Services.AddSingleton<FusionPakketten>();
 builder.Services.AddSingleton<FirmwarePakketten>();

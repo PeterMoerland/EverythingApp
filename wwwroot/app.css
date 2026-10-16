@@ -3072,3 +3072,122 @@ html[data-thema="donker"] .kiezer-tabel.regels input:focus, html[data-thema="don
 .nb-vraag button.gekozen { background: var(--accent); color: #fff; border-color: var(--accent); }
 html[data-thema="donker"] .nb-vraag { border-color: var(--d3); }
 html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7a6320; }
+
+/* Bestellingen: Volgende (Services/BestelFlow.cs) */
+.statusbalk .stap:disabled { cursor: default; opacity: 1; }
+.statusbalk .stap:disabled:hover { border-color: #ccd5e0; color: #55606d; }
+.statusbalk .stap.nu:disabled:hover { border-color: var(--accent); color: #fff; }
+.statusbalk .stap.gehad:disabled:hover { border-color: #b9e0be; color: #2c6b39; }
+/* één balk: links Volgende/Afkeuren, rechts de statuslampjes (breken binnen hun vak af), uitleg eronder */
+.status-rij { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .45rem 1.2rem;
+              padding: .55rem .75rem; margin-bottom: .8rem; background: #f7f9fc; border: 1px solid #e3e8ef; border-radius: 8px; }
+.status-rij.zonder-knop { grid-template-columns: minmax(0, 1fr); }
+.status-rij .statusbalk { margin-bottom: 0; gap: .25rem; }
+.status-rij .stap { font-size: .78rem; padding: .14rem .6rem; }
+.volgende-knoppen { display: flex; align-items: center; gap: .5rem; padding-right: 1.2rem; border-right: 1px solid #dde3ea; align-self: stretch; }
+.volgende-knoppen button.primair { min-width: 7.5rem; }
+.volgende-uitleg { grid-column: 1 / -1; color: #667; font-size: .85rem; }
+
+/* Bel in de bovenbalk (Components/Layout/MeldingBel.razor) */
+.bel-knop { position: relative; display: inline-flex; align-items: center; gap: .15rem; border: 1px solid #f3c2c2; background: #fff5f5;
+            border-radius: 14px; padding: .15rem .55rem .15rem .4rem; cursor: pointer; font: inherit; }
+.bel-icoon { font-size: 1.05rem; }
+.bel-teken { display: inline-grid; place-items: center; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: #d32f2f; color: #fff;
+             font-weight: 800; font-size: .75rem; }
+.bel-aantal { font-weight: 700; color: #b71c1c; font-size: .85rem; }
+.bel-venster { width: min(46rem, 96vw); }
+.bel-inhoud { padding: .4rem .9rem .9rem; overflow: auto; }
+.bel-inhoud h4 { margin: .6rem 0 .3rem; display: flex; align-items: center; gap: .6rem; color: var(--accent); }
+.bel-lijst { display: flex; flex-direction: column; gap: .3rem; }
+.bel-regel { display: flex; align-items: center; gap: .7rem; padding: .45rem .6rem; border: 1px solid #e3e7ec; border-radius: 6px;
+             text-decoration: none; color: inherit; cursor: pointer; }
+.bel-regel:hover { border-color: var(--accent); background: var(--selected); }
+.bel-po { font-weight: 700; white-space: nowrap; min-width: 4.8rem; }
+.bel-tekst { flex: 1; min-width: 0; }
+.bel-tekst small { display: block; color: #778; font-size: .8rem; }
+.bel-bedrag { white-space: nowrap; font-variant-numeric: tabular-nums; }
+html[data-thema="donker"] .bel-knop { background: #3a1c1c; border-color: #7a2c2c; color: var(--dt); }
+html[data-thema="donker"] .bel-regel { border-color: var(--d3); }
+html[data-thema="donker"] .volgende-uitleg { color: #9aa; }
+
+/* Bestellingen: afkeuren */
+.afkeur-venster { width: min(32rem, 94vw); }
+.afkeur-inhoud { padding: .6rem .9rem; display: flex; flex-direction: column; gap: .4rem; }
+.afkeur-inhoud textarea { width: 100%; box-sizing: border-box; }
+button.rood-vlak { background: var(--rood); border-color: var(--rood); color: #fff; }
+html[data-thema="donker"] .status-rij { background: var(--d2); border-color: var(--d3); }
+html[data-thema="donker"] .volgende-knoppen { border-color: var(--d3); }
+
+/* Mail aan de leverancier (Components/BestelMailVenster.razor) */
+.bm-venster { width: min(84rem, 96vw); }
+.bm-tweeluik { display: grid; grid-template-columns: minmax(20rem, 26rem) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.bm-links { display: flex; flex-direction: column; gap: .4rem; }
+.bm-links .wn-veld { grid-template-columns: 6rem minmax(0, 1fr); }
+.bm-links .wn-veld input, .bm-links .wn-veld textarea { width: 100%; box-sizing: border-box; }
+.bm-kop { margin: .6rem 0 .2rem; color: var(--accent); }
+.bm-kop small { color: #888; font-weight: normal; }
+.bm-bijlagen { display: flex; flex-direction: column; gap: .2rem; max-height: 14rem; overflow: auto; border: 1px solid #e3e8ef; border-radius: 6px; padding: .3rem .5rem; }
+.bm-bijlagen small { color: #888; margin-left: .3rem; }
+.bm-oud { color: #8a5a00; }
+.bm-voorbeeld { border: 1px solid #dde3ea; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 30rem; }
+.bm-voorbeeld-kop { padding: .5rem .8rem; background: #f4f6f9; border-bottom: 1px solid #dde3ea; display: flex; justify-content: space-between; gap: 1rem; }
+.bm-voorbeeld-kop small { color: #888; }
+.bm-voorbeeld iframe { border: 0; width: 100%; height: 62vh; background: #fff; }
+.bm-klaar { padding: 1rem; }
+@media (max-width: 900px) { .bm-tweeluik { grid-template-columns: 1fr; } }
+html[data-thema="donker"] .bm-voorbeeld, html[data-thema="donker"] .bm-bijlagen { border-color: var(--d3); }
+html[data-thema="donker"] .bm-voorbeeld-kop { background: var(--d2); border-color: var(--d3); }
+.bm-melding { padding: .45rem .7rem; border-radius: 6px; margin-bottom: .4rem; font-size: .9rem; }
+.bm-melding.fout { background: #fdecea; border: 1px solid #f1b0ab; color: #9b1c1c; }
+.bm-melding.let-op { background: #fff4d6; border: 1px solid #e0b04a; color: #6b4b00; }
+.bm-melding.ok { background: #e7f5e9; border: 1px solid #a9d8b0; color: #23612f; }
+html[data-thema="donker"] .bm-melding.let-op { background: #3a3014; border-color: #a07a1e; color: #ffd98a; }
+html[data-thema="donker"] .bm-melding.fout { background: #3a1c1c; border-color: #7a2c2c; color: #ffb4b4; }
+
+/* Bestellingen: tabblad Voortgang (wanneer en door wie) en overgeslagen goedkeurstappen */
+.voortgang { display: flex; flex-direction: column; max-width: 40rem; }
+.vg-stap { display: grid; grid-template-columns: 13rem 9.5rem 1fr; gap: .6rem; padding: .35rem .2rem; border-bottom: 1px solid #eef1f4; align-items: baseline; }
+.vg-naam { font-weight: 600; font-size: .92em; }
+.vg-wanneer { font-variant-numeric: tabular-nums; }
+.vg-wie { color: #556; }
+.vg-stap.open .vg-wanneer, .vg-stap.open .vg-naam { color: #99a; font-weight: normal; }
+.vg-stap.overgeslagen .vg-wanneer, .vg-stap.overgeslagen .vg-wie { color: #99a; font-style: italic; }
+.statusbalk .stap.overgeslagen, .statusbalk .stap.overgeslagen:disabled:hover { background: transparent; border-style: dashed; color: #9aa3ad; text-decoration: line-through; }
+html[data-thema="donker"] .vg-stap { border-color: var(--d3); }
+html[data-thema="donker"] .vg-wie { color: #aab; }
+
+/* Materiaal inboeken (Components/Pages/Ontvangst.razor) */
+.ont-scherm { display: flex; gap: 1rem; align-items: flex-start; margin-top: .8rem; }
+.ont-lijst { width: 22rem; flex: 0 0 22rem; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem; }
+.ont-orders { display: flex; flex-direction: column; gap: .25rem; max-height: calc(100vh - 13rem); overflow: auto; margin-top: .5rem; }
+.ont-order { text-align: left; border: 1px solid transparent; background: none; border-radius: 6px; padding: .4rem .55rem; cursor: pointer; font: inherit;
+             display: flex; flex-direction: column; gap: .05rem; }
+.ont-order:hover { background: var(--selected); }
+.ont-order.actief { background: var(--accent); color: #fff; }
+.ont-order.actief small { color: #e6eefa; }
+.ont-po { font-weight: 600; }
+.ont-order small { color: #778; font-size: .78rem; }
+.ont-detail { flex: 1; min-width: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .8rem 1rem 1rem; }
+.ont-kop { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: .8rem; }
+.ont-kop h2 { margin: 0 0 .3rem; color: var(--accent); font-size: 1.2rem; }
+.ont-info { display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; font-size: .9rem; color: #445; }
+.ont-opm { margin-top: .4rem; padding: .35rem .6rem; background: #fff8e1; border-left: 3px solid #e0a800; font-size: .88rem; white-space: pre-wrap; }
+.ont-form { display: flex; flex-wrap: wrap; gap: .6rem 1.6rem; margin-bottom: .7rem; }
+.ont-form label, .ont-opmerking { display: flex; align-items: center; gap: .5rem; }
+.ont-form label span, .ont-opmerking span { font-weight: 600; font-size: .9rem; }
+.ont-form input { width: 13rem; font-size: 1rem; }
+.ont-regels td { padding: .25rem .45rem; }
+.ont-regels th { font-size: .8rem; text-align: left; padding: .25rem .45rem; }
+.ont-regels .r { text-align: right; }
+.ont-aantal { width: 5rem; text-align: right; font-size: 1rem; font-weight: 600; }
+.ont-regels tr.ont-binnen td { color: #889; }
+.ont-regels tr.ont-toeslag td { color: #99a; font-style: italic; }
+.ont-artikel { font-weight: 600; white-space: nowrap; }
+.ont-snel { margin: .4rem 0 .6rem; }
+.ont-opmerking { align-items: flex-start; }
+.ont-opmerking textarea { flex: 1; max-width: 40rem; }
+.ont-actie { display: flex; justify-content: flex-end; align-items: center; gap: 1rem; margin: .7rem 0 .4rem; }
+.ont-historie td small { color: #889; margin-left: .3rem; }
+@media (max-width: 900px) { .ont-scherm { flex-direction: column; } .ont-lijst { width: auto; flex: none; } }
+html[data-thema="donker"] .ont-lijst, html[data-thema="donker"] .ont-detail { background: var(--d1); border-color: var(--d3); }
+html[data-thema="donker"] .ont-opm { background: #3a3014; }

@@ -100,15 +100,15 @@ public static class Menu
 
         // Voorraad: lokaties en dragers (krat, pallet) als boom, en straks de mutaties.
         new("voorraad", "Voorraad", "archive",
-            new MenuGroep("Lokaties",
-                new MenuItem("Dragers", "/voorraad/dragers"),
-                new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur"),
-                new MenuItem("Lokaties")),
             new MenuGroep("Voorraad",
                 new MenuItem("Artikelvoorraad", "/voorraad/artikelen"),
                 new MenuItem("Inboeken", "/voorraad/artikelen"),
                 new MenuItem("Uitboeken", "/voorraad/artikelen"),
                 new MenuItem("Verplaatsen", "/voorraad/artikelen")),
+            new MenuGroep("Lokaties",
+                new MenuItem("Dragers", "/voorraad/dragers"),
+                new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur"),
+                new MenuItem("Lokaties")),
             new MenuGroep("Rapporten",
                 new MenuItem("Voorraadstand"))),
 
@@ -118,7 +118,7 @@ public static class Menu
                 new MenuItem("Orderbatch", "/orderbatch"),
                 new MenuItem("Scannen (telefoon)", "/scannen")),
             new MenuGroep("Ontvangst",
-                new MenuItem("Materiaal inboeken"),
+                new MenuItem("Materiaal inboeken", "/bestellingen/ontvangst"),
                 new MenuItem("Scan bestelling")),
             new MenuGroep("Rapporten",
                 new MenuItem("Openstaande bestellingen"))),

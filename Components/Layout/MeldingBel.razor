@@ -1,0 +1,133 @@
+@implements IDisposable
+@inject HuidigeGebruiker Ik
+@inject IBestelRepository Bestel
+@inject IMeldingRepository Meldingen
+@inject MeldingSignaal Signaal
+
+@* Bel in de bovenbalk: alleen zichtbaar als er iets is. Rood uitroepteken met het aantal.
+   - Goed te keuren: bestellingen in Goedkeuring PM waarvan jij projectverantwoordelijke bent, en als Directie ook
+     Goedkeuring Directie (IBestelRepository.TeKeurenAsync; volgt uit de status, geen eigen tabel).
+   - Meldingen voor jou (IMeldingRepository), bv. "goedgekeurd, je kunt bestellen".
+   Een order opent in een nieuw tabblad (bestellingen?order=…), daar druk je op Volgende. Ververst elke minuut en meteen
+   na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet. *@
+
+@if (Aantal > 0)
+{
+    <button type="button" class="bel-knop" @onclick="() => _open = !_open"
+            title="@($"{_teKeuren.Count} goed te keuren, {_meldingen.Count} melding(en)")">
+        <span class="bel-icoon">🔔</span><span class="bel-teken">!</span><span class="bel-aantal">@Aantal</span>
+    </button>
+}
+
+@if (_open)
+{
+    <div class="cmdk-overlay midden" @onclick="() => _open = false">
+        <div class="kiezer bel-venster" @onclick:stopPropagation role="dialog" aria-label="Meldingen">
+            <div class="kiezer-kop">
+                <b>🔔 Meldingen</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten" @onclick="() => _open = false">✕</button>
+            </div>
+            <div class="bel-inhoud">
+                @if (_teKeuren.Count > 0)
+                {
+                    <h4>Goed te keuren (@_teKeuren.Count)</h4>
+                    <div class="bel-lijst">
+                        @foreach (var o in _teKeuren)
+                        {
+                            <a class="bel-regel" href="@($"bestellingen?order={o.OrderId}")" target="_blank" rel="noopener"
+                               title="Opent de bestelling in een nieuw tabblad; daar druk je op Volgende">
+                                <span class="bel-po">PO-@o.OrderId</span>
+                                <span class="bel-tekst">
+                                    <b>@o.Leverancier</b> @(o.Omschrijving.Length > 0 ? "· " + o.Omschrijving : "")
+                                    <small>@o.Besteller · @o.Werkorder @o.Project · @(o.Status == BestelFlow.GoedkeuringPm ? "goedkeuring PM" : "goedkeuring Directie")@Sinds(o.Sinds)</small>
+                                </span>
+                                <span class="bel-bedrag">@Bedrag(o.Totaal)</span>
+                            </a>
+                        }
+                    </div>
+                }
+                @if (_meldingen.Count > 0)
+                {
+                    <h4>Voor jou (@_meldingen.Count) <button class="klein" @onclick="AllesGelezen">Alles gelezen</button></h4>
+                    <div class="bel-lijst">
+                        @foreach (var m in _meldingen)
+                        {
+                            var mid = m.Id;
+                            @if (m.OrderId is int oid)
+                            {
+                                <a class="bel-regel" href="@($"bestellingen?order={oid}")" target="_blank" rel="noopener" @onclick="() => Gelezen(mid)">
+                                    <span class="bel-po">@(m.Soort == "afgekeurd" ? "❌" : m.Soort == "geleverd" ? "📦" : "✅")</span>
+                                    <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
+                                </a>
+                            }
+                            else
+                            {
+                                <div class="bel-regel" @onclick="() => Gelezen(mid)">
+                                    <span class="bel-po">•</span>
+                                    <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                @if (Aantal == 0)
+                {
+                    <p class="uitleg">Niets meer te doen.</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TeKeurenOrder> _teKeuren = new();
+    private List<Melding> _meldingen = new();
+    private bool _open;
+    private Timer? _klok;
+
+    private int Aantal => _teKeuren.Count + _meldingen.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        Signaal.Gewijzigd += OpSignaal;
+        await Laad();
+        _klok = new Timer(_ => OpSignaal(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private void OpSignaal() => _ = InvokeAsync(async () => { await Laad(); StateHasChanged(); });
+
+    private async Task Laad()
+    {
+        if (Ik.WerknemerId is not int wn) { _teKeuren = new(); _meldingen = new(); return; }
+        try { _teKeuren = Bestel.Beschikbaar ? await Bestel.TeKeurenAsync(wn, Ik.Mag("Directie")) : new(); } catch { }
+        try { _meldingen = Meldingen.Beschikbaar ? await Meldingen.OngelezenAsync(wn) : new(); } catch { }
+        if (Aantal == 0) _open = false;
+    }
+
+    private async Task Gelezen(int id)
+    {
+        if (Ik.WerknemerId is not int wn) return;
+        try { await Meldingen.GelezenAsync(id, wn); } catch { }
+        _meldingen.RemoveAll(m => m.Id == id);
+        if (Aantal == 0) _open = false;
+    }
+
+    private async Task AllesGelezen()
+    {
+        if (Ik.WerknemerId is not int wn) return;
+        try { await Meldingen.AllesGelezenAsync(wn); } catch { }
+        _meldingen.Clear();
+        if (Aantal == 0) _open = false;
+    }
+
+    private static string Sinds(DateTime? d) => d is { } x ? " · sinds " + x.ToString("dd-MM HH:mm") : "";
+    private static string Bedrag(decimal w) => w.ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+
+    public void Dispose()
+    {
+        Signaal.Gewijzigd -= OpSignaal;
+        _klok?.Dispose();
+    }
+}

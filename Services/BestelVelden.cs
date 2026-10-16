@@ -40,11 +40,9 @@ public static class BestelVelden
             new Veld("Goedgekeurd (2) op", VeldType.Datum, new[] { "Approved2 date" }, AlleenLezen: true),
             new Veld("Besteld op", VeldType.Datum, new[] { "Ordered date" }, AlleenLezen: true),
             new Veld("Geleverd op", VeldType.Datum, new[] { "Delivered date" }, AlleenLezen: true),
-            new Veld("Gefactureerd op", VeldType.Datum, new[] { "Invoiced date" }, AlleenLezen: true),
-            new Veld("Geannuleerd op", VeldType.Datum, new[] { "Canceled date" }, AlleenLezen: true),
-            new Veld("Alles is geleverd", VeldType.JaNee, new[] { "AllesIsGeleverd" }),
-            new Veld("Alles is gefactureerd", VeldType.JaNee, new[] { "AllesIsGefactureerd" }),
-            new Veld("Klaar voor status gereed", VeldType.JaNee, new[] { "KlaarVoorStatusGereed" }))
+            new Veld("Geannuleerd op", VeldType.Datum, new[] { "Canceled date" }, AlleenLezen: true))
+            // De pagina toont dit tabblad zelf (datum + wie per stap, Bestellingen.Voortgang); gefactureerd en de vinkjes
+            // AllesIsGeleverd/AllesIsGefactureerd/KlaarVoorStatusGereed zijn weggelaten (wens gebruiker 16-10-2026).
             { EenKolom = true },
     };
 

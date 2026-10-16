@@ -112,3 +112,36 @@ public record LeverancierStandaard(int? ContactId, int? Taal, int Levertijd,
     public bool HeeftAfleveradres => AfleverId is not null;
     public string AfleverTekst => AfleverPlaats.Length > 0 ? $"{AfleverNaam} in {AfleverPlaats}" : AfleverNaam;
 }
+
+/// <summary>Wie een bestelling mag goedkeuren en tot welk bedrag (Werknemers.GoedkeurTarief, Directie).</summary>
+public record Goedkeurder(int Id, string Naam, string Afkorting, decimal Tarief, bool Directie);
+
+/// <summary>Wat Volgende van een bestelling moet weten (zie Services/BestelFlow.cs).</summary>
+public record BestelFlowInfo(int Status, int? WerkorderId, int? LeverancierId, string Leverancier, int? BesteldDoor,
+                             int? PmId, string PmNaam, decimal MinimumOrder, decimal Orderkosten, decimal NextDayFee,
+                             bool DirectGeleverd, bool MeldingBijLevering);
+
+/// <summary>Een bestelling die op goedkeuring wacht (bel in de bovenbalk).</summary>
+public record TeKeurenOrder(int OrderId, int Status, string Leverancier, string Omschrijving, decimal Totaal,
+                            string Besteller, string Werkorder, string Project, DateTime? Sinds);
+
+// ---- mail naar de leverancier: offerteaanvraag (PI-) en bestelling (PO-), zie Services/BestelMail.cs ----
+
+/// <summary>Een regel in de mail (query Order_items in Access).</summary>
+public record BestelMailRegel(double Aantal, string Eenheid, string Artikel, string Oc, string Omschrijving,
+                              DateOnly? Leverdatum, decimal Prijs, decimal Korting);
+
+/// <summary>Een bijlage van een orderregel (FileStore StoreType 3); verouderd = er is een nieuwere versie bij het artikel.</summary>
+public record BestelMailBijlage(int FileStoreId, string Naam, string Regel, long Grootte, bool Verouderd);
+
+/// <summary>Wie de mail ondertekent (Werknemers; een niet-persoon valt terug op de besteller).</summary>
+public record BestelMailAfzender(string Naam, string Mobiel, string Mail);
+
+/// <summary>Alles voor de mail aan de leverancier.</summary>
+public record BestelMailGegevens(
+    int OrderId, int Status, bool Engels,
+    int? ContactId, string ContactNaam, string ContactMail, string Aanhef,
+    int? LeverancierId, string Leverancier, bool OcCodes, int? OfferteContactId, int? OrderContactId, bool Cc, string CcAdres,
+    string Opmerking,
+    int? AfleverId, string AfleverNaam, string AfleverAdres, string AfleverPostcode, string AfleverPlaats, string AfleverTav,
+    List<BestelMailRegel> Regels, List<BestelMailBijlage> Bijlagen, BestelMailAfzender Afzender, string Bedrijfsregel);

@@ -229,6 +229,75 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Materiaal inboeken (16-10-2026)
+
+`/bestellingen/ontvangst` (Bestellingen ▸ Ontvangst ▸ Materiaal inboeken), `Components/Pages/Ontvangst.razor` +
+`Services/IOntvangstRepository.cs`. Vervangt Orders_incoming_goods + _signoff + MateriaalGeleverd (Access).
+- Lijst: `Orders.Status` 4 of 5 (zoals Access), zoeken op PO/leverancier/werkorder/project/klant/besteller. Er staan er
+  ~480, waarvan veel oude die nooit helemaal zijn afgetekend.
+- **Hele pakbon in één keer** (besluit gebruiker): pakbon (max 30, of "Onbekend"), "Ontvangen door" (standaard de
+  aangemelde medewerker), per regel "Nu geleverd" vooraf ingevuld met wat open staat, opmerking. Meer dan open = vraag.
+- Aftekenen (één transactie): per regel `OrderItemsDelivered` (pakbon, NOW, door, Remark) en bij een artikel
+  `VoorraadMutaties` +aantal, event 4, status 1, WerkorderID van de bestelling (zoals Access MateriaalGeleverd).
+  Alles binnen → zoals `OrderComplete`: Status 6, AllesIsGeleverd, Delivered date/by, Log_Orderchanges.
+- **Toeslag/correctie-regels hoeven niet geleverd** (Access telde ze wel mee voor "compleet").
+- Compleet → altijd een melding (📦) in de bel van NotifyTo of de besteller; mail "PO-n van LEV is compleet geleverd"
+  alleen als `Notify_when_delivered` (zoals Access; nieuwe opmaak, `BestelMail.GeleverdHtml`), via eigen Gmail/alias.
+- Weggelaten (besluit gebruiker): projectkrat scannen (nooit gebruikt), voorraadorders verdelen (4 van 1.362, in Access
+  waarschijnlijk stuk door `MagazijnID`), mail per regel (nooit gebruikt).
+- Lokaal getest t/m het scherm (PO-18351); **Aftekenen niet getest** (schrijft in de echte database).
+
+## Bestellingen: mail aan de leverancier (16-10-2026)
+
+Vervangt `Mail_Click` + `Create_order_request_Mail` / `Create_order_Mail` (Access stelde een Outlook-mail samen).
+Knoppen in de statusbalk: **✉ Offerte aanvragen…** bij Aanmaken (PI-), **✉ Bestelling versturen…** bij In bestelling (PO-).
+`Components/BestelMailVenster.razor`: links Van/Aan/CC/onderwerp/aanhef en de bijlagen, rechts het voorbeeld (iframe
+srcdoc); Versturen via de eigen Gmail (`MailService.Eigen`), op een werkplek via de alias. Opbouw in `Services/BestelMail.cs`.
+- Inhoud zoals Access: taal 0 = NL, anders EN (geen Duits); onderwerp "AANVRAAG prijs levertijd PI-n" / "REQUEST price
+  and delivery time PI-n" / "Order: PO-n"; aan = `Contacts.mail` van `Orders.Contact`; cc admin@mde-automation.nl, bij de
+  bestelling ook `CCmailadressBijBestelling` (vinkje, als `CCbijBestelling`); OC-kolom als `Relations.GebruikOCcodes`
+  (`Artikelen.OCcodeOmron`); "LET OP: DIT IS GEEN OPDRACHT" bij de aanvraag; prijzen + totaal alleen bij de bestelling;
+  Purchasenote en afleveradres als blokken; ondertekening van wie verstuurt (niet-persoon → besteller).
+- **Nieuwe opmaak** (wens gebruiker): inline-stijlen, blauwe tabelkop, zebra, logo als ingebed plaatje (`cid:logo-mde`,
+  `wwwroot/logo-mde.png`; `MailService.VerstuurAsync(html: true, ingebed: …)` maakt multipart/related), adresregel van MDE
+  uit Relations (`Bestellingen:EigenRelatieId`, standaard 5254). Weggelaten: lege prijskolommen in de aanvraag, de
+  voettekst-.htm's uit Google Drive, het "officiële order"-PDF (`GenereerOfficieleOrder`, maar 1 leverancier).
+- Bijlagen = StoreType 3 van de regels (vinkje per bestand), grootte van schijf; ZIP (`PI-n.zip`/`PO-n.zip`) voorgesteld
+  boven 20 MB, maximaal 24 MB (Gmail). "Verouderd" = bij hetzelfde artikel een nieuwere StoreType 2 met dezelfde naam
+  (Access keek alleen naar de naam).
+- Controles (`BestelMail.Controles`): contact, regels, compleet afleveradres = blokkerend; afwijkende standaardcontact,
+  leverdatum in het verleden, oude bijlagen, regels zonder prijs = waarschuwing. Aanhef leeg → invullen en (vinkje) opslaan
+  in `Contacts.Aanhef`, zoals Access vroeg.
+- Vrije tekst = de **Melding op orderformulier** (`Orders.Purchasenote`, het gele blok): in het venster aan te passen
+  (voorbeeld volgt direct) en bij versturen opgeslagen bij de bestelling (besluit gebruiker; geen apart tekstvak).
+- Na versturen: `Orders.MailAangemaakt` = nu, regel in `Log_Orderchanges` (groep Mail); bij de bestelling meteen de vraag
+  "Nu op Besteld zetten?" (Access: "Vergeet de status niet vooruit te zetten").
+- Lokaal getest t/m het voorbeeld (PO-18241, PI-18330); **echt versturen niet getest**.
+
+## Bestellingen: Volgende, goedkeuren en de bel (16-10-2026)
+
+In Access was dit nooit goed ingericht (de laatste ~1.400 orders sloegen status 1 en 2 over). Besluiten gebruiker:
+- Knop **Volgende ▸** (bij In bestelling: **Besteld ▸**); regels in `Services/BestelFlow.cs` (zonder database).
+  Aanmaken → werkorder verplicht (+ InkoopToegestaan), minstens één regel, toeslagen zoals Access (minimum orderbedrag
+  → regel "Ordercosts", next-day → "Next-day delivery fee", `Toeslag` = 1). Totaal ≤ `Werknemers.GoedkeurTarief` van
+  wie drukt, of Directie → In bestelling; anders Goedkeuring PM. **PM = `Projects.ProjectResponsible`** van het project
+  van de werkorder; is de besteller zelf de PM, dan meteen Goedkeuring Directie.
+- Goedkeuring PM: alleen de PM of Directie; ≤ GoedkeurTarief van de PM (of PM is Directie) → In bestelling, anders
+  Goedkeuring Directie (**grens = die van de PM**, niet de vaste € 2.500 uit Access). Goedkeuring Directie: alleen Directie.
+- In bestelling → Besteld: elke regel prijs of schatting (Access), vraag e-mail bij gereed (`Notify_when_delivered`),
+  `DirectGeleverdBijBestellen` → meteen Gereed. Wacht op levering → nog in Access.
+- Datum/wie per stap via de bestaande `ZetStatusAsync` (`BestelVelden.StatusVelden`).
+- Statusknoppen (vrij springen) alleen voor Directie; anders alleen weergave.
+- **Afkeuren…** (wie in die stap mag goedkeuren, reden verplicht): terug naar Aanmaken, regel "[datum] Afgekeurd door X:
+  reden" onder `Orders.Remark` (interne opmerking), melding soort "afgekeurd" (❌ in de bel) aan de besteller.
+- **Bel** (`Components/Layout/MeldingBel.razor`, bovenbalk, alleen zichtbaar als er iets is: rood ! + aantal): goed te
+  keuren (`TeKeurenAsync`: status 1 met jou als PM, status 2 als je Directie bent; volgt uit de status) en meldingen
+  (`IMeldingRepository`, tabel `Meldingen` uit `Meldingen_MariaDB.sql`). Klik = `bestellingen?order=ID` in een nieuw
+  tabblad. Na goedkeuring tot In bestelling krijgt de besteller een melding "goedgekeurd, je kunt bestellen".
+  Ververst elke minuut en meteen via `MeldingSignaal` (singleton) als iemand op de server iets doorzet.
+- Lokaal alleen getest zonder gebruiker (openen via ?order=, knop uit met reden, statusknoppen uit); de stappen zelf
+  schrijven in de echte database en zijn **niet getest**.
+
 ## Bestellingen: standaardwaarden van de leverancier en afleveradres (16-10-2026)
 
 Zoals `FillInDefaults_Order` in Access (na aanmaken en na wisselen van leverancier, `OrderSupplier_AfterUpdate`):

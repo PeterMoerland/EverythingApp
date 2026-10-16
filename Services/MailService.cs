@@ -377,16 +377,18 @@ public class MailService
     /// Verstuurt een bericht vanuit de opgegeven postbus, eventueel met bijlagen.
     /// De mail komt daarna ook in de map Verzonden van die postbus te staan.
     /// </summary>
+    /// <param name="html">De tekst is HTML (bv. de bestelling met een tabel); anders platte tekst.</param>
     public async Task VerstuurAsync(MailPostbus postbus, string naar, string onderwerp, string tekst,
                                     IEnumerable<(string Naam, byte[] Inhoud)>? bijlagen = null,
-                                    string? cc = null)
+                                    string? cc = null, bool html = false,
+                                    IEnumerable<(string Cid, string Naam, byte[] Inhoud)>? ingebed = null)
     {
         if (string.IsNullOrWhiteSpace(naar))
             throw new InvalidOperationException("Geen ontvanger opgegeven.");
 
         var client = await ClientOfFoutAsync(postbus);
 
-        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar, cc, onderwerp, tekst, bijlagen);
+        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar, cc, onderwerp, tekst, bijlagen, html, ingebed);
         var json = JsonSerializer.Serialize(new { raw = NaarBase64Url(Encoding.UTF8.GetBytes(raw)) });
 
         var antwoord = await client.PostAsync($"{Basis}/messages/send",
@@ -436,7 +438,8 @@ public class MailService
     /// met bijlagen een multipart/mixed met een scheidingsregel.
     /// </summary>
     private static string BouwBericht(string van, string naar, string? cc, string onderwerp, string tekst,
-                                     IEnumerable<(string Naam, byte[] Inhoud)>? bijlagen)
+                                     IEnumerable<(string Naam, byte[] Inhoud)>? bijlagen, bool html = false,
+                                     IEnumerable<(string Cid, string Naam, byte[] Inhoud)>? ingebed = null)
     {
         // Regelovergangen uit de kopregels houden: anders kan iemand met een
         // geplakte regel extra kopregels toevoegen.
@@ -452,9 +455,48 @@ public class MailService
         bericht.Append("Subject: ").Append(KopRegel(Kop(onderwerp))).Append("\r\n");
         bericht.Append("MIME-Version: 1.0\r\n");
 
+        var soort = html ? "text/html" : "text/plain";
+        var plaatjes = html ? ingebed?.ToList() ?? new() : new();
+
+        // Het tekstdeel; met ingebedde plaatjes (cid:...) een multipart/related om de HTML en de plaatjes heen.
+        string Tekstdeel()
+        {
+            var d = new StringBuilder();
+            if (plaatjes.Count == 0)
+            {
+                d.Append("Content-Type: ").Append(soort).Append("; charset=UTF-8\r\n");
+                d.Append("Content-Transfer-Encoding: 8bit\r\n\r\n");
+                d.Append(tekst).Append("\r\n");
+                return d.ToString();
+            }
+            var rel = "rel-" + Guid.NewGuid().ToString("N");
+            d.Append("Content-Type: multipart/related; boundary=\"").Append(rel).Append("\"\r\n\r\n");
+            d.Append("--").Append(rel).Append("\r\n");
+            d.Append("Content-Type: ").Append(soort).Append("; charset=UTF-8\r\n");
+            d.Append("Content-Transfer-Encoding: 8bit\r\n\r\n");
+            d.Append(tekst).Append("\r\n");
+            foreach (var (cid, naam, inhoud) in plaatjes)
+            {
+                d.Append("--").Append(rel).Append("\r\n");
+                d.Append("Content-Type: ").Append(FilestoreService.MimeVoor(naam)).Append("; name=\"").Append(KopRegel(Kop(naam))).Append("\"\r\n");
+                d.Append("Content-ID: <").Append(Kop(cid)).Append(">\r\n");
+                d.Append("Content-Disposition: inline; filename=\"").Append(KopRegel(Kop(naam))).Append("\"\r\n");
+                d.Append("Content-Transfer-Encoding: base64\r\n\r\n");
+                var b64 = Convert.ToBase64String(inhoud);
+                for (var i = 0; i < b64.Length; i += 76) d.Append(b64, i, Math.Min(76, b64.Length - i)).Append("\r\n");
+            }
+            d.Append("--").Append(rel).Append("--\r\n");
+            return d.ToString();
+        }
+
+        if (lijst.Count == 0 && plaatjes.Count > 0)
+        {
+            bericht.Append(Tekstdeel());
+            return bericht.ToString();
+        }
         if (lijst.Count == 0)
         {
-            bericht.Append("Content-Type: text/plain; charset=UTF-8\r\n");
+            bericht.Append("Content-Type: ").Append(soort).Append("; charset=UTF-8\r\n");
             bericht.Append("Content-Transfer-Encoding: 8bit\r\n\r\n");
             bericht.Append(tekst);
             return bericht.ToString();
@@ -464,9 +506,7 @@ public class MailService
         bericht.Append("Content-Type: multipart/mixed; boundary=\"").Append(grens).Append("\"\r\n\r\n");
 
         bericht.Append("--").Append(grens).Append("\r\n");
-        bericht.Append("Content-Type: text/plain; charset=UTF-8\r\n");
-        bericht.Append("Content-Transfer-Encoding: 8bit\r\n\r\n");
-        bericht.Append(tekst).Append("\r\n");
+        bericht.Append(Tekstdeel());
 
         foreach (var (naam, inhoud) in lijst)
         {

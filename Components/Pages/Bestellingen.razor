@@ -5,6 +5,8 @@
 @inject FilestoreService Store
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IMeldingRepository Meldingen
+@inject MeldingSignaal Signaal
 
 <div class="page">
     <header class="topbar">
@@ -44,7 +46,7 @@
                     <div class="zoekregel">
                         <select value="@StatusFilterTekst" @onchange="StatusFilterGewijzigd">
                             <option value="">Alle statussen</option>
-                            @foreach (var s in _statussen)
+                            @foreach (var s in FilterStatussen)
                             {
                                 <option value="@s.Id">@s.Omschrijving</option>
                             }
@@ -63,6 +65,9 @@
                     </div>
                     <div class="btngroup">
                         <button class="klein" @onclick="OpenNieuw">+ Nieuwe bestelling</button>
+                        <label class="vink" title="Bestellingen met status Cancel ook in de lijst">
+                            <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde tonen
+                        </label>
                     </div>
                 </div>
 
@@ -108,16 +113,69 @@
                 }
                 else
                 {
-                    @* statusbalk: waar staat deze bestelling? *@
-                    <div class="statusbalk">
-                        @foreach (var s in _statussen)
+                    @* statusbalk: waar staat deze bestelling? Vrij springen alleen voor de Directie (rechtzetten);
+                       de gewone weg is Volgende (Services/BestelFlow.cs). *@
+                    @* Volgende (en Afkeuren) vóór de statuslampjes, met ruimte ertussen (wens gebruiker) *@
+                    <div class="status-rij @(HeeftKnoppen ? "" : "zonder-knop")">
+                        @if (_flow is { } fl && HeeftKnoppen)
                         {
-                            <button class="stap @(s.Id == _status ? "nu" : "") @(s.Id < _status ? "gehad" : "")"
-                                    @key="s.Id" @onclick="() => ZetStatus(s)">
-                                @s.Omschrijving
-                            </button>
+                            <div class="volgende-knoppen">
+                                @* mail aan de leverancier: offerte aanvragen bij Aanmaken, de bestelling bij In bestelling *@
+                                @if (fl.Status == BestelFlow.Aanmaken)
+                                {
+                                    <button class="klein" @onclick="() => _mailOrder = _orderId" title="Prijs en levertijd vragen (PI-)">✉ Offerte aanvragen…</button>
+                                }
+                                else if (fl.Status == BestelFlow.InBestelling)
+                                {
+                                    <button class="klein" @onclick="() => _mailOrder = _orderId" title="De bestelling naar de leverancier mailen (PO-)">✉ Bestelling versturen…</button>
+                                }
+                                @if (fl.Status <= BestelFlow.InBestelling)
+                                {
+                                    <button class="primair" disabled="@(_volgendeBezig || BestelFlow.MagNiet(fl, _ik) is not null)"
+                                            title="@(BestelFlow.MagNiet(fl, _ik) ?? "")" @onclick="Volgende">
+                                        @(fl.Status == BestelFlow.InBestelling ? "Besteld ▸" : "Volgende ▸")
+                                    </button>
+                                }
+                                @if (BestelFlow.MagAfkeuren(fl, _ik))
+                                {
+                                    <button class="klein rood" disabled="@_volgendeBezig" @onclick="OpenAfkeuren"
+                                            title="Terug naar Aanmaken, met een reden voor de besteller">Afkeuren…</button>
+                                }
+                            </div>
+                        }
+                        <div class="statusbalk">
+                            @foreach (var s in Lampjes)
+                            {
+                                <button class="stap @(s.Id == _status ? "nu" : "") @StapKlasse(s)"
+                                        @key="s.Id" disabled="@(!MagSpringen)" title="@StapTip(s)" @onclick="() => ZetStatus(s)">
+                                    @(StapKlasse(s) == "gehad" ? "✓ " : "")@s.Omschrijving
+                                </button>
+                            }
+                        </div>
+                        @if (_flow is { } fu && BestelFlow.Uitleg(fu).Length > 0)
+                        {
+                            <div class="volgende-uitleg">@BestelFlow.Uitleg(fu)</div>
                         }
                     </div>
+                    @if (_afkeurOpen)
+                    {
+                        <div class="cmdk-overlay midden" @onclick="() => _afkeurOpen = false">
+                            <div class="kiezer afkeur-venster" @onclick:stopPropagation role="dialog" aria-label="Afkeuren">
+                                <div class="kiezer-kop"><b>PO-@_orderId afkeuren</b></div>
+                                <div class="afkeur-inhoud">
+                                    <p class="uitleg">De bestelling gaat terug naar Aanmaken. De besteller krijgt een melding met de reden;
+                                        die komt ook in de interne opmerking.</p>
+                                    <textarea rows="4" placeholder="Reden (verplicht), bv. andere leverancier kiezen, aantallen te hoog…"
+                                              value="@_afkeurReden" @oninput="e => _afkeurReden = (string?)e.Value ?? string.Empty"></textarea>
+                                </div>
+                                <div class="kiezer-voet">
+                                    <span style="flex:1"></span>
+                                    <button class="klein" @onclick="() => _afkeurOpen = false">Annuleren</button>
+                                    <button class="primair rood-vlak" disabled="@(_afkeurReden.Trim().Length == 0 || _volgendeBezig)" @onclick="Afkeuren">Afkeuren</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
 
                     <div class="wn-tabs">
                         @foreach (var tab in BestelVelden.Tabs)
@@ -175,8 +233,25 @@
                     {
                         <DetailMetZij>
                             <Hoofd>
-                                <VeldRaster Tab="HuidigeTab" Kolommen="_kolommen" Velden="_velden"
-                                            Lijsten="_lijsten" OpSlaan="Bewaar" />
+                                @if (_tab == "Voortgang")
+                                {
+                                    @* per stap: wanneer en door wie (de *date- en *by-kolommen van Orders) *@
+                                    <div class="voortgang">
+                                        @foreach (var st in Voortgang())
+                                        {
+                                            <div class="vg-stap @st.Klasse">
+                                                <span class="vg-naam">@st.Naam</span>
+                                                <span class="vg-wanneer">@st.Wanneer</span>
+                                                <span class="vg-wie">@st.Wie</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <VeldRaster Tab="HuidigeTab" Kolommen="_kolommen" Velden="_velden"
+                                                Lijsten="_lijsten" OpSlaan="Bewaar" />
+                                }
                             </Hoofd>
                             <Zij>
                                 <ZijBlok Titel="Leverancier" Leeg="@(LeverancierNaam() is null)"
@@ -323,6 +398,7 @@
                         </table>
                     </div>
 
+                    <BestelMailVenster OrderId="_mailOrder" OpGesloten="MailGesloten" />
                     <PlakVenster Open="_plakOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                 }
@@ -529,10 +605,17 @@
     }
     private static string Getal(decimal? waarde) => waarde is null ? "" : waarde.Value.ToString("0.##");
 
+    /// <summary>bestellingen?order=123: die bestelling meteen openen (bv. vanuit de bel, in een nieuw tabblad).</summary>
+    [SupplyParameterFromQuery(Name = "order")] public int? OrderParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
         if (!Repo.Beschikbaar) return;
+        if (Ik.WerknemerId is int ikId)
+        {
+            try { _ik = await Repo.GoedkeurderAsync(ikId); } catch { }
+        }
 
         try
         {
@@ -563,13 +646,23 @@
             _lijsten["Contact"] = new List<Keuze>();
 
             await Laad();
+            if (OrderParam is int teOpenen) await OpenOrder(teOpenen);
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
     }
 
+    /// <summary>Geannuleerde bestellingen (Cancel) standaard niet in de lijst (wens gebruiker).</summary>
+    private bool _metGeannuleerd;
+
+    private async Task GeannuleerdGewijzigd(ChangeEventArgs e)
+    {
+        _metGeannuleerd = e.Value is true;
+        await Laad();
+    }
+
     private async Task Laad(bool kiesBijEen = false)
     {
-        try { _lijst = await Repo.ZoekAsync(_zoek, _statusFilter, null, _besteldDoor, 100); }
+        try { _lijst = await Repo.ZoekAsync(_zoek, _statusFilter, null, _besteldDoor, 100, _metGeannuleerd); }
         catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
 
         if (kiesBijEen && _lijst.Count == 1) { await Kies(_lijst[0]); return; }
@@ -687,6 +780,7 @@
         await LaadWerkorder();
         await LaadContacten();
         await LaadStandaard();
+        await LaadFlow();
         await LaadRegels();
         await LaadDocumenten();
     }
@@ -781,6 +875,53 @@
         catch (Exception ex) { _regels = new(); Toon("Regels ophalen mislukt: " + ex.Message, true); }
     }
 
+    // ---- Voortgang: per stap wanneer en door wie ----
+    private record VoortgangStap(string Naam, string Wanneer, string Wie, string Klasse);
+
+    private static readonly (string Naam, string Datum, string Door)[] Stappen =
+    {
+        ("Aangemaakt", "Creation date", "Created by"),
+        ("Aangevraagd (Volgende)", "Request date", "Requested by"),
+        ("Goedgekeurd door PM", "Approved1 date", "Approved1 by"),
+        ("Goedgekeurd door Directie", "Approved2 date", "Approved2 by"),
+        ("Gemaild aan leverancier", "MailAangemaakt", ""),
+        ("Besteld", "Ordered date", "Ordered by"),
+        ("Geleverd", "Delivered date", "Delivered by"),
+        ("Geannuleerd", "Canceled date", "Canceled by"),
+    };
+
+    private DateTime? Datum(string kolom)
+        => _velden.TryGetValue(kolom, out var v) && v is not null && DateTime.TryParse(v.ToString(), out var d) ? d : null;
+
+    private string WerknemerNaam(int? id)
+        => id is int i ? Lijst("Werknemer").FirstOrDefault(w => w.Id == i)?.Naam ?? $"#{i}" : "";
+
+    /// <summary>Is een goedkeurstap overgeslagen (geen datum, terwijl de bestelling al verder is)?</summary>
+    private bool Overgeslagen(int stap)
+        => stap is BestelFlow.GoedkeuringPm or BestelFlow.GoedkeuringDirectie && _status > stap
+           && _status != BestelVelden.StatusGeannuleerd
+           && Datum(stap == BestelFlow.GoedkeuringPm ? "Approved1 date" : "Approved2 date") is null;
+
+    private string StapKlasse(Bestelstatus s) => s.Id >= _status ? "" : Overgeslagen(s.Id) ? "overgeslagen" : "gehad";
+    private string StapTip(Bestelstatus s) => Overgeslagen(s.Id) ? "Niet nodig: binnen de goedkeurgrens" : StapTitel;
+
+    private IEnumerable<VoortgangStap> Voortgang()
+    {
+        foreach (var (naam, datumKolom, doorKolom) in Stappen)
+        {
+            if (!_kolommen.Contains(datumKolom)) continue;
+            var d = Datum(datumKolom);
+            if (d is null && datumKolom == "Canceled date") continue;          // alleen tonen als hij geannuleerd is
+            var wie = d is not null && doorKolom.Length > 0 ? WerknemerNaam(Nummer(doorKolom)) : "";
+            var stap = datumKolom == "Approved1 date" ? BestelFlow.GoedkeuringPm : datumKolom == "Approved2 date" ? BestelFlow.GoedkeuringDirectie : -1;
+            if (d is null && Overgeslagen(stap))
+                yield return new VoortgangStap(naam, "niet nodig", "binnen de goedkeurgrens", "overgeslagen");
+            else
+                yield return new VoortgangStap(naam, d is { } x ? x.ToString(x.TimeOfDay == TimeSpan.Zero ? "dd-MM-yyyy" : "dd-MM-yyyy HH:mm") : "—",
+                                               wie.Length > 0 ? "door " + wie : "", d is null ? "open" : "klaar");
+        }
+    }
+
     private int? Nummer(string kolom)
     {
         if (!_velden.TryGetValue(kolom, out var v) || v is null) return null;
@@ -852,9 +993,212 @@
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
     }
 
+    // ================================================================
+    //  Volgende (Services/BestelFlow.cs) en goedkeuren
+    // ================================================================
+    private Goedkeurder? _ik;
+    private BestelFlowInfo? _flow;
+    private bool _volgendeBezig;
+
+    private bool MagSpringen => Ik.Mag("Directie");
+
+    /// <summary>Statussen in de filter: zonder ERROR (wens gebruiker), behalve als daar nu op gefilterd wordt.</summary>
+    private IEnumerable<Bestelstatus> FilterStatussen
+        => _statussen.Where(s => s.Id == _statusFilter || !s.Omschrijving.Trim().Equals("ERROR", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Staat er links in de statusbalk een knop (Volgende/Besteld of Afkeuren)?</summary>
+    private bool HeeftKnoppen => _flow is { } f && (f.Status <= BestelFlow.InBestelling || BestelFlow.MagAfkeuren(f, _ik));
+
+    /// <summary>De statuslampjes; ERROR alleen als de bestelling daar echt op staat (wens gebruiker).</summary>
+    private IEnumerable<Bestelstatus> Lampjes
+        => _statussen.Where(s => s.Id == _status || !s.Omschrijving.Trim().Equals("ERROR", StringComparison.OrdinalIgnoreCase));
+    private string StapTitel => MagSpringen ? "Directie: direct naar deze status zetten" : "Gebruik Volgende; vrij springen kan alleen de Directie";
+
+    private async Task LaadFlow()
+    {
+        _flow = null;
+        if (_orderId is int id)
+        {
+            try { _flow = await Repo.FlowInfoAsync(id); } catch { }
+        }
+    }
+
+    /// <summary>Een bestelling openen die (nog) niet in de lijst staat, bv. vanuit de bel.</summary>
+    private async Task OpenOrder(int id)
+    {
+        var b = _lijst.FirstOrDefault(x => x.Id == id);
+        if (b is null)
+        {
+            try { b = (await Repo.ZoekAsync(id.ToString(), null, null, null, 20)).FirstOrDefault(x => x.Id == id); } catch { }
+        }
+        if (b is null) { Toon($"PO-{id} niet gevonden.", true); return; }
+        await Kies(b);
+    }
+
+    private async Task Volgende()
+    {
+        if (_orderId is not int id || _volgendeBezig) return;
+        _volgendeBezig = true;
+        try
+        {
+            var info = await Repo.FlowInfoAsync(id);
+            if (info is null) { Toon("Bestelling niet gevonden.", true); return; }
+            if (BestelFlow.MagNiet(info, _ik) is { } niet) { Toon(niet, true); return; }
+            var ik = _ik!;
+            await LaadRegels();
+            var totaal = _regels.Sum(r => r.Regeltotaal);
+            int naar;
+
+            switch (info.Status)
+            {
+                case BestelFlow.Aanmaken:
+                    if (info.LeverancierId is null) { Toon("Kies eerst een leverancier.", true); return; }
+                    if (info.WerkorderId is null) { Toon("Een werkorder is verplicht om de bestelling door te zetten.", true); return; }
+                    if (await WerkorderNiet(info.WerkorderId) is { } woNiet) { Toon(woNiet, true); return; }
+                    if (_regels.Count == 0) { Toon("Er staan nog geen regels op deze bestelling.", true); return; }
+
+                    // toeslagen, zoals Access: minimum orderbedrag en next-day levering
+                    if (info.MinimumOrder > 0 && totaal < info.MinimumOrder && !_regels.Any(r => r.Omschrijving == "Ordercosts"))
+                    {
+                        if (!await Bevestig($"Het minimum bedrag voor deze leverancier is {Bedrag(info.MinimumOrder)}. Accepteer de toeslag van {Bedrag(info.Orderkosten)}?"))
+                            return;
+                        await Repo.VoegToeslagToeAsync(id, "Ordercosts", info.Orderkosten, ik.Afkorting);
+                    }
+                    var vroegste = _regels.Where(r => r.Leverdatum is not null).Select(r => r.Leverdatum!.Value).DefaultIfEmpty().Min();
+                    if (info.NextDayFee > 0 && vroegste != default
+                        && vroegste.DayNumber - DateOnly.FromDateTime(DateTime.Today).DayNumber < 2
+                        && !_regels.Any(r => r.Omschrijving == "Next-day delivery fee"))
+                    {
+                        if (!await Bevestig($"Om de goederen next-day te laten leveren is een toeslag vereist. Accepteer je de toeslag van {Bedrag(info.NextDayFee)}?"))
+                            return;
+                        await Repo.VoegToeslagToeAsync(id, "Next-day delivery fee", info.NextDayFee, ik.Afkorting);
+                    }
+                    await LaadRegels();
+                    totaal = _regels.Sum(r => r.Regeltotaal);
+
+                    naar = BestelFlow.NaAanmaken(totaal, ik, info.PmId);
+                    await Repo.ZetStatusAsync(id, BestelFlow.Aanmaken, naar, ik.Id);
+                    Toon(naar switch
+                    {
+                        BestelFlow.InBestelling => "Binnen je eigen goedkeurgrens: je kunt bestellen.",
+                        BestelFlow.GoedkeuringPm => $"Ter goedkeuring bij {(info.PmNaam.Length > 0 ? info.PmNaam : "de projectmanager")}.",
+                        _ => "Ter goedkeuring bij de Directie.",
+                    }, false);
+                    break;
+
+                case BestelFlow.GoedkeuringPm:
+                    naar = BestelFlow.NaPm(totaal, ik);
+                    await Repo.ZetStatusAsync(id, BestelFlow.GoedkeuringPm, naar, ik.Id);
+                    if (naar == BestelFlow.InBestelling) await MeldGoedgekeurd(info, id, ik);
+                    Toon(naar == BestelFlow.InBestelling ? "Goedgekeurd; de besteller krijgt een melding." : "Goedgekeurd; nu nog de Directie.", false);
+                    break;
+
+                case BestelFlow.GoedkeuringDirectie:
+                    await Repo.ZetStatusAsync(id, BestelFlow.GoedkeuringDirectie, BestelFlow.InBestelling, ik.Id);
+                    await MeldGoedgekeurd(info, id, ik);
+                    Toon("Goedgekeurd; de besteller krijgt een melding.", false);
+                    break;
+
+                case BestelFlow.InBestelling:
+                    // zoals Access: elke regel moet een prijs of schatting hebben
+                    if (_regels.FirstOrDefault(r => r.Aantal != 0 && (r.Prijs ?? 0) + (r.Schatprijs ?? 0) == 0) is { } zonder)
+                    {
+                        Toon($"Bij '{zonder.Artikelcode}, {zonder.Omschrijving}' staat geen stuksprijs of schatting. Order niet door te zetten.", true);
+                        return;
+                    }
+                    if (!info.MeldingBijLevering && await Bevestig("Wil je een e-mail ontvangen als de order gereed is?"))
+                        await Repo.ZetMeldingBijLeveringAsync(id, ik.Id);
+                    await Repo.ZetStatusAsync(id, BestelFlow.InBestelling, BestelFlow.WachtOpLevering, ik.Id);
+                    if (info.DirectGeleverd)      // leverancier levert meteen (DirectGeleverdBijBestellen): meteen gereed
+                        await Repo.ZetStatusAsync(id, BestelFlow.WachtOpLevering, BestelFlow.Gereed, ik.Id);
+                    Toon(info.DirectGeleverd ? "Besteld en meteen geleverd (gereed)." : "Besteld; wacht op levering.", false);
+                    break;
+            }
+
+            _velden = await Repo.GetVeldenAsync(id);
+            _status = Convert.ToInt32(_velden.TryGetValue("Status", out var st) && st is not null ? st : _status);
+            await LaadFlow();
+            await Laad();
+            Signaal.Geef();
+        }
+        catch (Exception ex) { Toon("Doorzetten mislukt: " + ex.Message, true); }
+        finally { _volgendeBezig = false; }
+    }
+
+    // ---- mail aan de leverancier (Components/BestelMailVenster.razor) ----
+    private int? _mailOrder;
+
+    private async Task MailGesloten(bool verstuurd)
+    {
+        var bestelling = _flow?.Status == BestelFlow.InBestelling;
+        _mailOrder = null;
+        if (!verstuurd) return;
+        if (_orderId is int id) _velden = await Repo.GetVeldenAsync(id);     // melding op orderformulier kan aangepast zijn
+        await LaadFlow();
+        // Access: "Vergeet de status niet vooruit te zetten als de mail succesvol is verzonden." Hier meteen de vraag.
+        if (bestelling && _flow?.Status == BestelFlow.InBestelling && await Bevestig("De bestelling is verstuurd. Nu op Besteld zetten?"))
+            await Volgende();
+    }
+
+    // ---- afkeuren ----
+    private bool _afkeurOpen;
+    private string _afkeurReden = "";
+
+    private void OpenAfkeuren() { _afkeurReden = ""; _afkeurOpen = true; }
+
+    private async Task Afkeuren()
+    {
+        if (_orderId is not int id || _volgendeBezig) return;
+        var reden = _afkeurReden.Trim();
+        if (reden.Length == 0) return;
+        _volgendeBezig = true;
+        try
+        {
+            var info = await Repo.FlowInfoAsync(id);
+            if (info is null || !BestelFlow.MagAfkeuren(info, _ik))
+            {
+                Toon("Deze bestelling kun je (nu) niet afkeuren.", true);
+                return;
+            }
+            var ik = _ik!;
+            await Repo.ZetStatusAsync(id, info.Status, BestelFlow.Aanmaken, ik.Id);
+            await Repo.VoegOpmerkingToeAsync(id, $"[{DateTime.Now:dd-MM-yyyy HH:mm}] Afgekeurd door {ik.Naam}: {reden}");
+            if (info.BesteldDoor is int besteller && besteller != ik.Id)
+            {
+                try
+                {
+                    await Meldingen.MaakAsync(besteller, "afgekeurd", id,
+                        $"PO-{id} ({info.Leverancier}) is afgekeurd door {ik.Naam}: {reden}");
+                }
+                catch { }
+            }
+            _afkeurOpen = false;
+            _velden = await Repo.GetVeldenAsync(id);
+            _status = BestelFlow.Aanmaken;
+            await LaadFlow();
+            await Laad();
+            Signaal.Geef();
+            Toon("Afgekeurd; de bestelling staat weer op Aanmaken en de besteller krijgt een melding.", false);
+        }
+        catch (Exception ex) { Toon("Afkeuren mislukt: " + ex.Message, true); }
+        finally { _volgendeBezig = false; }
+    }
+
+    /// <summary>De besteller hoort dat zijn bestelling is goedgekeurd (bel in de bovenbalk).</summary>
+    private async Task MeldGoedgekeurd(BestelFlowInfo info, int id, Goedkeurder door)
+    {
+        if (info.BesteldDoor is not int besteller || besteller == door.Id) return;
+        try
+        {
+            await Meldingen.MaakAsync(besteller, "goedgekeurd", id,
+                $"PO-{id} ({info.Leverancier}) is goedgekeurd door {door.Naam}. Je kunt bestellen.");
+        }
+        catch { }
+    }
+
     private async Task ZetStatus(Bestelstatus s)
     {
-        if (_orderId is null || s.Id == _status) return;
+        if (_orderId is null || s.Id == _status || !MagSpringen) return;
 
         if (!await Bevestig($"Deze bestelling op '{s.Omschrijving}' zetten?")) return;
 
@@ -863,7 +1207,9 @@
             await Repo.ZetStatusAsync(_orderId.Value, _status, s.Id, Ik.WerknemerId);
             _status = s.Id;
             _velden = await Repo.GetVeldenAsync(_orderId.Value);
+            await LaadFlow();
             await Laad();
+            Signaal.Geef();
             Toon($"Status staat nu op {s.Omschrijving}.", false);
         }
         catch (Exception ex) { Toon("Status wijzigen mislukt: " + ex.Message, true); }

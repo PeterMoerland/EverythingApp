@@ -1,0 +1,299 @@
+@page "/bestellingen/ontvangst"
+@inject IOntvangstRepository Repo
+@inject IUrenRepository Uren
+@inject IMeldingRepository Meldingen
+@inject MeldingSignaal Signaal
+@inject MailService Post
+@inject MailPostbussen Postbussen
+@inject HuidigeGebruiker Ik
+@inject IWebHostEnvironment Omgeving
+@inject IJSRuntime JS
+
+@* Materiaal inboeken: geleverde goederen aftekenen (Access Orders_incoming_goods + _signoff + MateriaalGeleverd).
+   Besluit gebruiker (16-10-2026): de hele pakbon in één keer (per regel "nu geleverd", vooraf ingevuld met wat open
+   staat); is de bestelling compleet, dan een mail aan wie erom vroeg (Notify_when_delivered) en altijd een melding in de
+   bel van de besteller (of NotifyTo). Opslaan: IOntvangstRepository.AftekenenAsync. *@
+
+<PageTitle>Materiaal inboeken — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Materiaal inboeken</h1>
+        <span class="weeklabel">@_orders.Count bestelling(en) wachten op levering</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    <div class="ont-scherm">
+        <aside class="ont-lijst">
+            <div class="zoekregel">
+                <input placeholder="PO, leverancier, werkorder, project, klant, besteller…" value="@_zoek" @onchange="Zoek" />
+            </div>
+            <div class="ont-orders">
+                @foreach (var o in _orders)
+                {
+                    var oo = o;
+                    <button class="ont-order @(o.OrderId == _gekozen?.OrderId ? "actief" : "")" @onclick="() => Kies(oo)">
+                        <span class="ont-po">PO-@o.OrderId · @o.Leverancier</span>
+                        <small>@o.Werkorder @o.Project</small>
+                        <small>@o.BesteldDoor@(o.Besteld is { } d ? " · besteld " + d.ToString("dd-MM-yyyy") : "") · @o.OpenRegels open</small>
+                    </button>
+                }
+                @if (_orders.Count == 0) { <p class="uitleg">Niets gevonden.</p> }
+            </div>
+        </aside>
+
+        <section class="ont-detail">
+            @if (_gekozen is not { } g)
+            {
+                <div class="kiezer-info">Kies links een bestelling.</div>
+            }
+            else
+            {
+                <div class="ont-kop">
+                    <div>
+                        <h2>PO-@g.OrderId · @g.Leverancier</h2>
+                        <div class="ont-info">
+                            <span><b>Werkorder</b> @g.Werkorder</span>
+                            <span><b>Project</b> @g.Project</span>
+                            <span><b>Klant</b> @g.Klant</span>
+                            <span><b>Besteld door</b> @g.BesteldDoor</span>
+                        </div>
+                        @if (g.Opmerking.Trim().Length > 0) { <div class="ont-opm">@g.Opmerking</div> }
+                    </div>
+                    <a class="knopje" href="@($"bestellingen?order={g.OrderId}")" target="_blank" rel="noopener">Bestelling openen ↗</a>
+                </div>
+
+                <div class="ont-form">
+                    <label><span>Pakbon</span>
+                        <input @ref="_pakbonVeld" maxlength="30" value="@_pakbon" @oninput="e => _pakbon = (string?)e.Value ?? string.Empty" placeholder="pakbonnummer" />
+                        <button class="klein" @onclick="@(() => _pakbon = "Onbekend")">Onbekend</button>
+                    </label>
+                    <label><span>Ontvangen door</span>
+                        <select value="@(_door?.ToString() ?? "")" @onchange="DoorGewijzigd">
+                            <option value="">— kies —</option>
+                            @foreach (var p in _personen) { <option value="@p.Id">@p.Naam</option> }
+                        </select>
+                    </label>
+                </div>
+
+                <table class="kiezer-tabel ont-regels">
+                    <thead>
+                        <tr>
+                            <th class="r">Besteld</th><th class="r">Al binnen</th><th class="r">Nu geleverd</th>
+                            <th>Eenh.</th><th>Artikel</th><th>Omschrijving</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _regels)
+                        {
+                            var rr = r;
+                            <tr class="@(r.Toeslag ? "ont-toeslag" : r.Open == 0 ? "ont-binnen" : "")">
+                                <td class="r">@Getal(r.Besteld)</td>
+                                <td class="r">@Getal(r.Geleverd)</td>
+                                <td class="r">
+                                    @if (r.Toeslag) { <small title="Toeslag of correctie: hoeft niet geleverd te worden">n.v.t.</small> }
+                                    else
+                                    {
+                                        <input class="ont-aantal" inputmode="decimal" value="@Getal(Nu(rr))" @onchange="e => ZetNu(rr, e)" />
+                                    }
+                                </td>
+                                <td>@r.Eenheid</td>
+                                <td class="ont-artikel">@r.Artikel @(r.ArtikelId is int a && a.ToString() != r.Artikel ? $"(#{a})" : "")</td>
+                                <td>@r.Omschrijving</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="btngroup ont-snel">
+                    <button class="klein" @onclick="AllesOpen">Alles wat open staat</button>
+                    <button class="klein" @onclick="AllesNul">Alles op 0</button>
+                </div>
+
+                <label class="ont-opmerking"><span>Opmerking bij deze levering</span>
+                    <textarea rows="2" value="@_opmerking" @oninput="e => _opmerking = (string?)e.Value ?? string.Empty"
+                              placeholder="bv. doos beschadigd, 2 stuks in backorder"></textarea>
+                </label>
+
+                <div class="ont-actie">
+                    <span class="uitleg">@Uitleg</span>
+                    <button class="primair" disabled="@(!KanAftekenen || _bezig)" @onclick="Aftekenen">
+                        @(_bezig ? "Bezig…" : $"Aftekenen ({AantalRegels} regel{(AantalRegels == 1 ? "" : "s")})")
+                    </button>
+                </div>
+
+                @if (_leveringen.Count > 0)
+                {
+                    <h3 class="wn-kop">Eerdere leveringen</h3>
+                    <table class="kiezer-tabel ont-historie">
+                        <thead><tr><th>Wanneer</th><th>Pakbon</th><th class="r">Aantal</th><th>Artikel</th><th>Door</th><th>Opmerking</th></tr></thead>
+                        <tbody>
+                            @foreach (var l in _leveringen)
+                            {
+                                <tr>
+                                    <td>@(l.Op?.ToString("dd-MM-yyyy HH:mm"))</td><td>@l.Pakbon</td><td class="r">@Getal(l.Aantal)</td>
+                                    <td>@l.Artikel <small>@l.Omschrijving</small></td><td>@l.Door</td><td>@l.Opmerking</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    private List<OntvangstOrder> _orders = new();
+    private OntvangstOrder? _gekozen;
+    private List<OntvangstRegel> _regels = new();
+    private List<OntvangstLevering> _leveringen = new();
+    private Dictionary<int, double> _nu = new();
+    private List<Keuze> _personen = new();
+    private string _zoek = "", _pakbon = "", _opmerking = "";
+    private int? _door;
+    private bool _bezig, _fout;
+    private string? _melding;
+    private ElementReference _pakbonVeld;
+    private bool _focusPakbon;
+
+    private double Nu(OntvangstRegel r) => _nu.TryGetValue(r.RegelId, out var n) ? n : 0;
+    private int AantalRegels => _regels.Count(r => !r.Toeslag && Nu(r) > 0);
+    private bool KanAftekenen => _pakbon.Trim().Length > 0 && _door is not null && AantalRegels > 0;
+    private string Uitleg => _pakbon.Trim().Length == 0 ? "Vul eerst het pakbonnummer in (of Onbekend)."
+                           : _door is null ? "Kies wie de goederen ontving."
+                           : AantalRegels == 0 ? "Vul bij minstens één regel een aantal in." : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) { Toon("Geen database.", true); return; }
+        try
+        {
+            _personen = (await Uren.GetWerknemersAsync()).Select(w => new Keuze(w.WerknemerId, w.Naam)).OrderBy(k => k.Naam).ToList();
+        }
+        catch { }
+        await Laad();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_focusPakbon) return;
+        _focusPakbon = false;
+        try { await _pakbonVeld.FocusAsync(); } catch { }
+    }
+
+    private async Task Laad()
+    {
+        try { _orders = await Repo.TeOntvangenAsync(_zoek); }
+        catch (Exception ex) { _orders = new(); Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Zoek(ChangeEventArgs e) { _zoek = ((string?)e.Value ?? "").Trim(); await Laad(); }
+
+    private async Task Kies(OntvangstOrder o)
+    {
+        _gekozen = o;
+        _pakbon = ""; _opmerking = "";
+        // wie ontvangt: de aangemelde medewerker (op een werkplek: wie zich aanmeldde)
+        _door = Ik.Medewerker?.Id ?? (Ik.IsWerkplek ? null : Ik.WerknemerId);
+        await LaadOrder();
+        _focusPakbon = true;
+    }
+
+    private async Task LaadOrder()
+    {
+        if (_gekozen is not { } o) return;
+        try
+        {
+            _regels = await Repo.RegelsAsync(o.OrderId);
+            _leveringen = await Repo.LeveringenAsync(o.OrderId);
+            _nu = _regels.Where(r => !r.Toeslag).ToDictionary(r => r.RegelId, r => r.Open);
+        }
+        catch (Exception ex) { Toon("Regels ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void ZetNu(OntvangstRegel r, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Trim().Replace(',', '.');
+        _nu[r.RegelId] = double.TryParse(tekst, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0 ? n : 0;
+    }
+
+    private void AllesOpen() { foreach (var r in _regels.Where(r => !r.Toeslag)) _nu[r.RegelId] = r.Open; }
+    private void AllesNul() { foreach (var r in _regels.Where(r => !r.Toeslag)) _nu[r.RegelId] = 0; }
+    private void DoorGewijzigd(ChangeEventArgs e) => _door = int.TryParse((string?)e.Value, out var d) ? d : null;
+
+    private async Task Aftekenen()
+    {
+        if (_gekozen is not { } o || !KanAftekenen || _bezig) return;
+        // zoals Access: meer dan besteld kan, maar alleen na een vraag
+        var teVeel = _regels.Where(r => !r.Toeslag && Nu(r) > r.Open).ToList();
+        if (teVeel.Count > 0 && !await Bevestig($"Bij {string.Join(", ", teVeel.Select(r => r.Artikel.Length > 0 ? r.Artikel : r.Omschrijving))} wordt meer afgetekend dan er openstaat. Toch doorgaan?"))
+            return;
+
+        _bezig = true;
+        try
+        {
+            var regels = _regels.Where(r => !r.Toeslag && Nu(r) > 0).Select(r => (r.RegelId, Nu(r))).ToList();
+            var uit = await Repo.AftekenenAsync(o.OrderId, _pakbon, _opmerking, _door!.Value, regels);
+            var tekst = $"{uit.Regels} regel(s) afgetekend op pakbon {_pakbon.Trim()}.";
+            if (uit.Compleet)
+            {
+                tekst = $"PO-{o.OrderId} is compleet geleverd en staat op Gereed.";
+                tekst += await MeldCompleet(o, uit);
+                _gekozen = null; _regels = new(); _leveringen = new();
+            }
+            else
+            {
+                await LaadOrder();
+                _pakbon = ""; _opmerking = "";
+            }
+            await Laad();
+            Toon(tekst, false);
+        }
+        catch (Exception ex) { Toon("Aftekenen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Compleet: melding in de bel van de besteller (of NotifyTo), en de mail als die gevraagd is.</summary>
+    private async Task<string> MeldCompleet(OntvangstOrder o, OntvangstUitkomst uit)
+    {
+        if (uit.Ontvanger is not int wie) return "";
+        var extra = "";
+        try
+        {
+            await Meldingen.MaakAsync(wie, "geleverd", o.OrderId, $"PO-{o.OrderId} ({o.Leverancier}) is compleet geleverd.");
+            Signaal.Geef();
+        }
+        catch { }
+        if (!uit.MailGevraagd) return extra;
+        try
+        {
+            var g = await Repo.GeleverdMailAsync(o.OrderId, wie);
+            var postbus = Ik.IsWerkplek ? Postbussen.Werkplek(Ik) : Ik.Email.Length > 0 ? MailService.Eigen(Ik.Email) : null;
+            if (g is null || g.MailOntvanger.Length == 0) return " Geen mailadres bekend van de besteller; alleen een melding in de app.";
+            if (postbus is null) return " Mail niet verstuurd (geen afzender op deze pc); wel een melding in de app.";
+            var door = _personen.FirstOrDefault(p => p.Id == _door)?.Naam ?? "";
+            var logo = await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"));
+            await Post.VerstuurAsync(postbus, g.MailOntvanger, BestelMail.GeleverdOnderwerp(g),
+                "<html><body>" + BestelMail.GeleverdHtml(g, door, "cid:" + BestelMail.LogoCid) + "</body></html>",
+                null, null, html: true, ingebed: new[] { (BestelMail.LogoCid, "logo-mde.png", logo) });
+            extra = $" {g.NaamOntvanger} krijgt een mail en een melding.";
+        }
+        catch (Exception ex) { extra = " Mail versturen mislukt: " + ex.Message; }
+        return extra;
+    }
+
+    private static string Getal(double d) => d.ToString("0.###", new System.Globalization.CultureInfo("nl-NL"));
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
