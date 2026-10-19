@@ -3479,3 +3479,20 @@ html[data-thema="donker"] .bon-fout { background: #3a1a18; color: #ffb4ab; }
 .pb-pdf { width: min(60rem, 96vw); height: 90vh; display: flex; flex-direction: column; }
 .pb-pdf iframe { flex: 1; width: 100%; border: 0; }
 html[data-thema="donker"] .pb-naam small { color: #9aa8bb; }
+
+/* ---------- Voorraadstand per datum (Financiën ▸ Rapporten) ---------- */
+.vs-samenvatting { display: flex; flex-wrap: wrap; gap: .6rem; margin: .4rem 0 .8rem; }
+.vs-kaart { display: flex; flex-direction: column; gap: .1rem; min-width: 11rem; padding: .5rem .8rem; border: 1px solid #dde; border-radius: 8px; background: #fff; }
+.vs-kaart b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.vs-kaart small, .vs-status { color: #667; font-size: .82rem; }
+.vs-status { text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.vs-tabel { width: 100%; }
+.vs-tabel td.r { font-variant-numeric: tabular-nums; }
+.vs-groep td { padding-top: .8rem; font-weight: 700; color: var(--accent); border-bottom: 1px solid #ccd; }
+.vs-sub td { font-weight: 600; border-top: 1px solid #ccd; }
+.vs-eind td { font-weight: 700; font-size: 1.05rem; border-top: 2px solid var(--accent); padding-top: .4rem; }
+.vs-mist { color: #99a; }
+.vs-negatief { color: #b3261e; }
+.vs-tabel button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font: inherit; }
+html[data-thema="donker"] .vs-kaart { background: #1b2a3f; border-color: #2b4a73; }
+html[data-thema="donker"] .vs-kaart small, html[data-thema="donker"] .vs-status { color: #9aa8bb; }

@@ -1,0 +1,220 @@
+@page "/financien/voorraadstand"
+@inject IVoorraadRepository Repo
+@inject IJSRuntime JS
+
+@* Overgezet van het Access-formulier VoorraadStandPerDatum (met de query en het rapport VoorraadStand): de voorraad
+   op een datum per status, met de vastgestelde kostprijs en de waarde. Projectmateriaal (een mutatie met werkorder)
+   telt niet mee, zoals in Access. Verschil: Access telde tot het begin van de gekozen dag, hier tot en met die dag.
+   Onder Financiën, dus alleen voor Financial en Directie (HuidigeGebruiker.IsFinancienPad). *@
+
+<PageTitle>Voorraadstand — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Voorraadstand per datum</h1>
+        <span class="weeklabel">@Zichtbaar.Count() artikelregels · @Geld(Zichtbaar.Sum(r => r.Totaal))</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Stand op (einde van de dag)</span>
+                <NlDatum Waarde="_datum" WaardeChanged="DatumGewijzigd" />
+            </label>
+            <div class="btngroup">
+                <button class="klein" @onclick="() => ZetDatum(DateOnly.FromDateTime(DateTime.Today))">Vandaag</button>
+                <button class="klein" @onclick="() => ZetDatum(EindVorigeMaand)">Eind vorige maand</button>
+                <button class="klein" @onclick="() => ZetDatum(new DateOnly(DateTime.Today.Year - 1, 12, 31))">31-12-@(DateTime.Today.Year - 1)</button>
+            </div>
+            <label class="bankveld">
+                <span>Productstatus</span>
+                <select value="@(_status?.ToString() ?? "")" @onchange="StatusGewijzigd">
+                    <option value="">Alles</option>
+                    @foreach (var s in _statussen)
+                    {
+                        <option value="@s.Id">@s.Naam</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld groei">
+                <span>Zoeken in de lijst</span>
+                <span class="zoekregel">
+                    <input placeholder="MDE-nummer, artikelcode of omschrijving…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+                    <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="() => _zoek = string.Empty">✕</button>
+                </span>
+            </label>
+            <div class="btngroup">
+                <button class="klein" disabled="@(_bezig || _regels.Count == 0)" @onclick="Excel">⭳ Excel</button>
+            </div>
+        </div>
+
+        @if (_bezig)
+        {
+            <p class="uitleg">Voorraad berekenen…</p>
+        }
+        else if (_regels.Count == 0)
+        {
+            <section class="module-placeholder"><p>Geen voorraad op @_datum.ToString("dd-MM-yyyy")@(_status is null ? "" : " met deze status").</p></section>
+        }
+        else
+        {
+            <div class="vs-samenvatting">
+                @foreach (var g in Groepen)
+                {
+                    <div class="vs-kaart">
+                        <span class="vs-status">@g.Key</span>
+                        <b>@Geld(g.Sum(r => r.Totaal))</b>
+                        <small>@g.Count() artikelen · @Getal(g.Sum(r => r.Aantal)) stuks</small>
+                    </div>
+                }
+            </div>
+
+            <table class="kiezer-tabel vs-tabel">
+                <thead>
+                    <tr>
+                        <th class="r" style="width:5rem">MDE</th>
+                        <th style="width:12rem">Artikelcode</th>
+                        <th>Omschrijving</th>
+                        <th class="r" style="width:6rem">Aantal</th>
+                        <th class="r" style="width:7.5rem">Kostprijs</th>
+                        <th class="r" style="width:8.5rem">Totaal</th>
+                    </tr>
+                </thead>
+                @foreach (var g in Groepen)
+                {
+                    <tbody>
+                        <tr class="vs-groep"><td colspan="6">@g.Key</td></tr>
+                        @foreach (var r in g)
+                        {
+                            <tr @key="(r.ArtikelId, r.Status)">
+                                <td class="r"><button class="link" title="Artikel bekijken" @onclick="() => _bekeken = r.ArtikelId">@r.ArtikelId</button></td>
+                                <td>@r.Code</td>
+                                <td>@r.Omschrijving</td>
+                                <td class="r @(r.Aantal < 0 ? "vs-negatief" : "")">@Getal(r.Aantal)</td>
+                                <td class="r @(r.Kostprijs == 0 ? "vs-mist" : "")">@Geld(r.Kostprijs)</td>
+                                <td class="r">@Geld(r.Totaal)</td>
+                            </tr>
+                        }
+                        <tr class="vs-sub">
+                            <td colspan="5" class="r">Totale kostprijs met status @g.Key</td>
+                            <td class="r">@Geld(g.Sum(r => r.Totaal))</td>
+                        </tr>
+                    </tbody>
+                }
+                <tfoot>
+                    <tr class="vs-eind">
+                        <td colspan="5" class="r">Totale kostprijs voorraad op @_datum.ToString("dd-MM-yyyy")@(_zoek.Trim().Length > 0 ? " (gefilterd)" : "")</td>
+                        <td class="r">@Geld(Zichtbaar.Sum(r => r.Totaal))</td>
+                    </tr>
+                </tfoot>
+            </table>
+            @if (_regels.Any(r => r.Kostprijs == 0))
+            {
+                <p class="uitleg">@_regels.Count(r => r.Kostprijs == 0) artikel(en) hebben geen vastgestelde kostprijs en tellen voor € 0 mee (grijs).</p>
+            }
+        }
+    }
+</div>
+
+<ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
+
+@code {
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+    private static string Getal(decimal w) => w.ToString("#,0.###", Nl);
+
+    private DateOnly _datum = DateOnly.FromDateTime(DateTime.Today);
+    private int? _status;
+    private string _zoek = "";
+    private List<VoorraadStatusKeuze> _statussen = new();
+    private List<VoorraadstandRegel> _regels = new();
+    private bool _bezig;
+    private string? _melding;
+    private bool _fout;
+    private int? _bekeken;
+
+    private static DateOnly EindVorigeMaand
+    {
+        get { var e = DateOnly.FromDateTime(DateTime.Today); return new DateOnly(e.Year, e.Month, 1).AddDays(-1); }
+    }
+
+    private IEnumerable<VoorraadstandRegel> Zichtbaar
+    {
+        get
+        {
+            var z = _zoek.Trim();
+            return z.Length == 0 ? _regels
+                : _regels.Where(r => r.ArtikelId.ToString().Contains(z) || r.Code.Contains(z, StringComparison.OrdinalIgnoreCase)
+                                     || r.Omschrijving.Contains(z, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private IEnumerable<IGrouping<string, VoorraadstandRegel>> Groepen => Zichtbaar.GroupBy(r => r.Status);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Repo.Beschikbaar) return;
+        try { _statussen = await Repo.StatussenAsync(); } catch { }
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _bezig = true;
+        try { _regels = await Repo.StandOpDatumAsync(_datum, _status); }
+        catch (Exception ex) { _regels = new(); _melding = "Berekenen mislukt: " + ex.Message; _fout = true; }
+        finally { _bezig = false; }
+    }
+
+    private async Task ZetDatum(DateOnly d)
+    {
+        _datum = d;
+        await Laad();
+    }
+
+    private Task DatumGewijzigd(DateOnly? d) => d is DateOnly datum ? ZetDatum(datum) : Task.CompletedTask;
+
+    private async Task StatusGewijzigd(ChangeEventArgs e)
+    {
+        _status = int.TryParse((string?)e.Value, out var s) ? s : null;
+        await Laad();
+    }
+
+    /// <summary>Access: "Genereer Excel..." (de query als spreadsheet). Hier wat in beeld staat, met subtotalen per status.</summary>
+    private async Task Excel()
+    {
+        var rijen = new List<object?[]>();
+        var vet = new HashSet<int>();
+        foreach (var g in Groepen)
+        {
+            foreach (var r in g) rijen.Add(new object?[] { r.Status, r.ArtikelId, r.Code, r.Omschrijving, r.Aantal, r.Kostprijs, r.Totaal });
+            vet.Add(rijen.Count);
+            rijen.Add(new object?[] { g.Key, null, null, "Totaal " + g.Key, g.Sum(r => r.Aantal), null, g.Sum(r => r.Totaal) });
+        }
+        vet.Add(rijen.Count);
+        rijen.Add(new object?[] { "Totaal", null, null, $"Totale kostprijs voorraad op {_datum:dd-MM-yyyy}", null, null, Zichtbaar.Sum(r => r.Totaal) });
+
+        var bestand = XlsxSchrijver.Maak("Voorraadstand " + _datum.ToString("dd-MM-yyyy"), new[]
+        {
+            new XlsxSchrijver.Kolom("Status", XlsxSoort.Tekst, 12),
+            new XlsxSchrijver.Kolom("MDE", XlsxSoort.Tekst, 8),
+            new XlsxSchrijver.Kolom("Artikelcode", XlsxSoort.Tekst, 22),
+            new XlsxSchrijver.Kolom("Omschrijving", XlsxSoort.Tekst, 60),
+            new XlsxSchrijver.Kolom("Aantal", XlsxSoort.Getal, 10),
+            new XlsxSchrijver.Kolom("Kostprijs", XlsxSoort.Geld, 13),
+            new XlsxSchrijver.Kolom("Totaal", XlsxSoort.Geld, 14),
+        }, rijen, vet);
+        try { await JS.InvokeVoidAsync("mdeBestand.download", $"Voorraadstand {_datum:yyyy-MM-dd}.xlsx", bestand); }
+        catch (Exception ex) { _melding = "Downloaden mislukt: " + ex.Message; _fout = true; }
+    }
+}

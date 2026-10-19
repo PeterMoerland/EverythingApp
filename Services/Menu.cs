@@ -189,7 +189,7 @@ public static class Menu
             new MenuGroep("Rapporten",
                 new MenuItem("Rapportage facturatie"),
                 new MenuItem("Vaste lasten", "/financien/vaste-lasten", "Financial"),
-                new MenuItem("Voorraadstand")),
+                new MenuItem("Voorraadstand", "/financien/voorraadstand", "Financial")),
             // Analyse: overzichten en hulpmiddelen om mee te rekenen; hier komen ook de tools van een collega bij
             new MenuGroep("Analyse",
                 new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"),

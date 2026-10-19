@@ -11,6 +11,12 @@ public record VoorraadPositie(int LokatieId, int? StatusId, string Status, decim
 
 public record VoorraadStatusKeuze(int Id, string Naam);
 
+/// <summary>Eén regel van de voorraadstand op een datum (Access: query VoorraadStand, formulier VoorraadStandPerDatum).</summary>
+public record VoorraadstandRegel(int ArtikelId, string Code, string Omschrijving, string Status, decimal Aantal, decimal Kostprijs)
+{
+    public decimal Totaal => Aantal * Kostprijs;
+}
+
 /// <summary>Een regel uit VoorraadMutaties, voor de historie.</summary>
 public record VoorraadMutatieRegel(DateTime? Op, decimal Mutatie, string Soort, int? LokatieId, string Status,
                                    string Door, string Werknemer, string Werkorder);
@@ -39,6 +45,12 @@ public interface IVoorraadRepository
     Task CorrigeerAsync(int artikelId, int lokatieId, int? statusId, decimal nieuwAantal, int? door);
     /// <summary>De persoonlijke lokatie van een werknemer (onder "Werknemer"); maakt hem aan als hij er nog niet is.</summary>
     Task<int> PersoonLokatieAsync(int werknemerId, int? door);
+
+    /// <summary>
+    /// De voorraad aan het eind van <paramref name="datum"/>: de mutaties tot en met die dag opgeteld per artikel en
+    /// status, zonder projectmateriaal (WerkorderID leeg), met de vastgestelde kostprijs. Status null = alle.
+    /// </summary>
+    Task<List<VoorraadstandRegel>> StandOpDatumAsync(DateOnly datum, int? statusId);
 }
 
 public class GeenVoorraadRepository : IVoorraadRepository
@@ -56,6 +68,7 @@ public class GeenVoorraadRepository : IVoorraadRepository
     public Task VerplaatsAsync(int artikelId, int vanLokatieId, int? statusId, int naarLokatieId, decimal aantal, int? door, int? werknemerId) => Task.CompletedTask;
     public Task CorrigeerAsync(int artikelId, int lokatieId, int? statusId, decimal nieuwAantal, int? door) => Task.CompletedTask;
     public Task<int> PersoonLokatieAsync(int werknemerId, int? door) => Task.FromResult(0);
+    public Task<List<VoorraadstandRegel>> StandOpDatumAsync(DateOnly datum, int? statusId) => Task.FromResult(new List<VoorraadstandRegel>());
 }
 
 public class MySqlVoorraadRepository : IVoorraadRepository
@@ -128,6 +141,31 @@ public class MySqlVoorraadRepository : IVoorraadRepository
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new VoorraadPositie(Convert.ToInt32(r.GetValue(0)), I(r, 1), S(r, 2), Dec(r, 3)));
+        return lijst;
+    }
+
+    public async Task<List<VoorraadstandRegel>> StandOpDatumAsync(DateOnly datum, int? statusId)
+    {
+        var lijst = new List<VoorraadstandRegel>();
+        await using var cn = await OpenAsync();
+        // Access vergeleek MutatieOp <= de datum (= middernacht aan het begin van die dag); hier tot en met die dag.
+        await using var cmd = new MySqlCommand(
+            "SELECT m.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), COALESCE(s.`Status`, ''), " +
+            "       SUM(m.`Mutatie`), MAX(COALESCE(a.`VastgesteldeKostprijs`, 0)) " +
+            "  FROM `VoorraadMutaties` m " +
+            "  JOIN `@Artikelen` a ON a.`ArtikelID` = m.`ArtikelID` " +
+            "  JOIN `VoorraadStatus` s ON s.`VoorraadStatusID` = m.`VoorraadStatusID` " +
+            " WHERE m.`MutatieOp` < @tot AND m.`WerkorderID` IS NULL " +
+            (statusId is null ? "" : "   AND m.`VoorraadStatusID` = @st ") +
+            " GROUP BY m.`ArtikelID`, m.`VoorraadStatusID` " +
+            "HAVING ABS(SUM(m.`Mutatie`)) > 0.0000001 " +
+            " ORDER BY s.`VoorraadStatusID`, m.`ArtikelID`", cn);
+        cmd.Parameters.AddWithValue("@tot", datum.AddDays(1).ToDateTime(TimeOnly.MinValue));
+        if (statusId is int st) cmd.Parameters.AddWithValue("@st", st);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new VoorraadstandRegel(r.GetInt32(0), S(r, 1), S(r, 2), S(r, 3),
+                                             Math.Round(Convert.ToDecimal(r.GetValue(4)), 6), Convert.ToDecimal(r.GetValue(5))));
         return lijst;
     }
 

@@ -263,6 +263,18 @@ stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 
 omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
 `BewaarRegelAsync` als Plakken uit klembord).
 
+## Voorraadstand per datum (19-10-2026)
+
+Financiën ▸ Rapporten ▸ **Voorraadstand** (`/financien/voorraadstand`, `Components/Pages/Voorraadstand.razor`), van het
+Access-formulier VoorraadStandPerDatum (query en rapport VoorraadStand). `IVoorraadRepository.StandOpDatumAsync`:
+som van `VoorraadMutaties.Mutatie` per artikel en status, zonder projectmateriaal (`WerkorderID` leeg), met
+`@Artikelen.VastgesteldeKostprijs`. **Verschil met Access**: Access vergeleek `MutatieOp <= datum` (= middernacht,
+dus zonder de mutaties van die dag); hier tot en met de gekozen dag. Kaartjes per status, groepen met subtotaal,
+zoeken in de lijst, MDE-nummer opent `ArtikelVenster`, artikelen zonder kostprijs grijs. Excel: `Services/XlsxSchrijver.cs`
+(OpenXml, getallen als getal, geld als "€ #,##0.00", kopregel vast), herbruikbaar voor andere exports. Getest: totalen
+gelijk aan een eigen controlequery (19-10-2026: € 481.778,10), xlsx geopend met Excel. De grijze tegel Voorraadstand
+onder Voorraad ▸ Rapporten is blijven staan.
+
 ## Werkplek-inlog: vaste gebruikers bovenaan (19-10-2026)
 
 In "Wie ben jij?" (`Components/Layout/WerkplekMedewerker.razor`, ook de vergrendeling) staan bovenaan onder "Vaak op
