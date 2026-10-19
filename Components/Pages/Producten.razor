@@ -167,8 +167,14 @@
                                        checked="@_gekozen.Contains(p.Id)" @onclick="e => VinkKlik(p, e)" />
                                 <button class="wn-naam exemplaar-regel @(p.Gewist ? "vervallen" : "")"
                                         @onclick="e => RegelKlik(p, e)" title="@RegelTitel(p)">
-                                    <span class="nummer">@p.Serienummer@if (_todoOpen.GetValueOrDefault(p.Id) is > 0 and var todoN)
-                                        {<span class="todo-stip" title="@todoN open todo-punt@(todoN == 1 ? "" : "en") (ook van onderdelen)">@todoN</span>}</span>
+                                    <span class="nummer">@p.Serienummer</span>
+                                    <span class="todo-kol">
+                                        @if (_todoOpen.GetValueOrDefault(p.Id) is > 0 and var todoN)
+                                        {
+                                            <span class="todo-stip" title="@todoN open todo-punt@(todoN == 1 ? "" : "en") (ook van onderdelen) — klik voor de tab Todo"
+                                                  @onclick="() => TodoStipKlik(p)" @onclick:stopPropagation="true">@todoN</span>
+                                        }
+                                    </span>
                                     <span class="stat">@p.StatusKort</span>
                                     <span class="klant">@p.Klant</span>
                                     <span class="project">@p.Project</span>
@@ -514,7 +520,8 @@
                     @* ===== TODO (alleen bij een exemplaar; Components/ProductTodoTab.razor) ===== *@
                     @if (_tab == "Todo" && _productId is int todoProduct)
                     {
-                        <ProductTodoTab ProductId="todoProduct" OpGaNaar="TodoGaNaar" OpGewijzigd="TodoGewijzigd" />
+                        <ProductTodoTab ProductId="todoProduct" OpGaNaar="TodoGaNaar" OpGewijzigd="TodoGewijzigd"
+                                        Exemplaren="_alleProducten" Geselecteerd="_gekozen" Type="@(_naam?.Naam ?? "exemplaren")" />
                     }
 
                     @* ===== DOCUMENTEN ===== *@
@@ -2247,7 +2254,8 @@
             if (wijziging.Kolom.StartsWith("Serie", StringComparison.OrdinalIgnoreCase)
                 || wijziging.Kolom.Equals("ProductStatusID", StringComparison.OrdinalIgnoreCase)
                 || wijziging.Kolom.Equals("KlantID", StringComparison.OrdinalIgnoreCase)
-                || wijziging.Kolom.Equals("Opmerking", StringComparison.OrdinalIgnoreCase))
+                || wijziging.Kolom.Equals("Opmerking", StringComparison.OrdinalIgnoreCase)
+                || wijziging.Kolom.Equals("Project", StringComparison.OrdinalIgnoreCase))     // project staat ook in de lijst
                 await LaadProducten();
 
             Toon("Opgeslagen.", false);
@@ -2576,6 +2584,14 @@
         {
             try { _historie = await Repo.GetHistorieAsync(id); } catch { }
         }
+    }
+
+    /// <summary>Klik op het oranje bolletje in de exemplarenlijst: dat exemplaar openen op de tab Todo.</summary>
+    private async Task TodoStipKlik(ProductRegel p)
+    {
+        _anker = p.Id;
+        await KiesProduct(p);
+        _tab = "Todo";
     }
 
     private Task TodoGaNaar(ProductTodo t)

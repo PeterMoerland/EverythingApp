@@ -4,7 +4,8 @@
 
 @* Producten ▸ exemplaar ▸ tab Todo: punten die nog gedaan moeten worden, bij dit exemplaar én bij wat erin zit
    (de print in een robot). 'Wat' is kort en herbruikbaar (bv. Doorsolderen): het Todo-overzicht groepeert erop.
-   Toevoegen, gereed en weer open komen ook in de historie van het exemplaar. *@
+   Toevoegen, gereed en weer open komen ook in de historie van het exemplaar. Open punten zijn te kopiëren naar andere
+   exemplaren van hetzelfde type (links aangevinkt, of serienummer van t/m). *@
 
 @if (!_geladen)
 {
@@ -90,6 +91,67 @@ else
         </tbody>
     </table>
 
+    @if (_lijst.Any(t => t.Open) && !_kopieOpen)
+    {
+        <button class="klein todo-kopieknop" @onclick="OpenKopie">⧉ Kopiëren naar andere exemplaren…</button>
+    }
+    @if (_kopieOpen)
+    {
+        <div class="todo-kopie">
+            <div class="todo-kopie-kop"><b>Open punten kopiëren naar andere @Type</b>
+                <button class="klein" @onclick="() => _kopieOpen = false">Sluiten</button></div>
+
+            <div class="todo-kopie-blok">
+                <span class="uitleg">Welke punten</span>
+                @foreach (var t in _lijst.Where(t => t.Open))
+                {
+                    <label class="vink" @key="t.Id">
+                        <input type="checkbox" checked="@_kopiePunten.Contains(t.Id)" @onchange="e => WisselPunt(t.Id, e.Value is true)" />
+                        <b>@t.Wat</b>@(t.Toelichting.Length > 0 ? " — " + t.Toelichting : "")
+                        @if (t.ProductId != ProductId) { <span class="uitleg"> (bij @t.Exemplaar)</span> }
+                    </label>
+                }
+            </div>
+
+            <div class="todo-kopie-blok">
+                <span class="uitleg">Naar</span>
+                <label class="vink">
+                    <input type="radio" name="todo-kopie-doel" checked="@(!_viaReeks)" disabled="@(GeselecteerdeDoelen.Count == 0)"
+                           @onchange="() => _viaReeks = false" />
+                    De exemplaren die links zijn aangevinkt (@GeselecteerdeDoelen.Count)
+                </label>
+                <label class="vink todo-reeks">
+                    <input type="radio" name="todo-kopie-doel" checked="@_viaReeks" @onchange="() => _viaReeks = true" />
+                    Serienummer
+                    <input class="smal" value="@_van" placeholder="van" @oninput="e => { _van = (string?)e.Value ?? string.Empty; _viaReeks = true; }" />
+                    t/m
+                    <input class="smal" value="@_tot" placeholder="t/m" @oninput="e => { _tot = (string?)e.Value ?? string.Empty; _viaReeks = true; }" />
+                </label>
+                <div class="uitleg todo-doelen">
+                    @if (Doelen.Count == 0)
+                    {
+                        <text>Nog geen exemplaren gekozen.</text>
+                    }
+                    else
+                    {
+                        <text>→ @Doelen.Count @Ex(Doelen.Count): @string.Join(", ", Doelen.Take(30).Select(d => d.Serienummer))@(Doelen.Count > 30 ? " …" : "")</text>
+                    }
+                </div>
+            </div>
+
+            <div class="btngroup">
+                <button class="primair" disabled="@(_bezig || Doelen.Count == 0 || _kopiePunten.Count == 0)" @onclick="Kopieer">
+                    Kopiëren (@_kopiePunten.Count punt@(_kopiePunten.Count == 1 ? "" : "en") naar @Doelen.Count @Ex(Doelen.Count))
+                </button>
+                <span class="uitleg">Een punt dat er al open staat, wordt niet nog eens toegevoegd.</span>
+            </div>
+        </div>
+    }
+    @if (_kopieUitkomst is not null)
+    {
+        <p class="todo-kopie-uitkomst">@_kopieUitkomst</p>
+    }
+
     @if (_lijst.Any(t => !t.Open))
     {
         <label class="vink todo-toon-gereed">
@@ -105,6 +167,12 @@ else
     [Parameter] public EventCallback<ProductTodo> OpGaNaar { get; set; }
     /// <summary>Er is iets toegevoegd of afgevinkt: tellers en historie bijwerken.</summary>
     [Parameter] public EventCallback OpGewijzigd { get; set; }
+    /// <summary>Exemplaren van hetzelfde type (doelen voor het kopiëren).</summary>
+    [Parameter] public IReadOnlyList<ProductRegel> Exemplaren { get; set; } = Array.Empty<ProductRegel>();
+    /// <summary>De exemplaren die links zijn aangevinkt.</summary>
+    [Parameter] public IReadOnlyCollection<int> Geselecteerd { get; set; } = Array.Empty<int>();
+    /// <summary>Typenaam voor de tekst, bv. MPR-1.</summary>
+    [Parameter] public string Type { get; set; } = "exemplaren";
 
     private int? _geladenVoor;
     private bool _geladen, _tabel, _bezig, _toonGereed;
@@ -116,11 +184,75 @@ else
 
     private List<ProductTodo> Zichtbaar => _toonGereed ? _lijst : _lijst.Where(t => t.Open).ToList();
 
+    // ---- kopiëren ----
+    private bool _kopieOpen, _viaReeks;
+    private string _van = "", _tot = "";
+    private string? _kopieUitkomst;
+    private readonly HashSet<int> _kopiePunten = new();
+
+    private List<ProductRegel> GeselecteerdeDoelen
+        => Exemplaren.Where(p => p.Id != ProductId && !p.Gewist && Geselecteerd.Contains(p.Id)).ToList();
+
+    private static long? Nummer(string s) => long.TryParse(s.Trim(), out var n) ? n : null;
+
+    private List<ProductRegel> Doelen
+    {
+        get
+        {
+            if (!_viaReeks) return GeselecteerdeDoelen;
+            if (Nummer(_van) is not long a) return new();
+            var b = Nummer(_tot) ?? a;
+            if (b < a) (a, b) = (b, a);
+            return Exemplaren.Where(p => p.Id != ProductId && !p.Gewist && Nummer(p.Serienummer) is long n && n >= a && n <= b)
+                             .OrderBy(p => Nummer(p.Serienummer)).ToList();
+        }
+    }
+
+    private void OpenKopie()
+    {
+        _kopieOpen = true; _kopieUitkomst = null;
+        _kopiePunten.Clear();
+        foreach (var t in _lijst.Where(t => t.Open)) _kopiePunten.Add(t.Id);
+        _viaReeks = GeselecteerdeDoelen.Count == 0;
+    }
+
+    private static string Ex(int n) => n == 1 ? "exemplaar" : "exemplaren";
+
+    private void WisselPunt(int id, bool aan) { if (aan) _kopiePunten.Add(id); else _kopiePunten.Remove(id); }
+
+    private async Task Kopieer()
+    {
+        var doelen = Doelen;
+        // een punt van een onderdeel (de print in de robot) komt bij het doel-exemplaar zelf, met het onderdeel erbij
+        var punten = _lijst.Where(t => t.Open && _kopiePunten.Contains(t.Id))
+                           .Select(t => (t.Wat, t.ProductId == ProductId ? t.Toelichting
+                                                 : ("bij " + t.Type + (t.Toelichting.Length > 0 ? ": " + t.Toelichting : ""))))
+                           .Distinct().ToList();
+        if (doelen.Count == 0 || punten.Count == 0) return;
+        var bron = Exemplaren.FirstOrDefault(p => p.Id == ProductId)?.Serienummer ?? "";
+        Dictionary<int, List<string>> uit = new();
+        await Doe(async () =>
+        {
+            uit = await Todos.KopieerAsync(punten, doelen.Select(d => d.Id).ToList(), Ik.WerknemerId);
+            foreach (var (doel, wat) in uit)
+                await Historie(doel, $"Todo gekopieerd van {Type} {bron}: " + string.Join(", ", wat));
+        });
+        if (_fout is not null) return;
+        var toegevoegd = uit.Values.Sum(l => l.Count);
+        var overgeslagen = punten.Count * doelen.Count - toegevoegd;
+        _kopieUitkomst = toegevoegd == 0
+            ? "Niets toegevoegd: deze punten stonden er al open."
+            : $"{toegevoegd} punt{(toegevoegd == 1 ? "" : "en")} toegevoegd bij {uit.Count} {Ex(uit.Count)}" +
+              (overgeslagen > 0 ? $"; {overgeslagen} overgeslagen (stond er al open)." : ".");
+        _kopieOpen = false;
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (_geladenVoor == ProductId) return;
         _geladenVoor = ProductId;
         _wat = ""; _toelichting = ""; _fout = null; _wisVraag = null;
+        _kopieOpen = false; _kopieUitkomst = null;
         await Laad();
     }
 

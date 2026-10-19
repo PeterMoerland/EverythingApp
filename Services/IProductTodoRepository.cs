@@ -50,6 +50,12 @@ public interface IProductTodoRepository
     Task<int> MaakAsync(int productId, string wat, string? toelichting, int? door);
     Task ZetGereedAsync(int todoId, bool gereed, int? door);
     Task VerwijderAsync(int todoId);
+    /// <summary>
+    /// Punten (wat + toelichting) toevoegen bij andere exemplaren. Staat hetzelfde punt daar al open, dan niet nog eens.
+    /// Geeft per doel-exemplaar de punten die echt zijn toegevoegd.
+    /// </summary>
+    Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
+                                                     IReadOnlyList<int> doelen, int? door);
 }
 
 public class GeenProductTodoRepository : IProductTodoRepository
@@ -63,6 +69,9 @@ public class GeenProductTodoRepository : IProductTodoRepository
     public Task<int> MaakAsync(int productId, string wat, string? toelichting, int? door) => Task.FromResult(0);
     public Task ZetGereedAsync(int todoId, bool gereed, int? door) => Task.CompletedTask;
     public Task VerwijderAsync(int todoId) => Task.CompletedTask;
+    public Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
+                                                            IReadOnlyList<int> doelen, int? door)
+        => Task.FromResult(new Dictionary<int, List<string>>());
 }
 
 public class MySqlProductTodoRepository : IProductTodoRepository
@@ -243,6 +252,36 @@ public class MySqlProductTodoRepository : IProductTodoRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
+                                                                   IReadOnlyList<int> doelen, int? door)
+    {
+        var uit = new Dictionary<int, List<string>>();
+        if (punten.Count == 0 || doelen.Count == 0) return uit;
+        if (!await TabelAanwezigAsync()) throw new InvalidOperationException("De tabel ProductTodo bestaat nog niet (ProductTodo_MariaDB.sql).");
+        await using var cn = await OpenAsync();
+        await using var tr = await cn.BeginTransactionAsync();
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ProductTodo` (`ProductenID`, `Wat`, `Toelichting`, `AangemaaktOp`, `AangemaaktDoor`) " +
+            "SELECT @p, @wat, @toel, NOW(), @door FROM DUAL " +
+            " WHERE NOT EXISTS (SELECT 1 FROM `ProductTodo` x WHERE x.`ProductenID` = @p AND x.`GereedOp` IS NULL " +
+            "                      AND x.`Wat` = @wat AND COALESCE(x.`Toelichting`, '') = COALESCE(@toel, ''))", cn, tr);
+        var p = cmd.Parameters.Add("@p", MySqlDbType.Int32);
+        var wat = cmd.Parameters.Add("@wat", MySqlDbType.VarChar);
+        var toel = cmd.Parameters.Add("@toel", MySqlDbType.VarChar);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        foreach (var doel in doelen.Distinct())
+            foreach (var (w, t) in punten)
+            {
+                p.Value = doel;
+                wat.Value = Kort(w, 60);
+                toel.Value = string.IsNullOrWhiteSpace(t) ? DBNull.Value : Kort(t, 250);
+                if (await cmd.ExecuteNonQueryAsync() == 1)
+                    (uit.TryGetValue(doel, out var l) ? l : uit[doel] = new()).Add(Kort(w, 60));
+            }
+        await tr.CommitAsync();
+        return uit;
+    }
+
     public async Task VerwijderAsync(int todoId)
     {
         await using var cn = await OpenAsync();
@@ -307,4 +346,17 @@ public class GeheugenProductTodoRepository : IProductTodoRepository
         return Task.CompletedTask;
     }
     public Task VerwijderAsync(int todoId) { _lijst.RemoveAll(t => t.Id == todoId); return Task.CompletedTask; }
+    public Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
+                                                            IReadOnlyList<int> doelen, int? door)
+    {
+        var uit = new Dictionary<int, List<string>>();
+        foreach (var doel in doelen.Distinct())
+            foreach (var (w, t) in punten)
+            {
+                if (_lijst.Any(x => x.ProductId == doel && x.Open && x.Wat == w && x.Toelichting == t)) continue;
+                _lijst.Add(new() { Id = _volgende++, ProductId = doel, Wat = w, Toelichting = t, Aangemaakt = DateTime.Now, WortelId = doel });
+                (uit.TryGetValue(doel, out var l) ? l : uit[doel] = new()).Add(w);
+            }
+        return Task.FromResult(uit);
+    }
 }
