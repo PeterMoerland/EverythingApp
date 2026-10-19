@@ -19,6 +19,9 @@ appsettings.Development.json
 # ook kopieën en reservekopieën (OLD_appsettings.json, appsettings - kopie.json, ...); alleen het voorbeeld hoort erin
 *appsettings*.json
 !appsettings.voorbeeld.json
+# Google-serviceaccountsleutels (bv. caramel-duality-...json): nooit in Git; hoort buiten de projectmap
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
+*serviceaccount*.json
 
 # MDE Werkplek-agent (Python): bouwomgeving en bouwresultaten
 MdeAgent/.venv/

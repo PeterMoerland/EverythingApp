@@ -3,6 +3,9 @@
 @inject IWerknemerRepository WnRepo
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject IFactuurInboxRepository Inbox
+@inject FactuurInboxOphaler Ophaler
+@implements IDisposable
 
 <div class="page">
     <header class="topbar">
@@ -13,6 +16,13 @@
         @if (Repo.Beschikbaar && MagInvoeren)
         {
             <button class="klein" @onclick="Nieuw">＋ Factuur toevoegen</button>
+        }
+        @if (_inboxAan)
+        {
+            <button class="klein @(_inboxAantal > 0 ? "inbox-vol" : "")" @onclick="WisselInbox"
+                    title="Facturen uit de factuurmailbox en bonnetjes van de telefoon die nog beoordeeld moeten worden">
+                📥 Te beoordelen (@_inboxAantal)
+            </button>
         }
     </header>
 
@@ -25,6 +35,70 @@
         @if (_melding is not null)
         {
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        @* ---------- factuurinbox: mail en bonnetjes, nog te beoordelen ---------- *@
+        @if (_inboxAan && _inboxOpen)
+        {
+            <section class="inbox-blok">
+                <div class="inbox-kop">
+                    <h3 class="wn-kop">Te beoordelen</h3>
+                    <span class="zij-extra @(Ophaler.StandFout ? "inbox-fout" : "")">@OphalerTekst()</span>
+                    @if (Ophaler.Aan)
+                    {
+                        <button class="klein" @onclick="NuOphalen" title="Meteen in de factuurmailbox kijken">⟳ Nu ophalen</button>
+                    }
+                    <button class="klein" @onclick="LaadInbox">Ververs</button>
+                    <button class="klein" @onclick="() => _inboxOpen = false">✕</button>
+                </div>
+                @if (_inbox.Count == 0)
+                {
+                    <p class="uitleg">Niets te beoordelen.</p>
+                }
+                else
+                {
+                    <table class="kiezer-tabel inbox-tabel">
+                        <thead>
+                            <tr>
+                                <th style="width:7rem">Ontvangen</th>
+                                <th style="width:12rem">Van</th>
+                                <th>Leverancier en factuur</th>
+                                <th style="width:6.5rem" class="r">Totaal</th>
+                                <th>Bijzonderheden</th>
+                                <th style="width:12rem"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var (s, g) in _inbox)
+                            {
+                                <tr @key="s.Id">
+                                    <td>@s.Ontvangen.ToString("dd-MM-yy HH:mm")</td>
+                                    <td title="@(s.IsBon ? "Bonnetje, gescand op de telefoon" : s.MailVan)">
+                                        @(s.IsBon ? "🧾 " + (s.DoorNaam.Length > 0 ? s.DoorNaam : "bonnetje") : "✉ " + KortVan(s.MailVan))
+                                    </td>
+                                    <td>
+                                        @(g?.Leverancier is { Length: > 0 } lev ? lev : s.IsBon ? "" : s.MailOnderwerp)
+                                        @if (g?.Factuurnummer is { Length: > 0 } nr) { <small class="zij-extra"> · @nr</small> }
+                                        @if (g?.Factuurdatum is DateOnly d) { <small class="zij-extra"> · @d.ToString("dd-MM-yyyy")</small> }
+                                    </td>
+                                    <td class="r">@(g?.Totaal is decimal tot ? Bedrag(tot) : "")</td>
+                                    <td>
+                                        @foreach (var b in Bijzonderheden(s))
+                                        {
+                                            <span class="inbox-label">@b</span>
+                                        }
+                                        @if (s.Melding.Length > 0) { <span class="inbox-fout" title="@s.Melding">⚠ @Kort(s.Melding, 60)</span> }
+                                    </td>
+                                    <td class="r">
+                                        <button class="klein" @onclick="() => Beoordeel(s)">Beoordelen</button>
+                                        <button class="klein" @onclick="() => Negeer(s)" title="Geen factuur (bv. een nieuwsbrief): uit de lijst halen">Negeren</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
         }
 
         @* ---------- filters ---------- *@
@@ -332,7 +406,7 @@
                   Sluiten="() => _voorbeeld = null" />
 
 @* toevoegen en aanpassen *@
-<FactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" Toegevoegd="id => _bewerkId = id" />
+<FactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" Toegevoegd="FactuurToegevoegd" UitInbox="_inboxStuk" />
 
 @* een PO bekijken (het groene klikje in het zijpaneel) *@
 <PoVenster OrderId="_bekijkPo" Sluiten="() => _bekijkPo = null" />
@@ -392,6 +466,7 @@
         // Standaard hetzelfde beeld als waarmee Access opende: het lopende kwartaal.
         DitKwartaalZonderLaden();
         await Laad();
+        await StartInbox();
     }
 
     private async Task Laad()
@@ -629,7 +704,108 @@
     private async Task SluitVenster(bool gewijzigd)
     {
         _bewerkId = null;
+        _inboxStuk = null;
         if (gewijzigd) await Laad();
+    }
+
+    // ============================================================
+    //  Factuurinbox (FactuurInbox_MariaDB.sql): facturen uit de factuurmailbox (FactuurInboxOphaler) en
+    //  bonnetjes van de telefoon (MDE mobiel ▸ Bonnetje). Beoordelen = het factuurvenster, al ingevuld; pas bij
+    //  Opslaan is het een factuur. Zelfde recht als facturen invoeren (Financial of Directie, besluit gebruiker).
+    // ============================================================
+    private bool _inboxAan;
+    private bool _inboxOpen;
+    private int _inboxAantal;
+    private List<(InboxStuk Stuk, FactuurUitPdf? Gelezen)> _inbox = new();
+    private InboxStuk? _inboxStuk;
+
+    private async Task StartInbox()
+    {
+        if (!MagInvoeren || !Inbox.Beschikbaar) return;
+        try { _inboxAan = await Inbox.TabelAanwezigAsync(); } catch { _inboxAan = false; }
+        if (!_inboxAan) return;
+        Ophaler.Bijgewerkt += InboxBijgewerkt;
+        await LaadInbox();
+        _inboxOpen = _inboxAantal > 0;
+    }
+
+    private async Task LaadInbox()
+    {
+        try
+        {
+            var lijst = await Inbox.TeBeoordelenAsync(500);
+            _inbox = lijst.Select(s => (s, InboxGelezen.VanJson(s.Gelezen))).ToList();
+            _inboxAantal = _inbox.Count;
+        }
+        catch (Exception ex) { Toon("De inbox ophalen mislukte: " + ex.Message, true); }
+    }
+
+    private void InboxBijgewerkt() => _ = InvokeAsync(async () => { await LaadInbox(); StateHasChanged(); });
+
+    public void Dispose() => Ophaler.Bijgewerkt -= InboxBijgewerkt;
+
+    private async Task WisselInbox()
+    {
+        _inboxOpen = !_inboxOpen;
+        if (_inboxOpen) await LaadInbox();
+    }
+
+    private void NuOphalen()
+    {
+        Ophaler.NuOphalen();
+        Toon("De factuurmailbox wordt bekeken; nieuwe facturen verschijnen vanzelf in de lijst.", false);
+    }
+
+    private string OphalerTekst()
+    {
+        if (!Ophaler.Aan) return "Factuurmailbox: staat uit (appsettings, FactuurInbox). Bonnetjes komen wel binnen.";
+        var wanneer = Ophaler.LaatsteKeer is DateTime d ? $" Laatst gekeken om {d:HH:mm}." : " Nog niet gekeken.";
+        return $"Factuurmailbox {Ophaler.Postbus}:{wanneer} {Ophaler.Stand}";
+    }
+
+    private static string KortVan(string van)
+    {
+        var haak = van.IndexOf('<');
+        var naam = haak > 0 ? van[..haak].Trim().Trim('"') : van;
+        return string.IsNullOrWhiteSpace(naam) ? van : naam;
+    }
+
+    private static string Kort(string tekst, int max) => tekst.Length <= max ? tekst : tekst[..max] + "…";
+
+    private static IEnumerable<string> Bijzonderheden(InboxStuk s)
+    {
+        if (s.Soort.Length > 0) yield return s.Soort;
+        if (s.Werkorder.Length > 0) yield return "werkorder " + s.Werkorder;
+        if (s.Opmerking.Length > 0) yield return "\u201C" + Kort(s.Opmerking, 50) + "\u201D";
+        if (!s.IsBon && s.Bestanden.Count > 1) yield return $"{s.Bestanden.Count} bestanden";
+    }
+
+    private void Beoordeel(InboxStuk s)
+    {
+        _inboxStuk = s;
+        _bewerkId = 0;
+    }
+
+    private async Task FactuurToegevoegd(int id)
+    {
+        _bewerkId = id;
+        if (_inboxStuk is not { } s) return;
+        _inboxStuk = null;
+        try { await Inbox.AfhandelenAsync(s.Id, 1, id, Ik.WerknemerId); }
+        catch (Exception ex) { Toon("De factuur is opgeslagen, maar de inbox-regel bijwerken mislukte: " + ex.Message, true); }
+        await LaadInbox();
+    }
+
+    private async Task Negeer(InboxStuk s)
+    {
+        var wat = s.IsBon ? $"Het bonnetje van {s.DoorNaam}" : Kort(s.BijlageNaam.Length > 0 ? s.BijlageNaam : s.MailOnderwerp, 60);
+        if (!await Vraag($"{wat} negeren? Het verdwijnt uit deze lijst; er wordt geen factuur van gemaakt.")) return;
+        try
+        {
+            await Inbox.AfhandelenAsync(s.Id, 2, null, Ik.WerknemerId);
+            await LaadInbox();
+        }
+        catch (Exception ex) { Toon("Negeren mislukt: " + ex.Message, true); }
     }
 
     private async Task<bool> Vraag(string tekst)

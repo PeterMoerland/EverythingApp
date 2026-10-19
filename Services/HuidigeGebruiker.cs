@@ -247,6 +247,23 @@ public class HuidigeGebruiker
         return null;
     }
 
+    /// <summary>
+    /// Financiën (het menu, alle schermen onder /financien en de AI op /ai) alleen met het recht Financial of Directie
+    /// (besluit gebruiker 19-10-2026). Op een werkplek nooit: <see cref="Mag"/> geeft daar voor beide false.
+    /// </summary>
+    public bool MagFinancien => Mag("Financial") || Mag("Directie");
+
+    /// <summary>Hoort dit adres (binnen de app) bij Financiën, inclusief de AI?</summary>
+    public static bool IsFinancienPad(string pad)
+    {
+        pad = pad.Split('?', '#')[0].Trim('/');
+        return pad.Equals("financien", StringComparison.OrdinalIgnoreCase)
+            || pad.StartsWith("financien/", StringComparison.OrdinalIgnoreCase)
+            || pad.Equals("module/financien", StringComparison.OrdinalIgnoreCase)
+            || pad.Equals("ai", StringComparison.OrdinalIgnoreCase)
+            || pad.StartsWith("ai/", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Mag minstens één van deze rechten.</summary>
     public bool MagEenVan(params string[] rechten) => rechten.Any(Mag);
 }

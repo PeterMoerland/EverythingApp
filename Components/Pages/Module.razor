@@ -25,7 +25,7 @@ else
         </header>
 
         @* Financiën: vragen stellen aan de AI (Components/AiVraagInvoer.razor) *@
-        @if (_module.Sleutel == "financien" && (Ik.Mag("Financial") || Ik.Mag("Directie")))
+        @if (_module.Sleutel == "financien" && Ik.MagFinancien)
         {
             <AiVraagInvoer />
         }
@@ -98,7 +98,9 @@ else
     }
 
     // Zolang er geen rechten in de database staan, alles laten zien.
-    private bool Zichtbaar(MenuItem item) => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht);
+    // Directie ziet ook de tegels met het recht Financial (de schermen zelf laten Directie al toe).
+    private bool Zichtbaar(MenuItem item)
+        => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien);
 
     private int Totaal => _module?.Groepen.SelectMany(g => g.Items).Count(Zichtbaar) ?? 0;
     private int Gemigreerd => _module?.Groepen.SelectMany(g => g.Items).Count(i => Zichtbaar(i) && i.Klaar) ?? 0;

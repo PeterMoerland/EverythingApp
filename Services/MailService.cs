@@ -346,6 +346,45 @@ public class MailService
     public Task MarkeerGelezenAsync(MailPostbus postbus, IEnumerable<string> berichtIds)
         => LabelsAsync(postbus, berichtIds, verwijder: new[] { "UNREAD" });
 
+    /// <summary>Een eigen label op berichten zetten (bv. "EverythingApp/Verwerkt"); bestaat het label niet, dan wordt het gemaakt.</summary>
+    public async Task VoegLabelToeAsync(MailPostbus postbus, IEnumerable<string> berichtIds, string labelNaam)
+    {
+        var id = await LabelIdAsync(postbus, labelNaam);
+        await LabelsAsync(postbus, berichtIds, voegToe: new[] { id });
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _labelIds = new();
+
+    private async Task<string> LabelIdAsync(MailPostbus postbus, string naam)
+    {
+        var sleutel = postbus.Adres.ToLowerInvariant() + "|" + naam;
+        if (_labelIds.TryGetValue(sleutel, out var bekend)) return bekend;
+
+        var client = await ClientOfFoutAsync(postbus);
+        var antwoord = await client.GetAsync($"{Basis}/labels");
+        var inhoud = await antwoord.Content.ReadAsStringAsync();
+        if (!antwoord.IsSuccessStatusCode)
+            throw new InvalidOperationException(Foutmelding(antwoord.StatusCode, inhoud, postbus));
+
+        using (var doc = JsonDocument.Parse(inhoud))
+            if (doc.RootElement.TryGetProperty("labels", out var labels))
+                foreach (var l in labels.EnumerateArray())
+                    if (string.Equals(Tekst(l, "name"), naam, StringComparison.OrdinalIgnoreCase) && Tekst(l, "id") is { } gevonden)
+                        return _labelIds[sleutel] = gevonden;
+
+        var body = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["name"] = naam, ["labelListVisibility"] = "labelShow", ["messageListVisibility"] = "show",
+        });
+        antwoord = await client.PostAsync($"{Basis}/labels", new StringContent(body, Encoding.UTF8, "application/json"));
+        inhoud = await antwoord.Content.ReadAsStringAsync();
+        if (!antwoord.IsSuccessStatusCode)
+            throw new InvalidOperationException(Foutmelding(antwoord.StatusCode, inhoud, postbus));
+        using var nieuw = JsonDocument.Parse(inhoud);
+        return _labelIds[sleutel] = Tekst(nieuw.RootElement, "id")
+            ?? throw new InvalidOperationException("Gmail gaf geen id voor het nieuwe label.");
+    }
+
     private async Task LabelsAsync(MailPostbus postbus, IEnumerable<string> berichtIds,
                                    string[]? voegToe = null, string[]? verwijder = null)
     {

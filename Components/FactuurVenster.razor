@@ -5,6 +5,7 @@
 @inject IWerknemerRepository WnRepo
 @inject FilestoreService Filestore
 @inject FactuurLezer Lezer
+@inject IFactuurInboxRepository InboxRepo
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 @implements IAsyncDisposable
@@ -40,6 +41,30 @@
                     {
                         <div class="melding @(_meldingFout ? "fout" : "ok")"
                              @onclick="() => _melding = null">@_melding</div>
+                    }
+
+                    @if (_nieuw && UitInbox is { } ib)
+                    {
+                        <div class="inbox-herkomst">
+                            @if (ib.IsBon)
+                            {
+                                <b>🧾 Bonnetje</b> <span>van @(ib.DoorNaam.Length > 0 ? ib.DoorNaam : "een collega"), @ib.Ontvangen.ToString("d-M-yyyy HH:mm")</span>
+                                @if (ib.Soort.Length > 0) { <span> · @ib.Soort</span> }
+                                @if (ib.Werkorder.Length > 0) { <span> · werkorder @ib.Werkorder</span> }
+                                @if (ib.Opmerking.Length > 0) { <div class="inbox-opm">“@ib.Opmerking”</div> }
+                                <div class="zij-extra">Betaald met de zakelijke pas, dus Betaald staat al aan (niet nog eens via SEPA).</div>
+                            }
+                            else
+                            {
+                                <b>✉ Uit de factuurmailbox</b> <span>van @ib.MailVan, @ib.Ontvangen.ToString("d-M-yyyy HH:mm")</span>
+                                @if (ib.MailOnderwerp.Length > 0) { <div class="inbox-opm">@ib.MailOnderwerp</div> }
+                                @if (ib.BijlageNaam.Length == 0 && ib.MailTekst.Length > 0)
+                                {
+                                    <details><summary>Tekst van de mail</summary><pre class="inbox-mailtekst">@ib.MailTekst</pre></details>
+                                }
+                            }
+                            @if (ib.Melding.Length > 0) { <div class="inbox-melding">⚠ @ib.Melding</div> }
+                        </div>
                     }
 
                     @* Twee kolommen: links de velden, rechts het document in beeld.
@@ -609,6 +634,13 @@
     /// </summary>
     [Parameter] public EventCallback<int> Toegevoegd { get; set; }
 
+    /// <summary>
+    /// Een regel uit de factuurinbox (mail of bonnetje): bij FactuurId 0 komen de bestanden, wat de AI las en de
+    /// werkorder van het bonnetje alvast in het venster. Opslaan maakt er een gewone factuur van; de pagina zet de
+    /// inbox-regel dan op verwerkt (via Toegevoegd).
+    /// </summary>
+    [Parameter] public InboxStuk? UitInbox { get; set; }
+
     private Factuur _factuur = new();
     private bool _nieuw;
     private bool _bezig;
@@ -647,7 +679,10 @@
         public int? OrderId { get; init; }
         public int? WerkbonId { get; init; }
         public string Naam { get; init; } = "";
-        public decimal Bedrag { get; init; }
+        private decimal _bedrag;
+        /// <summary>Volgt een bedrag van het venster (de werkorder van een bonnetje: het hele bedrag ex btw).</summary>
+        public Func<decimal>? Volgt { get; init; }
+        public decimal Bedrag { get => Volgt?.Invoke() ?? _bedrag; init => _bedrag = value; }
     }
 
     private readonly List<WachtKoppeling> _wachtKoppelingen = new();
@@ -1037,6 +1072,65 @@
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
+
+        // Na de vingerafdruk: wat uit de inbox komt is nog niet opgeslagen werk.
+        if (_nieuw && UitInbox is { } stuk) await LaadUitInbox(stuk);
+    }
+
+    /// <summary>Een regel uit de factuurinbox in het venster zetten: bestanden, gelezen velden, werkorder.</summary>
+    private async Task LaadUitInbox(InboxStuk stuk)
+    {
+        try
+        {
+            foreach (var (naam, inhoud) in await InboxRepo.BestandenAsync(stuk.Id))
+                if (!_gekozen.Any(b => b.Naam.Equals(naam, StringComparison.OrdinalIgnoreCase)))
+                    _gekozen.Add(new GekozenBestand { Naam = naam, Inhoud = inhoud });
+        }
+        catch (Exception ex) { Toon("De bestanden uit de inbox ophalen mislukte: " + ex.Message, true); }
+        _uploadRonde++;
+
+        if (stuk.WerkbonId is int wb)
+            _wachtKoppelingen.Add(new WachtKoppeling
+            {
+                WerkbonId = wb,
+                Naam = (stuk.Werkorder.Length > 0 ? stuk.Werkorder : "werkorder van het bonnetje") + " (nieuwe PO)",
+                Volgt = () => _factuur.BedragExBtw,
+            });
+
+        var hoofd = _gekozen.FirstOrDefault(b => b.IsLeesbaar && b.Naam.Equals(stuk.BijlageNaam, StringComparison.OrdinalIgnoreCase))
+                    ?? _gekozen.FirstOrDefault(b => b.IsLeesbaar);
+        if (hoofd is not null) await KiesLos(hoofd);
+
+        if (InboxGelezen.VanJson(stuk.Gelezen) is { } uit)
+        {
+            NeemOver(uit);
+            _gelezen = uit;
+            await ZoekLeverancier(uit);
+            if (_factuur.BedrijfId is not null) await ControleerBank();
+            _poHint = uit.PoNummer;
+            _aiOpmerkingen = uit.Opmerkingen;
+            Toon(_automatisch.Count == 0
+                ? "Er kwam niets bruikbaars uit het document; vul de factuur met de hand in."
+                : $"{_automatisch.Count} velden ingevuld uit de inbox — controleer ze even; ze staan geel.", false);
+        }
+        else if (hoofd is not null && Lezer.Beschikbaar && MagInvoeren)
+        {
+            StateHasChanged();
+            await Lees(hoofd);
+        }
+
+        if (stuk.IsBon)
+        {
+            // Betaald met de zakelijke pas (besluit gebruiker): al betaald, dus niet in een betaalrun.
+            _factuur.Betaald = true;
+            _factuur.Betalingstermijn = 0;
+            if (string.IsNullOrWhiteSpace(_factuur.Omschrijving))
+            {
+                var oms = string.Join(" · ", new[] { stuk.Soort, stuk.Opmerking }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                _factuur.Omschrijving = oms.Length > 100 ? oms[..100] : oms;
+            }
+        }
+        StateHasChanged();
     }
 
     private async Task LaadDocumenten()

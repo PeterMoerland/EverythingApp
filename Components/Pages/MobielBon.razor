@@ -1,0 +1,325 @@
+@page "/mobiel/bon"
+@layout MobielLayout
+@inject FactuurLezer Lezer
+@inject IFactuurInboxRepository Inbox
+@inject IFactuurRepository Facturen
+@inject IUrenRepository Uren
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+@* Een bonnetje (tanken, maaltijd, parkeren) op de telefoon fotograferen. De foto wordt in de browser verkleind,
+   de AI leest winkel, datum en bedrag (FactuurLezer, via Bedrock), de collega kiest eventueel een soort en een
+   werkorder. Versturen zet hem in de FactuurInbox; Financiën beoordeelt hem bij Inkomende facturen ▸ Te beoordelen.
+   Betaald met de zakelijke pas (besluit gebruiker 19-10-2026), dus geen declaratie. Iedere ingelogde medewerker mag. *@
+
+<PageTitle>Bonnetje — MDE</PageTitle>
+
+<h2 class="mobiel-kop">🧾 Bonnetje</h2>
+
+@if (!_geladen)
+{
+    <p class="mobiel-klein">Laden…</p>
+}
+else if (_reden is not null)
+{
+    <div class="bon-fout">@_reden</div>
+}
+else if (_verstuurd)
+{
+    <div class="bon-klaar">✓ Verstuurd. Financiën kijkt hem na.</div>
+    <button class="bon-hoofdknop" @onclick="Opnieuw">🧾 Nog een bonnetje</button>
+    <a class="knopje bon-tweede" href="mobiel">Terug naar het startscherm</a>
+}
+else if (_inhoud is null)
+{
+    <p class="mobiel-klein">Leg de bon plat neer en zet hem helemaal in beeld.</p>
+    <label class="bon-hoofdknop">
+        📷 Foto maken
+        <InputFile OnChange="Gekozen" accept="image/*" capture="environment" class="bon-verborgen" />
+    </label>
+    <label class="knopje bon-tweede">
+        Kies een foto of PDF
+        <InputFile OnChange="Gekozen" accept="image/*,application/pdf" class="bon-verborgen" />
+    </label>
+    @if (_bezigMetFoto) { <p class="mobiel-klein">Foto verwerken…</p> }
+    @if (_melding is not null) { <div class="bon-fout">@_melding</div> }
+}
+else
+{
+    <div class="bon-voorbeeld">
+        @if (_voorbeeld is not null)
+        {
+            <img src="@_voorbeeld" alt="Het bonnetje" />
+        }
+        else
+        {
+            <div class="bon-pdf">📄 @_naam</div>
+        }
+        <button class="knopje" @onclick="Opnieuw">Opnieuw</button>
+    </div>
+
+    <div class="bon-gelezen">
+        @if (_lezen)
+        {
+            <span class="draaier"></span> <span>Bon wordt gelezen…</span>
+        }
+        else if (_gelezen is { } g)
+        {
+            <b>@(g.Leverancier.Length > 0 ? g.Leverancier : "Winkel onbekend")</b>
+            <span>@(g.Factuurdatum?.ToString("d-M-yyyy") ?? "")</span>
+            <b>@(g.Totaal is decimal t ? t.ToString("C2", Nl) : "bedrag onbekend")</b>
+        }
+        else if (_leesFout.Length > 0)
+        {
+            <span class="mobiel-klein">Niet gelezen; Financiën vult hem zelf in.</span>
+        }
+    </div>
+
+    <div class="bon-veld">
+        <span>Soort</span>
+        <div class="bon-keuzes">
+            @foreach (var s in Soorten)
+            {
+                <button class="knopje @(s == _soort ? "actief" : "")" @onclick="() => _soort = s == _soort ? null : s">@s</button>
+            }
+        </div>
+    </div>
+
+    <div class="bon-veld">
+        <span>Werkorder <small class="mobiel-klein">(mag leeg)</small></span>
+        @if (_werkorder is { } wo)
+        {
+            <div class="bon-gekozen">
+                <span><b>@wo.Nummer</b> @wo.Omschrijving</span>
+                <button class="knopje" @onclick="() => _werkorder = null">✕</button>
+            </div>
+        }
+        else
+        {
+            <input class="bon-zoek" placeholder="Zoek op nummer of omschrijving" value="@_zoek" @oninput="ZoekInput" />
+            <div class="bon-lijst">
+                @if (_zoek.Length == 0 && _recent.Count > 0)
+                {
+                    <div class="mobiel-klein">Recent door jou gebruikt</div>
+                }
+                @foreach (var w in Lijst)
+                {
+                    <button class="bon-item" @onclick="() => KiesWerkorder(w)">
+                        <b>@w.Nummer</b> @w.Omschrijving <small class="mobiel-klein">@w.Project</small>
+                    </button>
+                }
+                @if (_zoek.Length >= 2 && _gevonden.Count == 0 && !_zoeken)
+                {
+                    <div class="mobiel-klein">Niets gevonden.</div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="bon-veld">
+        <span>Opmerking <small class="mobiel-klein">(mag leeg)</small></span>
+        <textarea rows="2" @bind="_opmerking" maxlength="1000" placeholder="bv. lunch bij klant, rit naar ..."></textarea>
+    </div>
+
+    <button class="bon-hoofdknop" disabled="@_versturen" @onclick="Verstuur">
+        @(_versturen ? (_lezen ? "Wacht op het lezen…" : "Versturen…") : "Versturen")
+    </button>
+    @if (_melding is not null) { <div class="bon-fout">@_melding</div> }
+}
+
+@code {
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static readonly string[] Soorten = { "Brandstof", "Maaltijd", "Parkeren", "Overig" };
+
+    private sealed record WoKeuze(int Id, string Nummer, string Omschrijving, string Project);
+
+    private bool _geladen;
+    private string? _reden;
+    private string? _melding;
+
+    private byte[]? _inhoud;
+    private string _naam = "";
+    private string? _voorbeeld;
+    private bool _bezigMetFoto;
+
+    private bool _lezen;
+    private Task? _leesTaak;
+    private FactuurUitPdf? _gelezen;
+    private string _leesFout = "";
+
+    private string? _soort;
+    private WoKeuze? _werkorder;
+    private string _opmerking = "";
+    private bool _versturen;
+    private bool _verstuurd;
+
+    private List<WoKeuze> _recent = new();
+    private List<WoKeuze> _gevonden = new();
+    private string _zoek = "";
+    private bool _zoeken;
+    private CancellationTokenSource? _zoekPauze;
+    private readonly CancellationTokenSource _stop = new();
+
+    private List<WoKeuze> Lijst => _zoek.Length == 0 ? _recent : _gevonden;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Inbox.Beschikbaar) _reden = "Dit werkt alleen met de live database.";
+        else if (!await Inbox.TabelAanwezigAsync()) _reden = "De tabel voor bonnetjes ontbreekt nog (FactuurInbox_MariaDB.sql).";
+        else if (Ik.WerknemerId is not int ik) _reden = "Je bent niet als medewerker aangemeld. Log in met je MDE-account.";
+        else
+        {
+            try
+            {
+                _recent = (await Uren.RecentGebruikteWerkordersAsync(ik, 60, 8))
+                    .Where(w => w.InkoopToegestaan)
+                    .Select(w => new WoKeuze(w.WerkbonId, w.Weergave, w.Omschrijving, w.Project)).ToList();
+            }
+            catch { _recent = new(); }
+        }
+        _geladen = true;
+    }
+
+    private async Task Gekozen(InputFileChangeEventArgs e)
+    {
+        _melding = null;
+        _bezigMetFoto = true;
+        try
+        {
+            var bestand = e.File;
+            if (bestand.ContentType == "application/pdf" || bestand.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                if (bestand.Size > 15_000_000) { _melding = "Die PDF is te groot (maximaal 15 MB)."; return; }
+                _inhoud = await Lees(bestand, 15_000_000);
+                _naam = bestand.Name;
+                _voorbeeld = null;
+            }
+            else
+            {
+                // In de browser verkleinen: een foto van een telefoon is al gauw 5-10 MB, de AI kan er 3,75 MB in en
+                // een bon is met 2000 px ruim leesbaar. Het voorbeeld nog kleiner, dat gaat naar het scherm terug.
+                var groot = await bestand.RequestImageFileAsync("image/jpeg", 2000, 2000);
+                _inhoud = await Lees(groot, 8_000_000);
+                var klein = await bestand.RequestImageFileAsync("image/jpeg", 700, 700);
+                _voorbeeld = "data:image/jpeg;base64," + Convert.ToBase64String(await Lees(klein, 3_000_000));
+                _naam = $"bon {DateTime.Now:yyyy-MM-dd HHmm}.jpg";
+            }
+        }
+        catch (Exception ex)
+        {
+            _inhoud = null;
+            _melding = "De foto lezen mislukte: " + ex.Message;
+            return;
+        }
+        finally { _bezigMetFoto = false; }
+
+        _gelezen = null;
+        _leesFout = "";
+        _leesTaak = LeesBon(_inhoud!, _naam);
+    }
+
+    private static async Task<byte[]> Lees(IBrowserFile bestand, long max)
+    {
+        using var geheugen = new MemoryStream();
+        await bestand.OpenReadStream(max).CopyToAsync(geheugen);
+        return geheugen.ToArray();
+    }
+
+    /// <summary>Op de achtergrond laten lezen; ondertussen kiest de collega soort en werkorder.</summary>
+    private async Task LeesBon(byte[] inhoud, string naam)
+    {
+        _lezen = true;
+        try
+        {
+            var (uit, fout) = await Lezer.LeesAsync(inhoud, naam, null, _stop.Token);
+            if (ReferenceEquals(inhoud, _inhoud))
+            {
+                _gelezen = uit;
+                _leesFout = uit is null ? fout : "";
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (ReferenceEquals(inhoud, _inhoud)) _leesFout = ex.Message; }
+        finally
+        {
+            if (ReferenceEquals(inhoud, _inhoud)) _lezen = false;
+            try { await InvokeAsync(StateHasChanged); } catch { }
+        }
+    }
+
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        _zoekPauze?.Cancel();
+        if (_zoek.Length < 2) { _gevonden = new(); return; }
+        var pauze = _zoekPauze = new CancellationTokenSource();
+        try { await Task.Delay(300, pauze.Token); } catch (TaskCanceledException) { return; }
+        _zoeken = true;
+        try
+        {
+            var gevonden = await Facturen.ZoekInkoopWerkordersAsync(_zoek, true, 15);
+            if (!pauze.IsCancellationRequested)
+                _gevonden = gevonden.Select(w => new WoKeuze(w.WerkbonId, w.Nummer, w.Omschrijving, w.Project)).ToList();
+        }
+        catch { _gevonden = new(); }
+        finally { _zoeken = false; }
+    }
+
+    private void KiesWerkorder(WoKeuze w)
+    {
+        _werkorder = w;
+        _zoek = "";
+        _gevonden = new();
+    }
+
+    private async Task Verstuur()
+    {
+        if (_inhoud is null || _versturen) return;
+        _versturen = true;
+        _melding = null;
+        try
+        {
+            // Wat de AI las gaat mee, zodat Financiën het venster meteen ingevuld krijgt; even wachten mag.
+            if (_leesTaak is not null) await _leesTaak;
+
+            var stuk = new InboxStuk
+            {
+                Bron = "bon", Ontvangen = DateTime.Now, DoorWerknemer = Ik.WerknemerId, DoorNaam = Ik.Naam,
+                Soort = _soort ?? "", WerkbonId = _werkorder?.Id,
+                Werkorder = _werkorder is { } w ? $"{w.Nummer} · {w.Omschrijving}" : "",
+                Opmerking = _opmerking.Trim(),
+                Gelezen = InboxGelezen.NaarJson(_gelezen),
+                Melding = _gelezen is null && _leesFout.Length > 0 ? "Uitlezen mislukt: " + _leesFout : "",
+            };
+            await Inbox.VoegToeAsync(stuk, new List<(string, byte[])> { (_naam, _inhoud) });
+            _verstuurd = true;
+        }
+        catch (Exception ex) { _melding = "Versturen mislukt: " + ex.Message; }
+        finally { _versturen = false; }
+    }
+
+    private void Opnieuw()
+    {
+        _inhoud = null;
+        _voorbeeld = null;
+        _naam = "";
+        _gelezen = null;
+        _leesFout = "";
+        _lezen = false;
+        _leesTaak = null;
+        _melding = null;
+        _verstuurd = false;
+        _soort = null;
+        _werkorder = null;
+        _opmerking = "";
+        _zoek = "";
+        _gevonden = new();
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _zoekPauze?.Cancel();
+    }
+}

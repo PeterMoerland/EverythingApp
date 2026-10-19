@@ -55,7 +55,7 @@
             @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
             <Snelbalk @ref="_snelbalk" OpenVenster="OpenVenster" Gewijzigd="StateHasChanged" />
             <span class="shell-top-vulling"></span>
-            @if (Ik.Gekoppeld)
+            @if (Ik.MagFinancien)
             {
                 <a class="ai-knop" href="ai" title="Vraag het de AI (projecten, uren, bestellingen, voorraad, producten…)">✨</a>
             }
@@ -102,6 +102,25 @@
                         <p><b>Niet beschikbaar op een gedeelde werkplek.</b></p>
                         <p>@dicht staat op een werkplek altijd uit, ook als de rechten het toestaan. Open het op je eigen pc.</p>
                     </section>
+                </div>
+            }
+            else if (HuidigeGebruiker.IsFinancienPad(Nav.ToBaseRelativePath(Nav.Uri)) && !Ik.MagFinancien)
+            {
+                @* Financiën en de AI: alleen Financial of Directie (besluit 19-10-2026). Zolang de gebruiker nog
+                   geladen wordt niets tonen, anders zou de pagina al starten (en gegevens ophalen). *@
+                <div class="page">
+                    @if (_ikGeladen)
+                    {
+                        <header class="topbar"><h1>Financiën</h1></header>
+                        <section class="module-placeholder">
+                            <p><b>Geen toegang.</b></p>
+                            <p>Financiën en Vragen aan AI zijn alleen voor wie het recht Financial of Directie heeft.</p>
+                        </section>
+                    }
+                    else
+                    {
+                        <p class="uitleg">Laden…</p>
+                    }
                 </div>
             }
             else
@@ -203,11 +222,13 @@
     private bool _kiosk;
     private string _zoek = "";
     private List<Doel> _alles = new();
+    private bool _ikGeladen;
 
     protected override async Task OnInitializedAsync()
     {
         Nav.LocationChanged += LocatieGewijzigd;
         await Ik.ZorgGeladenAsync();
+        _ikGeladen = true;
 
         // Vaste schermen die niet in het menu staan (vroeger het blokje "Snel" in de zijbalk)
         _alles.Add(new("Schermen", "Ureningave", ""));
@@ -287,6 +308,9 @@
     {
         if (m.Sleutel == "beheer")
             return Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Gekoppeld;
+
+        // Financiën: alleen Financial of Directie, ook als er tegels zonder recht in staan (besluit 19-10-2026)
+        if (m.Sleutel == "financien") return Ik.MagFinancien;
 
         // Financiën en Werknemers nooit op een werkplek (gedeelde pc), ook niet met rechten
         if (Ik.IsWerkplek && HuidigeGebruiker.ModulesNietOpWerkplek.Contains(m.Sleutel)) return false;
@@ -412,7 +436,8 @@
         (string.IsNullOrWhiteSpace(_zoek)
             ? _alles.Where(d => d.Categorie is "Pagina's" or "Modules")
             : _alles.Where(d => d.Label.Contains(_zoek, StringComparison.OrdinalIgnoreCase)))
-        .Where(d => !(Ik.IsWerkplek && NietOpWerkplek(d)));   // gedeelde werkplek: geen Agenda, Financiën en Werknemers (Mail = alleen versturen)
+        .Where(d => !(Ik.IsWerkplek && NietOpWerkplek(d)))    // gedeelde werkplek: geen Agenda, Financiën en Werknemers (Mail = alleen versturen)
+        .Where(d => Ik.MagFinancien || !HuidigeGebruiker.IsFinancienPad(d.Url));   // Financiën en AI: Financial of Directie
 
     private static bool NietOpWerkplek(Doel d)
         => d.Url == "agenda" || d.Categorie == "Werknemers" || HuidigeGebruiker.DichtOpWerkplek(d.Url) is not null;

@@ -3409,3 +3409,52 @@ html[data-thema="donker"] .ai-beurt.vervolg, html[data-thema="donker"] .ai-vervo
 .ru-iban input { flex: 1; }
 .ru-dubbel { background: #fff6e8; border: 1px solid #f0d5a8; border-radius: 6px; padding: .5rem .7rem; }
 html[data-thema="donker"] .ru-dubbel { background: #3a2a14; border-color: #6b4c1f; }
+
+/* ---------- Bonnetje (MDE mobiel ▸ Bonnetje) en de factuurinbox (Inkomende facturen ▸ Te beoordelen) ---------- */
+.bon-hoofdknop { display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%;
+                 min-height: 3.4rem; margin: .4rem 0 .7rem; border: 0; border-radius: 12px; background: var(--accent);
+                 color: #fff; font-size: 1.15rem; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+.bon-hoofdknop:disabled { opacity: .6; }
+.bon-tweede { display: block; text-align: center; padding: .7rem; border-radius: 10px; }
+.bon-verborgen { display: none; }
+.bon-klaar { margin: 1rem 0; padding: 1rem; border-radius: 12px; background: #e8f6ec; color: #1d6b35;
+             font-size: 1.1rem; font-weight: 600; text-align: center; }
+.bon-voorbeeld { display: flex; align-items: flex-start; gap: .7rem; margin-bottom: .6rem; }
+.bon-voorbeeld img { max-width: 60%; max-height: 14rem; border-radius: 8px; border: 1px solid #ccd; object-fit: contain; }
+.bon-pdf { flex: 1; padding: 1rem; border: 1px dashed #aab; border-radius: 8px; }
+.bon-gelezen { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; min-height: 1.6rem; margin-bottom: .8rem; }
+.bon-veld { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .9rem; }
+.bon-veld > span { font-weight: 600; }
+.bon-veld textarea, .bon-zoek { width: 100%; box-sizing: border-box; font-size: 1rem; padding: .5rem .6rem; }
+.bon-keuzes { display: flex; flex-wrap: wrap; gap: .4rem; }
+.bon-keuzes .knopje { padding: .55rem .9rem; font-size: 1rem; border-radius: 8px; }
+.bon-gekozen { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem .6rem;
+               border: 1px solid var(--accent); border-radius: 8px; }
+.bon-lijst { display: flex; flex-direction: column; gap: .3rem; max-height: 16rem; overflow-y: auto; }
+.bon-item { text-align: left; padding: .55rem .6rem; border: 1px solid #dde; border-radius: 8px; background: #fff;
+            font-size: .95rem; cursor: pointer; }
+.bon-item:active { background: var(--selected); }
+html[data-thema="donker"] .bon-item { background: #1b2a3f; border-color: #2b4a73; color: inherit; }
+html[data-thema="donker"] .bon-klaar { background: #173a26; color: #9fe0b3; }
+
+.inbox-vol { background: #fff4d6; border-color: #e0b44a; font-weight: 600; }
+.inbox-blok { margin: .2rem 0 1rem; padding: .6rem .8rem; border: 1px solid #e0b44a; border-radius: 8px; background: #fffaf0; }
+.inbox-kop { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .4rem; }
+.inbox-kop .wn-kop { margin: 0; }
+.inbox-kop .zij-extra { flex: 1; }
+.inbox-tabel { width: 100%; }
+.inbox-tabel td { vertical-align: top; }
+.inbox-label { display: inline-block; margin: 0 .3rem .15rem 0; padding: 0 .4rem; border-radius: 4px; background: #eef1f6; font-size: .85em; }
+.inbox-fout { color: #b3261e; }
+.inbox-herkomst { margin-bottom: .6rem; padding: .5rem .7rem; border-left: 4px solid #e0b44a; background: #fffaf0; border-radius: 4px; }
+.inbox-opm { margin-top: .2rem; font-style: italic; }
+.inbox-melding { margin-top: .2rem; color: #b3261e; }
+.inbox-mailtekst { white-space: pre-wrap; max-height: 12rem; overflow-y: auto; font-size: .85em; margin: .3rem 0 0; }
+html[data-thema="donker"] .inbox-vol { background: #4a3b12; border-color: #8a6d1f; color: #ffe39a; }
+html[data-thema="donker"] .inbox-blok,
+html[data-thema="donker"] .inbox-herkomst { background: #2a2414; border-color: #8a6d1f; }
+html[data-thema="donker"] .inbox-label { background: #22344d; }
+html[data-thema="donker"] .inbox-fout,
+html[data-thema="donker"] .inbox-melding { color: #ff8a80; }
+.bon-fout { margin: .6rem 0; padding: .7rem .8rem; border-radius: 10px; background: #fdecea; border: 1px solid var(--rood); color: #8b1a16; }
+html[data-thema="donker"] .bon-fout { background: #3a1a18; color: #ffb4ab; }

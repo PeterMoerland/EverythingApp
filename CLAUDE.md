@@ -263,6 +263,42 @@ stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 
 omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
 `BewaarRegelAsync` als Plakken uit klembord).
 
+## Financiën afgeschermd (19-10-2026)
+
+Besluit gebruiker: Financiën (menu en schermen) is **volledig** dicht voor wie geen Financial of Directie heeft, ook de AI
+(`/ai`, de ✨-knop) en Banktransacties (de rechten per rekening gelden daarbinnen nog). Eén plek:
+`HuidigeGebruiker.MagFinancien` en `IsFinancienPad` (`/financien/...`, `/module/financien`, `/ai`). `MainLayout` toont
+dan "Geen toegang" in plaats van de pagina (zolang de gebruiker laadt "Laden…", zodat de pagina niet al data ophaalt),
+de module staat niet in het menu (ook niet door tegels zonder recht) en niet in het zoekvenster. Directie ziet in de
+module ook de tegels met recht Financial (`Module.razor`). Een nieuw financieel scherm: adres onder `/financien/`, dan
+valt het vanzelf onder het slot. Getest lokaal: zonder recht dicht (liquiditeit, ai, module), met tijdelijk recht open.
+
+## Factuurinbox: invoice@ en bonnetjes van de telefoon (19-10-2026)
+
+Besluiten gebruiker: bonnetjes zijn betaald met de **zakelijke pas** (geen declaratie), werkorder **niet verplicht**
+(de beoordelaar mag hem toevoegen), inbox zien en verwerken = **Financial of Directie** (zelfde als facturen invoeren),
+een mail zonder factuur komt ook in de inbox ("Geen factuur gevonden").
+- Tabellen `FactuurInbox` + `FactuurInboxBestand` (`FactuurInbox_MariaDB.sql`, door de gebruiker te draaien),
+  `Services/IFactuurInboxRepository.cs` (MySql/Geen/Geheugen; lokaal `FactuurInbox__Geheugen=true`). Wat de AI las
+  staat als JSON in `Gelezen` (`InboxGelezen`, want `FactuurUitPdf.Gevonden` heeft geen setter).
+- **Bonnetje**: MDE mobiel ▸ tegel Bonnetje (`Components/Pages/MobielBon.razor`, `/mobiel/bon`). Foto via
+  `InputFile capture="environment"`, in de browser verkleind met `RequestImageFileAsync` (2000 px), lezen met
+  `FactuurLezer` op de achtergrond terwijl de collega soort/werkorder kiest; Versturen wacht op het lezen.
+  Werkorders: recent door jou (uren, alleen `InkoopToegestaan`) of zoeken (`ZoekInkoopWerkordersAsync`).
+- **Beoordelen**: Inkomende facturen ▸ knop "📥 Te beoordelen (n)" (blok boven de filters, opent vanzelf als er iets
+  ligt). Beoordelen = `FactuurVenster` met `UitInbox`: bestanden, gelezen velden, kopje met herkomst; bij een bon
+  Betaald aan en termijn 0 (niet nog eens via SEPA) en de werkorder als wachtende koppeling (nieuwe PO, bedrag volgt
+  ex btw via `WachtKoppeling.Volgt`). Opslaan = gewone factuur, inbox-regel Status 1 (`FactuurToegevoegd`); Negeren = 2.
+- **invoice@**: `Services/FactuurInboxOphaler.cs` (BackgroundService, sectie `FactuurInbox`: Aan, Postbus, Minuten,
+  Vanaf, Label). Gmail-zoekopdracht `in:inbox -label:"EverythingApp/Verwerkt"`, per PDF/foto een regel (logo's onder
+  20 kB overgeslagen, overige bijlagen gaan mee met de eerste), daarna het label (`MailService.VoegLabelToeAsync`, maakt
+  het label zo nodig aan). Dubbel tegengehouden door label én `MailId` in de tabel; een mail die faalt wordt tot de
+  volgende herstart overgeslagen. **MailService is scoped**: de ophaler maakt per ronde een scope (anders start de app
+  niet). Niets wordt uit de postbus verwijderd.
+- **Nog niet getest tegen de echte postbus**: lokaal is `Google:ServiceAccountJson` leeg (melding getest). Te
+  controleren na inschakelen: of invoice@ een echte gebruiker is (geen groep), het label, en de eerste ronde vanaf
+  `Vanaf`. Bonnetje en beoordelen getest met een verzonnen tankbon in het geheugen; Opslaan niet aangeklikt.
+
 ## Relaties: leverancier uit een screenshot of PDF (19-10-2026)
 
 Relaties ▸ **✨ Uit screenshot** (`Components/RelatieUitScreenshot.razor`, `Services/RelatieLezer.cs`, via
@@ -346,8 +382,9 @@ vragen. Daarna klopte het antwoord (nagerekend). Gebouwd zijn stap 2 en 3:
   werkorders_van_project (uren = ALLE jaren, zo genoemd), uren_per_project (standaard per werkorder opgeteld;
   `per_medewerker` alleen als daarnaar gevraagd), uren_per_medewerker (zonder Financial/Directie alleen eigen uren),
   bestellingen, voorraad (`IVoorraadRepository`), producten_overzicht, product_todos en (alleen Financial/Directie)
-  nacalculatie_project met budget (`Workorders.Budget`). De pagina is voor iedereen met een gekoppeld account: `/ai`
-  (✨ in de bovenbalk, naast de bel) en nog steeds `/financien/analyse`. Of de financiële opvragingen meedoen staat per vraag
+  nacalculatie_project met budget (`Workorders.Budget`). De pagina staat op `/ai` (✨ in de bovenbalk,
+  naast de bel) en `/financien/analyse`; **sinds 19-10-2026 alleen voor Financial of Directie** (zie "Financiën
+  afgeschermd"); later komen er andere vraagmogelijkheden voor iedereen. Of de financiële opvragingen meedoen staat per vraag
   in `AiVragen.Financieel` (bepaald bij het stellen: `Ik.Mag("Financial") || Ik.Mag("Directie")`, dus nooit op een werkplek;
   kolom via `ALTER ... ADD COLUMN IF NOT EXISTS` in het script; zonder kolom afgeleid uit de rechten van de werknemer).
   **Lessen uit de tests met Haiku**: het model telt slecht zelf op (2 van 18 werkordertotalen fout) en pakt soms een

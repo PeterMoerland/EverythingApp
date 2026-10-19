@@ -159,6 +159,7 @@ if (liveDb)
     builder.Services.AddSingleton<IActivityBoardRepository>(_ => new MySqlActivityBoardRepository(cs!));
     builder.Services.AddSingleton<ISnelkoppelingRepository>(_ => new MySqlSnelkoppelingRepository(cs!));
     builder.Services.AddSingleton<IWerkplekRepository>(_ => new MySqlWerkplekRepository(cs!));
+    builder.Services.AddSingleton<IFactuurInboxRepository>(_ => new MySqlFactuurInboxRepository(cs!));
 }
 else
 {
@@ -189,6 +190,7 @@ else
     builder.Services.AddSingleton<IActivityBoardRepository, GeenActivityBoardRepository>();
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeenSnelkoppelingRepository>();
     builder.Services.AddSingleton<IWerkplekRepository, GeenWerkplekRepository>();
+    builder.Services.AddSingleton<IFactuurInboxRepository, GeenFactuurInboxRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
@@ -222,6 +224,9 @@ if (builder.Configuration.GetValue<bool>("Snelbalk:Geheugen"))
 // Alleen om werkplekken lokaal te testen zonder database: Werkplekken__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Werkplekken:Geheugen"))
     builder.Services.AddSingleton<IWerkplekRepository, GeheugenWerkplekRepository>();
+// Alleen om de factuurinbox en het bonnetje lokaal te testen zonder de tabel FactuurInbox: FactuurInbox__Geheugen=true
+if (builder.Configuration.GetValue<bool>("FactuurInbox:Geheugen"))
+    builder.Services.AddSingleton<IFactuurInboxRepository, GeheugenFactuurInboxRepository>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 
@@ -242,6 +247,10 @@ builder.Services.AddSingleton<RelatieLezer>();
 builder.Services.AddSingleton<AiSignaal>();
 builder.Services.AddSingleton<AiAnalyseService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AiAnalyseService>());
+
+// Factuurinbox: de postbus invoice@ op de achtergrond lezen (sectie "FactuurInbox"); bonnetjes komen via MDE mobiel.
+builder.Services.AddSingleton<FactuurInboxOphaler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<FactuurInboxOphaler>());
 
 // Rabobank Business Account Insight: elk uur de bankafschriften ophalen (sectie
 // "Rabobank" in appsettings.json). In de sandbox wordt er nooit iets weggeschreven.
