@@ -196,6 +196,9 @@ public class JsonDemoRepository : IUrenRepository
     // --- werkorder zoeken (demo) ---
     private readonly List<(int Werknemer, int Werkorder)> _persoonlijk = new();
 
+    public Task<List<Workorder>> WerkordersVanKlantAsync(int klantId, bool alleenOpen, int max) =>
+        Task.FromResult(new List<Workorder>());
+
     public Task<List<Workorder>> ZoekWerkordersAsync(string zoek, bool alleenOpen, int max) =>
         Task.FromResult(_workorders
             .Where(w => !alleenOpen || w.WorkorderStatus != 0)

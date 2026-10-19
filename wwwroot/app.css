@@ -858,7 +858,7 @@ th.c, td.c { text-align: center; }
    schuift het zijpaneel onder de lijst. */
 .factuur-vlak { display: flex; gap: 1rem; align-items: flex-start; }
 .factuur-lijst { flex: 1; min-width: 0; }
-.factuur-zij { flex: 0 0 21rem; max-width: 24rem; display: flex; flex-direction: column; gap: .8rem; }
+.factuur-zij { flex: 0 0 17rem; max-width: 19rem; display: flex; flex-direction: column; gap: .8rem; }
 .factuur-zij.leeg { flex: 0 0 11rem; }
 .factuur-zij.leeg .kiezer-info { font-size: .85em; }
 @media (max-width: 90rem) {
@@ -871,7 +871,7 @@ th.c, td.c { text-align: center; }
    en bedragen over twee regels. */
 /* width 100% erbij: zonder een opgegeven breedte doet 'fixed' in de browser
    niets en bepaalt de tabel alsnog zelf de kolommen. */
-.factuurtabel { width: 100%; min-width: 88rem; table-layout: fixed; }
+.factuurtabel { width: 100%; min-width: 92rem; table-layout: fixed; }   /* 92: werkorderkolom erbij, omschrijving houdt ~11rem */
 .factuurtabel tbody tr { cursor: pointer; }
 .factuurtabel input[type="checkbox"] { margin: 0; }
 
@@ -3199,3 +3199,13 @@ html[data-thema="donker"] .ont-opm { background: #3a3014; }
 .opr-lijst { display: flex; flex-direction: column; gap: .15rem; max-height: 50vh; overflow: auto; border: 1px solid #e3e8ef; border-radius: 6px; padding: .3rem .5rem; }
 .opr-lijst small { color: #889; margin-left: .3rem; }
 html[data-thema="donker"] .opr-lijst { border-color: var(--d3); }
+
+/* Werkorder kiezen in de regel (Components/WerkorderVeld.razor) */
+.wov { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; min-width: 0; }
+.wov-gekozen { font-weight: 600; }
+.wov-gekozen.leeg { font-weight: normal; color: #889; }
+.wov-paneel { width: 100%; border: 1px solid var(--accent); border-radius: 6px; padding: .4rem; display: flex; flex-direction: column; gap: .3rem; }
+.wov-zoekregel { display: flex; align-items: center; gap: .6rem; }
+.wov-zoek { flex: 1; min-width: 0; font-size: 1rem; }
+.wov-lijst { display: flex; flex-direction: column; max-height: 16rem; overflow-y: auto; }
+.wov-lijst small { color: #778; }

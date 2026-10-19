@@ -133,7 +133,8 @@
                         <tr>
                             <th style="width:5.6rem">Datum</th>
                             <th style="width:6.4rem">Factuurnr</th>
-                            <th style="width:13rem">Klant</th>
+                            <th style="width:12rem">Klant</th>
+                            <th style="width:6.6rem" title="Gekoppelde werkorder; wijs aan voor klant, project en omschrijving">Werkorder</th>
                             <th>Omschrijving</th>
                             <th style="width:8rem">PO klant</th>
                             <th style="width:8.4rem" class="r">Excl. btw</th>
@@ -157,6 +158,7 @@
                                 <td>@Dag(f.Factuurdatum)</td>
                                 <td>@f.Factuurnummer</td>
                                 <td class="omschrijving" title="@f.Klant">@f.Klant</td>
+                                <td title="@f.WerkorderWolkje">@f.Werkordernummer</td>
                                 <td class="omschrijving" title="@f.Omschrijving">
                                     @if (f.IsProforma)
                                     {
@@ -193,7 +195,7 @@
                         }
                         @if (_lijst.Count == 0)
                         {
-                            <tr><td colspan="14" class="kiezer-info">Geen facturen in deze selectie.</td></tr>
+                            <tr><td colspan="15" class="kiezer-info">Geen facturen in deze selectie.</td></tr>
                         }
                     </tbody>
                 </table>

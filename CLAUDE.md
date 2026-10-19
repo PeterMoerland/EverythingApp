@@ -229,6 +229,25 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Financiën: blok Analyse (19-10-2026)
+
+In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met Liquiditeitsoverzicht (verhuisd uit
+Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
+De lege knop "Bankgegevens exporteren" (Bank) is weg.
+
+## Uitgaande facturen: werkorder per factuur (19-10-2026)
+
+Nieuwe kolom `Invoices.Workorder-id` (`FactuurWerkorder_MariaDB.sql`, gebruiker voert uit; zonder kolom blijft het veld
+leeg en wordt het niet opgeslagen). In het factuurvenster onder Referentie het veld **Werkorder**
+(`Components/WerkorderVeld.razor`, herbruikbaar): leeg zoekveld = werkorders van de klant van de factuur
+(`IUrenRepository.WerkordersVanKlantAsync`, Projects.Customer-id), typen = alle werkorders; vinkje "ook gesloten";
+pijltjes/Enter/Esc. Intern veld: ook na versturen aan te passen (buiten `regelsVast`), alleen met recht Financial/Directie.
+`ZoekWerkordersAsync` zoekt nu op **alle woorden** (bv. "tembo bsl"), ook in de WerkorderKiezer.
+Lokaal getest t/m kiezen (Amcor-werkorders, "tembo bsl"); opslaan niet getest.
+In de lijst een kolom **Werkorder** (nummer; wolkje = klant, project, werkorderomschrijving), via één subquery in
+`ZoekAsync` met CHAR(31) als scheiding. Ruimte (wens gebruiker): blok rechts 21 → 17rem, tabel min-width 88 → 92rem
+(omschrijving houdt ~11rem).
+
 ## Product uitlezen: drives via de halffabricaten (16-10-2026)
 
 "Automatisch uitlezen" (ExemplaarWerk) eiste attributen met een bron `drive:n:serienummer`; een product (bv. MPR-1) heeft

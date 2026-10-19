@@ -16,6 +16,14 @@ public class VerkoopFactuurRegel
     public string PoKlant { get; set; } = "";
     public string Opmerking { get; set; } = "";
 
+    /// <summary>Gekoppelde werkorder (Invoices.Workorder-id): nummer, en voor het wolkje klant/project/omschrijving.</summary>
+    public string Werkordernummer { get; set; } = "";
+    public string WerkorderKlant { get; set; } = "";
+    public string WerkorderProject { get; set; } = "";
+    public string WerkorderOmschrijving { get; set; } = "";
+    public string WerkorderWolkje => Werkordernummer.Length == 0 ? ""
+        : $"Klant: {WerkorderKlant}\nProject: {WerkorderProject}\nWerkorder: {WerkorderOmschrijving}";
+
     public decimal BedragExBtw { get; set; }
     public decimal Btw { get; set; }
 
@@ -152,6 +160,11 @@ public class VerkoopFactuur
 
     public string Referentie { get; set; } = "";
     public string PoKlant { get; set; } = "";
+
+    /// <summary>Gekoppelde werkorder (Invoices.Workorder-id, FactuurWerkorder_MariaDB.sql); intern, niet op de factuur.</summary>
+    public int? WerkorderId { get; set; }
+    /// <summary>Weergave van de werkorder: nummer · project · omschrijving.</summary>
+    public string Werkorder { get; set; } = "";
     public string Omschrijving { get; set; } = "";
     public string Opmerking { get; set; } = "";
 

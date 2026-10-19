@@ -198,6 +198,14 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
     public async Task<List<VerkoopFactuurRegel>> ZoekAsync(VerkoopFactuurFilter filter, int max)
     {
         var lijst = new List<VerkoopFactuurRegel>();
+        // werkorder in één veld, gescheiden door CHAR(31): nummer, klant, project, omschrijving (alleen met de kolom)
+        var werkorder = await HeeftWerkorderKolomAsync()
+            ? "(SELECT CONCAT_WS(CHAR(31), CONCAT(pr_.`Projectnumber`, '-', RIGHT(CONCAT('00', wo_.`Werkbonnummer`), 2)), " +
+              "                  COALESCE(kl_.`name`, ''), COALESCE(pr_.`Projectdescription`, ''), COALESCE(wo_.`Werkbonomschrijving`, '')) " +
+              "   FROM `Workorders` wo_ LEFT JOIN `Projects` pr_ ON pr_.`Project-Id` = wo_.`Project-id` " +
+              "   LEFT JOIN `Relations` kl_ ON kl_.`id_supplier` = pr_.`Customer-id` " +
+              "  WHERE wo_.`Werkbon-id` = f.`Workorder-id`)"
+            : "NULL";
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
@@ -210,7 +218,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             "       COALESCE(f.`Betaald`, 0), f.`DatumBetaald`, " +
             "       COALESCE(f.`VerzondenBasecone`, 0), COALESCE(f.`On-Inbaar`, 0), " +
             "       COALESCE(f.`Betalingsherinnering`, 0), " +
-            $"       ({OverdueUit}) AS Overdue " +
+            $"       ({OverdueUit}) AS Overdue, {werkorder} AS Werkorder " +
             Van +
             Voorwaarden(filter) +
             // Zoals Access: hoogste nummer bovenaan. Het nummer begint met het jaar.
@@ -252,6 +260,12 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
                 Herinnering = I(20) ?? 0,
                 Overdue = I(21) ?? 0,
             });
+            if (S(22).Split('\u001F') is { Length: 4 } wo)
+            {
+                var regel = lijst[^1];
+                regel.Werkordernummer = wo[0]; regel.WerkorderKlant = wo[1];
+                regel.WerkorderProject = wo[2]; regel.WerkorderOmschrijving = wo[3];
+            }
         }
         return lijst;
     }
@@ -410,8 +424,45 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             };
         }
 
+        // werkorder (kolom uit FactuurWerkorder_MariaDB.sql; zonder die kolom blijft het leeg)
+        if (await HeeftWerkorderKolomAsync())
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT f.`Workorder-id`, CONCAT_WS(' · ', CONCAT(p.`Projectnumber`, '-', RIGHT(CONCAT('00', w.`Werkbonnummer`), 2)), " +
+                "                                   NULLIF(p.`Projectdescription`, ''), NULLIF(w.`Werkbonomschrijving`, '')) " +
+                "  FROM `Invoices` f LEFT JOIN `Workorders` w ON w.`Werkbon-id` = f.`Workorder-id` " +
+                "  LEFT JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+                $" WHERE f.`{Sleutel}` = @id", cn);
+            cmd.Parameters.AddWithValue("@id", id);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (await r.ReadAsync() && !r.IsDBNull(0))
+            {
+                f.WerkorderId = Convert.ToInt32(r.GetValue(0));
+                f.Werkorder = r.IsDBNull(1) ? $"#{f.WerkorderId}" : r.GetString(1);
+            }
+        }
+
         f.Regels = await GetItemsAsync(id);
         return f;
+    }
+
+    private bool? _werkorderKolom;
+
+    /// <summary>Heeft Invoices al de kolom Workorder-id (FactuurWerkorder_MariaDB.sql)?</summary>
+    private async Task<bool> HeeftWerkorderKolomAsync()
+    {
+        if (_werkorderKolom == true) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'Workorder-id'", cn);
+            _werkorderKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { _werkorderKolom = false; }
+        return _werkorderKolom.Value;
     }
 
     public async Task<string> VolgendNummerAsync(int administratieId)
@@ -521,6 +572,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         }
 
         // ---- de kop ----
+        var metWerkorder = await HeeftWerkorderKolomAsync();
         var velden = new List<(string Kolom, object? Waarde)>
         {
             ("Referentie", Kort(f.Referentie, 100)),
@@ -533,6 +585,8 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             ("DatumBetaald", f.Betaald ? f.DatumBetaald?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today : null),
             ("On-Inbaar", f.Oninbaar ? 1 : 0),
         };
+        // intern, dus ook na versturen aan te passen
+        if (metWerkorder) velden.Add(("Workorder-id", f.WerkorderId));
 
         if (!regelsVast)
         {

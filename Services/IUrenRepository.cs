@@ -38,6 +38,8 @@ public interface IUrenRepository
 
     /// <summary>Zoekt op nummer, project, klant of omschrijving.</summary>
     Task<List<Workorder>> ZoekWerkordersAsync(string zoek, bool alleenOpen, int max);
+    /// <summary>Werkorders van de projecten van deze klant (Projects.Customer-id), nieuwste eerst.</summary>
+    Task<List<Workorder>> WerkordersVanKlantAsync(int klantId, bool alleenOpen, int max);
 
     /// <summary>Werkorders waarop deze werknemer de laatste X dagen uren boekte (recentste eerst).</summary>
     Task<List<Workorder>> RecentGebruikteWerkordersAsync(int werknemerId, int dagen, int max);

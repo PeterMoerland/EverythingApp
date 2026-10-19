@@ -1,0 +1,130 @@
+@inject IUrenRepository Uren
+
+@* Een werkorder kiezen met een zoekveld, in de regel zelf (geen popup). Leeg zoekveld = werkorders van de klant
+   (KlantId, open eerst); typen = zoeken in alle werkorders op nummer, project, omschrijving en klant (alle woorden
+   moeten voorkomen). Pijltjes + Enter kiezen, Esc sluit. Gebruikt bij Uitgaande facturen ▸ Werkorder. *@
+
+<div class="wov">
+    @if (!_open)
+    {
+        <span class="wov-gekozen @(WerkorderId is null ? "leeg" : "")">@(WerkorderId is null ? "— geen werkorder —" : Tekst)</span>
+        @if (!AlleenLezen)
+        {
+            <button type="button" class="klein" @onclick="Open">@(WerkorderId is null ? "Kies…" : "Wijzig…")</button>
+            @if (WerkorderId is not null)
+            {
+                <button type="button" class="klein" title="Werkorder loskoppelen" @onclick="() => Kies(null)">✕</button>
+            }
+        }
+    }
+    else
+    {
+        <div class="wov-paneel" @onkeydown="Toets">
+            <div class="wov-zoekregel">
+                <input @ref="_veld" class="wov-zoek" placeholder="Nummer, project, omschrijving of klant…" value="@_zoek"
+                       @oninput="ZoekInput" autocomplete="off" />
+                <label class="vink"><input type="checkbox" checked="@_ookGesloten" @onchange="GeslotenGewijzigd" /> ook gesloten</label>
+                <button type="button" class="klein" @onclick="Sluit">Annuleren</button>
+            </div>
+            <div class="wov-lijst">
+                <div class="nb-kopje">@Kopje</div>
+                @for (var i = 0; i < _lijst.Count; i++)
+                {
+                    var w = _lijst[i];
+                    <button type="button" class="nb-item @(i == _index ? "actief" : "")" @onclick="() => Kies(w)">
+                        <b>@w.Weergave</b> @w.Omschrijving
+                        <small>@Extra(w)</small>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int? WerkorderId { get; set; }
+    /// <summary>Wat er staat als er een werkorder gekozen is (nummer · project · omschrijving).</summary>
+    [Parameter] public string Tekst { get; set; } = "";
+    /// <summary>De klant: zonder zoektekst staan diens werkorders in de lijst.</summary>
+    [Parameter] public int? KlantId { get; set; }
+    [Parameter] public string KlantNaam { get; set; } = "";
+    [Parameter] public bool AlleenLezen { get; set; }
+    /// <summary>Gekozen werkorder, of null = loskoppelen.</summary>
+    [Parameter] public EventCallback<Workorder?> OpGekozen { get; set; }
+
+    private bool _open, _ookGesloten, _focus;
+    private string _zoek = "";
+    private int _index;
+    private List<Workorder> _lijst = new();
+    private ElementReference _veld;
+    private CancellationTokenSource? _pauze;
+
+    private string Kopje => _zoek.Trim().Length > 0
+        ? (_lijst.Count == 0 ? "Niets gevonden." : $"{_lijst.Count} gevonden")
+        : KlantId is null ? "Typ om te zoeken."
+        : _lijst.Count == 0 ? $"Geen {(_ookGesloten ? "" : "open ")}werkorders van {KlantNaam}. Typ om te zoeken."
+        : $"Werkorders van {KlantNaam}";
+
+    private static string Extra(Workorder w)
+    {
+        var delen = new List<string>();
+        if (w.Project.Length > 0) delen.Add(w.Project);
+        if (w.Klant.Length > 0) delen.Add(w.Klant);
+        if (w.WorkorderStatus == 0) delen.Add("gesloten");
+        return delen.Count == 0 ? "" : " · " + string.Join(" · ", delen);
+    }
+
+    private async Task Open()
+    {
+        _open = true; _zoek = ""; _index = 0;
+        await Laad();
+        _focus = true;
+    }
+
+    private void Sluit() => _open = false;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_focus) return;
+        _focus = false;
+        try { await _veld.FocusAsync(); } catch { }
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lijst = _zoek.Trim().Length > 0
+                ? await Uren.ZoekWerkordersAsync(_zoek, !_ookGesloten, 60)
+                : KlantId is int k ? await Uren.WerkordersVanKlantAsync(k, !_ookGesloten, 60) : new();
+        }
+        catch { _lijst = new(); }
+        _index = 0;
+    }
+
+    /// <summary>Zoeken na een korte typpauze, zodat niet elke letter een query is.</summary>
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _pauze?.Cancel();
+        var pauze = _pauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        await Laad();
+    }
+
+    private async Task GeslotenGewijzigd(ChangeEventArgs e) { _ookGesloten = e.Value is true; await Laad(); }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Sluit();
+        else if (e.Key == "ArrowDown") _index = Math.Min(_index + 1, Math.Max(_lijst.Count - 1, 0));
+        else if (e.Key == "ArrowUp") _index = Math.Max(_index - 1, 0);
+        else if (e.Key == "Enter" && _index < _lijst.Count) await Kies(_lijst[_index]);
+    }
+
+    private async Task Kies(Workorder? w)
+    {
+        _open = false;
+        await OpGekozen.InvokeAsync(w);
+    }
+}

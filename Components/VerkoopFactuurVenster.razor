@@ -158,6 +158,13 @@
                             <input value="@_f.Referentie" maxlength="100" @onchange="e => _f.Referentie = Tekst(e)" />
                         </div>
 
+                        @* intern: aan welke werkorder hoort deze factuur (Invoices.Workorder-id) *@
+                        <div class="wn-veld breed">
+                            <label>Werkorder</label>
+                            <WerkorderVeld WerkorderId="_f.WerkorderId" Tekst="@_f.Werkorder" KlantId="_f.KlantId" KlantNaam="@_f.Klant"
+                                           AlleenLezen="!MagInvoeren" OpGekozen="WerkorderGekozen" />
+                        </div>
+
                         <div class="wn-veld breed">
                             <label>Opmerking</label>
                             <input value="@_f.Opmerking" maxlength="400" placeholder="Intern; komt niet op de factuur"
@@ -379,6 +386,14 @@
 }
 
 @code {
+    /// <summary>Werkorder gekozen of losgekoppeld; opgeslagen met de rest van de factuur.</summary>
+    private void WerkorderGekozen(Workorder? w)
+    {
+        if (_f is null) return;
+        _f.WerkorderId = w?.WerkbonId;
+        _f.Werkorder = w is null ? "" : string.Join(" · ", new[] { w.Weergave, w.Project, w.Omschrijving }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    }
+
     /// <summary>0 = nieuw, een getal = die factuur, null = dicht.</summary>
     [Parameter] public int? FactuurId { get; set; }
 

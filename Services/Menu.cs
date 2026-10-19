@@ -182,13 +182,14 @@ public static class Menu
             new MenuGroep("Bank",
                 new MenuItem("Banktransacties", "/financien/banktransacties"),
                 new MenuItem("Bankrekeningen", "/financien/bankrekeningen", "Financial"),
-                new MenuItem("Betalingen klaarzetten", "/financien/betalingen-klaarzetten", "Financial"),
-                new MenuItem("Bankgegevens exporteren")),
+                new MenuItem("Betalingen klaarzetten", "/financien/betalingen-klaarzetten", "Financial")),
             new MenuGroep("Rapporten",
                 new MenuItem("Rapportage facturatie"),
                 new MenuItem("Vaste lasten", "/financien/vaste-lasten", "Financial"),
-                new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"),
-                new MenuItem("Voorraadstand"))),
+                new MenuItem("Voorraadstand")),
+            // Analyse: overzichten en hulpmiddelen om mee te rekenen; hier komen ook de tools van een collega bij
+            new MenuGroep("Analyse",
+                new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"))),
 
         // Gebouwbeheer praat met de PLC: licht, zonwering, compressor en verbruik.
         new("gebouw", "Gebouwbeheer", "building")

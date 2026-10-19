@@ -417,7 +417,9 @@ public class MySqlUrenRepository : IUrenRepository
         var q = WorkorderQuery();
         var voorwaarden = new List<string>();
         if (alleenOpen && q.statusCol != null) voorwaarden.Add($"w.`{q.statusCol}` <> 0");
-        if (!string.IsNullOrWhiteSpace(zoek)) voorwaarden.Add($"{q.zoekExpr} LIKE @z");
+        // alle woorden moeten voorkomen (bv. "tembo robot"), in willekeurige volgorde
+        var woorden = (zoek ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6).ToArray();
+        for (var i = 0; i < woorden.Length; i++) voorwaarden.Add($"{q.zoekExpr} LIKE @z{i}");
         var where = voorwaarden.Count > 0 ? "WHERE " + string.Join(" AND ", voorwaarden) : "";
 
         var list = new List<Workorder>();
@@ -425,8 +427,24 @@ public class MySqlUrenRepository : IUrenRepository
         await cn.OpenAsync();
         await using var cmd = new MySqlCommand(
             $"SELECT {q.sel} FROM {q.from} {where} ORDER BY w.`{q.idCol}` DESC LIMIT {Math.Clamp(max, 1, 500)}", cn);
-        if (!string.IsNullOrWhiteSpace(zoek))
-            cmd.Parameters.AddWithValue("@z", "%" + zoek.Trim() + "%");
+        for (var i = 0; i < woorden.Length; i++)
+            cmd.Parameters.AddWithValue($"@z{i}", "%" + woorden[i] + "%");
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add(MapWorkorder(r));
+        return list;
+    }
+
+    public async Task<List<Workorder>> WerkordersVanKlantAsync(int klantId, bool alleenOpen, int max)
+    {
+        var q = WorkorderQuery();
+        var list = new List<Workorder>();
+        if (!q.from.Contains(" p ON ")) return list;          // geen projecttabel: klant onbekend
+        var where = "WHERE p.`Customer-id` = @k" + (alleenOpen && q.statusCol != null ? $" AND w.`{q.statusCol}` <> 0" : "");
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            $"SELECT {q.sel} FROM {q.from} {where} ORDER BY w.`{q.idCol}` DESC LIMIT {Math.Clamp(max, 1, 500)}", cn);
+        cmd.Parameters.AddWithValue("@k", klantId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) list.Add(MapWorkorder(r));
         return list;
