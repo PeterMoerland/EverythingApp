@@ -82,7 +82,7 @@ public static class Menu
                 new MenuItem("Project uren overzicht"),
                 new MenuItem("Urenoverzicht kruistabel"),
                 new MenuItem("WBSO-uren"),
-                new MenuItem("Nacalculatie"))),
+                new MenuItem("Nacalculatie", "/financien/nacalculatie", "Financial"))),
 
         // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
         new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
@@ -177,7 +177,7 @@ public static class Menu
                 new MenuItem("Basecone", "/financien/basecone", "Financial"),
                 new MenuItem("Tarieven berekenen", "/financien/tarieven", "Financial"),
                 new MenuItem("PO klant", "/financien/po-klant", "Financial"),
-                new MenuItem("Nacalculatie"),
+                new MenuItem("Nacalculatie", "/financien/nacalculatie", "Financial"),
                 new MenuItem("Maandoverzicht")),
             new MenuGroep("Goedkeuren",
                 new MenuItem("Facturen goedkeuren", "", "MagFacturenGoedkeuren")),

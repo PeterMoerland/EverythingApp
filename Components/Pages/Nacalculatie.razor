@@ -1,0 +1,524 @@
+@page "/financien/nacalculatie"
+@inject INacalculatieRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Nacalculatie, overgezet van Access' formulier _Nacalc_Analyse met de rapporten Kostenoverzicht totaal, Directe PO's,
+   Materials, Hours (per jaar) en Hours details; het Combinatierapport is de tab Alles. Kies links projecten (en eventueel
+   werkorders); rechts de kosten. Rekenregels: de MariaDB-views _Nacalc_* (Services/INacalculatieRepository.cs). *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Nacalculatie</h1>
+        @if (_data.Werkorders.Count > 0)
+        {
+            <span class="weeklabel">@_data.Werkorders.Count werkorder@(_data.Werkorders.Count == 1 ? "" : "s") · totaal kosten € @Geld(TotaalKosten(_data.Werkorders))</span>
+        }
+    </header>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Dit scherm is alleen voor wie het recht Financial heeft (kostprijzen).</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            @* ---------- links: keuze ---------- *@
+            <aside class="wn-lijst nc-keuze niet-afdrukken">
+                <div class="wn-filters">
+                    <input placeholder="Klant…" value="@_klantZoek" @oninput="KlantZoekGewijzigd" data-zoeklijst />
+                    <input placeholder="Projectnummer of omschrijving…" value="@_projectZoek" @oninput="ProjectZoekGewijzigd" data-zoeklijst />
+                    @if (_projecten.Count > 0)
+                    {
+                        <div class="nc-kopje">
+                            Projecten <span class="uitleg">(@_gekozenProjecten.Count gekozen)</span>
+                            @if (_gekozenProjecten.Count > 0)
+                            {
+                                <button class="klein" @onclick="GeenProjecten">Geen</button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="wn-namen kort nc-projecten">
+                    @if (_projecten.Count == 0)
+                    {
+                        <div class="kiezer-info">@(_klantZoek.Length + _projectZoek.Length == 0 ? "Zoek op klant of project." : "Niets gevonden.")</div>
+                    }
+                    @foreach (var p in _projecten)
+                    {
+                        <button class="wn-naam nc-regel @(_gekozenProjecten.Contains(p.Id) ? "actief" : "")" @key="p.Id" @onclick="() => WisselProject(p.Id)">
+                            <span class="nc-vink">@(_gekozenProjecten.Contains(p.Id) ? "☑" : "☐")</span>
+                            <span><b>@p.Nummer</b> @p.Omschrijving<small>@p.Klant</small></span>
+                        </button>
+                    }
+                </div>
+
+                @if (_werkorders.Count > 0)
+                {
+                    <div class="wn-filters nc-kopje">
+                        Werkorders <span class="uitleg">(@(_gekozenWerkorders.Count == 0 ? "alle" : _gekozenWerkorders.Count + " gekozen"))</span>
+                        @if (_gekozenWerkorders.Count > 0)
+                        {
+                            <button class="klein" @onclick="AlleWerkorders">Alle</button>
+                        }
+                    </div>
+                    <div class="wn-namen kort nc-werkorders">
+                        @foreach (var w in _werkorders)
+                        {
+                            <button class="wn-naam nc-regel @(_gekozenWerkorders.Contains(w.Id) ? "actief" : "")" @key="w.Id" @onclick="() => WisselWerkorder(w.Id)">
+                                <span class="nc-vink">@(_gekozenWerkorders.Contains(w.Id) ? "☑" : "☐")</span>
+                                <span><b>@w.Nummer</b> @w.Omschrijving</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </aside>
+
+            @* ---------- rechts: kosten ---------- *@
+            <section class="wn-detail nc-detail">
+                @if (_data.Werkorders.Count == 0)
+                {
+                    <p class="uitleg">Kies links een of meer projecten. Zonder gekozen werkorders tellen alle werkorders van die projecten mee.</p>
+                }
+                else
+                {
+                    <div class="wn-tabs niet-afdrukken">
+                        @foreach (var tab in Tabs)
+                        {
+                            <button class="@(tab == _tab ? "actief" : "")" @onclick="() => KiesTab(tab, null)">@tab</button>
+                        }
+                        <span class="nc-tabs-rechts">
+                            @if (_focus is int f && _data.Werkorders.FirstOrDefault(w => w.Id == f) is { } fw)
+                            {
+                                <span class="nc-focus">alleen @fw.Nummer <button class="klein" title="Weer alle werkorders" @onclick="() => _focus = null">✕</button></span>
+                            }
+                            <button class="klein" @onclick="Afdrukken">🖨 Afdrukken</button>
+                        </span>
+                    </div>
+
+                    <div class="nc-printkop">
+                        <h2>Nacalculatie — @_tab</h2>
+                        <p>@string.Join(", ", _data.Werkorders.Select(w => w.ProjectNummer).Distinct()) · @string.Join(", ", _data.Werkorders.Select(w => w.Klant).Distinct()) · @DateTime.Now.ToString("dd-MM-yyyy HH:mm")</p>
+                    </div>
+
+                    @if (_tab is "Totaal" or "Alles")
+                    {
+                        <h3 class="wn-kop">Kostenoverzicht</h3>
+                        <table class="kiezer-tabel nc-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Werkorder</th>
+                                    <th>Omschrijving</th>
+                                    <th class="r" title="Bestelregels van bestellingen in status Wacht op levering t/m Gereed">Besteld</th>
+                                    <th class="r" title="Inkoopfacturen gekoppeld aan de bestellingen">Gefactureerd</th>
+                                    <th class="r" title="Per bestelling het gefactureerde bedrag, of zolang er geen factuur is het bestelde">Inkoop *</th>
+                                    <th class="r" title="MDE-materiaal (projectmaterialen, vrijgegeven voor bestellen) tegen kostprijs">Materiaal</th>
+                                    <th class="r" title="Uren tegen kostprijs per werknemer (werk-, reisuren en km)">Uren</th>
+                                    <th class="r">Totaal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var w in _data.Werkorders)
+                                {
+                                    var zonder = _data.ZonderTarief.Where(z => z.WerkorderId == w.Id).Sum(z => z.Uren);
+                                    <tr @key="w.Id">
+                                        <td><b>@w.Nummer</b></td>
+                                        <td>@w.Omschrijving</td>
+                                        <td class="r nc-klik" @onclick="() => KiesTab(TBestellingen, w.Id)">@Geld(Besteld(w.Id))</td>
+                                        <td class="r nc-klik" @onclick="() => KiesTab(TBestellingen, w.Id)">@Geld(Gefactureerd(w.Id))</td>
+                                        <td class="r nc-klik" @onclick="() => KiesTab(TBestellingen, w.Id)">@Geld(Inkoop(w.Id))</td>
+                                        <td class="r nc-klik" @onclick="() => KiesTab(TMateriaal, w.Id)">@Geld(Materiaal(w.Id))@(w.MateriaalNietMeenemen ? " ⓘ" : "")</td>
+                                        <td class="r nc-klik" @onclick="() => KiesTab(TUren, w.Id)">
+                                            @Geld(Uurkosten(w.Id))
+                                            @if (zonder > 0)
+                                            {
+                                                <span class="nc-let" title="@Getal(zonder) uur zonder kostprijstarief, niet meegeteld">⚠</span>
+                                            }
+                                        </td>
+                                        <td class="r"><b>@Geld(Totaal(w.Id))</b></td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="2"><b>Totaal</b></td>
+                                    <td class="r">@Geld(_data.Werkorders.Sum(w => Besteld(w.Id)))</td>
+                                    <td class="r">@Geld(_data.Werkorders.Sum(w => Gefactureerd(w.Id)))</td>
+                                    <td class="r">@Geld(_data.Werkorders.Sum(w => Inkoop(w.Id)))</td>
+                                    <td class="r">@Geld(_data.Werkorders.Sum(w => Materiaal(w.Id)))</td>
+                                    <td class="r">@Geld(_data.Werkorders.Sum(w => Uurkosten(w.Id)))</td>
+                                    <td class="r"><b>@Geld(TotaalKosten(_data.Werkorders))</b></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                        <p class="uitleg nc-voetnoot">
+                            * Inkoop: per bestelling het gefactureerde bedrag; zolang er nog geen factuur is gekoppeld het bestelde bedrag.
+                            Totaal = inkoop + materiaal + uren. Bedragen exclusief btw. Klik op een bedrag voor de details.
+                            @if (_data.Werkorders.Any(w => w.MateriaalNietMeenemen))
+                            {
+                                <br /><text>ⓘ Bij deze werkorder staat "materiaalkosten niet meenemen" aan: het materiaal telt als 0.</text>
+                            }
+                            @if (_data.ZonderTarief.Count > 0)
+                            {
+                                <br /><text>⚠ @Getal(_data.ZonderTarief.Sum(z => z.Uren)) uur heeft geen kostprijstarief voor die datum en telt niet mee (zie Uren).</text>
+                            }
+                        </p>
+                    }
+
+                    @if (_tab is TBestellingen or "Alles")
+                    {
+                        <h3 class="wn-kop">Bestellingen</h3>
+                        @foreach (var w in Getoond)
+                        {
+                            var pos = _data.Pos.Where(p => p.WerkorderId == w.Id && (p.Status != 7 || p.Gefactureerd != 0)).ToList();
+                            @if (pos.Count == 0) { continue; }
+                            <div class="nc-groep">@w.Nummer · @w.Omschrijving</div>
+                            <table class="kiezer-tabel nc-tabel">
+                                <thead>
+                                    <tr><th>PO</th><th>Leverancier</th><th>Status</th><th>Besteld op</th><th>Door</th>
+                                        <th class="r">Besteld</th><th class="r">Gefactureerd</th><th class="r">Facturen</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var p in pos)
+                                    {
+                                        <tr @key="p.OrderId" class="@(p.Status == 7 ? "nc-geannuleerd" : "")">
+                                            <td><a href="bestellingen?order=@p.OrderId" target="_blank" rel="noopener">PO-@p.OrderId</a></td>
+                                            <td>@p.Leverancier</td>
+                                            <td>@p.StatusNaam</td>
+                                            <td>@p.BesteldOp?.ToString("dd-MM-yyyy")</td>
+                                            <td>@p.BesteldDoor</td>
+                                            <td class="r">@Geld(p.Besteld)</td>
+                                            <td class="r">@Geld(p.Gefactureerd)</td>
+                                            <td class="r">@(p.Facturen == 0 ? "" : p.Facturen)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr><td colspan="5">Totaal @w.Nummer</td><td class="r">@Geld(pos.Sum(p => p.Besteld))</td>
+                                        <td class="r">@Geld(pos.Sum(p => p.Gefactureerd))</td><td></td></tr>
+                                </tfoot>
+                            </table>
+                        }
+                        @if (!Getoond.Any(w => _data.Pos.Any(p => p.WerkorderId == w.Id)))
+                        {
+                            <p class="kiezer-info">Geen bestellingen.</p>
+                        }
+                    }
+
+                    @if (_tab is TMateriaal or "Alles")
+                    {
+                        <h3 class="wn-kop">MDE-materiaal</h3>
+                        @foreach (var w in Getoond)
+                        {
+                            var mat = _data.Materiaal.Where(m => m.WerkorderId == w.Id).ToList();
+                            @if (mat.Count == 0) { continue; }
+                            <div class="nc-groep">@w.Nummer · @w.Omschrijving
+                                @if (w.MateriaalNietMeenemen) { <span class="uitleg"> — materiaalkosten niet meenemen (staat aan bij de werkorder)</span> }
+                            </div>
+                            <table class="kiezer-tabel nc-tabel">
+                                <thead>
+                                    <tr><th>Merk</th><th>Artikel</th><th>Omschrijving</th><th class="r">Aantal</th>
+                                        <th class="r">Kostprijs</th><th class="r">Kosten</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var m in mat)
+                                    {
+                                        <tr>
+                                            <td>@m.Merk</td>
+                                            <td><a href="artikelen?nr=@m.ArtikelId" target="_blank" rel="noopener">@(m.Code.Length > 0 ? m.Code : "#" + m.ArtikelId)</a></td>
+                                            <td>@m.Omschrijving</td>
+                                            <td class="r">@Getal(m.Aantal)</td>
+                                            <td class="r" title="@(m.Schatting ? "Geschatte kostprijs (geen vastgestelde kostprijs)" : "")">@(m.Schatting ? "≈ " : "")@Geld(m.Kostprijs)</td>
+                                            <td class="r">@Geld(m.Kosten)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr><td colspan="5">Totaal @w.Nummer</td><td class="r">@Geld(mat.Sum(m => m.Kosten))</td></tr>
+                                </tfoot>
+                            </table>
+                        }
+                        @if (!Getoond.Any(w => _data.Materiaal.Any(m => m.WerkorderId == w.Id)))
+                        {
+                            <p class="kiezer-info">Geen MDE-materiaal.</p>
+                        }
+                        else
+                        {
+                            <p class="uitleg nc-voetnoot">≈ = geschatte kostprijs (het artikel heeft nog geen vastgestelde kostprijs).</p>
+                        }
+                    }
+
+                    @if (_tab is TUren or "Alles")
+                    {
+                        <h3 class="wn-kop">
+                            Uren
+                            <select class="nc-jaar niet-afdrukken" value="@(_jaar?.ToString() ?? "")" @onchange="JaarGewijzigd">
+                                <option value="">alle jaren</option>
+                                @foreach (var j in Jaren)
+                                {
+                                    <option value="@j">@j</option>
+                                }
+                            </select>
+                            @if (_jaar is int pj) { <span class="nc-printkop-inline">@pj</span> }
+                        </h3>
+                        @foreach (var w in Getoond)
+                        {
+                            var uren = UrenRegels(w.Id);
+                            var zonder = _data.ZonderTarief.Where(z => z.WerkorderId == w.Id && (_jaar is null || z.Jaar == _jaar)).ToList();
+                            @if (uren.Count == 0 && zonder.Count == 0) { continue; }
+                            <div class="nc-groep">@w.Nummer · @w.Omschrijving</div>
+                            @if (uren.Count > 0)
+                            {
+                                <table class="kiezer-tabel nc-tabel">
+                                    <thead>
+                                        <tr><th>Werknemer</th><th>Soort</th><th class="r">Uren</th><th class="r">Km</th>
+                                            <th class="r">Kostprijs</th><th class="r">Kosten</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var u in uren)
+                                        {
+                                            var sleutel = (w.Id, u.WerknemerId);
+                                            <tr class="nc-klik" title="Klik voor de urenregels" @onclick="() => WisselDetails(w.Id, u.WerknemerId)">
+                                                <td>@u.Werknemer</td>
+                                                <td>@u.Tariefsoort</td>
+                                                <td class="r">@Getal(u.Uren)</td>
+                                                <td class="r">@(u.Km == 0 ? "" : Getal(u.Km))</td>
+                                                <td class="r">@Kostprijs(u)</td>
+                                                <td class="r">@Geld(u.Totaal)</td>
+                                            </tr>
+                                            @if (_details.TryGetValue(sleutel, out var regels) && u == uren.Last(x => x.WerknemerId == u.WerknemerId))
+                                            {
+                                                <tr class="nc-details">
+                                                    <td colspan="6">
+                                                        <table class="kiezer-tabel smal-tabel">
+                                                            <thead><tr><th>Datum</th><th>Week</th><th class="r">Uren</th><th class="r">Km</th><th>Soort</th><th>Omschrijving</th></tr></thead>
+                                                            <tbody>
+                                                                @foreach (var d in regels)
+                                                                {
+                                                                    <tr><td>@d.Datum?.ToString("dd-MM-yyyy")</td><td>@d.Week</td><td class="r">@Getal(d.Uren)</td>
+                                                                        <td class="r">@(d.Km == 0 ? "" : Getal(d.Km))</td><td>@d.Tariefsoort</td><td>@d.Omschrijving</td></tr>
+                                                                }
+                                                            </tbody>
+                                                        </table>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr><td colspan="2">Totaal @w.Nummer</td><td class="r">@Getal(uren.Sum(u => u.Uren))</td>
+                                            <td class="r">@Getal(uren.Sum(u => u.Km))</td><td></td><td class="r">@Geld(uren.Sum(u => u.Totaal))</td></tr>
+                                    </tfoot>
+                                </table>
+                            }
+                            @if (zonder.Count > 0)
+                            {
+                                <p class="nc-zonder">
+                                    ⚠ Niet meegeteld, geen kostprijstarief voor die datum (Werknemers ▸ tarieven):
+                                    @string.Join(", ", zonder.GroupBy(z => z.Werknemer).Select(g => $"{g.Key} {Getal(g.Sum(z => z.Uren))} uur"))
+                                </p>
+                            }
+                        }
+                        @if (!Getoond.Any(w => UrenRegels(w.Id).Count > 0))
+                        {
+                            <p class="kiezer-info">Geen uren@(_jaar is null ? "" : " in " + _jaar).</p>
+                        }
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "project")] public int? ProjectParam { get; set; }
+    [SupplyParameterFromQuery(Name = "werkorder")] public int? WerkorderParam { get; set; }
+
+    private const string TBestellingen = "Bestellingen", TMateriaal = "Materiaal", TUren = "Uren";
+    private static readonly string[] Tabs = { "Totaal", TBestellingen, TMateriaal, TUren, "Alles" };
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    private string _tab = "Totaal";
+    private int? _focus;                                // één werkorder in de detailtabs (klik vanuit het totaal)
+    private int? _jaar;
+    private string _klantZoek = "", _projectZoek = "";
+    private string? _melding;
+    private List<NacalcProject> _projecten = new();
+    private List<NacalcWerkorder> _werkorders = new();
+    private readonly HashSet<int> _gekozenProjecten = new();
+    private readonly HashSet<int> _gekozenWerkorders = new();
+    private NacalcData _data = new();
+    private readonly Dictionary<(int, int), List<NacalcUurRegel>> _details = new();
+    private CancellationTokenSource? _pauze;
+    private bool _bewaardGelezen;
+
+    private bool Mag => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Mag || !Repo.Beschikbaar) return;
+        try
+        {
+            // zoals Access: geopend vanuit een werkorder of project (OpenArgs "Werkorder:" / "Project:")
+            if (WerkorderParam is int woId && await Repo.WerkorderAsync(woId) is { } wo)
+            {
+                _projectZoek = wo.ProjectNummer;
+                _projecten = await Repo.ProjectenAsync("", _projectZoek, 50);
+                _gekozenProjecten.Add(wo.ProjectId);
+                _werkorders = await Repo.WerkordersAsync(_gekozenProjecten);
+                _gekozenWerkorders.Add(wo.Id);
+                _bewaardGelezen = true;
+                await LaadData();
+            }
+            else if (ProjectParam is int pId)
+            {
+                _projecten = (await Repo.ProjectenAsync("", "", 2000)).Where(p => p.Id == pId).ToList();
+                if (_projecten.Count == 1) _projectZoek = _projecten[0].Nummer;
+                _gekozenProjecten.Add(pId);
+                _werkorders = await Repo.WerkordersAsync(_gekozenProjecten);
+                _bewaardGelezen = true;
+                await LaadData();
+            }
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        // zoals Access (GetSetting KlantZoek/ProjectZoek): de laatste zoekwaarden per pc onthouden
+        if (_bewaardGelezen || !Mag || !Repo.Beschikbaar) return;
+        _bewaardGelezen = true;
+        try
+        {
+            _klantZoek = await JS.InvokeAsync<string?>("mdeOpslag.lees", "nacalcKlant") ?? "";
+            _projectZoek = await JS.InvokeAsync<string?>("mdeOpslag.lees", "nacalcProject") ?? "";
+            if (_klantZoek.Length + _projectZoek.Length > 0) { await ZoekProjecten(); StateHasChanged(); }
+        }
+        catch { }
+    }
+
+    // ---- keuze ----
+    private Task KlantZoekGewijzigd(ChangeEventArgs e) { _klantZoek = (string?)e.Value ?? ""; return NaPauze(); }
+    private Task ProjectZoekGewijzigd(ChangeEventArgs e) { _projectZoek = (string?)e.Value ?? ""; return NaPauze(); }
+
+    private async Task NaPauze()
+    {
+        _pauze?.Cancel();
+        var pauze = _pauze = new CancellationTokenSource();
+        try { await Task.Delay(300, pauze.Token); } catch (TaskCanceledException) { return; }
+        await ZoekProjecten();
+        try
+        {
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", "nacalcKlant", _klantZoek);
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", "nacalcProject", _projectZoek);
+        }
+        catch { }
+    }
+
+    private async Task ZoekProjecten()
+    {
+        try
+        {
+            var gevonden = _klantZoek.Trim().Length + _projectZoek.Trim().Length == 0
+                ? new List<NacalcProject>()
+                : await Repo.ProjectenAsync(_klantZoek, _projectZoek, 100);
+            // gekozen projecten blijven in de lijst staan, ook als ze niet meer bij de zoekterm passen
+            var gekozen = _projecten.Where(p => _gekozenProjecten.Contains(p.Id) && gevonden.All(g => g.Id != p.Id));
+            _projecten = gekozen.Concat(gevonden).ToList();
+        }
+        catch (Exception ex) { _melding = "Zoeken mislukt: " + ex.Message; }
+    }
+
+    private async Task WisselProject(int id)
+    {
+        if (!_gekozenProjecten.Remove(id)) _gekozenProjecten.Add(id);
+        _gekozenWerkorders.Clear();
+        try { _werkorders = await Repo.WerkordersAsync(_gekozenProjecten); }
+        catch (Exception ex) { _melding = "Werkorders ophalen mislukt: " + ex.Message; }
+        await LaadData();
+    }
+
+    private async Task GeenProjecten()
+    {
+        _gekozenProjecten.Clear(); _gekozenWerkorders.Clear(); _werkorders = new();
+        await LaadData();
+    }
+
+    private async Task WisselWerkorder(int id)
+    {
+        if (!_gekozenWerkorders.Remove(id)) _gekozenWerkorders.Add(id);
+        await LaadData();
+    }
+
+    private async Task AlleWerkorders() { _gekozenWerkorders.Clear(); await LaadData(); }
+
+    private async Task LaadData()
+    {
+        _details.Clear();
+        _focus = null;
+        var keuze = _gekozenWerkorders.Count == 0 ? _werkorders : _werkorders.Where(w => _gekozenWerkorders.Contains(w.Id)).ToList();
+        try { _data = await Repo.LaadAsync(keuze); }
+        catch (Exception ex) { _melding = "Kosten ophalen mislukt: " + ex.Message; _data = new(); }
+        if (_jaar is int j && !Jaren.Contains(j)) _jaar = null;
+    }
+
+    private void KiesTab(string tab, int? werkorder) { _tab = tab; _focus = werkorder; }
+
+    private void JaarGewijzigd(ChangeEventArgs e)
+    {
+        _jaar = int.TryParse((string?)e.Value, out var j) ? j : null;
+        _details.Clear();
+    }
+
+    private async Task WisselDetails(int werkorder, int werknemer)
+    {
+        if (_details.Remove((werkorder, werknemer))) return;
+        try { _details[(werkorder, werknemer)] = await Repo.UurRegelsAsync(werkorder, werknemer, _jaar); }
+        catch (Exception ex) { _melding = "Urenregels ophalen mislukt: " + ex.Message; }
+    }
+
+    private async Task Afdrukken()
+    {
+        try { await JS.InvokeVoidAsync("print"); } catch { }
+    }
+
+    // ---- rekenen ----
+    private IEnumerable<NacalcWerkorder> Getoond => _focus is int f ? _data.Werkorders.Where(w => w.Id == f) : _data.Werkorders;
+
+    private List<int> Jaren => _data.Uren.Select(u => u.Jaar).Concat(_data.ZonderTarief.Select(z => z.Jaar)).Distinct().OrderByDescending(j => j).ToList();
+
+    private decimal Besteld(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Besteld);
+    private decimal Gefactureerd(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Gefactureerd);
+    /// <summary>Per bestelling het gefactureerde bedrag; zonder gekoppelde factuur het bestelde.</summary>
+    private decimal Inkoop(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Facturen > 0 ? p.Gefactureerd : p.Besteld);
+    private decimal Materiaal(int wo) => _data.Materiaal.Where(m => m.WerkorderId == wo).Sum(m => m.Kosten);
+    private decimal Uurkosten(int wo) => _data.Uren.Where(u => u.WerkorderId == wo).Sum(u => u.Totaal);
+    private decimal Totaal(int wo) => Inkoop(wo) + Materiaal(wo) + Uurkosten(wo);
+    private decimal TotaalKosten(IEnumerable<NacalcWerkorder> wos) => wos.Sum(w => Totaal(w.Id));
+
+    /// <summary>Uren van een werkorder (in het gekozen jaar), per werknemer, soort en kostprijs; alle jaren opgeteld.</summary>
+    private List<NacalcUren> UrenRegels(int wo) => _data.Uren
+        .Where(u => u.WerkorderId == wo && (_jaar is null || u.Jaar == _jaar))
+        .GroupBy(u => (u.WerknemerId, u.Werknemer, u.TariefsoortId, u.Tariefsoort, u.KostprijsWerkuur, u.KostprijsReisuur, u.KostprijsKm))
+        .Select(g => new NacalcUren(wo, g.Key.WerknemerId, g.Key.Werknemer, g.Key.TariefsoortId, g.Key.Tariefsoort, 0,
+                                    g.Key.KostprijsWerkuur, g.Key.KostprijsReisuur, g.Key.KostprijsKm,
+                                    g.Sum(u => u.Uren), g.Sum(u => u.Km), g.Sum(u => u.WerkKosten), g.Sum(u => u.ReisKosten), g.Sum(u => u.KmKosten)))
+        .OrderBy(u => u.Werknemer).ThenBy(u => u.TariefsoortId).ToList();
+
+    private static string Kostprijs(NacalcUren u) => u.TariefsoortId == 1
+        ? $"{Geld(u.KostprijsReisuur)}/u" + (u.Km != 0 ? $" + {Geld(u.KostprijsKm)}/km" : "")
+        : $"{Geld(u.KostprijsWerkuur)}/u";
+
+    private static string Geld(decimal d) => d.ToString("N2", Nl);
+    private static string Getal(decimal d) => d.ToString("0.##", Nl);
+}

@@ -3307,3 +3307,39 @@ html[data-thema="donker"] .ai-wacht, html[data-thema="donker"] .ai-bezig, html[d
 html[data-thema="donker"] .ai-antwoord th { background: var(--d2); }
 html[data-thema="donker"] .ai-antwoord th, html[data-thema="donker"] .ai-antwoord td { border-color: var(--d3); }
 html[data-thema="donker"] .ai-regel small, html[data-thema="donker"] .ai-voet { color: var(--dt3); }
+
+/* Nacalculatie (Components/Pages/Nacalculatie.razor) */
+.nc-keuze { width: 22rem; }
+.nc-keuze .wn-filters input { width: 100%; }
+.nc-kopje { display: flex; align-items: center; gap: .4rem; font-weight: 600; font-size: .9em; }
+.nc-kopje .klein { margin-left: auto; }
+.nc-projecten, .nc-werkorders { max-height: 32vh; }
+.nc-regel { display: flex; gap: .4rem; align-items: flex-start; }
+.nc-regel small { display: block; color: #6b7480; }
+.wn-naam.actief.nc-regel small { color: #dbe6f3; }
+.nc-vink { flex: 0 0 1rem; }
+.nc-detail .wn-tabs { align-items: center; }
+.nc-tabs-rechts { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
+.nc-focus { background: #fff1d6; border-radius: 4px; padding: .1rem .4rem; font-size: .9em; }
+.nc-tabel { margin-bottom: .6rem; }
+.nc-tabel tfoot td { border-top: 1px solid #c8d1dc; font-weight: 600; }
+.nc-klik { cursor: pointer; }
+.nc-klik:hover { background: rgba(26, 95, 180, .07); }
+.nc-groep { font-weight: 600; margin: .9rem 0 .3rem; }
+.nc-let { color: #c46a14; margin-left: .2rem; }
+.nc-zonder { color: #9a4a00; background: #fff6e8; border-radius: 4px; padding: .3rem .5rem; margin: .2rem 0 .8rem; font-size: .92em; }
+.nc-geannuleerd td { color: #8a929c; text-decoration: line-through; }
+.nc-details > td { background: #f6f8fb; padding: .3rem .6rem .6rem 1.5rem; }
+.nc-jaar { margin-left: .6rem; font-size: .85em; font-weight: normal; }
+.nc-voetnoot { margin-top: .2rem; }
+.nc-printkop, .nc-printkop-inline { display: none; }
+html[data-thema="donker"] .nc-zonder { background: #3a2a14; color: #ffd9a0; }
+html[data-thema="donker"] .nc-details > td { background: var(--d1); }
+html[data-thema="donker"] .nc-focus { background: #3a2a14; }
+@media print {
+    .nc-printkop, .nc-printkop-inline { display: block; }
+    .nc-printkop-inline { display: inline; }
+    .nc-detail { border: none; padding: 0; }
+    .nc-tabel { font-size: 9pt; }
+    .nc-tabel a { color: inherit; text-decoration: none; }
+}

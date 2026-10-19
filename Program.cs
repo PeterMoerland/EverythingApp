@@ -130,6 +130,7 @@ if (liveDb)
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
+    builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
@@ -171,6 +172,7 @@ else
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
+    builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
     builder.Services.AddSingleton<IBankRepository, GeenBankRepository>();
     builder.Services.AddSingleton<IArtikelRepository, GeenArtikelRepository>();
