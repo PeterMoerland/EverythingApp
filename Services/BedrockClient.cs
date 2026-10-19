@@ -174,6 +174,8 @@ public class BedrockClient
         return status switch
         {
             401 or 403 => "Geen toegang tot Bedrock (sleutel of rechten): " + bericht,
+            404 when bericht.Contains("use case", StringComparison.OrdinalIgnoreCase)
+                => "Het Anthropic-formulier (use case details) is in de Bedrock-console nog niet ingevuld: " + bericht,
             404 => "Model niet gevonden in deze regio (Bedrock:Model / Bedrock:Regio): " + bericht,
             429 => "Bedrock is even te druk of het quotum is op: " + bericht,
             _ => $"Bedrock gaf {status}: {bericht}",

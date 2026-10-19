@@ -101,12 +101,22 @@
                         <div class="ai-fout">@g.Fout</div>
                     }
 
+                    var gegevens = g.Gegevens;
                     @if (g.Antwoord.Length > 0)
                     {
-                        <div class="ai-antwoord">@((MarkupString)Html(g.Antwoord))</div>
+                        @foreach (var deel in Delen(g.Antwoord))
+                        {
+                            @if (deel.Grafiek)
+                            {
+                                <AiGrafiek Json="@deel.Tekst" Gegevens="gegevens" />
+                            }
+                            else
+                            {
+                                <div class="ai-antwoord">@((MarkupString)Html(deel.Tekst))</div>
+                            }
+                        }
                     }
 
-                    var gegevens = g.Gegevens;
                     @if (gegevens.Count > 0)
                     {
                         <h3 class="wn-kop">Gebruikte gegevens <span class="klein uitleg">(@gegevens.Count opvraging@(gegevens.Count == 1 ? "" : "en"))</span></h3>
@@ -222,6 +232,22 @@
     }
 
     private static string Html(string markdown) => Markdig.Markdown.ToHtml(markdown, Pijplijn);
+
+    /// <summary>Het antwoord in stukken: tekst (markdown) en grafieken (blok ```grafiek met JSON, zie AiAnalyseService).</summary>
+    private static List<(bool Grafiek, string Tekst)> Delen(string antwoord)
+    {
+        var delen = new List<(bool, string)>();
+        var vanaf = 0;
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                     antwoord, @"```grafiek\s*\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline))
+        {
+            if (m.Index > vanaf) delen.Add((false, antwoord[vanaf..m.Index]));
+            delen.Add((true, m.Groups[1].Value.Trim()));
+            vanaf = m.Index + m.Length;
+        }
+        if (vanaf < antwoord.Length) delen.Add((false, antwoord[vanaf..]));
+        return delen.Where(d => d.Item2.Trim().Length > 0).ToList();
+    }
 
     private static string StatusTeken(AiVraag v) => v.Status switch
     {

@@ -1,0 +1,245 @@
+@using System.Globalization
+@using System.Text.Json
+
+@* Grafiek in een AI-antwoord (Pages/AiAnalyse.razor). Het model zet een blok ```grafiek {json}``` in zijn antwoord; dit
+   tekent het als SVG (staaf: gegroepeerd, of lijn). Elke waarde wordt vergeleken met de opgevraagde gegevens: staat een
+   getal daar niet letterlijk in, dan staat er een waarschuwing onder (afgeleid of berekend door het model).
+   Kleuren: de eerste vier vaste categoriekleuren (licht/donker), dunne vormen, recessief raster, één y-as. *@
+
+@if (_spec is null)
+{
+    <pre class="ai-grafiek-fout">Grafiek niet te lezen: @_fout</pre>
+}
+else
+{
+    <figure class="ai-grafiek">
+        @if (_spec.Titel.Length > 0)
+        {
+            <figcaption class="ai-grafiek-titel">@_spec.Titel</figcaption>
+        }
+        @if (_spec.Reeksen.Count >= 2)
+        {
+            <div class="ai-grafiek-legenda">
+                @for (var i = 0; i < _spec.Reeksen.Count; i++)
+                {
+                    <span><i class="ai-kleur-@(i + 1) @(_spec.Lijn ? "lijn" : "")"></i>@_spec.Reeksen[i].Naam</span>
+                }
+            </div>
+        }
+        <svg viewBox="0 0 @B @H" role="img" aria-label="@_spec.Titel">
+            @* raster en y-as (SVG-text in een g: anders leest Razor het als zijn eigen text-tag) *@
+            @foreach (var t in _ticks)
+            {
+                var y = Y(t);
+                <g>
+                    <line class="raster" x1="@L" x2="@(B - R)" y1="@F(y)" y2="@F(y)" />
+                    <text class="as" x="@(L - 6)" y="@F(y + 4)" text-anchor="end">@Kort(t)</text>
+                </g>
+            }
+            <line class="basis" x1="@L" x2="@(B - R)" y1="@F(Y(0))" y2="@F(Y(0))" />
+            @* x-labels (bij veel labels om en om) *@
+            @for (var i = 0; i < _spec.Labels.Count; i++)
+            {
+                @if (_spec.Labels.Count <= 16 || i % ((_spec.Labels.Count + 15) / 16) == 0)
+                {
+                    <g><text class="as" x="@F(Xmidden(i))" y="@(H - O + 16)" text-anchor="middle">@_spec.Labels[i]</text></g>
+                }
+            }
+
+            @if (_spec.Lijn)
+            {
+                @for (var s = 0; s < _spec.Reeksen.Count; s++)
+                {
+                    var reeks = _spec.Reeksen[s];
+                    <polyline class="ai-lijn ai-kleur-@(s + 1)" points="@Punten(reeks)" />
+                    @for (var i = 0; i < reeks.Waarden.Count && i < _spec.Labels.Count; i++)
+                    {
+                        @if (reeks.Waarden[i] is decimal w)
+                        {
+                            <circle class="ai-punt ai-kleur-@(s + 1)" cx="@F(Xmidden(i))" cy="@F(Y(w))" r="4">
+                                <title>@reeks.Naam · @_spec.Labels[i]: @Vol(w)</title>
+                            </circle>
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var n = Math.Max(1, _spec.Reeksen.Count);
+                var groep = Stap * 0.78;
+                var breed = Math.Max(2, (groep - (n - 1) * 2) / n);
+                @for (var i = 0; i < _spec.Labels.Count; i++)
+                {
+                    @for (var s = 0; s < _spec.Reeksen.Count; s++)
+                    {
+                        var reeks = _spec.Reeksen[s];
+                        @if (i < reeks.Waarden.Count && reeks.Waarden[i] is decimal w)
+                        {
+                            var x = Xmidden(i) - groep / 2 + s * (breed + 2);
+                            <path class="ai-staaf ai-kleur-@(s + 1)" d="@Staaf(x, breed, w)">
+                                <title>@reeks.Naam · @_spec.Labels[i]: @Vol(w)</title>
+                            </path>
+                        }
+                    }
+                }
+            }
+        </svg>
+        @if (_nietGevonden > 0)
+        {
+            <p class="ai-grafiek-let">
+                ⚠ @_nietGevonden van de @_totaal waarden staan niet letterlijk in de opgevraagde gegevens (afgeleid of berekend
+                door het model). Controleer ze met de tabel hieronder of bij Gebruikte gegevens.
+            </p>
+        }
+        <details class="ai-grafiek-tabel">
+            <summary>Tabel</summary>
+            <table class="kiezer-tabel smal-tabel">
+                <thead><tr><th></th>@foreach (var r in _spec.Reeksen) { <th class="r">@r.Naam</th> }</tr></thead>
+                <tbody>
+                    @for (var i = 0; i < _spec.Labels.Count; i++)
+                    {
+                        var rij = i;
+                        <tr><td>@_spec.Labels[rij]</td>
+                            @foreach (var r in _spec.Reeksen)
+                            {
+                                <td class="r">@(rij < r.Waarden.Count && r.Waarden[rij] is decimal w ? Vol(w) : "")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </details>
+    </figure>
+}
+
+@code {
+    /// <summary>De JSON uit het blok ```grafiek.</summary>
+    [Parameter, EditorRequired] public string Json { get; set; } = "";
+    /// <summary>De gegevens die het model opvroeg, om de waarden na te lopen.</summary>
+    [Parameter] public IReadOnlyList<AiGegevens> Gegevens { get; set; } = Array.Empty<AiGegevens>();
+
+    private const double B = 720, H = 300, L = 64, R = 12, T = 12, O = 30;   // breedte, hoogte, marges (links, rechts, boven, onder)
+    private static readonly CultureInfo Nl = new("nl-NL");
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    private Spec? _spec;
+    private string _fout = "";
+    private List<decimal> _ticks = new();
+    private decimal _min, _max;
+    private int _nietGevonden, _totaal;
+
+    private class Reeks { public string Naam { get; set; } = ""; public List<decimal?> Waarden { get; set; } = new(); }
+    private class Spec
+    {
+        public bool Lijn { get; set; }
+        public string Titel { get; set; } = "";
+        public string Eenheid { get; set; } = "";
+        public List<string> Labels { get; set; } = new();
+        public List<Reeks> Reeksen { get; set; } = new();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try { _spec = Lees(Json); _fout = ""; }
+        catch (Exception ex) { _spec = null; _fout = ex.Message; return; }
+        var alle = _spec.Reeksen.SelectMany(r => r.Waarden).OfType<decimal>().ToList();
+        _min = Math.Min(0, alle.DefaultIfEmpty(0).Min());
+        _max = Math.Max(0, alle.DefaultIfEmpty(0).Max());
+        if (_max == _min) _max = _min + 1;
+        _ticks = Ticks(_min, _max);
+        _min = Math.Min(_min, _ticks.First());
+        _max = Math.Max(_max, _ticks.Last());
+        Controleer(alle);
+    }
+
+    private static Spec Lees(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var r = doc.RootElement;
+        string Tekst(string naam) => r.TryGetProperty(naam, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
+        var spec = new Spec
+        {
+            Lijn = Tekst("type").StartsWith("lijn", StringComparison.OrdinalIgnoreCase) || Tekst("type").StartsWith("line", StringComparison.OrdinalIgnoreCase),
+            Titel = Tekst("titel"),
+            Eenheid = Tekst("eenheid"),
+        };
+        if (r.TryGetProperty("labels", out var labels))
+            spec.Labels = labels.EnumerateArray().Select(l => l.ValueKind == JsonValueKind.String ? l.GetString() ?? "" : l.ToString()).Take(60).ToList();
+        if (r.TryGetProperty("reeksen", out var reeksen))
+            foreach (var re in reeksen.EnumerateArray().Take(4))       // vaste kleuren: hoogstens vier reeksen
+            {
+                var reeks = new Reeks { Naam = re.TryGetProperty("naam", out var n) ? n.ToString() : "" };
+                if (re.TryGetProperty("waarden", out var w))
+                    reeks.Waarden = w.EnumerateArray().Select(Getal).ToList();
+                spec.Reeksen.Add(reeks);
+            }
+        if (spec.Labels.Count == 0 || spec.Reeksen.Count == 0) throw new InvalidDataException("labels of reeksen ontbreken");
+        return spec;
+    }
+
+    private static decimal? Getal(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.Number => e.GetDecimal(),
+        JsonValueKind.String when decimal.TryParse(e.GetString(), NumberStyles.Number, Inv, out var d) => d,
+        _ => null,
+    };
+
+    /// <summary>Welke waarden staan niet letterlijk (op een cent na) in de opgevraagde tabellen of opmerkingen?</summary>
+    private void Controleer(List<decimal> waarden)
+    {
+        var bekend = new List<decimal>();
+        foreach (var g in Gegevens)
+        {
+            foreach (var cel in g.Rijen.SelectMany(r => r))
+                if (decimal.TryParse(cel, NumberStyles.Number, Inv, out var d)) bekend.Add(d);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(g.Opmerking, @"-?\d+\.\d{2}"))
+                if (decimal.TryParse(m.Value, NumberStyles.Number, Inv, out var d)) bekend.Add(d);
+        }
+        _totaal = waarden.Count;
+        _nietGevonden = Gegevens.Count == 0 ? 0 : waarden.Count(w => !bekend.Any(b => Math.Abs(b - w) < 0.01m));
+    }
+
+    private static List<decimal> Ticks(decimal min, decimal max)
+    {
+        var bereik = (double)(max - min);
+        var ruw = bereik / 4;
+        var macht = Math.Pow(10, Math.Floor(Math.Log10(ruw)));
+        var stap = (decimal)(new[] { 1, 2, 2.5, 5, 10 }.Select(f => f * macht).First(s => s >= ruw));
+        var lijst = new List<decimal>();
+        for (var t = Math.Floor(min / stap) * stap; t <= max + stap * 0.999m; t += stap) lijst.Add(t);
+        return lijst;
+    }
+
+    private double Stap => (B - L - R) / Math.Max(1, _spec!.Labels.Count);
+    private double Xmidden(int i) => L + Stap * (i + 0.5);
+    private double Y(decimal w) => T + (double)((_max - w) / (_max - _min)) * (H - T - O);
+    private static string F(double d) => d.ToString("0.#", Inv);
+
+    /// <summary>Staaf met afgeronde hoeken aan de datakant, recht op de basislijn.</summary>
+    private string Staaf(double x, double breed, decimal w)
+    {
+        var y0 = Y(0); var y1 = Y(w);
+        var hoog = Math.Abs(y0 - y1);
+        var r = Math.Min(4, Math.Min(breed / 2, hoog));
+        if (w >= 0)
+            return $"M{F(x)},{F(y0)} V{F(y1 + r)} Q{F(x)},{F(y1)} {F(x + r)},{F(y1)} H{F(x + breed - r)} Q{F(x + breed)},{F(y1)} {F(x + breed)},{F(y1 + r)} V{F(y0)} Z";
+        return $"M{F(x)},{F(y0)} V{F(y1 - r)} Q{F(x)},{F(y1)} {F(x + r)},{F(y1)} H{F(x + breed - r)} Q{F(x + breed)},{F(y1)} {F(x + breed)},{F(y1 - r)} V{F(y0)} Z";
+    }
+
+    private string Punten(Reeks reeks) => string.Join(" ", reeks.Waarden.Take(_spec!.Labels.Count)
+        .Select((w, i) => w is decimal d ? $"{F(Xmidden(i))},{F(Y(d))}" : null).Where(p => p is not null));
+
+    private string Vol(decimal w) => _spec!.Eenheid switch
+    {
+        "€" => "€ " + w.ToString("N2", Nl),
+        "%" => w.ToString("0.#", Nl) + "%",
+        var e => w.ToString("#,##0.##", Nl) + (e.Length > 0 ? " " + e : ""),
+    };
+
+    private string Kort(decimal w)
+    {
+        var a = Math.Abs(w);
+        var tekst = a >= 1_000_000 ? (w / 1_000_000).ToString("0.#", Nl) + " mln" : a >= 10_000 ? (w / 1000).ToString("0.#", Nl) + "k" : w.ToString("#,##0.##", Nl);
+        return _spec!.Eenheid == "€" ? "€ " + tekst : _spec.Eenheid == "%" ? tekst + "%" : tekst;
+    }
+}

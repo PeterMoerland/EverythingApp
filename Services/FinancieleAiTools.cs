@@ -270,9 +270,10 @@ public class FinancieleAiTools
             (bv is null ? "" : " AND b.`Afkorting` LIKE @bv ") +
             " GROUP BY maand, klant, bv ORDER BY maand, SUM(f.`Total ex`) DESC LIMIT 1000";
         g.Titel = $"Omzet ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perKlant ? ", per klant" : "") + (klant is null ? "" : $", klant '{klant}'") + (bv is null ? "" : $", BV {bv}");
-        g.Kolommen = perKlant ? new() { "Maand", "Klant", "BV", "Omzet ex btw", "Facturen" } : new() { "Maand", "BV", "Omzet ex btw", "Facturen" };
-        var totaal = await Groepeer(g, sql, van, tot, klant, bv, perKlant);
-        g.Opmerking = $"Totaal omzet ex btw over de periode: {B(totaal)}. Zonder proforma's; creditnota's tellen negatief mee. " +
+        g.Kolommen = perKlant ? new() { "Maand", "Klant", "BV", "Omzet ex btw", "Facturen" } : new() { "Maand", "Omzet ex btw", "Facturen", "Cumulatief" };
+        var totaal = await Groepeer(g, sql.Replace("AS bv,", "AS bv_,").Replace("GROUP BY maand, klant, bv", perKlant ? "GROUP BY maand, klant, bv_" : "GROUP BY maand"),
+                                    van, tot, klant, bv, perKlant);
+        g.Opmerking += $"Totaal omzet ex btw over de hele opgevraagde periode ({D(van)} t/m {D(tot)}): {B(totaal)}. Zonder proforma's; creditnota's tellen negatief mee. " +
                       (intern ? "Inclusief facturen aan eigen BV's." : "Zonder facturen aan eigen BV's (interne doorbelasting).");
     }
 
@@ -295,9 +296,10 @@ public class FinancieleAiTools
             (bv is null ? "" : " AND b.`Afkorting` LIKE @bv ") +
             " GROUP BY maand, lev, bv ORDER BY maand, SUM(f.`BedragExBTW`) DESC LIMIT 1000";
         g.Titel = $"Inkoopkosten ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perLev ? ", per leverancier" : "") + (lev is null ? "" : $", leverancier '{lev}'") + (bv is null ? "" : $", BV {bv}");
-        g.Kolommen = perLev ? new() { "Maand", "Leverancier", "BV", "Kosten ex btw", "Facturen" } : new() { "Maand", "BV", "Kosten ex btw", "Facturen" };
-        var totaal = await Groepeer(g, sql, van, tot, lev, bv, perLev);
-        g.Opmerking = $"Totaal inkoopkosten ex btw over de periode: {B(totaal)}. Alleen wat als inkomende factuur is ingevoerd (geen salarissen of bankkosten). " +
+        g.Kolommen = perLev ? new() { "Maand", "Leverancier", "BV", "Kosten ex btw", "Facturen" } : new() { "Maand", "Kosten ex btw", "Facturen", "Cumulatief" };
+        var totaal = await Groepeer(g, sql.Replace("AS bv,", "AS bv_,").Replace("GROUP BY maand, lev, bv", perLev ? "GROUP BY maand, lev, bv_" : "GROUP BY maand"),
+                                    van, tot, lev, bv, perLev);
+        g.Opmerking += $"Totaal inkoopkosten ex btw over de hele opgevraagde periode ({D(van)} t/m {D(tot)}): {B(totaal)}. Alleen wat als inkomende factuur is ingevoerd (geen salarissen of bankkosten). " +
                       (intern ? "Inclusief facturen van eigen BV's." : "Zonder facturen van eigen BV's (interne doorbelasting).");
     }
 
@@ -322,10 +324,16 @@ public class FinancieleAiTools
             var maand = r.IsDBNull(0) ? "?" : r.GetString(0);
             var bvTekst = r.IsDBNull(2) ? "" : r.GetString(2);
             var n = Convert.ToInt32(r.GetValue(4)).ToString(Inv);
+            // zonder uitsplitsing: per maand met het lopende totaal, zodat "januari t/m oktober" niet uitgerekend hoeft te worden
             g.Rijen.Add(metNaam ? new() { maand, r.IsDBNull(1) ? "" : r.GetString(1), bvTekst, B(bedrag), n }
-                                : new() { maand, bvTekst, B(bedrag), n });
+                                : new() { maand, B(bedrag), n, B(totaal) });
         }
         Afkappen(g, aantal);
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        if (tot >= vandaag && tot.Year == vandaag.Year && tot.Month == vandaag.Month && vandaag.Day < DateTime.DaysInMonth(vandaag.Year, vandaag.Month))
+            g.Opmerking = $"Let op: {vandaag:yyyy-MM} is nog niet compleet (t/m {D(vandaag)}); vergelijk die maand niet met een hele maand. ";
+        else
+            g.Opmerking = "";
         return totaal;
     }
 

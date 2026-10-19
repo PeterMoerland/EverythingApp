@@ -252,8 +252,18 @@ omschrijving, onthouden per pc via `mdeOpslag`) en aanvinken, eventueel werkorde
 
 ## Vragen aan AI, Financiën (19-10-2026)
 
-Besluit gebruiker: AI via **Amazon Bedrock** (EU, eigen endpoint/sleutel volgt), géén Ollama en géén Claude. Stap 1 (Bedrock
-als derde route in `FactuurLezer`) volgt als de sleutel er is; gebouwd zijn stap 2 en 3:
+Besluit gebruiker: AI **alleen via Amazon Bedrock** (EU). Claude mag, maar alleen via Bedrock (gekozen model:
+`eu.anthropic.claude-sonnet-5-5`, regio eu-north-1); géén directe Anthropic-API en géén Ollama. De bestaande routes 'ollama'
+en 'claude' (api.anthropic.com) in `FactuurLezer` worden dus vervangen door Bedrock (stap 1, nog te doen). Stand
+19-10-2026: **werkt** met `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (regio eu-north-1, IAM-sleutels). Nodig waren:
+IAM-policy (EU-profiel vanuit eu-north-1 + `foundation-model/*` met conditie `bedrock:InferenceProfileArn`; een conditie
+`aws:RequestedRegion = eu-north-1` blokkeert, want het EU-profiel voert uit in o.a. eu-west-3), het Anthropic
+use-case-formulier, en één keer gebruik in de playground door een beheerder (Marketplace-abonnement). Haiku 4.5 kent **geen
+Flex** (400 "service tier is not supported") en geen aanroep zonder inference profile; de terugval naar `default` werkt.
+**Eerste echte test**: het model nam de maandbedragen goed over maar rekende het vergelijkingstotaal fout (heel 2025 als
+"jan t/m okt"). Daarom: omzet/kosten per maand zonder uitsplitsing geven één regel per maand met kolom **Cumulatief**, een
+melding als de laatste maand nog loopt, en de opdracht om bij vergelijkingen beide perioden met even lange datums op te
+vragen. Daarna klopte het antwoord (nagerekend). Gebouwd zijn stap 2 en 3:
 - **Invoer** (`Components/AiVraagInvoer.razor`) op de pagina Financiën (`Module.razor`, alleen met Financial/Directie) en
   boven aan Financiën ▸ Analyse ▸ **Vragen aan AI** (`/financien/analyse`, `Pages/AiAnalyse.razor`). Keuze **Direct**
   (laag `Bedrock:LaagDirect`, standaard `default`) of **Mag wachten** (laag `Bedrock:LaagWachten`, standaard `flex`;
@@ -275,6 +285,14 @@ als derde route in `FactuurLezer`) volgt als de sleutel er is; gebouwd zijn stap
   opmerking, getallen met een punt. Hergebruikt de repositories (geen proforma's; banktransacties alleen van rekeningen
   waar de vraagsteller bij mag). Omzet/kosten per maand zijn eigen queries en tellen **facturen tussen eigen BV's
   standaard niet mee** (`met_intern`): dit jaar 58 van 252 facturen, ± € 638k.
+- **Grafieken** (`Components/AiGrafiek.razor`): het model zet een blok ```` ```grafiek {json} ```` in zijn antwoord (type
+  staaf/lijn, titel, eenheid, labels, max 4 reeksen; formaat staat in de systeemopdracht). `AiAnalyse.Delen` knipt het
+  antwoord in markdown en grafieken; de grafiek is server-side SVG met de eerste vier categoriekleuren uit het dataviz-palet
+  (licht/donker), `<title>` per staaf/punt als tooltip en een uitklapbare tabel. Elke waarde wordt vergeleken met de
+  opgevraagde gegevens (cellen en bedragen in de opmerking, op een cent): wat er niet letterlijk in staat geeft een
+  waarschuwing. SVG-`<text>` staat in een `<g>`: direct in een Razor-codeblok leest Razor het als zijn eigen text-tag. De
+  systeemopdracht is een `$$"""`-string (de accolades in het JSON-voorbeeld). Getest met Haiku: 20 staven, alle waarden
+  gevonden; donker thema niet bekeken.
 - Lokaal testen: `Bedrock__Nep=true` (geen AWS; eerste ronde vraagt echt de omzet op, dan een vast testantwoord) en
   `AiVragen__Geheugen=true`. Getest met die twee (rechten tijdelijk lokaal opengezet en teruggezet): direct-vraag loopt van
   wachtrij tot antwoord met gegevens, 'Mag wachten' blijft overdag in de wachtrij. **Niet getest tegen echte Bedrock**
