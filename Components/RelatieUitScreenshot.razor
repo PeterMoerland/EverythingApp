@@ -1,0 +1,290 @@
+@implements IDisposable
+@inject IRelatieRepository Repo
+@inject RelatieLezer Lezer
+@inject IJSRuntime JS
+
+@* ============================================================================
+   Relaties ▸ ✨ Uit screenshot: een leverancier (of klant) aanmaken uit een screenshot of PDF van een factuur, offerte,
+   contactpagina, e-mailhandtekening of visitekaartje (Services/RelatieLezer.cs, via Bedrock). Eerst een formulier om na
+   te kijken, met een controle of de relatie al bestaat (KvK, btw-nummer, IBAN, naam) en op het IBAN-controlegetal.
+   Plakken gaat via wwwroot/klembord.js (koppelPlakken / afbeelding), net als bij Bestellingen ▸ Uit screenshot.
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer pk-venster ru-venster" @onclick:stopPropagation @onkeydown="Toets" role="dialog" aria-modal="true" aria-label="Relatie uit screenshot">
+            <div class="kiezer-kop">
+                <b>✨ Leverancier uit een screenshot of PDF</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="pk-inhoud">
+                @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+
+                @if (_fase == Fase.Kiezen)
+                {
+                    <p class="uitleg">
+                        Een factuur, offerte, contactpagina, e-mailhandtekening of visitekaartje: maak een screenshot
+                        (<b>Win+Shift+S</b>), klik in het vak en druk <b>Ctrl+V</b>. Of kies een afbeelding of PDF.
+                    </p>
+                    <div @ref="_plakvak" class="sv-plakvak" tabindex="0">
+                        <span>Klik hier en druk Ctrl+V</span>
+                        <span class="uitleg">of</span>
+                        <label class="klein knop-label">
+                            Bestand kiezen…
+                            <InputFile OnChange="BestandGekozen" accept="image/*,.pdf" />
+                        </label>
+                    </div>
+                }
+                else if (_fase == Fase.Lezen)
+                {
+                    <p class="uitleg"><span class="draaier"></span> De AI leest de bedrijfsgegevens… (een paar seconden)</p>
+                }
+                else if (_r is { } r)
+                {
+                    @if (_dubbel.Count > 0)
+                    {
+                        <div class="ru-dubbel">
+                            <b>Bestaat deze relatie misschien al?</b>
+                            @foreach (var d in _dubbel)
+                            {
+                                <div>
+                                    <button class="todo-link" title="Die relatie openen in plaats van een nieuwe maken" @onclick="() => OpenBestaand(d.Id, d.Naam)">@d.Naam</button>
+                                    <span class="uitleg">· @d.Reden</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="ru-kop">
+                        @if (_voorbeeldUrl is not null)
+                        {
+                            <img class="sv-voorbeeld" src="@_voorbeeldUrl" alt="Screenshot" />
+                        }
+                        <div class="wn-velden ru-velden">
+                            <div class="wn-veld"><label>Naam</label><input value="@r.Naam" maxlength="100" @onchange="e => r.Naam = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>Adres</label><input value="@r.Adres" @onchange="e => r.Adres = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>Postcode</label><input value="@r.Postcode" @onchange="e => r.Postcode = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>Plaats</label><input value="@r.Plaats" @onchange="e => r.Plaats = Tekst(e)" /></div>
+                            <div class="wn-veld">
+                                <label>Land</label>
+                                <select value="@(_landId?.ToString() ?? "")" @onchange="e => _landId = int.TryParse((string?)e.Value, out var l) ? l : null">
+                                    <option value="">—</option>
+                                    @foreach (var l in _landen) { <option value="@l.Id">@l.Naam</option> }
+                                </select>
+                            </div>
+                            <div class="wn-veld"><label>Telefoon</label><input value="@r.Telefoon" @onchange="e => r.Telefoon = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>E-mail</label><input value="@r.Email" @onchange="e => r.Email = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>Website</label><input value="@r.Website" @onchange="e => r.Website = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>KvK</label><input value="@r.Kvk" @onchange="e => r.Kvk = Tekst(e)" /></div>
+                            <div class="wn-veld"><label>Btw-nummer</label><input value="@r.Btw" @onchange="e => r.Btw = Tekst(e)" /></div>
+                            <div class="wn-veld">
+                                <label>IBAN</label>
+                                <span class="ru-iban">
+                                    <input value="@r.Iban" @onchange="IbanGewijzigd" />
+                                    @if (r.Iban.Length > 0 && !Bankgegevens.IbanGeldig(r.Iban))
+                                    {
+                                        <span class="sv-let" title="Het controlegetal klopt niet: waarschijnlijk verkeerd gelezen. Wordt niet opgeslagen tenzij je het verbetert.">⚠ klopt niet</span>
+                                    }
+                                </span>
+                            </div>
+                            <div class="wn-veld"><label>BIC</label><input value="@r.Bic" @onchange="e => r.Bic = Tekst(e).ToUpperInvariant()" /></div>
+                            <div class="wn-veld">
+                                <label></label>
+                                <span>
+                                    <label class="vink"><input type="checkbox" checked="@_leverancier" @onchange="e => _leverancier = e.Value is true" /> Leverancier</label>
+                                    <label class="vink"><input type="checkbox" checked="@_klant" @onchange="e => _klant = e.Value is true" /> Klant</label>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    @foreach (var o in r.Opmerkingen) { <div class="uitleg">@(o.StartsWith("⚠") ? o : "AI: " + o)</div> }
+                }
+            </div>
+
+            <div class="kiezer-voet">
+                @if (_fase == Fase.Voorbeeld)
+                {
+                    <button class="klein" @onclick="Opnieuw">← Ander screenshot</button>
+                    <span style="flex:1"></span>
+                    <button class="primair" disabled="@(_bezig || (_r?.Naam.Trim().Length ?? 0) < 2)" @onclick="Aanmaken">
+                        @(_bezig ? "Aanmaken…" : "Aanmaken")
+                    </button>
+                }
+                else
+                {
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="Sluit">Annuleren</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    /// <summary>Aangemaakt of bestaande gekozen: Relaties opent die.</summary>
+    [Parameter] public EventCallback<(int Id, string Naam, bool Nieuw)> OpGekozen { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private enum Fase { Kiezen, Lezen, Voorbeeld }
+    private Fase _fase;
+    private bool _wasOpen, _koppelen, _bezig, _leverancier = true, _klant;
+    private string? _fout, _voorbeeldUrl;
+    private RelatieUitBeeld? _r;
+    private int? _landId;
+    private List<Keuze> _landen = new();
+    private List<(int Id, string Naam, string Reden)> _dubbel = new();
+    private ElementReference _plakvak;
+    private DotNetObjectReference<RelatieUitScreenshot>? _ref;
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen) Opnieuw();
+        _wasOpen = Open;
+    }
+
+    private void Opnieuw()
+    {
+        _fase = Fase.Kiezen; _fout = null; _r = null; _dubbel = new(); _landId = null; _voorbeeldUrl = null;
+        _leverancier = true; _klant = false; _bezig = false; _koppelen = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_koppelen || !Open || _fase != Fase.Kiezen) return;
+        _koppelen = false;
+        try
+        {
+            _ref ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _plakvak, _ref);
+            await _plakvak.FocusAsync();
+        }
+        catch { }
+    }
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: 20_000_000);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await InvokeAsync(() => Lees(m.ToArray(), soort));
+        }
+        catch (Exception ex) { _fout = "Plakken mislukt: " + ex.Message; await InvokeAsync(StateHasChanged); }
+    }
+
+    [JSInvokable]
+    public Task GeenAfbeelding()
+    {
+        _fout = "Er staat geen afbeelding op het klembord. Maak eerst een screenshot (Win+Shift+S).";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task BestandGekozen(InputFileChangeEventArgs e)
+    {
+        var f = e.File;
+        var soort = f.ContentType is { Length: > 0 } ct ? ct
+                  : Path.GetExtension(f.Name).ToLowerInvariant() == ".pdf" ? "application/pdf" : "image/png";
+        try
+        {
+            await using var s = f.OpenReadStream(maxAllowedSize: 20_000_000);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await Lees(m.ToArray(), soort);
+        }
+        catch (Exception ex) { _fout = "Bestand lezen mislukt: " + ex.Message; }
+    }
+
+    private async Task Lees(byte[] inhoud, string soort)
+    {
+        _fout = null;
+        _fase = Fase.Lezen;
+        StateHasChanged();
+        var (uit, fout) = await Lezer.LeesAsync(inhoud, soort);
+        if (uit is null) { _fout = fout; _fase = Fase.Kiezen; _koppelen = true; StateHasChanged(); return; }
+
+        _r = uit;
+        if (_landen.Count == 0) { try { _landen = await Repo.GetLandenAsync(); } catch { } }
+        _landId = _landen.FirstOrDefault(l => l.Naam.Equals(uit.Land, StringComparison.OrdinalIgnoreCase))?.Id;
+        // BIC ontbreekt bij een geldige Nederlandse IBAN: afleiden uit de bankcode
+        if (Bankgegevens.Ingekort(uit.Iban) is { } kort)
+        {
+            uit.Opmerkingen.Insert(0, $"⚠ De gelezen IBAN {uit.Iban} was te lang; ingekort tot {kort} (controlegetal klopt). Kijk hem even na.");
+            uit.Iban = kort;
+        }
+        if (uit.Bic.Length == 0 && Bankgegevens.BicUitIban(uit.Iban) is { } bic) uit.Bic = bic;
+        _voorbeeldUrl = soort.StartsWith("image/") && inhoud.Length < 4_000_000 ? $"data:{soort};base64,{Convert.ToBase64String(inhoud)}" : null;
+        try { _dubbel = await Repo.MogelijkDezelfdeAsync(uit.Naam, uit.Kvk, uit.Btw, uit.Iban); } catch { _dubbel = new(); }
+        // overeenkomst met een eigen BV (Werkmaatschappij/MDEBV) = de AI nam iets van MDE zelf over: die velden leegmaken
+        foreach (var eigen in _dubbel.Where(d => d.Reden.StartsWith("EIGEN BV")).ToList())
+        {
+            if (eigen.Reden.Contains("btw")) { uit.Opmerkingen.Insert(0, $"⚠ Het btw-nummer {uit.Btw} is dat van {eigen.Naam} (MDE zelf); leeggemaakt."); uit.Btw = ""; }
+            if (eigen.Reden.Contains("KvK")) { uit.Opmerkingen.Insert(0, $"⚠ Het KvK-nummer {uit.Kvk} is dat van {eigen.Naam} (MDE zelf); leeggemaakt."); uit.Kvk = ""; }
+            if (eigen.Reden.Contains("IBAN")) { uit.Opmerkingen.Insert(0, $"⚠ De IBAN {uit.Iban} is die van {eigen.Naam} (MDE zelf); leeggemaakt."); uit.Iban = ""; }
+            _dubbel.Remove(eigen);
+        }
+        _fase = Fase.Voorbeeld;
+        StateHasChanged();
+    }
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    private void IbanGewijzigd(ChangeEventArgs e)
+    {
+        if (_r is null) return;
+        _r.Iban = Bankgegevens.Schoon(Tekst(e));
+        if (_r.Bic.Length == 0 && Bankgegevens.BicUitIban(_r.Iban) is { } bic) _r.Bic = bic;
+    }
+
+    private async Task Aanmaken()
+    {
+        if (_r is not { } r || _bezig || r.Naam.Trim().Length < 2) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            var naam = r.Naam.Trim();
+            var id = await Repo.NieuweRelatieAsync(naam.Length > 100 ? naam[..100] : naam);
+            async Task Zet(string kolom, object? waarde)
+            {
+                if (waarde is string s && s.Trim().Length == 0) return;
+                if (waarde is null) return;
+                try { await Repo.UpdateVeldAsync(id, kolom, waarde); } catch { /* kolom bestaat niet in deze database: overslaan */ }
+            }
+            await Zet("address", r.Adres);
+            await Zet("PO_box", r.Postcode);
+            await Zet("town", r.Plaats);
+            await Zet("country-id", _landId);
+            await Zet("telephone", r.Telefoon);
+            await Zet("email", r.Email);
+            await Zet("internet", r.Website);
+            await Zet("KvK", r.Kvk);
+            await Zet("VAT number", r.Btw);
+            if (Bankgegevens.IbanGeldig(r.Iban)) await Zet("IBAN", r.Iban);       // een niet kloppende IBAN nooit opslaan
+            if (Bankgegevens.BicGeldig(r.Bic)) await Zet("BIC", r.Bic);
+            if (_leverancier) await Zet("Supplier", 1);
+            if (_klant) await Zet("Customer", 1);
+            await OpGekozen.InvokeAsync((id, naam, true));
+        }
+        catch (Exception ex) { _fout = "Aanmaken mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private Task OpenBestaand(int id, string naam) => OpGekozen.InvokeAsync((id, naam, false));
+
+    private async Task Toets(KeyboardEventArgs e) { if (e.Key == "Escape") await Sluit(); }
+
+    private async Task Sluit()
+    {
+        if (_bezig) return;
+        await OpGesloten.InvokeAsync();
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}

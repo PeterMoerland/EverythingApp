@@ -161,6 +161,49 @@ public class BedrockClient
         }), 1500, 120, laag);
     }
 
+    /// <summary>
+    /// Een afbeelding of PDF met een opdracht naar het model; geeft de tekst van het antwoord. Een PDF gaat als document
+    /// met citations, zodat Claude ook het beeld van de pagina's bekijkt (zonder citations alleen de tekstlaag).
+    /// </summary>
+    public async Task<(string Tekst, int TokensIn, int TokensUit)> LeesBeeldAsync(byte[] inhoud, string mediaSoort, string opdracht,
+                                                                                int maxTokens, CancellationToken stop)
+    {
+        var base64 = Convert.ToBase64String(inhoud);
+        JsonObject blok = mediaSoort == "application/pdf"
+            ? new JsonObject
+            {
+                ["document"] = new JsonObject
+                {
+                    ["format"] = "pdf", ["name"] = "document",
+                    ["source"] = new JsonObject { ["bytes"] = base64 },
+                    ["citations"] = new JsonObject { ["enabled"] = true },
+                },
+            }
+            : new JsonObject
+            {
+                ["image"] = new JsonObject
+                {
+                    ["format"] = mediaSoort switch { "image/png" => "png", "image/gif" => "gif", "image/webp" => "webp", _ => "jpeg" },
+                    ["source"] = new JsonObject { ["bytes"] = base64 },
+                },
+            };
+        var verzoek = new JsonObject
+        {
+            ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = new JsonArray(blok, new JsonObject { ["text"] = opdracht }) }),
+            ["inferenceConfig"] = new JsonObject { ["maxTokens"] = maxTokens, ["temperature"] = 0 },
+        };
+        var a = await ConverseAsync(verzoek, "default", stop);
+        var tekst = new StringBuilder();
+        foreach (var b in a.Inhoud.OfType<JsonObject>())
+        {
+            if (b["text"] is JsonValue tv) tekst.Append(tv.GetValue<string>());
+            if (b["citationsContent"]?["content"] is JsonArray delen)
+                foreach (var d in delen.OfType<JsonObject>())
+                    if (d["text"] is JsonValue dv) tekst.Append(dv.GetValue<string>());
+        }
+        return (tekst.ToString(), a.TokensIn, a.TokensUit);
+    }
+
     private static string Melding(int status, string ruw)
     {
         string? bericht = null;

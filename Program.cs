@@ -238,6 +238,7 @@ builder.Services.AddSingleton<BedrockClient>();
 builder.Services.AddSingleton<FinancieleAiTools>();
 builder.Services.AddSingleton<AlgemeneAiTools>();
 builder.Services.AddSingleton<BestelregelLezer>();
+builder.Services.AddSingleton<RelatieLezer>();
 builder.Services.AddSingleton<AiSignaal>();
 builder.Services.AddSingleton<AiAnalyseService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AiAnalyseService>());

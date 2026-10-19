@@ -263,6 +263,20 @@ stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 
 omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
 `BewaarRegelAsync` als Plakken uit klembord).
 
+## Relaties: leverancier uit een screenshot of PDF (19-10-2026)
+
+Relaties ▸ **✨ Uit screenshot** (`Components/RelatieUitScreenshot.razor`, `Services/RelatieLezer.cs`, via
+`BedrockClient.LeesBeeldAsync`, dezelfde plak-/kiesroute als het bestelscherm). De AI leest naam, adres, land (Engels,
+gekoppeld aan tabel `Country`), telefoon, e-mail, website, KvK, btw, IBAN en BIC; alles is daarna nog te wijzigen.
+Aanmaken = `NieuweRelatieAsync` + `UpdateVeldAsync` per veld, Leverancier standaard aan. Waarborgen:
+- `IRelatieRepository.MogelijkDezelfdeAsync`: zelfde KvK/btw/IBAN of onderscheidende woorden uit de naam (stoplijst:
+  netherlands, express, bv, gmbh, ...). FedEx werd eerst niet gevonden omdat alleen op "Netherlands" werd gezocht.
+- Een treffer met `Werkmaatschappij`/`MDEBV` ("EIGEN BV") = gegevens van MDE zelf: veld leeggemaakt met ⚠. De AI nam
+  bij FedEx "Uw BTW nummer" over; de opdracht verbiedt dat nu ook.
+- IBAN alleen opgeslagen als mod 97 klopt. `Bankgegevens.Ingekort`: te lang voor het land (lengtetabel) en het begin
+  klopt wél, dan dat begin met ⚠ (Materialise: KBO-nummer achter de IBAN geplakt).
+Getest met de FedEx-factuur (PNG) en Materialise (PDF); Aanmaken niet aangeklikt.
+
 ## Facturen uitlezen via Bedrock (19-10-2026)
 
 `Services/FactuurLezer.cs` gebruikt `BedrockClient` zodra Bedrock is ingesteld (anders Ollama als terugval; `Ai:Bron`,
@@ -544,9 +558,10 @@ Lokaal getest t/m de vraag (Schur B.V. -> Smits Service); het wegschrijven niet 
 
 ## Bestellingen: werkbalk boven de regels, Plakken uit klembord (16-10-2026)
 
-**Plek van knoppen die regels toevoegen** (besluit gebruiker): de werkbalk boven de regels: "+ Regel", "📋 Plakken uit
-klembord" en het menu "Importeren ▾". Daar komen de andere imports uit het Access-formulier "Order sub form" (SMC- en
-Solar-website, Materialise-prijzen; nu grijs met "volgt").
+**Plek van knoppen die regels toevoegen** (besluit gebruiker): de werkbalk boven de regels: "+ Regel" en het menu
+"Importeren ▾". In dat menu staan "📋 Plakken uit klembord" (sinds 19-10-2026, was een eigen knop), "📷 Uit screenshot of
+PDF" en de andere imports uit het Access-formulier "Order sub form" (SMC- en Solar-website, Materialise-prijzen; nu grijs
+met "volgt").
 
 **Plakken uit klembord** (`Components/PlakVenster.razor`) vervangt `PasteFromClipboard_Click` (Access, "Order sub form"):
 - Klembord via `wwwroot/klembord.js` (`navigator.clipboard.readText`); mag dat niet, dan Ctrl+V in het vak.

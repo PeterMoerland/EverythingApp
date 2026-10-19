@@ -298,14 +298,14 @@
                         <h3 class="wn-kop">Regels</h3>
                         <div class="btngroup">
                             <button class="klein" @onclick="NieuweRegel">+ Regel</button>
-                            <button class="klein" @onclick="() => _plakOpen = true"
-                                    title="Onderdelen van het klembord toevoegen, bv. uit Inventor (Collect Parts ▸ stuklijst naar klembord)">📋 Plakken uit klembord</button>
                             <div class="menu-knop">
                                 <button class="klein" @onclick="() => _importMenu = !_importMenu">Importeren ▾</button>
                                 @if (_importMenu)
                                 {
                                     <div class="menu-dicht" @onclick="() => _importMenu = false"></div>
                                     <div class="menu-lijst" @onclick="() => _importMenu = false">
+                                        <button @onclick="() => _plakOpen = true"
+                                                title="Onderdelen van het klembord toevoegen, bv. uit Inventor (Collect Parts ▸ stuklijst naar klembord)">📋 Plakken uit klembord</button>
                                         <button disabled="@(!Schermlezer.Beschikbaar)" @onclick="() => _schermOpen = true"
                                                 title="@(Schermlezer.Beschikbaar ? "Een screenshot (Win+Shift+S) of PDF van een winkelwagen, offerte of orderbevestiging laten lezen door de AI" : "Bedrock is niet ingesteld")">📷 Uit screenshot of PDF</button>
                                         <button disabled title="Volgt: staat nog in Access">SMC-website <small>volgt</small></button>
@@ -320,7 +320,7 @@
                         <table class="kiezer-tabel regels">
                             <thead>
                                 <tr>
-                                    <th style="width:3.6rem" class="r">Aantal</th>
+                                    <th style="width:3.6rem" class="c">Aantal</th>
                                     <th style="width:4.2rem">Eenh.</th>
                                     <th style="width:10rem">Artikelcode</th>
                                     <th>Omschrijving</th>
@@ -337,7 +337,7 @@
                                 @foreach (var regel in _regels)
                                 {
                                     <tr @key="regel.Id" class="@(regel.Compleet ? "geleverd" : "")">
-                                        <td><input class="r" value="@regel.Aantal"
+                                        <td><input class="c" value="@regel.Aantal"
                                                    @onchange="e => ZetGetal(regel, v => regel.Aantal = v, e)" /></td>
                                         <td>
                                             <select value="@EenheidTekst(regel)" @onchange="e => ZetEenheid(regel, e)">
@@ -367,7 +367,7 @@
                                         </td>
                                         <td><NlDatum Waarde="regel.Leverdatum"
                                                      WaardeChanged="d => ZetDatum(regel, d)" /></td>
-                                        <td><input class="r" value="@Getal(regel.Prijs)"
+                                        <td><input class="r" value="@Euro(regel.Prijs)"
                                                    @onchange="e => ZetBedrag(regel, v => regel.Prijs = v, e)" /></td>
                                         <td><input class="r" value="@Getal(regel.KortingProcent)" title="Korting in procenten"
                                                    @onchange="e => ZetKorting(regel, e)" /></td>
@@ -609,6 +609,10 @@
         return "";
     }
     private static string Getal(decimal? waarde) => waarde is null ? "" : waarde.Value.ToString("0.##");
+
+    /// <summary>Stuksprijs in euro: "€ 1.234,50", met tot 4 decimalen als die er zijn (kleine onderdelen).</summary>
+    private static string Euro(decimal? waarde)
+        => waarde is null ? "" : "€ " + waarde.Value.ToString("#,##0.00##", new System.Globalization.CultureInfo("nl-NL"));
 
     /// <summary>bestellingen?order=123: die bestelling meteen openen (bv. vanuit de bel, in een nieuw tabblad).</summary>
     [SupplyParameterFromQuery(Name = "order")] public int? OrderParam { get; set; }
@@ -1287,7 +1291,7 @@
 
     /// <summary>Nederlandse invoer: punt is duizendtal, komma is decimaal.</summary>
     private static string Schoon(object? waarde)
-        => ((string?)waarde ?? "").Replace(".", "").Replace(',', '.').Trim();
+        => ((string?)waarde ?? "").Replace("€", "").Replace(" ", "").Replace(" ", "").Replace(".", "").Replace(',', '.').Trim();
 
     private async Task ZetGetal(Orderregel regel, Action<double> zet, ChangeEventArgs e)
     {

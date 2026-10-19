@@ -565,7 +565,9 @@ button.klein.metbijlage { border-color: var(--accent); color: var(--accent); fon
 .kiezer-tabel.regels tfoot td { border-top: 2px solid #ddd; padding-top: .4rem; }
 .kiezer-tabel.regels tr.geleverd td { background: #f5fbf6; }
 /* Compact (verzoek gebruiker 16-10-2026): lage regels, velden zonder rand tot je erop staat of klikt */
-.kiezer-tabel.regels { min-width: 68rem; font-size: .88rem; }   /* vaste kolommen ~53rem + Omschrijving minstens ~15rem */
+.kiezer-tabel.regels { min-width: 68rem; font-size: .88rem; }
+.kiezer-tabel.regels input.r { text-align: right; font-variant-numeric: tabular-nums; }
+.kiezer-tabel.regels input.c { text-align: center; font-variant-numeric: tabular-nums; }   /* vaste kolommen ~53rem + Omschrijving minstens ~15rem */
 .kiezer-tabel.regels th { font-size: .8rem; padding: .15rem .25rem; white-space: nowrap; }
 .kiezer-tabel.regels td { padding: 1px .2rem; }
 .kiezer-tabel.regels input, .kiezer-tabel.regels select { padding: .12rem .3rem; font-size: inherit; border-color: transparent; background: transparent; }
@@ -3398,3 +3400,12 @@ html[data-thema="donker"] .sv-plakvak .knop-label { background: var(--d1); borde
 .ai-vervolg { display: flex; gap: .5rem; align-items: flex-end; margin-top: 1rem; border-top: 1px solid #e1e6ed; padding-top: .8rem; }
 .ai-vervolg textarea { flex: 1; resize: vertical; font: inherit; }
 html[data-thema="donker"] .ai-beurt.vervolg, html[data-thema="donker"] .ai-vervolg { border-color: var(--d3); }
+
+/* Relaties ▸ ✨ Uit screenshot (Components/RelatieUitScreenshot.razor) */
+.ru-venster { width: min(60rem, 96vw); }
+.ru-kop { display: flex; gap: 1rem; align-items: flex-start; }
+.ru-velden { flex: 1; }
+.ru-iban { display: flex; gap: .4rem; align-items: center; }
+.ru-iban input { flex: 1; }
+.ru-dubbel { background: #fff6e8; border: 1px solid #f0d5a8; border-radius: 6px; padding: .5rem .7rem; }
+html[data-thema="donker"] .ru-dubbel { background: #3a2a14; border-color: #6b4c1f; }

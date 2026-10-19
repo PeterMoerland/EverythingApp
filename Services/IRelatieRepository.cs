@@ -28,6 +28,12 @@ public interface IRelatieRepository
     Task<HashSet<string>> KolommenAsync();
     Task<int> NieuweRelatieAsync(string naam);
 
+    /// <summary>
+    /// Relaties die mogelijk dezelfde zijn: zelfde KvK, btw-nummer of IBAN, of een naam die erop lijkt (rechtsvorm en
+    /// leestekens tellen niet mee). Voor het aanmaken uit een screenshot.
+    /// </summary>
+    Task<List<(int Id, string Naam, string Reden)>> MogelijkDezelfdeAsync(string naam, string kvk, string btw, string iban);
+
     /// <summary>Landen voor de keuzelijsten (country-id).</summary>
     Task<List<Keuze>> GetLandenAsync();
 
@@ -63,6 +69,8 @@ public class GeenRelatieRepository : IRelatieRepository
     public Task UpdateVeldAsync(int relatieId, string kolom, object? waarde) => Task.CompletedTask;
     public Task<HashSet<string>> KolommenAsync() => Task.FromResult(new HashSet<string>());
     public Task<int> NieuweRelatieAsync(string naam) => Task.FromResult(0);
+    public Task<List<(int Id, string Naam, string Reden)>> MogelijkDezelfdeAsync(string naam, string kvk, string btw, string iban)
+        => Task.FromResult(new List<(int, string, string)>());
     public Task<List<Keuze>> GetLandenAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Tariefafspraak>> GetTariefafsprakenAsync(int relatieId) => Task.FromResult(new List<Tariefafspraak>());
     public Task<int> BewaarTariefafspraakAsync(Tariefafspraak t, int? doorWerknemer) => Task.FromResult(0);
@@ -595,6 +603,49 @@ public class MySqlRelatieRepository : IRelatieRepository
         await using var cmd = new MySqlCommand($"DELETE FROM `{tabel}` WHERE `ID_contact` = @id", cn);
         cmd.Parameters.AddWithValue("@id", contactId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<(int Id, string Naam, string Reden)>> MogelijkDezelfdeAsync(string naam, string kvk, string btw, string iban)
+    {
+        static string S(string? s) => (s ?? "").Replace(" ", "").Replace(".", "").Replace("-", "").Trim().ToUpperInvariant();
+        var uit = new List<(int, string, string)>();
+        // zoekwoord: het langste woord van de naam zonder rechtsvorm
+        var sleutel = MySqlFactuurRepository.AliasSleutel(naam);
+        // zoekwoorden: de onderscheidende woorden van de naam (niet "Netherlands", "Express", "B.V." enz.)
+        string[] stop = { "netherlands", "nederland", "international", "internationaal", "express", "group", "groep", "holding",
+                          "benelux", "europe", "trading", "services", "service", "b.v.", "bv", "n.v.", "nv", "gmbh", "ltd", "limited",
+                          "the", "and", "en", "van", "der", "den", "de", "het", "co", "inc", "company", "sales" };
+        var woorden = naam.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => w.Trim(',', '.', '(', ')', '&'))
+                          .Where(w => w.Length >= 3 && !stop.Contains(w.ToLowerInvariant())).Distinct()
+                          .OrderByDescending(w => w.Length).Take(3).ToList();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `id_supplier`, COALESCE(`name`, ''), COALESCE(`KvK`, ''), COALESCE(`VAT number`, ''), COALESCE(`IBAN`, ''), " +
+            "       (COALESCE(`Werkmaatschappij`, 0) <> 0 OR COALESCE(`MDEBV`, 0) <> 0) FROM `Relations` " +
+            " WHERE (@kvk <> '' AND REPLACE(REPLACE(`KvK`, ' ', ''), '.', '') = @kvk) " +
+            "    OR (@btw <> '' AND UPPER(REPLACE(REPLACE(`VAT number`, ' ', ''), '.', '')) = @btw) " +
+            "    OR (@iban <> '' AND UPPER(REPLACE(`IBAN`, ' ', '')) = @iban) " +
+            (woorden.Count == 0 ? "" : " OR " + string.Join(" OR ", woorden.Select((_, i) => $"`name` LIKE @w{i}"))) +
+            " LIMIT 80", cn);
+        cmd.Parameters.AddWithValue("@kvk", S(kvk));
+        cmd.Parameters.AddWithValue("@btw", S(btw));
+        cmd.Parameters.AddWithValue("@iban", S(iban));
+        for (var i = 0; i < woorden.Count; i++) cmd.Parameters.AddWithValue($"@w{i}", "%" + woorden[i] + "%");
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var redenen = new List<string>();
+            if (S(kvk).Length > 0 && S(r.GetString(2)) == S(kvk)) redenen.Add("zelfde KvK");
+            if (S(btw).Length > 0 && S(r.GetString(3)) == S(btw)) redenen.Add("zelfde btw-nummer");
+            if (S(iban).Length > 0 && S(r.GetString(4)) == S(iban)) redenen.Add("zelfde IBAN");
+            var andere = MySqlFactuurRepository.AliasSleutel(r.GetString(1));
+            if (sleutel.Length >= 3 && andere.Length >= 3 && (andere == sleutel || andere.Contains(sleutel) || sleutel.Contains(andere)))
+                redenen.Add("lijkt op de naam");
+            // gegevens van een eigen BV: dan heeft de AI iets van MDE zelf overgenomen (bv. "Uw btw-nummer")
+            if (redenen.Count > 0 && Convert.ToInt64(r.GetValue(5)) != 0) redenen.Insert(0, "EIGEN BV");
+            if (redenen.Count > 0) uit.Add((r.GetInt32(0), r.GetString(1), string.Join(", ", redenen)));
+        }
+        return uit.OrderByDescending(x => x.Item3.Contains("zelfde")).Take(8).ToList();
     }
 
     public async Task<int> NieuweRelatieAsync(string naam)

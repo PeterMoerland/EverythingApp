@@ -1,6 +1,7 @@
 @page "/relaties"
 @using Microsoft.AspNetCore.WebUtilities
 @inject IRelatieRepository Repo
+@inject RelatieLezer RelatieAi
 @inject FilestoreService Store
 @inject MailService Post
 @inject MailPostbussen Postbussen
@@ -26,6 +27,8 @@
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
         }
 
+        <RelatieUitScreenshot Open="_uitScreenshot" OpGekozen="UitScreenshotGekozen" OpGesloten="() => _uitScreenshot = false" />
+
         <div class="wn-scherm">
             @* ---------- links: zoeken ---------- *@
             <aside class="wn-lijst">
@@ -45,6 +48,8 @@
                     </label>
                     <div class="btngroup">
                         <button class="klein" @onclick="Nieuw">+ Nieuw</button>
+                        <button class="klein" disabled="@(!RelatieAi.Beschikbaar)" @onclick="() => _uitScreenshot = true"
+                                title="@(RelatieAi.Beschikbaar ? "Een leverancier aanmaken uit een screenshot of PDF (factuur, offerte, contactpagina, visitekaartje)" : "Bedrock is niet ingesteld")">✨ Uit screenshot</button>
                         <button class="klein rood" disabled="@(_gekozenId is null)"
                                 title="Geselecteerde relatie verwijderen" @onclick="VerwijderRelatie">✕ Wissen</button>
                     </div>
@@ -981,6 +986,17 @@
             Toon("Verwijderen mislukt: " + ex.Message +
                  " — is deze persoon nog ergens in gebruik? Zet dan 'niet meer werkzaam' aan.", true);
         }
+    }
+
+    // ---- ✨ Uit screenshot (Components/RelatieUitScreenshot.razor) ----
+    private bool _uitScreenshot;
+
+    private async Task UitScreenshotGekozen((int Id, string Naam, bool Nieuw) r)
+    {
+        _uitScreenshot = false;
+        await Laad();
+        await Kies(new Keuze(r.Id, r.Naam));
+        Toon(r.Nieuw ? $"'{r.Naam}' aangemaakt uit het screenshot. Kijk de gegevens na." : $"Bestaande relatie '{r.Naam}' geopend.", false);
     }
 
     private async Task Nieuw()
