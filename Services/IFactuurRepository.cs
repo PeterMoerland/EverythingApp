@@ -39,6 +39,12 @@ public interface IFactuurRepository
     Task<(string Iban, string Bic)> GetBankgegevensAsync(int bedrijfId);
 
     /// <summary>
+    /// IBAN en/of BIC invullen bij de leverancier, alléén waar dat veld nog leeg is (nooit overschrijven: een ander
+    /// rekeningnummer op een factuur is juist een waarschuwingssignaal). Geeft terug wat er echt is ingevuld.
+    /// </summary>
+    Task<(bool Iban, bool Bic)> VulBankgegevensAanAsync(int bedrijfId, string? iban, string? bic);
+
+    /// <summary>
     /// De leverancier die bij deze naam van een factuur hoort, uit de aliastabel.
     /// Null als de naam onbekend is.
     /// </summary>
@@ -124,6 +130,7 @@ public class GeenFactuurRepository : IFactuurRepository
     public Task ZetVlagAsync(int id, FactuurVlag vlag, bool aan, int? doorWerknemerId) => Task.CompletedTask;
     public Task<bool> BestaatAlAsync(DateOnly? d, int? b, decimal bedrag, int negeerId) => Task.FromResult(false);
     public Task<(string, string)> GetBankgegevensAsync(int bedrijfId) => Task.FromResult(("", ""));
+    public Task<(bool Iban, bool Bic)> VulBankgegevensAanAsync(int bedrijfId, string? iban, string? bic) => Task.FromResult((false, false));
     public Task<(int Id, string Naam)?> ZoekOpAliasAsync(string n) => Task.FromResult<(int, string)?>(null);
     public Task<(int Id, string Naam)?> ZoekOpIbanAsync(string iban) => Task.FromResult<(int, string)?>(null);
     public Task BewaarAliasAsync(string n, int relatieId, int? door) => Task.CompletedTask;
@@ -835,6 +842,21 @@ public class MySqlFactuurRepository : IFactuurRepository
         }
         catch { }
         return ("", "");
+    }
+
+    public async Task<(bool Iban, bool Bic)> VulBankgegevensAanAsync(int bedrijfId, string? iban, string? bic)
+    {
+        await using var cn = await OpenAsync();
+        async Task<bool> Vul(string kolom, string? waarde)
+        {
+            if (string.IsNullOrWhiteSpace(waarde)) return false;
+            await using var cmd = new MySqlCommand(
+                $"UPDATE `Relations` SET `{kolom}` = @w WHERE `id_supplier` = @id AND (`{kolom}` IS NULL OR TRIM(`{kolom}`) = '')", cn);
+            cmd.Parameters.AddWithValue("@w", waarde.Trim());
+            cmd.Parameters.AddWithValue("@id", bedrijfId);
+            return await cmd.ExecuteNonQueryAsync() == 1;
+        }
+        return (await Vul("IBAN", iban), await Vul("BIC", bic));
     }
 
     // ============================================================

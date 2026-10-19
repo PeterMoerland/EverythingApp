@@ -160,6 +160,24 @@
                                 <span class="factuur-waarschuwing">@_bankWaarschuwing</span>
                             </div>
                         }
+                        @if (_bankVoorstel is { } bv && MagInvoeren)
+                        {
+                            <div class="wn-veld breed">
+                                <label></label>
+                                <div class="factuur-alias">
+                                    <span>
+                                        Van de factuur: @if (bv.Iban.Length > 0) { <text>IBAN <b>@bv.Iban</b></text> }
+                                        @if (bv.Iban.Length > 0 && bv.Bic.Length > 0) { <text> en </text> }
+                                        @if (bv.Bic.Length > 0) { <text>BIC <b>@bv.Bic</b>@(bv.BicAfgeleid ? " (afgeleid uit de IBAN)" : "")</text> }.
+                                        Toevoegen aan <b>@_factuur.Bedrijf</b> bij Relaties?
+                                    </span>
+                                    <span class="btngroup">
+                                        <button class="primair" @onclick="VulBankAan">Toevoegen</button>
+                                        <button class="klein" @onclick="() => _bankVoorstel = null">Nee</button>
+                                    </span>
+                                </div>
+                            </div>
+                        }
 
                         <div class="wn-veld">
                             <label>Factuurdatum</label>
@@ -602,6 +620,9 @@
     private List<Keuze> _leveranciers = new();
     private string _leverancierZoek = "";
     private string _bankWaarschuwing = "";
+    /// <summary>De laatst uitgelezen factuur (voor het voorstel om IBAN/BIC bij de leverancier aan te vullen).</summary>
+    private FactuurUitPdf? _gelezen;
+    private (string Iban, string Bic, bool BicAfgeleid)? _bankVoorstel;
     private bool _zoekOpen;
 
     /// <summary>
@@ -956,6 +977,8 @@
         _leveranciers = new();
         _leverancierZoek = "";
         _bankWaarschuwing = "";
+        _gelezen = null;
+        _bankVoorstel = null;
         _erIsGewijzigd = false;
         _gekozen.Clear();
         _sleep = false;
@@ -1312,6 +1335,15 @@
         var opFactuur = uit.Iban.Replace(" ", "").ToUpperInvariant();
         var bekend = _ibanUitRelaties.Replace(" ", "").ToUpperInvariant();
 
+        // Een IBAN waarvan het controlegetal niet klopt, is niet goed gelezen (bv. meerdere rekeningen op de factuur):
+        // dat is geen fraudesignaal, wel iets om zelf te bekijken.
+        if (opFactuur != bekend && !Bankgegevens.IbanGeldig(opFactuur))
+        {
+            uit.Opmerkingen.Add($"De IBAN op de factuur kon niet betrouwbaar gelezen worden ({opFactuur}: het controlegetal klopt niet). "
+                              + $"Bij deze leverancier staat {bekend}; vergelijk dat zelf met de factuur.");
+            return;
+        }
+
         if (opFactuur != bekend)
             uit.Opmerkingen.Add($"LET OP: op de factuur staat {opFactuur}, maar bij deze "
                               + $"leverancier staat {bekend}. Controleer dit vóór je betaalt — "
@@ -1335,8 +1367,51 @@
             if (mist.Count > 0)
                 _bankWaarschuwing = $"Van deze leverancier ontbreekt {string.Join(" en ", mist)}. "
                                   + "Vul dat aan bij Relaties, anders kan de betaling niet klaargezet worden.";
+            _bankVoorstel = mist.Count > 0 ? BankVoorstel(iban, bic) : null;
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Wat er uit de gelezen factuur aangevuld kan worden. IBAN alleen als het controlegetal klopt; BIC van de factuur
+    /// alleen als die bij dezelfde IBAN hoort (wijkt de IBAN af van wat er al staat, dan niet); anders, bij een
+    /// Nederlandse IBAN, afgeleid uit de bankcode.
+    /// </summary>
+    private (string Iban, string Bic, bool BicAfgeleid)? BankVoorstel(string bekendeIban, string bekendeBic)
+    {
+        if (_gelezen is null) return null;
+        var opFactuur = Bankgegevens.Schoon(_gelezen.Iban);
+        var ibanGeldig = Bankgegevens.IbanGeldig(opFactuur);
+        if (opFactuur.Length > 0 && !ibanGeldig)
+            _bankWaarschuwing += $" De IBAN op de factuur ({opFactuur}) klopt niet (controlegetal); die wordt niet voorgesteld.";
+
+        var nieuweIban = bekendeIban.Length == 0 && ibanGeldig ? opFactuur : "";
+        var zelfdeRekening = nieuweIban.Length > 0 || (ibanGeldig && Bankgegevens.Schoon(bekendeIban) == opFactuur);
+        string nieuweBic = "";
+        var afgeleid = false;
+        if (bekendeBic.Length == 0)
+        {
+            if (zelfdeRekening && Bankgegevens.BicGeldig(_gelezen.Bic)) nieuweBic = Bankgegevens.Schoon(_gelezen.Bic);
+            else if (Bankgegevens.BicUitIban(nieuweIban.Length > 0 ? nieuweIban : bekendeIban) is { } b) { nieuweBic = b; afgeleid = true; }
+        }
+        return nieuweIban.Length + nieuweBic.Length == 0 ? null : (nieuweIban, nieuweBic, afgeleid);
+    }
+
+    private async Task VulBankAan()
+    {
+        if (_bankVoorstel is not { } bv || _factuur.BedrijfId is not int id) return;
+        try
+        {
+            var (iban, bic) = await Repo.VulBankgegevensAanAsync(id, bv.Iban, bv.Bic);
+            _bankVoorstel = null;
+            await ControleerBank();
+            var wat = new List<string>();
+            if (iban) wat.Add("IBAN " + bv.Iban);
+            if (bic) wat.Add("BIC " + bv.Bic);
+            Toon(wat.Count == 0 ? "Er is niets aangevuld: bij de leverancier stond intussen al iets ingevuld."
+                                : $"{string.Join(" en ", wat)} toegevoegd aan {_factuur.Bedrijf}.", wat.Count == 0);
+        }
+        catch (Exception ex) { Toon("Aanvullen mislukt: " + ex.Message, true); }
     }
 
     // ---- opslaan ----
@@ -1493,6 +1568,7 @@
 
         var fouten = new List<string>();
         var erbij = 0;
+        var nieuw = new List<GekozenBestand>();
 
         // Meerdere bestanden tegelijk: de factuur en de bijlagen uit de mail.
         // Meer dan 20 zou GetMultipleFiles laten ontploffen; dan liever een melding.
@@ -1526,7 +1602,9 @@
                 using var geheugen = new MemoryStream();
                 await bestand.OpenReadStream(maxAllowedSize: grens).CopyToAsync(geheugen);
 
-                _gekozen.Add(new GekozenBestand { Naam = bestand.Name, Inhoud = geheugen.ToArray() });
+                var gb = new GekozenBestand { Naam = bestand.Name, Inhoud = geheugen.ToArray() };
+                _gekozen.Add(gb);
+                nieuw.Add(gb);
                 erbij++;
             }
             catch (Exception ex) { fouten.Add($"{bestand.Name}: {ex.Message}"); }
@@ -1550,6 +1628,18 @@
         if (fouten.Count > 0) Toon("Niet meegenomen: " + string.Join("; ", fouten) + ".", true);
         else if (erbij > 0 && _factuur.Id == 0)
             Toon(erbij == 1 ? "Bestand klaargezet." : $"{erbij} bestanden klaargezet.", false);
+
+        // Meteen uitlezen (wens gebruiker): alleen als de factuur nog leeg is, dus niet bij een bijlage achteraf.
+        // Bij meerdere bestanden het bestand dat op een factuur lijkt, anders het eerste leesbare.
+        if (Lezer.Beschikbaar && MagInvoeren && !_lezen && string.IsNullOrWhiteSpace(_factuur.Factuurnummer)
+            && nieuw.Where(b => b.IsLeesbaar).ToList() is { Count: > 0 } leesbaar)
+        {
+            var kandidaat = leesbaar.FirstOrDefault(b => System.Text.RegularExpressions.Regex.IsMatch(
+                                b.Naam, "factuur|invoice|rekening|faktura|rechnung|bon", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                            ?? leesbaar[0];
+            StateHasChanged();
+            await Lees(kandidaat);
+        }
     }
 
     private async Task Verwijder(GekozenBestand best)
@@ -1609,7 +1699,9 @@
             if (uit is null) { Toon(fout, true); return; }
 
             NeemOver(uit);
+            _gelezen = uit;
             await ZoekLeverancier(uit);
+            if (_factuur.BedrijfId is not null) await ControleerBank();   // ook als de leverancier al gekozen was
 
             // Vond de AI een PO-verwijzing, dan zoekt het koppelscherm daar
             // straks alvast op voor.

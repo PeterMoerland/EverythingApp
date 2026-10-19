@@ -9,6 +9,7 @@ public class FactuurUitPdf
 {
     public string Leverancier { get; set; } = "";
     public string Iban { get; set; } = "";
+    public string Bic { get; set; } = "";
     public string BtwNummer { get; set; } = "";
 
     public DateOnly? Factuurdatum { get; set; }
@@ -126,6 +127,7 @@ public class FactuurLezer
         {
           "leverancier": "de naam van het bedrijf dat de factuur STUURT (niet de ontvanger)",
           "iban": "IBAN van de leverancier, zonder spaties",
+          "bic": "BIC/SWIFT-code van de bank van de leverancier, zonder spaties",
           "btwnummer": "btw-identificatienummer van de leverancier",
           "factuurdatum": "jjjj-mm-dd",
           "factuurnummer": "het factuurnummer zoals het er staat",
@@ -462,6 +464,7 @@ public class FactuurLezer
 
             uit.Leverancier = S("leverancier");
             uit.Iban = S("iban").Replace(" ", "").ToUpperInvariant();
+            uit.Bic = S("bic").Replace(" ", "").ToUpperInvariant();
             uit.BtwNummer = S("btwnummer").Replace(" ", "").ToUpperInvariant();
             uit.Factuurnummer = S("factuurnummer");
             uit.Omschrijving = S("omschrijving");

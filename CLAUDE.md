@@ -262,6 +262,15 @@ beeld-PDF gemaakt van één ervan: 3-4,5 s per factuur (Ollama: minuten). Materi
 (scan) gelijk aan pagina 1 (de boekhouding splitste 7,58 als invoer-btw uit pagina 2 af); FedEx las invoerrechten als btw →
 huisregel in `Templates/FactuurUitlezen.txt` (invoerrechten/voorschotprovisie zijn geen btw), daarna gelijk aan de
 administratie, ook als scan. Testtip: een PDF-pagina naar PNG met `Windows.Data.Pdf` (TFM net8.0-windows10.0.19041.0).
+- **Meteen uitlezen** (wens gebruiker): na kiezen/slepen start `Lees` vanzelf, als de factuur nog geen factuurnummer heeft
+  (niet bij een bijlage achteraf); bij meerdere bestanden het bestand met factuur/invoice/rekening/bon in de naam.
+- **IBAN/BIC aanvullen**: de AI leest ook `bic`. Ontbreekt IBAN of BIC bij de leverancier, dan stelt het venster voor die
+  aan te vullen (knop Toevoegen; `IFactuurRepository.VulBankgegevensAanAsync` vult alléén lege velden). IBAN alleen met
+  kloppend controlegetal (`Services/Bankgegevens.cs`, mod 97); BIC van de factuur alleen bij dezelfde rekening, anders bij
+  een NL-IBAN afgeleid uit de bankcode (tabel van grote NL-banken). Een IBAN met fout controlegetal geeft geen fraudealarm
+  meer maar "niet betrouwbaar gelezen" (Materialise: twee rekeningen op de factuur, model las een onjuiste). Getest in de
+  browser (rechten tijdelijk lokaal open, testfactuur via een lokale testserver in de file-input): uitlezen start vanzelf,
+  voorstel verschijnt bij een leverancier zonder IBAN; op Toevoegen niet geklikt (schrijft in Relations).
 
 ## Vragen aan AI, Financiën (19-10-2026)
 
