@@ -223,11 +223,22 @@
         catch { _werkorders = new(); }
     }
 
-    private void WerkorderGewijzigd(int werkbonId, ChangeEventArgs e)
+    /// <summary>Werkorder aan- of uitgevinkt: de periode volgt de uren van die keuze (zoals Access na een klik op de
+    /// werkorder 'zoek data' deed). Geen uren gevonden: de periode blijft staan.</summary>
+    private async Task WerkorderGewijzigd(int werkbonId, ChangeEventArgs e)
     {
         if (e.Value is bool aan && aan) { if (!_selectie.WerkbonIds.Contains(werkbonId)) _selectie.WerkbonIds.Add(werkbonId); }
         else _selectie.WerkbonIds.Remove(werkbonId);
         WisLijst();
+        try
+        {
+            if (await Repo.PeriodeVanUrenAsync(_selectie) is { } periode)
+            {
+                _selectie.Van = periode.Van;
+                _selectie.Tot = periode.Tot;
+            }
+        }
+        catch { /* dan blijft de periode zoals hij was */ }
     }
 
     private void VanGewijzigd(DateOnly? d) { if (d is DateOnly dag) _selectie.Van = dag; WisLijst(); }

@@ -1,356 +1,420 @@
-@page "/relaties/tarieven"
-@inject IRelatieRepository Repo
-@inject IWerknemerRepository WnRepo
+@page "/financien/tarieven"
+@inject IUrenImportRepository Repo
+@inject IRelatieRepository Relaties
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
+@* Tarieven berekenen: het losse gebruik van het Access-formulier InvoiceImportHours. Uren van een klant (project,
+   werkorders, periode) bekijken met het opnieuw gerekende tarief, de tarieven in Uren opslaan ("Bereken tarieven"),
+   en van hieruit een factuur maken met deze uren als regels. Het importeren vanuit een bestaande factuur blijft in
+   Components/UrenImportVenster.razor (zelfde repository en rekenregels, Services/Tariefregels.cs). *@
+
+<PageTitle>Tarieven berekenen — MDE</PageTitle>
+
 <div class="page">
     <header class="topbar">
-        <h1>Tariefafspraken</h1>
-        <span class="weeklabel">@(_klantNaam ?? "kies een klant")</span>
+        <h1>Tarieven berekenen</h1>
+        @if (_uren.Count > 0)
+        {
+            <span class="weeklabel">@_uren.Count urenregels · @Getal(_uren.Sum(u => u.Uren)) uur · @Geld(_uren.Sum(u => u.BedragVoorFactuur))</span>
+        }
     </header>
 
-    @if (!Repo.Beschikbaar)
+    @if (!Mag)
     {
-        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+        <div class="melding fout">Hiervoor is het recht Financial of Directie nodig.</div>
     }
     else
     {
-        <section class="toolbar">
-            <label>Klant:</label>
-            <div class="zoekregel" style="min-width:20rem">
-                <input placeholder="Zoek klant…" value="@_zoek" @onchange="ZoekGewijzigd" />
-                <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
-            </div>
-            @if (_klanten.Count > 0)
-            {
-                <select @onchange="KlantGewijzigd">
-                    <option value="">— kies —</option>
-                    @foreach (var k in _klanten)
-                    {
-                        <option value="@k.Id" selected="@(k.Id == _klantId)">@k.Naam</option>
-                    }
-                </select>
-            }
-        </section>
-
         @if (_melding is not null)
         {
-            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+            <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
         }
 
-        @if (_klantId is null)
-        {
-            <div class="kiezer-info">Zoek en kies een klant om de tariefafspraken te zien.</div>
-        }
-        else
-        {
-            <div class="wn-scherm">
-                @* ---------- links: perioden ---------- *@
-                <aside class="wn-lijst" style="width:15rem">
-                    <div class="wn-filters">
-                        <b>Periode</b>
-                        <button class="klein" @onclick="Nieuw">+ Nieuwe afspraak</button>
+        <div class="tar-keuze">
+            <div class="wn-velden een-kolom">
+                <div class="wn-veld">
+                    <label>Klant</label>
+                    <div class="factuur-leverancier">
+                        @if (_klant is { } kl) { <span class="factuur-gekozen">@kl.Naam</span> }
+                        else { <span class="zij-extra">nog niet gekozen</span> }
+                        <button class="klein" @onclick="() => _klantZoekOpen = !_klantZoekOpen">🔍 zoeken</button>
                     </div>
-                    <div class="wn-namen">
-                        @foreach (var t in _afspraken)
-                        {
-                            <button class="wn-naam @(t.Id == _gekozenId ? "actief" : "")"
-                                    @onclick="() => _gekozenId = t.Id">
-                                @Datum(t.Van) — @Datum(t.Tot)
-                                @if (t.IsActueel)
+                </div>
+                @if (_klantZoekOpen)
+                {
+                    <div class="wn-veld breed">
+                        <label></label>
+                        <div class="factuur-zoekvak">
+                            <input placeholder="Naam of plaats…" value="@_klantZoek" @oninput="KlantZoekGewijzigd" autofocus />
+                            @if (_klanten.Count == 0 && _klantZoek.Trim().Length >= 2)
+                            {
+                                <p class="zij-extra">Niets gevonden. Staat hij als klant bij Relaties?</p>
+                            }
+                            <div class="wn-namen kort">
+                                @foreach (var k in _klanten)
                                 {
-                                    <span class="nu">nu</span>
+                                    <button class="wn-naam" @key="k.Id" @onclick="() => KiesKlant(k)">@k.Naam</button>
                                 }
-                            </button>
-                        }
-                        @if (_afspraken.Count == 0)
-                        {
-                            <div class="kiezer-info">Nog geen afspraken.</div>
-                        }
+                            </div>
+                        </div>
                     </div>
-                </aside>
+                }
 
-                @* ---------- rechts: de afspraak ---------- *@
-                <section class="wn-detail">
-                    @if (_afspraak is null)
+                @if (_klant is not null)
+                {
+                    <div class="wn-veld">
+                        <label>Project</label>
+                        <select value="@(_selectie.ProjectId?.ToString() ?? "")" @onchange="ProjectGewijzigd">
+                            <option value="">— alle projecten van de klant —</option>
+                            @foreach (var p in _projecten)
+                            {
+                                <option value="@p.Id">@p.Nummer — @p.Omschrijving</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_werkorders.Count > 0)
                     {
-                        <div class="kiezer-info">Kies links een periode.</div>
-                    }
-                    else
-                    {
-                        <div class="wn-velden een-kolom">
-                            <div class="wn-veld">
-                                <label>Geldig van</label>
-                                <NlDatum Waarde="_afspraak.Van" WaardeChanged="d => Zet(() => _afspraak.Van = d)" />
+                        <div class="wn-veld breed">
+                            <label>Werkorders</label>
+                            <div class="ui-werkorders">
+                                @foreach (var w in _werkorders)
+                                {
+                                    <label class="vinkje" @key="w.WerkbonId">
+                                        <input type="checkbox" checked="@_selectie.WerkbonIds.Contains(w.WerkbonId)"
+                                               @onchange="e => WerkorderGewijzigd(w.WerkbonId, e)" />
+                                        @w.Nummer @w.Omschrijving
+                                        @if (w.Soort.Length > 0) { <span class="zij-extra">(@w.Soort)</span> }
+                                    </label>
+                                }
+                                <span class="zij-extra">Niets aangevinkt = alle werkorders van het project.</span>
                             </div>
-                            <div class="wn-veld">
-                                <label>Tot en met</label>
-                                <NlDatum Waarde="_afspraak.Tot" WaardeChanged="d => Zet(() => _afspraak.Tot = d)" />
-                            </div>
-                            <div class="wn-veld">
-                                <label>Contactpersoon</label>
-                                <select value="@_afspraak.ContactpersoonId" @onchange="ContactGewijzigd">
-                                    <option value="">—</option>
-                                    @foreach (var c in _contacten)
-                                    {
-                                        <option value="@c.Id">@c.Naam</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="wn-veld">
-                                <label>Functie</label>
-                                <select value="@_afspraak.FunctieId" @onchange="FunctieGewijzigd">
-                                    <option value="">— alle functies —</option>
-                                    @foreach (var f in _functies)
-                                    {
-                                        <option value="@f.Id">@f.Naam</option>
-                                    }
-                                </select>
-                            </div>
-                        </div>
-
-                        <h3 class="wn-kop">Tarieven</h3>
-                        <div class="wn-velden een-kolom">
-                            <div class="wn-veld"><label>Basistarief €</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.Basistarief)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.Basistarief = v, e)" /></div>
-                            <div class="wn-veld"><label>Laag tarief €</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.LaagTarief)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.LaagTarief = v, e)" /></div>
-                            <div class="wn-veld"><label>Minimumtarief €</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.MinimumTarief)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.MinimumTarief = v, e)" /></div>
-                            <div class="wn-veld"><label>Reistarief €</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.Reistarief)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.Reistarief = v, e)" /></div>
-                            <div class="wn-veld"><label>Kilometer €</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.Kilometer)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.Kilometer = v, e)" /></div>
-                            <div class="wn-veld"><label>Betalingstermijn (dagen)</label>
-                                <input class="r smal" value="@_afspraak.Betalingstermijn"
-                                       @onchange="e => ZetGetal(v => _afspraak.Betalingstermijn = v, e)" /></div>
-                        </div>
-
-                        <h3 class="wn-kop">Percentages</h3>
-                        <div class="wn-velden een-kolom">
-                            <div class="wn-veld"><label>Overwerk %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.OverwerkBasis)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.OverwerkBasis = v, e)" /></div>
-                            <div class="wn-veld"><label>Overwerk zon/feest %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.OverwerkZon)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.OverwerkZon = v, e)" /></div>
-                            <div class="wn-veld"><label>Buitenland %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.Buitenland)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.Buitenland = v, e)" /></div>
-                        </div>
-
-                        <h3 class="wn-kop">Toeslagen bij facturatie</h3>
-                        <div class="wn-velden een-kolom">
-                            <div class="wn-veld"><label>Toeslag uren %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagUren)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagUren = v, e)" /></div>
-                            <div class="wn-veld"><label>Toeslag expenses %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagExpenses)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagExpenses = v, e)" /></div>
-                            <div class="wn-veld"><label>Toeslag materiaal %</label>
-                                <input class="r smal" value="@Bedrag(_afspraak.ToeslagMateriaal)"
-                                       @onchange="e => ZetBedrag(v => _afspraak.ToeslagMateriaal = v, e)" /></div>
-                        </div>
-
-                        <h3 class="wn-kop">Opmerking</h3>
-                        <div class="wn-velden een-kolom">
-                            <div class="wn-veld breed">
-                                <textarea rows="4" value="@_afspraak.Opmerking"
-                                          @onchange="e => ZetTekst(v => _afspraak.Opmerking = v, e)"></textarea>
-                            </div>
-                        </div>
-
-                        <div class="tl-balk" style="margin-top:1rem">
-                            <button class="rood" @onclick="Verwijder">Afspraak verwijderen</button>
                         </div>
                     }
-                </section>
+                    <div class="wn-veld breed">
+                        <label>Periode</label>
+                        <span class="factuur-termijn">
+                            <NlDatum Waarde="_selectie.Van" WaardeChanged="VanGewijzigd" />
+                            <span>t/m</span>
+                            <NlDatum Waarde="_selectie.Tot" WaardeChanged="TotGewijzigd" />
+                            <button class="klein" @onclick="() => ZetMaand(-1)">Vorige maand</button>
+                            <button class="klein" @onclick="() => ZetMaand(0)">Deze maand</button>
+                            <button class="klein" title="Van de eerste tot de laatste dag met uren in deze keuze" @onclick="AlleUren">Alle uren</button>
+                        </span>
+                    </div>
+                }
+            </div>
+
+            @if (_klant is not null)
+            {
+                <div class="btngroup">
+                    <button class="primair" disabled="@_bezig" @onclick="Toon">@(_bezig ? "Bezig…" : "Uren tonen")</button>
+                    @if (_getoond && _uren.Count > 0)
+                    {
+                        <button class="klein" disabled="@_bezig" title="Zoals 'Bereken tarieven' in Access: de gerekende bedragen in de urenregistratie zetten"
+                                @onclick="TarievenOpslaan">Tarieven opslaan (@AantalAnders)</button>
+                        <button class="klein" disabled="@_bezig" title="Een nieuwe factuur voor deze klant, met deze uren als regels"
+                                @onclick="FactuurMaken">＋ Factuur maken met deze uren</button>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_getoond && _meldingen.Count > 0)
+        {
+            <div class="factuur-ai">
+                <strong>Let op:</strong>
+                <ul>@foreach (var m in _meldingen) { <li @key="m">@m</li> }</ul>
             </div>
         }
-    }
 
-    <footer class="voet">
-        Perioden mogen elkaar niet overlappen; de afspraak met 'nu' erachter geldt vandaag.
-        Wijzigingen worden per veld direct opgeslagen.
-    </footer>
+        @if (_getoond)
+        {
+            @* samenvatting zoals de factuurregels straks: per werkorder, medewerker en uurtype *@
+            <h3 class="wn-kop">Samenvatting <small class="zij-extra">(@Groepeer().Count factuurregels)</small></h3>
+            <table class="kiezer-tabel tar-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:7rem">Werkorder</th><th>Omschrijving</th><th style="width:12rem">Medewerker</th>
+                        <th style="width:7rem">Uurtype</th><th style="width:4.5rem" class="r">Uren</th>
+                        <th style="width:4.5rem" class="r">Km</th><th style="width:7.5rem" class="r">Bedrag</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var g in Groepeer())
+                    {
+                        <tr>
+                            <td>@g.Werkorder</td><td class="omschrijving" title="@g.ProjectOmschrijving">@g.WerkorderOmschrijving</td>
+                            <td>@g.Naam</td><td>@g.Uurtype</td>
+                            <td class="r">@Getal(g.Uren ?? 0)</td><td class="r">@((g.Kilometers ?? 0) == 0 ? "" : Getal(g.Kilometers ?? 0))</td>
+                            <td class="r">@Geld(g.Totaal)</td>
+                        </tr>
+                    }
+                    @if (_uren.Count == 0) { <tr><td colspan="7" class="kiezer-info">Geen uren in deze keuze en periode.</td></tr> }
+                </tbody>
+            </table>
+
+            @if (_uren.Count > 0)
+            {
+                <h3 class="wn-kop">
+                    Urenregels
+                    <button class="klein" @onclick="() => _details = !_details">@(_details ? "Verbergen" : "Tonen")</button>
+                </h3>
+                @if (_details)
+                {
+                    <div class="ui-lijst tar-details">
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:5.6rem">Datum</th><th>Medewerker</th><th style="width:6.5rem">Werkorder</th>
+                                    <th style="width:5.5rem">Uurtype</th><th style="width:3.5rem" class="r">Uren</th>
+                                    <th style="width:3.5rem" class="r">Km</th><th style="width:5rem" class="r">Vast</th>
+                                    <th style="width:6.5rem" class="r" title="Wat nu in de urenregistratie staat">Was</th>
+                                    <th style="width:6.5rem" class="r" title="Opnieuw gerekend met de huidige tarieven">Bedrag</th>
+                                    <th style="width:9rem">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in _uren)
+                                {
+                                    <tr @key="u.UrenId" class="@(AlElders(u) ? "ui-elders" : "")">
+                                        <td>@u.Datum.ToString("dd-MM-yy")</td>
+                                        <td class="omschrijving">@u.Werknemer</td>
+                                        <td title="@u.WerkorderOmschrijving">@u.Wo</td>
+                                        <td>@u.Tariefsoort</td>
+                                        <td class="r">@Getal(u.Uren)</td>
+                                        <td class="r">@(u.Kilometers == 0 ? "" : Getal(u.Kilometers))</td>
+                                        <td class="r">@(u.VastBedrag == 0 ? "" : Geld(u.VastBedrag))</td>
+                                        <td class="r">@Geld(u.Bedrag)</td>
+                                        <td class="r @(u.NieuwBedrag is null ? "factuur-credit" : u.NieuwBedrag != u.Bedrag ? "ui-anders" : "")" title="@u.Melding">
+                                            @(u.NieuwBedrag is decimal nieuw ? Geld(nieuw) : "—")
+                                        </td>
+                                        <td class="omschrijving">@Status(u)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        }
+    }
 </div>
 
+<VerkoopFactuurVenster FactuurId="_factuurOpen" Voorstel="_voorstel" Sluiten="FactuurGesloten" />
+
 @code {
-    private string _zoek = "";
+    private bool Mag => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    private Keuze? _klant;
+    private bool _klantZoekOpen = true;
+    private string _klantZoek = "";
     private List<Keuze> _klanten = new();
-    private int? _klantId;
-    private string? _klantNaam;
 
-    private List<Tariefafspraak> _afspraken = new();
-    private int? _gekozenId;
-    private Tariefafspraak? _afspraak => _afspraken.FirstOrDefault(a => a.Id == _gekozenId);
-
-    private List<Contactpersoon> _contacten = new();
-    private List<Keuze> _functies = new();
-
+    private UrenSelectie _selectie = new();
+    private List<ProjectKeuze> _projecten = new();
+    private List<WerkorderKeuzeUren> _werkorders = new();
+    private List<UurRegel> _uren = new();
+    private List<string> _meldingen = new();
+    private bool _getoond, _bezig, _details;
     private string? _melding;
-    private bool _fout;
+    private bool _meldingFout;
 
-    protected override async Task OnInitializedAsync()
+    private int? _factuurOpen;
+    private FactuurVoorstel? _voorstel;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+    private static string Getal(decimal w) => w.ToString("0.##", Nl);
+
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+
+    // ---- klant ----
+    private async Task KlantZoekGewijzigd(ChangeEventArgs e)
     {
-        await Ik.ZorgGeladenAsync();
-        if (!Repo.Beschikbaar) return;
-        try { _functies = await WnRepo.GetFunctiesAsync(); } catch { }
+        _klantZoek = (string?)e.Value ?? "";
+        var zoek = _klantZoek.Trim();
+        if (zoek.Length < 2) { _klanten = new(); return; }
+        try { _klanten = await Relaties.ZoekAsync(zoek, true, false, 0, 15); }
+        catch { _klanten = new(); }
     }
 
-    private static string Datum(DateOnly? d) => d is null ? "…" : d.Value.ToString("dd-MM-yyyy");
-    private static string Bedrag(decimal? v) => v is null ? "" : v.Value.ToString("0.##");
-
-    private async Task ZoekGewijzigd(ChangeEventArgs e)
+    private async Task KiesKlant(Keuze k)
     {
-        _zoek = (string?)e.Value ?? "";
-        await ZoekKlanten();
-    }
-
-    private async Task WisZoek()
-    {
-        _zoek = "";
-        _klanten = new();
-        _klantId = null;
-        _klantNaam = null;
-        _afspraken = new();
-        _gekozenId = null;
-        await Task.CompletedTask;
-    }
-
-    private async Task ZoekKlanten()
-    {
-        try
-        {
-            _klanten = await Repo.ZoekAsync(_zoek, alleenKlanten: true, alleenLeveranciers: false, 0, 50);
-            if (_klanten.Count == 1) await KiesKlant(_klanten[0]);
-        }
-        catch (Exception ex) { _klanten = new(); Toon("Zoeken mislukt: " + ex.Message, true); }
-    }
-
-    private async Task KlantGewijzigd(ChangeEventArgs e)
-    {
-        if (!int.TryParse((string?)e.Value, out var id)) { _klantId = null; _afspraken = new(); return; }
-        var klant = _klanten.FirstOrDefault(k => k.Id == id);
-        if (klant is not null) await KiesKlant(klant);
-    }
-
-    private async Task KiesKlant(Keuze klant)
-    {
-        _klantId = klant.Id;
-        _klantNaam = klant.Naam;
-        _gekozenId = null;
-        await Laad();
-        try { _contacten = await Repo.GetContactpersonenAsync(klant.Id, false); } catch { _contacten = new(); }
-    }
-
-    private async Task Laad()
-    {
-        if (_klantId is null) { _afspraken = new(); return; }
-        try
-        {
-            _afspraken = await Repo.GetTariefafsprakenAsync(_klantId.Value);
-            // de afspraak die vandaag geldt meteen openen
-            if (_gekozenId is null || _afspraken.All(a => a.Id != _gekozenId))
-                _gekozenId = (_afspraken.FirstOrDefault(a => a.IsActueel) ?? _afspraken.FirstOrDefault())?.Id;
-        }
-        catch (Exception ex) { _afspraken = new(); Toon("Ophalen mislukt: " + ex.Message, true); }
-    }
-
-    private async Task Nieuw()
-    {
-        if (_klantId is null) return;
+        _klant = k;
+        _klantZoekOpen = false; _klantZoek = ""; _klanten = new();
         var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        _selectie = new UrenSelectie { KlantId = k.Id, Van = vandaag.AddDays(-7), Tot = vandaag };   // zoals Access: afgelopen week
+        _werkorders = new();
+        WisLijst();
+        try { _projecten = await Repo.GetProjectenAsync(k.Id); }
+        catch (Exception ex) { _projecten = new(); Toon("Projecten ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- keuze ----
+    private async Task ProjectGewijzigd(ChangeEventArgs e)
+    {
+        _selectie.ProjectId = int.TryParse((string?)e.Value, out var v) ? v : null;
+        _selectie.WerkbonIds.Clear();
+        WisLijst();
+        try { _werkorders = _selectie.ProjectId is int p ? await Repo.GetWerkordersAsync(p) : new(); }
+        catch { _werkorders = new(); }
+    }
+
+    /// <summary>Werkorder aan- of uitgevinkt: de periode volgt de uren van die keuze; geen uren = periode blijft staan.</summary>
+    private async Task WerkorderGewijzigd(int werkbonId, ChangeEventArgs e)
+    {
+        if (e.Value is true) { if (!_selectie.WerkbonIds.Contains(werkbonId)) _selectie.WerkbonIds.Add(werkbonId); }
+        else _selectie.WerkbonIds.Remove(werkbonId);
+        WisLijst();
         try
         {
-            var id = await Repo.BewaarTariefafspraakAsync(new Tariefafspraak
+            if (await Repo.PeriodeVanUrenAsync(_selectie) is { } periode)
             {
-                RelatieId = _klantId.Value,
-                Van = new DateOnly(vandaag.Year, 1, 1),
-                Tot = new DateOnly(vandaag.Year, 12, 31),
-            }, Ik.WerknemerId);
-            await Laad();
-            _gekozenId = id;
-            Toon("Afspraak toegevoegd. Vul de tarieven in.", false);
+                _selectie.Van = periode.Van;
+                _selectie.Tot = periode.Tot;
+            }
         }
-        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        catch { }
     }
 
-    private async Task Verwijder()
-    {
-        if (_afspraak is null) return;
-        bool zeker;
-        try
-        {
-            zeker = await JS.InvokeAsync<bool>("mdeBevestig",
-                $"Afspraak {Datum(_afspraak.Van)} — {Datum(_afspraak.Tot)} verwijderen? Weet je het zeker?");
-        }
-        catch { zeker = true; }
-        if (!zeker) return;
+    private void VanGewijzigd(DateOnly? d) { if (d is DateOnly dag) _selectie.Van = dag; WisLijst(); }
+    private void TotGewijzigd(DateOnly? d) { if (d is DateOnly dag) _selectie.Tot = dag; WisLijst(); }
 
-        try
-        {
-            await Repo.VerwijderTariefafspraakAsync(_afspraak.Id);
-            _gekozenId = null;
-            await Laad();
-            Toon("Afspraak verwijderd.", false);
-        }
-        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    private void ZetMaand(int verschuiving)
+    {
+        var eerste = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(verschuiving);
+        _selectie.Van = eerste;
+        _selectie.Tot = eerste.AddMonths(1).AddDays(-1);
+        WisLijst();
     }
 
-    // ---- veldwijzigingen: aanpassen en meteen opslaan ----
-    private async Task Bewaar()
+    private async Task AlleUren()
     {
-        if (_afspraak is null) return;
         try
         {
-            await Repo.BewaarTariefafspraakAsync(_afspraak, Ik.WerknemerId);
-            Toon("Opgeslagen.", false);
+            var periode = await Repo.PeriodeVanUrenAsync(_selectie);
+            if (periode is null) { Toon("Geen uren gevonden in deze keuze.", true); return; }
+            _selectie.Van = periode.Value.Van;
+            _selectie.Tot = periode.Value.Tot;
+            WisLijst();
+        }
+        catch (Exception ex) { Toon("Periode ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void WisLijst() { _uren = new(); _meldingen = new(); _getoond = false; }
+
+    // ---- tonen en rekenen ----
+    private async Task Toon()
+    {
+        if (_klant is null) return;
+        if (_selectie.Tot < _selectie.Van) { Toon("De einddatum ligt voor de begindatum.", true); return; }
+        _bezig = true;
+        try
+        {
+            _uren = await Repo.GetUrenAsync(_selectie);
+            await Repo.RekenAsync(_klant.Id, _uren);
+            _meldingen = Meldingen();
+            _getoond = true;
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("Uren ophalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private bool AlElders(UurRegel u) => u.GefactureerdOp is not null || u.GereserveerdOp is not null;
+
+    private static string Status(UurRegel u)
+    {
+        if (u.GefactureerdOp is not null) return "gefactureerd " + (u.GefactureerdNr.Length > 0 ? u.GefactureerdNr : "#" + u.GefactureerdOp);
+        if (u.GereserveerdOp is int r) return "op factuur " + (u.GereserveerdNr.Length > 0 ? u.GereserveerdNr : "#" + r);
+        return "";
+    }
+
+    private int AantalAnders => _uren.Count(u => u.NieuwBedrag is decimal n && n != u.Bedrag);
+
+    private List<string> Meldingen()
+    {
+        var lijst = _uren.Where(u => u.Melding.Length > 0)
+            .GroupBy(u => u.Melding)
+            .Select(g => g.First().NieuwBedrag is null
+                ? $"{g.Key}: {g.Count()} regel(s) houden het bedrag dat er nu staat"
+                : $"{g.Key} ({g.Count()}×)")
+            .ToList();
+        var elders = _uren.Count(AlElders);
+        if (elders > 0) lijst.Add($"{elders} regel(s) staan al op een factuur (oranje); die gaan niet mee in een nieuwe factuur.");
+        if (AantalAnders > 0) lijst.Add($"Bij {AantalAnders} regel(s) wijkt het gerekende bedrag af van wat er stond (vetgedrukt); 'Tarieven opslaan' zet het nieuwe bedrag in de urenregistratie.");
+        return lijst;
+    }
+
+    /// <summary>Access cmdBerekenTarieven: de gerekende bedragen in Uren zetten, los van een factuur.</summary>
+    private async Task TarievenOpslaan()
+    {
+        if (_uren.Count == 0 || _bezig) return;
+        var fout = _uren.Count(u => u.NieuwBedrag is null);
+        if (fout > 0 && !await Vraag($"Bij {fout} urenregel(s) kon het tarief niet gerekend worden; die blijven zoals ze staan. Doorgaan?")) return;
+        _bezig = true;
+        try
+        {
+            var n = await Repo.SchrijfTarievenAsync(_uren);
+            foreach (var u in _uren.Where(u => u.NieuwBedrag is decimal)) u.Bedrag = u.NieuwBedrag!.Value;
+            _meldingen = Meldingen();
+            Toon(n > 0 ? $"{n} tarieven bijgewerkt in de urenregistratie." : "Alle tarieven stonden al goed.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
     }
 
-    private async Task Zet(Action wijzig) { wijzig(); await Bewaar(); }
+    // ---- factuur maken ----
 
-    private async Task ZetBedrag(Action<decimal?> zet, ChangeEventArgs e)
+    /// <summary>Zoals het importvenster: één regel per project, werkorder, medewerker en uurtype; uren die al op een
+    /// factuur staan doen niet mee (bij een nieuwe factuur zijn die altijd 'elders').</summary>
+    private List<VerkoopFactuurItem> Groepeer()
+        => _uren.Where(u => !AlElders(u))
+            .GroupBy(u => (u.ProjectId, u.WerkbonId, u.WerknemerId, u.TariefsoortId))
+            .Select(g =>
+            {
+                var eerste = g.First();
+                var bedrag = g.Sum(u => u.BedragVoorFactuur);
+                return new VerkoopFactuurItem
+                {
+                    Werkorder = eerste.Wo, WerkorderOmschrijving = eerste.WerkorderOmschrijving, ProjectOmschrijving = eerste.ProjectOmschrijving,
+                    Naam = eerste.Werknemer, Uurtype = eerste.Tariefsoort,
+                    Uren = g.Sum(u => u.Uren), Kilometers = g.Sum(u => u.Kilometers),
+                    Stuksprijs = bedrag, Korting = 0, Totaal = bedrag,
+                    Herkomst = new UrenHerkomst(eerste.ProjectId, eerste.ProjectOmschrijving, eerste.WerkbonId,
+                                                eerste.WerknemerId, eerste.TariefsoortId, _selectie.Van, _selectie.Tot),
+                };
+            })
+            .OrderBy(r => r.Werkorder).ThenBy(r => r.Naam).ThenBy(r => r.Uurtype)
+            .ToList();
+
+    private async Task FactuurMaken()
     {
-        var tekst = ((string?)e.Value ?? "").Replace(',', '.').Replace("€", "").Trim();
-        zet(decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
-                             System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null);
-        await Bewaar();
+        if (_klant is null || _bezig) return;
+        var regels = Groepeer();
+        if (regels.Count == 0) { Toon("Er zijn geen uren die nog niet op een factuur staan.", true); return; }
+        // eerst de tarieven vastleggen, net als bij importeren vanuit een factuur
+        try { await Repo.SchrijfTarievenAsync(_uren); } catch (Exception ex) { Toon("Tarieven opslaan mislukt: " + ex.Message, true); return; }
+        var project = _selectie.ProjectId is int p ? _projecten.FirstOrDefault(x => x.Id == p) : null;
+        var omschrijving = project is null ? $"Uren {_selectie.Van:dd-MM-yyyy} t/m {_selectie.Tot:dd-MM-yyyy}"
+                                           : $"{project.Nummer} {project.Omschrijving} · uren {_selectie.Van:dd-MM-yyyy} t/m {_selectie.Tot:dd-MM-yyyy}";
+        _voorstel = new FactuurVoorstel(null, _klant.Id, _klant.Naam, "", omschrijving, "", 0) { Regels = regels };
+        _factuurOpen = 0;
     }
 
-    private async Task ZetGetal(Action<int?> zet, ChangeEventArgs e)
+    private async Task FactuurGesloten(bool bewaard)
     {
-        zet(int.TryParse((string?)e.Value, out var v) ? v : null);
-        await Bewaar();
+        _factuurOpen = null;
+        _voorstel = null;
+        if (bewaard && _getoond) await Toon();        // de uren staan nu op een factuur: status bijwerken
     }
 
-    private async Task ZetTekst(Action<string> zet, ChangeEventArgs e)
+    private async Task<bool> Vraag(string tekst)
     {
-        zet((string?)e.Value ?? "");
-        await Bewaar();
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
     }
 
-    private async Task ContactGewijzigd(ChangeEventArgs e)
-    {
-        if (_afspraak is null) return;
-        _afspraak.ContactpersoonId = int.TryParse((string?)e.Value, out var v) ? v : null;
-        await Bewaar();
-    }
-
-    private async Task FunctieGewijzigd(ChangeEventArgs e)
-    {
-        if (_afspraak is null) return;
-        _afspraak.FunctieId = int.TryParse((string?)e.Value, out var v) ? v : null;
-        await Bewaar();
-    }
-
-    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
 }

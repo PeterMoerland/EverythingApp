@@ -173,7 +173,7 @@ public static class Menu
                 new MenuItem("Inkomende facturen", "/financien/facturen", "Financial"),
                 new MenuItem("Uitgaande facturen", "/financien/uitgaande-facturen", "Financial"),
                 new MenuItem("Basecone", "/financien/basecone", "Financial"),
-                new MenuItem("Tarieven berekenen"),
+                new MenuItem("Tarieven berekenen", "/financien/tarieven", "Financial"),
                 new MenuItem("PO klant", "/financien/po-klant", "Financial"),
                 new MenuItem("Nacalculatie"),
                 new MenuItem("Maandoverzicht")),

@@ -494,10 +494,12 @@
                     if (v.BvId is int vbv && _administraties.Any(a => a.Id == vbv)) _f.AdministratieId = vbv;
                     _f.PoKlant = v.PoKlant;
                     _f.Omschrijving = v.Omschrijving;
-                    _f.Regels.Add(new VerkoopFactuurItem
-                    {
-                        Omschrijving = v.Regel, Aantal = 1, Stuksprijs = v.Bedrag, Korting = 0,
-                    });
+                    if (v.Regels is { Count: > 0 } vr) _f.Regels.AddRange(vr);
+                    else if (v.Regel.Length > 0 || v.Bedrag != 0)
+                        _f.Regels.Add(new VerkoopFactuurItem
+                        {
+                            Omschrijving = v.Regel, Aantal = 1, Stuksprijs = v.Bedrag, Korting = 0,
+                        });
                 }
                 if (_f.AdministratieId is int bv) _f.Factuurnummer = await Repo.VolgendNummerAsync(bv);
                 _klantZoekOpen = true;

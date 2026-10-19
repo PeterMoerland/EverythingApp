@@ -211,4 +211,8 @@ public record VerkoopFactuurBetaling(int BanktransactieId, DateTime? Datum, deci
 
 /// <summary>Een nieuwe uitgaande factuur, alvast ingevuld (bv. vanuit een termijn van een PO van een klant).</summary>
 public record FactuurVoorstel(int? BvId, int? KlantId, string Klant, string PoKlant, string Omschrijving,
-                              string Regel, decimal Bedrag);
+                              string Regel, decimal Bedrag)
+{
+    /// <summary>Meerdere regels ineens (Tarieven berekenen: de gegroepeerde uren); dan telt Regel/Bedrag niet.</summary>
+    public List<VerkoopFactuurItem>? Regels { get; init; }
+}
