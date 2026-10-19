@@ -263,6 +263,32 @@ stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 
 omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
 `BewaarRegelAsync` als Plakken uit klembord).
 
+## Artikelen ▸ Leveranciers (19-10-2026)
+
+Tabblad Leveranciers in `Components/Pages/Artikelen.razor` (Access: subformulier ArtikelSupplier en
+ArtikelenLaatstBesteld). Tabel `ArtikelSupplier`: leverancier, voorkeur (`PreferedSupplier`, Access schrijft -1),
+bestelnummer, VE (`VerpakkingsEenheid` = VE-ID als tekst, standaard 2 = st), stuks per VE, prijs per VE, korting als
+fractie (0,6 = 60 %; invoer "60" of "60%" wordt 0,6). Prijs per stuk = prijs/VE ÷ stuks × (1 − korting). Opslaan per
+veld; toevoegen via zoeken in leveranciers (`IRelatieRepository.ZoekAsync` met alleen leveranciers); de eerste wordt
+voorkeur. In plaats van Access' vraag "algemene prijzen updaten?" een knop zodra de kostprijs afwijkt van de hoogste
+leveranciersprijs (zoals Artikel_MaxInkoopprijs, afgekapt op 3 decimalen): `ZetKostprijsAsync` (verkoop = kostprijs +
+toeslag; toeslag 0 = niets doen) plus twee regels in `ArtikelPrijsHistory` zoals Access' LogKostPrijs. Laatst besteld
+uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `MagBewerken` van het artikelscherm.
+Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
+niet tegen de database getest.
+
+## Artikelen ▸ Voorraad/Bestellen en weggehaalde velden (19-10-2026)
+
+- Tabblad **Voorraad/Bestellen** (Access: zelfde tabblad in ArtikelenSubForm), voorlopig alleen (wens gebruiker):
+  actuele voorraad (view `@VoorraadActueel`) met Overzicht = alle voorraadmutaties (`IVoorraadRepository.HistorieAsync`,
+  plaatsnamen via `ILokatieRepository.BoomAsync`; Access-rapport ArtikelVoorraadMutatiesHistory) en besteld tot nu toe
+  (view `@OrderItems_BesteldTotaal`, orderstatus 4-6) met Historie = bestellingen met besteldatum
+  (`IArtikelRepository.BestelHistorieAsync`; Access-rapport ArtikelBestelHistorie, hier LEFT JOIN). Let op: in het
+  Overzicht tellen ook leveringen op een werkorder mee (projectmateriaal, geen plek); die zitten niet in de actuele
+  voorraad, net als in Access. Minimum voorraad, in aanvraag, nalevering, besteladvies en binnengeboekt nog niet.
+- Uit het artikelscherm weg (staan bij Maakdelen): materiaal, gewicht, plaatdikte; de waarden blijven bij opslaan
+  ongewijzigd. Getest lokaal alleen lezend op artikel 830 (1 op voorraad, 5 besteld, gelijk aan Access).
+
 ## Voorraadstand per datum (19-10-2026)
 
 Financiën ▸ Rapporten ▸ **Voorraadstand** (`/financien/voorraadstand`, `Components/Pages/Voorraadstand.razor`), van het

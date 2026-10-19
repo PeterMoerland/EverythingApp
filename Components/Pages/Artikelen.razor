@@ -5,6 +5,9 @@
 @inject LabelService Labels
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject IRelatieRepository Relaties
+@inject IVoorraadRepository VoorraadRepo
+@inject ILokatieRepository Lokaties
 @inject ArtikelFotoService Fotos
 @implements IAsyncDisposable
 
@@ -285,44 +288,8 @@
                                         }
                                     </div>
 
-                                    <div class="wn-veld">
-                                        <label>Materiaal</label>
-                                        @if (_bewerken)
-                                        {
-                                            <input value="@_artikel.Materiaal"
-                                                   @onchange="e => _artikel.Materiaal = Tekst(e)" />
-                                        }
-                                        else
-                                        {
-                                            <span class="alleen-lezen">@_artikel.Materiaal</span>
-                                        }
-                                    </div>
-
-                                    <div class="wn-veld">
-                                        <label>Gewicht (kg)</label>
-                                        @if (_bewerken)
-                                        {
-                                            <input class="r smal" value="@Invoergetal(_artikel.Gewicht)"
-                                                   @onchange="e => _artikel.Gewicht = Komma(e)" />
-                                        }
-                                        else
-                                        {
-                                            <span class="alleen-lezen">@Getal(_artikel.Gewicht)</span>
-                                        }
-                                    </div>
-
-                                    <div class="wn-veld">
-                                        <label>Plaatdikte (mm)</label>
-                                        @if (_bewerken)
-                                        {
-                                            <input class="r smal" value="@Invoergetal(_artikel.PlaatdikteMm)"
-                                                   @onchange="e => _artikel.PlaatdikteMm = Komma(e)" />
-                                        }
-                                        else
-                                        {
-                                            <span class="alleen-lezen">@Getal(_artikel.PlaatdikteMm)</span>
-                                        }
-                                    </div>
+                                    @* Materiaal, gewicht en plaatdikte staan alleen bij Maakdelen (besluit gebruiker 19-10-2026);
+                                       de waarden blijven bij opslaan ongewijzigd in de tabel. *@
 
                                     <div class="wn-veld">
                                         <label>Minimum voorraad</label>
@@ -532,6 +499,183 @@
                         </DetailMetZij>
                     }
 
+                    @if (_tab == "Leveranciers")
+                    {
+                        @* Access: subformulier ArtikelSupplier en ArtikelenLaatstBesteld *@
+                        <div class="al-omhulsel">
+                        <table class="kiezer-tabel al-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Leverancier</th>
+                                    <th class="c" style="width:3.6rem" title="Voorkeursleverancier">Vk</th>
+                                    <th style="width:9.5rem">Artikelnummer</th>
+                                    <th style="width:4.6rem">VE</th>
+                                    <th class="r" style="width:4.6rem">Aantal/VE</th>
+                                    <th class="r" style="width:6.2rem">Prijs/VE</th>
+                                    <th class="r" style="width:4.8rem">Korting</th>
+                                    <th class="r" style="width:6rem">Per stuk</th>
+                                    <th style="width:2.4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var l in _leveranciers)
+                                {
+                                    <tr @key="l.Id">
+                                        <td>@l.Leverancier</td>
+                                        <td class="c"><input type="checkbox" checked="@l.Voorkeur" disabled="@(!MagBewerken)"
+                                                             @onchange="e => ZetLeverancier(l, x => x.Voorkeur = e.Value is true)" /></td>
+                                        <td><input value="@l.Artikelnummer" maxlength="100" disabled="@(!MagBewerken)"
+                                                   @onchange="e => ZetLeverancier(l, x => x.Artikelnummer = ((string?)e.Value ?? string.Empty).Trim())" /></td>
+                                        <td>
+                                            <select value="@(l.VeId?.ToString() ?? "")" disabled="@(!MagBewerken)"
+                                                    @onchange="e => ZetLeverancier(l, x => x.VeId = int.TryParse((string?)e.Value, out var v) ? v : null)">
+                                                <option value=""></option>
+                                                @foreach (var ve in _verpakkingen)
+                                                {
+                                                    <option value="@ve.Id">@ve.Naam</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td><input class="r" value="@AlGetal(l.StuksPerVe)" disabled="@(!MagBewerken)"
+                                                   @onchange="e => ZetLeverancierGetal(l, e, (x, v) => x.StuksPerVe = v == 0 ? 1 : v)" /></td>
+                                        <td><input class="r" value="@l.PrijsPerVe.ToString("C2", AlNl)" disabled="@(!MagBewerken)"
+                                                   @onchange="e => ZetLeverancierGetal(l, e, (x, v) => x.PrijsPerVe = v)" /></td>
+                                        <td><input class="r" value="@((l.Korting * 100).ToString("0.0", AlNl))%" disabled="@(!MagBewerken)"
+                                                   @onchange="e => ZetLeverancierGetal(l, e, (x, v) => x.Korting = v > 1 ? v / 100 : v)" /></td>
+                                        <td class="r"><b>@l.PrijsPerStuk.ToString("C2", AlNl)</b></td>
+                                        <td class="c">
+                                            @if (MagBewerken)
+                                            {
+                                                <button class="klein rood" title="Leverancier weghalen" @onclick="() => VerwijderLeverancier(l)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_leveranciers.Count == 0)
+                                {
+                                    <tr><td colspan="9" class="kiezer-info">Nog geen leveranciers bij dit artikel.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        </div>
+
+                        @if (MagBewerken)
+                        {
+                            <div class="al-nieuw">
+                                <input placeholder="+ Leverancier toevoegen: typ een naam…" value="@_levZoek" @oninput="LeverancierZoekGetypt" />
+                                @if (_levTreffers.Count > 0)
+                                {
+                                    <div class="al-treffers">
+                                        @foreach (var k in _levTreffers)
+                                        {
+                                            <button class="wn-naam" @onclick="() => LeverancierToevoegen(k)">@k.Naam</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (HoogsteInkoop() is { } hoogste)
+                        {
+                            <div class="al-kostprijs">
+                                <span>Kostprijs artikel: <b>@((_artikel.Kostprijs ?? 0).ToString("C2", AlNl))</b></span>
+                                <span>Hoogste leveranciersprijs: <b>@hoogste.Prijs.ToString("C2", AlNl)</b> (@hoogste.Naam)</span>
+                                @if (MagBewerken && Math.Abs((_artikel.Kostprijs ?? 0) - hoogste.Prijs) >= 0.0005m)
+                                {
+                                    <button class="klein primair" disabled="@_levBezig" @onclick="KostprijsBijwerken"
+                                            title="Zoals Access 'algemene prijzen updaten': kostprijs = hoogste leveranciersprijs, verkoopprijs = kostprijs + toeslag">
+                                        Kostprijs en verkoopprijs bijwerken
+                                    </button>
+                                }
+                            </div>
+                        }
+
+                        <div class="al-besteld">
+                            <h3 class="wn-kop">Laatst besteld</h3>
+                            @if (_laatstBesteld is { } lb)
+                            {
+                                <div class="al-besteld-velden">
+                                    <span>Aantal</span><b>@AlGetal(lb.Aantal)</b>
+                                    <span>Leverancier</span><b>@lb.Leverancier</b>
+                                    <span>Datum</span><b>@(lb.Op?.ToString("d-M-yyyy") ?? "")</b>
+                                    <span>Door</span><b>@lb.Door</b>
+                                    <span>Voor</span><b>@lb.Voor</b>
+                                    <span>PO</span>
+                                    @if (lb.OrderId is int po) { <a href="bestellingen?order=@po">PO-@po</a> } else { <b></b> }
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="uitleg">Dit artikel is nog niet besteld.</p>
+                            }
+                        </div>
+                    }
+
+                    @if (_tab == "Voorraad/Bestellen")
+                    {
+                        @* Access: tabblad Voorraad/Bestellen; voorlopig alleen actuele voorraad en besteld tot nu toe (wens gebruiker) *@
+                        <div class="vb-regels">
+                            <span>Actuele voorraad</span>
+                            <b>@AlGetal(_actueel) @_artikel.Eenheid</b>
+                            <button class="klein" @onclick="WisselMutaties">@(_mutaties is null ? "▸ Overzicht" : "▾ Overzicht")</button>
+
+                            <span>Besteld tot nu toe</span>
+                            <b>@AlGetal(_besteld) @_artikel.Eenheid</b>
+                            <button class="klein" @onclick="WisselBestellingen">@(_bestellingen is null ? "▸ Historie" : "▾ Historie")</button>
+                        </div>
+
+                        @if (_mutaties is not null)
+                        {
+                            <h3 class="wn-kop">Voorraadmutaties</h3>
+                            <table class="kiezer-tabel av-historie">
+                                <thead><tr><th>Datum</th><th class="r">Mutatie</th><th>Soort</th><th>Plek</th><th>Status</th><th>Door</th><th>Werkorder</th></tr></thead>
+                                <tbody>
+                                    @foreach (var h in _mutaties)
+                                    {
+                                        <tr>
+                                            <td>@h.Op?.ToString("d-M-yyyy HH:mm")</td>
+                                            <td class="r @(h.Mutatie < 0 ? "av-min" : "av-plus")">@h.Mutatie.ToString("+0.###;-0.###;0")</td>
+                                            <td>@h.Soort</td>
+                                            <td>@(h.LokatieId is int hl ? _boom.Naam(hl) : "—")</td>
+                                            <td>@h.Status</td>
+                                            <td>@h.Door@(h.Werknemer.Length > 0 && h.Werknemer != h.Door ? $" (voor {h.Werknemer})" : "")</td>
+                                            <td>@h.Werkorder</td>
+                                        </tr>
+                                    }
+                                    @if (_mutaties.Count == 0) { <tr><td colspan="7" class="uitleg">Geen mutaties.</td></tr> }
+                                </tbody>
+                            </table>
+                            @if (_mutaties.Count >= 200) { <p class="uitleg">De laatste 200 mutaties.</p> }
+                        }
+
+                        @if (_bestellingen is not null)
+                        {
+                            <h3 class="wn-kop">Bestelhistorie</h3>
+                            <table class="kiezer-tabel vb-bestel">
+                                <thead><tr><th style="width:6rem">Datum</th><th class="r" style="width:5.5rem">Aantal</th><th style="width:5.5rem">PO</th><th>Werkorder</th><th>Klant</th><th>Besteld door</th><th>Leverancier</th></tr></thead>
+                                <tbody>
+                                    @foreach (var b in _bestellingen)
+                                    {
+                                        <tr>
+                                            <td>@b.Datum?.ToString("d-M-yyyy")</td>
+                                            <td class="r">@AlGetal(b.Aantal) @b.Eenheid</td>
+                                            <td><a href="bestellingen?order=@b.OrderId">PO-@b.OrderId</a></td>
+                                            <td title="@b.Project">@b.Werkorder</td>
+                                            <td>@b.Klant</td>
+                                            <td>@b.BesteldDoor</td>
+                                            <td>@b.Leverancier</td>
+                                        </tr>
+                                    }
+                                    @if (_bestellingen.Count == 0) { <tr><td colspan="7" class="uitleg">Nog nooit besteld.</td></tr> }
+                                </tbody>
+                                @if (_bestellingen.Count > 0)
+                                {
+                                    <tfoot><tr><td class="r"><b>Totaal</b></td><td class="r"><b>@AlGetal(_bestellingen.Sum(b => b.Aantal))</b></td><td colspan="5"></td></tr></tfoot>
+                                }
+                            </table>
+                        }
+                    }
+
                     @if (_tab == "Documenten")
                     {
                         <table class="kiezer-tabel">
@@ -626,7 +770,6 @@
                                     @(_artikel.Gewijzigd?.ToString("dd-MM-yyyy HH:mm") ?? "") @_artikel.GewijzigdDoor
                                 </span>
                             </div>
-                            <div class="wn-veld"><label>Gewicht</label><span class="alleen-lezen">@Getal(_artikel.Gewicht)</span></div>
                             <div class="wn-veld"><label>Uitgeleend</label><span class="alleen-lezen">@_artikel.AantalUitgeleend</span></div>
                         </div>
                     }
@@ -750,7 +893,7 @@
 }
 
 @code {
-    private static readonly string[] Tabs = { "Info", "Documenten", "Groepen", "Alias", "Overigen" };
+    private static readonly string[] Tabs = { "Info", "Leveranciers", "Voorraad/Bestellen", "Documenten", "Groepen", "Alias", "Overigen" };
     private const int StoreTypeArtikel = 2;
 
     private string _zoek = "";
@@ -921,6 +1064,8 @@
         try { _groepen = await Repo.GetGroepenAsync(a.Id); } catch { _groepen = new(); }
         try { _aliassen = await Repo.GetAliassenAsync(a.Id); } catch { _aliassen = new(); }
         try { _stuklijst = await Repo.GetSamenstellingAsync(a.Id); } catch { _stuklijst = new(); }
+        await LaadLeveranciers(a.Id);
+        await LaadVoorraadBesteld(a.Id);
 
         if (_tab == "Samenstelling" && _stuklijst.Count == 0) _tab = "Info";
 
@@ -940,6 +1085,178 @@
         _aliassen = new();
         _stuklijst = new();
         _documenten = new();
+        _leveranciers = new();
+        _laatstBesteld = null;
+        _mutaties = null;
+        _bestellingen = null;
+        _actueel = _besteld = 0;
+    }
+
+    // ============================================================
+    //  Voorraad/Bestellen (Access: tabblad Voorraad/Bestellen; nu actuele voorraad en besteld tot nu toe)
+    // ============================================================
+    private decimal _actueel, _besteld;
+    private List<VoorraadMutatieRegel>? _mutaties;
+    private List<ArtikelBestelling>? _bestellingen;
+    private LokatieBoom _boom = new(Array.Empty<Lokatie>());
+    private bool _boomGeladen;
+
+    private async Task LaadVoorraadBesteld(int artikelId)
+    {
+        _mutaties = null;
+        _bestellingen = null;
+        try { (_actueel, _besteld) = await Repo.VoorraadEnBesteldAsync(artikelId); } catch { _actueel = _besteld = 0; }
+    }
+
+    private async Task WisselMutaties()
+    {
+        if (_mutaties is not null || _artikel is null) { _mutaties = null; return; }
+        try
+        {
+            if (!_boomGeladen) { _boom = await Lokaties.BoomAsync(); _boomGeladen = true; }
+            _mutaties = await VoorraadRepo.HistorieAsync(_artikel.Id, 200);
+        }
+        catch (Exception ex) { Toon("Mutaties ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisselBestellingen()
+    {
+        if (_bestellingen is not null || _artikel is null) { _bestellingen = null; return; }
+        try { _bestellingen = await Repo.BestelHistorieAsync(_artikel.Id); }
+        catch (Exception ex) { Toon("Bestelhistorie ophalen mislukt: " + ex.Message, true); }
+    }
+
+    // ============================================================
+    //  Leveranciers en prijzen (Access: subformulier ArtikelSupplier)
+    // ============================================================
+    private static readonly System.Globalization.CultureInfo AlNl = new("nl-NL");
+    private List<ArtikelLeverancier> _leveranciers = new();
+    private List<Keuze> _verpakkingen = new();
+    private ArtikelLaatstBesteld? _laatstBesteld;
+    private string _levZoek = "";
+    private List<Keuze> _levTreffers = new();
+    private CancellationTokenSource? _levPauze;
+    private bool _levBezig;
+    private readonly SemaphoreSlim _levSlot = new(1, 1);
+
+    private static string AlGetal(decimal w) => w.ToString("#,0.###", AlNl);
+
+    /// <summary>"€ 368,80", "368.8", "60%", "1.250,5": allemaal te lezen.</summary>
+    private static decimal? AlLees(string? tekst)
+    {
+        var t = (tekst ?? "").Replace("€", "").Replace("%", "").Replace("\u00a0", "").Replace(" ", "").Trim();
+        if (t.Length == 0) return 0;
+        if (t.Contains(',')) t = t.Replace(".", "").Replace(',', '.');
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number | System.Globalization.NumberStyles.AllowLeadingSign,
+                                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    private async Task LaadLeveranciers(int artikelId)
+    {
+        try { _leveranciers = await Repo.LeveranciersAsync(artikelId); } catch { _leveranciers = new(); }
+        try { _laatstBesteld = await Repo.LaatstBesteldAsync(artikelId); } catch { _laatstBesteld = null; }
+        if (_verpakkingen.Count == 0)
+            try { _verpakkingen = await Repo.VerpakkingseenhedenAsync(); } catch { }
+        _levZoek = "";
+        _levTreffers = new();
+    }
+
+    private async Task ZetLeverancier(ArtikelLeverancier l, Action<ArtikelLeverancier> zet)
+    {
+        if (!MagBewerken) return;
+        await _levSlot.WaitAsync();
+        try
+        {
+            zet(l);
+            await Repo.BewaarLeverancierAsync(l);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _levSlot.Release(); }
+    }
+
+    private Task ZetLeverancierGetal(ArtikelLeverancier l, ChangeEventArgs e, Action<ArtikelLeverancier, decimal> zet)
+    {
+        if (AlLees((string?)e.Value) is not decimal v || v < 0) { Toon($"'{e.Value}' is geen geldig getal.", true); return Task.CompletedTask; }
+        return ZetLeverancier(l, x => zet(x, v));
+    }
+
+    private async Task LeverancierZoekGetypt(ChangeEventArgs e)
+    {
+        _levZoek = (string?)e.Value ?? "";
+        _levPauze?.Cancel();
+        if (_levZoek.Trim().Length < 2) { _levTreffers = new(); return; }
+        var pauze = _levPauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        try { _levTreffers = await Relaties.ZoekAsync(_levZoek.Trim(), false, true, 0, 12); } catch { _levTreffers = new(); }
+    }
+
+    private async Task LeverancierToevoegen(Keuze k)
+    {
+        if (_artikel is null || !MagBewerken) return;
+        if (_leveranciers.Any(l => l.LeverancierId == k.Id))
+        {
+            Toon($"{k.Naam} staat al bij dit artikel.", true);
+            return;
+        }
+        var nieuw = new ArtikelLeverancier
+        {
+            ArtikelId = _artikel.Id, LeverancierId = k.Id, Leverancier = k.Naam, StuksPerVe = 1,
+            VeId = _verpakkingen.FirstOrDefault(v => v.Naam == "st")?.Id ?? 2,   // Access: standaard 2 (stuks)
+            Voorkeur = _leveranciers.Count == 0,
+        };
+        try
+        {
+            await Repo.BewaarLeverancierAsync(nieuw);
+            _leveranciers.Add(nieuw);
+            _levZoek = "";
+            _levTreffers = new();
+            Toon($"{k.Naam} toegevoegd; vul het artikelnummer en de prijs in.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderLeverancier(ArtikelLeverancier l)
+    {
+        if (!await Vraag($"{l.Leverancier} weghalen bij dit artikel?")) return;
+        try
+        {
+            await Repo.VerwijderLeverancierAsync(l.Id);
+            _leveranciers.Remove(l);
+        }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Zoals de Access-query Artikel_MaxInkoopprijs: de duurste leverancier telt (afgekapt op 3 decimalen).</summary>
+    private (decimal Prijs, string Naam)? HoogsteInkoop()
+    {
+        var duurste = _leveranciers.Where(l => l.LeverancierId != 0).OrderByDescending(l => l.PrijsPerStuk).FirstOrDefault();
+        if (duurste is null) return null;
+        return (Math.Truncate(duurste.PrijsPerStuk * 1000) / 1000, duurste.Leverancier);
+    }
+
+    /// <summary>Access: "Wil je de algemene prijzen updaten?" (UpdatePartVerkoopPrijs), met de regels in ArtikelPrijsHistory.</summary>
+    private async Task KostprijsBijwerken()
+    {
+        if (_artikel is null || HoogsteInkoop() is not { } h) return;
+        if (h.Prijs <= 0) { Toon("De hoogste leveranciersprijs is € 0; er is niets bijgewerkt.", true); return; }
+        _levBezig = true;
+        try
+        {
+            var toeslag = await Instellingen.ToeslagAsync();
+            if (toeslag == 0)
+            {
+                Toon("Let op: de toeslag inkoop/verkoop is niet ingesteld (Beheer ▸ Instellingen); er is niets bijgewerkt.", true);
+                return;
+            }
+            var verkoop = Math.Round(h.Prijs * (1 + toeslag / 100m), 2);
+            await Repo.ZetKostprijsAsync(_artikel.Id, h.Prijs, toeslag);
+            await Repo.LogPrijsAsync(_artikel.Id, h.Prijs, $"Manueel door max ({h.Naam})", 0, Ik.WerknemerId);
+            await Repo.LogPrijsAsync(_artikel.Id, verkoop, $"Manueel Inkoop + toeslag ({h.Naam})", 1, Ik.WerknemerId);
+            _artikel = await Repo.GetAsync(_artikel.Id) ?? _artikel;
+            Toon($"Kostprijs {h.Prijs.ToString("C2", AlNl)}, verkoopprijs {verkoop.ToString("C2", AlNl)} ({toeslag:0.##} % toeslag).", false);
+        }
+        catch (Exception ex) { Toon("Bijwerken mislukt: " + ex.Message, true); }
+        finally { _levBezig = false; }
     }
 
     /// <summary>Een ja/nee-vraag aan de gebruiker; bij twijfel: niet doorgaan.</summary>

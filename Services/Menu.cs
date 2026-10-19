@@ -107,9 +107,8 @@ public static class Menu
             new MenuGroep("Lokaties",
                 new MenuItem("Dragers", "/voorraad/dragers"),
                 new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur"),
-                new MenuItem("Lokaties")),
-            new MenuGroep("Rapporten",
-                new MenuItem("Voorraadstand"))),
+                new MenuItem("Lokaties"))),
+            // Voorraadstand staat in Financiën ▸ Rapporten (kostprijzen); de grijze tegel hier is weg (19-10-2026).
 
         new("bestellingen", "Bestellingen", "shopping-cart",
             new MenuGroep("Inkoop",

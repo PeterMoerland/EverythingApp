@@ -75,6 +75,21 @@ public interface IArtikelRepository
     /// </summary>
     Task ZetKostprijsAsync(int artikelId, decimal kostprijs, decimal toeslagProcent);
 
+    // ---- leveranciers en prijzen (ArtikelSupplier) ----
+    Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId);
+    /// <summary>Nieuw (Id 0) of bijwerken; geeft het id.</summary>
+    Task<int> BewaarLeverancierAsync(ArtikelLeverancier l);
+    Task VerwijderLeverancierAsync(int artikelSupplierId);
+    /// <summary>Verpakkingseenheden (tabel VE): id en afkorting, bv. 2 = st.</summary>
+    Task<List<Keuze>> VerpakkingseenhedenAsync();
+    Task<ArtikelLaatstBesteld?> LaatstBesteldAsync(int artikelId);
+    /// <summary>Een regel in ArtikelPrijsHistory (Access: LogKostPrijs); prijstype 0 = kostprijs, 1 = verkoopprijs.</summary>
+    Task LogPrijsAsync(int artikelId, decimal prijs, string opmerking, int prijsType, int? door);
+    /// <summary>Actuele voorraad (view @VoorraadActueel) en besteld tot nu toe (view @OrderItems_BesteldTotaal), zoals Access.</summary>
+    Task<(decimal Actueel, decimal Besteld)> VoorraadEnBesteldAsync(int artikelId);
+    /// <summary>Alle bestellingen van dit artikel die echt besteld zijn (met besteldatum), nieuwste eerst.</summary>
+    Task<List<ArtikelBestelling>> BestelHistorieAsync(int artikelId);
+
     /// <summary>
     /// De kostprijs zoals die uit de stuklijst volgt: van een samenstelling de som
     /// van de onderdelen, doorgerekend tot onderin. Voor een gewoon artikel is het
@@ -84,6 +99,31 @@ public interface IArtikelRepository
 }
 
 /// <summary>Doet niets — demo-modus zonder live database.</summary>
+/// <summary>Een leverancier van een artikel met zijn prijs (tabel ArtikelSupplier; Access: subformulier ArtikelSupplier).</summary>
+public class ArtikelLeverancier
+{
+    public int Id { get; set; }                     // ArtikelSupplierID
+    public int ArtikelId { get; set; }
+    public int LeverancierId { get; set; }          // SupplierID (Relations.id_supplier)
+    public string Leverancier { get; set; } = "";
+    public string Artikelnummer { get; set; } = ""; // ArtikelNummerSupplier: het bestelnummer bij de leverancier
+    public int? VeId { get; set; }                  // VerpakkingsEenheid (VE.VE-ID, als tekst opgeslagen)
+    public decimal StuksPerVe { get; set; } = 1;
+    public decimal PrijsPerVe { get; set; }
+    public decimal Korting { get; set; }            // als fractie: 0,6 = 60 %
+    public bool Voorkeur { get; set; }              // PreferedSupplier
+
+    /// <summary>Zoals Access: prijs per VE / stuks per VE × (1 − korting).</summary>
+    public decimal PrijsPerStuk => (StuksPerVe == 0 ? PrijsPerVe : PrijsPerVe / StuksPerVe) * (1 - Korting);
+}
+
+/// <summary>Eén bestelling van een artikel (Access: rapport ArtikelBestelHistorie).</summary>
+public record ArtikelBestelling(DateTime? Datum, decimal Aantal, string Eenheid, int OrderId, string Werkorder, string Project,
+                                string Klant, string BesteldDoor, string Leverancier);
+
+/// <summary>De laatste bestelling van een artikel (view @LaatstBesteldeArtikelen).</summary>
+public record ArtikelLaatstBesteld(decimal Aantal, string Leverancier, DateTime? Op, string Door, int? OrderId, string Voor);
+
 public class GeenArtikelRepository : IArtikelRepository
 {
     public bool Beschikbaar => false;
@@ -110,6 +150,14 @@ public class GeenArtikelRepository : IArtikelRepository
     public Task ZetSamenstellingAsync(int artikelId, bool aan) => Task.CompletedTask;
     public Task ZetKostprijsAsync(int artikelId, decimal kostprijs, decimal toeslagProcent)
         => Task.CompletedTask;
+    public Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId) => Task.FromResult(new List<ArtikelLeverancier>());
+    public Task<int> BewaarLeverancierAsync(ArtikelLeverancier l) => Task.FromResult(0);
+    public Task VerwijderLeverancierAsync(int artikelSupplierId) => Task.CompletedTask;
+    public Task<List<Keuze>> VerpakkingseenhedenAsync() => Task.FromResult(new List<Keuze>());
+    public Task<ArtikelLaatstBesteld?> LaatstBesteldAsync(int artikelId) => Task.FromResult<ArtikelLaatstBesteld?>(null);
+    public Task LogPrijsAsync(int artikelId, decimal prijs, string opmerking, int prijsType, int? door) => Task.CompletedTask;
+    public Task<(decimal Actueel, decimal Besteld)> VoorraadEnBesteldAsync(int artikelId) => Task.FromResult((0m, 0m));
+    public Task<List<ArtikelBestelling>> BestelHistorieAsync(int artikelId) => Task.FromResult(new List<ArtikelBestelling>());
     public Task<decimal> BerekendeKostprijsAsync(int artikelId) => Task.FromResult(0m);
 }
 
@@ -895,6 +943,142 @@ public class MySqlArtikelRepository : IArtikelRepository
         cmd.Parameters.AddWithValue("@verkoop", verkoop);
         cmd.Parameters.AddWithValue("@id", artikelId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ============================================================
+    //  Leveranciers en prijzen (ArtikelSupplier)
+    // ============================================================
+    public async Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId)
+    {
+        var lijst = new List<ArtikelLeverancier>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT s.`ArtikelSupplierID`, s.`ArtikelID`, s.`SupplierID`, COALESCE(r.`name`, CONCAT('#', s.`SupplierID`)), " +
+            "       COALESCE(s.`ArtikelNummerSupplier`, ''), COALESCE(s.`VerpakkingsEenheid`, ''), COALESCE(s.`StuksPerVE`, 1), " +
+            "       COALESCE(s.`PrijsPerVE`, 0), COALESCE(s.`Korting`, 0), COALESCE(s.`PreferedSupplier`, 0) " +
+            "  FROM `ArtikelSupplier` s LEFT JOIN `Relations` r ON r.`id_supplier` = s.`SupplierID` " +
+            " WHERE s.`ArtikelID` = @a ORDER BY COALESCE(s.`PreferedSupplier`, 0) = 0, r.`name`", cn);
+        cmd.Parameters.AddWithValue("@a", artikelId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new ArtikelLeverancier
+            {
+                Id = r.GetInt32(0), ArtikelId = r.GetInt32(1), LeverancierId = r.GetInt32(2), Leverancier = Convert.ToString(r.GetValue(3)) ?? "",
+                Artikelnummer = Convert.ToString(r.GetValue(4)) ?? "",
+                VeId = int.TryParse(Convert.ToString(r.GetValue(5)), out var ve) ? ve : null,
+                StuksPerVe = Convert.ToDecimal(r.GetValue(6)), PrijsPerVe = Math.Round(Convert.ToDecimal(r.GetValue(7)), 4),
+                Korting = Math.Round(Convert.ToDecimal(r.GetValue(8)), 6), Voorkeur = Convert.ToInt64(r.GetValue(9)) != 0,
+            });
+        return lijst;
+    }
+
+    public async Task<int> BewaarLeverancierAsync(ArtikelLeverancier l)
+    {
+        const string velden =
+            "`ArtikelID` = @a, `SupplierID` = @s, `ArtikelNummerSupplier` = @nr, `VerpakkingsEenheid` = @ve, " +
+            "`StuksPerVE` = @st, `PrijsPerVE` = @p, `Korting` = @k, `PreferedSupplier` = @vk";
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(l.Id == 0
+            ? $"INSERT INTO `ArtikelSupplier` SET {velden}"
+            : $"UPDATE `ArtikelSupplier` SET {velden} WHERE `ArtikelSupplierID` = @id", cn);
+        cmd.Parameters.AddWithValue("@a", l.ArtikelId);
+        cmd.Parameters.AddWithValue("@s", l.LeverancierId);
+        cmd.Parameters.AddWithValue("@nr", string.IsNullOrWhiteSpace(l.Artikelnummer) ? DBNull.Value : l.Artikelnummer.Trim()[..Math.Min(100, l.Artikelnummer.Trim().Length)]);
+        cmd.Parameters.AddWithValue("@ve", l.VeId is int ve ? ve.ToString() : DBNull.Value);
+        cmd.Parameters.AddWithValue("@st", (double)(l.StuksPerVe == 0 ? 1 : l.StuksPerVe));
+        cmd.Parameters.AddWithValue("@p", (double)l.PrijsPerVe);
+        cmd.Parameters.AddWithValue("@k", (double)l.Korting);
+        cmd.Parameters.AddWithValue("@vk", l.Voorkeur ? -1 : 0);     // Access schrijft -1 voor waar
+        if (l.Id != 0) cmd.Parameters.AddWithValue("@id", l.Id);
+        await cmd.ExecuteNonQueryAsync();
+        if (l.Id == 0) l.Id = (int)cmd.LastInsertedId;
+        return l.Id;
+    }
+
+    public async Task VerwijderLeverancierAsync(int artikelSupplierId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `ArtikelSupplier` WHERE `ArtikelSupplierID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", artikelSupplierId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<Keuze>> VerpakkingseenhedenAsync()
+    {
+        var lijst = new List<Keuze>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `VE-ID`, COALESCE(`Units`, '') FROM `VE` ORDER BY `Units`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), Convert.ToString(r.GetValue(1)) ?? ""));
+        return lijst;
+    }
+
+    public async Task<ArtikelLaatstBesteld?> LaatstBesteldAsync(int artikelId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COALESCE(`LaatstBesteldAantal`, 0), COALESCE(`LaatstBesteldBij`, ''), `LaatstBesteldOp`, COALESCE(`LaatstBesteldDoor`, ''), " +
+            "       `OrderID`, COALESCE(`LaatstBesteldVoor`, '') FROM `@LaatstBesteldeArtikelen` WHERE `MDE_ID` = @a LIMIT 1", cn);
+        cmd.Parameters.AddWithValue("@a", artikelId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return null;
+        return new ArtikelLaatstBesteld(Convert.ToDecimal(r.GetValue(0)), Convert.ToString(r.GetValue(1)) ?? "",
+                                        r.IsDBNull(2) ? null : r.GetDateTime(2), Convert.ToString(r.GetValue(3)) ?? "",
+                                        r.IsDBNull(4) ? null : Convert.ToInt32(r.GetValue(4)), Convert.ToString(r.GetValue(5)) ?? "");
+    }
+
+    public async Task LogPrijsAsync(int artikelId, decimal prijs, string opmerking, int prijsType, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ArtikelPrijsHistory` (`ArtikelID`, `Kostprijs`, `AanpassingOp`, `AanpassingDoor`, `Opmerking`, `PrijsType`) " +
+            "VALUES (@a, @p, NOW(), @door, @o, @t)", cn);
+        cmd.Parameters.AddWithValue("@a", artikelId);
+        cmd.Parameters.AddWithValue("@p", (double)Math.Round(prijs, 4));
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@o", opmerking.Length > 100 ? opmerking[..100] : opmerking);
+        cmd.Parameters.AddWithValue("@t", prijsType);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<(decimal Actueel, decimal Besteld)> VoorraadEnBesteldAsync(int artikelId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COALESCE((SELECT `ActueleVoorraad` FROM `@VoorraadActueel` WHERE `ArtikelID` = @a LIMIT 1), 0), " +
+            "       COALESCE((SELECT SUM(`AantalInBestelling`) FROM `@OrderItems_BesteldTotaal` WHERE `MDE_ID` = @a), 0)", cn);
+        cmd.Parameters.AddWithValue("@a", artikelId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return (0, 0);
+        return (Convert.ToDecimal(r.GetValue(0)), Convert.ToDecimal(r.GetValue(1)));
+    }
+
+    public async Task<List<ArtikelBestelling>> BestelHistorieAsync(int artikelId)
+    {
+        var lijst = new List<ArtikelBestelling>();
+        await using var cn = await OpenAsync();
+        // Zoals het Access-rapport ArtikelBestelHistorie (daar via inner joins: alleen wat iemand bestelde); hier LEFT JOIN
+        // zodat een bestelling zonder werkorder of eenheid niet wegvalt.
+        await using var cmd = new MySqlCommand(
+            "SELECT o.`Ordered date`, COALESCE(i.`Quantity ordered`, 0), COALESCE(ve.`Units`, ''), o.`Order-id`, " +
+            "       COALESCE(v.`Werkordernummer`, ''), COALESCE(v.`FullProjectName`, ''), COALESCE(v.`Klant`, ''), " +
+            "       COALESCE(w.`NaamVoluit`, ''), COALESCE(r.`name`, '') " +
+            "  FROM `Orderitems` i " +
+            "  JOIN `Orders` o ON o.`Order-id` = i.`Order-id` " +
+            "  LEFT JOIN `@VW_Full_OrderData` v ON v.`Werkbon-id` = o.`Workorder-id` " +
+            "  LEFT JOIN `VE` ve ON ve.`VE-ID` = i.`VE-id` " +
+            "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = o.`Ordered by` " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
+            " WHERE i.`MDE_ID` = @a AND o.`Ordered date` IS NOT NULL " +
+            " ORDER BY o.`Ordered date` DESC, o.`Order-id` DESC LIMIT 500", cn);
+        cmd.Parameters.AddWithValue("@a", artikelId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new ArtikelBestelling(r.IsDBNull(0) ? null : r.GetDateTime(0), Convert.ToDecimal(r.GetValue(1)),
+                Convert.ToString(r.GetValue(2)) ?? "", Convert.ToInt32(r.GetValue(3)), Convert.ToString(r.GetValue(4)) ?? "",
+                Convert.ToString(r.GetValue(5)) ?? "", Convert.ToString(r.GetValue(6)) ?? "", Convert.ToString(r.GetValue(7)) ?? "",
+                Convert.ToString(r.GetValue(8)) ?? ""));
+        return lijst;
     }
 
     // ============================================================
