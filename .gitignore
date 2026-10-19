@@ -16,6 +16,9 @@ TempFileStore/
 # op de server staat de echte naast de app.
 appsettings.json
 appsettings.Development.json
+# ook kopieën en reservekopieën (OLD_appsettings.json, appsettings - kopie.json, ...); alleen het voorbeeld hoort erin
+*appsettings*.json
+!appsettings.voorbeeld.json
 
 # MDE Werkplek-agent (Python): bouwomgeving en bouwresultaten
 MdeAgent/.venv/

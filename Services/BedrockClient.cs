@@ -35,7 +35,22 @@ public class BedrockClient
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };   // flex mag even duren
     }
 
-    private string Regio => (_config["Bedrock:Regio"] ?? "").Trim() is { Length: > 0 } r ? r : "eu-central-1";
+    /// <summary>
+    /// Optioneel: het endpoint zoals AWS het geeft (bv. https://bedrock-runtime.eu-central-1.amazonaws.com, of een
+    /// privé VPC-endpoint). Leeg = afgeleid van de regio.
+    /// </summary>
+    private string Endpoint => (_config["Bedrock:Endpoint"] ?? "").Trim().TrimEnd('/');
+
+    private string Regio
+    {
+        get
+        {
+            if ((_config["Bedrock:Regio"] ?? "").Trim() is { Length: > 0 } r) return r;
+            // regio uit het endpoint halen (...bedrock-runtime.eu-central-1.amazonaws.com of ...bedrock-runtime.eu-central-1.vpce.amazonaws.com)
+            var m = System.Text.RegularExpressions.Regex.Match(Endpoint, @"bedrock-runtime[.-]([a-z]{2}(?:-[a-z]+)+-\d)");
+            return m.Success ? m.Groups[1].Value : "eu-central-1";
+        }
+    }
     public string Model => (_config["Bedrock:Model"] ?? "").Trim();
     private string Sleutel => (_config["Bedrock:Sleutel"] ?? "").Trim();
     private string AccessKey => (_config["Bedrock:AccessKey"] ?? "").Trim();
@@ -67,9 +82,13 @@ public class BedrockClient
             body["serviceTier"] = new JsonObject { ["type"] = laag };
         var json = body.ToJsonString();
 
-        var host = $"bedrock-runtime.{Regio}.amazonaws.com";
+        var basis = Endpoint.Length > 0
+            ? new Uri(Endpoint.Contains("://") ? Endpoint : "https://" + Endpoint)
+            : new Uri($"https://bedrock-runtime.{Regio}.amazonaws.com");
+        var host = basis.IsDefaultPort ? basis.Host : $"{basis.Host}:{basis.Port}";
+        var voorPad = basis.AbsolutePath.TrimEnd('/');               // meestal leeg
         var modelPad = Uri.EscapeDataString(Model);                 // ':' in de model-id wordt %3A
-        var url = $"https://{host}/model/{modelPad}/converse";
+        var url = $"{basis.Scheme}://{host}{voorPad}/model/{modelPad}/converse";
 
         using var post = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -87,7 +106,7 @@ public class BedrockClient
             var nu = DateTime.UtcNow;
             var amzDatum = nu.ToString("yyyyMMdd'T'HHmmss'Z'");
             // canoniek pad: elk segment nog eens gecodeerd (alle diensten behalve S3)
-            var canoniekPad = "/model/" + Uri.EscapeDataString(modelPad) + "/converse";
+            var canoniekPad = voorPad + "/model/" + Uri.EscapeDataString(modelPad) + "/converse";
             var koppen = new SortedDictionary<string, string>(StringComparer.Ordinal)
             {
                 ["content-type"] = "application/json",
@@ -145,7 +164,12 @@ public class BedrockClient
     private static string Melding(int status, string ruw)
     {
         string? bericht = null;
-        try { bericht = JsonNode.Parse(ruw)?["message"]?.GetValue<string>(); } catch { }
+        try
+        {
+            var j = JsonNode.Parse(ruw);
+            bericht = j?["message"]?.GetValue<string>() ?? j?["Message"]?.GetValue<string>();   // AWS schrijft beide
+        }
+        catch { }
         bericht ??= ruw.Length > 300 ? ruw[..300] : ruw;
         return status switch
         {

@@ -229,6 +229,27 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Nacalculatie (19-10-2026)
+
+`/financien/nacalculatie` (Financiën ▸ Facturen ▸ Nacalculatie én Projecten ▸ Rapporten ▸ Nacalculatie, recht Financial),
+`Components/Pages/Nacalculatie.razor` + `Services/INacalculatieRepository.cs`. Overgezet van Access' formulier
+`_Nacalc_Analyse` met de rapporten Kostenoverzicht totaal, Directe PO's, Materials, Hours (per jaar) en Hours details
+(Combinatierapport = tab **Alles**, afdrukken met `@media print`). Links projecten zoeken (klant / projectnummer of
+omschrijving, onthouden per pc via `mdeOpslag`) en aanvinken, eventueel werkorders (geen = alle); `?project=` en
+`?werkorder=` zoals Access' OpenArgs.
+- **Rekenregels = de MariaDB-views `_Nacalc_*`** (dezelfde als Access). `_Nacalc_Totaal` rekent altijd alles uit (± 3,5 s);
+  daarom worden de bladeren gefilterd op werkorder opgevraagd (< 0,1 s): `_Nacalc_Uurkosten_Overview`,
+  `_Nacalc_ProjectMaterials_TotalPerSupplier_Ordered`, `_Nacalc_Orders_Overview`. Besteld = orderregels bij status 4-6,
+  gefactureerd = gekoppelde inkoopfacturen (ook bij geannuleerde orders; die staan doorgestreept in de lijst als ze een
+  factuurbedrag hebben). Materiaal = projectmaterialen "vrijgegeven voor bestellen" tegen vastgestelde of geschatte
+  kostprijs (0 bij `MateriaalKostenNietMeenemen`). Uren: tariefsoort 1 = reisuur + km, 2-5 = werkuur, overige 0.
+- **Nieuw t.o.v. Access**: kolom **Inkoop** = per bestelling het gefactureerde bedrag, zonder gekoppelde factuur het
+  bestelde; **Totaal** = inkoop + materiaal + uren (de opbouw van het Access-rapport zelf was niet te zien, alleen de
+  query). En **uren zonder kostprijstarief** worden getoond (de view laat ze stil weg): sinds 2024 1.945 regels / 6.113 uur,
+  waarvan 1.519 buiten alle tariefperiodes, 165 precies op een begindatum (de view eist `StartDatum > Begindatum`) en 261
+  van 5 werknemers zonder tarief.
+- Getest met project 223159 (getallen gelijk aan `_Nacalc_Totaal`), rechten tijdelijk lokaal opengezet en teruggezet.
+
 ## Vragen aan AI, Financiën (19-10-2026)
 
 Besluit gebruiker: AI via **Amazon Bedrock** (EU, eigen endpoint/sleutel volgt), géén Ollama en géén Claude. Stap 1 (Bedrock
