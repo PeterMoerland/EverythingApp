@@ -846,6 +846,7 @@
         _gekozenId = r.Id;
         _gekozenNaam = r.Naam;
         _contactId = null;
+        await WachtOpOpslaan();
         try { _velden = await Repo.GetVeldenAsync(r.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
         await LaadContacten();
@@ -1012,14 +1013,29 @@
         try { return Convert.ToInt64(v) != 0; } catch { return false; }
     }
 
-    private async Task Bewaar(string kolom, object? waarde)
+    private Task? _opslaanBezig;
+
+    /// <summary>
+    /// Een lopende veldwijziging eerst laten afronden. Het onchange van een veld vuurt bij het verlaten ervan, vlak
+    /// vóór de klik op een ander record; zonder wachten laadt dat record al terwijl de UPDATE nog loopt en komt de
+    /// oude waarde in de velden van het nieuwe record terecht (opmerking leek dan niet opgeslagen).
+    /// </summary>
+    private async Task WachtOpOpslaan()
+    {
+        if (_opslaanBezig is { IsCompleted: false } t) { try { await t; } catch { } }
+    }
+
+    private Task Bewaar(string kolom, object? waarde) => _opslaanBezig = BewaarKern(kolom, waarde);
+
+    private async Task BewaarKern(string kolom, object? waarde)
     {
         if (_gekozenId is null) return;
+        var vanId = _gekozenId.Value;
         try
         {
             var opslaan = waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
-            await Repo.UpdateVeldAsync(_gekozenId.Value, kolom, opslaan);
-            _velden[kolom] = opslaan;
+            await Repo.UpdateVeldAsync(vanId, kolom, opslaan);
+            if (_gekozenId == vanId) _velden[kolom] = opslaan;
             Toon("Opgeslagen.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }

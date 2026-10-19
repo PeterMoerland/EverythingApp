@@ -477,6 +477,7 @@
         _projectNummer = p.Nummer;
         _projectOms = p.Omschrijving;
         LeegmakenWerkorder();
+        await WachtOpOpslaan();
 
         try { _projectVelden = await Repo.GetProjectVeldenAsync(p.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
@@ -486,14 +487,29 @@
 
     private void TerugNaarProject() => LeegmakenWerkorder();
 
-    private async Task BewaarProject((string Kolom, object? Waarde) wijziging)
+    private Task? _opslaanBezig;
+
+    /// <summary>
+    /// Een lopende veldwijziging eerst laten afronden. Het onchange van een veld vuurt bij het verlaten ervan, vlak
+    /// vóór de klik op een ander record; zonder wachten laadt dat record al terwijl de UPDATE nog loopt en komt de
+    /// oude waarde in de velden van het nieuwe record terecht (opmerking leek dan niet opgeslagen).
+    /// </summary>
+    private async Task WachtOpOpslaan()
+    {
+        if (_opslaanBezig is { IsCompleted: false } t) { try { await t; } catch { } }
+    }
+
+    private Task BewaarProject((string Kolom, object? Waarde) wijziging) => _opslaanBezig = BewaarProjectKern(wijziging);
+
+    private async Task BewaarProjectKern((string Kolom, object? Waarde) wijziging)
     {
         if (_projectId is null) return;
+        var vanId = _projectId.Value;
         try
         {
             var opslaan = Schoon(wijziging.Waarde);
-            await Repo.UpdateProjectVeldAsync(_projectId.Value, wijziging.Kolom, opslaan);
-            _projectVelden[wijziging.Kolom] = opslaan;
+            await Repo.UpdateProjectVeldAsync(vanId, wijziging.Kolom, opslaan);
+            if (_projectId == vanId) _projectVelden[wijziging.Kolom] = opslaan;
 
             // nummer of omschrijving gewijzigd? dan klopt de lijst niet meer
             if (wijziging.Kolom.Equals("Projectnumber", StringComparison.OrdinalIgnoreCase))
@@ -655,6 +671,7 @@
     {
         _werkbonId = w.Id;
         _werkbonNummer = w.Nummer;
+        await WachtOpOpslaan();
         try { _werkorderVelden = await Repo.GetWerkorderVeldenAsync(w.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
 
@@ -662,14 +679,17 @@
         catch { _afspraak = new(null, null, null); }
     }
 
-    private async Task BewaarWerkorder((string Kolom, object? Waarde) wijziging)
+    private Task BewaarWerkorder((string Kolom, object? Waarde) wijziging) => _opslaanBezig = BewaarWerkorderKern(wijziging);
+
+    private async Task BewaarWerkorderKern((string Kolom, object? Waarde) wijziging)
     {
         if (_werkbonId is null) return;
+        var vanId = _werkbonId.Value;
         try
         {
             var opslaan = Schoon(wijziging.Waarde);
-            await Repo.UpdateWerkorderVeldAsync(_werkbonId.Value, wijziging.Kolom, opslaan);
-            _werkorderVelden[wijziging.Kolom] = opslaan;
+            await Repo.UpdateWerkorderVeldAsync(vanId, wijziging.Kolom, opslaan);
+            if (_werkbonId == vanId) _werkorderVelden[wijziging.Kolom] = opslaan;
 
             // omschrijving of status gewijzigd? dan de lijst links bijwerken
             if (wijziging.Kolom.Equals("Werkbonomschrijving", StringComparison.OrdinalIgnoreCase)

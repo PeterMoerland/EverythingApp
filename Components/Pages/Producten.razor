@@ -1918,6 +1918,7 @@
         _productId = p.Id;
         _product = p;
         if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        await WachtOpOpslaan();
 
         try { _velden = await Repo.GetVeldenAsync(p.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
@@ -2183,21 +2184,36 @@
         catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); await LaadStuklijst(); }
     }
 
-    private async Task Bewaar((string Kolom, object? Waarde) wijziging)
+    private Task? _opslaanBezig;
+
+    /// <summary>
+    /// Een lopende veldwijziging eerst laten afronden. Het onchange van een veld vuurt bij het verlaten ervan, vlak
+    /// vóór de klik op een ander record; zonder wachten laadt dat record al terwijl de UPDATE nog loopt en komt de
+    /// oude waarde in de velden van het nieuwe record terecht (opmerking leek dan niet opgeslagen).
+    /// </summary>
+    private async Task WachtOpOpslaan()
+    {
+        if (_opslaanBezig is { IsCompleted: false } t) { try { await t; } catch { } }
+    }
+
+    private Task Bewaar((string Kolom, object? Waarde) wijziging) => _opslaanBezig = BewaarKern(wijziging);
+
+    private async Task BewaarKern((string Kolom, object? Waarde) wijziging)
     {
         if (_productId is null) return;
+        var vanId = _productId.Value;       // het exemplaar van de wijziging, ook als er intussen een ander gekozen is
         try
         {
             var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
-            await Repo.UpdateVeldAsync(_productId.Value, wijziging.Kolom, opslaan);
-            _velden[wijziging.Kolom] = opslaan;
+            await Repo.UpdateVeldAsync(vanId, wijziging.Kolom, opslaan);
+            if (_productId == vanId) _velden[wijziging.Kolom] = opslaan;
 
             // Serienummer, status of klant gewijzigd? dan klopt de lijst links niet meer
             if (wijziging.Kolom.Equals("ProductNameID", StringComparison.OrdinalIgnoreCase))
             {
                 // Het exemplaar hangt nu onder een ander type: selectie vrijgeven,
                 // anders staat links iets anders dan rechts.
-                LeegmakenProduct();
+                if (_productId == vanId) LeegmakenProduct();
                 await LaadProducten();
                 Toon("Verplaatst naar het andere producttype.", false);
                 return;

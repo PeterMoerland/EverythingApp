@@ -772,6 +772,7 @@
         _bestelling = b;
         _status = b.Status;
         _laadteller++;          // een klik annuleert een lopende toetsenbordronde
+        await WachtOpOpslaan();
 
         try { _velden = await Repo.GetVeldenAsync(b.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
@@ -943,9 +944,24 @@
     // ================================================================
     //  Kop opslaan
     // ================================================================
-    private async Task Bewaar((string Kolom, object? Waarde) wijziging)
+    private Task? _opslaanBezig;
+
+    /// <summary>
+    /// Een lopende veldwijziging eerst laten afronden. Het onchange van een veld vuurt bij het verlaten ervan, vlak
+    /// vóór de klik op een ander record; zonder wachten laadt dat record al terwijl de UPDATE nog loopt en komt de
+    /// oude waarde in de velden van het nieuwe record terecht (opmerking leek dan niet opgeslagen).
+    /// </summary>
+    private async Task WachtOpOpslaan()
+    {
+        if (_opslaanBezig is { IsCompleted: false } t) { try { await t; } catch { } }
+    }
+
+    private Task Bewaar((string Kolom, object? Waarde) wijziging) => _opslaanBezig = BewaarKern(wijziging);
+
+    private async Task BewaarKern((string Kolom, object? Waarde) wijziging)
     {
         if (_orderId is null) return;
+        var vanId = _orderId.Value;         // de bestelling van de wijziging, ook als er intussen een andere gekozen is
         try
         {
             var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
@@ -955,8 +971,8 @@
                 Toon(niet, true);
                 return;
             }
-            await Repo.UpdateVeldAsync(_orderId.Value, wijziging.Kolom, opslaan);
-            _velden[wijziging.Kolom] = opslaan;
+            await Repo.UpdateVeldAsync(vanId, wijziging.Kolom, opslaan);
+            if (_orderId == vanId) _velden[wijziging.Kolom] = opslaan;
 
             // andere leverancier: zijn standaardwaarden (contact, taal, leverdatum als die leeg is) en de vraag over
             // het afleveradres, zoals OrderSupplier_AfterUpdate -> FillInDefaults_Order in Access
@@ -965,13 +981,13 @@
                 if (opslaan is not null && await Repo.LeverancierStandaardAsync(Convert.ToInt32(opslaan)) is { } st)
                 {
                     var aflever = st.HeeftAfleveradres && await Bevestig($"Wil je de bestelling laten afleveren bij {st.AfleverTekst}?");
-                    await Repo.VulStandaardAsync(_orderId.Value, st, aflever);
+                    await Repo.VulStandaardAsync(vanId, st, aflever);
                 }
                 else
                 {
-                    await Repo.UpdateVeldAsync(_orderId.Value, "Contact", null);
+                    await Repo.UpdateVeldAsync(vanId, "Contact", null);
                 }
-                _velden = await Repo.GetVeldenAsync(_orderId.Value);
+                if (_orderId == vanId) _velden = await Repo.GetVeldenAsync(vanId);
                 await LaadContacten();
                 await LaadStandaard();
                 await Laad();
@@ -979,7 +995,7 @@
             else if (wijziging.Kolom.Equals("AfleverKlant-id", StringComparison.OrdinalIgnoreCase))
             {
                 // ander afleveradres: de contactpersoon (t.a.v.) hoort bij dat adres
-                await Repo.UpdateVeldAsync(_orderId.Value, "AfleverTAV-id", null);
+                await Repo.UpdateVeldAsync(vanId, "AfleverTAV-id", null);
                 _velden["AfleverTAV-id"] = null;
                 await LaadContacten();
             }

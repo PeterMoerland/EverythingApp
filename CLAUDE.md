@@ -229,6 +229,31 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Veld opslaan vs. ander record kiezen (19-10-2026)
+
+Gemeld bij Producten: opmerking typen, zonder het veld te verlaten een ander exemplaar aanklikken, en de opmerking
+leek niet opgeslagen. Oorzaak: het `onchange` vuurt bij het verlaten van het veld, vlak voor de klik; Blazor Server
+laat een tweede event doorlopen zodra de eerste op een `await` staat. Het nieuwe exemplaar werd dus al geladen
+terwijl de UPDATE nog liep, en daarna schreef `Bewaar` de oude waarde in `_velden` van het nieuwe exemplaar.
+Fix in Producten, Bestellingen, Projecten, Relaties en Werknemers: `Bewaar` is een wrapper die de taak in
+`_opslaanBezig` zet (`BewaarKern` doet het werk met `vanId`, het id van het moment van de wijziging, en raakt
+`_velden` alleen aan als dat record nog open staat); `Kies…` doet `await WachtOpOpslaan()` voordat het de velden
+van het nieuwe record laadt. Niet in de browser getest (schrijft naar de database); bouwt wel.
+
+## Tarieven berekenen (19-10-2026)
+
+`/financien/tarieven` (Financiën ▸ Tarieven berekenen, recht Financial), `Components/Pages/Tarieven.razor`: het losse
+gebruik van Access' InvoiceImportHours. Klant zoeken → project/werkorders/periode (zelfde keuze als het importvenster)
+→ Uren tonen (gerekend met `IUrenImportRepository.RekenAsync`, regels in `Services/Tariefregels.cs`) → samenvatting per
+werkorder/medewerker/uurtype + de losse urenregels. **Tarieven opslaan** = Access' "Bereken tarieven"
+(`SchrijfTarievenAsync`, los van een factuur). **Factuur maken met deze uren** opent `VerkoopFactuurVenster` als nieuwe
+factuur via `FactuurVoorstel.Regels` (nieuw: meerdere regels ineens; uren die al op een factuur staan doen niet mee).
+Het importeren vanuit een bestaande factuur blijft `UrenImportVenster` (markup grotendeels gelijk; bewust niet samengevoegd).
+In beide: na het aan-/uitvinken van een werkorder springt de periode naar de eerste t/m laatste dag met uren in die
+keuze (`PeriodeVanUrenAsync`; wens gebruiker, zoals Access' 'zoek data' bij een klik op de werkorder).
+Niet overgenomen: de Access-rapporten "Overzicht project" en "Weekoverzicht per klant". Niet getest in de browser
+(lokaal geen Financial-recht); bouwt wel.
+
 ## Financiën: blok Analyse (19-10-2026)
 
 In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met Liquiditeitsoverzicht (verhuisd uit
