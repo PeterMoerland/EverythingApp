@@ -263,6 +263,36 @@ stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 
 omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
 `BewaarRegelAsync` als Plakken uit klembord).
 
+## Werkplek-inlog: vaste gebruikers bovenaan (19-10-2026)
+
+In "Wie ben jij?" (`Components/Layout/WerkplekMedewerker.razor`, ook de vergrendeling) staan bovenaan onder "Vaak op
+deze werkplek" de zes mensen die hier het vaakst inlogden, daaronder "Iedereen" (zonder de bovenste). Bij zoeken één
+lijst, vaste gebruikers eerst. Geteld na elke geslaagde pincode in de browser van die pc (`localStorage`
+"werkplekAanmeldingen", via `mdeOpslag`): dus per werkstation, geen tabel; browsergegevens wissen = telling opnieuw.
+Getest lokaal met `Werkplekken__Geheugen` (testwerkplek gekoppeld, Kees Blok pincode 2580).
+
+## Pakbonnen (19-10-2026)
+
+Bestellingen ▸ Verzenden ▸ **Pakbonnen** (`/bestellingen/pakbonnen`, `Components/Pages/Pakbonnen.razor`), overgezet van
+het Access-formulier Pakbonnen (PakbonSub, PakbonSub2, PakbonNieuw, rapporten Pakbon/PakbonPlaatjes, Verzendlabel).
+Bestaande tabellen `Pakbonnen`, `PakbonItem`, `PakbonStatus`; geen SQL-script nodig. `Services/IPakbonRepository.cs`
+(MySql/Geen; lokaal `Pakbon__Geheugen=true`: leest echt, schrijft in het geheugen; let op: een nieuwe contactpersoon
+gaat via `IRelatieRepository` wél de database in).
+- Links de pakbonnen (niet gewist, nieuwste eerst, zoeken op klant of PS-nummer); Wissen = `Deleted = 1` zoals Access.
+- Nieuwe pakbon: klant zoeken, t.a.v. kiezen of nieuwe naam (Access eiste een contactpersoon; nieuwe naam = nieuwe
+  rij in Contacts), status 1 (Aanmaken), `sGUID` en `AangemaaktDoorID` zoals Access.
+- Regels: + Regel, Uit PO (alle regels aan behalve kostenregels zonder artikelnummer; gewicht uit Artikelen, Remark
+  "Uit PO-…"), Uit artikelen (`OfferteArtikelZoeker` met `MetPrijzen=false`, dekt ook maakdelen; aantal 1).
+  Getallen: "1,5" en "1.5" allebei anderhalf. Opslaan per veld, met een slot tegen wisselen tijdens opslaan.
+- Afdruk (`Services/PakbonPdfService.cs`): zelfde opmaak en Edge-route als de factuur (`FactuurPdfService.Begin/Meta/
+  Plaats` zijn daarvoor internal), afzender `Pakbonnen:Afzender` (standaard 5254), regels samengevoegd zoals het
+  Access-rapport, referenties = de verschillende InkooporderKlant, kolom kg alleen als er gewicht is, "Melding op bon"
+  onderaan. Met afbeeldingen: artikelfoto via `LabelService.ArtikelFotoAsync`. Verzendlabel: A5 liggend.
+- **Nog niet**: het Dymo-verzendlabel. Access printte op "DYMO LabelWriter DUO Label", lade 1, labeltype 1933088
+  (lokale Access-tabel Settings), met LargeShipping.label; dat is een andere printer dan de labelprinter van de app.
+- Getest lokaal: lijst, openen, drie PDF's (PS-1705, met foto's), nieuw, regels, uit PO, uit artikelen, status, wissen
+  (in het geheugen).
+
 ## Financiën afgeschermd (19-10-2026)
 
 Besluit gebruiker: Financiën (menu en schermen) is **volledig** dicht voor wie geen Financial of Directie heeft, ook de AI

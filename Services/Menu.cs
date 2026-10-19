@@ -101,10 +101,9 @@ public static class Menu
         // Voorraad: lokaties en dragers (krat, pallet) als boom, en straks de mutaties.
         new("voorraad", "Voorraad", "archive",
             new MenuGroep("Voorraad",
-                new MenuItem("Artikelvoorraad", "/voorraad/artikelen"),
-                new MenuItem("Inboeken", "/voorraad/artikelen"),
-                new MenuItem("Uitboeken", "/voorraad/artikelen"),
-                new MenuItem("Verplaatsen", "/voorraad/artikelen")),
+                // Inboeken, uitboeken en verplaatsen gebeuren in Artikelvoorraad zelf; de losse tegels (die naar
+                // hetzelfde scherm wezen) zijn op verzoek van de gebruiker weggehaald (19-10-2026).
+                new MenuItem("Artikelvoorraad", "/voorraad/artikelen")),
             new MenuGroep("Lokaties",
                 new MenuItem("Dragers", "/voorraad/dragers"),
                 new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur"),
@@ -120,6 +119,8 @@ public static class Menu
             new MenuGroep("Ontvangst",
                 new MenuItem("Materiaal inboeken", "/bestellingen/ontvangst"),
                 new MenuItem("Scan bestelling")),
+            new MenuGroep("Verzenden",
+                new MenuItem("Pakbonnen", "/bestellingen/pakbonnen")),
             new MenuGroep("Rapporten",
                 new MenuItem("Openstaande bestellingen"))),
 

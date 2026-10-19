@@ -1,0 +1,740 @@
+@page "/bestellingen/pakbonnen"
+@inject IPakbonRepository Repo
+@inject IRelatieRepository Relaties
+@inject PakbonPdfService Pdf
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Overgezet van het Access-formulier Pakbonnen (met PakbonSub, PakbonSub2, PakbonNieuw, PakbonZoeken, de
+   rapporten Pakbon/PakbonPlaatjes en VerzendlabelPrinten). Links de pakbonnen per klant, rechts de kop en de regels.
+   Regels toevoegen: los, uit een PO (Access: Parts Search History "PAKBON") of uit artikelen en maakdelen (Access:
+   ArtikelZoekenInOrders en ZoekMaakdelen, hier één zoeker). Wissen = Deleted op 1, zoals in Access. *@
+
+<PageTitle>Pakbonnen — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Pakbonnen</h1>
+        <span class="weeklabel">@_lijst.Count pakbonnen@(_lijst.Count >= Max ? " (de nieuwste " + Max + ")" : "")</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Klant of PS-nummer…" value="@_zoek" @oninput="ZoekGetypt" data-zoeklijst />
+                        <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="btngroup">
+                        <button class="klein" @onclick="() => _nieuwOpen = true">+ Nieuwe pakbon</button>
+                        <button class="klein rood" disabled="@(_pakbon is null)" @onclick="Wis">Wissen</button>
+                    </div>
+                </div>
+                <div class="wn-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">@(_laden ? "Laden…" : "Niets gevonden.")</div>
+                    }
+                    @foreach (var p in _lijst)
+                    {
+                        <button class="wn-naam pb-naam @(p.Id == _pakbon?.Id ? "actief" : "")" @onclick="() => Kies(p.Id)">
+                            <span><b>@p.Nummer</b> @p.Klant</span>
+                            <small>@(p.Datum?.ToString("dd-MM-yy") ?? "") · @p.Status · @p.Regels regel@(p.Regels == 1 ? "" : "s")</small>
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_pakbon is not { } pb)
+                {
+                    <div class="kiezer-info">Kies links een pakbon, of maak een nieuwe.</div>
+                }
+                else
+                {
+                    <div class="pb-titel">
+                        <h2>@pb.Nummer</h2>
+                        <span class="zij-extra">aangemaakt @(pb.AanmaakDatum?.ToString("dd-MM-yyyy HH:mm") ?? "") @(pb.AangemaaktDoor.Length > 0 ? "door " + pb.AangemaaktDoor : "")</span>
+                        <span class="pb-vulling"></span>
+                        <div class="btngroup">
+                            <button class="klein" disabled="@_pdfBezig" @onclick="() => Bekijk(false)">📄 Bekijken</button>
+                            <button class="klein" disabled="@_pdfBezig" @onclick="() => Bekijk(true)">🖼 Met afbeeldingen</button>
+                            <button class="klein" disabled="@_pdfBezig" @onclick="Verzendlabel">🏷 Verzendlabel (A5)</button>
+                        </div>
+                    </div>
+
+                    <div class="wn-velden pb-velden">
+                        <div class="wn-veld">
+                            <label>Klant</label>
+                            <div class="pb-klant">
+                                <span>@pb.Klant</span>
+                                <button class="klein" @onclick="() => _klantOpen = true">Wijzig…</button>
+                            </div>
+                        </div>
+                        <div class="wn-veld">
+                            <label>t.a.v.</label>
+                            @if (_nieuwContact is not null)
+                            {
+                                <div class="pb-klant">
+                                    <input value="@_nieuwContact" @oninput="e => _nieuwContact = (string?)e.Value ?? string.Empty" placeholder="Naam contactpersoon" />
+                                    <button class="klein" @onclick="ContactToevoegen">Toevoegen</button>
+                                    <button class="klein" @onclick="() => _nieuwContact = null">✕</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="pb-klant">
+                                    <select value="@(pb.ContactId?.ToString() ?? "")" @onchange="ContactGewijzigd">
+                                        <option value="">—</option>
+                                        @foreach (var c in _contacten)
+                                        {
+                                            <option value="@c.Id">@c.Naam</option>
+                                        }
+                                    </select>
+                                    <button class="klein" title="Nieuwe contactpersoon bij deze klant" @onclick="() => _nieuwContact = string.Empty">+</button>
+                                </div>
+                            }
+                        </div>
+                        <div class="wn-veld">
+                            <label>Status</label>
+                            <select value="@(pb.StatusId?.ToString() ?? "")" @onchange="StatusGewijzigd">
+                                <option value="">—</option>
+                                @foreach (var s in _statussen)
+                                {
+                                    <option value="@s.Id">@s.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Track and Trace</label>
+                            <input value="@pb.TrackNTrace" maxlength="100" @onchange="e => ZetKop(p => p.TrackNTrace = Tekst(e))" />
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Opmerking <small class="zij-extra">(intern)</small></label>
+                            <textarea rows="2" maxlength="500" value="@pb.Opmerking" @onchange="e => ZetKop(p => p.Opmerking = Tekst(e))"></textarea>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Melding op bon <small class="zij-extra">(komt onderaan de pakbon)</small></label>
+                            <textarea rows="2" maxlength="500" value="@pb.MeldingOpBon" @onchange="e => ZetKop(p => p.MeldingOpBon = Tekst(e))"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="regels-balk">
+                        <h3 class="wn-kop">Regels</h3>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="NieuweRegel">+ Regel</button>
+                            <button class="klein" @onclick="OpenPo" title="Regels van een inkooporder overnemen">Uit PO…</button>
+                            <button class="klein" @onclick="() => _artikelOpen = true" title="Een artikel of maakdeel zoeken">Uit artikelen…</button>
+                        </div>
+                    </div>
+                    <div class="regels-omhulsel">
+                        <table class="kiezer-tabel regels pb-regels">
+                            <thead>
+                                <tr>
+                                    <th style="width:4.2rem" class="c">Aantal</th>
+                                    <th style="width:11rem">Artikelnummer</th>
+                                    <th>Omschrijving</th>
+                                    <th style="width:5.5rem" class="r" title="Gewicht per stuk">kg/st</th>
+                                    <th style="width:9rem">Referentie klant</th>
+                                    <th style="width:12rem">Opmerking</th>
+                                    <th style="width:2.4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in _regels)
+                                {
+                                    <tr @key="r.Id">
+                                        <td><input class="c" value="@Getal(r.Aantal)" @onchange="e => ZetRegelGetal(r, (x, v) => x.Aantal = v, e)" /></td>
+                                        <td><input value="@r.Artikelnummer" maxlength="45" @onchange="e => ZetRegel(r, x => x.Artikelnummer = Tekst(e))" /></td>
+                                        <td><input value="@r.Omschrijving" maxlength="400" @onchange="e => ZetRegel(r, x => x.Omschrijving = Tekst(e))" /></td>
+                                        <td><input class="r" value="@Getal(r.Gewicht)" @onchange="e => ZetRegelGetal(r, (x, v) => x.Gewicht = v, e)" /></td>
+                                        <td><input value="@r.ReferentieKlant" maxlength="45" @onchange="e => ZetRegel(r, x => x.ReferentieKlant = Tekst(e))" /></td>
+                                        <td><input value="@r.Opmerking" maxlength="100" @onchange="e => ZetRegel(r, x => x.Opmerking = Tekst(e))" /></td>
+                                        <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => VerwijderRegel(r)">✕</button></td>
+                                    </tr>
+                                }
+                                @if (_regels.Count == 0)
+                                {
+                                    <tr><td colspan="7" class="kiezer-info">Nog geen regels op deze pakbon.</td></tr>
+                                }
+                            </tbody>
+                            @if (_regels.Count > 0)
+                            {
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="3" class="r"><b>Totaal gewicht</b></td>
+                                        <td class="r"><b>@Getal(_regels.Sum(r => r.Gewicht * r.Aantal)) kg</b></td>
+                                        <td colspan="3"></td>
+                                    </tr>
+                                </tfoot>
+                            }
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@* ---------- nieuwe pakbon of andere klant: klant zoeken, dan t.a.v. ---------- *@
+@if (_nieuwOpen || _klantOpen)
+{
+    <div class="cmdk-overlay midden" @onclick="SluitKlant">
+        <div class="factuurvenster pb-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@(_nieuwOpen ? "Nieuwe pakbon" : "Andere klant")</h2>
+                <button class="klein" @onclick="SluitKlant">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_gekozenKlant is null)
+                {
+                    <input class="of-zoekveld" placeholder="Zoek de klant…" value="@_klantZoek" @oninput="KlantGetypt" autofocus />
+                    <div class="pb-keuzelijst">
+                        @foreach (var k in _klanten)
+                        {
+                            <button class="wn-naam" @onclick="() => KiesKlant(k)">@k.Naam</button>
+                        }
+                        @if (_klantZoek.Trim().Length >= 2 && _klanten.Count == 0)
+                        {
+                            <div class="kiezer-info">Niets gevonden.</div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p><b>@_gekozenKlant.Naam</b> <button class="klein" @onclick="() => _gekozenKlant = null">Andere…</button></p>
+                    <div class="wn-veld">
+                        <label>t.a.v.</label>
+                        <div class="pb-klant">
+                            <select value="@(_gekozenContact?.ToString() ?? "")" @onchange="e => _gekozenContact = int.TryParse((string?)e.Value, out var c) ? c : null">
+                                <option value="">— kies —</option>
+                                @foreach (var c in _klantContacten)
+                                {
+                                    <option value="@c.Id">@c.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="pb-klant">
+                            <input placeholder="… of een nieuwe contactpersoon" value="@_klantNieuwContact"
+                                   @oninput="e => _klantNieuwContact = (string?)e.Value ?? string.Empty" />
+                        </div>
+                    </div>
+                    <div class="btngroup pb-knoppen">
+                        <button class="primair" disabled="@_bezig" @onclick="KlantBevestigd">@(_nieuwOpen ? "Aanmaken" : "Overnemen")</button>
+                        <button class="klein" @onclick="SluitKlant">Annuleren</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- regels uit een PO ---------- *@
+@if (_poOpen)
+{
+    <div class="cmdk-overlay midden" @onclick="() => _poOpen = false">
+        <div class="factuurvenster pb-venster breed" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Regels uit een PO</h2>
+                <button class="klein" @onclick="() => _poOpen = false">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_po is null)
+                {
+                    <input class="of-zoekveld" placeholder="PO-nummer, leverancier of omschrijving…" value="@_poZoek" @oninput="PoGetypt" autofocus />
+                    <div class="pb-keuzelijst">
+                        @foreach (var po in _pos)
+                        {
+                            <button class="wn-naam" @onclick="() => KiesPo(po)">
+                                <b>@po.Nummer</b> @po.Leverancier <small class="zij-extra">@(po.Datum?.ToString("dd-MM-yy") ?? "") @po.Omschrijving</small>
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p><b>@_po.Nummer</b> @_po.Leverancier <button class="klein" @onclick="() => _po = null">Andere PO…</button></p>
+                    <table class="kiezer-tabel">
+                        <thead><tr><th style="width:2rem"></th><th class="r" style="width:4rem">Aantal</th><th style="width:11rem">Artikelnummer</th><th>Omschrijving</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in _poRegels)
+                            {
+                                <tr>
+                                    <td><input type="checkbox" checked="@_poGekozen.Contains(r.OrderItemId)" @onchange="e => WisselPoRegel(r.OrderItemId, e)" /></td>
+                                    <td class="r">@Getal(r.Aantal)</td>
+                                    <td>@r.Artikelnummer</td>
+                                    <td>@r.Omschrijving</td>
+                                </tr>
+                            }
+                            @if (_poRegels.Count == 0) { <tr><td colspan="4" class="kiezer-info">Deze PO heeft geen regels.</td></tr> }
+                        </tbody>
+                    </table>
+                    <div class="btngroup pb-knoppen">
+                        <button class="primair" disabled="@(_bezig || _poGekozen.Count == 0)" @onclick="PoToevoegen">@_poGekozen.Count regel@(_poGekozen.Count == 1 ? "" : "s") toevoegen</button>
+                        <button class="klein" @onclick="() => _poOpen = false">Annuleren</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<OfferteArtikelZoeker Open="_artikelOpen" Titel="Artikel of maakdeel naar de pakbon" MetPrijzen="false" Gekozen="ArtikelGekozen" />
+
+@* ---------- PDF in beeld ---------- *@
+@if (_pdfUrl is not null)
+{
+    <div class="cmdk-overlay midden" @onclick="SluitPdf">
+        <div class="factuurvenster pb-pdf" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@_pdfNaam</h2>
+                <div class="btngroup">
+                    <button class="klein" @onclick="DownloadPdf">⭳ Downloaden</button>
+                    <button class="klein" @onclick="SluitPdf">✕</button>
+                </div>
+            </header>
+            <iframe src="@_pdfUrl" title="@_pdfNaam"></iframe>
+        </div>
+    </div>
+}
+
+@code {
+    private const int Max = 500;
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    private List<PakbonLijstRegel> _lijst = new();
+    private bool _laden = true;
+    private string _zoek = "";
+    private CancellationTokenSource? _zoekPauze;
+
+    private Pakbon? _pakbon;
+    private List<PakbonItem> _regels = new();
+    private List<Keuze> _contacten = new();
+    private List<Keuze> _statussen = new();
+    private string? _nieuwContact;
+
+    private string? _melding;
+    private bool _fout;
+    private bool _bezig;
+
+    // Opslaan en wisselen van pakbon na elkaar, nooit door elkaar: een veld dat bij het wegklikken wordt
+    // opgeslagen moet bij de pakbon terechtkomen waar het bij hoorde (zelfde les als bij Producten).
+    private readonly SemaphoreSlim _slot = new(1, 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _statussen = await Repo.StatussenAsync(); } catch { }
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laden = true;
+        try { _lijst = await Repo.ZoekAsync(_zoek, Max); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        finally { _laden = false; }
+    }
+
+    private async Task ZoekGetypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _zoekPauze?.Cancel();
+        var pauze = _zoekPauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        await Laad();
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        await Laad();
+    }
+
+    private async Task Kies(int id)
+    {
+        await _slot.WaitAsync();
+        try
+        {
+            _nieuwContact = null;
+            _pakbon = await Repo.GetAsync(id);
+            _regels = _pakbon is null ? new() : await Repo.RegelsAsync(id);
+            _contacten = _pakbon?.RelatieId is int r ? await Repo.ContactenAsync(r) : new();
+        }
+        catch (Exception ex) { Toon("Openen mislukt: " + ex.Message, true); }
+        finally { _slot.Release(); }
+    }
+
+    // ---- kop ----
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    private async Task ZetKop(Action<Pakbon> zet)
+    {
+        if (_pakbon is null) return;
+        var pb = _pakbon;
+        await _slot.WaitAsync();
+        try
+        {
+            zet(pb);
+            await Repo.BewaarKopAsync(pb);
+            await VerversLijstregel(pb.Id);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _slot.Release(); }
+    }
+
+    private Task ContactGewijzigd(ChangeEventArgs e)
+        => ZetKop(p => p.ContactId = int.TryParse((string?)e.Value, out var c) ? c : null);
+
+    private Task StatusGewijzigd(ChangeEventArgs e)
+        => ZetKop(p => p.StatusId = int.TryParse((string?)e.Value, out var s) ? s : null);
+
+    private async Task ContactToevoegen()
+    {
+        if (_pakbon is not { RelatieId: int rel } || string.IsNullOrWhiteSpace(_nieuwContact)) return;
+        try
+        {
+            var id = await Relaties.BewaarContactpersoonAsync(new Contactpersoon { RelatieId = rel, Naam = _nieuwContact.Trim() });
+            _contacten = await Repo.ContactenAsync(rel);
+            _nieuwContact = null;
+            await ZetKop(p => p.ContactId = id);
+        }
+        catch (Exception ex) { Toon("Contactpersoon toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>De regel in de lijst links bijwerken (status, aantal regels) zonder alles opnieuw op te halen.</summary>
+    private async Task VerversLijstregel(int id)
+    {
+        try
+        {
+            var vers = (await Repo.ZoekAsync("PS-" + id, 5)).FirstOrDefault(p => p.Id == id);
+            var i = _lijst.FindIndex(p => p.Id == id);
+            if (vers is not null && i >= 0) _lijst[i] = vers;
+        }
+        catch { }
+    }
+
+    private async Task Wis()
+    {
+        if (_pakbon is not { } pb) return;
+        if (!await Vraag($"Pakbon {pb.Nummer} van {pb.Klant} wissen?")) return;
+        try
+        {
+            await Repo.WisAsync(pb.Id);
+            _pakbon = null;
+            _regels = new();
+            await Laad();
+            Toon($"{pb.Nummer} is gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- nieuwe pakbon / andere klant ----
+
+    private bool _nieuwOpen, _klantOpen;
+    private string _klantZoek = "";
+    private List<Keuze> _klanten = new();
+    private Keuze? _gekozenKlant;
+    private List<Keuze> _klantContacten = new();
+    private int? _gekozenContact;
+    private string _klantNieuwContact = "";
+    private CancellationTokenSource? _klantPauze;
+
+    private async Task KlantGetypt(ChangeEventArgs e)
+    {
+        _klantZoek = (string?)e.Value ?? "";
+        _klantPauze?.Cancel();
+        if (_klantZoek.Trim().Length < 2) { _klanten = new(); return; }
+        var pauze = _klantPauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        try { _klanten = await Relaties.ZoekAsync(_klantZoek.Trim(), false, false, 0, 20); } catch { _klanten = new(); }
+    }
+
+    private async Task KiesKlant(Keuze k)
+    {
+        _gekozenKlant = k;
+        _gekozenContact = null;
+        _klantNieuwContact = "";
+        try { _klantContacten = await Repo.ContactenAsync(k.Id); } catch { _klantContacten = new(); }
+        if (_klantContacten.Count == 1) _gekozenContact = _klantContacten[0].Id;
+    }
+
+    private void SluitKlant()
+    {
+        _nieuwOpen = _klantOpen = false;
+        _gekozenKlant = null;
+        _klantZoek = "";
+        _klanten = new();
+    }
+
+    private async Task KlantBevestigd()
+    {
+        if (_gekozenKlant is not { } klant) return;
+        _bezig = true;
+        try
+        {
+            // Zoals Access: een contactpersoon is nodig; een nieuwe naam wordt bij de klant toegevoegd.
+            var contact = _gekozenContact;
+            if (_klantNieuwContact.Trim().Length > 0)
+                contact = await Relaties.BewaarContactpersoonAsync(new Contactpersoon { RelatieId = klant.Id, Naam = _klantNieuwContact.Trim() });
+            if (contact is null) { Toon("Kies een contactpersoon (t.a.v.) of vul een nieuwe naam in.", true); return; }
+
+            if (_nieuwOpen)
+            {
+                var id = await Repo.NieuwAsync(klant.Id, contact, Ik.WerknemerId);
+                SluitKlant();
+                _zoek = "";
+                await Laad();
+                await Kies(id);
+                Toon($"Pakbon PS-{id} aangemaakt.", false);
+            }
+            else
+            {
+                SluitKlant();
+                await ZetKop(p => { p.RelatieId = klant.Id; p.Klant = klant.Naam; p.ContactId = contact; });
+                if (_pakbon is not null) _contacten = await Repo.ContactenAsync(klant.Id);
+            }
+        }
+        catch (Exception ex) { Toon("Mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- regels ----
+
+    private static string Getal(decimal w) => w.ToString("#,0.###", Nl);
+
+    /// <summary>"1,5" en "1.5" allebei als anderhalf; "1.250,5" als twaalfhonderdvijftig komma vijf.</summary>
+    private static decimal? LeesGetal(string tekst)
+    {
+        tekst = tekst.Trim().Replace(" ", "");
+        if (tekst.Length == 0) return 0;
+        var nl = tekst.Contains(',') ? tekst.Replace(".", "").Replace(',', '.') : tekst;
+        return decimal.TryParse(nl, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    private async Task ZetRegel(PakbonItem r, Action<PakbonItem> zet)
+    {
+        await _slot.WaitAsync();
+        try
+        {
+            zet(r);
+            await Repo.BewaarRegelAsync(r);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _slot.Release(); }
+    }
+
+    private Task ZetRegelGetal(PakbonItem r, Action<PakbonItem, decimal> zet, ChangeEventArgs e)
+    {
+        if (LeesGetal(Tekst(e)) is not decimal v) { Toon($"'{Tekst(e)}' is geen getal.", true); return Task.CompletedTask; }
+        return ZetRegel(r, x => zet(x, v));
+    }
+
+    private async Task<bool> VoegToe(PakbonItem r)
+    {
+        try
+        {
+            await Repo.VoegRegelToeAsync(r);
+            _regels.Add(r);
+            return true;
+        }
+        catch (Exception ex) { Toon("Regel toevoegen mislukt: " + ex.Message, true); return false; }
+    }
+
+    private async Task NieuweRegel()
+    {
+        if (_pakbon is null) return;
+        if (await VoegToe(new PakbonItem { PakbonId = _pakbon.Id, Aantal = 1 })) await VerversLijstregel(_pakbon.Id);
+    }
+
+    private async Task VerwijderRegel(PakbonItem r)
+    {
+        if (!await Vraag($"Regel '{(r.Artikelnummer.Length > 0 ? r.Artikelnummer : r.Omschrijving)}' verwijderen?")) return;
+        try
+        {
+            await Repo.VerwijderRegelAsync(r.Id);
+            _regels.Remove(r);
+            if (_pakbon is not null) await VerversLijstregel(_pakbon.Id);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- uit artikelen en maakdelen ----
+
+    private bool _artikelOpen;
+
+    private async Task ArtikelGekozen(OfferteArtikelKeuze? a)
+    {
+        _artikelOpen = false;
+        if (a is null || _pakbon is null) return;
+        var art = await Repo.ArtikelAsync(a.Id);
+        var regel = new PakbonItem
+        {
+            PakbonId = _pakbon.Id, Aantal = 1, MdeId = a.Id,
+            Artikelnummer = art?.Code is { Length: > 0 } code ? code : a.Code,
+            Omschrijving = art?.Omschrijving is { Length: > 0 } oms ? oms : a.Omschrijving,
+            Gewicht = art?.Gewicht ?? 0, Opmerking = "Uit Artikelen toegevoegd.",
+        };
+        if (await VoegToe(regel))
+        {
+            await VerversLijstregel(_pakbon.Id);
+            Toon($"{regel.Artikelnummer} toegevoegd met aantal 1; pas het aantal zo nodig aan.", false);
+        }
+    }
+
+    // ---- uit een PO ----
+
+    private bool _poOpen;
+    private string _poZoek = "";
+    private List<PakbonPoKeuze> _pos = new();
+    private PakbonPoKeuze? _po;
+    private List<PakbonPoRegel> _poRegels = new();
+    private readonly HashSet<int> _poGekozen = new();
+    private CancellationTokenSource? _poPauze;
+
+    private async Task OpenPo()
+    {
+        _poOpen = true;
+        _po = null;
+        _poZoek = "";
+        try { _pos = await Repo.ZoekPosAsync("", 25); } catch { _pos = new(); }
+    }
+
+    private async Task PoGetypt(ChangeEventArgs e)
+    {
+        _poZoek = (string?)e.Value ?? "";
+        _poPauze?.Cancel();
+        var pauze = _poPauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        try { _pos = await Repo.ZoekPosAsync(_poZoek, 40); } catch { _pos = new(); }
+    }
+
+    private async Task KiesPo(PakbonPoKeuze po)
+    {
+        _po = po;
+        _poGekozen.Clear();
+        try { _poRegels = await Repo.PoRegelsAsync(po.OrderId); } catch { _poRegels = new(); }
+        // Standaard alles aan, behalve kostenregels zonder artikelnummer (verzendkosten, toeslag): die gaan niet in de doos.
+        foreach (var r in _poRegels.Where(r => !IsKostenregel(r))) _poGekozen.Add(r.OrderItemId);
+    }
+
+    private static bool IsKostenregel(PakbonPoRegel r)
+        => r.Artikelnummer.Trim().Length == 0
+           && System.Text.RegularExpressions.Regex.IsMatch(r.Omschrijving, "verzend|transport|vracht|toeslag|orderkosten|shipping|freight",
+                                                           System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private void WisselPoRegel(int id, ChangeEventArgs e)
+    {
+        if (e.Value is bool b && b) _poGekozen.Add(id); else _poGekozen.Remove(id);
+    }
+
+    private async Task PoToevoegen()
+    {
+        if (_pakbon is null || _po is null) return;
+        _bezig = true;
+        var gelukt = 0;
+        try
+        {
+            foreach (var r in _poRegels.Where(r => _poGekozen.Contains(r.OrderItemId)))
+            {
+                // Zoals Access: aantal, artikelnummer en omschrijving van de PO; het gewicht uit Artikelen.
+                var gewicht = r.MdeId is int mde ? (await Repo.ArtikelAsync(mde))?.Gewicht ?? 0 : 0;
+                if (await VoegToe(new PakbonItem
+                    {
+                        PakbonId = _pakbon.Id, Aantal = r.Aantal, Artikelnummer = r.Artikelnummer, Omschrijving = r.Omschrijving,
+                        MdeId = r.MdeId, Gewicht = gewicht, Opmerking = "Uit " + _po.Nummer,
+                    }))
+                    gelukt++;
+            }
+            _poOpen = false;
+            await VerversLijstregel(_pakbon.Id);
+            Toon($"{gelukt} regel{(gelukt == 1 ? "" : "s")} uit {_po.Nummer} toegevoegd.", false);
+        }
+        finally { _bezig = false; }
+    }
+
+    // ---- afdrukken ----
+
+    private bool _pdfBezig;
+    private string? _pdfUrl;
+    private string _pdfNaam = "";
+    private byte[]? _pdf;
+
+    private async Task Bekijk(bool metPlaatjes)
+    {
+        if (_pakbon is null) return;
+        await ToonPdf($"Pakbon {_pakbon.Nummer}{(metPlaatjes ? " met afbeeldingen" : "")}.pdf",
+                      () => Pdf.PakbonAsync(_pakbon.Id, metPlaatjes));
+    }
+
+    private async Task Verzendlabel()
+    {
+        if (_pakbon is null) return;
+        await ToonPdf($"Verzendlabel {_pakbon.Nummer}.pdf", () => Pdf.VerzendlabelAsync(_pakbon.Id));
+    }
+
+    private async Task ToonPdf(string naam, Func<Task<byte[]>> maak)
+    {
+        _pdfBezig = true;
+        Toon("PDF maken…", false);
+        StateHasChanged();
+        try
+        {
+            // Wat nog in een veld staat te wachten eerst laten opslaan.
+            await _slot.WaitAsync();
+            _slot.Release();
+            _pdf = await maak();
+            if (_pdfUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pdfUrl); } catch { } }
+            _pdfUrl = await JS.InvokeAsync<string>("mdeBlob.maak", _pdf, "application/pdf");
+            _pdfNaam = naam;
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _pdfBezig = false; }
+    }
+
+    private async Task DownloadPdf()
+    {
+        if (_pdf is null) return;
+        try { await JS.InvokeVoidAsync("mdeBestand.download", _pdfNaam, _pdf); } catch { }
+    }
+
+    private async Task SluitPdf()
+    {
+        if (_pdfUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pdfUrl); } catch { } }
+        _pdfUrl = null;
+        _pdf = null;
+    }
+
+    // ---- algemeen ----
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    public async ValueTask DisposeAsync()
+    {
+        _zoekPauze?.Cancel();
+        _klantPauze?.Cancel();
+        _poPauze?.Cancel();
+        if (_pdfUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pdfUrl); } catch { } }
+    }
+}

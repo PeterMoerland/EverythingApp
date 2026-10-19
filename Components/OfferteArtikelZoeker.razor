@@ -19,7 +19,8 @@
                 <table class="kiezer-tabel of-regels">
                     <thead>
                         <tr><th class="r" style="width:5rem">MDE</th><th style="width:11rem">Artikel</th><th>Omschrijving</th>
-                            <th style="width:9rem">Merk</th><th class="r" style="width:6.5rem">Inkoop</th><th class="r" style="width:6.5rem">Verkoop</th></tr>
+                            <th style="width:9rem">Merk</th>
+                            @if (MetPrijzen) { <th class="r" style="width:6.5rem">Inkoop</th><th class="r" style="width:6.5rem">Verkoop</th> }</tr>
                     </thead>
                     <tbody>
                         @foreach (var a in _treffers)
@@ -30,13 +31,16 @@
                                 <td>@a.Code</td>
                                 <td>@a.Omschrijving</td>
                                 <td>@a.Merk</td>
-                                <td class="r">@Geld(prijs.Inkoop)</td>
-                                <td class="r @(prijs.Verkoop == 0 ? "of-mist" : "")">@Geld(prijs.Verkoop)</td>
+                                @if (MetPrijzen)
+                                {
+                                    <td class="r">@Geld(prijs.Inkoop)</td>
+                                    <td class="r @(prijs.Verkoop == 0 ? "of-mist" : "")">@Geld(prijs.Verkoop)</td>
+                                }
                             </tr>
                         }
                         @if (_treffers.Count == 0 && _zoek.Trim().Length >= 2 && !_bezig)
                         {
-                            <tr><td colspan="6" class="uitleg">Niets gevonden.</td></tr>
+                            <tr><td colspan="@(MetPrijzen ? 6 : 4)" class="uitleg">Niets gevonden.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -49,6 +53,9 @@
 @code {
     [Parameter] public bool Open { get; set; }
     [Parameter] public string Titel { get; set; } = "Artikel kiezen";
+
+    /// <summary>Inkoop- en verkoopprijs tonen (offertes); uit bij bv. de pakbon, daar horen geen prijzen.</summary>
+    [Parameter] public bool MetPrijzen { get; set; } = true;
 
     /// <summary>Het gekozen artikel met prijzen, of null bij annuleren.</summary>
     [Parameter] public EventCallback<OfferteArtikelKeuze?> Gekozen { get; set; }
@@ -72,7 +79,7 @@
         try
         {
             var treffers = await Artikelen.ZoekAsync(zoek, null, false, Max);
-            var prijzen = await Repo.ArtikelPrijzenAsync(treffers.Select(t => t.Id));
+            var prijzen = MetPrijzen ? await Repo.ArtikelPrijzenAsync(treffers.Select(t => t.Id)) : new();
             if (mijn != _teller) return;
             _treffers = treffers;
             _prijzen = prijzen;

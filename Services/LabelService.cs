@@ -221,6 +221,9 @@ public class LabelService
     /// Met <paramref name="verslag"/> erbij schrijft hij elke stap uit; dat is de
     /// tekst achter /dymolabel?uitleg=true.
     /// </summary>
+    /// <summary>De foto van een artikel (jpg/png uit Artikelen:FotoPad) of null; ook voor de pakbon met afbeeldingen.</summary>
+    public Task<byte[]?> ArtikelFotoAsync(int artikelId) => FotoVoorLabelAsync(artikelId);
+
     private async Task<byte[]?> FotoVoorLabelAsync(int artikelId, StringBuilder? verslag = null)
     {
         void Zeg(string tekst) => verslag?.AppendLine(tekst);

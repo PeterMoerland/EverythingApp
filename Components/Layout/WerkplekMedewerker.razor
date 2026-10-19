@@ -66,7 +66,41 @@ else if (Ik.IsWerkplek)
     private bool Vergrendeld => Slot && Ik.IsWerkplek && Ik.Medewerker is null && _iemandHeeftPincode;
 
     private IEnumerable<Keuze> Gefilterd
-        => _personen.Where(p => _zoek.Trim().Length == 0 || p.Naam.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase));
+        => _personen.Where(p => _zoek.Trim().Length == 0 || p.Naam.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(p => _zoek.Trim().Length > 0 ? Aantal(p.Id) : 0);   // bij zoeken: wie hier vaak inlogt eerst
+
+    // ---- wie logt hier vaak in ----
+    // Per werkplek geteld in de browser van die pc (localStorage, net als de Dymo-instellingen): "vaak" = vaak op
+    // dít werkstation. Geen tabel nodig; wist iemand de browsergegevens, dan begint de telling opnieuw.
+    private const string TelSleutel = "werkplekAanmeldingen";
+    private const int MaxVaak = 6;
+    private Dictionary<int, int> _tellingen = new();
+    private bool _tellingenGelezen;
+
+    private int Aantal(int werknemerId) => _tellingen.GetValueOrDefault(werknemerId);
+
+    /// <summary>Bovenaan (zonder zoektekst): wie hier het vaakst inlogt, hoogstens zes.</summary>
+    private List<Keuze> Vaak
+        => _zoek.Trim().Length > 0 ? new()
+         : _personen.Where(p => Aantal(p.Id) > 0).OrderByDescending(p => Aantal(p.Id)).ThenBy(p => p.Naam).Take(MaxVaak).ToList();
+
+    private async Task LeesTellingen()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("mdeOpslag.lees", TelSleutel);
+            if (!string.IsNullOrWhiteSpace(json))
+                _tellingen = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(json) ?? new();
+        }
+        catch { _tellingen = new(); }
+    }
+
+    private async Task TelAanmelding(int werknemerId)
+    {
+        _tellingen[werknemerId] = Aantal(werknemerId) + 1;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", TelSleutel, System.Text.Json.JsonSerializer.Serialize(_tellingen)); }
+        catch { }
+    }
 
     /// <summary>Naam kiezen, dan pincode; gedeeld door het venster ("Wie ben jij?") en de vergrendeling.</summary>
     private RenderFragment Kiezer => @<text>
@@ -75,7 +109,21 @@ else if (Ik.IsWerkplek)
             <h3>Wie ben jij?</h3>
             <input class="snel-zoek" id="wpm-zoek" placeholder="Zoek je naam…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
             <div class="wpm-personen">
-                @foreach (var p in Gefilterd)
+                @{ var vaak = Vaak; }
+                @if (vaak.Count > 0)
+                {
+                    <div class="wpm-kopje">Vaak op deze werkplek</div>
+                    @foreach (var p in vaak)
+                    {
+                        var k = p;
+                        <button type="button" class="wpm-persoon wpm-vaak" @onclick="() => Kies(k)">
+                            <span class="ab-av wpm-av" style="background:@ActKleur.Avatar(k.Naam)">@ActKleur.Initialen(k.Naam)</span>
+                            <span>@k.Naam</span>
+                        </button>
+                    }
+                    <div class="wpm-kopje">Iedereen</div>
+                }
+                @foreach (var p in Gefilterd.Where(p => !vaak.Contains(p)))
                 {
                     var k = p;
                     <button type="button" class="wpm-persoon" @onclick="() => Kies(k)">
@@ -139,6 +187,12 @@ else if (Ik.IsWerkplek)
 
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
+        if (eerste && Ik.IsWerkplek && !_tellingenGelezen)
+        {
+            _tellingenGelezen = true;
+            await LeesTellingen();
+            if (_tellingen.Count > 0) StateHasChanged();
+        }
         if (eerste && !Slot && Ik.IsWerkplek)
         {
             _zelf = DotNetObjectReference.Create(this);
@@ -206,7 +260,7 @@ else if (Ik.IsWerkplek)
         try
         {
             _fout = await Ik.MeldAanAsync(g.Id, g.Naam, _pin);
-            if (_fout is null) { Sluit(); _zoek = ""; }
+            if (_fout is null) { await TelAanmelding(g.Id); Sluit(); _zoek = ""; }
         }
         catch (Exception ex) { _fout = "Aanmelden mislukt: " + ex.Message; }
         finally { _pin = ""; _bezig = false; }

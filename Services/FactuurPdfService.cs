@@ -290,7 +290,7 @@ public class FactuurPdfService
     //  Gedeelde opmaak
     // ============================================================
 
-    private static void Begin(StringBuilder sb, FactuurAfzender a, string titel, bool liggend, string voet)
+    internal static void Begin(StringBuilder sb, FactuurAfzender a, string titel, bool liggend, string voet)
     {
         var kleur = System.Text.RegularExpressions.Regex.IsMatch(a.Kleur, "^#[0-9A-Fa-f]{6}$") ? a.Kleur : "#333333";
         sb.Append("<!doctype html><html><head><meta charset='utf-8'>");
@@ -377,13 +377,13 @@ public class FactuurPdfService
         }
     }
 
-    private static void Meta(StringBuilder sb, string label, string waarde, bool vet = false)
+    internal static void Meta(StringBuilder sb, string label, string waarde, bool vet = false)
     {
         if (waarde.Trim().Length == 0) return;
         sb.Append($"<tr><td>{H(label)}</td><td>{(vet ? "<b>" : "")}{H(waarde)}{(vet ? "</b>" : "")}</td></tr>");
     }
 
-    private static string Plaats(string postcode, string plaats) => $"{postcode}  {plaats}".Trim();
+    internal static string Plaats(string postcode, string plaats) => $"{postcode}  {plaats}".Trim();
 
     /// <summary>NL46RABO0314367594 → NL46 RABO 0314 3675 94.</summary>
     private static string IbanLeesbaar(string iban)

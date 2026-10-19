@@ -160,6 +160,11 @@ if (liveDb)
     builder.Services.AddSingleton<ISnelkoppelingRepository>(_ => new MySqlSnelkoppelingRepository(cs!));
     builder.Services.AddSingleton<IWerkplekRepository>(_ => new MySqlWerkplekRepository(cs!));
     builder.Services.AddSingleton<IFactuurInboxRepository>(_ => new MySqlFactuurInboxRepository(cs!));
+    // Pakbonnen; lokaal testen zonder in de pakbontabellen te schrijven: Pakbon__Geheugen=true (leest wel echt)
+    if (builder.Configuration.GetValue<bool>("Pakbon:Geheugen"))
+        builder.Services.AddSingleton<IPakbonRepository>(_ => new GeheugenPakbonRepository(new MySqlPakbonRepository(cs!)));
+    else
+        builder.Services.AddSingleton<IPakbonRepository>(_ => new MySqlPakbonRepository(cs!));
 }
 else
 {
@@ -191,6 +196,7 @@ else
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeenSnelkoppelingRepository>();
     builder.Services.AddSingleton<IWerkplekRepository, GeenWerkplekRepository>();
     builder.Services.AddSingleton<IFactuurInboxRepository, GeenFactuurInboxRepository>();
+    builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
@@ -262,6 +268,7 @@ builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
 builder.Services.AddSingleton<FactuurPdfService>();
+builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap

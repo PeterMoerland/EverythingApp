@@ -2992,6 +2992,9 @@ html[data-thema="donker"] .wp-bijlage { background: var(--d2); }
 .wpm-wieben { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 .wpm-mbox { width: min(620px, 96vw); }
 .wpm-personen { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .4rem; max-height: 55vh; overflow: auto; }
+.wpm-kopje { grid-column: 1 / -1; margin: .3rem 0 -.1rem; font-size: .78rem; font-weight: 600; color: #778; text-transform: uppercase; letter-spacing: .04em; }
+.wpm-persoon.wpm-vaak { border-color: var(--accent); }
+html[data-thema="donker"] .wpm-kopje { color: #9aa8bb; }
 .wpm-persoon { display: flex; align-items: center; gap: .45rem; padding: .45rem .5rem; border: 1px solid #ddd; border-radius: 8px; background: #fff;
                cursor: pointer; font: inherit; text-align: left; }
 .wpm-persoon:hover, .wpm-persoon:focus { border-color: var(--accent); background: var(--selected); outline: none; }
@@ -3458,3 +3461,21 @@ html[data-thema="donker"] .inbox-fout,
 html[data-thema="donker"] .inbox-melding { color: #ff8a80; }
 .bon-fout { margin: .6rem 0; padding: .7rem .8rem; border-radius: 10px; background: #fdecea; border: 1px solid var(--rood); color: #8b1a16; }
 html[data-thema="donker"] .bon-fout { background: #3a1a18; color: #ffb4ab; }
+
+/* ---------- Pakbonnen (Bestellingen ▸ Pakbonnen) ---------- */
+.pb-naam { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; }
+.pb-naam small { color: #667; font-size: .8em; }
+.pb-titel { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.pb-titel h2 { margin: 0; }
+.pb-vulling { flex: 1; }
+.pb-velden { margin-bottom: .8rem; }
+.pb-klant { display: flex; align-items: center; gap: .4rem; }
+.pb-klant select, .pb-klant input { flex: 1; min-width: 0; }
+.kiezer-tabel.regels.pb-regels { min-width: 44rem; }
+.pb-venster { width: min(34rem, 94vw); }
+.pb-venster.breed { width: min(52rem, 94vw); }
+.pb-keuzelijst { display: flex; flex-direction: column; gap: .15rem; max-height: 22rem; overflow-y: auto; margin-top: .5rem; }
+.pb-knoppen { margin-top: .9rem; }
+.pb-pdf { width: min(60rem, 96vw); height: 90vh; display: flex; flex-direction: column; }
+.pb-pdf iframe { flex: 1; width: 100%; border: 0; }
+html[data-thema="donker"] .pb-naam small { color: #9aa8bb; }
