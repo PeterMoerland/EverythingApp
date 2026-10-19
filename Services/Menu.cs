@@ -127,7 +127,9 @@ public static class Menu
             new MenuGroep("Onderhoud",
                 new MenuItem("Producten en serienummers", "/producten"),
                 new MenuItem("Opbouw"),
-                new MenuItem("Samenstelling"))),
+                new MenuItem("Samenstelling")),
+            new MenuGroep("Overzichten",
+                new MenuItem("Todo-overzicht", "/producten/todo"))),
 
         // Productie: halffabricaten (prints, motoren, kabels) opbouwen, uitlezen,
         // programmeren en testen; producten opbouwen en duurtesten — gekoppeld aan

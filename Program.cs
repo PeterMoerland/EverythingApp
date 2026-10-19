@@ -128,6 +128,7 @@ if (liveDb)
         builder.Configuration.GetValue<int?>("Productie:StandaardKlantId")));
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
+    builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
@@ -167,6 +168,7 @@ else
     builder.Services.AddSingleton<IProductRepository, GeenProductRepository>();
     builder.Services.AddSingleton<IBestelRepository, GeenBestelRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
+    builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
     builder.Services.AddSingleton<IBankRepository, GeenBankRepository>();
     builder.Services.AddSingleton<IArtikelRepository, GeenArtikelRepository>();
@@ -203,6 +205,10 @@ builder.Services.AddSingleton<ActivityBoardLive>();   // Activity board: wijzigi
 if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
+// Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true
+// (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
+if (builder.Configuration.GetValue<bool>("ProductTodo:Geheugen"))
+    builder.Services.AddSingleton<IProductTodoRepository, GeheugenProductTodoRepository>();
 // Alleen om de snelbalk lokaal te testen zonder database: Snelbalk__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Snelbalk:Geheugen"))
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeheugenSnelkoppelingRepository>();

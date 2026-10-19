@@ -1,0 +1,183 @@
+@page "/producten/todo"
+@inject IProductTodoRepository Todos
+@inject IProductRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Producten ▸ Todo-overzicht: alle open punten van exemplaren (tabel ProductTodo), met het product waar ze in zitten
+   (de robot boven de print), bv. "welke robots moeten nog worden doorgesoldeerd". Invoeren gaat per exemplaar in
+   Producten ▸ tab Todo; hier kun je filteren, afvinken en afdrukken. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Todo-overzicht</h1>
+        <span class="weeklabel">@Getoond.Count punt@(Getoond.Count == 1 ? "" : "en")@(_wat is null ? "" : " · " + _wat)</span>
+    </header>
+
+    @if (!Todos.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (_geladen && !_tabel)
+    {
+        <section class="module-placeholder"><p>De tabel ProductTodo bestaat nog niet. Voer eerst ProductTodo_MariaDB.sql uit op de database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="todo-chips niet-afdrukken">
+            <button class="klein @(_wat is null ? "actief" : "")" @onclick="() => KiesWat(null)">Alle punten (@_watLijst.Sum(w => w.Open))</button>
+            @foreach (var w in _watLijst.Where(w => w.Open > 0 || w.Wat == _wat || _ookGereed))
+            {
+                <button class="klein @(w.Wat == _wat ? "actief" : "")" @key="w.Wat" @onclick="() => KiesWat(w.Wat)">
+                    @w.Wat (@(_ookGereed ? $"{w.Open}/{w.Totaal}" : w.Open.ToString()))
+                </button>
+            }
+        </div>
+
+        <div class="bankfilters niet-afdrukken">
+            <label class="bankveld">
+                <span>Zoeken</span>
+                <input placeholder="Product, serienummer, klant, project, toelichting…" value="@_zoek"
+                       @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            </label>
+            <label class="vink"><input type="checkbox" checked="@_ookGereed" @onchange="OokGereedGewijzigd" /> Ook gereed</label>
+            <button class="klein" @onclick="Laad">↻ Vernieuwen</button>
+            <button class="klein" @onclick="Afdrukken">🖨 Afdrukken</button>
+        </div>
+
+        @if (!_geladen)
+        {
+            <p class="kiezer-info">Laden…</p>
+        }
+        else
+        {
+            <table class="kiezer-tabel todo-overzicht">
+                <thead>
+                    <tr>
+                        <th class="niet-afdrukken" style="width:2.2rem" title="Gereed">✓</th>
+                        <th style="width:10rem">Product</th>
+                        <th style="width:10rem">Onderdeel</th>
+                        <th style="width:10rem">Wat</th>
+                        <th>Toelichting</th>
+                        <th style="width:11rem">Klant</th>
+                        <th style="width:8rem">Project</th>
+                        <th style="width:5rem">Status</th>
+                        <th style="width:8.5rem">Ingevoerd</th>
+                        @if (_ookGereed)
+                        {
+                            <th style="width:8.5rem">Gereed</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in Getoond)
+                    {
+                        <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
+                            <td class="niet-afdrukken">
+                                <input type="checkbox" checked="@(!t.Open)" disabled="@_bezig"
+                                       title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")" @onchange="e => ZetGereed(t, e.Value is true)" />
+                            </td>
+                            <td><a href="producten?product=@(t.WortelId ?? t.ProductId)" title="Exemplaar openen">@(t.WortelId is null ? t.Exemplaar : t.Wortel)</a></td>
+                            <td>
+                                @if (t.InOnderdeel)
+                                {
+                                    <a href="producten?product=@t.ProductId" title="Onderdeel openen">@t.Exemplaar</a>
+                                }
+                            </td>
+                            <td><b>@t.Wat</b></td>
+                            <td>@t.Toelichting</td>
+                            <td class="omschrijving" title="@t.Klant">@t.Klant</td>
+                            <td class="omschrijving" title="@t.Project">@t.Project</td>
+                            <td>@t.Status</td>
+                            <td class="klein-grijs">@t.Aangemaakt.ToString("dd-MM-yyyy") @t.Door</td>
+                            @if (_ookGereed)
+                            {
+                                <td class="klein-grijs">@(t.Gereed?.ToString("dd-MM-yyyy")) @t.GereedDoor</td>
+                            }
+                        </tr>
+                    }
+                    @if (Getoond.Count == 0)
+                    {
+                        <tr><td colspan="10" class="kiezer-info">@(_lijst.Count == 0 ? "Geen open punten." : "Niets gevonden voor dit filter.")</td></tr>
+                    }
+                </tbody>
+            </table>
+            @if (_lijst.Count >= Max)
+            {
+                <p class="uitleg">Alleen de eerste @Max punten; kies een soort om de lijst kleiner te maken.</p>
+            }
+        }
+    }
+</div>
+
+@code {
+    private const int Max = 2000;
+    private bool _geladen, _tabel, _ookGereed, _bezig;
+    private string? _wat;
+    private string _zoek = "";
+    private string? _melding;
+    private List<ProductTodo> _lijst = new();
+    private List<TodoWat> _watLijst = new();
+
+    private List<ProductTodo> Getoond
+    {
+        get
+        {
+            var woorden = _zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (woorden.Length == 0) return _lijst;
+            return _lijst.Where(t =>
+            {
+                var tekst = $"{t.Wortel} {t.Exemplaar} {t.Wat} {t.Toelichting} {t.Klant} {t.Project} {t.Status} {t.Door}";
+                return woorden.All(w => tekst.Contains(w, StringComparison.OrdinalIgnoreCase));
+            }).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Todos.Beschikbaar) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _tabel = await Todos.TabelAanwezigAsync();
+            if (_tabel)
+            {
+                _watLijst = await Todos.WatLijstAsync();
+                _lijst = await Todos.OverzichtAsync(_wat, _ookGereed, Max);
+            }
+        }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+        _geladen = true;
+    }
+
+    private async Task KiesWat(string? wat) { _wat = wat; await Laad(); }
+
+    private async Task OokGereedGewijzigd(ChangeEventArgs e) { _ookGereed = e.Value is true; await Laad(); }
+
+    private async Task ZetGereed(ProductTodo t, bool gereed)
+    {
+        _bezig = true;
+        try
+        {
+            await Todos.ZetGereedAsync(t.Id, gereed, Ik.WerknemerId);
+            try { await Repo.VoegHistorieToeAsync(t.ProductId, (gereed ? "Todo gereed: " : "Todo weer open: ") + t.Wat, null, Ik.WerknemerId); }
+            catch { /* de todo zelf staat er wel */ }
+            await Laad();
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Afdrukken()
+    {
+        try { await JS.InvokeVoidAsync("print"); } catch { }
+    }
+}

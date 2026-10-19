@@ -229,6 +229,25 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Todo bij producten (19-10-2026)
+
+Wens: punten die bij een exemplaar nog moeten gebeuren (bv. de print in een robot moet nog worden doorgesoldeerd), en
+een overzicht "welke robots moeten nog worden doorgesoldeerd". Tabel `ProductTodo` (`ProductTodo_MariaDB.sql`, **door de
+gebruiker uit te voeren**): per punt het exemplaar, `Wat` (kort en herbruikbaar, het overzicht groepeert erop; bij het
+invoeren een keuzelijst met eerdere waarden en dezelfde schrijfwijze als een bestaande), `Toelichting`, aangemaakt/gereed
+(datum + werknemer). Los van de oude Access-tabel `Todo` (34 todo's per werkorder/activiteit), die blijft ongemoeid.
+- `Services/IProductTodoRepository.cs`: `VanExemplaarAsync` (dit exemplaar + alles eronder, recursieve CTE over
+  `ParentProductenID`), `OpenPerExemplaarAsync` (open punten per exemplaar van een type, inclusief die van onderdelen),
+  `OverzichtAsync` (met het bovenste product, "wortel", plus klant/project/status daarvan), `WatLijstAsync`.
+- Producten ▸ exemplaar ▸ tab **Todo** (`Components/ProductTodoTab.razor`): toevoegen (Enter), afvinken, weer open, ✕ met
+  "Zeker?" voor iets dat per ongeluk is ingevoerd. Punten van onderdelen staan erbij met een link naar dat onderdeel.
+  Toevoegen/gereed/weer open komen in de historie van het exemplaar. Tabtitel "Todo (n)" en een oranje stipje met het
+  aantal in de exemplarenlijst.
+- Producten ▸ Overzichten ▸ **Todo-overzicht** (`/producten/todo`, `Pages/ProductTodos.razor`): knoppen per Wat met
+  aantallen, zoeken, "ook gereed", afvinken, afdrukken (`@media print` verbergt menu en balk; eerste printstijl in de app).
+- Queries getest tegen de echte data met nep-punten in plaats van de tabel (kabel in MPR-1 16 → wortel MPR-1 16, klant
+  Viscon). Schermen niet getest met de tabel (die bestaat nog niet).
+
 ## Zoekvak + lijst als combobox (19-10-2026)
 
 `wwwroot/zoeklijst.js` (geladen in App.razor), één globale keydown-listener. **Opt-in**: het zoekvak krijgt

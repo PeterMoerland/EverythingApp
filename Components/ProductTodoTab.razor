@@ -1,0 +1,188 @@
+@inject IProductTodoRepository Todos
+@inject IProductRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Producten ▸ exemplaar ▸ tab Todo: punten die nog gedaan moeten worden, bij dit exemplaar én bij wat erin zit
+   (de print in een robot). 'Wat' is kort en herbruikbaar (bv. Doorsolderen): het Todo-overzicht groepeert erop.
+   Toevoegen, gereed en weer open komen ook in de historie van het exemplaar. *@
+
+@if (!_geladen)
+{
+    <p class="kiezer-info">Laden…</p>
+}
+else if (!_tabel)
+{
+    <p class="kiezer-info">De tabel ProductTodo bestaat nog niet. Voer eerst ProductTodo_MariaDB.sql uit op de database.</p>
+}
+else
+{
+    <div class="tl-balk todo-invoer">
+        <input class="todo-wat" list="todo-wat-lijst" maxlength="60" placeholder="Wat moet er nog gebeuren? bv. Doorsolderen"
+               value="@_wat" @oninput="e => _wat = (string?)e.Value ?? string.Empty" @onkeydown="Toets" />
+        <datalist id="todo-wat-lijst">
+            @foreach (var w in _watLijst)
+            {
+                <option value="@w.Wat"></option>
+            }
+        </datalist>
+        <input class="mail-zoek" maxlength="250" placeholder="Toelichting (optioneel), bv. R12 en R13 onderkant"
+               value="@_toelichting" @oninput="e => _toelichting = (string?)e.Value ?? string.Empty" @onkeydown="Toets" />
+        <button class="primair" disabled="@(_bezig || _wat.Trim().Length == 0)" @onclick="Toevoegen">+ Toevoegen</button>
+    </div>
+
+    @if (_fout is not null)
+    {
+        <p class="todo-fout">@_fout</p>
+    }
+
+    <table class="kiezer-tabel todo-tabel">
+        <thead>
+            <tr>
+                <th style="width:2rem" title="Gereed">✓</th>
+                <th>Wat</th>
+                <th>Onderdeel</th>
+                <th>Ingevoerd</th>
+                <th style="width:4rem"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var t in Zichtbaar)
+            {
+                <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
+                    <td><input type="checkbox" checked="@(!t.Open)" disabled="@_bezig" title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")"
+                               @onchange="e => ZetGereed(t, e.Value is true)" /></td>
+                    <td>
+                        <b>@t.Wat</b>
+                        @if (t.Toelichting.Length > 0)
+                        {
+                            <div class="todo-toel">@t.Toelichting</div>
+                        }
+                    </td>
+                    <td>
+                        @if (t.ProductId != ProductId)
+                        {
+                            <button class="todo-link" title="Naar dit onderdeel" @onclick="() => OpGaNaar.InvokeAsync(t)">@t.Exemplaar</button>
+                        }
+                    </td>
+                    <td class="klein-grijs">
+                        @t.Aangemaakt.ToString("dd-MM-yyyy") @t.Door
+                        @if (t.Gereed is { } g)
+                        {
+                            <div>gereed @g.ToString("dd-MM-yyyy") @t.GereedDoor</div>
+                        }
+                    </td>
+                    <td>
+                        @if (_wisVraag == t.Id)
+                        {
+                            <button class="klein rood" @onclick="() => Verwijder(t)">Zeker?</button>
+                        }
+                        else
+                        {
+                            <button class="klein" title="Per ongeluk ingevoerd? Weghalen (komt niet in de historie)" @onclick="() => _wisVraag = t.Id">✕</button>
+                        }
+                    </td>
+                </tr>
+            }
+            @if (Zichtbaar.Count == 0)
+            {
+                <tr><td colspan="5" class="kiezer-info">@(_lijst.Count == 0 ? "Geen punten. Alles is gedaan, of er is nog niets ingevoerd." : "Geen open punten.")</td></tr>
+            }
+        </tbody>
+    </table>
+
+    @if (_lijst.Any(t => !t.Open))
+    {
+        <label class="vink todo-toon-gereed">
+            <input type="checkbox" checked="@_toonGereed" @onchange="e => _toonGereed = e.Value is true" />
+            Ook gereed tonen (@_lijst.Count(t => !t.Open))
+        </label>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public int ProductId { get; set; }
+    /// <summary>Naar het onderdeel van een punt (Producten opent dat exemplaar).</summary>
+    [Parameter] public EventCallback<ProductTodo> OpGaNaar { get; set; }
+    /// <summary>Er is iets toegevoegd of afgevinkt: tellers en historie bijwerken.</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private int? _geladenVoor;
+    private bool _geladen, _tabel, _bezig, _toonGereed;
+    private string _wat = "", _toelichting = "";
+    private string? _fout;
+    private int? _wisVraag;
+    private List<ProductTodo> _lijst = new();
+    private List<TodoWat> _watLijst = new();
+
+    private List<ProductTodo> Zichtbaar => _toonGereed ? _lijst : _lijst.Where(t => t.Open).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProductId) return;
+        _geladenVoor = ProductId;
+        _wat = ""; _toelichting = ""; _fout = null; _wisVraag = null;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _tabel = await Todos.TabelAanwezigAsync();
+            if (_tabel)
+            {
+                _lijst = await Todos.VanExemplaarAsync(ProductId);
+                _watLijst = await Todos.WatLijstAsync();
+            }
+        }
+        catch (Exception ex) { _fout = "Laden mislukt: " + ex.Message; }
+        _geladen = true;
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Toevoegen();
+    }
+
+    private async Task Toevoegen()
+    {
+        var wat = _wat.Trim();
+        if (wat.Length == 0 || _bezig) return;
+        // zelfde schrijfwijze als een bestaand punt, zodat het overzicht ze samen telt
+        wat = _watLijst.FirstOrDefault(w => w.Wat.Equals(wat, StringComparison.OrdinalIgnoreCase))?.Wat ?? wat;
+        var toel = _toelichting.Trim();
+        await Doe(async () =>
+        {
+            await Todos.MaakAsync(ProductId, wat, toel, Ik.WerknemerId);
+            await Historie(ProductId, "Todo: " + wat + (toel.Length > 0 ? " — " + toel : ""));
+            _wat = ""; _toelichting = "";
+        });
+    }
+
+    private Task ZetGereed(ProductTodo t, bool gereed) => Doe(async () =>
+    {
+        await Todos.ZetGereedAsync(t.Id, gereed, Ik.WerknemerId);
+        await Historie(t.ProductId, (gereed ? "Todo gereed: " : "Todo weer open: ") + t.Wat);
+    });
+
+    private Task Verwijder(ProductTodo t) => Doe(() => Todos.VerwijderAsync(t.Id));
+
+    private async Task Historie(int productId, string tekst)
+    {
+        try { await Repo.VoegHistorieToeAsync(productId, tekst, null, Ik.WerknemerId); } catch { /* de todo zelf staat er wel */ }
+    }
+
+    private async Task Doe(Func<Task> werk)
+    {
+        _bezig = true; _fout = null; _wisVraag = null;
+        try
+        {
+            await werk();
+            _lijst = await Todos.VanExemplaarAsync(ProductId);
+            _watLijst = await Todos.WatLijstAsync();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+}

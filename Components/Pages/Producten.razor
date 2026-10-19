@@ -9,6 +9,7 @@
 @inject IDriveRepository Drives
 @inject IArtikelRepository Artikelen
 @inject IOpbouwRepository Opbouw
+@inject IProductTodoRepository Todos
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject IConfiguration Config
@@ -166,7 +167,8 @@
                                        checked="@_gekozen.Contains(p.Id)" @onclick="e => VinkKlik(p, e)" />
                                 <button class="wn-naam exemplaar-regel @(p.Gewist ? "vervallen" : "")"
                                         @onclick="e => RegelKlik(p, e)" title="@RegelTitel(p)">
-                                    <span class="nummer">@p.Serienummer</span>
+                                    <span class="nummer">@p.Serienummer@if (_todoOpen.GetValueOrDefault(p.Id) is > 0 and var todoN)
+                                        {<span class="todo-stip" title="@todoN open todo-punt@(todoN == 1 ? "" : "en") (ook van onderdelen)">@todoN</span>}</span>
                                     <span class="stat">@p.StatusKort</span>
                                     <span class="klant">@p.Klant</span>
                                     <span class="project">@p.Project</span>
@@ -507,6 +509,12 @@
                                 }
                             </tbody>
                         </table>
+                    }
+
+                    @* ===== TODO (alleen bij een exemplaar; Components/ProductTodoTab.razor) ===== *@
+                    @if (_tab == "Todo" && _productId is int todoProduct)
+                    {
+                        <ProductTodoTab ProductId="todoProduct" OpGaNaar="TodoGaNaar" OpGewijzigd="TodoGewijzigd" />
                     }
 
                     @* ===== DOCUMENTEN ===== *@
@@ -1204,13 +1212,18 @@
     private bool TabIsEindcheck => _tab == "Eindcheck";
 
     /// <summary>Opschrift van een tab; de interne naam blijft 'Programmeren' (per-pc onthouden, URL's).</summary>
-    private static string TabTitel(string tab) => tab == "Programmeren" ? "Programmeren en testen" : tab;
+    private string TabTitel(string tab) => tab switch
+    {
+        "Programmeren" => "Programmeren en testen",
+        "Todo" when _productId is int id && _todoOpen.GetValueOrDefault(id) is > 0 and var n => $"Todo ({n})",
+        _ => tab,
+    };
 
     private string[] Tabs => _productId is null
         ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
         : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
-            ? new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
-            : new[] { "Algemeen", "Historie", "Documenten", "Samenstelling", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
+            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
+            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
 
     private string Titel
     {
@@ -1882,6 +1895,7 @@
             _producten = NieuwsteBoven(alle.Where(p => StatusZichtbaar(p) || p.Id == _productId)).ToList();
         }
         catch (Exception ex) { _producten = new(); _alleProducten = new(); Toon("Exemplaren ophalen mislukt: " + ex.Message, true); }
+        await LaadTodoTelling();
 
         // Aangevinkte exemplaren die niet meer in de lijst staan (bijvoorbeeld nadat
         // 'Inclusief gewist' uitging) uit de selectie halen — anders werkt een
@@ -2521,7 +2535,7 @@
     // ================================================================
 
     /// <summary>Springt naar een ander exemplaar; links wordt de selectie meegenomen.</summary>
-    private async Task GaNaar(SamenstellingRegel regel)
+    private async Task GaNaar(SamenstellingRegel regel, string tab = "Samenstelling")
     {
         var naam = _namen.FirstOrDefault(n => n.Id == regel.ProductNameId);
         if (naam is null)
@@ -2540,8 +2554,32 @@
         if (doel is null) { Toon("Dat exemplaar is niet gevonden.", true); return; }
 
         await KiesProduct(doel);
-        _tab = "Samenstelling";
+        _tab = tab;
     }
+
+    // ================================================================
+    //  Todo (tabel ProductTodo): open punten per exemplaar, ook van zijn onderdelen
+    // ================================================================
+    private Dictionary<int, int> _todoOpen = new();
+
+    private async Task LaadTodoTelling()
+    {
+        if (_naamId is null) { _todoOpen = new(); return; }
+        try { _todoOpen = await Todos.OpenPerExemplaarAsync(_naamId.Value); }
+        catch { _todoOpen = new(); }
+    }
+
+    private async Task TodoGewijzigd()
+    {
+        await LaadTodoTelling();
+        if (_productId is int id)
+        {
+            try { _historie = await Repo.GetHistorieAsync(id); } catch { }
+        }
+    }
+
+    private Task TodoGaNaar(ProductTodo t)
+        => GaNaar(new SamenstellingRegel(t.ProductId, t.ProductNameId, t.Type, t.Serienummer, "", ""), "Todo");
 
     private async Task NaarOuder()
     {
