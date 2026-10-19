@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace EverythingApp.Services;
 
@@ -46,44 +47,44 @@ public class FactuurUitPdf
 ///   2. Is het een scan of een foto van een bon, dan moet er gekeken worden. Dat
 ///      vraagt een model dat beelden begrijpt.
 ///
-/// Waar dat model draait staat in appsettings: 'ollama' voor de eigen server,
-/// 'claude' voor de clouddienst. Er wordt nooit iets automatisch opgeslagen; het
-/// scherm vult de velden in en de gebruiker controleert.
+/// Waar dat model draait: Amazon Bedrock (sectie Bedrock in appsettings, besluit 19-10-2026: AI alleen via Bedrock).
+/// Is Bedrock niet ingesteld, dan Ollama op de eigen server (Ai:OllamaAdres) als terugval. De vroegere directe route
+/// naar de Anthropic-API is vervallen. Er wordt nooit iets automatisch opgeslagen; het scherm vult de velden in en de
+/// gebruiker controleert.
 /// </summary>
 public class FactuurLezer
 {
     private readonly IConfiguration _config;
     private readonly ILogger<FactuurLezer> _log;
     private readonly HttpClient _http;
+    private readonly BedrockClient _bedrock;
 
-    public FactuurLezer(IConfiguration config, ILogger<FactuurLezer> log)
+    public FactuurLezer(IConfiguration config, ILogger<FactuurLezer> log, BedrockClient bedrock)
     {
         _config = config;
         _log = log;
+        _bedrock = bedrock;
 
         // Een model op eigen hardware mag er even over doen, zeker zonder videokaart.
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(4) };
     }
 
     // ---- instellingen ----
-    private string Bron => (_config["Ai:Bron"] ?? "ollama").Trim().ToLowerInvariant();
+    /// <summary>Bedrock zodra dat is ingesteld; anders Ollama (eigen server).</summary>
+    private bool ViaBedrock => _bedrock.Ingesteld;
 
     private string OllamaAdres => (_config["Ai:OllamaAdres"] ?? "http://localhost:11434").TrimEnd('/');
     private string OllamaModel => _config["Ai:OllamaModel"] ?? "qwen2.5:14b";
     private string OllamaVisieModel => _config["Ai:OllamaVisieModel"] ?? "qwen2.5vl:7b";
 
-    private string ClaudeSleutel => _config["Ai:Sleutel"] ?? "";
-    private string ClaudeModel => _config["Ai:Model"] ?? "claude-sonnet-5";
-    private string ClaudeAdres => _config["Ai:Adres"] ?? "https://api.anthropic.com/v1/messages";
-
     /// <summary>
-    /// Kan er überhaupt gelezen worden? Bij Ollama nemen we aan van wel — of hij
-    /// draait merken we bij de eerste poging, met een begrijpelijke melding.
+    /// Kan er überhaupt gelezen worden? Met Bedrock altijd; bij Ollama nemen we aan van wel — of hij draait merken we
+    /// bij de eerste poging, met een begrijpelijke melding.
     /// </summary>
-    public bool Beschikbaar => Bron == "ollama" || ClaudeSleutel.Length > 0;
+    public bool Beschikbaar => true;
 
     /// <summary>Voor het scherm: waar wordt gelezen, zodat de gebruiker het weet.</summary>
-    public string BronNaam => Bron == "ollama" ? "eigen server" : "clouddienst";
+    public string BronNaam => ViaBedrock ? "Bedrock" : "eigen server";
 
     /// <summary>
     /// Wat we aan het model vragen. Staat in Templates\FactuurUitlezen.txt, zodat
@@ -175,6 +176,9 @@ public class FactuurLezer
             if (PdfTekst.HeeftTekstlaag(tekst))
                 return await UitTekstAsync(tekst, voortgang, stop);
 
+            // een scan: Bedrock (Claude) kan de PDF zelf bekijken
+            if (ViaBedrock) return await UitBeeldAsync(inhoud, soort, voortgang, stop);
+
             return (null, "Deze PDF bevat geen tekst; het is een scan. Zet Ai:OllamaVisieModel "
                         + "in appsettings op een model dat beelden begrijpt, of maak er een "
                         + "foto van en voeg die toe.");
@@ -196,9 +200,9 @@ public class FactuurLezer
         var vraag = Opdracht + "\n\nDit is de tekst van de factuur:\n\n" + tekst;
 
         voortgang?.Report($"digitale factuur; {BronNaam} sorteert de gegevens…");
-        var (antwoord, fout) = Bron == "ollama"
-            ? await OllamaAsync(OllamaModel, vraag, null, null, stop)
-            : await ClaudeAsync(vraag, null, null, stop);
+        var (antwoord, fout) = ViaBedrock
+            ? await BedrockAsync(vraag, null, null, stop)
+            : await OllamaAsync(OllamaModel, vraag, null, null, stop);
 
         if (antwoord is null) return (null, fout);
 
@@ -213,18 +217,18 @@ public class FactuurLezer
     private async Task<(FactuurUitPdf?, string)> UitBeeldAsync(byte[] inhoud, string soort,
         IProgress<string>? voortgang, CancellationToken stop)
     {
-        var grens = 5_000_000;
+        // Bedrock: beeld hoogstens 3,75 MB, document 4,5 MB
+        var grens = !ViaBedrock ? 5_000_000 : soort == "application/pdf" ? 4_500_000 : 3_750_000;
         if (inhoud.Length > grens)
             return (null, $"De afbeelding is {inhoud.Length / 1024 / 1024} MB; er kan "
                         + $"{grens / 1024 / 1024} MB in. Maak hem kleiner of gebruik een PDF.");
 
         var base64 = Convert.ToBase64String(inhoud);
 
-        voortgang?.Report($"scan of foto; {BronNaam} bekijkt het beeld — dit is de "
-                        + "langzaamste route…");
-        var (antwoord, fout) = Bron == "ollama"
-            ? await OllamaAsync(OllamaVisieModel, Opdracht, base64, soort, stop)
-            : await ClaudeAsync(Opdracht, base64, soort, stop);
+        voortgang?.Report($"scan of foto; {BronNaam} bekijkt het beeld…");
+        var (antwoord, fout) = ViaBedrock
+            ? await BedrockAsync(Opdracht, base64, soort, stop)
+            : await OllamaAsync(OllamaVisieModel, Opdracht, base64, soort, stop);
 
         if (antwoord is null) return (null, fout);
 
@@ -304,59 +308,60 @@ public class FactuurLezer
     }
 
     // ============================================================
-    //  De clouddienst (Anthropic)
+    //  Amazon Bedrock (Converse-API, Services/BedrockClient.cs)
     // ============================================================
-    private async Task<(string?, string)> ClaudeAsync(string vraag, string? base64, string? soort,
-                                                      CancellationToken stop)
+    private async Task<(string?, string)> BedrockAsync(string vraag, string? base64, string? soort,
+                                                       CancellationToken stop)
     {
-        if (ClaudeSleutel.Length == 0)
-            return (null, "Er is geen AI-sleutel ingesteld (Ai:Sleutel in appsettings.json).");
-
-        var inhoud = new List<object>();
-        if (base64 is not null)
-            inhoud.Add(new
+        var inhoud = new JsonArray();
+        if (base64 is not null && soort == "application/pdf")
+            // een gescande PDF: met citations bekijkt Claude elke pagina als beeld (zonder alleen de tekstlaag)
+            inhoud.Add(new JsonObject
             {
-                type = soort == "application/pdf" ? "document" : "image",
-                source = new { type = "base64", media_type = soort, data = base64 },
+                ["document"] = new JsonObject
+                {
+                    ["format"] = "pdf",
+                    ["name"] = "factuur",
+                    ["source"] = new JsonObject { ["bytes"] = base64 },
+                    ["citations"] = new JsonObject { ["enabled"] = true },
+                },
             });
-        inhoud.Add(new { type = "text", text = vraag });
+        else if (base64 is not null)
+            inhoud.Add(new JsonObject
+            {
+                ["image"] = new JsonObject
+                {
+                    ["format"] = soort switch { "image/png" => "png", "image/gif" => "gif", "image/webp" => "webp", _ => "jpeg" },
+                    ["source"] = new JsonObject { ["bytes"] = base64 },
+                },
+            });
+        inhoud.Add(new JsonObject { ["text"] = vraag });
 
-        var verzoek = new
+        var verzoek = new JsonObject
         {
-            model = ClaudeModel,
-            max_tokens = 1500,
-            temperature = 0,
-            messages = new object[] { new { role = "user", content = inhoud } },
+            ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = inhoud }),
+            ["inferenceConfig"] = new JsonObject { ["maxTokens"] = 1500, ["temperature"] = 0 },
         };
 
         try
         {
-            using var post = new HttpRequestMessage(HttpMethod.Post, ClaudeAdres)
-            {
-                Content = new StringContent(JsonSerializer.Serialize(verzoek), Encoding.UTF8,
-                                            "application/json"),
-            };
-            post.Headers.Add("x-api-key", ClaudeSleutel);
-            post.Headers.Add("anthropic-version", "2023-06-01");
-
-            using var antwoord = await _http.SendAsync(post, stop);
-            var ruw = await antwoord.Content.ReadAsStringAsync(stop);
-
-            if (!antwoord.IsSuccessStatusCode)
-            {
-                _log.LogWarning("Factuur uitlezen gaf {Code}.", (int)antwoord.StatusCode);
-                return (null, Uitleg((int)antwoord.StatusCode, ruw));
-            }
-
-            using var doc = JsonDocument.Parse(ruw);
-            if (!doc.RootElement.TryGetProperty("content", out var blokken))
-                return (null, "De dienst gaf een antwoord zonder inhoud.");
-
+            var a = await _bedrock.ConverseAsync(verzoek, "default", stop);
+            // tekst staat in "text"-blokken, en met citations ook in citationsContent.content[].text
             var samen = new StringBuilder();
-            foreach (var blok in blokken.EnumerateArray())
-                if (blok.TryGetProperty("text", out var t)) samen.Append(t.GetString());
-
-            return (samen.ToString(), "");
+            foreach (var blok in a.Inhoud.OfType<JsonObject>())
+            {
+                if (blok["text"] is JsonValue tv) samen.Append(tv.GetValue<string>());
+                if (blok["citationsContent"]?["content"] is JsonArray delen)
+                    foreach (var d in delen.OfType<JsonObject>())
+                        if (d["text"] is JsonValue dv) samen.Append(dv.GetValue<string>());
+            }
+            _log.LogInformation("Factuur gelezen via Bedrock ({Model}): {In} tokens in, {Uit} uit.", _bedrock.Model, a.TokensIn, a.TokensUit);
+            return samen.Length == 0 ? (null, "Bedrock gaf een antwoord zonder tekst.") : (samen.ToString(), "");
+        }
+        catch (BedrockFout f)
+        {
+            _log.LogWarning("Factuur uitlezen via Bedrock gaf {Status}: {Melding}", f.Status, f.Message);
+            return (null, f.Status == 0 ? f.Message : f.Message + " Vul de factuur anders met de hand in.");
         }
         catch (TaskCanceledException) when (!stop.IsCancellationRequested)
         {
@@ -364,39 +369,14 @@ public class FactuurLezer
         }
         catch (HttpRequestException ex)
         {
-            _log.LogWarning(ex, "AI-dienst niet bereikbaar.");
-            return (null, "De AI-dienst is niet te bereiken. Heeft de server internet?");
+            _log.LogWarning(ex, "Bedrock niet bereikbaar.");
+            return (null, "Bedrock is niet te bereiken. Heeft de server internet?");
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Factuur uitlezen mislukt.");
+            _log.LogWarning(ex, "Factuur uitlezen via Bedrock mislukt.");
             return (null, "Uitlezen mislukt. Kijk in het logboek voor de reden.");
         }
-    }
-
-    /// <summary>Een melding waar een factuurverwerker iets mee kan.</summary>
-    private static string Uitleg(int code, string ruw) => code switch
-    {
-        400 => "De dienst kon het bestand niet aannemen. Is het een geldige PDF? " + KorteFout(ruw),
-        401 or 403 => "De AI-sleutel is niet geldig of verlopen (Ai:Sleutel in appsettings.json).",
-        404 => "Het ingestelde model bestaat niet (Ai:Model in appsettings.json). " + KorteFout(ruw),
-        413 => "Het bestand is te groot voor de dienst.",
-        429 => "De dienst heeft even te veel te doen. Probeer het over een minuut opnieuw.",
-        >= 500 => "De dienst is tijdelijk niet beschikbaar. Vul de factuur anders met de hand in.",
-        _ => $"De dienst gaf foutcode {code}. " + KorteFout(ruw),
-    };
-
-    private static string KorteFout(string ruw)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(ruw);
-            if (doc.RootElement.TryGetProperty("error", out var fout)
-                && fout.TryGetProperty("message", out var m))
-                return m.GetString() ?? "";
-        }
-        catch { }
-        return ruw.Length > 200 ? ruw[..200] : ruw;
     }
 
     /// <summary>
