@@ -41,13 +41,13 @@
             <aside class="wn-lijst product-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Zoek type of omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Zoek type of omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
                         <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
                     </div>
                     <div class="zoekregel">
                         @* @key laat Blazor het veld vervangen, zodat de gescande tekst
                            er na het springen niet in blijft staan *@
-                        <input @key="_scanTeller" placeholder="Serienummer of scan (PN…)"
+                        <input @key="_scanTeller" @ref="_scanVeld" placeholder="Serienummer of scan (PN…)"
                                value="@_scan" @onchange="ScanGewijzigd" />
                     </div>
                     <div class="zoekregel">
@@ -624,7 +624,7 @@
                         <div class="bankfilters">
                             <label class="bankveld prod-keuze">
                                 <span>Halffabricaat toevoegen (zoek op naam, omschrijving, groep)</span>
-                                <input value="@_stuklijstZoek" placeholder="bv. PCBA, kabel, motor…" @oninput="StuklijstZoekGewijzigd" />
+                                <input data-zoeklijst value="@_stuklijstZoek" placeholder="bv. PCBA, kabel, motor…" @oninput="StuklijstZoekGewijzigd" />
                             </label>
                         </div>
                         @if (_stuklijstTreffers.Count > 0)
@@ -1150,6 +1150,7 @@
     private string _zoek = "";
     private string _scan = "";
     private int _scanTeller;
+    private ElementReference _scanVeld;     // bij openen van het scherm staat de cursor hier (scannen zonder klikken)
     private int? _typeId;
     private List<Keuze> _types = new();
     private List<ProductNaam> _namen = new();
@@ -1558,6 +1559,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && Repo.Beschikbaar)
+        {
+            try { await _scanVeld.FocusAsync(); } catch { }
+        }
+
         // Tab Programmeren alleen op een pc met de werkplek-agent; één keer controleren (de layout doet dat meestal al).
         if (!_agentGecontroleerd && Repo.Beschikbaar)
         {

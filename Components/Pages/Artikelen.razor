@@ -30,12 +30,12 @@
             <aside class="wn-lijst artikel-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Steekwoorden, bijv. PLC NX 1100" value="@_zoek"
+                        <input data-zoeklijst placeholder="Steekwoorden, bijv. PLC NX 1100" value="@_zoek"
                                @onchange="ZoekGewijzigd" />
                         <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
                     </div>
                     <div class="zoekregel">
-                        <input placeholder="Groep, bijv. Elektro/PLC" value="@_groep" @onchange="GroepGewijzigd" />
+                        <input data-zoeklijst placeholder="Groep, bijv. Elektro/PLC" value="@_groep" @onchange="GroepGewijzigd" />
                         <button class="klein" title="Door de groepen bladeren"
                                 @onclick="OpenGroepFilter">🗂</button>
                         <button class="klein" disabled="@(_groep.Length == 0 && _groepIds.Count == 0)"
@@ -145,7 +145,7 @@
 
                         @* onderdeel toevoegen: eerst het artikel zoeken *@
                         <div class="tl-balk">
-                            <input class="mail-zoek" placeholder="Onderdeel zoeken om toe te voegen…"
+                            <input data-zoeklijst class="mail-zoek" placeholder="Onderdeel zoeken om toe te voegen…"
                                    value="@_onderdeelZoek" @onchange="OnderdeelZoekGewijzigd" />
                         </div>
                         @if (_kandidaten.Count > 0)

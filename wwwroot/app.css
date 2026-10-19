@@ -686,6 +686,9 @@ button.klein.metbijlage { border-color: var(--accent); color: var(--accent); fon
 .wn-namen { max-height: 60vh; overflow-y: auto; padding: .3rem; }
 .wn-naam { display: block; width: 100%; text-align: left; border: none; background: none; padding: .3rem .5rem; border-radius: 4px; }
 .wn-naam:hover { background: #f0f3f7; }
+/* met de pijltjes door een zoeklijst (wwwroot/zoeklijst.js) */
+.wn-naam:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: #e6eef8; }
+.wn-naam.actief:focus-visible { background: var(--accent); outline-color: #1d3550; }
 .wn-naam.actief { background: var(--accent); color: #fff; }
 .wn-detail { flex: 1; min-width: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .7rem .9rem 1rem; }
 .wn-tabs { display: flex; flex-wrap: wrap; gap: .25rem; border-bottom: 1px solid #ddd; padding-bottom: .5rem; margin-bottom: .8rem; }
@@ -3216,3 +3219,5 @@ html[data-thema="donker"] .opr-lijst { border-color: var(--d3); }
 .tar-details { max-height: 55vh; }
 .wn-kop .klein { margin-left: .6rem; font-weight: normal; }
 html[data-thema="donker"] .tar-keuze { background: var(--d1); border-color: var(--d3); }
+html[data-thema="donker"] .wn-naam:focus-visible { background: var(--d2); }
+html[data-thema="donker"] .wn-naam.actief:focus-visible { background: var(--accent); outline-color: #fff; }

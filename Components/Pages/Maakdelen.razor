@@ -28,7 +28,7 @@
             <aside class="wn-lijst artikel-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Steekwoorden, bijv. beugel 3mm rvs" value="@_zoek"
+                        <input data-zoeklijst placeholder="Steekwoorden, bijv. beugel 3mm rvs" value="@_zoek"
                                @onchange="ZoekGewijzigd" />
                         <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
                     </div>

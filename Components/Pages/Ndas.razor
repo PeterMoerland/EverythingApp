@@ -39,7 +39,7 @@
             <aside class="wn-lijst nda-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Zoek relatie, project…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Zoek relatie, project…" value="@_zoek" @onchange="ZoekGewijzigd" />
                         <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
                                 @onclick="WisZoek">✕</button>
                     </div>
@@ -72,7 +72,7 @@
                     <div class="nieuw-blok">
                         <div class="wn-veld">
                             <label>Relatie</label>
-                            <input placeholder="Zoek relatie…" value="@_nieuwZoek" @onchange="NieuwZoekGewijzigd" />
+                            <input data-zoeklijst placeholder="Zoek relatie…" value="@_nieuwZoek" @onchange="NieuwZoekGewijzigd" />
                         </div>
                         @if (_nieuwKandidaten.Count > 0)
                         {

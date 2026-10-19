@@ -40,8 +40,8 @@
                 @if (!_zoekModus)
                 {
                     <div class="wn-filters">
-                        <input placeholder="Klant…" value="@_klantZoek" @onchange="KlantZoekGewijzigd" />
-                        <input placeholder="Project (nummer of omschrijving)…" value="@_projectZoek" @onchange="ProjectZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Klant…" value="@_klantZoek" @onchange="KlantZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Project (nummer of omschrijving)…" value="@_projectZoek" @onchange="ProjectZoekGewijzigd" />
                         <label class="of-vink"><input type="checkbox" checked="@_alleenMetOffertes" @onchange="AlleenMetOffertesGewijzigd" /> Alleen projecten met offertes</label>
                     </div>
                     <div class="wn-namen of-projecten">
@@ -82,7 +82,7 @@
                 else
                 {
                     <div class="wn-filters">
-                        <input placeholder="Offertenummer, klant, project, omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Offertenummer, klant, project, omschrijving…" value="@_zoek" @onchange="ZoekGewijzigd" />
                         <select value="@(_zoekMaker?.ToString() ?? "")" @onchange="MakerGewijzigd">
                             <option value="">Alle makers</option>
                             @foreach (var m in _makers)
@@ -352,8 +352,8 @@
                     <div class="wn-veld">
                         <label>Naar project</label>
                         <div>
-                            <input placeholder="Zoek een open project…" value="@_kopieZoek" @onchange="KopieZoekGewijzigd" />
-                            <div class="of-kopieprojecten">
+                            <input data-zoeklijst placeholder="Zoek een open project…" value="@_kopieZoek" @onchange="KopieZoekGewijzigd" />
+                            <div class="of-kopieprojecten" data-zoeklijst-lijst>
                                 @foreach (var p in _kopieProjecten)
                                 {
                                     <button class="wn-naam @(p.Id == _kopieProject?.Id ? "actief" : "")" @key="p.Id" @onclick="() => _kopieProject = p">

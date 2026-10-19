@@ -87,7 +87,7 @@ else
                     </select>
                 </div>
                 <div class="zoekregel">
-                    <input placeholder="Zoeken in deze postbus…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                    <input data-zoeklijst placeholder="Zoeken in deze postbus…" value="@_zoek" @onchange="ZoekGewijzigd" />
                     <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
                             @onclick="WisZoek">✕</button>
                 </div>

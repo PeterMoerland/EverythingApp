@@ -42,7 +42,7 @@
         <div class="wn-scherm">
             <aside class="wn-lijst dr-lijst">
                 <div class="wn-filters dr-filters">
-                    <input placeholder="Zoek of scan (@@L…)" value="@_zoek" @key="_zoekVersie"
+                    <input data-zoeklijst="pijltjes" placeholder="Zoek of scan (@@L…)" value="@_zoek" @key="_zoekVersie"
                            @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
                     <select @onchange="TypeGekozen">
                         <option value="" selected="@(_typeFilter is null)">Alle dragertypes</option>

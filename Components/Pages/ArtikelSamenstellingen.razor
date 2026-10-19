@@ -35,7 +35,7 @@
         <div class="wn-scherm">
             <aside class="wn-lijst as-lijst">
                 <div class="wn-filters">
-                    <input placeholder="Zoek samenstelling (MDE-nr, code, omschrijving)…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                    <input data-zoeklijst placeholder="Zoek samenstelling (MDE-nr, code, omschrijving)…" value="@_zoek" @onchange="ZoekGewijzigd" />
                 </div>
                 <div class="wn-namen as-namen">
                     @foreach (var s in _lijst)
@@ -121,7 +121,7 @@
                                 @if (MagBewerken && g.IsSamenstelling)
                                 {
                                     <h4>Onderdeel toevoegen aan @g.Code</h4>
-                                    <input class="as-zoekonderdeel" placeholder="Zoek artikel om toe te voegen…" value="@_onderdeelZoek" @onchange="OnderdeelZoekGewijzigd" />
+                                    <input data-zoeklijst class="as-zoekonderdeel" placeholder="Zoek artikel om toe te voegen…" value="@_onderdeelZoek" @onchange="OnderdeelZoekGewijzigd" />
                                     <div class="wn-namen kort">
                                         @foreach (var k in _kandidaten)
                                         {

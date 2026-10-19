@@ -109,7 +109,7 @@
 @if (_vrijZoeken || _stuklijst.Count > 0)
 {
     <div class="tl-balk">
-        <input class="mail-zoek" placeholder="@ZoekTekst"
+        <input data-zoeklijst class="mail-zoek" placeholder="@ZoekTekst"
                value="@_vrijZoek" @onchange="VrijZoekGewijzigd" />
     </div>
     @if (_vrije.Count > 0)

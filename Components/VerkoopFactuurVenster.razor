@@ -96,7 +96,7 @@
                             <div class="wn-veld breed">
                                 <label></label>
                                 <div class="factuur-zoekvak">
-                                    <input placeholder="Naam of plaats…" value="@_klantZoek"
+                                    <input data-zoeklijst placeholder="Naam of plaats…" value="@_klantZoek"
                                            @oninput="KlantZoekGewijzigd" autofocus />
                                     @if (_klanten.Count == 0 && _klantZoek.Trim().Length >= 2)
                                     {
@@ -311,7 +311,7 @@
                     @if (_artikelZoekOpen && !Vast)
                     {
                         <div class="factuur-zoekvak">
-                            <input placeholder="Artikelcode, omschrijving, merk of #nummer…" value="@_artikelZoek"
+                            <input data-zoeklijst placeholder="Artikelcode, omschrijving, merk of #nummer…" value="@_artikelZoek"
                                    @oninput="ArtikelZoekGewijzigd" autofocus />
                             @if (_artikelen.Count == 0 && _artikelZoek.Trim().Length >= 2)
                             {

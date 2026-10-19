@@ -31,7 +31,7 @@
             <aside class="wn-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Zoek naam of alias…" value="@_zoek" @onchange="ZoekGewijzigd" />
+                        <input data-zoeklijst placeholder="Zoek naam of alias…" value="@_zoek" @onchange="ZoekGewijzigd" />
                         <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)"
                                 @onclick="WisZoek">✕</button>
                     </div>

@@ -108,7 +108,7 @@
                             <div class="wn-veld breed">
                                 <label></label>
                                 <div class="factuur-zoekvak">
-                                    <input placeholder="Naam, plaats of IBAN…" value="@_leverancierZoek"
+                                    <input data-zoeklijst placeholder="Naam, plaats of IBAN…" value="@_leverancierZoek"
                                            @oninput="LeverancierZoekGewijzigd" autofocus />
 
                                     @if (_leverancierZoek.Trim().Length is > 0 and < 2)

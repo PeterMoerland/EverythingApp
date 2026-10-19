@@ -39,7 +39,7 @@
             <aside class="wn-lijst bestel-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="PO-nummer, leverancier, omschrijving…" value="@_zoek"
+                        <input data-zoeklijst placeholder="PO-nummer, leverancier, omschrijving…" value="@_zoek"
                                @onchange="ZoekGewijzigd" />
                         <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
                     </div>

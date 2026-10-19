@@ -42,7 +42,7 @@
         <div class="wn-scherm">
             <aside class="wn-lijst av-lijst">
                 <div class="wn-filters dr-filters">
-                    <input placeholder="Zoek of scan (MDE-nr, code, EAN, @@L…)" value="@_zoek" @key="_zoekVersie"
+                    <input data-zoeklijst="pijltjes" placeholder="Zoek of scan (MDE-nr, code, EAN, @@L…)" value="@_zoek" @key="_zoekVersie"
                            @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
                     <div class="av-chips">
                         <button class="klein" @onclick="() => _groepKiezerOpen = true">Groep…</button>
@@ -176,7 +176,7 @@
                         else
                         {
                             <div>
-                                <input placeholder="Zoek of scan artikel (Enter)…" value="@_artikelZoek" @oninput="e => _artikelZoek = (string?)e.Value ?? string.Empty" @onkeydown="ArtikelZoekToets" />
+                                <input data-zoeklijst="pijltjes" placeholder="Zoek of scan artikel (Enter)…" value="@_artikelZoek" @oninput="e => _artikelZoek = (string?)e.Value ?? string.Empty" @onkeydown="ArtikelZoekToets" />
                                 <div class="wn-namen kort">
                                     @foreach (var k in _kandidaten)
                                     {

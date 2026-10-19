@@ -46,7 +46,7 @@
                     <div class="wn-veld breed">
                         <label></label>
                         <div class="factuur-zoekvak">
-                            <input placeholder="Naam of plaats…" value="@_klantZoek" @oninput="KlantZoekGewijzigd" autofocus />
+                            <input data-zoeklijst placeholder="Naam of plaats…" value="@_klantZoek" @oninput="KlantZoekGewijzigd" autofocus />
                             @if (_klanten.Count == 0 && _klantZoek.Trim().Length >= 2)
                             {
                                 <p class="zij-extra">Niets gevonden. Staat hij als klant bij Relaties?</p>

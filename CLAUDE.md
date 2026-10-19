@@ -229,6 +229,22 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Zoekvak + lijst als combobox (19-10-2026)
+
+`wwwroot/zoeklijst.js` (geladen in App.razor), één globale keydown-listener. **Opt-in**: het zoekvak krijgt
+`data-zoeklijst`; zijn lijst is de eerstvolgende `.wn-namen` (of `[data-zoeklijst-lijst]`) tot 6 niveaus omhoog.
+Automatisch herkennen is geprobeerd maar ving ook scanvelden (Producten "Serienummer of scan", SN-veld in
+SamenstellingKiezer) en het formulier Nieuw project; daarom expliciet. **Enter** in het zoekvak: na 500 ms rust in de
+lijst (een zoekvak met onchange zoekt pas na de Enter) en precies één `button.wn-naam` → die wordt aangeklikt; niet bij
+`data-zoeklijst="pijltjes"` (zoekvakken die ook scannen: Artikelvoorraad, Dragers). **Pijltje omlaag**: naar de eerste
+regel; in de lijst pijltjes/Home/End, Enter = de knop zelf, Esc of omhoog op de eerste = terug naar het zoekvak, een
+letter of spatie = verder typen. Een lijst met `tabindex` (Bestellingen) houdt zijn eigen pijltjes: alleen de focus
+gaat naar de lijst. Focusstijl `.wn-naam:focus-visible`. Nieuw zoekvak met lijst? Zet er `data-zoeklijst` op.
+WerkorderVeld en NieuweBestellingVenster hebben hun eigen toetsenbordafhandeling en doen niet mee. Getest op Relaties
+(mosa + Enter opent de enige treffer; omron + pijltjes + Enter opent de gekozen).
+Producten: bij het openen staat de cursor in "Serienummer of scan" (`_scanVeld.FocusAsync()` bij de eerste render),
+zodat je meteen kunt scannen; "Zoek type" heeft `data-zoeklijst` (mpr-1 + Enter opent het type).
+
 ## Veld opslaan vs. ander record kiezen (19-10-2026)
 
 Gemeld bij Producten: opmerking typen, zonder het veld te verlaten een ander exemplaar aanklikken, en de opmerking

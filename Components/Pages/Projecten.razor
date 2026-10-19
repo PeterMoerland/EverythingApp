@@ -26,13 +26,13 @@
             <aside class="wn-lijst project-lijst">
                 <div class="wn-filters">
                     <div class="zoekregel">
-                        <input placeholder="Klant…" value="@_klant" @onchange="KlantGewijzigd" />
+                        <input data-zoeklijst placeholder="Klant…" value="@_klant" @onchange="KlantGewijzigd" />
                         <button class="klein" title="Filters wissen"
                                 disabled="@(_klant.Length == 0 && _project.Length == 0)"
                                 @onclick="WisFilters">✕</button>
                     </div>
                     <div class="zoekregel">
-                        <input placeholder="Project of nummer…" value="@_project" @onchange="ProjectGewijzigd" />
+                        <input data-zoeklijst placeholder="Project of nummer…" value="@_project" @onchange="ProjectGewijzigd" />
                     </div>
                     <div class="zoekregel">
                         <select value="@StatusTekst" @onchange="StatusGewijzigd">
