@@ -52,6 +52,7 @@
                                 <span class="ai-regel-vraag">@v.Vraag</span>
                                 <small>
                                     @v.Aangemaakt.ToString("dd-MM HH:mm") · @(v.Prioriteit == AiVraag.Wachten ? "mag wachten" : "direct")
+                                    @if (v.Vervolgen > 0) { <text> · +@v.Vervolgen vervolgvra@(v.Vervolgen == 1 ? "ag" : "gen")</text> }
                                     @if (_iedereen) { <text> · @v.Wie</text> }
                                     @if (v.Kosten is decimal k) { <text> · € @k.ToString("0.000", Nl)</text> }
                                 </small>
@@ -62,9 +63,9 @@
             </aside>
 
             <section class="wn-detail ai-detail">
-                @if (_gekozen is not { } g)
+                @if (_gekozen is null)
                 {
-                    <p class="uitleg">Stel hierboven een vraag, of kies links een eerdere vraag.</p>
+                    <p class="uitleg">Stel hierboven een vraag, of kies links een eerder gesprek. Onder elk antwoord kun je doorvragen.</p>
                     <p class="uitleg">
                         Het model kan opvragen: projecten en werkorders, uren per project of medewerker, bestellingen, voorraad,
                         producten en hun todo's.
@@ -82,6 +83,10 @@
                 }
                 else
                 {
+                    @foreach (var g in _gesprek)
+                    {
+                    var gegevens = g.Gegevens;
+                    <div class="ai-beurt @(g.Id == _gesprek[0].Id ? "" : "vervolg")" @key="g.Id">
                     <div class="ai-vraag">@g.Vraag</div>
                     <div class="ai-statusregel">
                         <span class="ai-status @StatusKlasse(g)">@StatusTeken(g)</span> @StatusTekst(g)
@@ -110,7 +115,6 @@
                         <div class="ai-fout">@g.Fout</div>
                     }
 
-                    var gegevens = g.Gegevens;
                     @if (g.Antwoord.Length > 0)
                     {
                         @foreach (var deel in Delen(g.Antwoord))
@@ -166,6 +170,19 @@
                             <button class="klein" @onclick="() => _invoer?.Vul(g.Vraag)">Opnieuw stellen</button>
                         </div>
                     }
+                    </div>
+                    }
+
+                    @* doorvragen: alleen in je eigen gesprek, en als er niets meer loopt *@
+                    @if (_gesprek.Count > 0 && _gesprek[0].WerknemerId == Ik.WerknemerId && !_gesprek.Any(x => x.Loopt))
+                    {
+                        <div class="ai-vervolg">
+                            <textarea rows="2" maxlength="2000" placeholder="Vraag door, bv. 'Splits dat uit per klant' of 'En vorig jaar?' (Ctrl+Enter)"
+                                      value="@_vervolg" @oninput="e => _vervolg = (string?)e.Value ?? string.Empty" @onkeydown="VervolgToets"></textarea>
+                            <button class="primair" disabled="@(_vervolgBezig || _vervolg.Trim().Length < 2)" @onclick="Doorvragen">Doorvragen</button>
+                        </div>
+                        @if (_vervolgFout is not null) { <p class="ai-fout">@_vervolgFout</p> }
+                    }
                 }
             </section>
         </div>
@@ -181,8 +198,11 @@
 
     private AiVraagInvoer? _invoer;
     private List<AiVraag> _lijst = new();
-    private AiVraag? _gekozen;
-    private bool _iedereen;
+    private AiVraag? _gekozen;                      // de eerste vraag van het gekozen gesprek
+    private List<AiVraag> _gesprek = new();         // het hele gesprek, oudste eerst
+    private bool _iedereen, _vervolgBezig;
+    private string _vervolg = "";
+    private string? _vervolgFout;
 
     /// <summary>Iedereen met een gekoppeld account; wat het model mag opvragen hangt van de rechten af (AiAnalyseService).</summary>
     private bool Mag => Ik.Gekoppeld;
@@ -208,9 +228,13 @@
         {
             var v = await Vragen.GetAsync(id);
             // alleen eigen vragen, of Directie
-            _gekozen = v is not null && (v.WerknemerId == Ik.WerknemerId || Ik.Mag("Directie")) ? v : null;
+            if (v is null || (v.WerknemerId != Ik.WerknemerId && !Ik.Mag("Directie"))) { _gekozen = null; _gesprek = new(); return; }
+            var begin = v.GesprekId ?? v.Id;
+            _gesprek = await Vragen.GesprekAsync(begin);
+            if (_gesprek.Count == 0) _gesprek = new() { v };
+            _gekozen = _gesprek[0];
         }
-        catch { _gekozen = null; }
+        catch { _gekozen = null; _gesprek = new(); }
     }
 
     private async Task Gesteld(int id)
@@ -227,9 +251,30 @@
         _ = InvokeAsync(async () =>
         {
             await LaadLijst();
-            if (_gekozen?.Id == id) await Kies(id);
+            if (_gekozen is not null) await Kies(_gekozen.Id);      // het hele gesprek opnieuw (ook een nieuwe vervolgvraag)
             StateHasChanged();
         });
+    }
+
+    private async Task VervolgToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey) await Doorvragen();
+    }
+
+    /// <summary>Doorvragen in het gekozen gesprek; het model krijgt het hele gesprek mee (AiAnalyseService.Voorgeschiedenis).</summary>
+    private async Task Doorvragen()
+    {
+        var tekst = _vervolg.Trim();
+        if (_gekozen is null || _vervolgBezig || tekst.Length < 2 || Ik.WerknemerId is not int wn) return;
+        _vervolgBezig = true; _vervolgFout = null;
+        try
+        {
+            await Ai.StelAsync(wn, tekst, AiVraag.Direct, Ik.Mag("Financial") || Ik.Mag("Directie"), _gekozen.Id);
+            _vervolg = "";
+            await Kies(_gekozen.Id);
+        }
+        catch (Exception ex) { _vervolgFout = "Doorvragen mislukt: " + ex.Message; }
+        finally { _vervolgBezig = false; }
     }
 
     private async Task NuUitvoeren(AiVraag v) { await Ai.NuUitvoerenAsync(v); await Kies(v.Id); }

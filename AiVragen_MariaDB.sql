@@ -33,3 +33,9 @@ CREATE TABLE IF NOT EXISTS `AiVragen` (
 
 -- Voor wie de tabel al had aangemaakt (vóór 19-10-2026 middag):
 ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Financieel` TINYINT(1) NOT NULL DEFAULT 0 AFTER `Prioriteit`;
+
+-- Gesprekken (doorvragen): elke vervolgvraag wijst naar de eerste vraag van het gesprek; Berichten = het hele gesprek
+-- zoals het naar het model ging (met de opgevraagde gegevens), zodat een volgende vraag erop kan voortbouwen.
+ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `GesprekID` INT NULL AFTER `Financieel`;
+ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Berichten` MEDIUMTEXT NULL AFTER `Gegevens`;
+ALTER TABLE `AiVragen` ADD INDEX IF NOT EXISTS `IX_AiVragen_Gesprek` (`GesprekID`);

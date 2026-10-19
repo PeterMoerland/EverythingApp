@@ -69,9 +69,10 @@ public class AiAnalyseService : BackgroundService
 
     // ---- vragen ----
     /// <param name="financieel">Mag de vraagsteller financiële gegevens zien (Financial/Directie en niet op een werkplek)?</param>
-    public async Task<int> StelAsync(int werknemerId, string vraag, string prioriteit, bool financieel)
+    /// <param name="gesprekId">Doorvragen: de eerste vraag van het gesprek; het model krijgt het hele gesprek mee.</param>
+    public async Task<int> StelAsync(int werknemerId, string vraag, string prioriteit, bool financieel, int? gesprekId = null)
     {
-        var id = await _repo.MaakAsync(werknemerId, vraag.Trim(), prioriteit == AiVraag.Wachten ? AiVraag.Wachten : AiVraag.Direct, financieel);
+        var id = await _repo.MaakAsync(werknemerId, vraag.Trim(), prioriteit == AiVraag.Wachten ? AiVraag.Wachten : AiVraag.Direct, financieel, gesprekId);
         _signaal.Geef(id);
         _wekker.Release();
         return id;
@@ -151,6 +152,8 @@ public class AiAnalyseService : BackgroundService
         - Schrijf bedragen als € 12.345,67.
         - Begin met een korte conclusie (een of twee zinnen). Daarna zo nodig een tabel in markdown.
         - Je kunt niets wijzigen in de administratie. Breng aannames en onzekerheden eerlijk.
+        - In een gesprek mag je voortbouwen op eerdere antwoorden en gegevens; heb je andere cijfers nodig (andere periode,
+          andere indeling, of gegevens die zijn weggelaten), vraag ze dan opnieuw op.
         - Vraagt de gebruiker om een grafiek, of maakt een grafiek het antwoord duidelijker, zet dan in je antwoord een blok:
           ```grafiek
           {"type": "staaf", "titel": "Omzet per maand", "eenheid": "€", "labels": ["jan", "feb"], "reeksen": [{"naam": "2026", "waarden": [613756.39, 228644.98]}]}
@@ -166,10 +169,8 @@ public class AiAnalyseService : BackgroundService
         int tin = 0, tuit = 0;
         var gebruikteLaag = laag;
         var gezieneLaag = laag;
-        var berichten = new JsonArray
-        {
-            new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["text"] = v.Vraag }) },
-        };
+        var berichten = await Voorgeschiedenis(v);
+        berichten.Add(new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["text"] = v.Vraag }) });
         var verzoek = new JsonObject
         {
             ["system"] = new JsonArray(new JsonObject { ["text"] = Systeem(v.Financieel) }),
@@ -229,6 +230,8 @@ public class AiAnalyseService : BackgroundService
                                                    .Select(b => b["text"]?.GetValue<string>()).Where(s => !string.IsNullOrWhiteSpace(s)));
                 if (a.StopReden == "max_tokens") tekst += "\n\n*(Het antwoord is afgebroken: de maximale lengte is bereikt.)*";
                 if (tekst.Trim().Length == 0) tekst = "*(Het model gaf geen tekst terug.)*";
+                try { await _repo.BewaarBerichtenAsync(v.Id, berichten.ToJsonString()); }      // voor een volgende vraag in dit gesprek
+                catch (Exception ex) { _log.LogWarning(ex, "Gesprek van AI-vraag {Id} niet bewaard.", v.Id); }
                 await _repo.KlaarAsync(v.Id, tekst, Json(), _bedrock.Model, gezieneLaag, tin, tuit, Kosten(gezieneLaag, tin, tuit));
                 await Afgerond(v, true);
                 return;
@@ -247,6 +250,48 @@ public class AiAnalyseService : BackgroundService
             }
             catch (Exception ex2) { _log.LogWarning(ex2, "AI-vraag {Id}: fout kon niet worden opgeslagen.", v.Id); }
         }
+    }
+
+    /// <summary>
+    /// Bij een vervolgvraag: het gesprek tot nu toe, zoals het naar het model ging (met de opgevraagde gegevens), uit de
+    /// laatste beantwoorde vraag van het gesprek. Ontbreekt dat, dan alleen de vragen en antwoorden als tekst.
+    /// </summary>
+    private async Task<JsonArray> Voorgeschiedenis(AiVraag v)
+    {
+        var uit = new JsonArray();
+        if (v.GesprekId is not int gid || gid == v.Id) return uit;
+        var eerder = (await _repo.GesprekAsync(gid)).Where(x => x.Id < v.Id && x.Status == AiVraag.KlaarStatus).ToList();
+        if (eerder.Count == 0) return uit;
+        try
+        {
+            if (JsonNode.Parse(await _repo.BerichtenAsync(eerder[^1].Id)) is JsonArray vorige && vorige.Count > 0)
+            {
+                Inkorten(vorige);
+                foreach (var m in vorige) uit.Add(m!.DeepClone());
+                return uit;
+            }
+        }
+        catch { /* dan als tekst */ }
+        foreach (var x in eerder)
+        {
+            uit.Add(new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["text"] = x.Vraag }) });
+            uit.Add(new JsonObject { ["role"] = "assistant", ["content"] = new JsonArray(new JsonObject { ["text"] = x.Antwoord }) });
+        }
+        return uit;
+    }
+
+    /// <summary>
+    /// Lange gesprekken: de gegevens (toolResult) van oudere beurten vervangen door een korte notitie; het model vraagt ze
+    /// zo nodig opnieuw op. De laatste 6 berichten blijven heel.
+    /// </summary>
+    private static void Inkorten(JsonArray berichten)
+    {
+        if (berichten.ToJsonString().Length <= 120_000) return;
+        for (var i = 0; i < berichten.Count - 6; i++)
+            if (berichten[i]?["content"] is JsonArray inhoud)
+                foreach (var blok in inhoud.OfType<JsonObject>())
+                    if (blok["toolResult"] is JsonObject tr)
+                        tr["content"] = new JsonArray(new JsonObject { ["text"] = "(gegevens van een eerdere beurt weggelaten; vraag ze opnieuw op als je ze nodig hebt)" });
     }
 
     /// <summary>De opvragingen voor deze vraag: altijd de algemene, de financiële alleen met recht.</summary>
