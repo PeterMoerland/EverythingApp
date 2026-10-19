@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
+@inject BestelregelLezer Schermlezer
 
 <div class="page">
     <header class="topbar">
@@ -305,6 +306,8 @@
                                 {
                                     <div class="menu-dicht" @onclick="() => _importMenu = false"></div>
                                     <div class="menu-lijst" @onclick="() => _importMenu = false">
+                                        <button disabled="@(!Schermlezer.Beschikbaar)" @onclick="() => _schermOpen = true"
+                                                title="@(Schermlezer.Beschikbaar ? "Een screenshot (Win+Shift+S) of PDF van een winkelwagen, offerte of orderbevestiging laten lezen door de AI" : "Bedrock is niet ingesteld")">📷 Uit screenshot of PDF</button>
                                         <button disabled title="Volgt: staat nog in Access">SMC-website <small>volgt</small></button>
                                         <button disabled title="Volgt: staat nog in Access">Solar-website <small>volgt</small></button>
                                         <button disabled title="Volgt: staat nog in Access">Materialise-prijzen <small>volgt</small></button>
@@ -401,6 +404,8 @@
                     <BestelMailVenster OrderId="_mailOrder" OpGesloten="MailGesloten" />
                     <PlakVenster Open="_plakOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
+                    <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
+                                       OpToegevoegd="NaPlakken" OpGesloten="() => _schermOpen = false" />
                 }
             </section>
         </div>
@@ -1326,7 +1331,7 @@
     }
 
     // ---- Plakken uit klembord (Components/PlakVenster.razor) en het menu Importeren ----
-    private bool _plakOpen, _importMenu;
+    private bool _plakOpen, _importMenu, _schermOpen;
 
     private int? LeverancierVanOrder => Nummer("Supplier");
 

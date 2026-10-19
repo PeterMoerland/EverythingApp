@@ -3377,3 +3377,24 @@ html[data-thema="donker"] .ai-grafiek-let { background: #3a2a14; color: #ffd9a0;
 .ai-knop { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%;
            text-decoration: none; font-size: 1.05rem; margin-right: .2rem; }
 .ai-knop:hover { background: rgba(26, 95, 180, .1); }
+
+/* Bestellingen ▸ Importeren ▸ Uit screenshot (Components/ScreenshotVenster.razor) */
+.sv-plakvak { border: 2px dashed #b9c4d3; border-radius: 8px; padding: 2rem 1rem; display: flex; flex-direction: column;
+              align-items: center; gap: .5rem; color: #4b5563; outline: none; }
+.sv-plakvak:focus { border-color: var(--accent); background: rgba(26, 95, 180, .04); }
+.sv-plakvak .knop-label { cursor: pointer; border: 1px solid #c8d1dc; border-radius: 4px; padding: .2rem .6rem; background: #fff; }
+.sv-plakvak .knop-label input[type=file] { display: none; }
+.sv-kop { display: flex; gap: 1rem; align-items: flex-start; }
+.sv-voorbeeld { max-width: 16rem; max-height: 12rem; border: 1px solid #d6dde6; border-radius: 4px; object-fit: contain; }
+.sv-let { color: #c46a14; font-weight: 600; margin-left: .25rem; }
+.sv-getal { width: 4rem; }
+.pk-tabel input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+html[data-thema="donker"] .sv-plakvak { border-color: var(--d3); color: var(--dt2); }
+html[data-thema="donker"] .sv-plakvak .knop-label { background: var(--d1); border-color: var(--d3); }
+
+/* Vragen aan AI als gesprek (doorvragen) */
+.ai-beurt.vervolg { border-top: 1px solid #e1e6ed; margin-top: 1rem; padding-top: .8rem; }
+.ai-beurt.vervolg .ai-vraag::before { content: "↳ "; color: #6b7480; }
+.ai-vervolg { display: flex; gap: .5rem; align-items: flex-end; margin-top: 1rem; border-top: 1px solid #e1e6ed; padding-top: .8rem; }
+.ai-vervolg textarea { flex: 1; resize: vertical; font: inherit; }
+html[data-thema="donker"] .ai-beurt.vervolg, html[data-thema="donker"] .ai-vervolg { border-color: var(--d3); }

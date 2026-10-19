@@ -250,6 +250,19 @@ omschrijving, onthouden per pc via `mdeOpslag`) en aanvinken, eventueel werkorde
   van 5 werknemers zonder tarief.
 - Getest met project 223159 (getallen gelijk aan `_Nacalc_Totaal`), rechten tijdelijk lokaal opengezet en teruggezet.
 
+## Bestellingen: regels uit een screenshot of PDF (19-10-2026)
+
+Bestellingen ▸ regels ▸ Importeren ▾ ▸ **📷 Uit screenshot of PDF** (`Components/ScreenshotVenster.razor`,
+`Services/BestelregelLezer.cs`, via `BedrockClient`). Plakken (Ctrl+V na Win+Shift+S), kiezen of slepen; een PDF gaat als
+document met citations. Een geplakte afbeelding gaat **als stroom** naar .NET (`wwwroot/klembord.js`: paste-event bewaart de
+bytes, seintje `AfbeeldingGeplakt`, daarna `mdeKlembord.afbeelding()` → `IJSStreamReference`; de bytes zelf teruggeven,
+níet `DotNet.createJSStreamReference`, dat wikkelt Blazor zelf al in). Grote berichten in één keer gaan niet over SignalR.
+Voorbeeld met nagerekende regels (aantal × prijs vs. regeltotaal, ⚠), MDE-nummer via `ZoekPlakArtikelAsync`, verzendkosten
+als optionele regel, omrekenen incl→ex btw **standaard uit** (de AI gokte "incl. btw" bij Hoffmann zonder dat het er
+stond; nu alleen een waarschuwing). Opdracht: artikelnummer letterlijk ("478450 0,5"), merk tussen haakjes achter de
+omschrijving. Getest met een Hoffmann-winkelwagen (6 regels, alles goed, 4,6 s); Toevoegen niet aangeklikt (zelfde
+`BewaarRegelAsync` als Plakken uit klembord).
+
 ## Facturen uitlezen via Bedrock (19-10-2026)
 
 `Services/FactuurLezer.cs` gebruikt `BedrockClient` zodra Bedrock is ingesteld (anders Ollama als terugval; `Ai:Bron`,
@@ -326,6 +339,15 @@ vragen. Daarna klopte het antwoord (nagerekend). Gebouwd zijn stap 2 en 3:
   **Lessen uit de tests met Haiku**: het model telt slecht zelf op (2 van 18 werkordertotalen fout) en pakt soms een
   verkeerde kolom (uren alle jaren als "dit jaar"). Daarom: opvragingen geven de totalen op het gevraagde niveau zelf, en
   kolomnamen en beschrijvingen zijn ondubbelzinnig. Daarna klopten uren per werkorder, nacalculatie en producten (nagerekend).
+- **Gesprekken / doorvragen (19-10-2026, wens gebruiker)**: onder het gesprek een vak "Doorvragen" (alleen in je eigen
+  gesprek, als er niets meer loopt). `AiVragen.GesprekID` = de eerste vraag van het gesprek; `AiVragen.Berichten` = het hele
+  gesprek zoals het naar Bedrock ging (inclusief toolUse/toolResult), bewaard na elke beantwoorde beurt. Een vervolgvraag
+  begint met de `Berichten` van de laatste beantwoorde beurt (`AiAnalyseService.Voorgeschiedenis`; zonder: de vragen en
+  antwoorden als tekst) en voegt de nieuwe vraag toe. Boven 120.000 tekens worden de toolResults van oudere beurten (behalve
+  de laatste 6 berichten) vervangen door een notitie (`Inkorten`). De lijst links toont alleen het begin van elk gesprek
+  met "+n vervolgvragen"; rechts staat het hele gesprek. Kolommen via `ALTER ... IF NOT EXISTS` in het script; zonder de
+  kolommen geeft doorvragen een duidelijke melding. Getest met Haiku: "welke medewerkers ... op de grootste twee
+  werkorders?" na de urenvraag koos zelf 223159-11/-10 en klopte (nagerekend), 10k tokens in.
 - Lokaal testen: `Bedrock__Nep=true` (geen AWS; eerste ronde vraagt echt de omzet op, dan een vast testantwoord) en
   `AiVragen__Geheugen=true`. Getest met die twee (rechten tijdelijk lokaal opengezet en teruggezet): direct-vraag loopt van
   wachtrij tot antwoord met gegevens, 'Mag wachten' blijft overdag in de wachtrij. **Niet getest tegen echte Bedrock**

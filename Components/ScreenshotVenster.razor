@@ -1,0 +1,325 @@
+@implements IDisposable
+@inject IBestelRepository Repo
+@inject BestelregelLezer Lezer
+@inject IJSRuntime JS
+
+@* ============================================================================
+   Bestellingen ▸ Importeren ▸ Uit screenshot of PDF. Een screenshot van een winkelwagen, offerte of orderbevestiging
+   (plakken met Ctrl+V, kiezen of slepen) wordt via Bedrock gelezen (Services/BestelregelLezer.cs). Eerst een voorbeeld:
+   aantal × prijs wordt nagerekend tegen het regeltotaal, prijzen incl. btw kunnen worden omgerekend, bekende artikelen
+   krijgen hun MDE-nummer. Daarna Toevoegen als orderregels (zelfde opzet als Plakken uit klembord).
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer pk-venster" @onclick:stopPropagation @onkeydown="Toets" role="dialog" aria-modal="true" aria-label="Uit screenshot">
+            <div class="kiezer-kop">
+                <b>📷 Bestelregels uit een screenshot of PDF</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="pk-inhoud">
+                @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+
+                @if (_fase == Fase.Kiezen)
+                {
+                    <p class="uitleg">
+                        Maak een screenshot van de winkelwagen, offerte of orderbevestiging (Windows: <b>Win+Shift+S</b>), klik in
+                        het vak en druk <b>Ctrl+V</b>. Of kies of sleep een afbeelding of PDF.
+                    </p>
+                    <div @ref="_plakvak" class="sv-plakvak" tabindex="0">
+                        <span>Klik hier en druk Ctrl+V</span>
+                        <span class="uitleg">of</span>
+                        <label class="klein knop-label">
+                            Bestand kiezen…
+                            <InputFile OnChange="BestandGekozen" accept="image/*,.pdf" />
+                        </label>
+                    </div>
+                }
+                else if (_fase == Fase.Lezen)
+                {
+                    <p class="uitleg"><span class="draaier"></span> De AI leest de regels… (een paar seconden)</p>
+                }
+                else if (_resultaat is { } r)
+                {
+                    <div class="sv-kop">
+                        @if (_voorbeeldUrl is not null)
+                        {
+                            <img class="sv-voorbeeld" src="@_voorbeeldUrl" alt="Screenshot" title="Het screenshot, om mee te vergelijken" />
+                        }
+                        <div>
+                            @if (r.Leverancier.Length > 0) { <div>Op het scherm: <b>@r.Leverancier</b></div> }
+                            @if (r.Valuta != "EUR") { <div class="sv-let">Let op: bedragen in @r.Valuta, niet in euro's.</div> }
+                            <label class="vink">
+                                <input type="checkbox" checked="@_omrekenen" @onchange="e => _omrekenen = e.Value is true" />
+                                Prijzen zijn inclusief 21% btw: omrekenen naar exclusief
+                                @if (r.InclBtw) { <span class="sv-let">De AI denkt dat deze prijzen incl. btw zijn; controleer dat op de site.</span> }
+                            </label>
+                            @if (r.Verzendkosten is decimal vk)
+                            {
+                                <label class="vink">
+                                    <input type="checkbox" checked="@_verzendMee" @onchange="e => _verzendMee = e.Value is true" />
+                                    Verzendkosten (€ @Geld(Ex(vk))) als regel toevoegen
+                                </label>
+                            }
+                            @foreach (var o in r.Opmerkingen) { <div class="uitleg">AI: @o</div> }
+                        </div>
+                    </div>
+
+                    <table class="kiezer-tabel pk-tabel">
+                        <thead>
+                            <tr>
+                                <th style="width:2rem"><input type="checkbox" checked="@_rijen.All(x => x.Mee)" @onchange="AllesMee" title="Alles aan/uit" /></th>
+                                <th class="r" style="width:4.5rem">Aantal</th>
+                                <th style="width:11rem">Artikelnummer</th>
+                                <th>Omschrijving</th>
+                                <th class="r" style="width:7rem">Stuksprijs ex</th>
+                                <th class="r" style="width:4.5rem">Korting</th>
+                                <th class="r" style="width:7rem">Regeltotaal</th>
+                                <th style="width:9rem">MDE-artikel</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var rij in _rijen)
+                            {
+                                var x = rij.Regel;
+                                <tr class="@(rij.Toegevoegd ? "pk-klaar" : "")">
+                                    <td><input type="checkbox" checked="@rij.Mee" disabled="@rij.Toegevoegd" @onchange="e => rij.Mee = e.Value is true" /></td>
+                                    <td class="r"><input class="r sv-getal" value="@x.Aantal.ToString("0.###", Nl)" @onchange="e => Aantal(rij, e)" /></td>
+                                    <td><input value="@x.Artikelnummer" maxlength="100" @onchange="e => x.Artikelnummer = (string?)e.Value ?? string.Empty" /></td>
+                                    <td><input value="@x.Omschrijving" maxlength="400" @onchange="e => x.Omschrijving = (string?)e.Value ?? string.Empty" /></td>
+                                    <td class="r">@(x.Stuksprijs is decimal p ? Geld(Ex(p)) : "—")</td>
+                                    <td class="r">@(x.KortingProcent is decimal k && k != 0 ? k.ToString("0.#", Nl) + "%" : "")</td>
+                                    <td class="r">
+                                        @(x.Regeltotaal is decimal t ? Geld(Ex(t)) : "")
+                                        @if (x.Klopt == false)
+                                        {
+                                            <span class="sv-let" title="Aantal × stuksprijs komt niet uit op het regeltotaal: controleer de regel">⚠</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (rij.Artikel is { } a)
+                                        {
+                                            <span title="@a.Omschrijving">#@a.Id</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (_rijen.Count == 0)
+                    {
+                        <p class="kiezer-info">Er zijn geen bestelregels gevonden in dit screenshot.</p>
+                    }
+                    @foreach (var v in _verslag) { <div class="uitleg">@v</div> }
+                }
+            </div>
+
+            <div class="kiezer-voet">
+                @if (_fase == Fase.Voorbeeld)
+                {
+                    <button class="klein" @onclick="Opnieuw">← Ander screenshot</button>
+                    <span style="flex:1"></span>
+                    @if (!_klaar)
+                    {
+                        <button class="primair" disabled="@(_bezig || !_rijen.Any(x => x.Mee && !x.Toegevoegd) && !(_verzendMee && !_verzendToegevoegd))" @onclick="Toevoegen">
+                            @(_bezig ? _voortgang : $"Toevoegen ({_rijen.Count(x => x.Mee && !x.Toegevoegd)} regels)")
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="primair" @onclick="Sluit">Sluiten</button>
+                    }
+                }
+                else
+                {
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="Sluit">Annuleren</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int? OrderId { get; set; }
+    [Parameter] public int? LeverancierId { get; set; }
+    [Parameter] public DateOnly? Leverdatum { get; set; }
+    [Parameter] public EventCallback OpToegevoegd { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private enum Fase { Kiezen, Lezen, Voorbeeld }
+    private sealed class Rij { public SchermRegel Regel = null!; public PlakArtikel? Artikel; public bool Mee = true; public bool Toegevoegd; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private Fase _fase;
+    private bool _wasOpen, _koppelen, _bezig, _klaar, _omrekenen, _verzendMee, _verzendToegevoegd;
+    private string? _fout, _voorbeeldUrl;
+    private string _voortgang = "";
+    private SchermBestelling? _resultaat;
+    private List<Rij> _rijen = new();
+    private List<string> _verslag = new();
+    private ElementReference _plakvak;
+    private DotNetObjectReference<ScreenshotVenster>? _ref;
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen) { Opnieuw(); }
+        _wasOpen = Open;
+    }
+
+    private void Opnieuw()
+    {
+        _fase = Fase.Kiezen; _fout = null; _resultaat = null; _rijen = new(); _verslag = new();
+        _klaar = false; _bezig = false; _omrekenen = false; _verzendMee = false; _verzendToegevoegd = false;
+        _voorbeeldUrl = null; _koppelen = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_koppelen || !Open || _fase != Fase.Kiezen) return;
+        _koppelen = false;
+        try
+        {
+            _ref ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _plakvak, _ref);
+            await _plakvak.FocusAsync();
+        }
+        catch { }
+    }
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: 20_000_000);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await InvokeAsync(() => Lees(m.ToArray(), soort));
+        }
+        catch (Exception ex) { _fout = "Plakken mislukt: " + ex.Message; await InvokeAsync(StateHasChanged); }
+    }
+
+    [JSInvokable]
+    public Task GeenAfbeelding()
+    {
+        _fout = "Er staat geen afbeelding op het klembord. Maak eerst een screenshot (Win+Shift+S).";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task BestandGekozen(InputFileChangeEventArgs e)
+    {
+        var f = e.File;
+        var soort = f.ContentType is { Length: > 0 } ct ? ct
+                  : Path.GetExtension(f.Name).ToLowerInvariant() == ".pdf" ? "application/pdf" : "image/png";
+        try
+        {
+            await using var s = f.OpenReadStream(maxAllowedSize: 20_000_000);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await Lees(m.ToArray(), soort);
+        }
+        catch (Exception ex) { _fout = "Bestand lezen mislukt: " + ex.Message; }
+    }
+
+    private async Task Lees(byte[] inhoud, string soort)
+    {
+        _fout = null;
+        _fase = Fase.Lezen;
+        StateHasChanged();
+        var (uit, fout) = await Lezer.LeesAsync(inhoud, soort);
+        if (uit is null) { _fout = fout; _fase = Fase.Kiezen; _koppelen = true; StateHasChanged(); return; }
+
+        _resultaat = uit;
+        _omrekenen = false;     // nooit vanzelf: de AI gokt incl. btw soms zonder dat het er staat (Hoffmann-test)
+        _voorbeeldUrl = soort.StartsWith("image/") && inhoud.Length < 4_000_000 ? $"data:{soort};base64,{Convert.ToBase64String(inhoud)}" : null;
+        _rijen = new();
+        foreach (var r in uit.Regels)
+        {
+            PlakArtikel? art = null;
+            if (r.Artikelnummer.Length > 0)
+                try { art = await Repo.ZoekPlakArtikelAsync(r.Artikelnummer, LeverancierId); } catch { }
+            _rijen.Add(new Rij { Regel = r, Artikel = art });
+        }
+        _fase = Fase.Voorbeeld;
+        StateHasChanged();
+    }
+
+    private decimal Ex(decimal bedrag) => _omrekenen ? Math.Round(bedrag / 1.21m, 4) : bedrag;
+    private static string Geld(decimal d) => d.ToString("N2", Nl);
+
+    private void Aantal(Rij rij, ChangeEventArgs e)
+    {
+        if (double.TryParse(((string?)e.Value ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var a) && a > 0)
+            rij.Regel.Aantal = a;
+    }
+
+    private void AllesMee(ChangeEventArgs e) { foreach (var r in _rijen.Where(r => !r.Toegevoegd)) r.Mee = e.Value is true; }
+
+    private async Task Toevoegen()
+    {
+        if (OrderId is not int order || _bezig) return;
+        _bezig = true;
+        var mee = _rijen.Where(r => r.Mee && !r.Toegevoegd).ToList();
+        var n = 0;
+        try
+        {
+            foreach (var rij in mee)
+            {
+                _voortgang = $"Toevoegen {++n} van {mee.Count}…";
+                StateHasChanged();
+                var x = rij.Regel;
+                var code = x.Artikelnummer.Length > 0 ? x.Artikelnummer : rij.Artikel?.FabriekCode ?? "";
+                var oms = x.Omschrijving.Length > 0 ? x.Omschrijving : rij.Artikel?.Omschrijving ?? "";
+                await Repo.BewaarRegelAsync(new Orderregel
+                {
+                    OrderId = order,
+                    Aantal = x.Aantal,
+                    EenheidId = 2,
+                    Artikelcode = code.Length > 100 ? code[..100] : code,
+                    Omschrijving = oms.Length > 400 ? oms[..400] : oms,
+                    MdeCode = rij.Artikel?.Id.ToString() ?? "",
+                    Leverdatum = Leverdatum,
+                    Prijs = x.Stuksprijs is decimal p ? Ex(p) : null,
+                    Korting = x.KortingProcent is decimal k && k != 0 ? Math.Round(k / 100m, 4) : null,
+                });
+                rij.Toegevoegd = true;
+            }
+            if (_verzendMee && !_verzendToegevoegd && _resultaat?.Verzendkosten is decimal vk)
+            {
+                await Repo.BewaarRegelAsync(new Orderregel
+                {
+                    OrderId = order, Aantal = 1, EenheidId = 2, Artikelcode = "", Omschrijving = "Verzendkosten",
+                    Leverdatum = Leverdatum, Prijs = Ex(vk),
+                });
+                _verzendToegevoegd = true;
+                n++;
+            }
+            _verslag.Add($"{n} regel{(n == 1 ? "" : "s")} toegevoegd. Controleer prijzen en aantallen bij de regels.");
+            _klaar = true;
+            await OpToegevoegd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Toevoegen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await Sluit();
+    }
+
+    private async Task Sluit()
+    {
+        if (_bezig) return;
+        await OpGesloten.InvokeAsync();
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}
