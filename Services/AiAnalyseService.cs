@@ -13,7 +13,8 @@ public class AiSignaal
 }
 
 /// <summary>
-/// Vragen aan het taalmodel (Amazon Bedrock) over de financiën, met een wachtrij in de tabel AiVragen.
+/// Vragen aan het taalmodel (Amazon Bedrock) over projecten, uren, bestellingen, voorraad, producten en (met recht
+/// Financial/Directie, niet op een werkplek) de financiën, met een wachtrij in de tabel AiVragen.
 ///   - 'direct': meteen, laag Bedrock:LaagDirect (standaard 'default').
 ///   - 'wachten': alleen in de daluren (Bedrock:DalurenVan/-Tot, en het weekend als Bedrock:WeekendDal), laag
 ///     Bedrock:LaagWachten (standaard 'flex': goedkoper, mag langer duren). Klaar = melding bij de bel.
@@ -25,6 +26,7 @@ public class AiAnalyseService : BackgroundService
     private readonly IAiVraagRepository _repo;
     private readonly BedrockClient _bedrock;
     private readonly FinancieleAiTools _tools;
+    private readonly AlgemeneAiTools _algemeen;
     private readonly IMeldingRepository _meldingen;
     private readonly MeldingSignaal _meldingSignaal;
     private readonly AiSignaal _signaal;
@@ -35,10 +37,10 @@ public class AiAnalyseService : BackgroundService
     private readonly SemaphoreSlim _tegelijk = new(3, 3);
     private readonly ConcurrentDictionary<int, byte> _lopend = new();
 
-    public AiAnalyseService(IAiVraagRepository repo, BedrockClient bedrock, FinancieleAiTools tools, IMeldingRepository meldingen,
+    public AiAnalyseService(IAiVraagRepository repo, BedrockClient bedrock, FinancieleAiTools tools, AlgemeneAiTools algemeen, IMeldingRepository meldingen,
                             MeldingSignaal meldingSignaal, AiSignaal signaal, IConfiguration config, ILogger<AiAnalyseService> log)
     {
-        _repo = repo; _bedrock = bedrock; _tools = tools; _meldingen = meldingen; _meldingSignaal = meldingSignaal;
+        _repo = repo; _bedrock = bedrock; _tools = tools; _algemeen = algemeen; _meldingen = meldingen; _meldingSignaal = meldingSignaal;
         _signaal = signaal; _config = config; _log = log;
     }
 
@@ -66,9 +68,10 @@ public class AiAnalyseService : BackgroundService
     public string DalurenTekst => $"tussen {DalVan:HH\\:mm} en {DalTot:HH\\:mm}" + (WeekendDal ? " en in het weekend" : "");
 
     // ---- vragen ----
-    public async Task<int> StelAsync(int werknemerId, string vraag, string prioriteit)
+    /// <param name="financieel">Mag de vraagsteller financiële gegevens zien (Financial/Directie en niet op een werkplek)?</param>
+    public async Task<int> StelAsync(int werknemerId, string vraag, string prioriteit, bool financieel)
     {
-        var id = await _repo.MaakAsync(werknemerId, vraag.Trim(), prioriteit == AiVraag.Wachten ? AiVraag.Wachten : AiVraag.Direct);
+        var id = await _repo.MaakAsync(werknemerId, vraag.Trim(), prioriteit == AiVraag.Wachten ? AiVraag.Wachten : AiVraag.Direct, financieel);
         _signaal.Geef(id);
         _wekker.Release();
         return id;
@@ -132,14 +135,17 @@ public class AiAnalyseService : BackgroundService
     }
 
     // ---- uitvoeren ----
-    private string Systeem() =>
+    private string Systeem(bool financieel) =>
         $$"""
-        Je bent de financiële assistent van MDE Automation, een machinebouwer met meerdere eigen BV's. Vandaag is {{DateTime.Today:yyyy-MM-dd}} ({{DateTime.Today:dddd}}).
-        Je beantwoordt vragen over de financiën in het Nederlands. Regels:
+        Je bent de assistent van MDE Automation, een machinebouwer met meerdere eigen BV's. Vandaag is {{DateTime.Today:yyyy-MM-dd}} ({{DateTime.Today:dddd}}).
+        Je beantwoordt vragen over projecten, werkorders, uren, bestellingen, voorraad en producten{{(financieel ? ", en over de financiën" : "")}}, in het Nederlands.
+        {{(financieel ? "" : "Financiële gegevens (omzet, kosten, facturen, bank, liquiditeit, kostprijzen) zijn voor deze gebruiker niet beschikbaar; zeg dat als ernaar gevraagd wordt.")}}
+        Regels:
         - Haal elk getal op met de beschikbare opvragingen; verzin nooit cijfers. Kun je iets niet opvragen, zeg dat dan duidelijk.
         - Vraag gericht op (periode, klant, leverancier) in plaats van alles.
         - Noem bij elk getal waar het vandaan komt (welke opvraging en periode) en of het in- of exclusief btw is.
-        - Gebruik de totalen uit de opmerking of de kolom Cumulatief van een opvraging; tel niet zelf op.
+        - Gebruik de totalen uit de opmerking of de kolom Cumulatief van een opvraging; tel NOOIT zelf regels op. Heb je een
+          totaal nodig dat er niet staat, vraag de gegevens dan opnieuw op met een indeling die dat totaal geeft.
         - Vergelijk je perioden (bv. dit jaar met vorig jaar), vraag dan beide met even lange datums op (1 jan t/m vandaag en
           dezelfde datums vorig jaar), zodat de totalen vergelijkbaar zijn. Een lopende maand is nog niet compleet: zeg dat.
         - Schrijf bedragen als € 12.345,67.
@@ -166,10 +172,10 @@ public class AiAnalyseService : BackgroundService
         };
         var verzoek = new JsonObject
         {
-            ["system"] = new JsonArray(new JsonObject { ["text"] = Systeem() }),
+            ["system"] = new JsonArray(new JsonObject { ["text"] = Systeem(v.Financieel) }),
             ["messages"] = berichten,
             ["inferenceConfig"] = new JsonObject { ["maxTokens"] = MaxTokens, ["temperature"] = 0.2 },
-            ["toolConfig"] = _tools.ToolConfig(),
+            ["toolConfig"] = ToolConfig(v.Financieel),
         };
 
         string Json() => gegevens.Count == 0 ? "" : JsonSerializer.Serialize(gegevens);
@@ -199,7 +205,11 @@ public class AiAnalyseService : BackgroundService
                     {
                         var naam = t!["name"]?.GetValue<string>() ?? "";
                         var invoer = t["input"] as JsonObject ?? new JsonObject();
-                        var g = await _tools.VoerUitAsync(naam, invoer, v.WerknemerId);
+                        var g = _algemeen.Kent(naam)
+                            ? await _algemeen.VoerUitAsync(naam, invoer, v.WerknemerId, v.Financieel)
+                            : v.Financieel
+                                ? await _tools.VoerUitAsync(naam, invoer, v.WerknemerId)
+                                : new AiGegevens { Naam = naam, Titel = naam, Opmerking = "Geen toegang: alleen met het recht Financial of Directie." };
                         gegevens.Add(g);
                         resultaten.Add(new JsonObject
                         {
@@ -239,6 +249,15 @@ public class AiAnalyseService : BackgroundService
         }
     }
 
+    /// <summary>De opvragingen voor deze vraag: altijd de algemene, de financiële alleen met recht.</summary>
+    private JsonObject ToolConfig(bool financieel)
+    {
+        var tools = new JsonArray(_algemeen.Tools(financieel).Select(t => (JsonNode)t).ToArray());
+        if (financieel && _tools.ToolConfig()["tools"] is JsonArray fin)
+            foreach (var t in fin.ToList()) tools.Add(t!.DeepClone());
+        return new JsonObject { ["tools"] = tools };
+    }
+
     /// <summary>Schatting in euro's met de prijzen per miljoen tokens uit appsettings (0 = onbekend).</summary>
     private decimal? Kosten(string laag, int tin, int tuit)
     {
@@ -257,7 +276,7 @@ public class AiAnalyseService : BackgroundService
         {
             var kort = v.Vraag.Length > 70 ? v.Vraag[..70] + "…" : v.Vraag;
             // Meldingen.OrderID is hier het nummer van de vraag (soort 'analyse'); de bel linkt naar /financien/analyse
-            await _meldingen.MaakAsync(v.WerknemerId, "analyse", v.Id, (gelukt ? "Je analyse is klaar: " : "Je analyse is mislukt: ") + kort);
+            await _meldingen.MaakAsync(v.WerknemerId, "analyse", v.Id, (gelukt ? "Je vraag is beantwoord: " : "Je vraag is mislukt: ") + kort);
             _meldingSignaal.Geef();
         }
         catch (Exception ex) { _log.LogWarning(ex, "Melding voor AI-vraag {Id} niet gemaakt.", v.Id); }

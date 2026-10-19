@@ -3,16 +3,16 @@
 @inject HuidigeGebruiker Ik
 @inject NavigationManager Nav
 
-@* Invoer voor een vraag aan het taalmodel over de financiën (Services/AiAnalyseService.cs). Op de pagina Financiën en
-   boven aan Financiën ▸ Vragen aan AI. Direct = meteen; Mag wachten = in de daluren tegen het lagere Flex-tarief. *@
+@* Invoer voor een vraag aan het taalmodel (Services/AiAnalyseService.cs). Op de pagina Financiën en boven aan
+   Vragen aan AI (/ai, ✨ in de bovenbalk). Direct = meteen; Mag wachten = in de daluren tegen het lagere Flex-tarief. *@
 
 <div class="ai-invoer @(Compact ? "compact" : "")">
     <div class="ai-kop">
         <b>✨ Vraag het de AI</b>
-        <span class="uitleg">omzet, kosten, facturen, bank, vaste lasten en liquiditeit</span>
+        <span class="uitleg">@(Financieel ? "projecten, uren, bestellingen, voorraad, producten én de financiën" : "projecten, uren, bestellingen, voorraad en producten")</span>
         @if (!Compact)
         {
-            <a class="ai-eerder" href="financien/analyse">eerdere vragen ›</a>
+            <a class="ai-eerder" href="ai">eerdere vragen ›</a>
         }
     </div>
 
@@ -60,6 +60,9 @@
 
     private bool Kan => Ai.Ingesteld && _tabel;
 
+    /// <summary>Financiële opvragingen alleen met Financial/Directie; Mag() is op een werkplek voor deze rechten altijd false.</summary>
+    private bool Financieel => Ik.Mag("Financial") || Ik.Mag("Directie");
+
     protected override async Task OnInitializedAsync()
     {
         try { _tabel = Vragen.Beschikbaar && await Vragen.TabelAanwezigAsync(); } catch { _tabel = false; }
@@ -86,10 +89,10 @@
         _bezig = true; _fout = null;
         try
         {
-            var id = await Ai.StelAsync(wn, vraag, _prio);
+            var id = await Ai.StelAsync(wn, vraag, _prio, Financieel);
             _vraag = "";
             if (OpGesteld.HasDelegate) await OpGesteld.InvokeAsync(id);
-            else Nav.NavigateTo($"financien/analyse?vraag={id}");
+            else Nav.NavigateTo($"ai?vraag={id}");
         }
         catch (Exception ex) { _fout = "Stellen mislukt: " + ex.Message; }
         finally { _bezig = false; }

@@ -250,11 +250,24 @@ omschrijving, onthouden per pc via `mdeOpslag`) en aanvinken, eventueel werkorde
   van 5 werknemers zonder tarief.
 - Getest met project 223159 (getallen gelijk aan `_Nacalc_Totaal`), rechten tijdelijk lokaal opengezet en teruggezet.
 
+## Facturen uitlezen via Bedrock (19-10-2026)
+
+`Services/FactuurLezer.cs` gebruikt `BedrockClient` zodra Bedrock is ingesteld (anders Ollama als terugval; `Ai:Bron`,
+`Ai:Sleutel/Model/Adres` en de directe Anthropic-route zijn vervallen). Drie wegen: digitale PDF = tekst eruit (PdfPig) en
+alleen tekst naar het model; **gescande PDF** = de PDF zelf als Converse-`document` met `citations: {enabled: true}`
+(zonder citations leest Bedrock alleen de tekstlaag; met citations bekijkt Claude elke pagina als beeld; die werden
+voorheen geweigerd); foto = `image`-blok. Grenzen: beeld 3,75 MB, document 4,5 MB. Tekst komt uit `text`-blokken en, met
+citations, uit `citationsContent.content[].text`. Getest (Haiku 4.5) op 3 echte inkoopfacturen + een foto en een
+beeld-PDF gemaakt van één ervan: 3-4,5 s per factuur (Ollama: minuten). Materialise gelijk aan de administratie; DHL
+(scan) gelijk aan pagina 1 (de boekhouding splitste 7,58 als invoer-btw uit pagina 2 af); FedEx las invoerrechten als btw →
+huisregel in `Templates/FactuurUitlezen.txt` (invoerrechten/voorschotprovisie zijn geen btw), daarna gelijk aan de
+administratie, ook als scan. Testtip: een PDF-pagina naar PNG met `Windows.Data.Pdf` (TFM net8.0-windows10.0.19041.0).
+
 ## Vragen aan AI, Financiën (19-10-2026)
 
 Besluit gebruiker: AI **alleen via Amazon Bedrock** (EU). Claude mag, maar alleen via Bedrock (gekozen model:
 `eu.anthropic.claude-sonnet-5-5`, regio eu-north-1); géén directe Anthropic-API en géén Ollama. De bestaande routes 'ollama'
-en 'claude' (api.anthropic.com) in `FactuurLezer` worden dus vervangen door Bedrock (stap 1, nog te doen). Stand
+en 'claude' (api.anthropic.com) in `FactuurLezer`: **stap 1 gedaan (19-10-2026)**, zie hieronder. Stand
 19-10-2026: **werkt** met `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (regio eu-north-1, IAM-sleutels). Nodig waren:
 IAM-policy (EU-profiel vanuit eu-north-1 + `foundation-model/*` met conditie `bedrock:InferenceProfileArn`; een conditie
 `aws:RequestedRegion = eu-north-1` blokkeert, want het EU-profiel voert uit in o.a. eu-west-3), het Anthropic
@@ -293,6 +306,17 @@ vragen. Daarna klopte het antwoord (nagerekend). Gebouwd zijn stap 2 en 3:
   waarschuwing. SVG-`<text>` staat in een `<g>`: direct in een Razor-codeblok leest Razor het als zijn eigen text-tag. De
   systeemopdracht is een `$$"""`-string (de accolades in het JSON-voorbeeld). Getest met Haiku: 20 staven, alle waarden
   gevonden; donker thema niet bekeken.
+- **Niet alleen financieel (19-10-2026, wens gebruiker)**: `Services/AlgemeneAiTools.cs` met projecten_zoeken,
+  werkorders_van_project (uren = ALLE jaren, zo genoemd), uren_per_project (standaard per werkorder opgeteld;
+  `per_medewerker` alleen als daarnaar gevraagd), uren_per_medewerker (zonder Financial/Directie alleen eigen uren),
+  bestellingen, voorraad (`IVoorraadRepository`), producten_overzicht, product_todos en (alleen Financial/Directie)
+  nacalculatie_project met budget (`Workorders.Budget`). De pagina is voor iedereen met een gekoppeld account: `/ai`
+  (✨ in de bovenbalk, naast de bel) en nog steeds `/financien/analyse`. Of de financiële opvragingen meedoen staat per vraag
+  in `AiVragen.Financieel` (bepaald bij het stellen: `Ik.Mag("Financial") || Ik.Mag("Directie")`, dus nooit op een werkplek;
+  kolom via `ALTER ... ADD COLUMN IF NOT EXISTS` in het script; zonder kolom afgeleid uit de rechten van de werknemer).
+  **Lessen uit de tests met Haiku**: het model telt slecht zelf op (2 van 18 werkordertotalen fout) en pakt soms een
+  verkeerde kolom (uren alle jaren als "dit jaar"). Daarom: opvragingen geven de totalen op het gevraagde niveau zelf, en
+  kolomnamen en beschrijvingen zijn ondubbelzinnig. Daarna klopten uren per werkorder, nacalculatie en producten (nagerekend).
 - Lokaal testen: `Bedrock__Nep=true` (geen AWS; eerste ronde vraagt echt de omzet op, dan een vast testantwoord) en
   `AiVragen__Geheugen=true`. Getest met die twee (rechten tijdelijk lokaal opengezet en teruggezet): direct-vraag loopt van
   wachtrij tot antwoord met gegevens, 'Mag wachten' blijft overdag in de wachtrij. **Niet getest tegen echte Bedrock**

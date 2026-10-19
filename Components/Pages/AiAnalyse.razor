@@ -1,3 +1,4 @@
+@page "/ai"
 @page "/financien/analyse"
 @using Markdig
 @implements IDisposable
@@ -20,7 +21,7 @@
 
     @if (!Mag)
     {
-        <section class="module-placeholder"><p>Dit scherm is alleen voor wie het recht Financial heeft.</p></section>
+        <section class="module-placeholder"><p>Meld je aan (of kies wie je bent op deze werkplek) om vragen te stellen.</p></section>
     }
     else if (!Vragen.Beschikbaar)
     {
@@ -65,10 +66,18 @@
                 {
                     <p class="uitleg">Stel hierboven een vraag, of kies links een eerdere vraag.</p>
                     <p class="uitleg">
-                        Het model kan opvragen: omzet en inkoopkosten per maand (ook per klant of leverancier), verkoop- en
-                        inkoopfacturen, banktransacties (van de rekeningen waar jij bij mag), vaste lasten en de
-                        liquiditeitsprognose. Het kan niets wijzigen. Bij elk antwoord staan de opgevraagde gegevens, zodat je
-                        kunt narekenen.
+                        Het model kan opvragen: projecten en werkorders, uren per project of medewerker, bestellingen, voorraad,
+                        producten en hun todo's.
+                        @if (Ik.Mag("Financial") || Ik.Mag("Directie"))
+                        {
+                            <text>Met jouw rechten ook: de nacalculatie per project, omzet en inkoopkosten per maand, verkoop- en
+                            inkoopfacturen, banktransacties (van de rekeningen waar jij bij mag), vaste lasten en de liquiditeitsprognose.</text>
+                        }
+                        else
+                        {
+                            <text>Uren van anderen per medewerker en financiële gegevens zijn alleen voor Financial/Directie.</text>
+                        }
+                        Het kan niets wijzigen. Bij elk antwoord staan de opgevraagde gegevens, zodat je kunt narekenen.
                     </p>
                 }
                 else
@@ -175,7 +184,8 @@
     private AiVraag? _gekozen;
     private bool _iedereen;
 
-    private bool Mag => Ik.Mag("Financial") || Ik.Mag("Directie");
+    /// <summary>Iedereen met een gekoppeld account; wat het model mag opvragen hangt van de rechten af (AiAnalyseService).</summary>
+    private bool Mag => Ik.Gekoppeld;
 
     protected override async Task OnInitializedAsync()
     {

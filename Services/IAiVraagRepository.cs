@@ -11,6 +11,8 @@ public class AiVraag
     public string Wie { get; init; } = "";
     public string Vraag { get; init; } = "";
     public string Prioriteit { get; init; } = AiVraag.Direct;
+    /// <summary>Mocht de vraagsteller financiële gegevens zien (Financial/Directie, niet op een werkplek)?</summary>
+    public bool Financieel { get; init; }
     public string Status { get; init; } = AiVraag.Wacht;
     public DateTime Aangemaakt { get; init; }
     public DateTime? Gestart { get; init; }
@@ -55,7 +57,7 @@ public interface IAiVraagRepository
 {
     bool Beschikbaar { get; }
     Task<bool> TabelAanwezigAsync();
-    Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit);
+    Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit, bool financieel);
     Task<AiVraag?> GetAsync(int id);
     /// <summary>De laatste vragen; werknemerId null = van iedereen.</summary>
     Task<List<AiVraag>> LijstAsync(int? werknemerId, int max);
@@ -74,7 +76,7 @@ public class GeenAiVraagRepository : IAiVraagRepository
 {
     public bool Beschikbaar => false;
     public Task<bool> TabelAanwezigAsync() => Task.FromResult(false);
-    public Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit) => Task.FromResult(0);
+    public Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit, bool financieel) => Task.FromResult(0);
     public Task<AiVraag?> GetAsync(int id) => Task.FromResult<AiVraag?>(null);
     public Task<List<AiVraag>> LijstAsync(int? werknemerId, int max) => Task.FromResult(new List<AiVraag>());
     public Task<List<AiVraag>> WachtendAsync() => Task.FromResult(new List<AiVraag>());
@@ -95,12 +97,12 @@ public class GeheugenAiVraagRepository : IAiVraagRepository
     public bool Beschikbaar => true;
     public Task<bool> TabelAanwezigAsync() => Task.FromResult(true);
 
-    public Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit)
+    public Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit, bool financieel)
     {
         lock (_slot)
         {
             var id = _volgende++;
-            _lijst.Add(new AiVraag { Id = id, WerknemerId = werknemerId, Wie = "ik", Vraag = vraag, Prioriteit = prioriteit,
+            _lijst.Add(new AiVraag { Id = id, WerknemerId = werknemerId, Wie = "ik", Vraag = vraag, Prioriteit = prioriteit, Financieel = financieel,
                                      Status = AiVraag.Wacht, Aangemaakt = DateTime.Now });
             return Task.FromResult(id);
         }
@@ -123,7 +125,7 @@ public class GeheugenAiVraagRepository : IAiVraagRepository
                                  decimal? kosten = null, string fout = "")
         => new()
         {
-            Id = v.Id, WerknemerId = v.WerknemerId, Wie = v.Wie, Vraag = v.Vraag, Prioriteit = v.Prioriteit, Status = status,
+            Id = v.Id, WerknemerId = v.WerknemerId, Wie = v.Wie, Vraag = v.Vraag, Prioriteit = v.Prioriteit, Financieel = v.Financieel, Status = status,
             Aangemaakt = v.Aangemaakt, Gestart = gestart ?? v.Gestart, Klaar = klaar, Antwoord = antwoord, GegevensJson = gegevens,
             Model = model, Laag = laag, TokensIn = tin, TokensUit = tuit, Kosten = kosten, Fout = fout,
         };
@@ -163,7 +165,24 @@ public class MySqlAiVraagRepository : IAiVraagRepository
 {
     private readonly string _cs;
     private bool _tabel;
+    private bool? _finKolom;
     public MySqlAiVraagRepository(string connectionString) => _cs = connectionString;
+
+    /// <summary>Heeft AiVragen de kolom Financieel al (AiVragen_MariaDB.sql opnieuw gedraaid)?</summary>
+    private async Task<bool> FinKolomAsync()
+    {
+        if (_finKolom is bool b) return b;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'AiVragen' AND COLUMN_NAME = 'Financieel'", cn);
+        _finKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        return _finKolom.Value;
+    }
+
+    // zonder de kolom: afleiden uit de rechten van de werknemer (dan zonder de werkplekregel)
+    private async Task<string> FinSql() => await FinKolomAsync()
+        ? "v.`Financieel`"
+        : "(COALESCE(w.`Financial`, 0) <> 0 OR COALESCE(w.`Directie`, 0) <> 0)";
     public bool Beschikbaar => true;
 
     private async Task<MySqlConnection> OpenAsync()
@@ -190,7 +209,7 @@ public class MySqlAiVraagRepository : IAiVraagRepository
     private const string Select =
         "SELECT v.`AiVraagID`, v.`WerknemerID`, COALESCE(NULLIF(w.`Afkorting`, ''), w.`Voornaam`, ''), v.`Vraag`, v.`Prioriteit`, " +
         "       v.`Status`, v.`Aangemaakt`, v.`Gestart`, v.`Klaar`, {0}, {1}, v.`Model`, v.`Laag`, v.`TokensIn`, v.`TokensUit`, " +
-        "       v.`Kosten`, v.`Fout` " +
+        "       v.`Kosten`, v.`Fout`, {2} " +
         "  FROM `AiVragen` v LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = v.`WerknemerID` ";
 
     private static async Task<List<AiVraag>> Lees(MySqlCommand cmd)
@@ -207,17 +226,20 @@ public class MySqlAiVraagRepository : IAiVraagRepository
                 Aangemaakt = r.GetDateTime(6), Gestart = D(7), Klaar = D(8), Antwoord = S(9), GegevensJson = S(10),
                 Model = S(11), Laag = S(12), TokensIn = I(13), TokensUit = I(14),
                 Kosten = r.IsDBNull(15) ? null : r.GetDecimal(15), Fout = S(16),
+                Financieel = !r.IsDBNull(17) && Convert.ToInt64(r.GetValue(17)) != 0,
             });
         return lijst;
     }
 
-    public async Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit)
+    public async Task<int> MaakAsync(int werknemerId, string vraag, string prioriteit, bool financieel)
     {
         if (!await TabelAanwezigAsync()) throw new InvalidOperationException("De tabel AiVragen bestaat nog niet (AiVragen_MariaDB.sql).");
+        var metFin = await FinKolomAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "INSERT INTO `AiVragen` (`WerknemerID`, `Vraag`, `Prioriteit`, `Status`, `Aangemaakt`) " +
-            "VALUES (@wn, @vraag, @prio, 'wacht', NOW()); SELECT LAST_INSERT_ID();", cn);
+            "INSERT INTO `AiVragen` (`WerknemerID`, `Vraag`, `Prioriteit`, " + (metFin ? "`Financieel`, " : "") + "`Status`, `Aangemaakt`) " +
+            "VALUES (@wn, @vraag, @prio, " + (metFin ? "@fin, " : "") + "'wacht', NOW()); SELECT LAST_INSERT_ID();", cn);
+        cmd.Parameters.AddWithValue("@fin", financieel ? 1 : 0);
         cmd.Parameters.AddWithValue("@wn", werknemerId);
         cmd.Parameters.AddWithValue("@vraag", vraag);
         cmd.Parameters.AddWithValue("@prio", prioriteit);
@@ -228,7 +250,7 @@ public class MySqlAiVraagRepository : IAiVraagRepository
     {
         if (!await TabelAanwezigAsync()) return null;
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(string.Format(Select, "v.`Antwoord`", "v.`Gegevens`") + " WHERE v.`AiVraagID` = @id", cn);
+        await using var cmd = new MySqlCommand(string.Format(Select, "v.`Antwoord`", "v.`Gegevens`", await FinSql()) + " WHERE v.`AiVraagID` = @id", cn);
         cmd.Parameters.AddWithValue("@id", id);
         return (await Lees(cmd)).FirstOrDefault();
     }
@@ -238,7 +260,7 @@ public class MySqlAiVraagRepository : IAiVraagRepository
         if (!await TabelAanwezigAsync()) return new();
         await using var cn = await OpenAsync();
         // in de lijst geen antwoord en gegevens (kan groot zijn)
-        await using var cmd = new MySqlCommand(string.Format(Select, "NULL", "NULL") +
+        await using var cmd = new MySqlCommand(string.Format(Select, "NULL", "NULL", await FinSql()) +
             (werknemerId is null ? "" : " WHERE v.`WerknemerID` = @wn ") +
             " ORDER BY v.`AiVraagID` DESC LIMIT @max", cn);
         if (werknemerId is not null) cmd.Parameters.AddWithValue("@wn", werknemerId);
@@ -250,7 +272,7 @@ public class MySqlAiVraagRepository : IAiVraagRepository
     {
         if (!await TabelAanwezigAsync()) return new();
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(string.Format(Select, "NULL", "NULL") +
+        await using var cmd = new MySqlCommand(string.Format(Select, "NULL", "NULL", await FinSql()) +
             " WHERE v.`Status` = 'wacht' ORDER BY v.`AiVraagID` LIMIT 50", cn);
         return await Lees(cmd);
     }

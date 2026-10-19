@@ -1,8 +1,9 @@
 -- ===========================================================================
---  AiVragen: vragen aan het taalmodel (Amazon Bedrock) over de financiën, met het antwoord,
+--  AiVragen: vragen aan het taalmodel (Amazon Bedrock) over projecten, uren, bestellingen, voorraad, producten
+--  en (met recht Financial/Directie) de financiën, met het antwoord,
 --  de gebruikte gegevens en de kosten. Tegelijk de wachtrij: 'Mag wachten' wordt in de daluren
 --  uitgevoerd, tegen het lagere Flex-tarief.
---  Financiën ▸ Analyse ▸ Vragen aan AI (/financien/analyse), invoer ook op de pagina Financiën.
+--  Vragen aan AI: /ai (✨ in de bovenbalk) en Financiën ▸ Analyse; invoer ook op de pagina Financiën.
 --
 --  Eenmalig uitvoeren op de MDE-database. Veilig om nog eens te draaien.
 -- ===========================================================================
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `AiVragen` (
     `WerknemerID`  INT NOT NULL,                     -- Werknemers.Werknemer-id: wie de vraag stelde
     `Vraag`        TEXT NOT NULL,
     `Prioriteit`   VARCHAR(10) NOT NULL,             -- 'direct' of 'wachten'
+    `Financieel`   TINYINT(1) NOT NULL DEFAULT 0,    -- vraagsteller had Financial/Directie (en zat niet op een werkplek)
     `Status`       VARCHAR(12) NOT NULL,             -- 'wacht', 'bezig', 'klaar', 'fout', 'geannuleerd'
     `Aangemaakt`   DATETIME NOT NULL,
     `Gestart`      DATETIME NULL,
@@ -28,3 +30,6 @@ CREATE TABLE IF NOT EXISTS `AiVragen` (
     KEY `IX_AiVragen_Werknemer` (`WerknemerID`, `Aangemaakt`),
     KEY `IX_AiVragen_Status` (`Status`, `Prioriteit`, `Aangemaakt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Voor wie de tabel al had aangemaakt (vóór 19-10-2026 middag):
+ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Financieel` TINYINT(1) NOT NULL DEFAULT 0 AFTER `Prioriteit`;

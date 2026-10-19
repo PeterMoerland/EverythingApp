@@ -55,6 +55,10 @@
             @* Links: broodkruimel/titel van de pagina (via HeadOutlet komt de tabtitel); rechts: gebruiker en knoppen. *@
             <Snelbalk @ref="_snelbalk" OpenVenster="OpenVenster" Gewijzigd="StateHasChanged" />
             <span class="shell-top-vulling"></span>
+            @if (Ik.Gekoppeld)
+            {
+                <a class="ai-knop" href="ai" title="Vraag het de AI (projecten, uren, bestellingen, voorraad, producten…)">✨</a>
+            }
             <MeldingBel />
             @if (Ik.Werkplek is { } wp)
             {
