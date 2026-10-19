@@ -238,7 +238,11 @@ terwijl de UPDATE nog liep, en daarna schreef `Bewaar` de oude waarde in `_velde
 Fix in Producten, Bestellingen, Projecten, Relaties en Werknemers: `Bewaar` is een wrapper die de taak in
 `_opslaanBezig` zet (`BewaarKern` doet het werk met `vanId`, het id van het moment van de wijziging, en raakt
 `_velden` alleen aan als dat record nog open staat); `Kies…` doet `await WachtOpOpslaan()` voordat het de velden
-van het nieuwe record laadt. Niet in de browser getest (schrijft naar de database); bouwt wel.
+van het nieuwe record laadt. Tweede helft (na de test van de gebruiker): heeft het nieuwe record dezelfde waarde
+als het oude vóór het typen (bv. allebei leeg), dan ziet Blazor geen verschil en blijft de getypte tekst in het
+DOM-veld staan. Daarom `@key` op het veldenblok met het record-id (VeldRaster in Producten/Bestellingen/Projecten,
+de `wn-velden`-div in Relaties/Werknemers): bij een ander record worden de velden opnieuw opgebouwd.
+Niet in de browser getest (schrijft naar de database); bouwt wel.
 
 ## Tarieven berekenen (19-10-2026)
 

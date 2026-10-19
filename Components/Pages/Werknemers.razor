@@ -73,7 +73,7 @@
                 {
                     <DetailMetZij ZijTonen="@(huidig.Velden.Length > 0)">
                     <Hoofd>
-                    <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")">
+                    <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")" @key="_gekozenId">
                         @foreach (var veld in huidig.Velden)
                         {
                             var kolom = Kolom(veld);

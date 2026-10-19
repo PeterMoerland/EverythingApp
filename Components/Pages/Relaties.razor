@@ -154,7 +154,7 @@
                         else
                         {
                             <h3 class="wn-kop">@(string.IsNullOrWhiteSpace(_contact.Naam) ? "Contactpersoon" : _contact.Naam)</h3>
-                            <div class="wn-velden">
+                            <div class="wn-velden" @key="_contactId">
                                 <div class="wn-veld">
                                     <label>Afdeling</label>
                                     <input value="@_contact.Afdeling" @onchange="e => ZetContact(_contact, v => _contact.Afdeling = v, e)" />
@@ -377,7 +377,7 @@
                         var huidig = RelatieVelden.Tabs.FirstOrDefault(t => t.Naam == _tab) ?? RelatieVelden.Tabs[0];
                         <DetailMetZij>
                         <Hoofd>
-                        <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")">
+                        <div class="wn-velden @(huidig.EenKolom ? "een-kolom" : "")" @key="_gekozenId">
                             @foreach (var veld in huidig.Velden)
                             {
                                 var kolom = Kolom(veld);

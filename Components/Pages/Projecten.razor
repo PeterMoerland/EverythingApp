@@ -154,7 +154,7 @@
 
                     <DetailMetZij>
                         <Hoofd>
-                            <VeldRaster Tab="HuidigProjectTab" Kolommen="_projectKolommen" Velden="_projectVelden"
+                            <VeldRaster @key="_projectId" Tab="HuidigProjectTab" Kolommen="_projectKolommen" Velden="_projectVelden"
                                         Lijsten="_lijsten" OpSlaan="BewaarProject" />
                             <p class="uitleg">@Aangemaakt(_projectVelden, "Created at", "Created by")</p>
                         </Hoofd>
@@ -201,7 +201,7 @@
 
                     <DetailMetZij>
                         <Hoofd>
-                            <VeldRaster Tab="HuidigWerkorderTab" Kolommen="_werkorderKolommen" Velden="_werkorderVelden"
+                            <VeldRaster @key="_werkbonId" Tab="HuidigWerkorderTab" Kolommen="_werkorderKolommen" Velden="_werkorderVelden"
                                         Lijsten="_lijsten" OpSlaan="BewaarWerkorder" />
                         </Hoofd>
                         <Zij>
