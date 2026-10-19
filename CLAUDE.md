@@ -229,6 +229,36 @@ database schrijven).
 een bestelling komt er per bestelling bij met "(geen inkoop toegestaan)" of "(gesloten)", `WerkorderLijst`) en als controle
 bij opslaan van `Workorder-id` en bij aanmaken (`WerkorderNiet`).
 
+## Vragen aan AI, Financiën (19-10-2026)
+
+Besluit gebruiker: AI via **Amazon Bedrock** (EU, eigen endpoint/sleutel volgt), géén Ollama en géén Claude. Stap 1 (Bedrock
+als derde route in `FactuurLezer`) volgt als de sleutel er is; gebouwd zijn stap 2 en 3:
+- **Invoer** (`Components/AiVraagInvoer.razor`) op de pagina Financiën (`Module.razor`, alleen met Financial/Directie) en
+  boven aan Financiën ▸ Analyse ▸ **Vragen aan AI** (`/financien/analyse`, `Pages/AiAnalyse.razor`). Keuze **Direct**
+  (laag `Bedrock:LaagDirect`, standaard `default`) of **Mag wachten** (laag `Bedrock:LaagWachten`, standaard `flex`;
+  alleen uitgevoerd in de daluren `Bedrock:DalurenVan/-Tot` 18:00-07:00 en het weekend). Klaar = melding bij de bel
+  (Meldingen, soort `analyse`; `OrderID` is dan het nummer van de vraag, de bel linkt naar de analyse).
+- **Tabel `AiVragen`** (`AiVragen_MariaDB.sql`, **door de gebruiker uit te voeren**) = wachtrij én logboek: vraag, status
+  (wacht/bezig/klaar/fout/geannuleerd), antwoord (markdown, getoond met Markdig, HTML uit), gebruikte gegevens (JSON),
+  model, laag, tokens, kostenschatting (prijzen per miljoen tokens uit appsettings). `IAiVraagRepository` + Geen/Geheugen.
+- **`Services/AiAnalyseService.cs`** (BackgroundService): elke minuut of op een seintje; direct eerst, max 3 tegelijk,
+  `ClaimAsync` maakt het ophalen veilig; hangt iets > 30 min op 'bezig' dan bij het starten terug naar 'wacht'. Tool-use
+  lus (max 8 rondes). Kent het model de laag niet (400 met "tier"), dan opnieuw met `default`. `AiSignaal` ververst open
+  schermen.
+- **`Services/BedrockClient.cs`**: Converse-API over HTTP, zonder AWS-SDK. Aanmelden met `Bedrock:Sleutel` (Bedrock API-key,
+  Bearer; AWS raadt een lange-termijnsleutel af voor productie) of `AccessKey`/`SecretKey` (+`SessionToken`) met eigen
+  **SigV4** (`SigV4`, getoetst met de AWS-voorbeelden "signing key" en "get-vanilla"; canoniek pad dubbel gecodeerd, de ':'
+  in de model-id wordt %253A). `serviceTier` = `{"type": "flex"}` enz.; zonder geen veld (default).
+- **`Services/FinancieleAiTools.cs`**: de opvragingen (liquiditeit_prognose, verkoopfacturen, inkoopfacturen,
+  omzet_per_maand, kosten_per_maand, banktransacties, vaste_lasten). Alleen lezen, max 200 regels plus totalen in de
+  opmerking, getallen met een punt. Hergebruikt de repositories (geen proforma's; banktransacties alleen van rekeningen
+  waar de vraagsteller bij mag). Omzet/kosten per maand zijn eigen queries en tellen **facturen tussen eigen BV's
+  standaard niet mee** (`met_intern`): dit jaar 58 van 252 facturen, ± € 638k.
+- Lokaal testen: `Bedrock__Nep=true` (geen AWS; eerste ronde vraagt echt de omzet op, dan een vast testantwoord) en
+  `AiVragen__Geheugen=true`. Getest met die twee (rechten tijdelijk lokaal opengezet en teruggezet): direct-vraag loopt van
+  wachtrij tot antwoord met gegevens, 'Mag wachten' blijft overdag in de wachtrij. **Niet getest tegen echte Bedrock**
+  (nog geen sleutel): de vorm van tool use bij het gekozen model, flex-ondersteuning, de SigV4 tegen AWS zelf.
+
 ## Todo bij producten (19-10-2026)
 
 Wens: punten die bij een exemplaar nog moeten gebeuren (bv. de print in een robot moet nog worden doorgesoldeerd), en
@@ -246,7 +276,15 @@ invoeren een keuzelijst met eerdere waarden en dezelfde schrijfwijze als een bes
 - Producten ▸ Overzichten ▸ **Todo-overzicht** (`/producten/todo`, `Pages/ProductTodos.razor`): knoppen per Wat met
   aantallen, zoeken, "ook gereed", afvinken, afdrukken (`@media print` verbergt menu en balk; eerste printstijl in de app).
 - Queries getest tegen de echte data met nep-punten in plaats van de tabel (kabel in MPR-1 16 → wortel MPR-1 16, klant
-  Viscon). Schermen niet getest met de tabel (die bestaat nog niet).
+  Viscon). Tabel aangemaakt door de gebruiker en op de server getest (19-10-2026): werkt.
+- Het oranje bolletje heeft een eigen kolom in de exemplarenlijst (`.todo-kol`, raster 1,4rem) en een klik erop opent dat
+  exemplaar op de tab Todo (`TodoStipKlik`, met `@onclick:stopPropagation`).
+- Los hiervan (melding collega): een wijziging van het veld Project ververst nu ook de exemplarenlijst (`Bewaar`).
+- **Kopiëren** (tab Todo, "Kopiëren naar andere exemplaren…"): open punten kiezen, doel = links aangevinkte exemplaren of
+  serienummer van t/m (zelfde type, `_alleProducten`, zonder gewiste). `KopieerAsync` voegt per doel alleen toe wat daar
+  nog niet open staat (zelfde Wat + Toelichting), in één transactie; per doel één historieregel "Todo gekopieerd van ...".
+  Een punt van een onderdeel komt bij het doel zelf met "bij <type>" in de toelichting (geen koppeling naar het onderdeel
+  van het doel).
 
 ## Zoekvak + lijst als combobox (19-10-2026)
 

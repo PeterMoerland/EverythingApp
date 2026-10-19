@@ -191,7 +191,8 @@ public static class Menu
                 new MenuItem("Voorraadstand")),
             // Analyse: overzichten en hulpmiddelen om mee te rekenen; hier komen ook de tools van een collega bij
             new MenuGroep("Analyse",
-                new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"))),
+                new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial"),
+                new MenuItem("Vragen aan AI", "/financien/analyse", "Financial"))),
 
         // Gebouwbeheer praat met de PLC: licht, zonwering, compressor en verbruik.
         new("gebouw", "Gebouwbeheer", "building")

@@ -1,0 +1,251 @@
+@page "/financien/analyse"
+@using Markdig
+@implements IDisposable
+@inject AiAnalyseService Ai
+@inject IAiVraagRepository Vragen
+@inject HuidigeGebruiker Ik
+@inject AiSignaal Signaal
+
+@* Financiën ▸ Analyse ▸ Vragen aan AI: vragen stellen aan het taalmodel (Amazon Bedrock), met de wachtrij en de eerdere
+   vragen. Bij elk antwoord staan de gegevens die het model opvroeg, om na te rekenen. Services/AiAnalyseService.cs. *@
+
+<div class="page">
+    <header class="topbar">
+        <h1>Vragen aan AI</h1>
+        @if (Ai.Ingesteld)
+        {
+            <span class="weeklabel">@Ai.Model · Mag wachten wordt uitgevoerd @Ai.DalurenTekst</span>
+        }
+    </header>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Dit scherm is alleen voor wie het recht Financial heeft.</p></section>
+    }
+    else if (!Vragen.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        <AiVraagInvoer @ref="_invoer" Compact="true" OpGesteld="Gesteld" />
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst ai-lijst">
+                @if (Ik.Mag("Directie"))
+                {
+                    <div class="wn-filters">
+                        <label class="vink"><input type="checkbox" checked="@_iedereen" @onchange="IedereenGewijzigd" /> Van iedereen</label>
+                    </div>
+                }
+                <div class="wn-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">Nog geen vragen.</div>
+                    }
+                    @foreach (var v in _lijst)
+                    {
+                        <button class="wn-naam ai-regel @(v.Id == _gekozen?.Id ? "actief" : "")" @key="v.Id" @onclick="() => Kies(v.Id)">
+                            <span class="ai-status @StatusKlasse(v)" title="@StatusTekst(v)">@StatusTeken(v)</span>
+                            <span class="ai-regel-tekst">
+                                <span class="ai-regel-vraag">@v.Vraag</span>
+                                <small>
+                                    @v.Aangemaakt.ToString("dd-MM HH:mm") · @(v.Prioriteit == AiVraag.Wachten ? "mag wachten" : "direct")
+                                    @if (_iedereen) { <text> · @v.Wie</text> }
+                                    @if (v.Kosten is decimal k) { <text> · € @k.ToString("0.000", Nl)</text> }
+                                </small>
+                            </span>
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail ai-detail">
+                @if (_gekozen is not { } g)
+                {
+                    <p class="uitleg">Stel hierboven een vraag, of kies links een eerdere vraag.</p>
+                    <p class="uitleg">
+                        Het model kan opvragen: omzet en inkoopkosten per maand (ook per klant of leverancier), verkoop- en
+                        inkoopfacturen, banktransacties (van de rekeningen waar jij bij mag), vaste lasten en de
+                        liquiditeitsprognose. Het kan niets wijzigen. Bij elk antwoord staan de opgevraagde gegevens, zodat je
+                        kunt narekenen.
+                    </p>
+                }
+                else
+                {
+                    <div class="ai-vraag">@g.Vraag</div>
+                    <div class="ai-statusregel">
+                        <span class="ai-status @StatusKlasse(g)">@StatusTeken(g)</span> @StatusTekst(g)
+                        <span class="uitleg">· gesteld @g.Aangemaakt.ToString("dd-MM-yyyy HH:mm") door @(g.Wie.Length > 0 ? g.Wie : "jou")</span>
+                    </div>
+
+                    @if (g.Status == AiVraag.Wacht && g.Prioriteit == AiVraag.Wachten)
+                    {
+                        <div class="ai-wacht">
+                            Staat in de wachtrij en wordt uitgevoerd @Ai.DalurenTekst, tegen het lagere tarief. Je krijgt een melding bij de bel.
+                            @if (g.WerknemerId == Ik.WerknemerId)
+                            {
+                                <div class="btngroup">
+                                    <button class="klein" title="Toch meteen, tegen het gewone tarief" @onclick="() => NuUitvoeren(g)">Nu uitvoeren</button>
+                                    <button class="klein rood" @onclick="() => Annuleer(g)">Annuleren</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (g.Loopt)
+                    {
+                        <div class="ai-bezig"><span class="draaier"></span> Bezig… het model vraagt gegevens op en rekent. Dit kan een halve minuut duren.</div>
+                    }
+                    else if (g.Status == AiVraag.FoutStatus)
+                    {
+                        <div class="ai-fout">@g.Fout</div>
+                    }
+
+                    @if (g.Antwoord.Length > 0)
+                    {
+                        <div class="ai-antwoord">@((MarkupString)Html(g.Antwoord))</div>
+                    }
+
+                    var gegevens = g.Gegevens;
+                    @if (gegevens.Count > 0)
+                    {
+                        <h3 class="wn-kop">Gebruikte gegevens <span class="klein uitleg">(@gegevens.Count opvraging@(gegevens.Count == 1 ? "" : "en"))</span></h3>
+                        @foreach (var d in gegevens)
+                        {
+                            <details class="ai-gegevens">
+                                <summary>@d.Titel <span class="uitleg">· @d.Rijen.Count regel@(d.Rijen.Count == 1 ? "" : "s")</span></summary>
+                                @if (d.Opmerking.Length > 0)
+                                {
+                                    <p class="uitleg">@d.Opmerking</p>
+                                }
+                                @if (d.Rijen.Count > 0)
+                                {
+                                    <div class="ai-tabel-rol">
+                                        <table class="kiezer-tabel smal-tabel">
+                                            <thead><tr>@foreach (var k in d.Kolommen) { <th>@k</th> }</tr></thead>
+                                            <tbody>
+                                                @foreach (var r in d.Rijen)
+                                                {
+                                                    <tr>@foreach (var c in r) { <td class="@(IsGetal(c) ? "r" : "")">@Cel(c)</td> }</tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </details>
+                        }
+                    }
+
+                    @if (!g.Loopt)
+                    {
+                        <div class="ai-voet">
+                            @if (g.Model.Length > 0) { <span>@g.Model</span> }
+                            @if (g.Laag.Length > 0) { <span>laag @g.Laag</span> }
+                            @if (g.TokensIn is int ti) { <span>@ti.ToString("N0", Nl) tokens in, @((g.TokensUit ?? 0).ToString("N0", Nl)) uit</span> }
+                            @if (g.Kosten is decimal k2) { <span>± € @k2.ToString("0.000", Nl)</span> }
+                            @if (g.Gestart is DateTime s && g.Klaar is DateTime e) { <span>@((int)(e - s).TotalSeconds) s</span> }
+                            <button class="klein" @onclick="() => _invoer?.Vul(g.Vraag)">Opnieuw stellen</button>
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "vraag")] public int? VraagParam { get; set; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static readonly Markdig.MarkdownPipeline Pijplijn =
+        new Markdig.MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private AiVraagInvoer? _invoer;
+    private List<AiVraag> _lijst = new();
+    private AiVraag? _gekozen;
+    private bool _iedereen;
+
+    private bool Mag => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        Signaal.Gewijzigd += OpSignaal;
+        if (!Mag || !Vragen.Beschikbaar) return;
+        await LaadLijst();
+        if (VraagParam is int id) await Kies(id);
+    }
+
+    private async Task LaadLijst()
+    {
+        try { _lijst = await Vragen.LijstAsync(_iedereen ? null : Ik.WerknemerId ?? -1, 100); }
+        catch { _lijst = new(); }
+    }
+
+    private async Task Kies(int id)
+    {
+        try
+        {
+            var v = await Vragen.GetAsync(id);
+            // alleen eigen vragen, of Directie
+            _gekozen = v is not null && (v.WerknemerId == Ik.WerknemerId || Ik.Mag("Directie")) ? v : null;
+        }
+        catch { _gekozen = null; }
+    }
+
+    private async Task Gesteld(int id)
+    {
+        await LaadLijst();
+        await Kies(id);
+    }
+
+    private async Task IedereenGewijzigd(ChangeEventArgs e) { _iedereen = e.Value is true; await LaadLijst(); }
+
+    /// <summary>Een vraag is veranderd (wachtrij, bezig, klaar): lijst en detail bijwerken.</summary>
+    private void OpSignaal(int id)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LaadLijst();
+            if (_gekozen?.Id == id) await Kies(id);
+            StateHasChanged();
+        });
+    }
+
+    private async Task NuUitvoeren(AiVraag v) { await Ai.NuUitvoerenAsync(v); await Kies(v.Id); }
+
+    private async Task Annuleer(AiVraag v)
+    {
+        if (Ik.WerknemerId is int wn) await Ai.AnnuleerAsync(v.Id, wn);
+        await LaadLijst();
+        await Kies(v.Id);
+    }
+
+    private static string Html(string markdown) => Markdig.Markdown.ToHtml(markdown, Pijplijn);
+
+    private static string StatusTeken(AiVraag v) => v.Status switch
+    {
+        AiVraag.Wacht => "⏳", AiVraag.Bezig => "⚙", AiVraag.KlaarStatus => "✓", AiVraag.FoutStatus => "!", _ => "–",
+    };
+
+    private static string StatusKlasse(AiVraag v) => "st-" + v.Status;
+
+    private string StatusTekst(AiVraag v) => v.Status switch
+    {
+        AiVraag.Wacht => v.Prioriteit == AiVraag.Wachten ? "In de wachtrij (daluren)" : "Wordt zo uitgevoerd",
+        AiVraag.Bezig => "Bezig",
+        AiVraag.KlaarStatus => "Klaar" + (v.Klaar is DateTime k ? " " + k.ToString("dd-MM HH:mm") : ""),
+        AiVraag.FoutStatus => "Mislukt",
+        AiVraag.Geannuleerd => "Geannuleerd",
+        _ => v.Status,
+    };
+
+    // getallen uit de tabellen staan met een punt; op het scherm Nederlands
+    private static bool IsGetal(string c)
+        => decimal.TryParse(c, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _) && c.Contains('.');
+
+    private static string Cel(string c)
+        => IsGetal(c) ? decimal.Parse(c, System.Globalization.CultureInfo.InvariantCulture).ToString("N2", Nl) : c;
+
+    public void Dispose() => Signaal.Gewijzigd -= OpSignaal;
+}

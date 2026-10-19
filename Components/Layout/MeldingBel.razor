@@ -56,8 +56,9 @@
                             var mid = m.Id;
                             @if (m.OrderId is int oid)
                             {
-                                <a class="bel-regel" href="@($"bestellingen?order={oid}")" target="_blank" rel="noopener" @onclick="() => Gelezen(mid)">
-                                    <span class="bel-po">@(m.Soort == "afgekeurd" ? "❌" : m.Soort == "geleverd" ? "📦" : "✅")</span>
+                                @* bij soort 'analyse' is OrderId het nummer van de vraag (Vragen aan AI) *@
+                                <a class="bel-regel" href="@(m.Soort == "analyse" ? $"financien/analyse?vraag={oid}" : $"bestellingen?order={oid}")" target="_blank" rel="noopener" @onclick="() => Gelezen(mid)">
+                                    <span class="bel-po">@(m.Soort == "analyse" ? "✨" : m.Soort == "afgekeurd" ? "❌" : m.Soort == "geleverd" ? "📦" : "✅")</span>
                                     <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
                                 </a>
                             }

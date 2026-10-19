@@ -129,6 +129,7 @@ if (liveDb)
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
+    builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
@@ -169,6 +170,7 @@ else
     builder.Services.AddSingleton<IBestelRepository, GeenBestelRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
+    builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
     builder.Services.AddSingleton<IBankRepository, GeenBankRepository>();
     builder.Services.AddSingleton<IArtikelRepository, GeenArtikelRepository>();
@@ -209,6 +211,9 @@ builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit ww
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
 if (builder.Configuration.GetValue<bool>("ProductTodo:Geheugen"))
     builder.Services.AddSingleton<IProductTodoRepository, GeheugenProductTodoRepository>();
+// Alleen om Vragen aan AI lokaal te testen zonder de tabel AiVragen: AiVragen__Geheugen=true
+if (builder.Configuration.GetValue<bool>("AiVragen:Geheugen"))
+    builder.Services.AddSingleton<IAiVraagRepository, GeheugenAiVraagRepository>();
 // Alleen om de snelbalk lokaal te testen zonder database: Snelbalk__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Snelbalk:Geheugen"))
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeheugenSnelkoppelingRepository>();
@@ -224,6 +229,14 @@ builder.Services.AddSingleton<UNiiKoppeling>();
 builder.Services.AddSingleton<VaultBackupWaker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 builder.Services.AddSingleton<FactuurLezer>();
+
+// Vragen aan AI (Financiën): Amazon Bedrock (sectie "Bedrock" in appsettings.json), opvragingen in
+// FinancieleAiTools, wachtrij voor 'Mag wachten' (daluren, Flex-tarief) in AiAnalyseService.
+builder.Services.AddSingleton<BedrockClient>();
+builder.Services.AddSingleton<FinancieleAiTools>();
+builder.Services.AddSingleton<AiSignaal>();
+builder.Services.AddSingleton<AiAnalyseService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AiAnalyseService>());
 
 // Rabobank Business Account Insight: elk uur de bankafschriften ophalen (sectie
 // "Rabobank" in appsettings.json). In de sandbox wordt er nooit iets weggeschreven.

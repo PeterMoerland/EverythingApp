@@ -24,6 +24,12 @@ else
             <span class="weeklabel">@Gemigreerd van @Totaal schermen gemigreerd</span>
         </header>
 
+        @* Financiën: vragen stellen aan de AI (Components/AiVraagInvoer.razor) *@
+        @if (_module.Sleutel == "financien" && (Ik.Mag("Financial") || Ik.Mag("Directie")))
+        {
+            <AiVraagInvoer />
+        }
+
         @* Een klapper zoals Tools heeft zelf geen schermen: dan de pakketten als tegels *@
         @if (_module.HeeftOnder)
         {

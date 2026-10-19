@@ -1,0 +1,97 @@
+@inject AiAnalyseService Ai
+@inject IAiVraagRepository Vragen
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+
+@* Invoer voor een vraag aan het taalmodel over de financiën (Services/AiAnalyseService.cs). Op de pagina Financiën en
+   boven aan Financiën ▸ Vragen aan AI. Direct = meteen; Mag wachten = in de daluren tegen het lagere Flex-tarief. *@
+
+<div class="ai-invoer @(Compact ? "compact" : "")">
+    <div class="ai-kop">
+        <b>✨ Vraag het de AI</b>
+        <span class="uitleg">omzet, kosten, facturen, bank, vaste lasten en liquiditeit</span>
+        @if (!Compact)
+        {
+            <a class="ai-eerder" href="financien/analyse">eerdere vragen ›</a>
+        }
+    </div>
+
+    @if (!Ai.Ingesteld)
+    {
+        <p class="uitleg">Nog niet ingesteld: @Ai.Ontbreekt (appsettings.json, sectie Bedrock).</p>
+    }
+    else if (_geladen && !_tabel)
+    {
+        <p class="uitleg">De tabel AiVragen bestaat nog niet. Voer eerst AiVragen_MariaDB.sql uit op de database.</p>
+    }
+
+    <textarea rows="@(Compact ? 2 : 3)" maxlength="2000" disabled="@(!Kan)"
+              placeholder="bv. Wat was de omzet per maand dit jaar, vergeleken met vorig jaar? (Ctrl+Enter = stellen)"
+              value="@_vraag" @oninput="e => _vraag = (string?)e.Value ?? string.Empty" @onkeydown="Toets"></textarea>
+
+    <div class="ai-keuze">
+        <label class="vink" title="Meteen uitvoeren; het antwoord verschijnt op het scherm">
+            <input type="radio" name="@_groep" checked="@(_prio == AiVraag.Direct)" @onchange="() => _prio = AiVraag.Direct" />
+            Direct
+        </label>
+        <label class="vink" title="Goedkoper tarief (Flex); je krijgt een melding bij de bel als het antwoord klaar is">
+            <input type="radio" name="@_groep" checked="@(_prio == AiVraag.Wachten)" @onchange="() => _prio = AiVraag.Wachten" />
+            Mag wachten <span class="uitleg">(goedkoper, @Ai.DalurenTekst)</span>
+        </label>
+        <button class="primair" disabled="@(!Kan || _bezig || _vraag.Trim().Length < 3)" @onclick="Stel">Vraag stellen</button>
+    </div>
+
+    @if (_fout is not null)
+    {
+        <p class="ai-fout">@_fout</p>
+    }
+</div>
+
+@code {
+    /// <summary>Kleinere invoer (op de pagina Vragen aan AI zelf).</summary>
+    [Parameter] public bool Compact { get; set; }
+    /// <summary>Als gezet: geen navigatie, maar dit seintje met het nummer van de vraag.</summary>
+    [Parameter] public EventCallback<int> OpGesteld { get; set; }
+
+    private readonly string _groep = "ai-prio-" + Guid.NewGuid().ToString("N");
+    private string _vraag = "", _prio = AiVraag.Direct;
+    private string? _fout;
+    private bool _bezig, _geladen, _tabel;
+
+    private bool Kan => Ai.Ingesteld && _tabel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _tabel = Vragen.Beschikbaar && await Vragen.TabelAanwezigAsync(); } catch { _tabel = false; }
+        _geladen = true;
+    }
+
+    /// <summary>Een eerdere vraag opnieuw in het vak zetten.</summary>
+    public void Vul(string tekst)
+    {
+        _vraag = tekst;
+        StateHasChanged();
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey) await Stel();
+    }
+
+    private async Task Stel()
+    {
+        var vraag = _vraag.Trim();
+        if (!Kan || _bezig || vraag.Length < 3) return;
+        if (Ik.WerknemerId is not int wn) { _fout = "Je account is niet aan een werknemer gekoppeld."; return; }
+        _bezig = true; _fout = null;
+        try
+        {
+            var id = await Ai.StelAsync(wn, vraag, _prio);
+            _vraag = "";
+            if (OpGesteld.HasDelegate) await OpGesteld.InvokeAsync(id);
+            else Nav.NavigateTo($"financien/analyse?vraag={id}");
+        }
+        catch (Exception ex) { _fout = "Stellen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+}

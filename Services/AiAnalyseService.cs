@@ -1,0 +1,256 @@
+using System.Collections.Concurrent;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace EverythingApp.Services;
+
+/// <summary>Seintje aan open schermen: een vraag is veranderd (in de wachtrij, bezig, klaar).</summary>
+public class AiSignaal
+{
+    public event Action<int>? Gewijzigd;
+    public void Geef(int vraagId) => Gewijzigd?.Invoke(vraagId);
+}
+
+/// <summary>
+/// Vragen aan het taalmodel (Amazon Bedrock) over de financiën, met een wachtrij in de tabel AiVragen.
+///   - 'direct': meteen, laag Bedrock:LaagDirect (standaard 'default').
+///   - 'wachten': alleen in de daluren (Bedrock:DalurenVan/-Tot, en het weekend als Bedrock:WeekendDal), laag
+///     Bedrock:LaagWachten (standaard 'flex': goedkoper, mag langer duren). Klaar = melding bij de bel.
+/// Het model krijgt de vraag plus de opvragingen uit <see cref="FinancieleAiTools"/> en vraagt zelf de cijfers op die het
+/// nodig heeft (tool use); alles wat het opvroeg wordt bij het antwoord bewaard.
+/// </summary>
+public class AiAnalyseService : BackgroundService
+{
+    private readonly IAiVraagRepository _repo;
+    private readonly BedrockClient _bedrock;
+    private readonly FinancieleAiTools _tools;
+    private readonly IMeldingRepository _meldingen;
+    private readonly MeldingSignaal _meldingSignaal;
+    private readonly AiSignaal _signaal;
+    private readonly IConfiguration _config;
+    private readonly ILogger<AiAnalyseService> _log;
+
+    private readonly SemaphoreSlim _wekker = new(0);
+    private readonly SemaphoreSlim _tegelijk = new(3, 3);
+    private readonly ConcurrentDictionary<int, byte> _lopend = new();
+
+    public AiAnalyseService(IAiVraagRepository repo, BedrockClient bedrock, FinancieleAiTools tools, IMeldingRepository meldingen,
+                            MeldingSignaal meldingSignaal, AiSignaal signaal, IConfiguration config, ILogger<AiAnalyseService> log)
+    {
+        _repo = repo; _bedrock = bedrock; _tools = tools; _meldingen = meldingen; _meldingSignaal = meldingSignaal;
+        _signaal = signaal; _config = config; _log = log;
+    }
+
+    public bool Ingesteld => _bedrock.Ingesteld;
+    public string Ontbreekt => _bedrock.Ontbreekt;
+    public string Model => _bedrock.Model;
+
+    private string LaagDirect => (_config["Bedrock:LaagDirect"] ?? "").Trim() is { Length: > 0 } l ? l : "default";
+    private string LaagWachten => (_config["Bedrock:LaagWachten"] ?? "").Trim() is { Length: > 0 } l ? l : "flex";
+    private int MaxTokens => Math.Clamp(_config.GetValue<int?>("Bedrock:MaxTokens") ?? 4000, 500, 16000);
+    private const int MaxRondes = 8;
+
+    // ---- daluren ----
+    private TimeOnly DalVan => TimeOnly.TryParse(_config["Bedrock:DalurenVan"], out var t) ? t : new TimeOnly(18, 0);
+    private TimeOnly DalTot => TimeOnly.TryParse(_config["Bedrock:DalurenTot"], out var t) ? t : new TimeOnly(7, 0);
+    private bool WeekendDal => _config.GetValue<bool?>("Bedrock:WeekendDal") ?? true;
+
+    public bool IsDaluren(DateTime nu)
+    {
+        if (WeekendDal && nu.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return true;
+        var t = TimeOnly.FromDateTime(nu);
+        return DalVan <= DalTot ? t >= DalVan && t < DalTot : t >= DalVan || t < DalTot;   // over middernacht heen
+    }
+
+    public string DalurenTekst => $"tussen {DalVan:HH\\:mm} en {DalTot:HH\\:mm}" + (WeekendDal ? " en in het weekend" : "");
+
+    // ---- vragen ----
+    public async Task<int> StelAsync(int werknemerId, string vraag, string prioriteit)
+    {
+        var id = await _repo.MaakAsync(werknemerId, vraag.Trim(), prioriteit == AiVraag.Wachten ? AiVraag.Wachten : AiVraag.Direct);
+        _signaal.Geef(id);
+        _wekker.Release();
+        return id;
+    }
+
+    public async Task<bool> AnnuleerAsync(int id, int werknemerId)
+    {
+        var ok = await _repo.AnnuleerAsync(id, werknemerId);
+        if (ok) _signaal.Geef(id);
+        return ok;
+    }
+
+    /// <summary>Een wachtende vraag toch meteen uitvoeren (tegen het tarief van 'direct').</summary>
+    public async Task NuUitvoerenAsync(AiVraag v)
+    {
+        if (v.Status != AiVraag.Wacht || !await _repo.ClaimAsync(v.Id)) return;
+        _signaal.Geef(v.Id);
+        _ = Task.Run(() => VoerUitAsync(v, LaagDirect, CancellationToken.None));
+    }
+
+    // ---- wachtrij ----
+    protected override async Task ExecuteAsync(CancellationToken stop)
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(10), stop); } catch (OperationCanceledException) { return; }
+        try
+        {
+            var hersteld = await _repo.HerstelHangendAsync(TimeSpan.FromMinutes(30));
+            if (hersteld > 0) _log.LogInformation("{Aantal} AI-vragen hingen op 'bezig' en staan weer in de wachtrij.", hersteld);
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "Herstellen van hangende AI-vragen mislukt."); }
+
+        while (!stop.IsCancellationRequested)
+        {
+            try { await Ronde(stop); }
+            catch (Exception ex) { _log.LogWarning(ex, "Wachtrij AI-vragen: ronde mislukt."); }
+            try { await _wekker.WaitAsync(TimeSpan.FromMinutes(1), stop); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task Ronde(CancellationToken stop)
+    {
+        if (!_bedrock.Ingesteld || !_repo.Beschikbaar || !await _repo.TabelAanwezigAsync()) return;
+        var dal = IsDaluren(DateTime.Now);
+        // direct eerst, dan de wachtende (alleen in de daluren)
+        foreach (var v in (await _repo.WachtendAsync()).OrderBy(v => v.Prioriteit == AiVraag.Direct ? 0 : 1).ThenBy(v => v.Id))
+        {
+            if (v.Prioriteit == AiVraag.Wachten && !dal) continue;
+            if (_lopend.ContainsKey(v.Id)) continue;
+            if (!await _tegelijk.WaitAsync(0, stop)) break;                    // vol: volgende ronde
+            if (!await _repo.ClaimAsync(v.Id)) { _tegelijk.Release(); continue; }
+            _lopend[v.Id] = 0;
+            _signaal.Geef(v.Id);
+            var laag = v.Prioriteit == AiVraag.Wachten ? LaagWachten : LaagDirect;
+            _ = Task.Run(async () =>
+            {
+                try { await VoerUitAsync(v, laag, stop); }
+                finally { _lopend.TryRemove(v.Id, out _); _tegelijk.Release(); _wekker.Release(); }
+            });
+        }
+    }
+
+    // ---- uitvoeren ----
+    private string Systeem() =>
+        $"""
+        Je bent de financiële assistent van MDE Automation, een machinebouwer met meerdere eigen BV's. Vandaag is {DateTime.Today:yyyy-MM-dd} ({DateTime.Today:dddd}).
+        Je beantwoordt vragen over de financiën in het Nederlands. Regels:
+        - Haal elk getal op met de beschikbare opvragingen; verzin nooit cijfers. Kun je iets niet opvragen, zeg dat dan duidelijk.
+        - Vraag gericht op (periode, klant, leverancier) in plaats van alles.
+        - Noem bij elk getal waar het vandaan komt (welke opvraging en periode) en of het in- of exclusief btw is.
+        - Gebruik de totalen uit de opmerking van een opvraging; tel geen afgekapte lijsten zelf op.
+        - Schrijf bedragen als € 12.345,67.
+        - Begin met een korte conclusie (een of twee zinnen). Daarna zo nodig een tabel in markdown.
+        - Je kunt niets wijzigen in de administratie. Breng aannames en onzekerheden eerlijk.
+        """;
+
+    private async Task VoerUitAsync(AiVraag v, string laag, CancellationToken stop)
+    {
+        var gegevens = new List<AiGegevens>();
+        int tin = 0, tuit = 0;
+        var gebruikteLaag = laag;
+        var gezieneLaag = laag;
+        var berichten = new JsonArray
+        {
+            new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["text"] = v.Vraag }) },
+        };
+        var verzoek = new JsonObject
+        {
+            ["system"] = new JsonArray(new JsonObject { ["text"] = Systeem() }),
+            ["messages"] = berichten,
+            ["inferenceConfig"] = new JsonObject { ["maxTokens"] = MaxTokens, ["temperature"] = 0.2 },
+            ["toolConfig"] = _tools.ToolConfig(),
+        };
+
+        string Json() => gegevens.Count == 0 ? "" : JsonSerializer.Serialize(gegevens);
+
+        try
+        {
+            for (var ronde = 0; ronde < MaxRondes; ronde++)
+            {
+                BedrockAntwoord a;
+                try { a = await _bedrock.ConverseAsync(verzoek, gebruikteLaag, stop); }
+                catch (BedrockFout f) when (f.Status == 400 && gebruikteLaag != "default"
+                                            && f.Message.Contains("tier", StringComparison.OrdinalIgnoreCase))
+                {
+                    // dit model kent de gevraagde laag (bv. flex) niet: dan gewoon standaard
+                    _log.LogInformation("Laag {Laag} niet beschikbaar voor {Model}; standaard gebruikt.", gebruikteLaag, _bedrock.Model);
+                    gebruikteLaag = "default";
+                    a = await _bedrock.ConverseAsync(verzoek, gebruikteLaag, stop);
+                }
+                tin += a.TokensIn; tuit += a.TokensUit; gezieneLaag = a.Laag;
+                berichten.Add(new JsonObject { ["role"] = "assistant", ["content"] = a.Inhoud.DeepClone() });
+
+                var opvragingen = a.Inhoud.OfType<JsonObject>().Select(b => b["toolUse"] as JsonObject).Where(t => t is not null).ToList();
+                if (a.StopReden == "tool_use" && opvragingen.Count > 0)
+                {
+                    var resultaten = new JsonArray();
+                    foreach (var t in opvragingen)
+                    {
+                        var naam = t!["name"]?.GetValue<string>() ?? "";
+                        var invoer = t["input"] as JsonObject ?? new JsonObject();
+                        var g = await _tools.VoerUitAsync(naam, invoer, v.WerknemerId);
+                        gegevens.Add(g);
+                        resultaten.Add(new JsonObject
+                        {
+                            ["toolResult"] = new JsonObject
+                            {
+                                ["toolUseId"] = t["toolUseId"]?.GetValue<string>() ?? "",
+                                ["content"] = new JsonArray(new JsonObject { ["json"] = FinancieleAiTools.AlsJson(g) }),
+                                ["status"] = g.Opmerking.StartsWith("Ophalen mislukt") ? "error" : "success",
+                            },
+                        });
+                    }
+                    berichten.Add(new JsonObject { ["role"] = "user", ["content"] = resultaten });
+                    continue;
+                }
+
+                var tekst = string.Join("\n", a.Inhoud.OfType<JsonObject>()
+                                                   .Select(b => b["text"]?.GetValue<string>()).Where(s => !string.IsNullOrWhiteSpace(s)));
+                if (a.StopReden == "max_tokens") tekst += "\n\n*(Het antwoord is afgebroken: de maximale lengte is bereikt.)*";
+                if (tekst.Trim().Length == 0) tekst = "*(Het model gaf geen tekst terug.)*";
+                await _repo.KlaarAsync(v.Id, tekst, Json(), _bedrock.Model, gezieneLaag, tin, tuit, Kosten(gezieneLaag, tin, tuit));
+                await Afgerond(v, true);
+                return;
+            }
+            await _repo.FoutAsync(v.Id, $"Na {MaxRondes} rondes opvragen nog geen antwoord. Stel de vraag specifieker.",
+                                  Json(), _bedrock.Model, gezieneLaag, tin, tuit, Kosten(gezieneLaag, tin, tuit));
+            await Afgerond(v, false);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "AI-vraag {Id} mislukt.", v.Id);
+            try
+            {
+                await _repo.FoutAsync(v.Id, ex.Message, Json(), _bedrock.Model, gezieneLaag, tin, tuit, Kosten(gezieneLaag, tin, tuit));
+                await Afgerond(v, false);
+            }
+            catch (Exception ex2) { _log.LogWarning(ex2, "AI-vraag {Id}: fout kon niet worden opgeslagen.", v.Id); }
+        }
+    }
+
+    /// <summary>Schatting in euro's met de prijzen per miljoen tokens uit appsettings (0 = onbekend).</summary>
+    private decimal? Kosten(string laag, int tin, int tuit)
+    {
+        var flex = laag == "flex";
+        var pin = _config.GetValue<decimal?>(flex ? "Bedrock:PrijsInvoerFlex" : "Bedrock:PrijsInvoer") ?? 0;
+        var puit = _config.GetValue<decimal?>(flex ? "Bedrock:PrijsUitvoerFlex" : "Bedrock:PrijsUitvoer") ?? 0;
+        if (pin == 0 && puit == 0) return null;
+        return Math.Round(tin / 1_000_000m * pin + tuit / 1_000_000m * puit, 4);
+    }
+
+    private async Task Afgerond(AiVraag v, bool gelukt)
+    {
+        _signaal.Geef(v.Id);
+        if (v.Prioriteit != AiVraag.Wachten) return;     // bij 'direct' kijkt de vraagsteller mee
+        try
+        {
+            var kort = v.Vraag.Length > 70 ? v.Vraag[..70] + "…" : v.Vraag;
+            // Meldingen.OrderID is hier het nummer van de vraag (soort 'analyse'); de bel linkt naar /financien/analyse
+            await _meldingen.MaakAsync(v.WerknemerId, "analyse", v.Id, (gelukt ? "Je analyse is klaar: " : "Je analyse is mislukt: ") + kort);
+            _meldingSignaal.Geef();
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "Melding voor AI-vraag {Id} niet gemaakt.", v.Id); }
+    }
+}

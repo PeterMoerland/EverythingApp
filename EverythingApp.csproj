@@ -29,6 +29,7 @@
   <ItemGroup>
     <!-- MySQL-driver (moderne, open-source client; werkt ook met MariaDB).
          Wordt bij de eerste 'dotnet run' van nuget.org opgehaald (internet nodig). -->
+    <PackageReference Include="Markdig" Version="1.4.1" />
     <PackageReference Include="MySqlConnector" Version="2.*" />
     <!-- Laat de app als Windows-service draaien. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.*" />
