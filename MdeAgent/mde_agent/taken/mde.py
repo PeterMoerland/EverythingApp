@@ -14,6 +14,10 @@ pysoem, in een apart werker-proces (zoals coe.py). De afspraak waar elke MDE-sla
 Taak mde.identiteit     parameters: positie. Standaardobjecten lezen.
 Taak mde.test           parameters: positie, stappen (lijst), naam. Een testrecept uitvoeren: elke stap is
                         een bouwsteen (zie _STAPPEN); de uitkomst is {"geslaagd", "samenvatting", "stappen": [...]}.
+                        Het recept loopt in OP met een procesdata-cyclus (2 ms): lees/schrijf op een object dat in
+                        de PDO-toewijzing staat (0x1C12/0x1C13) gaat via de in-/uitgangsdata, de rest via SDO. In
+                        PRE-OP zet een SDO op bv. 0x7020 (kleppen Swivel) niets in werking. Komt de slave niet in OP,
+                        of "procesdata": false, dan alles via SDO in PRE-OP. Na afloop uitgangen uit, terug naar PRE-OP.
                         Bouwstenen:
                           identiteit   vendor, productcode, revisie?, firmware?     → vergelijken met de slave
                           lees         index, sub, type, min?, max?, gelijk?, naam? → waarde binnen de grenzen
@@ -43,6 +47,7 @@ Taak mde.firmware       parameters: positie, firmware (URL/pad), versie, bestand
 import json
 import struct
 import sys
+import threading
 import time
 
 from . import _hulp, coe
@@ -371,6 +376,202 @@ def _voer_stappen(d: _Drive, stappen: list, log, uit: list, prefix: str = "") ->
                 log("  afgebroken bij deze stap.")
                 return False
     return geslaagd
+
+
+# ---- procesdata: recept in OP, PDO-objecten via de cyclische in-/uitgangsdata ----
+
+def _bits_lezen(data: bytes, pos: int, bits: int) -> int:
+    w = 0
+    for k in range(bits):
+        p = pos + k
+        if p // 8 < len(data):
+            w |= ((data[p // 8] >> (p % 8)) & 1) << k
+    return w
+
+
+def _bits_zetten(beeld: bytearray, pos: int, bits: int, w: int) -> None:
+    for k in range(bits):
+        p = pos + k
+        if p // 8 < len(beeld):
+            if (w >> k) & 1:
+                beeld[p // 8] |= 1 << (p % 8)
+            else:
+                beeld[p // 8] &= ~(1 << (p % 8)) & 0xFF
+
+
+class _Procesdata:
+    """Procesdata-cyclus (ca. elke 2 ms, in een eigen draad) zodat de slave in OP komt. In PRE-OP doet een SDO op
+    een PDO-object (bv. 0x7020 kleppen, 0x6020 druk bij de Swivel) niets aan de echte uitgangen: de firmware neemt
+    de uitgangen alleen uit de procesdata. Alle slaves op de bus gaan mee naar OP (andere krijgen nullen)."""
+
+    def __init__(self, master, slave, log, cyclus_ms: float = 2.0):
+        self.master, self.slave, self.log = master, slave, log
+        self.cyclus = max(1.0, min(10.0, cyclus_ms)) / 1000.0
+        self.uit: dict[tuple[int, int], tuple[int, int]] = {}    # (index, sub) → (bitpositie, bits) in het uitgangsbeeld
+        self.inn: dict[tuple[int, int], tuple[int, int]] = {}    # idem ingangsbeeld
+        self.beeld = bytearray()
+        self.slot = threading.Lock()
+        self._stop = threading.Event()
+        self._draad = None
+        self._winmm = None
+        self.cycli = 0
+        self.langste = 0.0
+        self.wkc_fout = 0
+
+    @staticmethod
+    def _plekken(kaart) -> dict:
+        uit, pos = {}, 0
+        for index, sub, bits in kaart or []:
+            if index:                                  # index 0 = opvulling
+                uit[(index, sub)] = (pos, bits)
+            pos += bits
+        return uit
+
+    def start(self) -> bool:
+        """Mapping lezen, naar SAFE-OP en OP. False (en terug naar PRE-OP) als het niet lukt; het recept gaat dan via SDO."""
+        import pysoem
+        from .ecat_io import _mapping
+        kaart_uit = _mapping(self.slave, 0x1C12, self.log)
+        kaart_in = _mapping(self.slave, 0x1C13, self.log)
+        self.uit, self.inn = self._plekken(kaart_uit), self._plekken(kaart_in)
+        if not self.uit and not self.inn:
+            self.log("Geen PDO-toewijzing gevonden; het recept loopt in PRE-OP via SDO.")
+            return False
+        try:
+            import ctypes
+            self._winmm = ctypes.windll.winmm
+            self._winmm.timeBeginPeriod(1)             # anders slaapt time.sleep 15 ms
+        except Exception:  # noqa: BLE001
+            self._winmm = None
+        self.master.config_map()
+        if self.master.state_check(pysoem.SAFEOP_STATE, 200_000) != pysoem.SAFEOP_STATE:
+            self.master.read_state()
+            self.log(f"Slave komt niet in SAFE-OP ({_toestand(self.slave.state)}, AL-status {_al_status(self.slave.al_status)}).")
+            self.stop()
+            return False
+        self.beeld = bytearray(len(self.slave.output or b""))
+        self.slave.output = bytes(self.beeld)
+        self._draad = threading.Thread(target=self._loop, daemon=True)
+        self._draad.start()
+        self.master.state = pysoem.OP_STATE
+        self.master.write_state()
+        einde = time.time() + 5
+        while time.time() < einde:
+            if self.master.state_check(pysoem.OP_STATE, 50_000) == pysoem.OP_STATE:
+                break
+        self.master.read_state()
+        if self.slave.state != pysoem.OP_STATE:
+            self.log(f"Slave komt niet in OP ({_toestand(self.slave.state)}, AL-status {_al_status(self.slave.al_status)}); "
+                     "het recept loopt in PRE-OP via SDO, uitgangen in de procesdata werken dan niet.")
+            self.stop()
+            return False
+        namen = lambda d: ", ".join(f"0x{i:04X}:{s}" for (i, s) in d) or "-"  # noqa: E731
+        self.log(f"Slave in OP, procesdata elke {self.cyclus * 1000:g} ms. Uit: {namen(self.uit)}; in: {namen(self.inn)}.")
+        return True
+
+    def _loop(self) -> None:
+        verwacht = getattr(self.master, "expected_wkc", None)
+        volgende = time.perf_counter()
+        vorige = volgende
+        while not self._stop.is_set():
+            with self.slot:
+                self.slave.output = bytes(self.beeld)
+            self.master.send_processdata()
+            wkc = self.master.receive_processdata(1000)
+            if verwacht is not None and wkc != verwacht:
+                self.wkc_fout += 1
+            self.cycli += 1
+            nu = time.perf_counter()
+            self.langste = max(self.langste, nu - vorige)
+            vorige = nu
+            volgende += self.cyclus
+            wacht = volgende - time.perf_counter()
+            if wacht > 0:
+                time.sleep(wacht)
+            else:
+                volgende = time.perf_counter()         # achter geraakt: niet inhalen
+
+    def wacht_cycli(self, n: int = 3) -> None:
+        """Wachten tot de cyclus n keer rond is (geschreven uitgang is verstuurd, ingang ververst)."""
+        doel = self.cycli + n
+        einde = time.time() + 0.5
+        while self.cycli < doel and time.time() < einde:
+            time.sleep(self.cyclus)
+
+    def lees(self, index: int, sub: int, typ: str):
+        """Waarde uit het ingangsbeeld (of wat wij in het uitgangsbeeld zetten); None als het geen PDO-object is."""
+        if (index, sub) in self.inn:
+            pos, bits = self.inn[(index, sub)]
+            data = bytes(self.slave.input or b"")
+        elif (index, sub) in self.uit:
+            pos, bits = self.uit[(index, sub)]
+            with self.slot:
+                data = bytes(self.beeld)
+        else:
+            return None
+        fmt, n = TYPEN[typ.upper()]
+        if typ.upper() == "REAL" and bits == 32 and pos % 8 == 0:
+            return struct.unpack(fmt, data[pos // 8:pos // 8 + 4])[0]
+        w = _bits_lezen(data, pos, bits)
+        if fmt[1].islower() and bits > 1 and w >> (bits - 1):    # type met teken
+            w -= 1 << bits
+        return w
+
+    def schrijf(self, index: int, sub: int, typ: str, waarde) -> bool:
+        """In het uitgangsbeeld zetten; False als het geen uitgang in de procesdata is."""
+        if (index, sub) not in self.uit:
+            return False
+        pos, bits = self.uit[(index, sub)]
+        fmt, _ = TYPEN[typ.upper()]
+        w = struct.unpack("<I", struct.pack(fmt, waarde))[0] if typ.upper() == "REAL" else int(waarde)
+        with self.slot:
+            _bits_zetten(self.beeld, pos, bits, w & ((1 << bits) - 1))
+        self.wacht_cycli()
+        return True
+
+    def stop(self) -> None:
+        """Uitgangen uit, nog even verversen, slaves terug naar PRE-OP (SDO blijft dan werken)."""
+        import pysoem
+        try:
+            if self._draad is not None:
+                with self.slot:
+                    self.beeld[:] = bytes(len(self.beeld))
+                self.wacht_cycli(20)
+                self._stop.set()
+                self._draad.join(1.0)
+                self._draad = None
+                if self.langste > 0.05 or self.wkc_fout:
+                    self.log(f"Procesdata: {self.cycli} cycli, langste {self.langste * 1000:.0f} ms, {self.wkc_fout} met afwijkende wkc.")
+            self.master.state = pysoem.PREOP_STATE
+            self.master.write_state()
+            self.master.state_check(pysoem.PREOP_STATE, 500_000)
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Procesdata stoppen: {e}")
+        finally:
+            if self._winmm is not None:
+                try:
+                    self._winmm.timeEndPeriod(1)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._winmm = None
+
+
+class _PdoDrive:
+    """_Drive waarbij lees/schrijf op PDO-objecten via de procesdata gaan en de rest via SDO."""
+
+    def __init__(self, d: _Drive, pd: _Procesdata):
+        self._d, self._pd = d, pd
+
+    def __getattr__(self, naam):
+        return getattr(self._d, naam)
+
+    def lees(self, index: int, sub: int, typ: str):
+        w = self._pd.lees(index, sub, typ)
+        return w if w is not None else self._d.lees(index, sub, typ)
+
+    def schrijf(self, index: int, sub: int, typ: str, waarde) -> None:
+        if not self._pd.schrijf(index, sub, typ, waarde):
+            self._d.schrijf(index, sub, typ, waarde)
 
 
 def _werker_test(d: _Drive, o: dict, log) -> dict:
@@ -757,7 +958,22 @@ def werker(ifname: str, opdracht_json: str) -> dict:
         if soort == "identiteit":
             uit = _identiteit(d)
         elif soort == "test":
-            uit = _werker_test(d, o, log)
+            pd = None
+            if o.get("procesdata", True):
+                pd = _Procesdata(master, d.slave, log)
+                try:
+                    if not pd.start():
+                        pd = None
+                except Exception as e:  # noqa: BLE001
+                    log(f"Procesdata starten mislukt ({fouttekst(e)}); het recept loopt in PRE-OP via SDO.")
+                    pd.stop()
+                    pd = None
+            try:
+                uit = _werker_test(_PdoDrive(d, pd) if pd else d, o, log)
+                uit["procesdata"] = pd is not None
+            finally:
+                if pd is not None:
+                    pd.stop()
         elif soort == "monitor":
             uit = _werker_monitor(d, o, log)
         elif soort == "serienummer":
@@ -798,7 +1014,7 @@ class Test:
         if not stappen:
             raise RuntimeError("Het recept heeft geen stappen.")
         o = {"wat": "test", "positie": int(parameters.get("positie") or 1), "stappen": stappen,
-             "eis_mde": parameters.get("eis_mde", True)}
+             "eis_mde": parameters.get("eis_mde", True), "procesdata": parameters.get("procesdata", True)}
         job.log(f"Recept '{parameters.get('naam') or ''}': {len(stappen)} stappen op slave {o['positie']}.")
         job.voortgang(5)
         timeout = sum(float(s.get("timeout") or 5) + float(s.get("seconden") or 0) for s in stappen) + 30

@@ -22,7 +22,19 @@ NAAM = "drives.uitlezen"
 OMSCHRIJVING = "EtherCAT-drives uitlezen (serienummers)"
 
 
+NPCAP_UITLEG = ("Npcap ontbreekt op deze pc: installeer het van npcap.com met het vinkje "
+                "'Install Npcap in WinPcap API-compatible Mode' en herstart daarna de agent-service.")
+
+
+def npcap_aanwezig() -> bool:
+    """Npcap (of het oude WinPcap): zonder kan pysoem geen netwerkkaart openen. Zelfde controle als installer.iss."""
+    sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    return os.path.isfile(os.path.join(sys32, "Npcap", "wpcap.dll")) or os.path.isfile(os.path.join(sys32, "wpcap.dll"))
+
+
 def beschikbaar(inst: dict):
+    if not npcap_aanwezig():
+        return False, NPCAP_UITLEG
     try:
         import pysoem  # noqa: F401
     except Exception as e:  # noqa: BLE001
@@ -230,6 +242,9 @@ def lees(inst: dict, ifname_gevraagd: str = "", log=print) -> dict:
             return inhoud
         log(f"Geen drives op {ifname}; alle adapters proberen.")
 
+    if not npcap_aanwezig():
+        return {"drives": [], "interface": "", "errors": [NPCAP_UITLEG]}
+
     geprobeerd = []
     for a in adapters():
         if not a["name"] or a["name"] == ifname:
@@ -246,9 +261,14 @@ def lees(inst: dict, ifname_gevraagd: str = "", log=print) -> dict:
                 instellingen.bewaar(inst)
                 log(f"Adapter onthouden: {a['desc']}")
             return inhoud
+    if not geprobeerd:
+        return {"drives": [], "interface": "", "gezocht": geprobeerd,
+                "errors": ["Geen netwerkadapters gevonden (Npcap ziet er geen). Herstart de agent-service; helpt dat "
+                           "niet, installeer Npcap opnieuw met 'WinPcap API-compatible Mode'."]}
     return {"drives": [], "interface": "", "gezocht": geprobeerd,
-            "errors": ["Op geen enkele netwerkadapter antwoorden EtherCAT-drives. "
-                       "Zit de kabel erin, staat de print onder spanning en is MotionLab3 dicht?"]}
+            "errors": ["Op geen enkele netwerkadapter antwoorden EtherCAT-drives "
+                       f"(geprobeerd: {', '.join(g['desc'] or g['interface'] for g in geprobeerd)}). "
+                       "Zit de kabel in de goede netwerkpoort, staat de print onder spanning en is MotionLab3 dicht?"]}
 
 
 def voer_uit(job, inst: dict, parameters: dict) -> None:

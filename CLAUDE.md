@@ -47,6 +47,24 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   venv, controle, `build.ps1`, installer in `uitvoer\`). Installeren op een werkplek-pc: `installeer.bat`
   (token = `Productie:AgentToken` uit appsettings; per pc gelijk). Versie in `mde_agent/__init__.py` ophogen bij
   elke wijziging; de app controleert `/health`.
+- **Voor iedereen op Z:** (20-10-2026) `MdeAgent\publiceer-z.bat` zet installeer.bat, LEESMIJ.txt en de nieuwste
+  installer in `\\172.16.1.4\data\software\MDE Apps\MDE Agent` (oudere installers daar naar `uitvoer\oud`, niet
+  gewist); waarschuwt als de installer ouder is dan `VERSIE` in de bron (eerst bouw.bat). Test met `MDE_DOEL=<map>`.
+  `installeer.bat` vraagt op een nieuwe pc (nog geen `%ProgramData%\MDE\Agent\agent.json`) om het token (verborgen
+  invoer), `installeer.bat /token` vraagt het opnieuw; het token staat bewust niet op de share en wordt aan het eind
+  maar half getoond. Let op: zonder token maakt de agent zelf een willekeurig token, dat de app niet kent.
+- **Certificaat van de server** (20-10-2026): de app draait met de eigen CA van Caddy ("Caddy Local Authority - 2026
+  ECC Root", mde-root.crt). De agent is een service (systeemaccount) en vertrouwt alleen wat voor de COMPUTER
+  (LocalMachine\Root) is geinstalleerd; een dubbelklik zet het alleen bij de gebruiker → firmware ophalen faalde met
+  CERTIFICATE_VERIFY_FAILED op een werkstation. `publiceer-z.bat` zet mde-root.crt (uit de store van deze pc) op de
+  share, `installeer.bat` voegt het toe met `certutil -addstore Root`. Agent 1.18.1 meldt dit direct en duidelijk
+  (`_hulp.haal_firmware`) in plaats van vier keer opnieuw te proberen.
+- **Npcap** (20-10-2026): de installers bevatten Npcap NIET (er stond nooit een `npcap-*.exe` naast installer.iss,
+  ook niet in D:\MdeAgent); op de eigen pc stond het los. Een nieuw werkstation kan dan wel USB (ESP32) maar geen
+  EtherCAT (RZ-print, Everest). Agent 1.18.2: `drives.npcap_aanwezig()` (zelfde controle als installer.iss:
+  System32\Npcap\wpcap.dll of System32\wpcap.dll); `/health` en Automatisch uitlezen melden dan "Npcap ontbreekt"
+  i.p.v. "geen drives", en noemen bij geen antwoord welke adapters zijn geprobeerd. Npcap meeleveren = de installer
+  van npcap.com naast installer.iss zetten vóór bouw.bat (let op de Npcap-licentie bij verspreiden).
 - OpenBLAS op 1 thread (`OPENBLAS_NUM_THREADS=1` in bouw.bat/build.ps1/start.py): anders sterven PyInstallers
   kindprocessen op pc's met veel kernen of een krap wisselbestand. `numpy.f2py` NIET uitsluiten.
 - Taken staan in `mde_agent/taken/` en worden geregistreerd in `taken/__init__.py` (`ALLE`). Patroon:
@@ -276,6 +294,37 @@ toeslag; toeslag 0 = niets doen) plus twee regels in `ArtikelPrijsHistory` zoals
 uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `MagBewerken` van het artikelscherm.
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
+
+## MDE-recepten in OP met procesdata (agent 1.19.0, 20-10-2026)
+
+Aanleiding: Swivel (MPR-PCBA-WJ1), recept "Vacuüm en blaas": schrijven op 0x7020:1/2 lukte, maar de kleppen
+schakelden niet (druk bleef 100, max 50). Oorzaak: `mde.test` draaide in PRE-OP met SDO's; 0x7020 (kleppen) en
+0x6020 (druk) zijn PDO-objecten en de firmware neemt uitgangen alleen uit de procesdata in OP. Nu
+(`mde._Procesdata`, `_PdoDrive`): PDO-toewijzing lezen (0x1C12/0x1C13, `ecat_io._mapping`), `config_map`, SAFE-OP,
+een draad met send/receive elke 2 ms (timeBeginPeriod 1), dan OP. Lees/schrijf op een gemapt object gaat via het
+in-/uitgangsbeeld (op bitniveau, BOOL = 1 bit), de rest blijft SDO. Na afloop uitgangen 0, 20 cycli, terug naar
+PRE-OP. Lukt OP niet (of `"procesdata": false` in de taakparameters), dan zoals vroeger alles via SDO, met een
+regel in het log. Alle slaves op de bus gaan mee naar OP (met nullen). Getest met een nagebootste pysoem
+(scratchpad nep_swivel.py) en op de testopstelling: kleppen schakelen (20-10-2026). Let op: of pysoem tijdens een trage SDO de GIL loslaat (anders
+hapert de cyclus en valt de slave op de watchdog terug naar SAFE-OP; het log noemt de langste cyclus als die
+boven 50 ms komt).
+
+## Test PCB: waarschuwing firmware ↔ parameterset (20-10-2026)
+
+Aanleiding: product 246 (MPR-PCBA-RZ), drives met firmware 2.9.0, parametersets v1.0.1 gemaakt voor 2.11.0 →
+"276 registers, 17 afwijkingen" en een stroomlus zonder meetdata. `ExemplaarWerk.LaadParameters` vraagt nu eerst
+bevestiging als `HuidigeFirmware(p)` (laatste uitlezing, anders attribuut drive:n:firmware, anders de agent) volgens
+`VersieGelijk` afwijkt van de firmware van de set ("2.9.0.000" ≠ "2.11.0"; "2.11.0.000" = "2.11.0"). Onbekende
+firmware = geen vraag. Geldt voor Ingenia en CoE. Niet in de app getest (zou een echte taak starten).
+
+## Producten: verwijzingen in de historie (20-10-2026)
+
+"Ingebouwd in product #322" / "Uit product #322 gehaald" (geschreven door `SamenstellingKiezer`) worden bij het tonen
+"product MPR-1 · 57 (#322)", klikbaar (opent dat exemplaar, `OpenExemplaar` = dezelfde route als `?product=`).
+`Producten.razor`: `HistorieTekst` (RenderFragment, regex `product #nr`), namen via `GetLabelGegevensAsync` in
+`VulVerwijzingen` (vanuit OnAfterRenderAsync, gecached in `_verwezen`; serienummer zonder de voorloopnullen van het
+label). De opgeslagen tekst blijft ongewijzigd, dus ook oude regels worden duidelijker. Historietabel en blok
+"Laatste historie". Getest op exemplaar 370 → MPR-1 · 57.
 
 ## Welkomstscherm hal (20-10-2026)
 

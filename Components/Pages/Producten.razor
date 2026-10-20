@@ -404,7 +404,7 @@
                                         @foreach (var h in _historie.Take(6))
                                         {
                                             <div class="zij-regel" @key="h.Id">
-                                                <span class="zij-naam">@h.Event</span>
+                                                <span class="zij-naam">@HistorieTekst(h.Event)</span>
                                                 <span class="zij-extra">
                                                     @(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")
                                                     @if (!string.IsNullOrWhiteSpace(h.Door)) { <text> · @h.Door</text> }
@@ -501,7 +501,7 @@
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
                                         @if (_histMetOnderdelen) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
-                                        <td>@h.Event</td>
+                                        <td>@HistorieTekst(h.Event)</td>
                                         <td>@h.Door</td>
                                     </tr>
                                 }
@@ -1584,6 +1584,9 @@
             try { await _scanVeld.FocusAsync(); } catch { }
         }
 
+        // Verwijzingen naar andere exemplaren in de historie: type en serienummer erbij halen
+        if (Repo.Beschikbaar && await VulVerwijzingen()) StateHasChanged();
+
         // Tab Programmeren alleen op een pc met de werkplek-agent; één keer controleren (de layout doet dat meestal al).
         if (!_agentGecontroleerd && Repo.Beschikbaar)
         {
@@ -1633,12 +1636,15 @@
     /// <summary>ProductenID uit de URL (?product=): het exemplaar openen.</summary>
     [SupplyParameterFromQuery(Name = "product")] public int? ProductQuery { get; set; }
 
-    private async Task OpenUitUrl()
+    private Task OpenUitUrl() => OpenExemplaar(NaamQuery, ProductQuery);
+
+    /// <summary>Een type en eventueel een exemplaar openen; zonder type wordt het type van het exemplaar opgezocht.</summary>
+    private async Task OpenExemplaar(int? naamQuery, int? productQuery)
     {
         try
         {
-            var naamId = NaamQuery;
-            if (naamId is null && ProductQuery is int pq)
+            var naamId = naamQuery;
+            if (naamId is null && productQuery is int pq)
             {
                 // Alleen een exemplaar meegegeven: het type erbij zoeken.
                 var velden = await Repo.GetVeldenAsync(pq);
@@ -1657,13 +1663,85 @@
             if (naam is null) { Toon($"Producttype #{naamId} niet gevonden.", true); return; }
             await KiesNaam(naam);
 
-            if (ProductQuery is not int pid) return;
+            if (productQuery is not int pid) return;
             var regel = await ZoekInLijst(pid);
             if (regel is null) { Toon($"Exemplaar #{pid} niet gevonden.", true); return; }
             await KiesProduct(regel);
         }
         catch (Exception ex) { Toon("Openen mislukt: " + ex.Message, true); }
     }
+
+    // ============================================================
+    //  Verwijzingen in de historie ("Ingebouwd in product #322", "Uit product #322 gehaald"): bij het tonen wordt
+    //  het nummer het type met serienummer, klikbaar. Werkt ook voor oude regels (de tekst zelf blijft zoals hij is).
+    // ============================================================
+    private static readonly System.Text.RegularExpressions.Regex ProductVerwijzing =
+        new(@"(?i)\bproduct\s+#(\d+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private readonly Dictionary<int, (string Type, string Serienummer)?> _verwezen = new();
+    private bool _verwijzingenBezig;
+
+    /// <summary>Haalt type en serienummer op van producten waarnaar de historie verwijst; true als er iets bij kwam.</summary>
+    private async Task<bool> VulVerwijzingen()
+    {
+        if (_verwijzingenBezig || _historie.Count == 0) return false;
+        var nodig = _historie.SelectMany(h => ProductVerwijzing.Matches(h.Event ?? "").Select(m => int.Parse(m.Groups[1].Value)))
+                             .Distinct().Where(id => !_verwezen.ContainsKey(id)).Take(50).ToList();
+        if (nodig.Count == 0) return false;
+        _verwijzingenBezig = true;
+        try
+        {
+            foreach (var id in nodig)
+            {
+                try
+                {
+                    var g = await Repo.GetLabelGegevensAsync(id);
+                    _verwezen[id] = g is { } x ? (x.Type, x.Serienummer) : null;
+                }
+                catch { _verwezen[id] = null; }
+            }
+        }
+        finally { _verwijzingenBezig = false; }
+        return true;
+    }
+
+    /// <summary>De gebeurtenis, met elke "product #nr" als link naar dat exemplaar (type + serienummer).</summary>
+    private RenderFragment HistorieTekst(string? tekst) => b =>
+    {
+        tekst ??= "";
+        var volgnr = 0;
+        var vanaf = 0;
+        foreach (System.Text.RegularExpressions.Match m in ProductVerwijzing.Matches(tekst))
+        {
+            b.AddContent(volgnr++, tekst[vanaf..m.Index]);
+            var id = int.Parse(m.Groups[1].Value);
+            var naam = _verwezen.TryGetValue(id, out var g) && g is { } x
+                ? $"{x.Type} · {KaalSerienummer(x.Serienummer)}".Trim(' ', '·')
+                : $"product #{id}";
+            b.AddContent(volgnr++, "product ");
+            b.OpenElement(volgnr++, "button");
+            b.AddAttribute(volgnr++, "type", "button");
+            b.AddAttribute(volgnr++, "class", "link hist-verwijzing");
+            b.AddAttribute(volgnr++, "title", $"Exemplaar #{id} openen");
+            b.AddAttribute(volgnr++, "onclick", EventCallback.Factory.Create(this, () => OpenVerwezen(id)));
+            b.AddContent(volgnr++, naam);
+            b.CloseElement();
+            if (naam != $"product #{id}")
+            {
+                b.OpenElement(volgnr++, "small");
+                b.AddAttribute(volgnr++, "class", "hist-nr");
+                b.AddContent(volgnr++, $" (#{id})");
+                b.CloseElement();
+            }
+            vanaf = m.Index + m.Length;
+        }
+        b.AddContent(volgnr++, tekst[vanaf..]);
+    };
+
+    /// <summary>Het serienummer zoals in de kop (de labelgegevens vullen een getal aan tot 6 cijfers).</summary>
+    private static string KaalSerienummer(string sn) => sn.All(char.IsDigit) && sn.Length > 0 ? (sn.TrimStart('0') is { Length: > 0 } k ? k : "0") : sn;
+
+    /// <summary>Een exemplaar openen waarnaar de historie verwijst (zelfde route als ?product= in de URL).</summary>
+    private Task OpenVerwezen(int productId) => OpenExemplaar(null, productId);
 
     /// <summary>Serienummer scannen of typen: zoekt het exemplaar op en opent het.</summary>
     private async Task ScanGewijzigd(ChangeEventArgs e)

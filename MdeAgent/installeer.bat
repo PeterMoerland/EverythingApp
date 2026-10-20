@@ -3,8 +3,11 @@ rem ============================================================================
 rem  MDE Werkplek-agent installeren of bijwerken (op de werkplek-pc).
 rem  Dubbelklikken vanaf de share is genoeg: pakt de nieuwste installer uit
 rem  de map uitvoer\, vraagt om administratorrechten en installeert stil.
-rem  Een bestaand token blijft staan. Eerste keer: geef het token mee:
-rem      installeer.bat MijnToken
+rem  Een bestaand token blijft staan. Op een nieuwe pc (nog geen agent.json) vraagt
+rem  het script om het token van de app (Productie:AgentToken); het wordt niet getoond.
+rem  Meegeven kan ook:            installeer.bat MijnToken
+rem  Opnieuw laten vragen:        installeer.bat /token
+rem  Het token staat bewust NIET in deze map: die is voor iedereen leesbaar.
 rem
 rem  Werkt ook vanaf een \\server\share: het script kopieert zichzelf eerst
 rem  naar een lokale map, want een verhoogd cmd kan niet in een UNC-map staan
@@ -39,6 +42,10 @@ if %errorlevel% neq 0 (
 )
 
 echo Bronmap: %BRON%
+set "VRAAG="
+if /i "%TOKEN%"=="/token" ( set "TOKEN=" & set "VRAAG=1" )
+rem Nieuwe pc: de agent maakt bij de eerste start zelf een willekeurig token, dat de app niet kent.
+if not exist "%ProgramData%\MDE\Agent\agent.json" set "VRAAG=1"
 if not exist "%BRON%\uitvoer\" (
     echo De bronmap is vanuit dit verhoogde venster niet bereikbaar ^(netwerkshare zonder aanmelding?^).
     echo Koppel de share eerst met:  net use \\172.16.1.13\claudecoworkshare /user:GEBRUIKER
@@ -63,7 +70,25 @@ echo === Installeren (stil) ===
 if errorlevel 1 ( echo Installatie gaf een fout ^(code %errorlevel%^). & pause & exit /b 1 )
 del "%TEMP%\%NIEUWSTE%" >nul 2>&1
 
+rem De app draait met de eigen CA van Caddy. De agent is een service (systeemaccount) en vertrouwt alleen wat voor
+rem de COMPUTER is geinstalleerd; een dubbelklik op mde-root.crt zet hem alleen bij de gebruiker.
+echo === Basiscertificaat van de server ===
+if exist "%BRON%\mde-root.crt" (
+    certutil -f -addstore Root "%BRON%\mde-root.crt" >nul && echo Vertrouwd voor deze computer ^(nodig om firmware van de app op te halen^).
+) else (
+    echo Let op: mde-root.crt staat niet in de bronmap; firmware ophalen via https kan dan mislukken.
+)
+
 set "EXE=%ProgramFiles%\MDE\Agent\MdeAgent.exe"
+if "%TOKEN%"=="" if defined VRAAG (
+    echo.
+    echo De agent heeft het token van de app nodig ^(Productie:AgentToken in appsettings.json^).
+    echo Vraag het zo nodig aan de beheerder. Leeg laten = later instellen met: installeer.bat /token
+    for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "$s = Read-Host 'Token (wordt niet getoond)' -AsSecureString; [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))"`) do set "TOKEN=%%t"
+)
+if "%TOKEN%"=="" if defined VRAAG (
+    echo LET OP: geen token ingesteld; de app kan deze agent pas bereiken na: installeer.bat /token
+)
 if not "%TOKEN%"=="" (
     echo === Token instellen ===
     "%EXE%" --zet-token "%TOKEN%"
@@ -73,8 +98,10 @@ if not "%TOKEN%"=="" (
 echo.
 echo === Controle ===
 "%EXE%" --versie
-echo Token (hoort in appsettings Productie:AgentToken):
-"%EXE%" --toon-token
+rem Het token alleen kort tonen: dit venster staat soms op een gedeeld scherm.
+set "HUIDIG="
+for /f "delims=" %%t in ('call "%EXE%" --toon-token') do set "HUIDIG=%%t"
+echo Token: !HUIDIG:~0,4!... ^(volledig: "%EXE%" --toon-token^)
 echo.
 timeout /t 3 /nobreak >nul
 rem De eerste /health kan even duren (agent laadt zijn bibliotheken); ruim wachten.

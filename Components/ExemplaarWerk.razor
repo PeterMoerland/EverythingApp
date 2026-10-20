@@ -2192,6 +2192,18 @@
         if (ps?.ParameterFileId is null) return;
         var naam = ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand;
 
+        // Parameterset hoort bij een firmwareversie: zit er andere firmware in de drive, dan ontbreken of verschillen
+        // registers (gezien 20-10-2026: set voor 2.11.0 in drives met 2.9.0 → 17 afwijkingen). Eerst waarschuwen.
+        if (fw is not null)
+        {
+            var huidig = await HuidigeFirmware(p);
+            if (huidig.Length > 0 && !VersieGelijk(huidig, fw.Versie) &&
+                !await Bevestig($"Drive {p.Positie} ({p.Naam}) heeft firmware {huidig}, maar parameterset '{naam}' is gemaakt voor " +
+                                $"firmware {fw.Versie}. Registers kunnen dan ontbreken of anders werken (afwijkingen na het laden). " +
+                                $"Laad eerst firmware {fw.Versie} in deze drive.\n\nToch deze parameterset laden?"))
+                return;
+        }
+
         if (IsCoe(p))
         {
             // eRob e.d.: JSON met SDO's; de agent schrijft, leest terug, bewaart (0x1010) en leest nog eens.

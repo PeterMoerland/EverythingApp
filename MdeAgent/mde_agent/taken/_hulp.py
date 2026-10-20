@@ -2,6 +2,7 @@
 
 import os
 import re
+import ssl
 import subprocess
 import sys
 import time
@@ -35,7 +36,15 @@ def haal_firmware(url_of_pad: str, job, naam_hint: str = "firmware.bin") -> str:
         except urllib.error.HTTPError as e:
             if e.code not in (404, 500, 502, 503, 504) or poging == 4:
                 raise
-        except urllib.error.URLError:
+        except urllib.error.URLError as e:
+            # Certificaat niet vertrouwd: opnieuw proberen helpt niet. De app draait met de eigen CA van Caddy
+            # (mde-root.crt); de agent is een service en kijkt alleen in de certificaten van de computer.
+            if isinstance(e.reason, ssl.SSLCertVerificationError):
+                raise RuntimeError(
+                    "Het certificaat van de server wordt op deze pc niet vertrouwd (voor de agent-service). "
+                    "Installeer het basiscertificaat voor de computer: draai installeer.bat opnieuw (zet het "
+                    "vanaf de share erbij), of als beheerder: certutil -addstore Root mde-root.crt "
+                    "(http://everything.mde-automation.nl/mde-root.crt). Daarna opnieuw proberen.") from e
             if poging == 4:
                 raise
     assert r is not None
