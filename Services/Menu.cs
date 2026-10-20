@@ -60,6 +60,7 @@ public static class Menu
             new MenuGroep("Onderhoud",
                 new MenuItem("Relaties (klanten en leveranciers)", "/relaties"),
                 new MenuItem("Bezoekverslagen", "/relaties/bezoekverslagen"),
+                new MenuItem("Welkomstscherm hal", "/relaties/welkomstscherm", "Budgetverantwoordelijke"),
                 new MenuItem("Tariefafspraken", "/relaties/tarieven"),
                 new MenuItem("Geheimhoudingsovereenkomsten", "/relaties/nda"))),
 

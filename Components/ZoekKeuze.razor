@@ -1,0 +1,106 @@
+@* Een keuzelijst waarin je kunt typen om te zoeken (bv. de werkorder van een bestelling: honderden werkorders).
+   Toont de gekozen naam; typen = filteren op alle woorden (in willekeurige volgorde; ook op de extra tekst van een
+   ZoekbareKeuze, bv. de klant), pijltjes + Enter kiezen,
+   Esc annuleert, klikken kiest. "—" bovenaan = leegmaken. Gebruikt door VeldRaster bij een Veld met Zoekbaar. *@
+
+<div class="zk" @onfocusout="FocusWeg">
+    <input class="zk-invoer" value="@(_open ? _zoek : GekozenNaam)" placeholder="@(_open ? GekozenNaam : "— typ om te zoeken —")"
+           @onfocus="Open" @oninput="Getypt" @onkeydown="Toets" autocomplete="off" />
+    @if (_open)
+    {
+        <div class="zk-lijst">
+            @if (_zoek.Trim().Length == 0)
+            {
+                <button type="button" class="zk-optie @(_index == -1 ? "actief" : "")" @onmousedown="() => Kies(null)" @onmousedown:preventDefault>—</button>
+            }
+            @for (var i = 0; i < _treffers.Count; i++)
+            {
+                var k = _treffers[i];
+                var nr = i;
+                <button type="button" class="zk-optie @(nr == _index ? "actief" : "") @(k.Id.ToString() == Waarde ? "gekozen" : "")"
+                        @onmousedown="() => Kies(k)" @onmousedown:preventDefault>@k.Naam@if (k is ZoekbareKeuze { Extra.Length: > 0 } z) { <small class="zk-extra"> @z.Extra</small> }</button>
+            }
+            @if (_treffers.Count == 0)
+            {
+                <div class="zk-leeg">Niets gevonden.</div>
+            }
+            else if (_meer)
+            {
+                <div class="zk-leeg">De eerste @Max; typ verder om te verfijnen.</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Het gekozen id als tekst ("" = niets), zoals een gewone select het geeft.</summary>
+    [Parameter] public string Waarde { get; set; } = "";
+    [Parameter] public List<Keuze> Opties { get; set; } = new();
+    /// <summary>Het gekozen id als tekst, of "" bij leegmaken.</summary>
+    [Parameter] public EventCallback<string> OpGekozen { get; set; }
+
+    private const int Max = 60;
+    private bool _open;
+    private string _zoek = "";
+    private List<Keuze> _treffers = new();
+    private bool _meer;
+    private int _index = -1;
+
+    private string GekozenNaam => Opties.FirstOrDefault(o => o.Id.ToString() == Waarde)?.Naam ?? "";
+
+    private void Open()
+    {
+        _open = true;
+        _zoek = "";
+        Filter();
+        // de huidige alvast aangewezen, zodat pijltjes vanaf daar verder gaan
+        _index = _treffers.FindIndex(o => o.Id.ToString() == Waarde);
+    }
+
+    private void Getypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _open = true;
+        Filter();
+        _index = _treffers.Count > 0 && _zoek.Trim().Length > 0 ? 0 : -1;
+    }
+
+    private void Filter()
+    {
+        var woorden = _zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var alle = Opties.Where(o => woorden.All(w => o.Naam.Contains(w, StringComparison.OrdinalIgnoreCase)
+                                                   || (o is ZoekbareKeuze z && z.Extra.Contains(w, StringComparison.OrdinalIgnoreCase)))).ToList();
+        _meer = alle.Count > Max;
+        _treffers = alle.Take(Max).ToList();
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (!_open) { if (e.Key is "ArrowDown" or "Enter") Open(); return; }
+        switch (e.Key)
+        {
+            case "ArrowDown": _index = Math.Min(_index + 1, _treffers.Count - 1); break;
+            case "ArrowUp": _index = Math.Max(_index - 1, _zoek.Trim().Length == 0 ? -1 : 0); break;
+            case "Enter":
+                if (_index >= 0 && _index < _treffers.Count) await Kies(_treffers[_index]);
+                else if (_index == -1 && _zoek.Trim().Length == 0) await Kies(null);
+                break;
+            case "Escape": _open = false; _zoek = ""; break;
+        }
+    }
+
+    private async Task Kies(Keuze? k)
+    {
+        _open = false;
+        _zoek = "";
+        var nieuw = k?.Id.ToString() ?? "";
+        if (nieuw != Waarde) await OpGekozen.InvokeAsync(nieuw);
+    }
+
+    private void FocusWeg()
+    {
+        // weggeklikt zonder te kiezen: niets wijzigen
+        _open = false;
+        _zoek = "";
+    }
+}

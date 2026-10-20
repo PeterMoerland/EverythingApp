@@ -639,7 +639,8 @@
                 // alleen werkorders waarop ingekocht mag worden (Workorders.InkoopToegestaan); de huidige van een
                 // bestelling komt er per bestelling bij (WerkorderLijst), anders is het veld leeg
                 _werkorders = open.Where(w => w.InkoopToegestaan)
-                                  .Select(w => new Keuze(w.WerkbonId, WerkorderTekst(w))).ToList();
+                                  // de klant staat niet in de tekst (wens gebruiker), maar je kunt er wel op zoeken
+                                  .Select(w => (Keuze)new ZoekbareKeuze(w.WerkbonId, WerkorderTekst(w), w.Klant ?? "")).ToList();
             }
             catch { }
 

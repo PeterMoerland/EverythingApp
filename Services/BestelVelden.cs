@@ -13,7 +13,8 @@ public static class BestelVelden
             new Veld("Leverancier", VeldType.Keuze, new[] { "Supplier" }, Lijst: "Leverancier"),
             new Veld("Contactpersoon", VeldType.Keuze, new[] { "Contact" }, Lijst: "Contact"),
             new Veld("Taal", VeldType.Keuze, new[] { "Language" }, Lijst: "Taal"),
-            new Veld("Werkorder", VeldType.Keuze, new[] { "Workorder-id" }, Lijst: "Werkorder"),
+            // zoekbaar: honderden werkorders; typen zoekt op nummer, project en omschrijving (wens gebruiker 19-10-2026)
+            new Veld("Werkorder", VeldType.Keuze, new[] { "Workorder-id" }, Lijst: "Werkorder") { Zoekbaar = true },
             new Veld("Omschrijving", VeldType.Tekst, new[] { "Description" }),
             new Veld("Interne opmerking", VeldType.Meerregelig, new[] { "Remark" }),
             new Veld("Melding op orderformulier", VeldType.Meerregelig, new[] { "Purchasenote" }))

@@ -50,6 +50,11 @@
                         <button class="klein" @onclick="Nieuw">+ Nieuw</button>
                         <button class="klein" disabled="@(!RelatieAi.Beschikbaar)" @onclick="() => _uitScreenshot = true"
                                 title="@(RelatieAi.Beschikbaar ? "Een leverancier aanmaken uit een screenshot of PDF (factuur, offerte, contactpagina, visitekaartje)" : "Bedrock is niet ingesteld")">✨ Uit screenshot</button>
+                        @if (Ik.Mag("Directie") || Ik.Mag("Budgetverantwoordelijke"))
+                        {
+                            <button class="klein" disabled="@(_gekozenId is null)" title="Deze relatie welkom heten op de tv in de hal"
+                                    @onclick="@(() => Nav.NavigateTo($"relaties/welkomstscherm?relatie={_gekozenId}"))">📺 Welkom heten</button>
+                        }
                         <button class="klein rood" disabled="@(_gekozenId is null)"
                                 title="Geselecteerde relatie verwijderen" @onclick="VerwijderRelatie">✕ Wissen</button>
                     </div>

@@ -12,6 +12,10 @@ public enum VeldType
 /// <summary>Eén regel in een keuzelijst.</summary>
 public record Keuze(int Id, string Naam);
 
+/// <summary>Keuze met extra zoektekst die niet in de naam staat (bv. de klant van een werkorder); ZoekKeuze zoekt erop
+/// en toont hem klein in de uitklaplijst.</summary>
+public record ZoekbareKeuze(int Id, string Naam, string Extra) : Keuze(Id, Naam);
+
 /// <summary>
 /// Eén veld op het werknemersscherm. 'Kolommen' zijn kandidaat-kolomnamen in de
 /// Werknemers-tabel; de eerste die bestaat wordt gebruikt. Bestaat er geen enkele,
@@ -22,6 +26,9 @@ public record Veld(string Label, VeldType Type, string[] Kolommen,
 {
     /// <summary>Toont achter een datumveld de berekende leeftijd.</summary>
     public bool ToonLeeftijd { get; init; }
+
+    /// <summary>Keuzeveld met een zoekvak in plaats van een lange lijst (VeldRaster: Components/ZoekKeuze.razor).</summary>
+    public bool Zoekbaar { get; init; }
 }
 
 /// <summary>Tabblad met velden; Recht bepaalt wie het mag zien (kolomnaam in Werknemers).</summary>

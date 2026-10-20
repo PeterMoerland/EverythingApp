@@ -277,6 +277,34 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Welkomstscherm hal (20-10-2026)
+
+Relaties ▸ Onderhoud ▸ **Welkomstscherm hal** (`/relaties/welkomstscherm`, `Components/Pages/Welkomstscherm.razor`) en
+de knop "📺 Welkom heten" bij een relatie (opent het scherm met die relatie). Instellen: **Directie of
+Budgetverantwoordelijke** (besluit gebruiker; er is geen recht projectmanagement). Tabel `Welkomstbord`
+(`Welkomstbord_MariaDB.sql`, door de gebruiker te draaien), `Services/IWelkomRepository.cs` (MySql/Geen; lokaal
+`Welkom__Geheugen=true`). Per welkom: datum van/tot, tijd van/tot (leeg = hele dag), relatie, gastheer (ZoekKeuze over
+werknemers in dienst), tekst.
+- **Tv**: `/hal/<sleutel>` zonder inlog (minimal API in Program.cs, `Services/WelkomSchermService.cs`); sleutel in
+  `Welkomstscherm:Sleutel` (minstens 12 tekens, staat in appsettings.json; verkeerde sleutel = 404). Losse HTML, geen
+  Blazor: klok, ons logo (`/hal/<sleutel>/eigen-logo`: Welkomstscherm:Logo of het factuurlogo 5254), "Welkom", relatie,
+  tekst, gastheer met pasfoto (`/werknemerfoto/{id}`, was al openbaar) of initialen. Haalt elke minuut
+  `/hal/<sleutel>/data` op, wisselt bij meerdere tegelijk elke 12 s, laadt elke 6 uur opnieuw. Niemand gepland =
+  `Welkomstscherm:StandaardTekst`. Voorbeeld van één welkom: `?voorbeeld=<id>` (knop in het beheerscherm).
+- **Logo van de relatie**: het nieuwste plaatje met "logo" in de naam bij de documenten van die relatie in de
+  filestore (StoreType 311, wens gebruiker); het beheerscherm kan er een toevoegen (bestandsnaam "logo.<ext>").
+- Getest lokaal met de geheugenvariant: aanmaken (Mosa, Peter Moerland, tekst), "nu op tv", tv-pagina op 1920×1080,
+  data-JSON leeg en gevuld, verkeerde sleutel 404. Logo uploaden niet getest (schrijft in de echte filestore).
+
+## Bestellingen: werkorder zoeken in het orderformulier (19-10-2026)
+
+Het veld Werkorder op tab Algemeen is een zoekvak (`Components/ZoekKeuze.razor`) in plaats van een lange keuzelijst:
+`Veld.Zoekbaar = true` in `BestelVelden`, `VeldRaster` toont dan ZoekKeuze (andere schermen ongewijzigd). Typen filtert op
+alle woorden in nummer · project · omschrijving en ook op de klant: de lijst bestaat uit `ZoekbareKeuze` (Extra = klant),
+de klant staat klein in de uitklaplijst maar niet in het veld (eerdere wens). Pijltjes/Enter kiezen, Esc of wegklikken =
+niets wijzigen, "—" = leegmaken. De lijst blijft: open werkorders met inkoop toegestaan plus de huidige. Getest lokaal met
+gesimuleerde invoer ("mosa" → 17 werkorders, "224121 rapid"); niet gekozen (zou opslaan).
+
 ## Artikelen ▸ Voorraad/Bestellen en weggehaalde velden (19-10-2026)
 
 - Tabblad **Voorraad/Bestellen** (Access: zelfde tabblad in ArtikelenSubForm), voorlopig alleen (wens gebruiker):

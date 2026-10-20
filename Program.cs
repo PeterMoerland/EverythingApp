@@ -160,6 +160,7 @@ if (liveDb)
     builder.Services.AddSingleton<ISnelkoppelingRepository>(_ => new MySqlSnelkoppelingRepository(cs!));
     builder.Services.AddSingleton<IWerkplekRepository>(_ => new MySqlWerkplekRepository(cs!));
     builder.Services.AddSingleton<IFactuurInboxRepository>(_ => new MySqlFactuurInboxRepository(cs!));
+    builder.Services.AddSingleton<IWelkomRepository>(_ => new MySqlWelkomRepository(cs!));
     // Pakbonnen; lokaal testen zonder in de pakbontabellen te schrijven: Pakbon__Geheugen=true (leest wel echt)
     if (builder.Configuration.GetValue<bool>("Pakbon:Geheugen"))
         builder.Services.AddSingleton<IPakbonRepository>(_ => new GeheugenPakbonRepository(new MySqlPakbonRepository(cs!)));
@@ -196,6 +197,7 @@ else
     builder.Services.AddSingleton<ISnelkoppelingRepository, GeenSnelkoppelingRepository>();
     builder.Services.AddSingleton<IWerkplekRepository, GeenWerkplekRepository>();
     builder.Services.AddSingleton<IFactuurInboxRepository, GeenFactuurInboxRepository>();
+    builder.Services.AddSingleton<IWelkomRepository, GeenWelkomRepository>();
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
@@ -233,6 +235,10 @@ if (builder.Configuration.GetValue<bool>("Werkplekken:Geheugen"))
 // Alleen om de factuurinbox en het bonnetje lokaal te testen zonder de tabel FactuurInbox: FactuurInbox__Geheugen=true
 if (builder.Configuration.GetValue<bool>("FactuurInbox:Geheugen"))
     builder.Services.AddSingleton<IFactuurInboxRepository, GeheugenFactuurInboxRepository>();
+// Alleen om het welkomstscherm lokaal te testen zonder de tabel Welkomstbord: Welkom__Geheugen=true
+if (builder.Configuration.GetValue<bool>("Welkom:Geheugen"))
+    builder.Services.AddSingleton<IWelkomRepository, GeheugenWelkomRepository>();
+builder.Services.AddSingleton<WelkomSchermService>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 
@@ -912,6 +918,33 @@ app.MapGet("/label/{productId:int}",
 
 app.MapGet("/label/{productId:int}/pdf",
     (int productId, IProductRepository repo, LabelService labels) => LabelMaken(productId, repo, labels, true));
+
+// --- welkomstscherm in de hal (Relaties ▸ Welkomstscherm) ---
+// De tv opent /hal/<sleutel> zonder inlog; de sleutel (Welkomstscherm:Sleutel, minstens 12 tekens) houdt de rest
+// van de wereld buiten. Verkeerde sleutel of geen sleutel ingesteld = 404, zodat er niets te raden valt.
+app.MapGet("/hal/{sleutel}", (string sleutel, int? voorbeeld, HttpContext ctx, WelkomSchermService scherm) =>
+    scherm.SleutelKlopt(sleutel)
+        ? Results.Content(scherm.Html(ctx.Request.PathBase, voorbeeld), "text/html; charset=utf-8")
+        : Results.NotFound());
+
+app.MapGet("/hal/{sleutel}/data", async (string sleutel, int? voorbeeld, HttpContext ctx, WelkomSchermService scherm) =>
+{
+    if (!scherm.SleutelKlopt(sleutel)) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "no-store";
+    return Results.Content(await scherm.DataJsonAsync(ctx.Request.PathBase, voorbeeld), "application/json; charset=utf-8");
+});
+
+app.MapGet("/hal/{sleutel}/logo/{relatieId:int}", async (string sleutel, int relatieId, WelkomSchermService scherm) =>
+{
+    if (!scherm.SleutelKlopt(sleutel)) return Results.NotFound();
+    return await scherm.RelatieLogoBestandAsync(relatieId) is { } logo ? Results.File(logo.Pad, logo.Mime) : Results.NotFound();
+});
+
+app.MapGet("/hal/{sleutel}/eigen-logo", (string sleutel, WelkomSchermService scherm) =>
+{
+    if (!scherm.SleutelKlopt(sleutel)) return Results.NotFound();
+    return scherm.EigenLogoPad() is { } pad ? Results.File(pad, FilestoreService.MimeVoor(pad)) : Results.NotFound();
+});
 
 // --- pasfoto van een werknemer ---
 // In de database staat (nog) een pad naar een bestand, bijv. op Z:. De app zoekt

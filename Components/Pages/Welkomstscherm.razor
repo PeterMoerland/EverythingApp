@@ -1,0 +1,342 @@
+@page "/relaties/welkomstscherm"
+@inject IWelkomRepository Repo
+@inject WelkomSchermService Scherm
+@inject IRelatieRepository Relaties
+@inject IUrenRepository Uren
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* Relaties ▸ Welkomstscherm hal: wat de tv in de hal laat zien. Per bezoek datum (van/tot), eventueel tijden, de
+   relatie (met logo uit de filestore), de gastheer en een tekst. De tv toont /hal/<sleutel> (WelkomSchermService).
+   Instellen: Directie of Budgetverantwoordelijke (besluit gebruiker 20-10-2026). *@
+
+<PageTitle>Welkomstscherm — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Welkomstscherm hal</h1>
+        @if (Mag && _tabel)
+        {
+            <button class="klein" @onclick="Nieuw">+ Nieuw welkom</button>
+        }
+    </header>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Het welkomstscherm instellen mag Directie of wie budgetverantwoordelijk is.</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>De tabel Welkomstbord ontbreekt nog (Welkomstbord_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <section class="ws-tv">
+            @if (Scherm.Aan)
+            {
+                <span>📺 Adres voor de tv:</span>
+                <code>@TvAdres</code>
+                <a class="knopje" href="@TvAdres" target="_blank">Openen</a>
+                <button class="klein" @onclick="KopieerAdres">Kopiëren</button>
+                <span class="zij-extra">Zonder inlog; deel dit adres alleen met de tv.</span>
+            }
+            else
+            {
+                <span class="ws-fout">Het tv-adres staat uit: zet in appsettings.json bij Welkomstscherm een Sleutel van minstens 12 tekens.</span>
+            }
+        </section>
+
+        <section class="ws-nu">
+            <h3 class="wn-kop">Nu op het scherm</h3>
+            @if (_lijst.Where(w => w.Actief(DateTime.Now)).ToList() is { Count: > 0 } nu)
+            {
+                @foreach (var w in nu)
+                {
+                    <div class="ws-kaart actief"><b>@(w.Relatie.Length > 0 ? w.Relatie : "(geen relatie)")</b> <span>@w.Gastheer</span></div>
+                }
+            }
+            else
+            {
+                <p class="uitleg">Niemand gepland: de tv toont het algemene welkom.</p>
+            }
+        </section>
+
+        @if (_bewerk is { } b)
+        {
+            <section class="ws-form">
+                <h3 class="wn-kop">@(b.Id == 0 ? "Nieuw welkom" : "Welkom wijzigen")</h3>
+                <div class="wn-velden">
+                    <div class="wn-veld">
+                        <label>Datum van</label>
+                        <NlDatum Waarde="b.DatumVan" WaardeChanged="d => { if (d is DateOnly x) { if (b.DatumTot == b.DatumVan || b.DatumTot < x) b.DatumTot = x; b.DatumVan = x; } }" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Datum tot en met</label>
+                        <NlDatum Waarde="b.DatumTot" WaardeChanged="d => { if (d is DateOnly x) b.DatumTot = x; }" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Vanaf <small class="zij-extra">(leeg = hele dag)</small></label>
+                        <input type="time" value="@(b.TijdVan?.ToString("HH:mm") ?? "")" @onchange="e => b.TijdVan = LeesTijd(e)" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Tot</label>
+                        <input type="time" value="@(b.TijdTot?.ToString("HH:mm") ?? "")" @onchange="e => b.TijdTot = LeesTijd(e)" />
+                    </div>
+                    <div class="wn-veld breed">
+                        <label>Relatie</label>
+                        @if (b.RelatieId is int rid)
+                        {
+                            <div class="ws-relatie">
+                                <b>@b.Relatie</b>
+                                <button class="klein" @onclick="() => { b.RelatieId = null; b.Relatie = string.Empty; _logoId = null; }">Andere…</button>
+                                @if (_logoId is not null && Scherm.Aan)
+                                {
+                                    <img class="ws-logo" src="@($"hal/{Scherm.Sleutel}/logo/{rid}?v={_logoId}")" alt="logo" />
+                                }
+                                else
+                                {
+                                    <span class="zij-extra">Geen logo bij deze relatie.</span>
+                                }
+                                <label class="knopje ws-upload">
+                                    @(_logoId is null ? "Logo toevoegen…" : "Ander logo…")
+                                    <InputFile OnChange="LogoGekozen" accept="image/*" class="bon-verborgen" />
+                                </label>
+                            </div>
+                        }
+                        else
+                        {
+                            <input placeholder="Zoek de relatie…" value="@_relatieZoek" @oninput="RelatieGetypt" />
+                            @if (_relaties.Count > 0)
+                            {
+                                <div class="ws-treffers">
+                                    @foreach (var k in _relaties)
+                                    {
+                                        <button class="wn-naam" @onclick="() => KiesRelatie(k)">@k.Naam</button>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                    <div class="wn-veld breed">
+                        <label>Gastheer</label>
+                        <ZoekKeuze Waarde="@(b.GastheerId?.ToString() ?? "")" Opties="_werknemers"
+                                   OpGekozen="w => { b.GastheerId = int.TryParse(w, out var g) ? g : null; b.Gastheer = _werknemers.FirstOrDefault(x => x.Id == b.GastheerId)?.Naam ?? string.Empty; }" />
+                    </div>
+                    <div class="wn-veld breed">
+                        <label>Tekst <small class="zij-extra">(bv. de namen van de bezoekers of het doel van het bezoek)</small></label>
+                        <textarea rows="3" maxlength="1000" value="@b.Tekst" @onchange="e => b.Tekst = (string?)e.Value ?? string.Empty"></textarea>
+                    </div>
+                </div>
+                <div class="btngroup ws-knoppen">
+                    <button class="primair" disabled="@_bezig" @onclick="Opslaan">Opslaan</button>
+                    @if (b.Id != 0 && Scherm.Aan)
+                    {
+                        <a class="knopje" href="@($"{TvAdres}?voorbeeld={b.Id}")" target="_blank">Voorbeeld op de tv</a>
+                    }
+                    <button class="klein" @onclick="() => _bewerk = null">Annuleren</button>
+                </div>
+            </section>
+        }
+
+        <div class="ws-lijstkop">
+            <h3 class="wn-kop">Gepland</h3>
+            <label class="vink"><input type="checkbox" checked="@_ookVerlopen" @onchange="VerlopenGewijzigd" /> ook verlopen (90 dagen)</label>
+        </div>
+        <table class="kiezer-tabel ws-tabel">
+            <thead>
+                <tr><th style="width:11rem">Datum</th><th style="width:7rem">Tijd</th><th>Relatie</th><th style="width:12rem">Gastheer</th><th>Tekst</th><th style="width:6rem"></th><th style="width:9rem"></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var w in _lijst)
+                {
+                    <tr @key="w.Id" class="@(w.Actief(DateTime.Now) ? "ws-actief" : w.Verlopen(DateTime.Now) ? "ws-verlopen" : "")">
+                        <td>@Datums(w)</td>
+                        <td>@Tijden(w)</td>
+                        <td>@w.Relatie</td>
+                        <td>@w.Gastheer</td>
+                        <td class="ws-tekst" title="@w.Tekst">@w.Tekst</td>
+                        <td>@(w.Actief(DateTime.Now) ? "nu op tv" : w.Verlopen(DateTime.Now) ? "verlopen" : "gepland")</td>
+                        <td class="r">
+                            <button class="klein" @onclick="() => Wijzig(w)">Wijzig</button>
+                            <button class="klein rood" @onclick="() => Verwijder(w)">✕</button>
+                        </td>
+                    </tr>
+                }
+                @if (_lijst.Count == 0)
+                {
+                    <tr><td colspan="7" class="kiezer-info">Nog niets gepland.</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "relatie")] public int? RelatieQuery { get; set; }
+
+    private bool Mag => Ik.Mag("Directie") || Ik.Mag("Budgetverantwoordelijke");
+    private string TvAdres => $"{Nav.BaseUri}hal/{Scherm.Sleutel}";
+
+    private bool _tabel;
+    private bool _ookVerlopen;
+    private List<WelkomItem> _lijst = new();
+    private List<Keuze> _werknemers = new();
+    private WelkomItem? _bewerk;
+    private bool _bezig;
+    private string? _melding;
+    private bool _fout;
+
+    private string _relatieZoek = "";
+    private List<Keuze> _relaties = new();
+    private CancellationTokenSource? _pauze;
+    private int? _logoId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Mag || !Repo.Beschikbaar) return;
+        _tabel = await Repo.TabelAanwezigAsync();
+        if (!_tabel) return;
+        try { _werknemers = (await Uren.GetWerknemersAsync()).Where(w => w.Actief).OrderBy(w => w.Naam).Select(w => new Keuze(w.WerknemerId, w.Naam)).ToList(); }
+        catch { }
+        await Laad();
+
+        // Vanuit een relatie: meteen een nieuw welkom met die relatie
+        if (RelatieQuery is int r)
+        {
+            Nieuw();
+            try
+            {
+                var velden = await Relaties.GetVeldenAsync(r);
+                await KiesRelatie(new Keuze(r, velden.TryGetValue("name", out var n) ? Convert.ToString(n) ?? "" : $"#{r}"));
+            }
+            catch { }
+        }
+    }
+
+    private async Task Laad()
+    {
+        try { _lijst = await Repo.LijstAsync(_ookVerlopen); }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerlopenGewijzigd(ChangeEventArgs e)
+    {
+        _ookVerlopen = e.Value is true;
+        await Laad();
+    }
+
+    private static string Datums(WelkomItem w)
+        => w.DatumTot == w.DatumVan ? w.DatumVan.ToString("ddd d-M-yyyy", new System.Globalization.CultureInfo("nl-NL"))
+                                    : $"{w.DatumVan:d-M} t/m {w.DatumTot:d-M-yyyy}";
+
+    private static string Tijden(WelkomItem w)
+        => w.TijdVan is null && w.TijdTot is null ? "hele dag" : $"{w.TijdVan?.ToString("HH:mm") ?? ""}–{w.TijdTot?.ToString("HH:mm") ?? ""}";
+
+    private static TimeOnly? LeesTijd(ChangeEventArgs e)
+        => TimeOnly.TryParse((string?)e.Value, out var t) ? t : null;
+
+    private void Nieuw()
+    {
+        _bewerk = new WelkomItem { GastheerId = Ik.WerknemerId, Gastheer = _werknemers.FirstOrDefault(w => w.Id == Ik.WerknemerId)?.Naam ?? "" };
+        _relatieZoek = "";
+        _relaties = new();
+        _logoId = null;
+    }
+
+    private async Task Wijzig(WelkomItem w)
+    {
+        _bewerk = new WelkomItem
+        {
+            Id = w.Id, DatumVan = w.DatumVan, DatumTot = w.DatumTot, TijdVan = w.TijdVan, TijdTot = w.TijdTot,
+            RelatieId = w.RelatieId, Relatie = w.Relatie, Tekst = w.Tekst, GastheerId = w.GastheerId, Gastheer = w.Gastheer,
+        };
+        _logoId = w.RelatieId is int r ? await Scherm.RelatieLogoAsync(r) : null;
+    }
+
+    private async Task RelatieGetypt(ChangeEventArgs e)
+    {
+        _relatieZoek = (string?)e.Value ?? "";
+        _pauze?.Cancel();
+        if (_relatieZoek.Trim().Length < 2) { _relaties = new(); return; }
+        var pauze = _pauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        try { _relaties = await Relaties.ZoekAsync(_relatieZoek.Trim(), false, false, 0, 12); } catch { _relaties = new(); }
+    }
+
+    private async Task KiesRelatie(Keuze k)
+    {
+        if (_bewerk is null) return;
+        _bewerk.RelatieId = k.Id;
+        _bewerk.Relatie = k.Naam;
+        _relatieZoek = "";
+        _relaties = new();
+        _logoId = await Scherm.RelatieLogoAsync(k.Id);
+    }
+
+    /// <summary>Het logo als document bij de relatie in de filestore (naam "logo…"), zodat het ook elders bruikbaar is.</summary>
+    private async Task LogoGekozen(InputFileChangeEventArgs e)
+    {
+        if (_bewerk?.RelatieId is not int rid) return;
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
+        try
+        {
+            var ext = Path.GetExtension(e.File.Name).ToLowerInvariant();
+            if (ext.Length == 0) ext = ".png";
+            await using var stroom = e.File.OpenReadStream(10 * 1024 * 1024);
+            await Store.ToevoegenAsync(stroom, "logo" + ext, FilestoreService.StoreTypeRelatie, rid, Ik.WerknemerId ?? 0);
+            _logoId = await Scherm.RelatieLogoAsync(rid);
+            Toon($"Logo van {_bewerk.Relatie} staat in de filestore (Relaties ▸ Documenten).", false);
+        }
+        catch (Exception ex) { Toon("Logo opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Opslaan()
+    {
+        if (_bewerk is not { } b) return;
+        if (b.RelatieId is null && string.IsNullOrWhiteSpace(b.Tekst)) { Toon("Kies een relatie of vul een tekst in.", true); return; }
+        if (b.DatumTot < b.DatumVan) { Toon("De einddatum ligt voor de begindatum.", true); return; }
+        if (b.TijdVan is { } tv && b.TijdTot is { } tt && tt <= tv && b.DatumTot == b.DatumVan) { Toon("De eindtijd ligt voor de begintijd.", true); return; }
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAsync(b, Ik.WerknemerId);
+            _bewerk = null;
+            await Laad();
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder(WelkomItem w)
+    {
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Het welkom voor {(w.Relatie.Length > 0 ? w.Relatie : "deze bezoeker")} op {Datums(w)} weghalen?")) return;
+        try
+        {
+            await Repo.VerwijderAsync(w.Id);
+            if (_bewerk?.Id == w.Id) _bewerk = null;
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KopieerAdres()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", TvAdres); Toon("Adres gekopieerd.", false); }
+        catch { Toon("Kopiëren lukte niet; selecteer het adres en kopieer het zelf.", true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

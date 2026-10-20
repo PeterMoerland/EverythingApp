@@ -28,6 +28,10 @@
                 {
                     <NlDatum Waarde="Datum(kolom)" WaardeChanged="d => ZetDatum(kolom, d)" />
                 }
+                else if (veld.Type == VeldType.Keuze && veld.Zoekbaar && Opties(veld).Count > 0)
+                {
+                    <ZoekKeuze Waarde="@Tekst(kolom)" Opties="Opties(veld)" OpGekozen="w => Zet(kolom, w)" />
+                }
                 else if (veld.Type == VeldType.Keuze && Opties(veld).Count > 0)
                 {
                     <select value="@Tekst(kolom)" @onchange="e => Zet(kolom, (string?)e.Value)">
