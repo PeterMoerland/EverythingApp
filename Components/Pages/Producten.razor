@@ -660,17 +660,8 @@
                     @if (_tab == "Samenstelling" && _naamId is int samNaam && _productId is int samProduct)
                     {
                         <h3 class="wn-kop">Gebruikt</h3>
-                        <SamenstellingKiezer @key="samProduct" ProductNameId="samNaam" ProductId="samProduct" OpGewijzigd="NaSamenstellingWijziging" />
-                        @if (_onderdelen.Count > 0)
-                        {
-                            <p class="uitleg">
-                                Springen naar een onderdeel:
-                                @foreach (var o in _onderdelen)
-                                {
-                                    <button class="klein" @key="o.ProductId" title="Naar dit exemplaar" @onclick="() => GaNaar(o)">↗ @o.Code @o.Serienummer</button>
-                                }
-                            </p>
-                        }
+                        <SamenstellingKiezer @key="samProduct" ProductNameId="samNaam" ProductId="samProduct" OpGewijzigd="NaSamenstellingWijziging"
+                                             OpGaNaar="@(o => GaNaar(o))" />
 
                         <h3 class="wn-kop">Wordt gebruikt in</h3>
                         @if (_gebruiktIn is null)

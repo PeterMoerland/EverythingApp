@@ -41,6 +41,10 @@
                                 <span class="nummer">@o.Serienummer</span>
                                 <button class="knopje rood" title="Uit de samenstelling halen" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
                             </span>
+                            @if (OpGaNaar.HasDelegate)
+                            {
+                                <button class="klein sam-ganaar" title="Naar dit exemplaar" @onclick="() => OpGaNaar.InvokeAsync(o)">↗ @o.Code @o.Serienummer</button>
+                            }
                         }
                         @if (!klaar)
                         {
@@ -99,7 +103,10 @@
                     <td style="width:16rem">@o.Code</td>
                     <td style="width:7rem"><span class="nummer">@o.Serienummer</span></td>
                     <td>@o.Omschrijving</td>
-                    <td class="c" style="width:4rem"><button class="klein rood" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button></td>
+                    <td class="c" style="width:@(OpGaNaar.HasDelegate ? "8rem" : "4rem")">
+                        @if (OpGaNaar.HasDelegate) { <button class="klein" title="Naar dit exemplaar" @onclick="() => OpGaNaar.InvokeAsync(o)">↗</button> }
+                        <button class="klein rood" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
+                    </td>
                 </tr>
             }
         </tbody>
@@ -133,6 +140,8 @@
     [Parameter] public int ProductId { get; set; }
     /// <summary>Na elke koppeling/ontkoppeling, zodat de aanroeper historie/kaart kan verversen.</summary>
     [Parameter] public EventCallback OpGewijzigd { get; set; }
+    /// <summary>Optioneel: knop ↗ achter elk gekoppeld exemplaar om ernaartoe te gaan.</summary>
+    [Parameter] public EventCallback<SamenstellingRegel> OpGaNaar { get; set; }
 
     private List<StuklijstRegel> _stuklijst = new();
     private List<SamenstellingRegel> _onderdelen = new();
