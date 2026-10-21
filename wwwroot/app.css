@@ -2521,6 +2521,32 @@ html[data-thema="donker"] .sonos-speelt.stil { color: #7d8ea3; }
 .drv-receptkop { margin-top: 1.2rem; }
 .drv-recept { border: 1px solid #dde3ea; border-radius: 6px; padding: .5rem .7rem; margin-bottom: .6rem; }
 .drv-stappen { width: 100%; min-height: 9rem; resize: vertical; font-family: Consolas, monospace; font-size: .85em; box-sizing: border-box; margin-top: .3rem; }
+/* Controllertypen: tabs Firmware / Testrecepten, receptenlijst + editor, uitleg achter '?' */
+.drv-tabs { margin-bottom: .6rem; }
+.drv-tabkop { display: flex; align-items: center; gap: .5rem; }
+.drv-tabkop .wn-kop { margin: 0; }
+.drv-hulp { width: 1.7rem; height: 1.7rem; padding: 0; border-radius: 50%; font-weight: 700; }
+.drv-recepten { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); gap: 1rem; align-items: start; margin-top: .6rem; }
+@media (max-width: 60rem) { .drv-recepten { grid-template-columns: 1fr; } }
+.drv-lijstvak { border: 1px solid #c9d3df; border-radius: 6px; max-height: 60vh; overflow: auto; background: #fff; }
+.drv-receptitem { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; width: 100%; text-align: left; padding: .45rem .6rem;
+                  border: 0; border-bottom: 1px solid #e3e8ef; background: none; cursor: pointer; font: inherit; color: inherit; }
+.drv-receptitem:last-child { border-bottom: 0; }
+.drv-receptitem:hover { background: #eef2f7; }
+.drv-receptitem.gekozen { background: #1f6feb; color: #fff; }
+.drv-receptitem.gekozen small { color: #dbe7ff; }
+.drv-receptitem small { color: #6b7a8c; }
+.drv-receptbewerk { min-width: 0; }
+.drv-editor { min-height: 26rem; height: 52vh; }
+.drv-receptknoppen { align-items: center; margin-top: .5rem; }
+.drv-hulpvenster { width: min(64rem, 96vw); max-height: 88vh; display: flex; flex-direction: column; }
+.drv-hulpvenster .fusion-kijker-inhoud { overflow: auto; }
+.drv-bouwstenen td { vertical-align: top; }
+.drv-bewerk { margin-left: .4rem; white-space: nowrap; }
+html[data-thema="donker"] .drv-lijstvak { background: #14243a; border-color: #2b4a73; }
+html[data-thema="donker"] .drv-receptitem { border-color: #2b4a73; }
+html[data-thema="donker"] .drv-receptitem:hover { background: #1b2f48; }
+html[data-thema="donker"] .drv-receptitem.gekozen { background: #1f6feb; }
 .prod-recept-stappen { margin: .2rem 0 .5rem; padding-left: 1.4rem; font-size: .9em; }
 /* Recept in het testvenster: groot vast venster, Start/Stop bovenaan, stappen met balk op de lopende stap, vast log */
 .prod-test-venster.prod-test-recept { width: min(92rem, 97vw); height: 92vh; max-height: 92vh; }

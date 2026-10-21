@@ -1034,6 +1034,11 @@
                                                     <option value="@t.Id">@t.Naam (@t.ProductCode)</option>
                                                 }
                                             </select>
+                                            @if (MagControllertypen && TypenVoorProduct.FirstOrDefault(x => x.Id == p.DriveTypeId) is { } dt)
+                                            {
+                                                @* directie: rechtstreeks naar het controllertype (firmware, en testrecepten bij een SDO-slave) *@
+                                                <a class="knopje drv-bewerk" href="@ControllertypeUrl(dt)" title="@($"{dt.Naam} bewerken: firmware" + (DriveProtocol.ViaSdo(dt.Protocol) ? " en testrecepten" : ""))">✎ bewerken</a>
+                                            }
                                         </td>
                                         <td class="c"><button class="klein rood" @onclick="() => VerwijderPositie(p)">✕</button></td>
                                     </tr>
@@ -2424,6 +2429,8 @@
 
     // ---- historie opschonen: regels aanvinken en wissen, alleen Directie ----
     private bool MagHistorieWissen => Ik.Mag("Directie");
+    private bool MagControllertypen => Ik.Mag("Directie");
+    private static string ControllertypeUrl(DriveSoort t) => $"productie/drivetypen?type={t.Id}" + (DriveProtocol.ViaSdo(t.Protocol) ? "&tab=recepten" : "");
     private readonly HashSet<int> _histGekozen = new();
     /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
     private List<ProductGebeurtenis> HistGekozen => HistorieGefilterd.Where(h => _histGekozen.Contains(h.Id)).ToList();

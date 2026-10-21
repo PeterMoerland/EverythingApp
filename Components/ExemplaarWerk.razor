@@ -413,7 +413,7 @@
             <div class="sleepkop fusion-kijker-kop">
                 <b>@TestIcoon(_testCode) @TestNaam — @Naam.Naam · @Exemplaar.Serienummer</b>
                 <span style="flex:1"></span>
-                <button class="klein" @onclick="() => _testOpen = false" title="Een lopende test loopt door; die volg je in het voortgangsvenster">✕ Sluiten</button>
+                <button class="klein" @onclick="() => { StopAutostart(); _testOpen = false; }" title="Een lopende test loopt door; die volg je in het voortgangsvenster">✕ Sluiten</button>
             </div>
             <div class="fusion-kijker-inhoud">
                 <p class="uitleg">@TestUitleg</p>
@@ -484,7 +484,12 @@
                             <button class="klein rood" disabled="@(!dezeTaak || !_taakBezig || _taakJobId is null || _taakStopGevraagd)" @onclick="StopTaak"
                                     title="Stopt het recept; de uitgangen van de slave vallen dan uit (watchdog)">@(_taakStopGevraagd ? "stoppen…" : "■ Stop")</button>
                             <span class="prod-recept-stand">
-                                @if (!dezeTaak) { <span class="uitleg">nog niet gestart</span> }
+                                @if (_autostartOver is double over)
+                                {
+                                    <b>Start vanzelf over @Math.Ceiling(over) s</b>
+                                    <button class="klein" @onclick="StopAutostart">Annuleren</button>
+                                }
+                                else if (!dezeTaak) { <span class="uitleg">nog niet gestart</span> }
                                 else if (_taakBezig) { <span>bezig · stap @(huidig > 0 ? huidig : 1) van @namen.Count</span> }
                                 else if (_taakFout is not null) { <b>MISLUKT</b> <span>@_taakFout</span> }
                                 else if (_taakKlaar) { <b>GESLAAGD</b> <span>@_taakResultaat</span> }
@@ -2325,6 +2330,7 @@
     /// <summary>Een test op de print uitvoeren via de agent; uitkomst in de historie.</summary>
     private async Task StartTest()
     {
+        StopAutostart();
         // Meekijken staat niet in _testen (geen test); eerst afhandelen, anders stopt de controle hieronder hem.
         if (_testCode.StartsWith("monitor:", StringComparison.Ordinal)) { _taakIsTest = false; await StartMonitor(); return; }
         var test = _testen.FirstOrDefault(t => t.Code == _testCode);
@@ -3094,7 +3100,7 @@
         if (ReceptVan(_testCode) is not { } rc) return;
         var (p, r) = rc;
         JsonElement stappen;
-        try { stappen = JsonDocument.Parse(r.Stappen).RootElement.Clone(); }
+        try { stappen = JsonDocument.Parse(r.StappenVoorAgent()).RootElement.Clone(); }
         catch (Exception ex) { Toon("Het recept is geen geldige JSON: " + ex.Message, true); return; }
         var body = JsonSerializer.Serialize(new { positie = p.Positie, naam = r.Naam, stappen });
         var titel = ReceptTitel(rc);
@@ -3148,6 +3154,39 @@
         if (_slPositie == 0) _slPositie = DrivePosities.FirstOrDefault(p => !IsCoe(p))?.Positie ?? 0;
         if (MonitorPositie(code) is int mp && DrivePosities.FirstOrDefault(x => x.Positie == mp) is { } mpos) await LaadMonitorUitEsi(mpos);
         await LaadTestHistorie();
+        StopAutostart();
+        if (ReceptVan(code) is { } rc && rc.Recept.Autostart() is double sec && Mag && !_taakBezig && _agentUrl.Length > 0)
+            _ = Autostart(code, sec);
+    }
+
+    // ---- autostart: stap "autostart" in een recept = starten zodra het venster opent (na een aftelling, annuleerbaar) ----
+    private double? _autostartOver;
+    private CancellationTokenSource? _autostartStop;
+
+    private void StopAutostart()
+    {
+        _autostartStop?.Cancel();
+        _autostartStop = null;
+        _autostartOver = null;
+    }
+
+    private async Task Autostart(string code, double seconden)
+    {
+        var cts = _autostartStop = new CancellationTokenSource();
+        var einde = DateTime.Now.AddSeconds(seconden);
+        try
+        {
+            while (DateTime.Now < einde)
+            {
+                _autostartOver = (einde - DateTime.Now).TotalSeconds;
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(200, cts.Token);
+            }
+        }
+        catch (TaskCanceledException) { return; }
+        if (cts.IsCancellationRequested || !_testOpen || _testCode != code || _taakBezig) return;
+        _autostartOver = null; _autostartStop = null;
+        await InvokeAsync(StartTest);
     }
 
     private async Task LaadTestHistorie()

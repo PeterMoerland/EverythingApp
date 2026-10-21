@@ -108,129 +108,193 @@
                 }
                 else
                 {
-                    <h3 class="wn-kop">Firmwareversies van @_type.Naam</h3>
-                    <table class="kiezer-tabel drv-firmwares">
-                        <thead>
-                            <tr>
-                                <th style="width:6.5rem">Versie</th>
-                                <th style="width:8rem">Status</th>
-                                <th>Firmware (@DriveProtocol.FirmwareExtensies(_type.Protocol))</th>
-                                @if (!IsChip)
-                                {
-                                    <th>Dictionary (.xdf)</th>
-                                    <th title="EtherCAT Slave Information">ESI (.xml)</th>
-                                }
-                                <th style="width:9rem">Vrijgegeven</th>
-                                <th style="width:2.6rem"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var f in _firmwares)
-                            {
-                                <tr @key="f.Id" class="drv-rij">
-                                    <td><input value="@f.Versie" placeholder="2.10.0" @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
-                                    <td>
-                                        <select value="@f.Status" class="drv-status @DriveStatus.Kleur(f.Status)"
-                                                @onchange="e => ZetStatus(f, e)"
-                                                title="@StatusTitel(f)">
-                                            @foreach (var s in DriveStatus.Firmware)
-                                            {
-                                                <option value="@s.Code">@s.Code</option>
-                                            }
-                                        </select>
-                                    </td>
-                                    <td>@Bestandcel(f, f.FirmwareFileId, f.FirmwareBestand, DriveStore.Firmware)</td>
+                    <div class="wn-tabs drv-tabs">
+                        <button class="@(_tab == "firmware" ? "actief" : "")" @onclick="@(() => KiesTab("firmware"))">Firmware (@_firmwares.Count)</button>
+                        @if (DriveProtocol.ViaSdo(_type.Protocol))
+                        {
+                            <button class="@(_tab == "recepten" ? "actief" : "")" @onclick="@(() => KiesTab("recepten"))">Testrecepten (@_recepten.Count)</button>
+                        }
+                    </div>
+
+                    @if (_tab != "recepten" || !DriveProtocol.ViaSdo(_type.Protocol))
+                    {
+                        <div class="drv-tabkop">
+                            <h3 class="wn-kop">Firmwareversies van @_type.Naam</h3>
+                            <button class="klein drv-hulp" title="Uitleg" @onclick="@(() => _hulp = "firmware")">?</button>
+                        </div>
+                        <table class="kiezer-tabel drv-firmwares">
+                            <thead>
+                                <tr>
+                                    <th style="width:6.5rem">Versie</th>
+                                    <th style="width:8rem">Status</th>
+                                    <th>Firmware (@DriveProtocol.FirmwareExtensies(_type.Protocol))</th>
                                     @if (!IsChip)
                                     {
-                                        <td>@Bestandcel(f, f.DictionaryFileId, f.DictionaryBestand, DriveStore.Dictionary)</td>
-                                        <td>@Bestandcel(f, f.EsiFileId, f.EsiBestand, DriveStore.Esi)</td>
+                                        <th>Dictionary (.xdf)</th>
+                                        <th title="EtherCAT Slave Information">ESI (.xml)</th>
                                     }
-                                    <td><input type="date" value="@(f.Vrijgegeven?.ToString("yyyy-MM-dd"))" @onchange="e => ZetDatum(f, e)" /></td>
-                                    <td class="c"><button class="klein rood" title="Verwijderen" @onclick="() => VerwijderFirmware(f)">✕</button></td>
+                                    <th style="width:9rem">Vrijgegeven</th>
+                                    <th style="width:2.6rem"></th>
                                 </tr>
-                                <tr @key="@($"{f.Id}-opm")" class="drv-opm">
-                                    <td colspan="7">
-                                        <input value="@f.Opmerking" placeholder="Opmerking bij deze versie…"
-                                               @onchange="e => ZetFirmware(f, v => f.Opmerking = v, e)" />
-                                    </td>
-                                </tr>
-                            }
-                            @if (_firmwares.Count == 0)
-                            {
-                                <tr><td colspan="7" class="kiezer-info">Nog geen firmwareversies voor dit type.</td></tr>
-                            }
-                        </tbody>
-                    </table>
-                    <div class="btngroup">
-                        <button class="klein" @onclick="NieuweFirmware">+ Firmwareversie</button>
-                    </div>
-                    <p class="uitleg">
-                        <b>actueel</b> = de versie die nieuwe prints krijgen (één per type; een andere op actueel zetten maakt
-                        de vorige 'toegestaan'). <b>toegestaan</b> = mag blijven zitten. <b>geblokkeerd</b> = moet vervangen worden.
-                        @if (IsChip)
-                        {
-                            <text>Het firmwarebestand is een .hex (adressen zitten erin) of een .bin; in Half-fabricaten ▸ stap 4
-                            kies je de versie uit deze lijst — de actuele staat voorgeselecteerd.</text>
-                        }
-                        else
-                        {
-                            <text>Elke firmwareversie heeft haar eigen dictionary (.xdf), ESI-bestand (EtherCAT Slave Information, .xml)
-                            en, per halffabricaat, haar eigen parameterset (.xcf).</text>
-                        }
-                    </p>
-
-                    @* ---------- testrecepten: alleen bij slaves die via SDO's gaan (MDE-slaves, eRob) ---------- *@
-                    @if (DriveProtocol.ViaSdo(_type.Protocol))
+                            </thead>
+                            <tbody>
+                                @foreach (var f in _firmwares)
+                                {
+                                    <tr @key="f.Id" class="drv-rij">
+                                        <td><input value="@f.Versie" placeholder="2.10.0" @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
+                                        <td>
+                                            <select value="@f.Status" class="drv-status @DriveStatus.Kleur(f.Status)"
+                                                    @onchange="e => ZetStatus(f, e)"
+                                                    title="@StatusTitel(f)">
+                                                @foreach (var s in DriveStatus.Firmware)
+                                                {
+                                                    <option value="@s.Code">@s.Code</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>@Bestandcel(f, f.FirmwareFileId, f.FirmwareBestand, DriveStore.Firmware)</td>
+                                        @if (!IsChip)
+                                        {
+                                            <td>@Bestandcel(f, f.DictionaryFileId, f.DictionaryBestand, DriveStore.Dictionary)</td>
+                                            <td>@Bestandcel(f, f.EsiFileId, f.EsiBestand, DriveStore.Esi)</td>
+                                        }
+                                        <td><input type="date" value="@(f.Vrijgegeven?.ToString("yyyy-MM-dd"))" @onchange="e => ZetDatum(f, e)" /></td>
+                                        <td class="c"><button class="klein rood" title="Verwijderen" @onclick="() => VerwijderFirmware(f)">✕</button></td>
+                                    </tr>
+                                    <tr @key="@($"{f.Id}-opm")" class="drv-opm">
+                                        <td colspan="7">
+                                            <input value="@f.Opmerking" placeholder="Opmerking bij deze versie…"
+                                                   @onchange="e => ZetFirmware(f, v => f.Opmerking = v, e)" />
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_firmwares.Count == 0)
+                                {
+                                    <tr><td colspan="7" class="kiezer-info">Nog geen firmwareversies voor dit type.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="NieuweFirmware">+ Firmwareversie</button>
+                        </div>
+                    }
+                    else
                     {
-                        <h3 class="wn-kop drv-receptkop">Testrecepten van @_type.Naam</h3>
+                        @* ---------- testrecepten: alleen bij slaves die via SDO's gaan (MDE-slaves, eRob) ---------- *@
+                        <div class="drv-tabkop">
+                            <h3 class="wn-kop">Testrecepten van @_type.Naam</h3>
+                            <button class="klein drv-hulp" title="Uitleg en bouwstenen" @onclick="@(() => _hulp = "recepten")">?</button>
+                        </div>
                         @if (_receptTabelOntbreekt)
                         {
                             <div class="melding fout">De tabel DriveRecepten ontbreekt nog: voer <code>DriveRecepten_MariaDB.sql</code> uit.</div>
                         }
-                        @foreach (var r in _recepten)
-                        {
-                            <div class="drv-recept" @key="r.Id">
-                                <div class="bankfilters">
-                                    <label class="bankveld"><span>Volgorde</span>
-                                        <input type="number" style="width:4rem" value="@r.Volgorde" @onchange="e => ZetRecept(r, () => r.Volgorde = int.TryParse((string?)e.Value, out var v) ? v : r.Volgorde)" /></label>
-                                    <label class="bankveld"><span>Naam</span>
-                                        <input value="@r.Naam" maxlength="60" @onchange="e => ZetRecept(r, () => r.Naam = ((string?)e.Value ?? string.Empty).Trim())" /></label>
-                                    <label class="bankveld prod-keuze"><span>Omschrijving</span>
-                                        <input value="@r.Omschrijving" maxlength="500" @onchange="e => ZetRecept(r, () => r.Omschrijving = ((string?)e.Value ?? string.Empty).Trim())" /></label>
-                                    <label class="of-vink" title="Hoort bij de eindcontrole van de print"><input type="checkbox" checked="@r.Verplicht" @onchange="e => ZetRecept(r, () => r.Verplicht = e.Value is bool b && b)" /> verplicht</label>
-                                    <button class="klein rood" title="Recept verwijderen" @onclick="() => VerwijderRecept(r)">✕</button>
+                        <div class="drv-recepten">
+                            <div class="drv-receptlijst">
+                                <div class="drv-lijstvak" role="listbox">
+                                    @foreach (var r in _recepten.OrderBy(x => x.Volgorde).ThenBy(x => x.Naam))
+                                    {
+                                        <button @key="r.Id" role="option" class="drv-receptitem @(_gekozen?.Id == r.Id ? "gekozen" : "")" @onclick="() => KiesRecept(r)">
+                                            <b>@r.Volgorde. @r.Naam</b>
+                                            <small>@r.StapNamen().Count stappen@(r.Verplicht ? " · verplicht" : "")</small>
+                                        </button>
+                                    }
+                                    @if (_recepten.Count == 0 && !_receptTabelOntbreekt) { <p class="kiezer-info">Nog geen testrecepten voor dit type.</p> }
                                 </div>
-                                <textarea class="drv-stappen" spellcheck="false" value="@r.Stappen" @key="(r.Id, _receptVersie)"
-                                          @onchange="e => ZetStappen(r, (string?)e.Value ?? string.Empty)"></textarea>
-                                @if (_receptFouten.TryGetValue(r.Id, out var fout)) { <div class="melding fout">@fout</div> }
-                                else { <small class="uitleg">@r.StapNamen().Count stappen: @string.Join(" → ", r.StapNamen())</small> }
+                                <div class="btngroup">
+                                    <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="NieuwRecept">+ Recept</button>
+                                    <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="VoorbeeldRecept" title="Een recept met alle bouwstenen als voorbeeld (Swivel) toevoegen, om aan te passen">+ Voorbeeld</button>
+                                </div>
                             </div>
-                        }
-                        @if (_recepten.Count == 0 && !_receptTabelOntbreekt) { <p class="kiezer-info">Nog geen testrecepten voor dit type.</p> }
-                        <div class="btngroup">
-                            <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="NieuwRecept">+ Recept</button>
-                            <button class="klein" disabled="@_receptTabelOntbreekt" @onclick="VoorbeeldRecept" title="Een recept met alle bouwstenen als voorbeeld (Swivel) toevoegen, om aan te passen">+ Voorbeeldrecept</button>
+
+                            <div class="drv-receptbewerk">
+                                @if (_gekozen is null || _concept is null)
+                                {
+                                    <p class="kiezer-info">Kies links een recept, of maak een nieuw recept.</p>
+                                }
+                                else
+                                {
+                                    var c = _concept;
+                                    <div class="bankfilters">
+                                        <label class="bankveld"><span>Volgorde</span>
+                                            <input type="number" style="width:4rem" value="@c.Volgorde" @oninput="e => c.Volgorde = int.TryParse((string?)e.Value, out var v) ? v : c.Volgorde" /></label>
+                                        <label class="bankveld"><span>Naam</span>
+                                            <input value="@c.Naam" maxlength="60" @oninput="e => c.Naam = (string?)e.Value ?? string.Empty" /></label>
+                                        <label class="bankveld prod-keuze"><span>Omschrijving</span>
+                                            <input value="@c.Omschrijving" maxlength="500" @oninput="e => c.Omschrijving = (string?)e.Value ?? string.Empty" /></label>
+                                        <label class="of-vink" title="Hoort bij de eindcontrole van de print">
+                                            <input type="checkbox" checked="@c.Verplicht" @onchange="e => c.Verplicht = e.Value is bool b && b" /> verplicht</label>
+                                    </div>
+                                    <textarea class="drv-stappen drv-editor" spellcheck="false" value="@c.Stappen" @key="(_gekozen.Id, _receptVersie)"
+                                              @oninput="e => c.Stappen = (string?)e.Value ?? string.Empty"></textarea>
+                                    var fout = DriveRecept.Controleer(c.Stappen);
+                                    @if (fout is not null) { <div class="melding fout">@fout</div> }
+                                    else
+                                    {
+                                        var namen = new DriveRecept { Stappen = c.Stappen }.StapNamen();
+                                        <small class="uitleg">@namen.Count stappen: @string.Join(" → ", namen)</small>
+                                    }
+                                    <div class="btngroup drv-receptknoppen">
+                                        <button class="primair" disabled="@(!ConceptGewijzigd || fout is not null || c.Naam.Trim().Length == 0)" @onclick="BewaarConcept">💾 Opslaan</button>
+                                        <button class="klein" disabled="@(!ConceptGewijzigd)" @onclick="HerstelConcept" title="Terug naar de opgeslagen versie">↶ Wijzigingen weggooien</button>
+                                        <span style="flex:1"></span>
+                                        @if (ConceptGewijzigd) { <span class="uitleg">niet opgeslagen</span> }
+                                        <button class="klein rood" title="Recept verwijderen" @onclick="() => VerwijderRecept(_gekozen)">✕ Verwijderen</button>
+                                    </div>
+                                }
+                            </div>
                         </div>
-                        <p class="uitleg">
-                            Een recept is een lijst stappen (JSON) die de werkplek-agent op de slave uitvoert; Test PCB toont per
-                            slave van dit type een knop per recept en zet de uitslag in de historie. Bouwstenen:
-                            <b>identiteit</b> (vendor, productcode, revisie, firmware), <b>lees</b> (index, sub, type, min/max of gelijk),
-                            <b>schrijf</b> (index, sub, type, waarde; teruglezen), <b>wacht</b> of <b>pauze</b> (seconden),
-                            <b>wacht_tot</b> (index, sub, type, gelijk/min/max, timeout: wachten tot een waarde een grens haalt),
-                            <b>herhaal</b> (keer, stappen [ … ]: een blok n keer),
-                            <b>beweging</b> (doel_index/sub, stand_index/sub, type, doel, tolerantie, timeout, controlword {aan, uit}),
-                            <b>doorgeefluik</b> (motor, register, verwacht of waarde; via 0x8000),
-                            <b>monitor</b> (objecten [{index, sub, type, naam, min, max}]: vanaf die stap leest de agent ze elke 0,2 s en laat Test PCB
-                            de waarden en het verloop live zien; min/max komen als grenslijn in de grafiek),
-                            <b>bediening</b> (knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub, aan, uit}],
-                            invoer [{naam, index, sub, type, min, max}], seconden: het recept wacht op de gebruiker, die met knoppen en
-                            invoervelden schrijft; Klaar = verder met de volgende stap). <code>"stoppen": false</code> laat het recept doorlopen na een mislukte
-                            stap. Het recept stopt anders bij de eerste fout.
-                        </p>
                     }
                 }
             </section>
         </div>
+
+        @if (_hulp is not null)
+        {
+            <div class="cmdk-overlay midden" @onclick="() => _hulp = null">
+                <div class="fusion-kijker ec-venster verplaatsbaar drv-hulpvenster" @onclick:stopPropagation="true">
+                    <div class="sleepkop fusion-kijker-kop">
+                        <b>@(_hulp == "recepten" ? "Testrecepten: uitleg en bouwstenen" : "Firmwareversies: uitleg")</b>
+                        <span style="flex:1"></span>
+                        <button class="klein" @onclick="() => _hulp = null">✕ Sluiten</button>
+                    </div>
+                    <div class="fusion-kijker-inhoud">
+                        @if (_hulp == "recepten")
+                        {
+                            <p>Een recept is een lijst stappen (JSON) die de werkplek-agent op de slave uitvoert. Test PCB toont per slave van
+                               dit type een knop per recept en zet de uitslag in de historie. Het recept stopt bij de eerste mislukte stap;
+                               <code>"stoppen": false</code> op een stap laat het doorlopen. Elke stap mag een <code>"naam"</code> hebben.</p>
+                            <table class="kiezer-tabel drv-bouwstenen">
+                                <thead><tr><th style="width:8rem">Bouwsteen</th><th style="width:40%">Velden</th><th>Wat het doet</th></tr></thead>
+                                <tbody>
+                                    @foreach (var (stap, velden, wat) in Bouwstenen)
+                                    {
+                                        <tr><td><code>@stap</code></td><td><small>@velden</small></td><td>@wat</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            <p class="uitleg">Index en sub mogen als tekst (<code>"0x7020"</code>) of getal; type is BOOL, USINT, SINT, UINT, INT,
+                               UDINT, DINT, REAL of STRING. Objecten die in de procesdata (PDO) zitten gaan vanzelf via de procesdata.</p>
+                        }
+                        else
+                        {
+                            <p><b>actueel</b> = de versie die nieuwe prints krijgen (één per type; een andere op actueel zetten maakt
+                               de vorige 'toegestaan'). <b>toegestaan</b> = mag blijven zitten. <b>geblokkeerd</b> = moet vervangen worden.</p>
+                            @if (IsChip)
+                            {
+                                <p>Het firmwarebestand is een .hex (adressen zitten erin) of een .bin; in Half-fabricaten ▸ stap 4
+                                   kies je de versie uit deze lijst — de actuele staat voorgeselecteerd.</p>
+                            }
+                            else
+                            {
+                                <p>Elke firmwareversie heeft haar eigen dictionary (.xdf), ESI-bestand (EtherCAT Slave Information, .xml)
+                                   en, per halffabricaat, haar eigen parameterset (.xcf).</p>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
 
         <footer class="voet">
             Parametersets (.xcf) leg je vast bij het halffabricaat: Producten ▸ producttype ▸ tab Drives.
@@ -243,9 +307,85 @@
     private DriveSoort? _type;
     private List<DriveFirmware> _firmwares = new();
     private List<DriveRecept> _recepten = new();
-    private readonly Dictionary<int, string> _receptFouten = new();
     private bool _receptTabelOntbreekt;
     private int _receptVersie;
+    private string _tab = "firmware";
+    private string? _hulp;                       // "firmware" / "recepten": uitlegvenster open
+    private DriveRecept? _gekozen;               // het recept in de editor
+    private ReceptConcept? _concept;             // wat er in de editor staat (pas na Opslaan in de database)
+
+    private sealed class ReceptConcept
+    {
+        public string Naam = "", Omschrijving = "", Stappen = "";
+        public int Volgorde;
+        public bool Verplicht;
+        public static ReceptConcept Van(DriveRecept r) => new() { Naam = r.Naam, Omschrijving = r.Omschrijving, Stappen = r.Stappen, Volgorde = r.Volgorde, Verplicht = r.Verplicht };
+    }
+
+    private bool ConceptGewijzigd => _gekozen is not null && _concept is not null &&
+        (_concept.Naam != _gekozen.Naam || _concept.Omschrijving != _gekozen.Omschrijving || _concept.Stappen != _gekozen.Stappen
+         || _concept.Volgorde != _gekozen.Volgorde || _concept.Verplicht != _gekozen.Verplicht);
+
+    /// <summary>Niet-opgeslagen wijzigingen in de editor: eerst vragen of ze weg mogen.</summary>
+    private async Task<bool> MagWeg()
+        => !ConceptGewijzigd || await JS.InvokeAsync<bool>("mdeBevestig", $"Recept '{_gekozen!.Naam}' is gewijzigd maar niet opgeslagen. Wijzigingen weggooien?");
+
+    private async Task KiesTab(string tab)
+    {
+        if (tab == _tab || !await MagWeg()) return;
+        _tab = tab;
+        if (tab != "recepten") { _gekozen = null; _concept = null; }
+    }
+
+    private async Task KiesRecept(DriveRecept r)
+    {
+        if (_gekozen?.Id == r.Id || !await MagWeg()) return;
+        _gekozen = r; _concept = ReceptConcept.Van(r); _receptVersie++;
+    }
+
+    private void HerstelConcept()
+    {
+        if (_gekozen is null) return;
+        _concept = ReceptConcept.Van(_gekozen); _receptVersie++;
+    }
+
+    private async Task BewaarConcept()
+    {
+        if (_gekozen is null || _concept is null) return;
+        var fout = DriveRecept.Controleer(_concept.Stappen);
+        if (fout is not null) { Toon(fout, true); return; }
+        var r = _gekozen;
+        var oud = ReceptConcept.Van(r);
+        r.Naam = _concept.Naam.Trim(); r.Omschrijving = _concept.Omschrijving.Trim(); r.Stappen = _concept.Stappen;
+        r.Volgorde = _concept.Volgorde; r.Verplicht = _concept.Verplicht;
+        try
+        {
+            await Drives.BewaarReceptAsync(r, Ik.WerknemerId);
+            _concept = ReceptConcept.Van(r);
+            Toon($"Recept '{r.Naam}' opgeslagen.", false);
+        }
+        catch (Exception ex)
+        {
+            r.Naam = oud.Naam; r.Omschrijving = oud.Omschrijving; r.Stappen = oud.Stappen; r.Volgorde = oud.Volgorde; r.Verplicht = oud.Verplicht;
+            Toon("Opslaan mislukt: " + ex.Message, true);
+        }
+    }
+
+    private static readonly (string Stap, string Velden, string Wat)[] Bouwstenen =
+    {
+        ("autostart", "seconden (0)", "Het recept start vanzelf zodra je het in Test PCB opent, na de aftelling (max. 60 s; Annuleren kan). Alleen in het recept zelf, niet in een herhaal-blok; het is geen stap voor de agent."),
+        ("identiteit", "vendor, productcode, revisie, firmware", "Vergelijkt de identiteit van de slave (0x1018, 0x100A)."),
+        ("lees", "index, sub, type, min / max of gelijk", "Leest een waarde en controleert de grenzen."),
+        ("schrijf", "index, sub, type, waarde", "Schrijft een waarde en leest hem terug."),
+        ("wacht / pauze", "seconden", "Wacht; de monitor blijft meten."),
+        ("wacht_tot", "index, sub, type, gelijk / min / max, timeout (10 s)", "Wacht tot een waarde aan de grens voldoet (bv. druk onder 50 binnen 5 s)."),
+        ("herhaal", "keer, stappen [ … ], stoppen", "Voert een blok stappen n keer uit."),
+        ("beweging", "doel_index/sub, stand_index/sub, type, doel, tolerantie, timeout, controlword {index, sub, aan, uit}", "Stuurt naar een doel en wacht tot de stand binnen de tolerantie is."),
+        ("doorgeefluik", "motor, register, verwacht of waarde (index 0x8000)", "Leest of schrijft een register van een seriële motor (Feetech)."),
+        ("monitor", "objecten [{index, sub, type, naam, min, max}]", "Vanaf deze stap leest de agent de objecten elke 0,2 s; Test PCB toont de waarden en een grafiek. min/max = grenslijn in de grafiek."),
+        ("bediening", "knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub, aan, uit}], invoer [{naam, index, sub, type, min, max}], seconden (3600)", "HMI: het recept wacht op de gebruiker, die met knoppen, schakelaars en invoervelden schrijft. Klaar = verder met de volgende stap."),
+    };
+
     private string? _melding;
     private bool _fout;
     private bool _tabelOntbreekt;
@@ -253,7 +393,9 @@
     // ---- testrecepten ----
     private async Task LaadRecepten()
     {
-        _recepten = new(); _receptFouten.Clear(); _receptTabelOntbreekt = false;
+        _recepten = new(); _receptTabelOntbreekt = false;
+        var gekozenId = _gekozen?.Id;
+        _gekozen = null; _concept = null;
         if (_type is null || !DriveProtocol.ViaSdo(_type.Protocol)) return;
         try { _recepten = await Drives.GetReceptenAsync(_type.Id); }
         catch (Exception ex)
@@ -261,6 +403,8 @@
             _receptTabelOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
             if (!_receptTabelOntbreekt) Toon("Recepten laden mislukt: " + ex.Message, true);
         }
+        // na herladen (zelfde type) hetzelfde recept in de editor houden
+        if (gekozenId is int id && _recepten.FirstOrDefault(x => x.Id == id) is { } terug) { _gekozen = terug; _concept = ReceptConcept.Van(terug); }
         _receptVersie++;
     }
 
@@ -273,29 +417,14 @@
         if (_type is null) return;
         try
         {
+            if (!await MagWeg()) return;
             var r = new DriveRecept { DriveTypeId = _type.Id, Naam = naam, Stappen = stappen, Volgorde = _recepten.Count + 1 };
             await Drives.BewaarReceptAsync(r, Ik.WerknemerId);
             await LaadRecepten();
+            var nieuw = _recepten.Where(x => x.Naam == naam).OrderByDescending(x => x.Id).FirstOrDefault();
+            if (nieuw is not null) { _gekozen = nieuw; _concept = ReceptConcept.Van(nieuw); _receptVersie++; }
         }
         catch (Exception ex) { Toon("Recept toevoegen mislukt: " + ex.Message, true); }
-    }
-
-    private async Task ZetRecept(DriveRecept r, Action zet)
-    {
-        zet();
-        try { await Drives.BewaarReceptAsync(r, Ik.WerknemerId); }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
-    }
-
-    /// <summary>De stappen-JSON: eerst controleren, pas opslaan als hij klopt (anders de fout onder het vak).</summary>
-    private async Task ZetStappen(DriveRecept r, string json)
-    {
-        var fout = DriveRecept.Controleer(json);
-        if (fout is not null) { _receptFouten[r.Id] = fout; return; }
-        _receptFouten.Remove(r.Id);
-        r.Stappen = json;
-        try { await Drives.BewaarReceptAsync(r, Ik.WerknemerId); Toon($"Recept '{r.Naam}' opgeslagen.", false); }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
     }
 
     private async Task VerwijderRecept(DriveRecept r)
@@ -304,6 +433,7 @@
         {
             if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Recept '{r.Naam}' verwijderen?")) return;
             await Drives.VerwijderReceptAsync(r.Id);
+            if (_gekozen?.Id == r.Id) { _gekozen = null; _concept = null; }
             await LaadRecepten();
         }
         catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
@@ -314,7 +444,18 @@
         await Ik.ZorgGeladenAsync();
         if (!Drives.Beschikbaar) return;
         await LaadTypen();
+        // link uit Producten ▸ Techniek: ?type=<id>&tab=recepten (&recept=<id>)
+        if (TypeUitUrl is int tid && _typen.FirstOrDefault(x => x.Id == tid) is { } tu)
+        {
+            await KiesType(tu);
+            if (TabUitUrl == "recepten" && DriveProtocol.ViaSdo(tu.Protocol)) _tab = "recepten";
+            if (ReceptUitUrl is int rid && _recepten.FirstOrDefault(x => x.Id == rid) is { } ru) { _tab = "recepten"; await KiesRecept(ru); }
+        }
     }
+
+    [SupplyParameterFromQuery(Name = "type")] public int? TypeUitUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabUitUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "recept")] public int? ReceptUitUrl { get; set; }
 
     private async Task LaadTypen()
     {
@@ -328,7 +469,9 @@
 
     private async Task KiesType(DriveSoort t)
     {
+        if (_type?.Id != t.Id && !await MagWeg()) return;
         _type = t;
+        if (!DriveProtocol.ViaSdo(t.Protocol)) _tab = "firmware";
         try { _firmwares = await Drives.GetFirmwaresAsync(t.Id); }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
         await LaadRecepten();

@@ -93,6 +93,7 @@ public class DriveRecept
             if (s.ValueKind != System.Text.Json.JsonValueKind.Object) return $"Stap {prefix}{nr} is geen object {{ … }}.";
             var stap = s.TryGetProperty("stap", out var st) ? st.GetString() ?? "" : "";
             if (!Bouwstenen.Contains(stap)) return $"Stap {prefix}{nr}: onbekende bouwsteen '{stap}' (bekend: {string.Join(", ", Bouwstenen)}).";
+            if (stap == "autostart" && prefix.Length > 0) return $"Stap {prefix}{nr}: autostart hoort in het recept zelf, niet in een herhaal-blok.";
             if (stap == "herhaal")
             {
                 if (!s.TryGetProperty("stappen", out var binnen)) return $"Stap {prefix}{nr}: herhaal heeft geen \"stappen\".";
@@ -121,14 +122,44 @@ public class DriveRecept
         return nr == 0 ? (prefix.Length == 0 ? "Het recept heeft geen stappen." : $"Stap {prefix.TrimEnd('.')}: het herhaal-blok is leeg.") : null;
     }
 
-    public static readonly string[] Bouwstenen = { "identiteit", "lees", "schrijf", "wacht", "pauze", "wacht_tot", "herhaal", "beweging", "doorgeefluik", "monitor", "bediening" };
+    public static readonly string[] Bouwstenen = { "identiteit", "lees", "schrijf", "wacht", "pauze", "wacht_tot", "herhaal", "beweging", "doorgeefluik", "monitor", "bediening", "autostart" };
+
+    /// <summary>Stap "autostart" (hoogste niveau): het recept start vanzelf als het testvenster opent, na zoveel seconden
+    /// (standaard 0 = meteen). Null = geen autostart. De stap zelf gaat niet naar de agent (<see cref="StappenVoorAgent"/>).</summary>
+    public double? Autostart()
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return null;
+            foreach (var s in doc.RootElement.EnumerateArray())
+                if (s.ValueKind == System.Text.Json.JsonValueKind.Object && s.TryGetProperty("stap", out var st) && st.GetString() == "autostart")
+                    return Math.Clamp(BedienStap.Getal(s, "seconden") ?? 0, 0, 60);
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>De stappen zonder "autostart" (dat is een instelling voor Test PCB, geen stap voor de agent).</summary>
+    public string StappenVoorAgent()
+    {
+        try
+        {
+            var lijst = System.Text.Json.Nodes.JsonNode.Parse(Stappen) as System.Text.Json.Nodes.JsonArray;
+            if (lijst is null) return Stappen;
+            foreach (var s in lijst.Where(s => s is System.Text.Json.Nodes.JsonObject o && o["stap"]?.GetValue<string>() == "autostart").ToList())
+                lijst.Remove(s);
+            return lijst.ToJsonString();
+        }
+        catch { return Stappen; }
+    }
 
     /// <summary>De bediening-stap op plek <paramref name="nr"/> (1 = eerste stap, alleen het hoogste niveau); null als het geen bediening is.</summary>
     public BedienStap? Bediening(int nr)
     {
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            using var doc = System.Text.Json.JsonDocument.Parse(StappenVoorAgent());
             if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array || nr < 1 || nr > doc.RootElement.GetArrayLength()) return null;
             var s = doc.RootElement[nr - 1];
             if (s.ValueKind != System.Text.Json.JsonValueKind.Object || !s.TryGetProperty("stap", out var st) || st.GetString() != "bediening") return null;
@@ -199,6 +230,7 @@ public class DriveRecept
             if (s.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
             var stap = s.TryGetProperty("stap", out var st) ? st.GetString() ?? "" : "";
             var naam = s.TryGetProperty("naam", out var n) ? n.GetString() ?? "" : "";
+            if (stap == "autostart") continue;      // geen stap voor de agent; telt niet mee in de nummering
             if (stap == "herhaal")
             {
                 var keer = s.TryGetProperty("keer", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.Number ? k.GetInt32() : 1;

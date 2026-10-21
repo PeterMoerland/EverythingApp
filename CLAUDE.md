@@ -295,6 +295,20 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Controllertypen: tabs, receptenlijst met editor (21-10-2026)
+
+- Rechts twee tabs: **Firmware** en **Testrecepten** (alleen bij SDO-slaves). Uitleg staat achter een **?**-knop
+  (popup; bouwstenen als tabel in `DriveTypen.Bouwstenen`, bij een nieuwe bouwsteen daar ook bijwerken).
+- Recepten: links een lijst, rechts een editor op een concept (`ReceptConcept`); pas **Opslaan** schrijft naar de database
+  (alleen als de JSON klopt, `DriveRecept.Controleer` live onder het vak). Niet-opgeslagen wijzigingen: vraag bij wisselen van
+  recept, tab of type. "+ Recept"/"+ Voorbeeld" maken het recept meteen aan en kiezen het.
+- **Bouwsteen `autostart`** (`{"stap": "autostart", "seconden": 3}`, alleen op het hoogste niveau): Test PCB start het
+  recept zodra het testvenster opent, na een aftelling (max. 60 s) met Annuleren (`ExemplaarWerk.Autostart`). Het is
+  een instelling, geen stap: `DriveRecept.StappenVoorAgent` haalt hem eruit voor de agent, `StapNamen` en `Bediening(nr)`
+  tellen zonder, dus de nummering klopt met "Stap n/m" van de agent. Geen nieuwe agent nodig.
+- Link: `productie/drivetypen?type=<id>&tab=recepten&recept=<id>`. In Producten ▸ Techniek ▸ Posities staat voor
+  **Directie** achter het controllertype "✎ bewerken" (`MagControllertypen`, `ControllertypeUrl`).
+
 ## Testrecepten: venster, grenzen en bediening/HMI (agent 1.20.0, 21-10-2026)
 
 - **Recept-venster** (Test PCB): de uitvoer staat in het testvenster zelf (`VoerTaakUit` telt `mde.test` nu als test;
