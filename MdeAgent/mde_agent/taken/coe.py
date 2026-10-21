@@ -537,12 +537,18 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         klaar = threading.Event()
         stop_sinds: list[float] = []
+        verlopen: list[bool] = []
 
         def doorgeven() -> None:
             """Invoer van de app (POST /jobs/<id>/invoer) naar de werker, en Stop: de mde-werker stopt dan zelf netjes
             (uitgangen uit, resultaat); andere werkers lezen geen stdin en worden meteen afgebroken (na 8 s ook mde)."""
             while not klaar.wait(0.2):
                 try:
+                    # time-out ook bewaken als het werkproces stil is (vroeger alleen bij een nieuwe regel: een
+                    # vastgelopen werker hield de taak dan eeuwig 'bezig')
+                    if time.time() - begin > timeout and not verlopen:
+                        verlopen.append(True)
+                        proces.kill()
                     for tekst in (job.lees_invoer() if hasattr(job, "lees_invoer") else []):
                         proces.stdin.write(str(tekst).replace("\n", " ") + "\n")
                         proces.stdin.flush()
@@ -585,6 +591,8 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
             stderr = ""
             if stop_sinds and not isinstance(laatste, dict):
                 raise RuntimeError("Gestopt door de gebruiker.")
+            if verlopen and not isinstance(laatste, dict):
+                raise RuntimeError(f"De drive antwoordde niet binnen {timeout} s (werkproces afgebroken).")
         finally:
             klaar.set()
             if proces.poll() is None:

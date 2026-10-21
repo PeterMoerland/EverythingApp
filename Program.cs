@@ -278,6 +278,7 @@ builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
+builder.Services.AddSingleton<AgentUitgave>();          // nieuwste agentversie op de share (publiceer-z.bat)
 builder.Services.AddScoped<WerkplekAgent>();           // per browser: is er een MDE Werkplek-agent op deze pc?   // duurtestlog van de testrig-PLC ophalen (FTP)
 
 // NDA: document maken uit het Word-sjabloon, opslaan in de filestore, en de

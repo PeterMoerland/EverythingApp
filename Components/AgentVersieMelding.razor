@@ -1,0 +1,26 @@
+@inject WerkplekAgent Agent
+@inject AgentUitgave Uitgave
+@implements IDisposable
+
+@* Melding als op deze pc een oudere MDE Werkplek-agent draait dan de nieuwste op de share (publiceer-z.bat).
+   Staat in ExemplaarWerk, dus op Test PCB en in Producten ▸ exemplaar ▸ Programmeren. *@
+
+@if (Agent.Aanwezig == true && Agent.Versie.Length > 0 && Uitgave.IsVerouderd(Agent.Versie, out var nieuwste))
+{
+    <div class="melding waarschuwing agent-versie">
+        Op deze pc draait MDE Agent <b>@Agent.Versie</b>; de nieuwste is <b>@nieuwste</b>. Sommige functies werken pas
+        met de nieuwe versie, en eerdere fouten zijn erin opgelost. Installeer hem met <code>installeer.bat</code> uit
+        <code>@InstallMap</code> (als beheerder), en vernieuw daarna deze pagina.
+    </div>
+}
+
+@code {
+    // installeer.bat staat één map boven de installers (…\MDE Agent\installeer.bat)
+    private string InstallMap => Path.GetDirectoryName(Uitgave.Map.TrimEnd('\\', '/')) ?? Uitgave.Map;
+
+    protected override void OnInitialized() => Agent.Gewijzigd += Ververs;
+
+    private void Ververs() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Agent.Gewijzigd -= Ververs;
+}

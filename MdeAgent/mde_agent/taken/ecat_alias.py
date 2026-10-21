@@ -92,25 +92,95 @@ def _lees_kop(slave) -> bytes:
     return kop
 
 
+def _eeprom_status(slave) -> int | None:
+    """ESC-register 0x0502 (EEPROM control/status): bit 15 bezig, 13 commando-/ack-fout, 14 write-enable-fout,
+    11 checksum-fout, 12 laadfout, 6 EEPROM wordt nagebootst door de processor van de slave (emulatie)."""
+    try:
+        return int.from_bytes(bytes(slave._fprd(0x0502, 2))[:2], "little")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _wacht_eeprom(slave, seconden: float = 1.0) -> None:
+    """Wachten tot de EEPROM klaar is met schrijven (bit 15 'bezig' laag); een vaste pauze was te krap."""
+    einde = time.time() + seconden
+    while time.time() < einde:
+        st = _eeprom_status(slave)
+        if st is not None and not st & 0x8000:
+            return
+        time.sleep(0.01)
+
+
+def _lees_woord(slave, adres: int, pogingen: int = 3) -> bytes | None:
+    for _ in range(pogingen):
+        try:
+            return bytes(slave.eeprom_read(adres))[:2]
+        except Exception:  # noqa: BLE001
+            time.sleep(0.05)
+    return None
+
+
 def _schrijf_alias(slave, nieuw: int, log) -> None:
-    """Woord 4 én de checksum in woord 7 schrijven — zonder kloppende checksum negeert de ESC
-    de EEPROM-kop bij het opstarten en blijft het node-nummer 0 (dat is wat TwinCAT ook doet)."""
+    """Woord 4 (alias) en de checksum in woord 7 schrijven — veilig:
+
+    De checksum gaat er pas in als het alias goed teruggelezen is. Andersom (eerst checksum, dan pas controleren)
+    maakte op 21-10-2026 Everest-drives onbereikbaar: alias kwam verkeerd in de EEPROM (0 of 128 i.p.v. 31/33),
+    de checksum paste bij het bedoelde alias, en na spanning uit/aan negeerde de ESC de hele EEPROM-kop (PDI niet
+    actief: geen mailbox, MotionLab en FoE zien de drive niet). Lukt het alias niet, dan wordt het oude teruggezet
+    en blijft de checksum ongemoeid."""
+    st = _eeprom_status(slave)
+    if st is not None and st & 0x8000:
+        _wacht_eeprom(slave)
+        st = _eeprom_status(slave)
+    if st is not None and st & 0x8000:
+        raise RuntimeError("EEPROM blijft bezig; is er nog een ander EtherCAT-programma actief (MotionLab, TwinCAT)? Niets geschreven.")
     kop = bytearray(_lees_kop(slave))
-    oud_crc = kop[14]
-    if _crc8(bytes(kop[:14])) != oud_crc:
-        log(f"  let op: de huidige EEPROM-checksum klopt niet (0x{oud_crc:02X}, verwacht 0x{_crc8(bytes(kop[:14])):02X}); wordt nu hersteld")
+    oud_alias = bytes(kop[8:10])
+    checksum_ok = _crc8(bytes(kop[:14])) == kop[14]
+    if not checksum_ok:
+        log(f"  let op: de huidige EEPROM-checksum klopt niet (0x{kop[14]:02X}, verwacht 0x{_crc8(bytes(kop[:14])):02X}); wordt nu hersteld")
+    if st is not None and st & 0x0040:
+        log("  (EEPROM wordt door de slave zelf nagebootst)")
     kop[8:10] = nieuw.to_bytes(2, "little")
     crc = _crc8(bytes(kop[:14]))
-    slave.eeprom_write(EEPROM_ALIAS, bytes(kop[8:10]))
-    time.sleep(0.05)
-    slave.eeprom_write(0x0007, bytes([crc, kop[15]]))
-    time.sleep(0.05)
+
+    # 1. het alias, en controleren voordat er iets aan de checksum gebeurt
+    if bytes(kop[8:10]) != oud_alias:
+        slave.eeprom_write(EEPROM_ALIAS, bytes(kop[8:10]))
+        _wacht_eeprom(slave)
+        terug = _lees_woord(slave, EEPROM_ALIAS)
+        if terug != bytes(kop[8:10]):
+            gelezen = "niets" if terug is None else str(int.from_bytes(terug, "little"))
+            hersteld = False
+            try:
+                slave.eeprom_write(EEPROM_ALIAS, oud_alias)
+                _wacht_eeprom(slave)
+                hersteld = _lees_woord(slave, EEPROM_ALIAS) == oud_alias
+            except Exception:  # noqa: BLE001
+                pass
+            if hersteld:
+                raise RuntimeError(f"EEPROM leest {gelezen} terug in plaats van {nieuw}; het oude nummer "
+                                   f"{int.from_bytes(oud_alias, 'little')} is teruggezet en de checksum is niet aangeraakt.")
+            raise RuntimeError(f"EEPROM leest {gelezen} terug in plaats van {nieuw} en het oude nummer terugzetten lukte niet. "
+                               "NIET de spanning eraf halen: sluit andere EtherCAT-programma's en schrijf het node-adres opnieuw, "
+                               "anders kan de drive na spanning uit/aan onbereikbaar zijn.")
+
+    # 2. pas nu de checksum (ook als alleen die niet klopte)
+    if kop[14] != crc or not checksum_ok:
+        for poging in range(2):
+            slave.eeprom_write(0x0007, bytes([crc, kop[15]]))
+            _wacht_eeprom(slave)
+            if (_lees_woord(slave, 0x0007) or b"\0")[0] == crc:
+                break
+        else:
+            raise RuntimeError(f"checksum niet geschreven (verwacht 0x{crc:02X}). NIET de spanning eraf halen: sluit andere "
+                               "EtherCAT-programma's en schrijf het node-adres opnieuw, anders kan de drive na spanning uit/aan "
+                               "onbereikbaar zijn.")
     terug = bytearray(_lees_kop(slave))
-    if terug[8:10] != kop[8:10]:
-        raise RuntimeError(f"EEPROM leest {int.from_bytes(terug[8:10], 'little')} terug in plaats van {nieuw}")
-    if terug[14] != crc:
-        raise RuntimeError(f"checksum niet geschreven (0x{terug[14]:02X} i.p.v. 0x{crc:02X})")
-    log(f"  EEPROM: node {nieuw}, checksum 0x{crc:02X}")
+    if terug[8:10] != kop[8:10] or _crc8(bytes(terug[:14])) != terug[14]:
+        raise RuntimeError(f"controle na schrijven klopt niet (EEPROM woord 0..7: {terug.hex(' ')}). NIET de spanning eraf halen; "
+                           "schrijf het node-adres opnieuw.")
+    log(f"  EEPROM: node {nieuw}, checksum 0x{crc:02X} (gecontroleerd)")
 
 
 def _lees_register(slave) -> int | None:

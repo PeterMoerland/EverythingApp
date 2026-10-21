@@ -295,6 +295,41 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Melding: oude MDE Agent op deze pc (21-10-2026)
+
+`Services/AgentUitgave` (singleton) leest de hoogste `MdeAgent-setup-<versie>.exe` uit `Productie:AgentMap` (standaard
+`\\172.16.1.4\data\software\MDE Apps\MDE Agent\uitvoer`, waar `publiceer-z.bat` hem neerzet; submap `oud` telt niet),
+10 min onthouden. `Components/AgentVersieMelding` (bovenin `ExemplaarWerk`, dus Test PCB en Producten > Programmeren)
+toont een oranje melding als de versie uit `/health` lager is. Share onbereikbaar = geen melding. Het serviceaccount van
+de app moet die share kunnen lezen (zelfde share als de filestore). Dus: eerst `publiceer-z.bat`, dan ziet iedereen het.
+
+## Taak blijft 'bezig' bij de agent (agent 1.20.2, 21-10-2026)
+
+Melding collega (Swivels testen): de app zegt dat er nog een taak loopt, alleen de service herstarten hielp. Twee oorzaken:
+- De app verliest de taak (pagina vernieuwd, venster dicht, recept met `bediening` wacht op Klaar): de agent doet er één
+  tegelijk en weigert de volgende met 409 "Er loopt al een taak (naam, id)". Nu vraagt `VoerTaakUit` dan of die taak
+  gestopt mag worden (`StopAchtergeblevenTaak`: POST /jobs/<id>/stop, tot 15 s wachten) en start daarna opnieuw.
+- Een stil vastgelopen werkproces: `coe._draai` keek alleen naar de time-out als er een regel binnenkwam. Nu bewaakt de
+  draad `doorgeven` time-out en Stop los van de uitvoer (scratchpad `draaitoets.py`: time-out 2 s, Stop coe 1 s, Stop mde 9 s).
+  Werkprocessen sluiten na het resultaat af met `os._exit` (`__main__`): een draad die op stdin wacht (mde, ecat.io)
+  kan het normale afsluiten van Python laten hangen.
+
+## Node-adressen schrijven veilig gemaakt (agent 1.20.1, 21-10-2026)
+
+Incident: twee robots met een Everest (drive B) die daarna onbereikbaar was voor de app, MotionLab en firmware laden
+(drive vervangen). Historie product 83, 21-10 11:34: "node-adressen schrijven: MISLUKT — positie 1: EEPROM write error;
+positie 2: EEPROM leest 0 terug in plaats van 31; positie 4: EEPROM leest 128 terug in plaats van 33". Oorzaak in
+`ecat_alias._schrijf_alias`: alias (woord 4) schrijven, 50 ms, **checksum (woord 7) schrijven**, en pas dan controleren.
+Kwam het alias er verkeerd in, dan paste de checksum niet meer bij de kop; na spanning uit/aan negeert de ESC de
+EEPROM-kop (PDI niet actief), dus geen mailbox: MotionLab en FoE zien de drive niet. Vermoedelijke aanleiding van het
+verkeerd schrijven: een tweede master tegelijk (MotionLab open) of een te korte wachttijd.
+Nu: wachten op EEPROM-bit "bezig" (0x0502 bit 15), alias teruglezen; klopt het niet, dan het oude alias terugzetten en de
+checksum niet aanraken; pas daarna de checksum, teruglezen, en de hele kop nog eens controleren. Melding "NIET de spanning
+eraf halen" als terugzetten of checksum mislukt. De bevestiging in de app vraagt MotionLab/TwinCAT eerst te sluiten.
+Getest met een nagebootste EEPROM (scratchpad `aliastoets.py`), niet op een echte drive.
+Herstel van een drive met alleen een kapotte checksum: los aansluiten, Node-adressen lezen (checksum ok = false), het
+gewenste nummer opnieuw schrijven, spanning uit/aan. Werkt alleen als de ESC de EEPROM zelf beheert (geen emulatie).
+
 ## Controllertypen: tabs, receptenlijst met editor (21-10-2026)
 
 - Rechts twee tabs: **Firmware** en **Testrecepten** (alleen bij SDO-slaves). Uitleg staat achter een **?**-knop

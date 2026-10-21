@@ -16,6 +16,8 @@
    met stapnummers) en door Producten ▸ exemplaar ▸ tab Programmeren (zonder nummers).
    De aanroeper toont zelf de kaart en de historie en ververst die via OpGewijzigd. *@
 
+<AgentVersieMelding />
+
 @if (_melding is not null)
 {
     <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
@@ -2075,7 +2077,9 @@
         var dubbel = wijz.Select(w => w.Nieuw!.Value).Where(n => n != 0).GroupBy(n => n).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         if (dubbel.Count > 0) { Toon("Hetzelfde nummer bij meerdere slaves: " + string.Join(", ", dubbel), true); return; }
         var tekst = string.Join("\n", wijz.Select(w => $"  • positie {w.Positie} {w.Naam}: {(w.Alias?.ToString() ?? "?")} → {w.Nieuw}"));
-        if (!await Bevestig("Deze node-nummers in de slaves schrijven (EEPROM)?\n" + tekst)) return;
+        if (!await Bevestig("Deze node-nummers in de slaves schrijven (EEPROM)?\n" + tekst +
+                            "\n\nSluit eerst MotionLab, TwinCAT en andere EtherCAT-programma's: twee masters tegelijk kunnen de EEPROM " +
+                            "beschadigen. Mislukt het schrijven, haal dan niet de spanning eraf maar probeer het opnieuw.")) return;
         var adressen = wijz.ToDictionary(w => w.Positie.ToString(), w => w.Nieuw!.Value);
         await VoerTaakUit("ecat.alias", JsonSerializer.Serialize(new { wat = "schrijf", adressen }), "EtherCAT node-adressen schrijven (Write to slaves)", 120, async res =>
         {
@@ -3665,6 +3669,8 @@
         try
         {
             var start = await Agent("/taken/" + taak, 30, body);
+            if (start.status == 409 && await StopAchtergeblevenTaak(FoutUit(start.tekst) ?? start.tekst))
+                start = await Agent("/taken/" + taak, 30, body);
             if (start.status != 202)
             {
                 _taakFout = start.status switch
@@ -3748,6 +3754,40 @@
             try { _attributen = await Repo.GetAttributenAsync(ProductId); } catch { }
             await Gewijzigd();
         }
+    }
+
+    /// <summary>
+    /// De agent doet één taak tegelijk. Loopt er nog een die deze pagina niet (meer) volgt — pagina vernieuwd, venster
+    /// dicht, recept dat op Klaar wacht, of een vastgelopen werker — dan die na bevestiging stoppen in plaats van de
+    /// service te herstarten. True = gestopt, opnieuw starten kan.
+    /// </summary>
+    private async Task<bool> StopAchtergeblevenTaak(string melding)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(melding, @"Er loopt al een taak \(([^,]+), ([^)]+)\)");
+        if (!m.Success) return false;
+        var (naam, id) = (m.Groups[1].Value.Trim(), m.Groups[2].Value.Trim());
+        if (!await Bevestig($"Op de werkplek-agent loopt nog een taak ({naam}) die dit scherm niet volgt, bijvoorbeeld na het " +
+                            "vernieuwen van de pagina of een recept dat op Klaar wacht.\n\nDie taak stoppen en daarna deze starten?"))
+            return false;
+        try
+        {
+            var r = await Agent($"/jobs/{id}/stop", 10, "{}");
+            if (r.status != 200) { _taakRegels.Add($"… stoppen lukte niet ({r.status}: {FoutUit(r.tekst) ?? r.tekst})"); return false; }
+            _taakRegels.Add($"… lopende taak {naam} gestopt; wachten tot hij klaar is …");
+            StateHasChanged();
+            // een recept rondt netjes af (uitgangen uit); een vastgelopen werker wordt na hoogstens 8 s afgebroken
+            for (var i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                var st = await Agent($"/jobs/{id}", 10);
+                if (st.status != 200) return true;
+                using var doc = JsonDocument.Parse(st.tekst);
+                if (Tekst(doc.RootElement, "stand") is not ("bezig" or "wacht")) return true;
+            }
+            _taakRegels.Add("… de oude taak stopt niet; herstart de agent-service als dit zo blijft.");
+            return false;
+        }
+        catch (Exception ex) { _taakRegels.Add("… stoppen lukte niet: " + ex.Message); return false; }
     }
 
     // ---------------------------------------------------------------- drives uitlezen

@@ -76,7 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
 
     if argv[:1] == ["--werker"]:
-        return _werker(argv[1:])
+        code = _werker(argv[1:])
+        # Hard afsluiten na het resultaat: een draad die op stdin wacht (mde, ecat.io) of een C-bibliotheek kan het
+        # normale afsluiten van Python laten hangen; dan bleef de taak bij de agent 'bezig' tot de service herstartte.
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:  # noqa: BLE001
+            pass
+        os._exit(int(code or 0))
 
     if argv[:1] == ["--toon-token"]:
         inst = instellingen.lees()
