@@ -51,7 +51,7 @@ public class DriveRecept
     /// <summary>Voorbeeldrecept (Swivel) om van te starten; alle bouwstenen komen erin voor.</summary>
     public const string Voorbeeld =
         "[\n" +
-        "  {\"stap\": \"monitor\", \"objecten\": [{\"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"naam\": \"Druk (bar x100)\"},\n" +
+        "  {\"stap\": \"monitor\", \"objecten\": [{\"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"naam\": \"Druk (bar x100)\", \"min\": 0, \"max\": 4500},\n" +
         "                                 {\"index\": \"0x6010\", \"sub\": 1, \"type\": \"INT\", \"naam\": \"Joint 1\"}]},\n" +
         "  {\"stap\": \"identiteit\", \"vendor\": \"0x000010E3\", \"productcode\": \"0x00055955\", \"revisie\": \"0x00000001\"},\n" +
         "  {\"stap\": \"lees\", \"naam\": \"Druk (bar x100)\", \"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"min\": 0, \"max\": 4500},\n" +
@@ -65,7 +65,11 @@ public class DriveRecept
         "  ]},\n" +
         "  {\"stap\": \"schrijf\", \"naam\": \"Vacuum aan\", \"index\": \"0x7020\", \"sub\": 1, \"type\": \"BOOL\", \"waarde\": 1},\n" +
         "  {\"stap\": \"wacht_tot\", \"naam\": \"Druk zakt onder 0,50 bar\", \"index\": \"0x6020\", \"sub\": 0, \"type\": \"UINT\", \"max\": 50, \"timeout\": 5},\n" +
-        "  {\"stap\": \"schrijf\", \"naam\": \"Vacuum uit\", \"index\": \"0x7020\", \"sub\": 1, \"type\": \"BOOL\", \"waarde\": 0, \"stoppen\": false}\n" +
+        "  {\"stap\": \"schrijf\", \"naam\": \"Vacuum uit\", \"index\": \"0x7020\", \"sub\": 1, \"type\": \"BOOL\", \"waarde\": 0, \"stoppen\": false},\n" +
+        "  {\"stap\": \"bediening\", \"naam\": \"Swivel met de hand bedienen\", \"seconden\": 1800,\n" +
+        "   \"knoppen\": [{\"naam\": \"Joint 1 naar 0\", \"index\": \"0x7010\", \"sub\": 1, \"type\": \"INT\", \"waarde\": 0}],\n" +
+        "   \"schakelaars\": [{\"naam\": \"Vacuum\", \"index\": \"0x7020\", \"sub\": 1}, {\"naam\": \"Blazen\", \"index\": \"0x7020\", \"sub\": 2}],\n" +
+        "   \"invoer\": [{\"naam\": \"Doel joint 1\", \"index\": \"0x7010\", \"sub\": 1, \"type\": \"INT\", \"min\": -1000, \"max\": 1000}]}\n" +
         "]";
 
     /// <summary>Controleert de JSON: een lijst van objecten met een bekende "stap" (ook binnen "herhaal"). Geeft de fout, of null.</summary>
@@ -95,11 +99,85 @@ public class DriveRecept
                 var fout = ControleerLijst(binnen, $"{prefix}{nr}.");
                 if (fout is not null) return fout;
             }
+            if (stap == "bediening")
+            {
+                var aantal = 0;
+                foreach (var soort in new[] { "knoppen", "schakelaars", "invoer" })
+                {
+                    if (!s.TryGetProperty(soort, out var elementen)) continue;
+                    if (elementen.ValueKind != System.Text.Json.JsonValueKind.Array) return $"Stap {prefix}{nr}: \"{soort}\" moet een lijst zijn.";
+                    foreach (var el in elementen.EnumerateArray())
+                    {
+                        aantal++;
+                        if (el.ValueKind != System.Text.Json.JsonValueKind.Object || !el.TryGetProperty("index", out _))
+                            return $"Stap {prefix}{nr}: elk element in \"{soort}\" heeft een \"index\" nodig.";
+                        if (soort == "knoppen" && !el.TryGetProperty("waarde", out _))
+                            return $"Stap {prefix}{nr}: elke knop heeft een \"waarde\" nodig.";
+                    }
+                }
+                if (aantal == 0) return $"Stap {prefix}{nr}: bediening zonder knoppen, schakelaars of invoer.";
+            }
         }
         return nr == 0 ? (prefix.Length == 0 ? "Het recept heeft geen stappen." : $"Stap {prefix.TrimEnd('.')}: het herhaal-blok is leeg.") : null;
     }
 
-    public static readonly string[] Bouwstenen = { "identiteit", "lees", "schrijf", "wacht", "pauze", "wacht_tot", "herhaal", "beweging", "doorgeefluik", "monitor" };
+    public static readonly string[] Bouwstenen = { "identiteit", "lees", "schrijf", "wacht", "pauze", "wacht_tot", "herhaal", "beweging", "doorgeefluik", "monitor", "bediening" };
+
+    /// <summary>De bediening-stap op plek <paramref name="nr"/> (1 = eerste stap, alleen het hoogste niveau); null als het geen bediening is.</summary>
+    public BedienStap? Bediening(int nr)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array || nr < 1 || nr > doc.RootElement.GetArrayLength()) return null;
+            var s = doc.RootElement[nr - 1];
+            if (s.ValueKind != System.Text.Json.JsonValueKind.Object || !s.TryGetProperty("stap", out var st) || st.GetString() != "bediening") return null;
+            return new BedienStap
+            {
+                Naam = s.TryGetProperty("naam", out var n) ? n.GetString() ?? "" : "",
+                Knoppen = BedienStap.Lees(s, "knoppen"), Schakelaars = BedienStap.Lees(s, "schakelaars"), Invoer = BedienStap.Lees(s, "invoer"),
+            };
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Grenzen (min/max) per objectnaam uit de monitor-stappen, ook binnen herhaal-blokken: grenslijnen in de grafiek.</summary>
+    public Dictionary<string, (double? Min, double? Max)> Grenzen()
+    {
+        var uit = new Dictionary<string, (double? Min, double? Max)>();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            void Loop(System.Text.Json.JsonElement lijst)
+            {
+                if (lijst.ValueKind != System.Text.Json.JsonValueKind.Array) return;
+                foreach (var s in lijst.EnumerateArray())
+                {
+                    if (s.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    if (s.TryGetProperty("objecten", out var o)) foreach (var kv in GrenzenUit(o)) uit[kv.Key] = kv.Value;
+                    if (s.TryGetProperty("stappen", out var b)) Loop(b);
+                }
+            }
+            Loop(doc.RootElement);
+        }
+        catch { }
+        return uit;
+    }
+
+    /// <summary>Grenzen uit een objectenlijst [{naam, min?, max?}, …] (monitor-stap of Meekijken).</summary>
+    public static Dictionary<string, (double? Min, double? Max)> GrenzenUit(System.Text.Json.JsonElement objecten)
+    {
+        var uit = new Dictionary<string, (double? Min, double? Max)>();
+        if (objecten.ValueKind != System.Text.Json.JsonValueKind.Array) return uit;
+        foreach (var o in objecten.EnumerateArray())
+        {
+            if (o.ValueKind != System.Text.Json.JsonValueKind.Object || !o.TryGetProperty("naam", out var n) || n.GetString() is not { Length: > 0 } naam) continue;
+            var min = BedienStap.Getal(o, "min");
+            var max = BedienStap.Getal(o, "max");
+            if (min is not null || max is not null) uit[naam] = (min, max);
+        }
+        return uit;
+    }
 
     /// <summary>De namen van de stappen, voor de weergave; een herhaal-blok als "naam (herhaal 10×: a → b)".</summary>
     public List<string> StapNamen()
@@ -132,6 +210,42 @@ public class DriveRecept
         return uit;
     }
 }
+
+/// <summary>Een stap "bediening" uit een testrecept: knoppen, schakelaars en invoervelden (HMI) voor Test PCB.</summary>
+public class BedienStap
+{
+    public string Naam { get; set; } = "";
+    public List<BedienElement> Knoppen { get; set; } = new();
+    public List<BedienElement> Schakelaars { get; set; } = new();
+    public List<BedienElement> Invoer { get; set; } = new();
+
+    internal static List<BedienElement> Lees(System.Text.Json.JsonElement stap, string soort)
+    {
+        var uit = new List<BedienElement>();
+        if (!stap.TryGetProperty(soort, out var lijst) || lijst.ValueKind != System.Text.Json.JsonValueKind.Array) return uit;
+        foreach (var el in lijst.EnumerateArray())
+        {
+            if (el.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            var index = el.TryGetProperty("index", out var i) ? i.ToString() : "";
+            var sub = el.TryGetProperty("sub", out var s) ? s.ToString() : "0";
+            var naam = el.TryGetProperty("naam", out var n) ? n.GetString() ?? "" : "";
+            // knop: de waarde die hij schrijft; schakelaar: de waarde voor "aan" (standaard 1), om de stand te tonen
+            var waarde = soort == "schakelaars" ? (el.TryGetProperty("aan", out var a) ? a.ToString() : "1")
+                       : el.TryGetProperty("waarde", out var w) ? w.ToString() : null;
+            uit.Add(new BedienElement(naam.Length > 0 ? naam : $"{index}:{sub}", Getal(el, "min"), Getal(el, "max"), waarde));
+        }
+        return uit;
+    }
+
+    internal static double? Getal(System.Text.Json.JsonElement el, string veld)
+        => el.TryGetProperty(veld, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number ? v.GetDouble()
+         : el.TryGetProperty(veld, out v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+           && double.TryParse(v.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d
+         : null;
+}
+
+/// <summary>Eén knop, schakelaar of invoerveld van een bediening-stap (de agent zoekt index/sub/type zelf op in het recept).</summary>
+public record BedienElement(string Naam, double? Min, double? Max, string? Waarde);
 
 /// <summary>Wat er op een drive-positie van een halffabricaat verwacht wordt.</summary>
 public class DrivePositie

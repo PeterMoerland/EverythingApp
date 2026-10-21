@@ -409,7 +409,7 @@
 @if (_testOpen)
 {
     <div class="cmdk-overlay midden">
-        <div class="fusion-kijker ec-venster verplaatsbaar prod-test-venster">
+        <div class="fusion-kijker ec-venster verplaatsbaar prod-test-venster @(IsRecept ? "prod-test-recept" : "")">
             <div class="sleepkop fusion-kijker-kop">
                 <b>@TestIcoon(_testCode) @TestNaam — @Naam.Naam · @Exemplaar.Serienummer</b>
                 <span style="flex:1"></span>
@@ -468,13 +468,90 @@
                             <input type="checkbox" checked="@_dmInterpoleren" disabled="@_taakBezig" @onchange="e => _dmInterpoleren = e.Value is bool b && b" /> geïnterpoleerd
                         </label>
                     }
-                    <button class="primair" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || _testCode.Length == 0 || (IsDriveTest && _testCode != "dualmotion" && StroomlusFirmware(_slPositie) is null) || (_testCode == "dualmotion" && !DualKlaar))" @onclick="StartTest">▶ Start</button>
+                    @if (!IsRecept)
+                    {
+                        <button class="primair" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || _testCode.Length == 0 || (IsDriveTest && _testCode != "dualmotion" && StroomlusFirmware(_slPositie) is null) || (_testCode == "dualmotion" && !DualKlaar))" @onclick="StartTest">▶ Start</button>
+                    }
                     @if (IsDriveTest && _testCode != "dualmotion" && StroomlusFirmware(_slPositie) is null) { <span class="uitleg">geen firmware met dictionary (.xdf) voor dit drivetype</span> }
                     @if (ReceptVan(_testCode) is { } rc)
                     {
-                        <ol class="prod-recept-stappen">
-                            @foreach (var s in rc.Recept.StapNamen()) { <li>@s</li> }
-                        </ol>
+                        @* Recept: Start/Stop bovenaan, links de stappen (balk op de lopende stap), rechts het vaste logvenster. *@
+                        var dezeTaak = _taakIsTest && _taakTitel == ReceptTitel(rc);
+                        var (huidig, uitkomst) = dezeTaak ? ReceptVerloop() : (0, new Dictionary<int, (bool Ok, string Tekst)>());
+                        var namen = rc.Recept.StapNamen();
+                        <div class="prod-recept-kop @(dezeTaak && _taakFout is not null ? "nogo" : dezeTaak && _taakKlaar ? "go" : "")">
+                            <button class="primair" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0)" @onclick="StartTest">▶ Start</button>
+                            <button class="klein rood" disabled="@(!dezeTaak || !_taakBezig || _taakJobId is null || _taakStopGevraagd)" @onclick="StopTaak"
+                                    title="Stopt het recept; de uitgangen van de slave vallen dan uit (watchdog)">@(_taakStopGevraagd ? "stoppen…" : "■ Stop")</button>
+                            <span class="prod-recept-stand">
+                                @if (!dezeTaak) { <span class="uitleg">nog niet gestart</span> }
+                                else if (_taakBezig) { <span>bezig · stap @(huidig > 0 ? huidig : 1) van @namen.Count</span> }
+                                else if (_taakFout is not null) { <b>MISLUKT</b> <span>@_taakFout</span> }
+                                else if (_taakKlaar) { <b>GESLAAGD</b> <span>@_taakResultaat</span> }
+                            </span>
+                        </div>
+                        var bs = dezeTaak && _taakBezig && huidig > 0 ? rc.Recept.Bediening(huidig) : null;
+                        @if (bs is not null)
+                        {
+                            @* Bediening (HMI): de agent wacht op opdrachten; hij schrijft alleen wat in deze stap van het recept staat. *@
+                            <div class="prod-bediening">
+                                <div class="prod-bediening-kop">
+                                    <b>🎛 @(bs.Naam.Length > 0 ? bs.Naam : "Bediening")</b>
+                                    <span class="uitleg">Het recept wacht op jou. Klaar = verder met de volgende stap; Stop = recept stoppen (uitgangen uit).</span>
+                                    <button class="primair" @onclick="@(() => Bedien(new { klaar = true }))">✓ Klaar</button>
+                                </div>
+                                <div class="prod-bediening-rij">
+                                    @for (var i = 0; i < bs.Knoppen.Count; i++)
+                                    {
+                                        var k = i; var bel = bs.Knoppen[i];
+                                        <button class="prod-bedien-knop" title="@($"schrijft {bel.Waarde}")" @onclick="@(() => Bedien(new { knop = k }))">@bel.Naam</button>
+                                    }
+                                    @for (var i = 0; i < bs.Schakelaars.Count; i++)
+                                    {
+                                        var k = i; var bel = bs.Schakelaars[i];
+                                        var aan = _mdeGeschreven.TryGetValue(bel.Naam, out var gw) && GetalGelijk(gw, bel.Waarde);
+                                        <button class="prod-schakelaar @(aan ? "aan" : "")" title="Klik om om te zetten" @onclick="@(() => Bedien(new { schakelaar = k, aan = !aan }))">
+                                            <span class="prod-schakelaar-baan"><span></span></span><span>@bel.Naam</span><b>@(aan ? "AAN" : "UIT")</b>
+                                        </button>
+                                    }
+                                </div>
+                                @if (bs.Invoer.Count > 0)
+                                {
+                                    <div class="prod-bediening-rij">
+                                        @for (var i = 0; i < bs.Invoer.Count; i++)
+                                        {
+                                            var k = i; var bel = bs.Invoer[i];
+                                            <div class="prod-bedien-invoer">
+                                                <span>@bel.Naam @if (bel.Min is not null || bel.Max is not null) { <small class="uitleg">(@(bel.Min?.ToString("0.###") ?? "…") … @(bel.Max?.ToString("0.###") ?? "…"))</small> }</span>
+                                                <input type="number" step="any" value="@(_bedienInvoer.GetValueOrDefault(k, ""))"
+                                                       @oninput="e => _bedienInvoer[k] = (string?)e.Value ?? string.Empty"
+                                                       @onkeydown="@(e => e.Key == "Enter" ? SchrijfInvoer(k, bel) : Task.CompletedTask)" />
+                                                <button class="klein" @onclick="@(() => SchrijfInvoer(k, bel))">Schrijf</button>
+                                                @if (_mdeGeschreven.TryGetValue(bel.Naam, out var nu)) { <small class="uitleg">nu @nu</small> }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <div class="prod-recept-werk @(bs is not null ? "compact" : "")">
+                            <ol class="prod-recept-stappen">
+                                @for (var i = 0; i < namen.Count; i++)
+                                {
+                                    var nr = i + 1;
+                                    var klaar = uitkomst.TryGetValue(nr, out var u);
+                                    var actief = dezeTaak && _taakBezig && nr == huidig;
+                                    <li class="@(actief ? "actief" : klaar ? (u.Ok ? "ok" : "fout") : "")" title="@(klaar ? u.Tekst : "")">
+                                        <span class="prod-stap-teken">@(actief ? "▶" : klaar ? (u.Ok ? "✓" : "✗") : "")</span>
+                                        <span>@namen[i]</span>
+                                        @if (klaar) { <small>@u.Tekst</small> }
+                                    </li>
+                                }
+                            </ol>
+                            <div class="prod-log prod-recept-log">
+                                <pre>@(dezeTaak && _taakRegels.Count > 0 ? string.Join("\n", _taakRegels) : "De uitvoer van het recept verschijnt hier.")</pre>
+                            </div>
+                        </div>
                         @if (!rc.Recept.Stappen.Contains("\"monitor\"", StringComparison.OrdinalIgnoreCase))
                         {
                             <p class="uitleg">Tip: een stap <code>{"stap": "monitor", "objecten": [ … ]}</code> bovenaan het recept laat de waarden hieronder live meelopen.</p>
@@ -527,7 +604,7 @@
                                 var naam = kv.Key;
                                 var kleur = MdeKleur(naam);
                                 var aan = kleur is not null;
-                                <button class="prod-mde-waarde @(aan ? "aan" : "")" title="@(aan ? "Uit de grafiek halen" : "In de grafiek zetten")"
+                                <button class="prod-mde-waarde @(aan ? "aan" : "") @(BuitenGrens(naam) ? "buiten" : "")" title="@((aan ? "Uit de grafiek halen" : "In de grafiek zetten") + GrensTekst(naam))"
                                         @onclick="() => WisselMdeLijn(naam)">
                                     <span class="prod-mde-kleur" style="@(aan ? $"background:{kleur}" : "")"></span>
                                     <span>@naam</span><b>@(kv.Value ?? "—")</b>
@@ -579,7 +656,7 @@
                     </label>
                 </div>
 
-                @if (_taakTitel.Length > 0 && _taakIsTest)
+                @if (_taakTitel.Length > 0 && _taakIsTest && !IsRecept)
                 {
                     <div class="prod-taak @(_taakFout is not null ? "nogo" : _taakKlaar ? "go" : "")">
                         <div class="prod-drives-kop">
@@ -2736,6 +2813,51 @@
 
     private static double? Lees(Dictionary<string, double?> w, string naam) => w.TryGetValue(naam, out var v) ? v : null;
 
+    // ---- grenzen (min/max van monitor-objecten) en bediening (HMI-stap in een recept) ----
+    private Dictionary<string, (double? Min, double? Max)> _mdeGrenzen = new();
+    private Dictionary<string, string> _mdeGeschreven = new();      // laatst geschreven waarde per bedienelement (van de agent)
+    private Dictionary<int, string> _bedienInvoer = new();
+
+    private bool BuitenGrens(string naam)
+        => _mdeGrenzen.TryGetValue(naam, out var g) && _mdeReeks.Count > 0 && Lees(_mdeReeks[^1].Waarden, naam) is double v
+           && (g.Min is double lo && v < lo || g.Max is double hi && v > hi);
+
+    private string GrensTekst(string naam)
+        => _mdeGrenzen.TryGetValue(naam, out var g) ? $" · grens {g.Min?.ToString("0.##") ?? "…"} … {g.Max?.ToString("0.##") ?? "…"}" : "";
+
+    private static bool GetalGelijk(string? a, string? b)
+        => double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x)
+           && double.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var y)
+           ? Math.Abs(x - y) < 1e-9 : string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Opdracht naar de lopende recept-taak (stap bediening): {"knop": n}, {"schakelaar": n, "aan": b}, {"invoer": n, "waarde": w}, {"klaar": true}.</summary>
+    private async Task Bedien(object opdracht)
+    {
+        if (_taakJobId is null) return;
+        try
+        {
+            var r = await Agent($"/jobs/{_taakJobId}/invoer", 10, JsonSerializer.Serialize(new { tekst = JsonSerializer.Serialize(opdracht) }));
+            if (r.status != 200) _taakRegels.Add("… bediening niet verstuurd: " + (FoutUit(r.tekst) ?? r.tekst));
+        }
+        catch (Exception ex) { _taakRegels.Add("… bediening niet verstuurd: " + ex.Message); }
+    }
+
+    private async Task SchrijfInvoer(int k, BedienElement el)
+    {
+        var tekst = (_bedienInvoer.GetValueOrDefault(k, "") ?? "").Trim().Replace(',', '.');
+        if (!double.TryParse(tekst, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
+        {
+            _taakRegels.Add($"… {el.Naam}: '{tekst}' is geen getal");
+            return;
+        }
+        if (el.Min is double lo && w < lo || el.Max is double hi && w > hi)
+        {
+            _taakRegels.Add($"… {el.Naam}: {w} ligt buiten {el.Min?.ToString() ?? "…"} … {el.Max?.ToString() ?? "…"}");
+            return;
+        }
+        await Bedien(new { invoer = k, waarde = w });
+    }
+
     // ---- grafiek bij meekijken/recepten: één grafiek, lijnen aan/uit per waarde ----
     private readonly List<string> _mdeGekozen = new();          // op volgorde van aanzetten; bepaalt de kleur
     private bool _mdeEigenSchaal = true;
@@ -2773,7 +2895,9 @@
             return (lo - m, hi + m);
         }
         var lijnen = _mdeGekozen.Where(_mdeWaarden.ContainsKey).ToList();
-        var perLijn = lijnen.ToDictionary(n => n, n => Bereik(reeks.Select(r => Lees(r.Waarden, n)).Where(v => v.HasValue).Select(v => v!.Value)));
+        // grenzen tellen mee in de schaal, zodat de grenslijn altijd in beeld is
+        IEnumerable<double> Grens(string n) => _mdeGrenzen.TryGetValue(n, out var g) ? new[] { g.Min, g.Max }.Where(x => x.HasValue).Select(x => x!.Value) : Array.Empty<double>();
+        var perLijn = lijnen.ToDictionary(n => n, n => Bereik(reeks.Select(r => Lees(r.Waarden, n)).Where(v => v.HasValue).Select(v => v!.Value).Concat(Grens(n))));
         var samen = Bereik(perLijn.Values.SelectMany(b => new[] { b.Min, b.Max }));
         <svg class="prod-scope prod-mde-grafiek" viewBox="0 0 800 260" preserveAspectRatio="none">
             <rect x="0" y="0" width="800" height="260" fill="#111" />
@@ -2784,6 +2908,17 @@
                 string Y(double v) => (250 - (v - lo) / (hi - lo) * 230).ToString("0.#", ci);
                 var punten = string.Join(" ", reeks.Where(r => Lees(r.Waarden, naam).HasValue).Select(r => X(r.T) + "," + Y(Lees(r.Waarden, naam)!.Value)));
                 <polyline points="@punten" fill="none" stroke="@MdeKleur(naam)" stroke-width="1.6" vector-effect="non-scaling-stroke" />
+                @if (_mdeGrenzen.TryGetValue(naam, out var gr))
+                {
+                    @foreach (var (gw, soort) in new[] { (gr.Max, "max"), (gr.Min, "min") })
+                    {
+                        @if (gw is double g)
+                        {
+                            <line x1="0" x2="800" y1="@Y(g)" y2="@Y(g)" stroke="@MdeKleur(naam)" stroke-width="1" stroke-dasharray="6 4" opacity="0.85" vector-effect="non-scaling-stroke" />
+                            @SvgTekst(740, double.Parse(Y(g), ci) + (soort == "max" ? -3 : 11), $"{soort} {g.ToString("0.##", ci)}", MdeKleur(naam)!, 10, false, "end")
+                        }
+                    }
+                }
             }
             @for (var i = 0; i < lijnen.Count; i++)
             {
@@ -2820,6 +2955,8 @@
                 _ => p.Value.ToString(),
             };
         }
+        if (res.TryGetProperty("geschreven", out var gs) && gs.ValueKind == JsonValueKind.Object)
+            foreach (var p in gs.EnumerateObject()) _mdeGeschreven[p.Name] = p.Value.ValueKind == JsonValueKind.Number ? p.Value.GetRawText() : p.Value.ToString();
         _mdeReeks.Add((t, getallen));
         if (!_mdeGekozen.Any(getallen.ContainsKey) && getallen.FirstOrDefault(kv => kv.Value.HasValue).Key is { } eerste) _mdeGekozen.Add(eerste);
         if (_mdeReeks.Count > 3000) _mdeReeks.RemoveRange(0, _mdeReeks.Count - 3000);
@@ -2912,7 +3049,7 @@
             if (objecten.ValueKind != JsonValueKind.Array || objecten.GetArrayLength() == 0) { Toon("Geef een lijst objecten op.", true); return; }
         }
         catch (Exception ex) { Toon("De objectenlijst is geen geldige JSON: " + ex.Message, true); return; }
-        _mdeWaarden = new(); _mdeReeks = new();
+        _mdeWaarden = new(); _mdeReeks = new(); _mdeGrenzen = DriveRecept.GrenzenUit(objecten);
         var body = JsonSerializer.Serialize(new { positie = pos, objecten, seconden = _monitorSeconden });
         await VoerTaakUit("mde.monitor", body, $"Monitoring — slave {pos}{(p is null ? "" : $" ({p.Naam})")}", _monitorSeconden + 60,
             res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "metingen")} metingen" : "klaar"), live: MdeLive);
@@ -2926,6 +3063,32 @@
         return x.Recept is null ? null : x;
     }
 
+    private bool IsRecept => _testCode.StartsWith("recept:", StringComparison.Ordinal);
+
+    private static string ReceptTitel((DrivePositie Positie, DriveRecept Recept) rc)
+        => $"{rc.Recept.Naam} — slave {rc.Positie.Positie} ({rc.Positie.Naam})";
+
+    // "Stap 3/11: …" = stap 3 van het recept; "Stap 2.1/3: …" (binnen een herhaal-blok) telt niet als nieuwe stap.
+    private static readonly System.Text.RegularExpressions.Regex ReceptStapRegel = new(@"(?<![\d.])Stap (\d+)/\d+:");
+    private static readonly System.Text.RegularExpressions.Regex ReceptUitkomstRegel = new(@"\s([✓✗]) (.*)$");
+
+    /// <summary>Uit het log van de agent: de stap die nu loopt en per stap de uitkomst (de laatste ✓/✗-regel vóór de volgende stap).</summary>
+    private (int Huidig, Dictionary<int, (bool Ok, string Tekst)> Uitkomst) ReceptVerloop()
+    {
+        var uitkomst = new Dictionary<int, (bool Ok, string Tekst)>();
+        var huidig = 0;
+        foreach (var regel in _taakRegels)
+        {
+            if (regel.Contains("Werker klaar", StringComparison.Ordinal)) break;
+            var m = ReceptStapRegel.Match(regel);
+            if (m.Success) { huidig = int.Parse(m.Groups[1].Value); continue; }
+            if (huidig == 0) continue;
+            var u = ReceptUitkomstRegel.Match(regel);
+            if (u.Success) uitkomst[huidig] = (u.Groups[1].Value == "✓", u.Groups[2].Value);
+        }
+        return (huidig, uitkomst);
+    }
+
     private async Task StartRecept()
     {
         if (ReceptVan(_testCode) is not { } rc) return;
@@ -2934,8 +3097,11 @@
         try { stappen = JsonDocument.Parse(r.Stappen).RootElement.Clone(); }
         catch (Exception ex) { Toon("Het recept is geen geldige JSON: " + ex.Message, true); return; }
         var body = JsonSerializer.Serialize(new { positie = p.Positie, naam = r.Naam, stappen });
-        var titel = $"{r.Naam} — slave {p.Positie} ({p.Naam})";
-        await VoerTaakUit("mde.test", body, titel, 900, async res =>
+        var titel = ReceptTitel(rc);
+        _mdeGrenzen = r.Grenzen(); _mdeGeschreven = new(); _bedienInvoer = new();
+        // een bediening-stap wacht op de gebruiker (standaard tot een uur, max. 4 uur): de app moet zolang blijven volgen
+        var maxSeconden = r.Stappen.Contains("\"bediening\"", StringComparison.Ordinal) ? 4 * 3600 + 900 : 900;
+        await VoerTaakUit("mde.test", body, titel, maxSeconden, async res =>
         {
             var geslaagd = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("geslaagd", out var g) && g.ValueKind == JsonValueKind.True;
             var samenvatting = res.ValueKind == JsonValueKind.Object ? Tekst(res, "samenvatting") : "";
@@ -3455,7 +3621,7 @@
         _taakBezig = true; _taakKlaar = false;
         _taakTitel = titel; _taakFout = null; _taakResultaat = null; _taakProcent = 0; _taakRegels = new();
         _taakJobId = null; _taakStopGevraagd = false;
-        if (!taak.StartsWith("test.") && taak is not ("drives.stroomlus" or "drives.encodertest" or "drives.motiontest" or "drives.phasing" or "drives.dualmotion")) _taakIsTest = false;
+        if (!taak.StartsWith("test.") && taak is not ("mde.test" or "drives.stroomlus" or "drives.encodertest" or "drives.motiontest" or "drives.phasing" or "drives.dualmotion")) _taakIsTest = false;
         _taakStop = new CancellationTokenSource(TimeSpan.FromSeconds(maxSeconden));
         try
         {

@@ -33,6 +33,7 @@ import json
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 from . import _hulp
@@ -531,9 +532,33 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
     laatste = None
     try:
         # stderr mee in stdout: een aparte, niet-gelezen stderr-pijp kan vollopen en het kind blokkeren
-        proces = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        proces = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   text=True, encoding="utf-8", errors="replace", bufsize=1,
                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        klaar = threading.Event()
+        stop_sinds: list[float] = []
+
+        def doorgeven() -> None:
+            """Invoer van de app (POST /jobs/<id>/invoer) naar de werker, en Stop: de mde-werker stopt dan zelf netjes
+            (uitgangen uit, resultaat); andere werkers lezen geen stdin en worden meteen afgebroken (na 8 s ook mde)."""
+            while not klaar.wait(0.2):
+                try:
+                    for tekst in (job.lees_invoer() if hasattr(job, "lees_invoer") else []):
+                        proces.stdin.write(str(tekst).replace("\n", " ") + "\n")
+                        proces.stdin.flush()
+                    if getattr(job, "stop_gevraagd", False):
+                        if not stop_sinds:
+                            stop_sinds.append(time.time())
+                            if werker_naam == "mde":
+                                proces.stdin.write('{"stop": true}\n')
+                                proces.stdin.flush()
+                            else:
+                                proces.kill()
+                        elif time.time() - stop_sinds[0] > 8:
+                            proces.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+        threading.Thread(target=doorgeven, daemon=True).start()
         try:
             assert proces.stdout is not None
             # regel voor regel meelezen: {"log": …} → direct in het joblog, de laatste regel is het resultaat
@@ -556,12 +581,12 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
                 if time.time() - begin > timeout:
                     proces.kill()
                     raise RuntimeError(f"De drive antwoordde niet binnen {timeout} s.")
-                if getattr(job, "stop_gevraagd", False):
-                    proces.kill()
-                    raise RuntimeError("Gestopt door de gebruiker.")
             code = proces.wait(timeout=10)
             stderr = ""
+            if stop_sinds and not isinstance(laatste, dict):
+                raise RuntimeError("Gestopt door de gebruiker.")
         finally:
+            klaar.set()
             if proces.poll() is None:
                 proces.kill()
     finally:

@@ -31,9 +31,17 @@ Taak mde.test           parameters: positie, stappen (lijst), naam. Een testrece
                                        waarde aan de voorwaarde voldoet (bv. druk onder 50 binnen 5 s)
                           herhaal      keer (n), stappen [ … ]: het blok n keer uitvoeren; stopt bij de eerste
                                        mislukte ronde (tenzij "stoppen": false op het blok)
-                          monitor      objecten [{index, sub, type, naam}] — vanaf deze stap leest de werker die
-                                       objecten elke 0,2 s (tijdens wacht/beweging en na elke stap) en stuurt ze
-                                       live naar de app ({"live": {"t": s, "waarden": {naam: waarde}}})
+                          monitor      objecten [{index, sub, type, naam, min?, max?}] — vanaf deze stap leest de
+                                       werker die objecten elke 0,2 s (tijdens wacht/beweging en na elke stap) en stuurt
+                                       ze live naar de app ({"live": {"t": s, "waarden": {naam: waarde}}}); min/max
+                                       tekent de app als grenslijn in de grafiek
+                          bediening    knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub,
+                                       type?, aan? (1), uit? (0)}], invoer [{naam, index, sub, type, min?, max?}],
+                                       seconden (3600): de werker wacht op opdrachten van de app (HMI) en schrijft
+                                       alleen wat in deze stap staat; Klaar = verder met de volgende stap
+                        Opdrachten via stdin (POST /jobs/<id>/invoer, één JSON per regel): {"knop": n},
+                        {"schakelaar": n, "aan": true}, {"invoer": n, "waarde": w}, {"klaar": true}, {"stop": true}.
+                        Stop = netjes stoppen (uitgangen uit), ook buiten een bediening-stap.
 Taak mde.monitor        parameters: positie, objecten (zoals bij de bouwsteen monitor), seconden (120), interval (0.2).
                         Alleen lezen, live naar de app; Stop = eerder klaar.
 Taak mde.serienummer    parameters: positie, serienummer (getal), overschrijven? (false). Het serienummer in de
@@ -45,6 +53,7 @@ Taak mde.firmware       parameters: positie, firmware (URL/pad), versie, bestand
 """
 
 import json
+import queue
 import struct
 import sys
 import threading
@@ -84,6 +93,33 @@ def _identiteit(d: _Drive) -> dict:
         except Exception:  # noqa: BLE001
             uit[naam] = ""
     return uit
+
+
+# ---- opdrachten van de app via stdin (test en monitor): Stop, en de bediening-stap ----
+_INVOER: "queue.Queue[dict]" = queue.Queue()
+_STOP = threading.Event()
+
+
+class _Gestopt(Exception):
+    """Stop van de gebruiker: het recept houdt op, de werker ruimt netjes op (uitgangen uit)."""
+
+
+def _lees_stdin() -> None:
+    for regel in sys.stdin:
+        try:
+            c = json.loads(regel)
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(c, dict):
+            if c.get("stop"):
+                _STOP.set()
+            else:
+                _INVOER.put(c)
+
+
+def _controleer_stop() -> None:
+    if _STOP.is_set():
+        raise _Gestopt()
 
 
 def _hexgelijk(a, b) -> bool:
@@ -163,9 +199,10 @@ def _stap_schrijf(d: _Drive, s: dict, log) -> tuple[bool, str]:
 def _monitor_meet(d: _Drive, altijd: bool = False) -> dict | None:
     """De monitor-objecten lezen en als live-tussenstand naar de app sturen (hoogstens elke 0,2 s,
     tenzij `altijd`). Geeft de gelezen waarden terug, of None als er geen monitor ingesteld is."""
-    objs = getattr(d, "monitor", None)
+    objs = getattr(d, "monitor", None) or []
+    geschreven = getattr(d, "geschreven", None)
     live = getattr(d, "live", None)
-    if not objs or live is None:
+    if (not objs and not geschreven) or live is None:
         return None
     nu = time.time()
     if not altijd and nu - getattr(d, "laatste_meting", 0.0) < 0.2:
@@ -182,7 +219,10 @@ def _monitor_meet(d: _Drive, altijd: bool = False) -> dict | None:
             waarden[naam] = _lees_waarde(d, index, sub, (o.get("type") or "UINT").upper())
         except Exception:  # noqa: BLE001
             waarden[naam] = None
-    live({"t": round(nu - getattr(d, "t0", nu), 2), "waarden": waarden})
+    uit = {"t": round(nu - getattr(d, "t0", nu), 2), "waarden": waarden}
+    if geschreven:
+        uit["geschreven"] = geschreven          # laatst geschreven waarde per bedienelement (schakelaars, invoer)
+    live(uit)
     return waarden
 
 
@@ -193,6 +233,7 @@ def _slaap(d: _Drive, seconden: float) -> None:
         rest = einde - time.time()
         if rest <= 0:
             break
+        _controleer_stop()
         time.sleep(min(0.2, rest))
         _monitor_meet(d)
 
@@ -238,6 +279,7 @@ def _stap_wacht_tot(d: _Drive, s: dict, log) -> tuple[bool, str]:
             log(f"  {naam} = {w} na {time.time() - begin:.1f} s")
             return True, f"{naam} = {w} na {time.time() - begin:.1f} s ({eis})"
         _monitor_meet(d)
+        _controleer_stop()
         time.sleep(0.05)
     return False, f"{naam} = {w} na {timeout:g} s, niet {eis}"
 
@@ -285,6 +327,7 @@ def _stap_beweging(d: _Drive, s: dict, log) -> tuple[bool, str]:
                 log(f"    … {stand}")
                 laatste = time.time()
             _monitor_meet(d)
+            _controleer_stop()
             time.sleep(0.05)
         else:
             return False, f"{naam}: doel {doel} niet bereikt binnen {timeout:g} s (stand {stand})"
@@ -325,9 +368,80 @@ def _stap_doorgeefluik(d: _Drive, s: dict, log) -> tuple[bool, str]:
     return True, f"{naam} = {waarde}"
 
 
+def _getal(waarde, typ: str):
+    if typ == "REAL":
+        return float(waarde)
+    if isinstance(waarde, str) and waarde.strip().lower().startswith("0x"):
+        return int(waarde.strip(), 16)
+    return int(round(float(waarde)))
+
+
+def _stap_bediening(d: _Drive, s: dict, log) -> tuple[bool, str]:
+    """HMI: wachten op opdrachten van de app en alleen de elementen uit deze stap schrijven (met hun grenzen)."""
+    knoppen, schakelaars, invoer = s.get("knoppen") or [], s.get("schakelaars") or [], s.get("invoer") or []
+    if not (knoppen or schakelaars or invoer):
+        return False, "geen knoppen, schakelaars of invoervelden"
+    seconden = max(1.0, min(4 * 3600.0, float(s.get("seconden") or 3600)))
+    if getattr(d, "geschreven", None) is None:
+        d.geschreven = {}
+    while True:                                 # oude opdrachten (van voor deze stap) niet uitvoeren
+        try:
+            _INVOER.get_nowait()
+        except queue.Empty:
+            break
+    log(f"  bediening: {len(knoppen)} knoppen, {len(schakelaars)} schakelaars, {len(invoer)} invoervelden; "
+        "wacht op de gebruiker (Klaar = verder, Stop = recept stoppen) …")
+    _monitor_meet(d, altijd=True)
+    einde = time.time() + seconden
+    n = 0
+    while time.time() < einde:
+        _controleer_stop()
+        try:
+            c = _INVOER.get(timeout=0.05)
+        except queue.Empty:
+            _monitor_meet(d)
+            continue
+        if c.get("klaar"):
+            log("  bediening klaar.")
+            return True, f"bediening klaar, {n}× geschreven"
+        el, waarde = None, None
+        try:
+            if "knop" in c:
+                el = knoppen[int(c["knop"])]
+                waarde = el.get("waarde", 1)
+            elif "schakelaar" in c:
+                el = schakelaars[int(c["schakelaar"])]
+                waarde = el.get("aan", 1) if c.get("aan") else el.get("uit", 0)
+            elif "invoer" in c:
+                el = invoer[int(c["invoer"])]
+                waarde = c.get("waarde")
+        except (IndexError, ValueError, TypeError):
+            el = None
+        if el is None or waarde in (None, ""):
+            log(f"  » onbekende opdracht: {json.dumps(c, ensure_ascii=False)[:80]}")
+            continue
+        naam = el.get("naam") or f"0x{_int(el['index']):04X}:{_int(el.get('sub', 0))}"
+        try:
+            typ = (el.get("type") or ("BOOL" if "schakelaar" in c else "UINT")).upper()
+            w = _getal(waarde, typ)
+            if el.get("min") not in (None, "") and w < float(el["min"]) or el.get("max") not in (None, "") and w > float(el["max"]):
+                log(f"  » {naam} ← {w} geweigerd: buiten {el.get('min', '…')} … {el.get('max', '…')}")
+                continue
+            d.schrijf(_int(el["index"]), _int(el.get("sub", 0)), typ, w)
+            d.geschreven[naam] = w
+            n += 1
+            log(f"  » {naam} ← {w}")
+        except Exception as e:  # noqa: BLE001
+            log(f"  » {naam}: schrijven mislukt: {fouttekst(e)}")
+        _monitor_meet(d, altijd=True)
+    log(f"  bediening na {seconden:g} s beëindigd.")
+    return True, f"bediening na {seconden:g} s beëindigd, {n}× geschreven"
+
+
 _STAPPEN = {"identiteit": _stap_identiteit, "lees": _stap_lees, "schrijf": _stap_schrijf, "wacht": _stap_wacht,
             "pauze": _stap_wacht, "wacht_tot": _stap_wacht_tot, "herhaal": _stap_herhaal,
-            "beweging": _stap_beweging, "doorgeefluik": _stap_doorgeefluik, "monitor": _stap_monitor}
+            "beweging": _stap_beweging, "doorgeefluik": _stap_doorgeefluik, "monitor": _stap_monitor,
+            "bediening": _stap_bediening}
 
 
 # Veelvoorkomende SDO-abortcodes (ETG.1000.6 / CiA 301) in woorden
@@ -365,12 +479,16 @@ def _voer_stappen(d: _Drive, stappen: list, log, uit: list, prefix: str = "") ->
         soort = (s.get("stap") or "").lower()
         titel = s.get("naam") or soort
         fn = _STAPPEN.get(soort)
+        if _STOP.is_set():
+            return False
         log(f"Stap {prefix}{nr}/{len(stappen)}: {titel}")
         if fn is None:
             ok, tekst = False, f"onbekende bouwsteen '{soort}'"
         else:
             try:
                 ok, tekst = fn(d, s, log)
+            except _Gestopt:
+                ok, tekst = False, "gestopt door de gebruiker"
             except Exception as e:  # noqa: BLE001
                 ok, tekst = False, "fout: " + fouttekst(e)
         _monitor_meet(d, altijd=True)
@@ -378,6 +496,9 @@ def _voer_stappen(d: _Drive, stappen: list, log, uit: list, prefix: str = "") ->
         log(("  ✓ " if ok else "  ✗ ") + tekst)
         if not ok:
             geslaagd = False
+            if _STOP.is_set():
+                log("  gestopt door de gebruiker.")
+                return False
             if s.get("stoppen", True):
                 log("  afgebroken bij deze stap.")
                 return False
@@ -586,7 +707,10 @@ def _werker_test(d: _Drive, o: dict, log) -> dict:
     geslaagd = _voer_stappen(d, stappen, log, uit)
     mis = [u for u in uit if not u["geslaagd"]]
     samenvatting = f"{len(uit)} stappen gedaan" + (f", {len(mis)} mislukt: " + "; ".join(m["tekst"] for m in mis[:5]) if mis else ", alles goed")
-    return {"geslaagd": geslaagd, "samenvatting": samenvatting, "stappen": uit, **_identiteit(d)}
+    if _STOP.is_set():
+        samenvatting = f"gestopt door de gebruiker na {len(uit)} stappen"
+    return {"geslaagd": geslaagd and not _STOP.is_set(), "samenvatting": samenvatting, "stappen": uit,
+            "gestopt": _STOP.is_set(), **_identiteit(d)}
 
 
 def _werker_monitor(d: _Drive, o: dict, log) -> dict:
@@ -600,14 +724,14 @@ def _werker_monitor(d: _Drive, o: dict, log) -> dict:
     einde = time.time() + seconden
     n = 0
     laatste = {}
-    while time.time() < einde:
+    while time.time() < einde and not _STOP.is_set():
         w = _monitor_meet(d, altijd=True)
         if w is not None:
             laatste = w
             n += 1
         time.sleep(interval)
     log(f"Klaar: {n} metingen.")
-    return {"metingen": n, "waarden": laatste, **_identiteit(d)}
+    return {"metingen": n, "waarden": laatste, "gestopt": _STOP.is_set(), **_identiteit(d)}
 
 
 _TOESTANDEN = {0x01: "INIT", 0x02: "PRE-OP", 0x03: "BOOT", 0x04: "SAFE-OP", 0x08: "OP"}
@@ -955,6 +1079,8 @@ def werker(ifname: str, opdracht_json: str) -> dict:
         if o.get("eis_mde", True) and d.slave.man != MDE_VENDOR and o.get("wat") not in ("identiteit", "eeprom"):
             raise RuntimeError(f"Slave op positie {positie} is geen MDE-slave (vendor 0x{d.slave.man:08X}).")
         soort = o.get("wat")
+        if soort in ("test", "monitor"):
+            threading.Thread(target=_lees_stdin, daemon=True).start()
         if soort in ("identiteit", "test", "monitor"):
             # Eerst echt in PRE-OP: pas dan zet de slave zijn mailbox (SM0/SM1) open. Zonder deze stap vroegen we te
             # vroeg en gaf elke SDO 'WkcError, wkc 0' (Swivel, 14-10-2026); config_init wacht daar niet op.
@@ -1007,6 +1133,20 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                      40, werker_naam="mde"))
 
 
+def _duur(stappen: list) -> float:
+    """Bovengrens van de looptijd van een recept (s), voor de time-out van de werker."""
+    totaal = 0.0
+    for s in stappen:
+        soort = (s.get("stap") or "").lower()
+        if soort == "herhaal":
+            totaal += max(1, int(s.get("keer") or 1)) * _duur(s.get("stappen") or [])
+        elif soort == "bediening":
+            totaal += min(4 * 3600.0, float(s.get("seconden") or 3600))
+        else:
+            totaal += float(s.get("timeout") or 5) + float(s.get("seconden") or 0)
+    return totaal
+
+
 class Test:
     NAAM = "mde.test"
     OMSCHRIJVING = "MDE-slave: testrecept (bouwstenen) uitvoeren"
@@ -1023,7 +1163,7 @@ class Test:
              "eis_mde": parameters.get("eis_mde", True), "procesdata": parameters.get("procesdata", True)}
         job.log(f"Recept '{parameters.get('naam') or ''}': {len(stappen)} stappen op slave {o['positie']}.")
         job.voortgang(5)
-        timeout = sum(float(s.get("timeout") or 5) + float(s.get("seconden") or 0) for s in stappen) + 30
+        timeout = _duur(stappen) + 30
         res = _draai(inst, job, o, int(timeout), werker_naam="mde")
         job.log(("GESLAAGD: " if res.get("geslaagd") else "MISLUKT: ") + res.get("samenvatting", ""))
         job.klaar(res)

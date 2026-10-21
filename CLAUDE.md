@@ -295,6 +295,27 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Testrecepten: venster, grenzen en bediening/HMI (agent 1.20.0, 21-10-2026)
+
+- **Recept-venster** (Test PCB): de uitvoer staat in het testvenster zelf (`VoerTaakUit` telt `mde.test` nu als test;
+  daarvoor ging het log naar het scherm erachter). Groot venster (`prod-test-recept`), bovenin Start/Stop/stand, links de
+  stappen met een balk op de lopende stap en ✓/✗ + tekst per stap, rechts een vast log (column-reverse = loopt onderaan
+  mee). De stap komt uit de logregels "Stap n/m:" (`ReceptVerloop`; "Stap 2.1/3" binnen herhaal telt niet).
+- **Grenzen**: een monitor-object mag `min`/`max` hebben (`DriveRecept.Grenzen`, `GrenzenUit`; ook bij Meekijken). De
+  grafiek tekent ze als stippellijn in de kleur van de lijn en neemt ze mee in de schaal; een waarde erbuiten wordt rood.
+- **Bouwsteen `bediening`** (HMI): `knoppen` (vaste waarde), `schakelaars` (aan/uit, standaard 1/0, type BOOL) en
+  `invoer` (getal met min/max), `seconden` (standaard 3600, max 4 uur). De werker wacht op opdrachten via stdin
+  (`{"knop": n}`, `{"schakelaar": n, "aan": b}`, `{"invoer": n, "waarde": w}`, `{"klaar": true}`) en schrijft **alleen
+  wat in die stap staat**, met de grenzen (`_stap_bediening`); via de procesdata als het object gemapt is. De live-
+  tussenstand krijgt `geschreven` (laatste waarde per element) voor de stand van schakelaars. De app toont het paneel
+  zolang de lopende stap een bediening is (`DriveRecept.Bediening(nr)`, alleen het hoogste niveau) en stuurt via
+  `POST /jobs/<id>/invoer` (`Bedien`). Een recept met bediening krijgt in de app 4 uur + 15 min volgtijd.
+- **Stop netjes**: `coe._draai` geeft invoer en Stop door via stdin (draad `doorgeven`); de mde-werker stopt zelf
+  (`_STOP`, `_Gestopt`, uitgangen 0 via `_Procesdata.stop`) en geeft een resultaat met `gestopt`; andere werkers worden
+  bij Stop meteen afgebroken, mde na 8 s ook. `mde._duur` rekent de time-out (herhaal × blok, bediening).
+- Getest tegen de nagebootste Swivel (scratchpad `nep_bediening.py`: knoppen, schakelaar, invoer binnen/buiten grens,
+  onbekende knop, Klaar, Stop); app gebouwd, niet in de browser of op de testrig getest.
+
 ## MDE-slaves: versie zonder "v", serienummer in 0x1018:4 (agent 1.19.1, 21-10-2026)
 
 - De Swivel-firmware meldt in 0x100A "v1.0.5"; `coe_versie_gelijk` vond dat niet gelijk aan "1.0.5" ("Laden lijkt niet

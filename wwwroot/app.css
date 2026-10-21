@@ -2522,6 +2522,59 @@ html[data-thema="donker"] .sonos-speelt.stil { color: #7d8ea3; }
 .drv-recept { border: 1px solid #dde3ea; border-radius: 6px; padding: .5rem .7rem; margin-bottom: .6rem; }
 .drv-stappen { width: 100%; min-height: 9rem; resize: vertical; font-family: Consolas, monospace; font-size: .85em; box-sizing: border-box; margin-top: .3rem; }
 .prod-recept-stappen { margin: .2rem 0 .5rem; padding-left: 1.4rem; font-size: .9em; }
+/* Recept in het testvenster: groot vast venster, Start/Stop bovenaan, stappen met balk op de lopende stap, vast log */
+.prod-test-venster.prod-test-recept { width: min(92rem, 97vw); height: 92vh; max-height: 92vh; }
+.prod-recept-kop { flex-basis: 100%; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+                   padding: .45rem .6rem; border: 2px solid #cfd6df; border-radius: 8px; background: #f7f9fc; }
+.prod-recept-kop.go { border-color: #2f9e44; background: #f3faf4; }
+.prod-recept-kop.nogo { border-color: #c92a2a; background: #fdf3f3; }
+.prod-recept-stand { display: flex; gap: .5rem; align-items: baseline; min-width: 0; }
+.prod-recept-werk { flex-basis: 100%; display: grid; grid-template-columns: minmax(16rem, 28rem) 1fr; gap: .8rem; align-items: start; }
+.prod-recept-werk .prod-recept-stappen { list-style: none; padding: 0; margin: 0; counter-reset: stap; }
+.prod-recept-werk .prod-recept-stappen li { counter-increment: stap; display: grid; grid-template-columns: 1.6rem 1fr; column-gap: .2rem;
+                                            padding: .3rem .5rem; border-radius: 5px; border-left: 4px solid transparent; }
+.prod-recept-werk .prod-recept-stappen li > span:nth-child(2)::before { content: counter(stap) ". "; color: #6b7a8c; }
+.prod-recept-werk .prod-recept-stappen li small { grid-column: 2; color: #5b6878; overflow-wrap: anywhere; }
+.prod-recept-werk .prod-recept-stappen li.actief { background: #1f6feb; color: #fff; border-left-color: #0b3d91; font-weight: 600; }
+.prod-recept-werk .prod-recept-stappen li.actief > span:nth-child(2)::before { color: #dbe7ff; }
+.prod-recept-werk .prod-recept-stappen li.ok .prod-stap-teken { color: #2f9e44; }
+.prod-recept-werk .prod-recept-stappen li.fout { background: #fdf3f3; border-left-color: #c92a2a; }
+.prod-recept-werk .prod-recept-stappen li.fout .prod-stap-teken { color: #c92a2a; }
+/* column-reverse houdt het log onderaan vast terwijl er regels bijkomen */
+.prod-recept-log { max-height: none; height: 55vh; display: flex; flex-direction: column-reverse; }
+.prod-recept-log pre { margin: 0; white-space: pre-wrap; font: inherit; }
+@media (max-width: 900px) { .prod-recept-werk { grid-template-columns: 1fr; } .prod-recept-log { height: 40vh; } }
+.prod-recept-werk.compact .prod-recept-log { height: 24vh; }
+/* Bediening (HMI-stap): knoppen, schakelaars, invoervelden */
+.prod-bediening { flex-basis: 100%; border: 2px solid #1f6feb; border-radius: 8px; padding: .5rem .7rem; background: #f3f7ff; display: grid; gap: .5rem; }
+.prod-bediening-kop { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.prod-bediening-kop .uitleg { flex: 1; }
+.prod-bediening-rij { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.prod-bedien-knop { min-width: 8rem; padding: .55rem .9rem; font-weight: 600; border-radius: 6px; border: 1px solid #9fb3cc; background: #fff; cursor: pointer; }
+.prod-bedien-knop:hover { background: #e7efff; }
+.prod-bedien-knop:active { background: #cfe0ff; }
+.prod-schakelaar { display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .8rem; border-radius: 6px; border: 1px solid #9fb3cc;
+                   background: #fff; cursor: pointer; font: inherit; color: inherit; }
+.prod-schakelaar b { min-width: 2.2rem; color: #6b7a8c; }
+.prod-schakelaar-baan { width: 2.2rem; height: 1.2rem; border-radius: .6rem; background: #c3ccd8; position: relative; transition: background .15s; }
+.prod-schakelaar-baan span { position: absolute; top: .15rem; left: .15rem; width: .9rem; height: .9rem; border-radius: 50%; background: #fff; transition: left .15s; }
+.prod-schakelaar.aan .prod-schakelaar-baan { background: #2f9e44; }
+.prod-schakelaar.aan .prod-schakelaar-baan span { left: 1.15rem; }
+.prod-schakelaar.aan b { color: #2f9e44; }
+.prod-bedien-invoer { display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .5rem; border: 1px solid #c9d3df; border-radius: 6px; background: #fff; }
+.prod-bedien-invoer input { width: 7rem; }
+.prod-mde-waarde.buiten b { color: #c92a2a; }
+.prod-mde-waarde.buiten { border-color: #c92a2a; }
+html[data-thema="donker"] .prod-bediening { background: #14243a; border-color: #3b7ddd; }
+html[data-thema="donker"] .prod-bedien-knop, html[data-thema="donker"] .prod-schakelaar,
+html[data-thema="donker"] .prod-bedien-invoer { background: #1b2a3f; border-color: #2b4a73; color: inherit; }
+html[data-thema="donker"] .prod-bedien-knop:hover { background: #22395a; }
+html[data-thema="donker"] .prod-schakelaar-baan { background: #3a4d66; }
+html[data-thema="donker"] .prod-recept-kop { background: #1b2a3f; border-color: #2b4a73; }
+html[data-thema="donker"] .prod-recept-kop.go { background: #17301d; border-color: #2f9e44; }
+html[data-thema="donker"] .prod-recept-kop.nogo { background: #3d1b1b; border-color: #c92a2a; }
+html[data-thema="donker"] .prod-recept-werk .prod-recept-stappen li.fout { background: #3d1b1b; }
+html[data-thema="donker"] .prod-recept-werk .prod-recept-stappen li small { color: #9fb0c4; }
 html[data-thema="donker"] .drv-recept { border-color: #2b4a73; }
 
 /* ---- Test PCB: live waarden van een MDE-slave (recept met monitor, Meekijken) ---- */

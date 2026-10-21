@@ -220,8 +220,11 @@
                             <b>herhaal</b> (keer, stappen [ … ]: een blok n keer),
                             <b>beweging</b> (doel_index/sub, stand_index/sub, type, doel, tolerantie, timeout, controlword {aan, uit}),
                             <b>doorgeefluik</b> (motor, register, verwacht of waarde; via 0x8000),
-                            <b>monitor</b> (objecten [{index, sub, type, naam}]: vanaf die stap leest de agent ze elke 0,2 s en laat Test PCB
-                            de waarden en het verloop live zien). <code>"stoppen": false</code> laat het recept doorlopen na een mislukte
+                            <b>monitor</b> (objecten [{index, sub, type, naam, min, max}]: vanaf die stap leest de agent ze elke 0,2 s en laat Test PCB
+                            de waarden en het verloop live zien; min/max komen als grenslijn in de grafiek),
+                            <b>bediening</b> (knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub, aan, uit}],
+                            invoer [{naam, index, sub, type, min, max}], seconden: het recept wacht op de gebruiker, die met knoppen en
+                            invoervelden schrijft; Klaar = verder met de volgende stap). <code>"stoppen": false</code> laat het recept doorlopen na een mislukte
                             stap. Het recept stopt anders bij de eerste fout.
                         </p>
                     }
