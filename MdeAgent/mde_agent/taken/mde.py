@@ -71,7 +71,7 @@ def _identiteit(d: _Drive) -> dict:
     s = d.slave
     uit = {"vendor": f"0x{s.man:08X}", "productcode": f"0x{s.id:08X}", "revisie": f"0x{s.rev:08X}",
            "eeprom_naam": (s.name.decode("utf-8", "replace") if isinstance(s.name, bytes) else str(s.name)).strip(),
-           "naam": d.tekst(0x1008), "hardware": d.tekst(0x1009), "firmware": d.tekst(0x100A), "serienummer": "",
+           "naam": d.tekst(0x1008), "hardware": kale_versie(d.tekst(0x1009)), "firmware": kale_versie(d.tekst(0x100A)), "serienummer": "",
            "mde": s.man == MDE_VENDOR}
     try:
         sn = struct.unpack("<I", s.sdo_read(0x1018, 4)[:4])[0]
@@ -107,9 +107,15 @@ def _stap_identiteit(d: _Drive, s: dict, log) -> tuple[bool, str]:
     return (not fouten), (tekst if not fouten else "; ".join(fouten))
 
 
+def kale_versie(s: str) -> str:
+    """Versie zonder 'v' ervoor: de Swivel-firmware meldt "v1.0.5" in 0x100A, wij schrijven overal "1.0.5"."""
+    s = (s or "").strip()
+    return s[1:] if len(s) > 1 and s[0] in "vV" and s[1].isdigit() else s
+
+
 def coe_versie_gelijk(a: str, b: str) -> bool:
     def delen(s):
-        d = [x for x in s.replace("-", ".").split(".") if x != ""]
+        d = [x for x in kale_versie(s).replace("-", ".").split(".") if x != ""]
         while d and d[-1].strip("0") == "":
             d.pop()
         return [x.lstrip("0") or "0" for x in d]
@@ -898,7 +904,7 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
                 # firmware vult die (de eerste Swivel-firmware niet), en dan stond de slave er gewoon.
                 if d2.slave.man == vendor and d2.slave.id == product:
                     terug = True
-                    gemeld = d2.tekst(0x100A)
+                    gemeld = kale_versie(d2.tekst(0x100A))
                     break
         except Exception:  # noqa: BLE001
             pass

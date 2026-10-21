@@ -295,6 +295,17 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## MDE-slaves: versie zonder "v", serienummer in 0x1018:4 (agent 1.19.1, 21-10-2026)
+
+- De Swivel-firmware meldt in 0x100A "v1.0.5"; `coe_versie_gelijk` vond dat niet gelijk aan "1.0.5" ("Laden lijkt niet
+  gelukt", product 538). Nu `mde.kale_versie`: identiteit, firmware laden en de vergelijking gebruiken de versie zonder
+  "v". Oude attributen met "v1.0.5" (bv. product 596) zijn niet aangepast.
+- Serienummer: `mde.eeprom`/`mde.serienummer` zetten het in de SII (EEPROM-woord 0x0E/0x0F). 0x1018:4 is volgens het
+  ESI read-only (standaard 0) en wordt door de firmware gevuld; die moet bij het opstarten SII-woord 0x0E/0x0F lezen
+  (EEPROM-interface van de ESC, registers 0x0502-0x050F, nadat de master de EEPROM aan de PDI gaf) en in 0x1018:4
+  zetten. Dat is werk in de firmware, niet in de agent.
+- ESI v1.0.7 heeft productcode 0x0000DA93 (eerder 0x00055955).
+
 ## MDE-recepten in OP met procesdata (agent 1.19.0, 20-10-2026)
 
 Aanleiding: Swivel (MPR-PCBA-WJ1), recept "Vacuüm en blaas": schrijven op 0x7020:1/2 lukte, maar de kleppen
