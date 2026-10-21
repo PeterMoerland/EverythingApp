@@ -1057,7 +1057,9 @@ public class MySqlProductRepository : IProductRepository
             " WHERE p.`ProductenID` = (SELECT a.`ProductID` FROM `ProductAttributes` a " +
             "                            JOIN `ProductNameAttributes` na ON na.`ProductNameAttributeID` = a.`ProductNameAttributeID` " +
             "                           WHERE (na.`Bron` LIKE 'drive:%:serienummer' OR na.`Bron` LIKE 'can:%:serienummer') " +
-            "                             AND TRIM(a.`AttributeValue`) = @sn ORDER BY a.`ProductID` DESC LIMIT 1)", cn);
+            // Staat hetzelfde serienummer bij meer printen (drive omgezet naar een andere print), dan telt de laatst
+            // vastgelegde: daar zit de drive nu. Voorheen won het hoogste ProductID, ook als dat een oude koppeling was.
+            "                             AND TRIM(a.`AttributeValue`) = @sn ORDER BY a.`last_updated` DESC, a.`ProductID` DESC LIMIT 1)", cn);
         cmd.Parameters.AddWithValue("@sn", serienummer.Trim());
         return (await LeesSamenstelling(cmd)).FirstOrDefault();
     }
