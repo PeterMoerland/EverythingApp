@@ -3710,3 +3710,15 @@ html[data-thema="donker"] .ws-kaart, html[data-thema="donker"] .ws-tabel tr.ws-a
 button.link.hist-verwijzing { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
 .hist-nr { color: #889; }
 html[data-thema="donker"] .hist-nr { color: #9aa8bb; }
+
+/* Controllertypen ▸ Firmware: net toegevoegde regel (blijft onderaan tot de lijst opnieuw geopend wordt) */
+.drv-rij.drv-nieuw > td { background: #fff7d6; }
+html[data-thema="donker"] .drv-rij.drv-nieuw > td { background: #3a3420; }
+
+/* Melding "nieuwere MDE Agent": downloadknop en map kopiëren (AgentVersieMelding) */
+.agent-versie-knoppen { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .45rem 0 .3rem; }
+.agent-download { display: inline-block; padding: .3rem .75rem; border-radius: 5px; background: #2563eb; color: #fff !important;
+                  font-weight: 600; text-decoration: none; }
+.agent-download:hover { background: #1d4ed8; }
+.agent-versie-ok { font-size: .85rem; }
+.agent-versie small { display: block; }

@@ -45,13 +45,17 @@ public class HuidigeGebruiker
     private int? _medewerkerId;
     private string _medewerkerNaam = "";
     private DateTime _laatsteActiviteit;
+    private int _duur = Pincode.Duur;   // minuten voor de aangemelde medewerker (Werknemers.WerkplekMinuten)
     private DateTime _laatstGemeld;
     private int? _doorgegevenId;   // laatst doorgegeven via MedewerkerGewijzigd (de 30 minuten verlopen zonder gebeurtenis)
 
     /// <summary>Wie er op deze werkplek aangemeld is (en nog actief), of null.</summary>
     public (int Id, string Naam)? Medewerker
-        => IsWerkplek && _medewerkerId is int m && DateTime.Now - _laatsteActiviteit < TimeSpan.FromMinutes(Pincode.Duur)
+        => IsWerkplek && _medewerkerId is int m && DateTime.Now - _laatsteActiviteit < TimeSpan.FromMinutes(_duur)
             ? (m, _medewerkerNaam) : null;
+
+    /// <summary>Na hoeveel minuten zonder activiteit de aangemelde medewerker weer afgemeld wordt (per werknemer instelbaar).</summary>
+    public int WerkplekDuur => _duur;
 
     /// <summary>Er meldde zich iemand aan of af (ook vanuit een ander tabblad op deze pc).</summary>
     public event Action? MedewerkerGewijzigd;
@@ -66,8 +70,11 @@ public class HuidigeGebruiker
             if (m is { } x)
             {
                 if (x.MedewerkerId != _medewerkerId)
+                {
                     _medewerkerNaam = (await _werkplekken.PersonenAsync()).FirstOrDefault(p => p.Id == x.MedewerkerId)?.Naam
                                       ?? (await _repo.GetWerknemerAsync(x.MedewerkerId))?.Naam ?? $"#{x.MedewerkerId}";
+                    _duur = await DuurVanAsync(x.MedewerkerId);
+                }
                 _medewerkerId = x.MedewerkerId;
                 _laatsteActiviteit = x.LaatsteActiviteit;
             }
@@ -93,8 +100,15 @@ public class HuidigeGebruiker
         _medewerkerId = werknemerId;
         _medewerkerNaam = naam;
         _laatsteActiviteit = _laatstGemeld = DateTime.Now;
+        _duur = await DuurVanAsync(werknemerId);
         MedewerkerGewijzigd?.Invoke();
         return null;
+    }
+
+    private async Task<int> DuurVanAsync(int werknemerId)
+    {
+        try { return Pincode.DuurVan(await _werkplekken.MinutenAsync(werknemerId)); }
+        catch { return Pincode.Duur; }
     }
 
     public async Task MeldAfAsync()

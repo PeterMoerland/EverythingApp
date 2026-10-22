@@ -1,22 +1,43 @@
 @inject WerkplekAgent Agent
 @inject AgentUitgave Uitgave
+@inject IJSRuntime JS
 @implements IDisposable
 
 @* Melding als op deze pc een oudere MDE Werkplek-agent draait dan de nieuwste op de share (publiceer-z.bat).
-   Staat in ExemplaarWerk, dus op Test PCB en in Producten ▸ exemplaar ▸ Programmeren. *@
+   Staat in ExemplaarWerk, dus op Test PCB en in Producten ▸ exemplaar ▸ Programmeren.
+   Voor de luie (wens gebruiker 22-10-2026): de installer direct downloaden (/agent/installer in Program.cs; het
+   bestaande token blijft staan), of het pad van de map kopiëren. Een link naar de netwerkmap zelf blokkeert de browser. *@
 
 @if (Agent.Aanwezig == true && Agent.Versie.Length > 0 && Uitgave.IsVerouderd(Agent.Versie, out var nieuwste))
 {
     <div class="melding waarschuwing agent-versie">
         Op deze pc draait MDE Agent <b>@Agent.Versie</b>; de nieuwste is <b>@nieuwste</b>. Sommige functies werken pas
-        met de nieuwe versie, en eerdere fouten zijn erin opgelost. Installeer hem met <code>installeer.bat</code> uit
-        <code>@InstallMap</code> (als beheerder), en vernieuw daarna deze pagina.
+        met de nieuwe versie, en eerdere fouten zijn erin opgelost.
+        <div class="agent-versie-knoppen">
+            <a class="agent-download" href="agent/installer" download
+               title="Downloadt MdeAgent-setup-@(nieuwste).exe van de share">⬇ Installer @nieuwste downloaden</a>
+            <button type="button" class="klein" @onclick="KopieerMap" title="@InstallMap">📋 Map kopiëren</button>
+            @if (_gekopieerd is not null) { <span class="agent-versie-ok">@_gekopieerd</span> }
+        </div>
+        <small>
+            <b>Downloaden:</b> open het bestand onderin de browser en kies <i>Ja</i> bij de vraag om beheerderrechten; het
+            token blijft staan. <b>Of de map:</b> kopiëren, dan Windows-toets + R, Ctrl+V, Enter, en dubbelklik
+            <code>installeer.bat</code>. Vernieuw daarna deze pagina.
+        </small>
     </div>
 }
 
 @code {
     // installeer.bat staat één map boven de installers (…\MDE Agent\installeer.bat)
     private string InstallMap => Path.GetDirectoryName(Uitgave.Map.TrimEnd('\\', '/')) ?? Uitgave.Map;
+    private string? _gekopieerd;
+
+    private async Task KopieerMap()
+    {
+        var ok = false;
+        try { ok = await JS.InvokeAsync<bool>("mdeKopieer", InstallMap); } catch { }
+        _gekopieerd = ok ? "Gekopieerd: Windows-toets + R, Ctrl+V, Enter." : "Kopiëren lukte niet: " + InstallMap;
+    }
 
     protected override void OnInitialized() => Agent.Gewijzigd += Ververs;
 

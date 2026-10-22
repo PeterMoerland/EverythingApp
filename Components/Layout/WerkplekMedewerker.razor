@@ -5,7 +5,8 @@
 
 @* Op een werkplek (gedeelde pc): "Wie ben jij?" → naam kiezen → pincode. Daarna staat de naam in de bovenbalk en komt
    het werk op die naam (HuidigeGebruiker.WerknemerId); de rechten blijven die van de werkplek. "Ik stop", of na
-   Pincode.Duur (30) minuten zonder activiteit (wwwroot/werkplek.js), is er weer niemand.
+   een aantal minuten zonder activiteit (wwwroot/werkplek.js), is er weer niemand: per werknemer in Werknemers ▸ Status
+   (WerkplekMinuten), anders Pincode.Duur (30).
    Twee plekken in MainLayout: in de bovenbalk (naam / knop, Slot = false) en los daarvan als vergrendeling (Slot = true):
    zolang niemand aangemeld is, ligt er een dicht scherm over de app met dezelfde naam- en pincodekeuze. Los van de
    bovenbalk omdat die in volledig-schermmodus verborgen is. Heeft nog geen enkele werkplekgebruiker (Werknemers ▸
@@ -27,7 +28,7 @@ else if (Ik.IsWerkplek)
 {
     @if (Ik.Medewerker is { } m)
     {
-        <span class="wpm-wie" title="Aangemeld op deze werkplek; na @Pincode.Duur minuten zonder activiteit weer niemand">
+        <span class="wpm-wie" title="Aangemeld op deze werkplek; na @Ik.WerkplekDuur minuten zonder klikken of typen in de app weer niemand">
             <span class="ab-av" style="background:@ActKleur.Avatar(m.Naam)">@ActKleur.Initialen(m.Naam)</span>@m.Naam
         </span>
         <button type="button" class="wpm-knop" @onclick="IkStop" title="Afmelden; het scherm gaat dan op slot">Ik stop</button>
@@ -59,6 +60,7 @@ else if (Ik.IsWerkplek)
     private string? _fout;
     private ElementReference _venster;
     private DotNetObjectReference<WerkplekMedewerker>? _zelf;
+    private int _koppeling;   // nummer van deze koppeling in werkplek.js; los() van een oud exemplaar laat een nieuwere staan
     private bool _focusVenster;
     private bool _iemandHeeftPincode;
     private bool _wasVergrendeld;
@@ -196,7 +198,7 @@ else if (Ik.IsWerkplek)
         if (eerste && !Slot && Ik.IsWerkplek)
         {
             _zelf = DotNetObjectReference.Create(this);
-            try { await JS.InvokeVoidAsync("mdeWerkplek.koppel", _zelf); } catch { }
+            try { _koppeling = await JS.InvokeAsync<int>("mdeWerkplek.koppel", _zelf); } catch { }
         }
         // Net op slot gegaan (of de pagina opent op slot): het venster de focus geven, zodat cijfers en Esc werken
         if (Vergrendeld && !_wasVergrendeld) _focusVenster = true;
@@ -281,7 +283,7 @@ else if (Ik.IsWerkplek)
         Ik.MedewerkerGewijzigd -= OpGewijzigd;
         if (_zelf is not null)
         {
-            try { await JS.InvokeVoidAsync("mdeWerkplek.los"); } catch { }
+            try { await JS.InvokeVoidAsync("mdeWerkplek.los", _koppeling); } catch { }
             _zelf.Dispose();
         }
     }

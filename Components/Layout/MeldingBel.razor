@@ -14,7 +14,9 @@
      collega's. Gelezen blijft bewaard tot jij het wist; terugzetten op ongelezen kan. Zelf een bericht sturen of
      beantwoorden (Soort 'bericht', VanWerknemerID; Meldingen_Berichten_MariaDB.sql).
    Een order opent in een nieuw tabblad (bestellingen?order=…), daar druk je op Volgende. Ververst elke minuut en meteen
-   na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet of een bericht stuurt. *@
+   na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet of een bericht stuurt.
+   Geluidje bij een nieuw bericht (wens gebruiker 22-10-2026): aan/uit met 🔊/🔇 in de kop, per werknemer onthouden in de
+   browser (mdeOpslag, sleutel mde-geluid-<id>; standaard aan). Afspelen: mdeBerichtGeluid in App.razor. *@
 
 @if (Ik.WerknemerId is not null)
 {
@@ -32,6 +34,8 @@
             <div class="kiezer-kop">
                 <b>🔔 Berichten</b>
                 <span style="flex:1"></span>
+                <button class="klein" title="@(_geluid ? "Geluid bij een nieuw bericht staat aan; klik om uit te zetten" : "Geluid bij een nieuw bericht staat uit; klik om aan te zetten")"
+                        @onclick="WisselGeluid">@(_geluid ? "🔊 Geluid aan" : "🔇 Geluid uit")</button>
                 @if (_berichtenMogelijk && !_schrijven)
                 {
                     <button class="klein" @onclick="() => NieuwBericht(null)">✉ Nieuw bericht</button>
@@ -141,6 +145,8 @@
     private List<TeKeurenOrder> _teKeuren = new();
     private List<Melding> _meldingen = new();       // de box: gelezen en ongelezen
     private bool _open, _alleenOngelezen, _berichtenMogelijk;
+    private bool _geluid = true;
+    private int? _hoogsteId;                        // hoogste bericht-id bij het vorige laden; daarboven = nieuw
     private Timer? _klok;
 
     // nieuw bericht / antwoord
@@ -169,7 +175,38 @@
         if (Ik.WerknemerId is not int wn) { _teKeuren = new(); _meldingen = new(); return; }
         try { _teKeuren = Bestel.Beschikbaar ? await Bestel.TeKeurenAsync(wn, Ik.Mag("Directie")) : new(); } catch { }
         try { _meldingen = Meldingen.Beschikbaar ? await Meldingen.AlleAsync(wn) : new(); } catch { }
+        await SpeelBijNieuw(wn);
         try { _berichtenMogelijk = Meldingen.Beschikbaar && await Meldingen.BerichtenMogelijkAsync(); } catch { _berichtenMogelijk = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Ik.WerknemerId is not int wn) return;
+        try { _geluid = await JS.InvokeAsync<string?>("mdeOpslag.lees", $"mde-geluid-{wn}") != "uit"; } catch { }
+    }
+
+    /// <summary>Geluidje als er sinds het vorige laden een ongelezen bericht bij is gekomen (niet bij het eerste laden).</summary>
+    private async Task SpeelBijNieuw(int wn)
+    {
+        var hoogste = _meldingen.Select(m => m.Id).DefaultIfEmpty(0).Max();
+        var nieuw = _hoogsteId is int vorig
+            ? _meldingen.Where(m => m.Id > vorig && m.Gelezen is null).Select(m => m.Id).DefaultIfEmpty(0).Max()
+            : 0;
+        _hoogsteId = Math.Max(_hoogsteId ?? 0, hoogste);
+        if (nieuw > 0 && _geluid)
+            try { await JS.InvokeVoidAsync("mdeBerichtGeluid", wn, nieuw); } catch { }
+    }
+
+    private async Task WisselGeluid()
+    {
+        if (Ik.WerknemerId is not int wn) return;
+        _geluid = !_geluid;
+        try
+        {
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", $"mde-geluid-{wn}", _geluid ? "aan" : "uit");
+            if (_geluid) await JS.InvokeVoidAsync("mdeBerichtGeluid", wn, 0);   // proefje
+        }
+        catch { }
     }
 
     private async Task Wissel()

@@ -746,6 +746,37 @@ werknemer in SQL zetten, besluit gebruiker). Zonder recht: tabel in een `fieldse
 en een uitleg; de handlers controleren `MagFirmware` ook zelf. Directie krijgt het niet vanzelf. Testrecepten vallen er
 niet onder. Lokaal bekeken zonder recht (alles uit, 4 downloadlinks werken).
 Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", `WerknemerVelden`; die tab ziet alleen HRM).
+**+ Firmwareversie** (DriveTypen `NieuweFirmware`): de lijst sorteert op versie (nieuwste boven), dus de nieuwe regel
+"(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
+onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
+
+## Berichtenbox: geluidje; werkplek: minuten per werknemer (22-10-2026)
+
+- **Geluidje bij een nieuw bericht** (`MeldingBel.SpeelBijNieuw`): na elk laden (elke minuut of na een seintje) een
+  ongelezen bericht met een id boven het hoogste van het vorige laden = nieuw (niet bij het eerste laden). Afspelen met
+  `mdeBerichtGeluid(wn, id)` in App.razor: twee tonen via Web Audio, geen bestand; het hoogste gemelde id per werknemer
+  in localStorage, zodat meerdere tabbladen niet allemaal piepen. Aan/uit met 🔊/🔇 in de kop van het berichtenvenster,
+  onthouden in de browser per werknemer (`mde-geluid-<id>`, standaard aan; aanzetten speelt een proefje). Een browser
+  speelt pas geluid na een eerste klik op de pagina. Goed te keuren bestellingen geven geen geluid.
+- **Werkplek, afmelden na inactiviteit**: was vast `Pincode.Duur` (30). Nu per werknemer `Werknemers.WerkplekMinuten`
+  (`Werknemers_WerkplekMinuten_MariaDB.sql`, zelf draaien; leeg = 30, max 720), op het werknemersscherm tab Status
+  ("Werkplek: minuten tot afmelden"). `IWerkplekRepository.MinutenAsync`, gelezen bij aanmelden en als een ander
+  tabblad iemand aanmeldde (`HuidigeGebruiker.WerkplekDuur`).
+- **Activiteit telt nu zekerder** (melding gebruiker: "de tijd loopt gewoon door"; WerkplekApparaten 4 kreeg na het
+  aanmelden maar één activiteit): werkplek.js (v=2) telt ook muisbewegen; mislukt `Tik` (verbinding even weg), dan
+  blijft de activiteit staan voor de volgende minuut; `koppel` geeft een nummer en `los(nummer)` van een ouder exemplaar
+  zet een nieuwere koppeling niet meer stil. **Werken in een ander programma (TwinCAT, Inventor) telt niet**: de browser
+  ziet dat niet. Kan alleen via de tray van de agent (GetLastInputInfo in de sessie van de gebruiker), niet gebouwd.
+
+## Melding "nieuwere MDE Agent": direct installeren (22-10-2026)
+
+`AgentVersieMelding` heeft een knop **⬇ Installer x downloaden** (`GET /agent/installer` in Program.cs: de nieuwste
+`MdeAgent-setup-*.exe` uit `AgentUitgave.NieuwstePad()`, achter login als die aan staat; een werkplek is ook aangemeld)
+en **📋 Map kopiëren** (pad van installeer.bat, `mdeKopieer` in App.razor met terugval op execCommand zonder https).
+Een `file://`- of `\server`-link kan niet: de browser blokkeert die vanaf een webpagina. De gedownloade setup vraagt
+zelf om beheerderrechten; de tokenpagina leeg laten houdt het bestaande token. Getest: download (200, 88 MB) en kopiëren,
+lokaal met een tijdelijk geforceerde melding. Niet getest: installeren via de download (SmartScreen kan waarschuwen,
+de setup is niet ondertekend).
 
 ## Firmware teruggevallen na herstart (agent 1.21.1, 22-10-2026)
 

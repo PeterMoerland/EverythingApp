@@ -55,8 +55,13 @@ public interface IWerkplekRepository
     Task<(int MedewerkerId, DateTime LaatsteActiviteit)?> MedewerkerAsync(int apparaatId);
     /// <summary>Iemand aanmelden (met nu als laatste activiteit) of afmelden (null).</summary>
     Task ZetMedewerkerAsync(int apparaatId, int? werknemerId);
-    /// <summary>Er gebeurt iets op de pc: de 30 minuten beginnen opnieuw.</summary>
+    /// <summary>Er gebeurt iets op de pc: de minuten tot afmelden beginnen opnieuw.</summary>
     Task ActiviteitAsync(int apparaatId);
+    /// <summary>
+    /// Na hoeveel minuten zonder activiteit deze werknemer op een werkplek weer afgemeld wordt (Werknemers.WerkplekMinuten,
+    /// Werknemers_WerkplekMinuten_MariaDB.sql); null = de standaard <see cref="Pincode.Duur"/>.
+    /// </summary>
+    Task<int?> MinutenAsync(int werknemerId);
     Task<bool> HeeftPincodeAsync(int werknemerId);
     /// <summary>Opgeslagen hash, of null als er geen pincode is.</summary>
     Task<string?> PincodeHashAsync(int werknemerId);
@@ -72,7 +77,10 @@ public interface IWerkplekRepository
 /// </summary>
 public static class Pincode
 {
-    public const int Duur = 30;      // minuten zonder activiteit tot er weer niemand aan de pc werkt
+    public const int Duur = 30;      // minuten zonder activiteit tot er weer niemand aan de pc werkt (standaard)
+
+    /// <summary>De duur voor een werknemer: eigen instelling (1 tot 720 minuten) of de standaard.</summary>
+    public static int DuurVan(int? minuten) => minuten is int m && m > 0 ? Math.Min(m, 720) : Duur;
 
     public static bool Geldig(string? pin) => pin is { Length: 4 } && pin.All(char.IsAsciiDigit);
 
@@ -138,6 +146,7 @@ public class GeenWerkplekRepository : IWerkplekRepository
     public Task ZetPincodeAsync(int werknemerId, string pincode) => Task.CompletedTask;
     public Task WisPincodeAsync(int werknemerId) => Task.CompletedTask;
     public Task<List<Keuze>> MetPincodeAsync() => Task.FromResult(new List<Keuze>());
+    public Task<int?> MinutenAsync(int werknemerId) => Task.FromResult<int?>(null);
 }
 
 /// <summary>In het geheugen, alleen om lokaal te testen (Werkplekken:Geheugen = true).</summary>
@@ -242,12 +251,14 @@ public class GeheugenWerkplekRepository : IWerkplekRepository
     public Task ZetPincodeAsync(int werknemerId, string pincode) { lock (_slot) _pincodes[werknemerId] = Pincode.Hash(pincode); return Task.CompletedTask; }
     public Task WisPincodeAsync(int werknemerId) { lock (_slot) _pincodes.Remove(werknemerId); return Task.CompletedTask; }
     public Task<List<Keuze>> MetPincodeAsync() { lock (_slot) return Task.FromResult(_personen.Where(p => _pincodes.ContainsKey(p.Id)).ToList()); }
+    public Task<int?> MinutenAsync(int werknemerId) => Task.FromResult<int?>(null);
 }
 
 public class MySqlWerkplekRepository : IWerkplekRepository
 {
     private readonly string _cs;
     private bool _tabellen;
+    private bool _heeftMinuten;    // kolom Werknemers.WerkplekMinuten gezien (alleen "ja" onthouden: werkt meteen na het script)
     public MySqlWerkplekRepository(string connectionString) => _cs = connectionString;
     public bool Beschikbaar => true;
 
@@ -501,6 +512,23 @@ public class MySqlWerkplekRepository : IWerkplekRepository
         await using var cmd = new MySqlCommand("DELETE FROM `WerknemerPincodes` WHERE `WerknemerID` = @w", cn);
         cmd.Parameters.AddWithValue("@w", werknemerId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<int?> MinutenAsync(int werknemerId)
+    {
+        await using var cn = await OpenAsync();
+        if (!_heeftMinuten)
+        {
+            await using var k = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'Werknemers' AND COLUMN_NAME = 'WerkplekMinuten'", cn);
+            _heeftMinuten = Convert.ToInt32(await k.ExecuteScalarAsync()) > 0;
+            if (!_heeftMinuten) return null;
+        }
+        await using var cmd = new MySqlCommand("SELECT `WerkplekMinuten` FROM `Werknemers` WHERE `Werknemer-id` = @w", cn);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        var v = await cmd.ExecuteScalarAsync();
+        return v is null or DBNull ? null : Convert.ToInt32(v);
     }
 
     public async Task<List<Keuze>> MetPincodeAsync()

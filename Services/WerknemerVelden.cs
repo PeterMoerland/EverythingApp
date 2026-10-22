@@ -83,6 +83,8 @@ public static class WerknemerVelden
             new Veld("Directie", VeldType.JaNee, new[] { "Directie", "directie" }),
             // mag zich aanmelden op een werkplek (gedeelde pc, "Wie ben jij?"); kolom uit Werkplekken_MariaDB.sql
             new Veld("Werkplek gebruiker", VeldType.JaNee, new[] { "Werkplekgebruiker" }),
+            // minuten zonder activiteit tot afmelden op een werkplek; leeg = 30 (Werknemers_WerkplekMinuten_MariaDB.sql)
+            new Veld("Werkplek: minuten tot afmelden", VeldType.Getal, new[] { "WerkplekMinuten" }),
             new Veld("Contracturen", VeldType.Getal, new[] { "Contracturen", "contracturen", "Contract_uren" }),
             new Veld("Burgerlijke staat", VeldType.Tekst, new[] { "Burgerlijke staat", "BurgerlijkeStaat", "burgerlijke_staat" }),
             new Veld("Trouwdatum", VeldType.Datum, new[] { "Trouwdatum", "trouwdatum" })),

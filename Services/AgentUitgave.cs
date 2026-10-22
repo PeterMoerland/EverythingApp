@@ -14,7 +14,7 @@ public class AgentUitgave
     private readonly string _map;
     private readonly ILogger<AgentUitgave> _log;
     private readonly object _slot = new();
-    private (DateTime Tijd, Version? Versie) _cache;
+    private (DateTime Tijd, Version? Versie, string? Pad) _cache;
 
     public AgentUitgave(IConfiguration config, ILogger<AgentUitgave> log)
     {
@@ -26,27 +26,37 @@ public class AgentUitgave
     /// <summary>De map waar de installer staat (voor de melding aan de gebruiker: één niveau hoger staat installeer.bat).</summary>
     public string Map => _map;
 
-    public Version? Nieuwste()
+    public Version? Nieuwste() => Zoek().Versie;
+
+    /// <summary>Volledig pad van de nieuwste installer (voor de downloadknop in de melding, /agent/installer), of null.</summary>
+    public string? NieuwstePad() => Zoek().Pad;
+
+    private (DateTime Tijd, Version? Versie, string? Pad) Zoek()
     {
         lock (_slot)
         {
-            if (_cache.Tijd > DateTime.UtcNow.AddMinutes(-10)) return _cache.Versie;
+            if (_cache.Tijd > DateTime.UtcNow.AddMinutes(-10)) return _cache;
         }
         Version? hoogste = null;
+        string? hoogstePad = null;
         try
         {
             foreach (var pad in Directory.EnumerateFiles(_map, "MdeAgent-setup-*.exe", SearchOption.TopDirectoryOnly))
             {
                 var m = Naam.Match(Path.GetFileName(pad));
-                if (m.Success && Version.TryParse(m.Groups[1].Value, out var v) && (hoogste is null || v > hoogste)) hoogste = v;
+                if (m.Success && Version.TryParse(m.Groups[1].Value, out var v) && (hoogste is null || v > hoogste))
+                {
+                    hoogste = v;
+                    hoogstePad = pad;
+                }
             }
         }
         catch (Exception ex)
         {
             _log.LogInformation("Nieuwste agentversie niet te lezen uit {Map}: {Fout}", _map, ex.Message);
         }
-        lock (_slot) _cache = (DateTime.UtcNow, hoogste);
-        return hoogste;
+        lock (_slot) _cache = (DateTime.UtcNow, hoogste, hoogstePad);
+        return _cache;
     }
 
     /// <summary>True als <paramref name="draaiend"/> (van /health) ouder is dan wat er op de share staat.</summary>

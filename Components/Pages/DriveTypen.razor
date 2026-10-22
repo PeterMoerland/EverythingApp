@@ -147,8 +147,17 @@
                             <tbody>
                                 @foreach (var f in _firmwares)
                                 {
-                                    <tr @key="f.Id" class="drv-rij">
-                                        <td><input value="@f.Versie" placeholder="2.10.0" @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
+                                    <tr @key="f.Id" class="drv-rij @(f.Id == _nieuweFirmware ? "drv-nieuw" : "")">
+                                        @if (f.Id == _nieuweFirmware)
+                                        {
+                                            @* net toegevoegd: onderaan (niet wegspringen naar boven), leeg versieveld met de cursor erin *@
+                                            <td><input @ref="_nieuwVeld" value="@(f.Versie == NieuweVersie ? "" : f.Versie)" placeholder="2.10.0"
+                                                       @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
+                                        }
+                                        else
+                                        {
+                                            <td><input value="@f.Versie" placeholder="2.10.0" @onchange="e => ZetFirmware(f, v => f.Versie = v, e)" /></td>
+                                        }
                                         <td>
                                             <select value="@f.Status" class="drv-status @DriveStatus.Kleur(f.Status)"
                                                     @onchange="e => ZetStatus(f, e)"
@@ -314,6 +323,11 @@
     private List<DriveSoort> _typen = new();
     private DriveSoort? _type;
     private List<DriveFirmware> _firmwares = new();
+    /// <summary>Net toegevoegde firmware: blijft onderaan staan tot de lijst opnieuw geopend wordt (wens gebruiker 22-10-2026).</summary>
+    private int? _nieuweFirmware;
+    private ElementReference _nieuwVeld;
+    private bool _focusNieuw;
+    private const string NieuweVersie = "(versie)";
     private List<DriveRecept> _recepten = new();
     private bool _receptTabelOntbreekt;
     private int _receptVersie;
@@ -482,6 +496,7 @@
         if (_type?.Id != t.Id && !await MagWeg()) return;
         _type = t;
         if (!DriveProtocol.ViaSdo(t.Protocol)) _tab = "firmware";
+        _nieuweFirmware = null;
         try { _firmwares = await Drives.GetFirmwaresAsync(t.Id); }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
         await LaadRecepten();
@@ -535,10 +550,22 @@
         try
         {
             var status = _firmwares.Any(f => f.Status == DriveStatus.Actueel) ? DriveStatus.Toegestaan : DriveStatus.Actueel;
-            await Drives.BewaarFirmwareAsync(new DriveFirmware { DriveTypeId = _type.Id, Versie = "(versie)", Status = status }, Ik.WerknemerId);
-            await KiesType(_type);
+            await Drives.BewaarFirmwareAsync(new DriveFirmware { DriveTypeId = _type.Id, Versie = NieuweVersie, Status = status }, Ik.WerknemerId);
+            // de bestaande regels in dezelfde volgorde, de nieuwe eronder (de lijst sorteert op versie, "(versie)" kwam bovenaan)
+            var volgorde = _firmwares.Select(f => f.Id).ToList();
+            var nu = await Drives.GetFirmwaresAsync(_type.Id);
+            _firmwares = nu.OrderBy(f => volgorde.IndexOf(f.Id) is var i && i >= 0 ? i : int.MaxValue).ThenBy(f => f.Id).ToList();
+            _nieuweFirmware = _firmwares.LastOrDefault(f => !volgorde.Contains(f.Id))?.Id;
+            _focusNieuw = _nieuweFirmware is not null;
         }
         catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusNieuw) return;
+        _focusNieuw = false;
+        try { await _nieuwVeld.FocusAsync(); } catch { }
     }
 
     private async Task ZetFirmware(DriveFirmware f, Action<string> zet, ChangeEventArgs e)

@@ -588,6 +588,14 @@ app.MapGet("/bestand/{id:int}",
 app.MapGet("/bestand/{id:int}/download",
     (int id, FilestoreService store, HuidigeGebruiker ik) => BestandUitgeven(id, true, store, ik));
 
+// --- installer van de MDE Werkplek-agent: de nieuwste van de share (AgentUitgave), voor de knop in de melding
+// "nieuwere agent" (Components/AgentVersieMelding.razor). Een link naar een netwerkmap blokkeert de browser. ---
+var agentInstaller = app.MapGet("/agent/installer", (AgentUitgave uitgave) =>
+    uitgave.NieuwstePad() is { } pad && File.Exists(pad)
+        ? Results.File(pad, "application/octet-stream", Path.GetFileName(pad))
+        : Results.NotFound("Geen installer van de MDE Agent gevonden op de share."));
+if (loginAan) agentInstaller.RequireAuthorization();
+
 // --- bestand tonen in de browser ---
 // PDF's en afbeeldingen gaan er rechtstreeks doorheen; Word en Excel worden eerst
 // met LibreOffice naar PDF omgezet en daarna bewaard, zodat de tweede keer snel is.
