@@ -1,6 +1,8 @@
 @page "/verbeterverzoeken"
 @inject IVerbeterRepository Repo
 @inject HuidigeGebruiker Ik
+@inject IMeldingRepository Meldingen
+@inject MeldingSignaal Signaal
 
 @* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk).
    Iedereen ziet de lijst; Directie past tekst, status en reactie aan (besluit gebruiker 22-10-2026). *@
@@ -56,7 +58,7 @@
             <tbody>
                 @foreach (var v in Zichtbaar)
                 {
-                    <tr @key="v.Id" class="@(v.Status == VerzoekStatus.Gedaan ? "verbeter-gedaan" : "")">
+                    <tr @key="v.Id" class="@(v.Status == VerzoekStatus.Gedaan ? "verbeter-gedaan" : "") @(v.Id == VerzoekUitUrl ? "verbeter-uitgelicht" : "")">
                         <td>@v.IngediendOp.ToString("dd-MM-yyyy")<br /><small class="uitleg">@v.IngediendOp.ToString("HH:mm")</small></td>
                         <td>@(v.IngediendDoor.Length > 0 ? v.IngediendDoor : "—")
                             @if (v.Werkplek.Length > 0) { <br /><small class="uitleg">👥 @v.Werkplek</small> }</td>
@@ -131,6 +133,14 @@
                     || v.Pagina.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
                     || v.Reactie.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Link uit de bel (bericht over je verzoek): dat verzoek uitlichten en alles tonen.</summary>
+    [SupplyParameterFromQuery(Name = "verzoek")] public int? VerzoekUitUrl { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (VerzoekUitUrl is not null) { _filter = "alles"; _zoek = ""; }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
@@ -146,14 +156,45 @@
     private async Task Wijzig(Verbeterverzoek v, Action wijzig)
     {
         if (!MagBeheren) { Toon("Alleen Directie kan verzoeken wijzigen.", true); return; }
+        var (oudeStatus, oudeReactie) = (v.Status, v.Reactie);
         wijzig();
         try
         {
             await Repo.BewaarAsync(v, Ik.WerknemerId);
             v.GewijzigdDoor = Ik.Naam;
-            Toon("Opgeslagen.", false);
+            var bericht = await BerichtAanIndiener(v, oudeStatus, oudeReactie);
+            Toon("Opgeslagen." + (bericht ? $" {v.IngediendDoor} krijgt een bericht." : ""), false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Nieuwe status of reactie: de indiener krijgt een bericht in de bel (Meldingen, soort 'verbeter', OrderID = het
+    /// verzoek). Niet bij een tekstcorrectie, niet aan jezelf, niet als de indiener onbekend is.
+    /// </summary>
+    private async Task<bool> BerichtAanIndiener(Verbeterverzoek v, string oudeStatus, string oudeReactie)
+    {
+        if (v.IngediendDoorId is not int wie || wie == Ik.WerknemerId || !Meldingen.Beschikbaar) return false;
+        var nieuweReactie = v.Reactie.Trim().Length > 0 && v.Reactie.Trim() != oudeReactie.Trim();
+        if (v.Status == oudeStatus && !nieuweReactie) return false;
+        var onderwerp = v.Tekst.Trim().ReplaceLineEndings(" ");
+        if (onderwerp.Length > 60) onderwerp = onderwerp[..57] + "…";
+        var tekst = v.Status != oudeStatus
+            ? $"Je verbeterverzoek ‘{onderwerp}’ staat nu op {v.Status}."
+            : $"Reactie op je verbeterverzoek ‘{onderwerp}’.";
+        if (v.Reactie.Trim().Length > 0)
+        {
+            var reactie = v.Reactie.Trim().ReplaceLineEndings(" ");
+            tekst += " " + (reactie.Length > 160 ? reactie[..157] + "…" : reactie);
+        }
+        if (tekst.Length > 250) tekst = tekst[..249] + "…";      // Meldingen.Tekst is VARCHAR(250)
+        try
+        {
+            await Meldingen.MaakAsync(wie, "verbeter", v.Id, tekst);
+            Signaal.Geef();          // de bel van de indiener ververst meteen (zelfde server)
+            return true;
+        }
+        catch { return false; }
     }
 
     private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }

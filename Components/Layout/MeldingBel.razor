@@ -56,7 +56,15 @@
                             var mid = m.Id;
                             @if (m.OrderId is int oid)
                             {
-                                @* bij soort 'analyse' is OrderId het nummer van de vraag (Vragen aan AI) *@
+                                @* bij soort 'analyse' is OrderId het nummer van de vraag (Vragen aan AI), bij 'verbeter' het verbeterverzoek *@
+                                @if (m.Soort == "verbeter")
+                                {
+                                    <a class="bel-regel" href="@($"verbeterverzoeken?verzoek={oid}")" @onclick="async () => { await Gelezen(mid); _open = false; }">
+                                        <span class="bel-po">💡</span>
+                                        <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
+                                    </a>
+                                    continue;
+                                }
                                 <a class="bel-regel" href="@(m.Soort == "analyse" ? $"ai?vraag={oid}" : $"bestellingen?order={oid}")" target="_blank" rel="noopener" @onclick="() => Gelezen(mid)">
                                     <span class="bel-po">@(m.Soort == "analyse" ? "✨" : m.Soort == "afgekeurd" ? "❌" : m.Soort == "geleverd" ? "📦" : "✅")</span>
                                     <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>

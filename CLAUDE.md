@@ -305,6 +305,10 @@ naam). Directie ziet het aantal 'nieuw' op het lampje (hoogstens elke 30 s getel
 `/verbeterverzoeken` (Beheer > Verbeteren): filter open/gedaan/afgewezen/mijn/alles en zoeken; Directie wijzigt tekst,
 status (nieuw, gepland, bezig, gedaan, afgewezen) en reactie in de tabel, meteen opgeslagen (ook in `Wijzig` gecontroleerd).
 Niet verwijderen: afwijzen. Lokaal getest met de geheugen-opslag (indienen, lijst, status wijzigen).
+Bericht aan de indiener (zelfde dag, op verzoek): bij een nieuwe status of reactie maakt `BerichtAanIndiener` een
+melding (tabel Meldingen, soort `verbeter`, OrderID = verzoek, max. 250 tekens) en geeft `MeldingSignaal`; de bel toont
+💡 met een link `verbeterverzoeken?verzoek=<id>` (dat verzoek uitgelicht, filter "alles"). Niet aan jezelf, niet bij een
+tekstcorrectie. Niet getest met echte meldingen (zou in de database schrijven).
 
 **Producten > Techniek alleen Directie** (zelfde dag): de drie Techniek-blokken staan in een `fieldset disabled`
 (`MagTechniek`), en `ZetTechniek`, `ZetStapZichtbaar`, `ZetMetParameters`, posities en parametersets controleren het
@@ -724,7 +728,19 @@ In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met 
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
 
-## Uitgaande facturen: werkorder per factuur (19-10-2026)
+## Uitgaande facturen: project per factuur in plaats van werkorder (22-10-2026)
+
+Wens gebruiker: koppelen aan een **project**, niet aan een werkorder. Nieuwe kolom `Invoices.Project-id`
+(**`FactuurProject_MariaDB.sql`, zelf draaien**; zonder kolom blijft het veld leeg en wordt het niet opgeslagen).
+`Workorder-id` is NIET IN GEBRUIK (op 22-10-2026 was geen enkele factuur gekoppeld, dus niets over te zetten; het oude
+script staat zo gemarkeerd). `Components/ProjectVeld.razor` = zelfde opzet als `WerkorderVeld` (leeg = projecten van de
+klant, typen = alle projecten op nummer/omschrijving/klant, alle woorden; "ook gesloten" = ProjectStatus 0), met
+`IVerkoopFactuurRepository.ZoekProjectenAsync` / `ProjectenVanKlantAsync` (`FactuurProject`). Lijst: kolom **Project**
+(nummer; wolkje omschrijving en klant). `SelectieProject` in Invoices is iets anders (uren ophalen). De zoekquery is
+op de echte database gecontroleerd; kiezen en opslaan niet in de browser getest (rechten Financial/Directie nodig).
+`WerkorderVeld` blijft bestaan (herbruikbaar), maar wordt hier niet meer gebruikt.
+
+## Uitgaande facturen: werkorder per factuur (19-10-2026) — vervangen, zie hierboven
 
 Nieuwe kolom `Invoices.Workorder-id` (`FactuurWerkorder_MariaDB.sql`, gebruiker voert uit; zonder kolom blijft het veld
 leeg en wordt het niet opgeslagen). In het factuurvenster onder Referentie het veld **Werkorder**

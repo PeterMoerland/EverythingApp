@@ -16,13 +16,12 @@ public class VerkoopFactuurRegel
     public string PoKlant { get; set; } = "";
     public string Opmerking { get; set; } = "";
 
-    /// <summary>Gekoppelde werkorder (Invoices.Workorder-id): nummer, en voor het wolkje klant/project/omschrijving.</summary>
-    public string Werkordernummer { get; set; } = "";
-    public string WerkorderKlant { get; set; } = "";
-    public string WerkorderProject { get; set; } = "";
-    public string WerkorderOmschrijving { get; set; } = "";
-    public string WerkorderWolkje => Werkordernummer.Length == 0 ? ""
-        : $"Klant: {WerkorderKlant}\nProject: {WerkorderProject}\nWerkorder: {WerkorderOmschrijving}";
+    /// <summary>Gekoppeld project (Invoices.Project-id): nummer, en voor het wolkje klant en omschrijving.</summary>
+    public string Projectnummer { get; set; } = "";
+    public string ProjectKlant { get; set; } = "";
+    public string ProjectOmschrijving { get; set; } = "";
+    public string ProjectWolkje => Projectnummer.Length == 0 ? ""
+        : $"Project {Projectnummer}: {ProjectOmschrijving}\nKlant: {ProjectKlant}";
 
     public decimal BedragExBtw { get; set; }
     public decimal Btw { get; set; }
@@ -161,10 +160,10 @@ public class VerkoopFactuur
     public string Referentie { get; set; } = "";
     public string PoKlant { get; set; } = "";
 
-    /// <summary>Gekoppelde werkorder (Invoices.Workorder-id, FactuurWerkorder_MariaDB.sql); intern, niet op de factuur.</summary>
-    public int? WerkorderId { get; set; }
-    /// <summary>Weergave van de werkorder: nummer · project · omschrijving.</summary>
-    public string Werkorder { get; set; } = "";
+    /// <summary>Gekoppeld project (Invoices.Project-id, FactuurProject_MariaDB.sql); intern, niet op de factuur.</summary>
+    public int? ProjectId { get; set; }
+    /// <summary>Weergave van het project: nummer · omschrijving.</summary>
+    public string Project { get; set; } = "";
     public string Omschrijving { get; set; } = "";
     public string Opmerking { get; set; } = "";
 
@@ -216,3 +215,6 @@ public record FactuurVoorstel(int? BvId, int? KlantId, string Klant, string PoKl
     /// <summary>Meerdere regels ineens (Tarieven berekenen: de gegroepeerde uren); dan telt Regel/Bedrag niet.</summary>
     public List<VerkoopFactuurItem>? Regels { get; init; }
 }
+
+/// <summary>Een project om een uitgaande factuur aan te koppelen (ProjectVeld).</summary>
+public record FactuurProject(int Id, string Nummer, string Omschrijving, string Klant, bool Open);

@@ -9,6 +9,11 @@ public interface IVerkoopFactuurRepository
     bool Beschikbaar { get; }
 
     Task<List<VerkoopFactuurRegel>> ZoekAsync(VerkoopFactuurFilter filter, int max);
+
+    /// <summary>Projecten zoeken op nummer, omschrijving of klant (alle woorden), nieuwste eerst.</summary>
+    Task<List<FactuurProject>> ZoekProjectenAsync(string zoek, bool alleenOpen, int max);
+    /// <summary>De projecten van een klant (Projects.Customer-id), nieuwste eerst.</summary>
+    Task<List<FactuurProject>> ProjectenVanKlantAsync(int klantId, bool alleenOpen, int max);
     Task<FactuurTotalen> GetTotalenAsync(VerkoopFactuurFilter filter);
 
     /// <summary>De eigen BV's die het afgelopen jaar gefactureerd hebben: de snelknoppen.</summary>
@@ -78,6 +83,8 @@ public class GeenVerkoopFactuurRepository : IVerkoopFactuurRepository
     public bool Beschikbaar => false;
     public Task<List<VerkoopFactuurRegel>> ZoekAsync(VerkoopFactuurFilter filter, int max)
         => Task.FromResult(new List<VerkoopFactuurRegel>());
+    public Task<List<FactuurProject>> ZoekProjectenAsync(string zoek, bool alleenOpen, int max) => Task.FromResult(new List<FactuurProject>());
+    public Task<List<FactuurProject>> ProjectenVanKlantAsync(int klantId, bool alleenOpen, int max) => Task.FromResult(new List<FactuurProject>());
     public Task<FactuurTotalen> GetTotalenAsync(VerkoopFactuurFilter filter)
         => Task.FromResult(new FactuurTotalen(0, 0, 0));
     public Task<List<Administratie>> GetFacturerendeBvsAsync() => Task.FromResult(new List<Administratie>());
@@ -198,13 +205,11 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
     public async Task<List<VerkoopFactuurRegel>> ZoekAsync(VerkoopFactuurFilter filter, int max)
     {
         var lijst = new List<VerkoopFactuurRegel>();
-        // werkorder in één veld, gescheiden door CHAR(31): nummer, klant, project, omschrijving (alleen met de kolom)
-        var werkorder = await HeeftWerkorderKolomAsync()
-            ? "(SELECT CONCAT_WS(CHAR(31), CONCAT(pr_.`Projectnumber`, '-', RIGHT(CONCAT('00', wo_.`Werkbonnummer`), 2)), " +
-              "                  COALESCE(kl_.`name`, ''), COALESCE(pr_.`Projectdescription`, ''), COALESCE(wo_.`Werkbonomschrijving`, '')) " +
-              "   FROM `Workorders` wo_ LEFT JOIN `Projects` pr_ ON pr_.`Project-Id` = wo_.`Project-id` " +
-              "   LEFT JOIN `Relations` kl_ ON kl_.`id_supplier` = pr_.`Customer-id` " +
-              "  WHERE wo_.`Werkbon-id` = f.`Workorder-id`)"
+        // project in één veld, gescheiden door CHAR(31): nummer, klant, omschrijving (alleen met de kolom)
+        var project = await HeeftProjectKolomAsync()
+            ? "(SELECT CONCAT_WS(CHAR(31), CAST(pr_.`Projectnumber` AS CHAR), COALESCE(kl_.`name`, ''), COALESCE(pr_.`Projectdescription`, '')) " +
+              "   FROM `Projects` pr_ LEFT JOIN `Relations` kl_ ON kl_.`id_supplier` = pr_.`Customer-id` " +
+              "  WHERE pr_.`Project-Id` = f.`Project-id`)"
             : "NULL";
 
         await using var cn = await OpenAsync();
@@ -218,7 +223,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             "       COALESCE(f.`Betaald`, 0), f.`DatumBetaald`, " +
             "       COALESCE(f.`VerzondenBasecone`, 0), COALESCE(f.`On-Inbaar`, 0), " +
             "       COALESCE(f.`Betalingsherinnering`, 0), " +
-            $"       ({OverdueUit}) AS Overdue, {werkorder} AS Werkorder " +
+            $"       ({OverdueUit}) AS Overdue, {project} AS Project " +
             Van +
             Voorwaarden(filter) +
             // Zoals Access: hoogste nummer bovenaan. Het nummer begint met het jaar.
@@ -260,11 +265,10 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
                 Herinnering = I(20) ?? 0,
                 Overdue = I(21) ?? 0,
             });
-            if (S(22).Split('\u001F') is { Length: 4 } wo)
+            if (S(22).Split('\u001F') is { Length: 3 } pr)
             {
                 var regel = lijst[^1];
-                regel.Werkordernummer = wo[0]; regel.WerkorderKlant = wo[1];
-                regel.WerkorderProject = wo[2]; regel.WerkorderOmschrijving = wo[3];
+                regel.Projectnummer = pr[0]; regel.ProjectKlant = pr[1]; regel.ProjectOmschrijving = pr[2];
             }
         }
         return lijst;
@@ -424,22 +428,20 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             };
         }
 
-        // werkorder (kolom uit FactuurWerkorder_MariaDB.sql; zonder die kolom blijft het leeg)
-        if (await HeeftWerkorderKolomAsync())
+        // project (kolom uit FactuurProject_MariaDB.sql; zonder die kolom blijft het leeg)
+        if (await HeeftProjectKolomAsync())
         {
             await using var cn = await OpenAsync();
             await using var cmd = new MySqlCommand(
-                "SELECT f.`Workorder-id`, CONCAT_WS(' · ', CONCAT(p.`Projectnumber`, '-', RIGHT(CONCAT('00', w.`Werkbonnummer`), 2)), " +
-                "                                   NULLIF(p.`Projectdescription`, ''), NULLIF(w.`Werkbonomschrijving`, '')) " +
-                "  FROM `Invoices` f LEFT JOIN `Workorders` w ON w.`Werkbon-id` = f.`Workorder-id` " +
-                "  LEFT JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+                "SELECT f.`Project-id`, CONCAT_WS(' · ', CAST(p.`Projectnumber` AS CHAR), NULLIF(p.`Projectdescription`, '')) " +
+                "  FROM `Invoices` f LEFT JOIN `Projects` p ON p.`Project-Id` = f.`Project-id` " +
                 $" WHERE f.`{Sleutel}` = @id", cn);
             cmd.Parameters.AddWithValue("@id", id);
             await using var r = await cmd.ExecuteReaderAsync();
             if (await r.ReadAsync() && !r.IsDBNull(0))
             {
-                f.WerkorderId = Convert.ToInt32(r.GetValue(0));
-                f.Werkorder = r.IsDBNull(1) ? $"#{f.WerkorderId}" : r.GetString(1);
+                f.ProjectId = Convert.ToInt32(r.GetValue(0));
+                f.Project = r.IsDBNull(1) ? $"#{f.ProjectId}" : r.GetString(1);
             }
         }
 
@@ -447,22 +449,66 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         return f;
     }
 
-    private bool? _werkorderKolom;
+    private bool? _projectKolom;
 
-    /// <summary>Heeft Invoices al de kolom Workorder-id (FactuurWerkorder_MariaDB.sql)?</summary>
-    private async Task<bool> HeeftWerkorderKolomAsync()
+    /// <summary>Heeft Invoices al de kolom Project-id (FactuurProject_MariaDB.sql)?</summary>
+    private async Task<bool> HeeftProjectKolomAsync()
     {
-        if (_werkorderKolom == true) return true;
+        if (_projectKolom == true) return true;
         try
         {
             await using var cn = await OpenAsync();
             await using var cmd = new MySqlCommand(
                 "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
-                "   AND TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'Workorder-id'", cn);
-            _werkorderKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+                "   AND TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'Project-id'", cn);
+            _projectKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
         }
-        catch { _werkorderKolom = false; }
-        return _werkorderKolom.Value;
+        catch { _projectKolom = false; }
+        return _projectKolom.Value;
+    }
+
+    // ---- projecten om een factuur aan te koppelen (ProjectVeld) ----
+    private const string ProjectSelect =
+        "SELECT p.`Project-Id`, CAST(COALESCE(p.`Projectnumber`, '') AS CHAR), COALESCE(p.`Projectdescription`, ''), " +
+        "       COALESCE(r.`name`, ''), COALESCE(p.`ProjectStatus`, 1) <> 0 " +
+        "  FROM `Projects` p LEFT JOIN `Relations` r ON r.`id_supplier` = p.`Customer-id` ";
+
+    private static async Task<List<FactuurProject>> LeesProjecten(MySqlCommand cmd)
+    {
+        var lijst = new List<FactuurProject>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new FactuurProject(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), Convert.ToInt64(r.GetValue(4)) != 0));
+        return lijst;
+    }
+
+    public async Task<List<FactuurProject>> ZoekProjectenAsync(string zoek, bool alleenOpen, int max)
+    {
+        var woorden = (zoek ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(6).ToList();
+        if (woorden.Count == 0) return new();
+        var waar = new List<string>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("", cn);
+        for (var i = 0; i < woorden.Count; i++)
+        {
+            // elk woord moet ergens voorkomen: nummer, omschrijving of klant
+            waar.Add($"(CAST(p.`Projectnumber` AS CHAR) LIKE @w{i} OR p.`Projectdescription` LIKE @w{i} OR r.`name` LIKE @w{i})");
+            cmd.Parameters.AddWithValue($"@w{i}", "%" + woorden[i] + "%");
+        }
+        if (alleenOpen) waar.Add("COALESCE(p.`ProjectStatus`, 1) <> 0");
+        cmd.CommandText = ProjectSelect + " WHERE " + string.Join(" AND ", waar) +
+                          $" ORDER BY p.`Projectnumber` DESC LIMIT {Math.Clamp(max, 1, 200)}";
+        return await LeesProjecten(cmd);
+    }
+
+    public async Task<List<FactuurProject>> ProjectenVanKlantAsync(int klantId, bool alleenOpen, int max)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(ProjectSelect + " WHERE p.`Customer-id` = @k" +
+            (alleenOpen ? " AND COALESCE(p.`ProjectStatus`, 1) <> 0" : "") +
+            $" ORDER BY p.`Projectnumber` DESC LIMIT {Math.Clamp(max, 1, 200)}", cn);
+        cmd.Parameters.AddWithValue("@k", klantId);
+        return await LeesProjecten(cmd);
     }
 
     public async Task<string> VolgendNummerAsync(int administratieId)
@@ -572,7 +618,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         }
 
         // ---- de kop ----
-        var metWerkorder = await HeeftWerkorderKolomAsync();
+        var metProject = await HeeftProjectKolomAsync();
         var velden = new List<(string Kolom, object? Waarde)>
         {
             ("Referentie", Kort(f.Referentie, 100)),
@@ -586,7 +632,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
             ("On-Inbaar", f.Oninbaar ? 1 : 0),
         };
         // intern, dus ook na versturen aan te passen
-        if (metWerkorder) velden.Add(("Workorder-id", f.WerkorderId));
+        if (metProject) velden.Add(("Project-id", f.ProjectId));
 
         if (!regelsVast)
         {

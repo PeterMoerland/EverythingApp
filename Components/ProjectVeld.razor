@@ -1,0 +1,129 @@
+@inject IVerkoopFactuurRepository Repo
+
+@* Een project kiezen met een zoekveld, in de regel zelf (geen popup). Leeg zoekveld = projecten van de klant
+   (KlantId); typen = zoeken in alle projecten op nummer, omschrijving en klant (alle woorden moeten voorkomen).
+   Pijltjes + Enter kiezen, Esc sluit. Gebruikt bij Uitgaande facturen ▸ Project (zelfde opzet als WerkorderVeld). *@
+
+<div class="wov">
+    @if (!_open)
+    {
+        <span class="wov-gekozen @(ProjectId is null ? "leeg" : "")">@(ProjectId is null ? "— geen project —" : Tekst)</span>
+        @if (!AlleenLezen)
+        {
+            <button type="button" class="klein" @onclick="Open">@(ProjectId is null ? "Kies…" : "Wijzig…")</button>
+            @if (ProjectId is not null)
+            {
+                <button type="button" class="klein" title="Project loskoppelen" @onclick="() => Kies(null)">✕</button>
+            }
+        }
+    }
+    else
+    {
+        <div class="wov-paneel" @onkeydown="Toets">
+            <div class="wov-zoekregel">
+                <input @ref="_veld" class="wov-zoek" placeholder="Projectnummer, omschrijving of klant…" value="@_zoek"
+                       @oninput="ZoekInput" autocomplete="off" />
+                <label class="vink"><input type="checkbox" checked="@_ookGesloten" @onchange="GeslotenGewijzigd" /> ook gesloten</label>
+                <button type="button" class="klein" @onclick="Sluit">Annuleren</button>
+            </div>
+            <div class="wov-lijst">
+                <div class="nb-kopje">@Kopje</div>
+                @for (var i = 0; i < _lijst.Count; i++)
+                {
+                    var p = _lijst[i];
+                    <button type="button" class="nb-item @(i == _index ? "actief" : "")" @onclick="() => Kies(p)">
+                        <b>@p.Nummer</b> @p.Omschrijving
+                        <small>@Extra(p)</small>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int? ProjectId { get; set; }
+    /// <summary>Wat er staat als er een project gekozen is (nummer · omschrijving).</summary>
+    [Parameter] public string Tekst { get; set; } = "";
+    /// <summary>De klant: zonder zoektekst staan diens projecten in de lijst.</summary>
+    [Parameter] public int? KlantId { get; set; }
+    [Parameter] public string KlantNaam { get; set; } = "";
+    [Parameter] public bool AlleenLezen { get; set; }
+    /// <summary>Gekozen project, of null = loskoppelen.</summary>
+    [Parameter] public EventCallback<FactuurProject?> OpGekozen { get; set; }
+
+    private bool _open, _ookGesloten, _focus;
+    private string _zoek = "";
+    private int _index;
+    private List<FactuurProject> _lijst = new();
+    private ElementReference _veld;
+    private CancellationTokenSource? _pauze;
+
+    private string Kopje => _zoek.Trim().Length > 0
+        ? (_lijst.Count == 0 ? "Niets gevonden." : $"{_lijst.Count} gevonden")
+        : KlantId is null ? "Typ om te zoeken."
+        : _lijst.Count == 0 ? $"Geen {(_ookGesloten ? "" : "open ")}projecten van {KlantNaam}. Typ om te zoeken."
+        : $"Projecten van {KlantNaam}";
+
+    private static string Extra(FactuurProject p)
+    {
+        var delen = new List<string>();
+        if (p.Klant.Length > 0) delen.Add(p.Klant);
+        if (!p.Open) delen.Add("gesloten");
+        return delen.Count == 0 ? "" : " · " + string.Join(" · ", delen);
+    }
+
+    private async Task Open()
+    {
+        _open = true; _zoek = ""; _index = 0;
+        await Laad();
+        _focus = true;
+    }
+
+    private void Sluit() => _open = false;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_focus) return;
+        _focus = false;
+        try { await _veld.FocusAsync(); } catch { }
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _lijst = _zoek.Trim().Length > 0
+                ? await Repo.ZoekProjectenAsync(_zoek, !_ookGesloten, 60)
+                : KlantId is int k ? await Repo.ProjectenVanKlantAsync(k, !_ookGesloten, 60) : new();
+        }
+        catch { _lijst = new(); }
+        _index = 0;
+    }
+
+    /// <summary>Zoeken na een korte typpauze, zodat niet elke letter een query is.</summary>
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _pauze?.Cancel();
+        var pauze = _pauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        await Laad();
+    }
+
+    private async Task GeslotenGewijzigd(ChangeEventArgs e) { _ookGesloten = e.Value is true; await Laad(); }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Sluit();
+        else if (e.Key == "ArrowDown") _index = Math.Min(_index + 1, Math.Max(_lijst.Count - 1, 0));
+        else if (e.Key == "ArrowUp") _index = Math.Max(_index - 1, 0);
+        else if (e.Key == "Enter" && _index < _lijst.Count) await Kies(_lijst[_index]);
+    }
+
+    private async Task Kies(FactuurProject? p)
+    {
+        _open = false;
+        await OpGekozen.InvokeAsync(p);
+    }
+}
