@@ -3188,6 +3188,23 @@ html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7
              font-weight: 800; font-size: .75rem; }
 .bel-aantal { font-weight: 700; color: #b71c1c; font-size: .85rem; }
 .bel-venster { width: min(46rem, 96vw); }
+/* Lampje (verbeterverzoeken) in de bovenbalk */
+.idee-knop { position: relative; display: inline-flex; align-items: center; gap: .15rem; border: 1px solid transparent; background: none;
+             border-radius: 6px; padding: .15rem .35rem; cursor: pointer; font: inherit; }
+.idee-knop:hover { background: #fff7d6; border-color: #f0d36b; }
+.idee-knop:hover .idee-icoon { filter: drop-shadow(0 0 4px #ffd54f); }
+.idee-icoon { font-size: 1.1rem; }
+.idee-aantal { font-weight: 700; color: #8a6200; font-size: .8rem; background: #ffe58a; border-radius: .6rem; padding: 0 .35rem; }
+.idee-venster { width: min(40rem, 96vw); }
+.idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
+.idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.idee-bedankt { font-size: 1.05rem; margin: .4rem 0; }
+.verbeter-tabel td { vertical-align: top; }
+.verbeter-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.verbeter-tekst-lees { white-space: pre-wrap; }
+.verbeter-gedaan td { opacity: .75; }
+html[data-thema="donker"] .idee-knop:hover { background: #3a3215; border-color: #8a7420; }
+html[data-thema="donker"] .idee-aantal { background: #6b5510; color: #ffe9a8; }
 .bel-inhoud { padding: .4rem .9rem .9rem; overflow: auto; }
 .bel-inhoud h4 { margin: .6rem 0 .3rem; display: flex; align-items: center; gap: .6rem; color: var(--accent); }
 .bel-lijst { display: flex; flex-direction: column; gap: .3rem; }

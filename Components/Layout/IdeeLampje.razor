@@ -1,0 +1,114 @@
+@implements IDisposable
+@inject HuidigeGebruiker Ik
+@inject IVerbeterRepository Repo
+@inject NavigationManager Nav
+
+@* Lampje in de bovenbalk: een idee of verbeterverzoek voor de app intypen. De pagina waar je was gaat vanzelf mee.
+   Alles komt in Beheer ▸ Verbeterverzoeken (iedereen ziet de lijst; Directie zet de status). Directie ziet op het
+   lampje hoeveel verzoeken er nog nieuw zijn. *@
+
+@if (Repo.Beschikbaar && (Ik.Ingelogd || Ik.IsWerkplek))
+{
+    <button type="button" class="idee-knop @(_aantalNieuw > 0 ? "met-aantal" : "")" @onclick="Open"
+            title="@(_aantalNieuw > 0 ? $"Idee of verbeterverzoek — {_aantalNieuw} nieuw" : "Idee of verbeterverzoek voor de app")">
+        <span class="idee-icoon">💡</span>
+        @if (_aantalNieuw > 0) { <span class="idee-aantal">@_aantalNieuw</span> }
+    </button>
+}
+
+@if (_open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer idee-venster" @onclick:stopPropagation role="dialog" aria-label="Idee of verbeterverzoek">
+            <div class="kiezer-kop">
+                <b>💡 Idee of verbeterverzoek</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten" @onclick="Sluit">✕</button>
+            </div>
+            <div class="idee-inhoud">
+                @if (!_tabel)
+                {
+                    <p class="melding fout">De tabel Verbeterverzoeken ontbreekt nog (Verbeterverzoeken_MariaDB.sql).</p>
+                }
+                else if (_verstuurd)
+                {
+                    <p class="idee-bedankt">Bedankt! Je verzoek staat in de lijst.</p>
+                    <div class="btngroup">
+                        <a class="knopje" href="verbeterverzoeken" @onclick="Sluit">Alle verzoeken bekijken</a>
+                        <button class="klein" @onclick="Nogeen">Nog een idee</button>
+                        <button class="primair" @onclick="Sluit">Sluiten</button>
+                    </div>
+                }
+                else
+                {
+                    <p class="uitleg">Wat kan er beter of handiger in de app? Beschrijf het kort; de pagina waar je nu bent
+                       (<code>@Pagina</code>) gaat mee.</p>
+                    <textarea class="idee-tekst" rows="6" maxlength="2000" placeholder="bv. Op het bestelscherm wil ik ook op leverancier kunnen zoeken"
+                              value="@_tekst" @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                    @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+                    <div class="btngroup">
+                        <a class="knopje" href="verbeterverzoeken" @onclick="Sluit">Lijst bekijken</a>
+                        <span style="flex:1"></span>
+                        <button class="klein" @onclick="Sluit">Annuleren</button>
+                        <button class="primair" disabled="@(_bezig || _tekst.Trim().Length < 3)" @onclick="Verstuur">Versturen</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _open, _tabel, _verstuurd, _bezig;
+    private string _tekst = "";
+    private string? _fout;
+    private int _aantalNieuw;
+    private DateTime _geteld;
+
+    private string Pagina => "/" + Nav.ToBaseRelativePath(Nav.Uri);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += BijNavigatie;
+        await TelNieuw();
+    }
+
+    private void BijNavigatie(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => _ = InvokeAsync(async () => { await TelNieuw(); StateHasChanged(); });
+
+    /// <summary>Alleen voor Directie: hoeveel verzoeken nog nieuw zijn (hoogstens elke halve minuut opgevraagd).</summary>
+    private async Task TelNieuw(bool altijd = false)
+    {
+        if (!Repo.Beschikbaar || !Ik.Mag("Directie")) { _aantalNieuw = 0; return; }
+        if (!altijd && DateTime.Now - _geteld < TimeSpan.FromSeconds(30)) return;
+        _geteld = DateTime.Now;
+        try { _aantalNieuw = await Repo.TabelAanwezigAsync() ? await Repo.AantalNieuwAsync() : 0; } catch { _aantalNieuw = 0; }
+    }
+
+    private async Task Open()
+    {
+        _open = true; _verstuurd = false; _fout = null;
+        try { _tabel = await Repo.TabelAanwezigAsync(); } catch { _tabel = false; }
+    }
+
+    private void Sluit() => _open = false;
+
+    private void Nogeen() { _verstuurd = false; _tekst = ""; }
+
+    private async Task Verstuur()
+    {
+        var tekst = _tekst.Trim();
+        if (tekst.Length < 3) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            _verstuurd = true; _tekst = "";
+            await TelNieuw(altijd: true);
+        }
+        catch (Exception ex) { _fout = "Versturen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    public void Dispose() => Nav.LocationChanged -= BijNavigatie;
+}

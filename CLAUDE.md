@@ -295,6 +295,22 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Verbeterverzoeken: lampje in de bovenbalk (22-10-2026)
+
+Wens gebruiker: collega's dienen ideeën in via een knop in de bovenbalk; iedereen ziet de lijst, Directie wijzigt en zet
+de status. Tabel `Verbeterverzoeken` (**`Verbeterverzoeken_MariaDB.sql`, zelf draaien**), `Services/IVerbeterRepository`
+(Geen / Geheugen via `Verbeter__Geheugen=true` / MySql). `Components/Layout/IdeeLampje` (💡, naast de bel): tekstvak,
+de huidige pagina gaat mee, indiener = `Ik.WerknemerId` (op een werkplek de gekozen medewerker, plus de werkplek-
+naam). Directie ziet het aantal 'nieuw' op het lampje (hoogstens elke 30 s geteld, bij navigeren). Pagina
+`/verbeterverzoeken` (Beheer > Verbeteren): filter open/gedaan/afgewezen/mijn/alles en zoeken; Directie wijzigt tekst,
+status (nieuw, gepland, bezig, gedaan, afgewezen) en reactie in de tabel, meteen opgeslagen (ook in `Wijzig` gecontroleerd).
+Niet verwijderen: afwijzen. Lokaal getest met de geheugen-opslag (indienen, lijst, status wijzigen).
+
+**Producten > Techniek alleen Directie** (zelfde dag): de drie Techniek-blokken staan in een `fieldset disabled`
+(`MagTechniek`), en `ZetTechniek`, `ZetStapZichtbaar`, `ZetMetParameters`, posities en parametersets controleren het
+ook zelf. Uitzetten van een stap of techniek vraagt bevestiging (`BevestigUit`; Annuleren bouwt de vinkjes opnieuw op
+met `_techniekVersie`).
+
 ## Melding: oude MDE Agent op deze pc (21-10-2026)
 
 `Services/AgentUitgave` (singleton) leest de hoogste `MdeAgent-setup-<versie>.exe` uit `Productie:AgentMap` (standaard

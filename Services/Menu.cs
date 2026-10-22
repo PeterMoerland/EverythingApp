@@ -229,6 +229,8 @@ public static class Menu
             new MenuGroep("Instellingen",
                 new MenuItem("Algemene instellingen", "/beheer/instellingen"),
                 new MenuItem("Labelprinter (deze pc)", "/beheer/labelprinter")),
+            new MenuGroep("Verbeteren",
+                new MenuItem("Verbeterverzoeken (💡)", "/verbeterverzoeken")),
             new MenuGroep("Systeem",
                 new MenuItem("Verbinding & schema", "/diag"),
                 new MenuItem("Filestore", "/beheer/filestore"),

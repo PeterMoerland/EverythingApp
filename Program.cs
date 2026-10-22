@@ -161,6 +161,7 @@ if (liveDb)
     builder.Services.AddSingleton<IWerkplekRepository>(_ => new MySqlWerkplekRepository(cs!));
     builder.Services.AddSingleton<IFactuurInboxRepository>(_ => new MySqlFactuurInboxRepository(cs!));
     builder.Services.AddSingleton<IWelkomRepository>(_ => new MySqlWelkomRepository(cs!));
+    builder.Services.AddSingleton<IVerbeterRepository>(_ => new MySqlVerbeterRepository(cs!));
     // Pakbonnen; lokaal testen zonder in de pakbontabellen te schrijven: Pakbon__Geheugen=true (leest wel echt)
     if (builder.Configuration.GetValue<bool>("Pakbon:Geheugen"))
         builder.Services.AddSingleton<IPakbonRepository>(_ => new GeheugenPakbonRepository(new MySqlPakbonRepository(cs!)));
@@ -198,6 +199,7 @@ else
     builder.Services.AddSingleton<IWerkplekRepository, GeenWerkplekRepository>();
     builder.Services.AddSingleton<IFactuurInboxRepository, GeenFactuurInboxRepository>();
     builder.Services.AddSingleton<IWelkomRepository, GeenWelkomRepository>();
+    builder.Services.AddSingleton<IVerbeterRepository, GeenVerbeterRepository>();
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
@@ -239,6 +241,9 @@ if (builder.Configuration.GetValue<bool>("FactuurInbox:Geheugen"))
 if (builder.Configuration.GetValue<bool>("Welkom:Geheugen"))
     builder.Services.AddSingleton<IWelkomRepository, GeheugenWelkomRepository>();
 builder.Services.AddSingleton<WelkomSchermService>();
+// Verbeterverzoeken (lampje in de bovenbalk) lokaal testen zonder de tabel: Verbeter__Geheugen=true
+if (builder.Configuration.GetValue<bool>("Verbeter:Geheugen"))
+    builder.Services.AddSingleton<IVerbeterRepository, GeheugenVerbeterRepository>();
 builder.Services.AddSingleton<AlarmVerkenner>();
 builder.Services.AddSingleton<UNiiKoppeling>();
 

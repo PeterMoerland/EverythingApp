@@ -1,0 +1,160 @@
+@page "/verbeterverzoeken"
+@inject IVerbeterRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk).
+   Iedereen ziet de lijst; Directie past tekst, status en reactie aan (besluit gebruiker 22-10-2026). *@
+
+<PageTitle>Verbeterverzoeken — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Verbeterverzoeken</h1>
+        <span class="weeklabel">@_lijst.Count(v => VerzoekStatus.IsOpen(v.Status)) open · @_lijst.Count(v => v.Status == VerzoekStatus.Gedaan) gedaan</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>De tabel Verbeterverzoeken ontbreekt nog (Verbeterverzoeken_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        <p class="uitleg">
+            Een idee of wens voor de app? Klik op het lampje 💡 rechtsboven. @(MagBeheren ? "Als Directie zet je hier de status en schrijf je een reactie; wijzigingen worden meteen opgeslagen." : "Directie bekijkt de verzoeken en zet hier de status.")
+        </p>
+        <div class="bankfilters">
+            <label class="bankveld"><span>Tonen</span>
+                <select value="@_filter" @onchange='e => _filter = (string?)e.Value ?? "open"'>
+                    <option value="open">Open (nieuw, gepland, bezig)</option>
+                    <option value="gedaan">Gedaan</option>
+                    <option value="afgewezen">Afgewezen</option>
+                    <option value="mijn">Mijn verzoeken</option>
+                    <option value="alles">Alles</option>
+                </select></label>
+            <label class="bankveld prod-keuze"><span>Zoeken</span>
+                <input value="@_zoek" placeholder="tekst, naam of pagina" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" /></label>
+        </div>
+
+        <table class="kiezer-tabel verbeter-tabel">
+            <thead>
+                <tr>
+                    <th style="width:7.5rem">Ingediend</th>
+                    <th style="width:10rem">Door</th>
+                    <th>Verzoek</th>
+                    <th style="width:9rem">Status</th>
+                    <th style="width:24%">Reactie</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var v in Zichtbaar)
+                {
+                    <tr @key="v.Id" class="@(v.Status == VerzoekStatus.Gedaan ? "verbeter-gedaan" : "")">
+                        <td>@v.IngediendOp.ToString("dd-MM-yyyy")<br /><small class="uitleg">@v.IngediendOp.ToString("HH:mm")</small></td>
+                        <td>@(v.IngediendDoor.Length > 0 ? v.IngediendDoor : "—")
+                            @if (v.Werkplek.Length > 0) { <br /><small class="uitleg">👥 @v.Werkplek</small> }</td>
+                        <td>
+                            @if (MagBeheren)
+                            {
+                                <textarea class="verbeter-tekst" rows="2" value="@v.Tekst" @onchange="e => Wijzig(v, () => v.Tekst = (string?)e.Value ?? v.Tekst)"></textarea>
+                            }
+                            else
+                            {
+                                <span class="verbeter-tekst-lees">@v.Tekst</span>
+                            }
+                            @if (v.Pagina.Length > 1) { <br /><a class="uitleg" href="@v.Pagina.TrimStart('/')">@v.Pagina</a> }
+                        </td>
+                        <td>
+                            @if (MagBeheren)
+                            {
+                                <select value="@v.Status" class="verbeter-status" @onchange="e => Wijzig(v, () => v.Status = (string?)e.Value ?? v.Status)">
+                                    @foreach (var s in VerzoekStatus.Alle) { <option value="@s">@s</option> }
+                                </select>
+                            }
+                            else
+                            {
+                                <span class="stand-chip @VerzoekStatus.Kleur(v.Status)">@v.Status</span>
+                            }
+                            @if (v.GewijzigdOp is DateTime g) { <br /><small class="uitleg">@g.ToString("dd-MM") @(v.GewijzigdDoor.Length > 0 ? "· " + v.GewijzigdDoor : "")</small> }
+                        </td>
+                        <td>
+                            @if (MagBeheren)
+                            {
+                                <textarea class="verbeter-tekst" rows="2" placeholder="reactie (zien alle collega's)" value="@v.Reactie"
+                                          @onchange="e => Wijzig(v, () => v.Reactie = (string?)e.Value ?? string.Empty)"></textarea>
+                            }
+                            else
+                            {
+                                <span class="verbeter-tekst-lees">@v.Reactie</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Zichtbaar.Any())
+                {
+                    <tr><td colspan="5" class="kiezer-info">Geen verzoeken@(_filter == "open" ? " open" : "") — klik op 💡 rechtsboven voor een idee.</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<Verbeterverzoek> _lijst = new();
+    private bool _tabel;
+    private string _filter = "open";
+    private string _zoek = "";
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBeheren => Ik.Mag("Directie");
+
+    private IEnumerable<Verbeterverzoek> Zichtbaar => _lijst
+        .Where(v => _filter switch
+        {
+            "open" => VerzoekStatus.IsOpen(v.Status),
+            "gedaan" => v.Status == VerzoekStatus.Gedaan,
+            "afgewezen" => v.Status == VerzoekStatus.Afgewezen,
+            "mijn" => v.IngediendDoorId is int d && d == Ik.WerknemerId,
+            _ => true,
+        })
+        .Where(v => _zoek.Trim().Length == 0
+                    || v.Tekst.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || v.IngediendDoor.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || v.Pagina.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || v.Reactie.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            if (_tabel) _lijst = await Repo.LijstAsync();
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wijzig(Verbeterverzoek v, Action wijzig)
+    {
+        if (!MagBeheren) { Toon("Alleen Directie kan verzoeken wijzigen.", true); return; }
+        wijzig();
+        try
+        {
+            await Repo.BewaarAsync(v, Ik.WerknemerId);
+            v.GewijzigdDoor = Ik.Naam;
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
