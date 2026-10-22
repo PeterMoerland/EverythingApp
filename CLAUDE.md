@@ -729,6 +729,18 @@ In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met 
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
 
+## PO klant: verplicht project, PO-bedrag als projectbudget (22-10-2026)
+
+Wens gebruiker: bij een PO klant een verplicht **Project**; bij toevoegen gaat het projectbudget omhoog, bij wissen
+weer omlaag. Kolom `PO_Inkomend.Project-id` (**`PoProject_MariaDB.sql`, zelf draaien**; zonder kolom geen veld en
+geen budgetkoppeling). In `POKlantVenster` onder Klant het `ProjectVeld` (projecten van de klant), verplicht bij
+opslaan (ook bij een oude PO zonder project). Lijst PO klant: kolom Project.
+`IPOKlantRepository.BewaarAsync` (zelfde transactie) -> `BudgetVolgtPoAsync`: geen budgetregel met `POklant` = deze PO
+-> nieuwe regel "PO <nummer> · <omschrijving>" met het PO-bedrag (alleen bij een nieuwe PO of een ander project, zodat
+een op de tab Budget gewiste regel niet terugkomt); wel een regel -> mee naar het project van de PO, en het bedrag volgt
+de PO zolang het gelijk was aan het oude PO-bedrag (met de hand aangepast budget blijft). `WisAsync` wist ook de
+budgetregel(s) van de PO. Gebouwd; niet getest tegen de database (zou schrijven).
+
 ## Projecten: tabs Budget en Budget verdeling (22-10-2026)
 
 Overgezet uit Access (Project/werkorder registratie, formulieren BudgetProject en ProjectBudgetVerdeling; VBA in

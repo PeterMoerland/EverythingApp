@@ -17,6 +17,10 @@ public class POKlant
     public decimal Bedrag { get; set; }
     public string Omschrijving { get; set; } = "";    // Description (100)
     public string Opmerking { get; set; } = "";       // 400
+    /// <summary>Project van de PO (PO_Inkomend.Project-id, PoProject_MariaDB.sql); verplicht. Het PO-bedrag komt als
+    /// budgetregel bij dit project (BudgetProject.POklant = deze PO).</summary>
+    public int? ProjectId { get; set; }
+    public string Project { get; set; } = "";         // nummer · omschrijving
     public DateTime? Ingevoerd { get; set; }          // DatumInvoer
     public string IngevoerdDoor { get; set; } = "";   // CreatedBy → naam
 

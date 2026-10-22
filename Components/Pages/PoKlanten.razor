@@ -83,6 +83,7 @@
                             <th style="width:3.5rem">BV</th>
                             <th style="width:28rem">Klant</th>
                             <th style="width:10rem">PO-nummer</th>
+                            <th style="width:6.5rem" title="Project van de PO; het PO-bedrag staat als budget bij dit project">Project</th>
                             <th>Omschrijving</th>
                             <th style="width:10rem">Contactpersoon</th>
                             <th class="r" style="width:8rem">Bedrag</th>
@@ -98,6 +99,7 @@
                                 <td>@p.Bv</td>
                                 <td>@p.Klant</td>
                                 <td>@p.PoNummer</td>
+                                <td title="@p.Project">@(p.Project.Split(" · ")[0])</td>
                                 <td>@p.Omschrijving</td>
                                 <td>@p.Contact</td>
                                 <td class="r">@Geld(p.Bedrag)</td>
@@ -107,7 +109,7 @@
                         }
                         @if (_lijst.Count == 0 && !_laden)
                         {
-                            <tr><td colspan="9" class="uitleg">Geen PO's binnen dit filter.</td></tr>
+                            <tr><td colspan="10" class="uitleg">Geen PO's binnen dit filter.</td></tr>
                         }
                     </tbody>
                 </table>

@@ -55,6 +55,15 @@
                                     </span>
                                 }
                             </div>
+                            @if (_metProject)
+                            {
+                                @* verplicht: het PO-bedrag komt als budgetregel bij dit project (Projecten ▸ Budget) *@
+                                <div class="wn-veld">
+                                    <label>Project *</label>
+                                    <ProjectVeld ProjectId="_po.ProjectId" Tekst="@_po.Project" KlantId="_po.KlantId" KlantNaam="@_po.Klant"
+                                                 AlleenLezen="!MagInvoeren" OpGekozen="ProjectGekozen" />
+                                </div>
+                            }
                             <div class="wn-veld">
                                 <label>Contactpersoon</label>
                                 <select value="@(_po.ContactId?.ToString() ?? "")" disabled="@(!MagInvoeren || _po.KlantId is null)"
@@ -300,6 +309,7 @@
         {
             await Ik.ZorgGeladenAsync();
             if (_bvs.Count == 0) _bvs = await Repo.BvsAsync();
+            _metProject = await Repo.HeeftProjectKolomAsync();
             if (PoId == 0)
             {
                 _po = new POKlant { Datum = DateOnly.FromDateTime(DateTime.Today), BvId = _bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : null };
@@ -315,6 +325,15 @@
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
         _zoalsGeopend = Vingerafdruk();
+    }
+
+    private bool _metProject;
+
+    /// <summary>Project gekozen of losgekoppeld; opgeslagen met de rest van de PO.</summary>
+    private void ProjectGekozen(FactuurProject? p)
+    {
+        _po.ProjectId = p?.Id;
+        _po.Project = p is null ? "" : string.Join(" · ", new[] { p.Nummer, p.Omschrijving }.Where(s => !string.IsNullOrWhiteSpace(s)));
     }
 
     private string Vingerafdruk() => System.Text.Json.JsonSerializer.Serialize(_po) + _wachtrij.Count;
@@ -522,6 +541,8 @@
         if (_po.KlantId is null) { Toon("Klant niet ingevuld.", true); return; }
         if (_po.BvId is null) { Toon("Kies de administratie (BV).", true); return; }
         if (_po.Datum is null) { Toon("Vul de datum van de PO in.", true); return; }
+        if (_metProject && _po.ProjectId is null) { Toon("Kies het project van de PO (verplicht): het PO-bedrag komt bij het projectbudget.", true); return; }
+        var nieuw = _po.Id == 0;
 
         _bezig = true;
         try
@@ -535,7 +556,7 @@
             var vers = await Repo.GetAsync(_po.Id);
             if (vers is not null) _po = vers;
             _zoalsGeopend = Vingerafdruk();
-            Toon("Opgeslagen.", false);
+            Toon(nieuw && _metProject ? $"Opgeslagen; {Geld(_po.Bedrag)} staat nu als budget bij project {_po.Project}." : "Opgeslagen.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
@@ -543,7 +564,8 @@
 
     private async Task Wis()
     {
-        if (!await Bevestig($"PO {_po.PoNummer} van {_po.Klant} wissen, met de termijnen?\n\nDocumenten blijven in de filestore.")) return;
+        if (!await Bevestig($"PO {_po.PoNummer} van {_po.Klant} wissen, met de termijnen?\n\nHet budget van deze PO gaat ook van het project af" +
+                            (_po.Project.Length > 0 ? $" ({_po.Project})" : "") + ". Documenten blijven in de filestore.")) return;
         try { await Repo.WisAsync(_po.Id); _geladenVoor = -1; await Sluiten.InvokeAsync(true); }
         catch (Exception ex) { Toon(ex.Message, true); }
     }

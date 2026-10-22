@@ -35,6 +35,9 @@ public interface IPOKlantRepository
     Task KoppelFactuurAsync(int termijnId, int? factuurId, int? doorWerknemerId);
 
     Task<List<Administratie>> BvsAsync();
+
+    /// <summary>Heeft PO_Inkomend de kolom Project-id al (PoProject_MariaDB.sql)?</summary>
+    Task<bool> HeeftProjectKolomAsync();
 }
 
 public class GeenPOKlantRepository : IPOKlantRepository
@@ -49,6 +52,7 @@ public class GeenPOKlantRepository : IPOKlantRepository
     public Task<List<POFactuurKeuze>> FacturenVanKlantAsync(int klantId, decimal bedrag) => Task.FromResult(new List<POFactuurKeuze>());
     public Task KoppelFactuurAsync(int termijnId, int? factuurId, int? doorWerknemerId) => Task.CompletedTask;
     public Task<List<Administratie>> BvsAsync() => Task.FromResult(new List<Administratie>());
+    public Task<bool> HeeftProjectKolomAsync() => Task.FromResult(false);
 }
 
 public class MySqlPOKlantRepository : IPOKlantRepository
@@ -73,6 +77,30 @@ public class MySqlPOKlantRepository : IPOKlantRepository
     private static bool B(MySqlDataReader r, int i) => !r.IsDBNull(i) && Convert.ToInt64(r.GetValue(i)) != 0;
     private static string Kort(string s, int max) => s.Length <= max ? s : s[..max];
 
+    private const string BasisMetProject =
+        ", p.`Project-id`, (SELECT CONCAT_WS(' · ', CAST(pr_.`Projectnumber` AS CHAR), NULLIF(pr_.`Projectdescription`, '')) " +
+        "                   FROM `Projects` pr_ WHERE pr_.`Project-Id` = p.`Project-id`) ";
+
+    private async Task<string> BasisAsync()
+        => await HeeftProjectKolomAsync() ? Basis.Replace(" FROM `PO_Inkomend` p ", BasisMetProject + " FROM `PO_Inkomend` p ") : Basis;
+
+    private bool? _projectKolom;
+
+    public async Task<bool> HeeftProjectKolomAsync()
+    {
+        if (_projectKolom == true) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'PO_Inkomend' AND COLUMN_NAME = 'Project-id'", cn);
+            _projectKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { _projectKolom = false; }
+        return _projectKolom.Value;
+    }
+
     private const string Basis =
         "SELECT p.`PO_inkomendID`, p.`PO_Date`, p.`Werkmaatschappij`, COALESCE(bv.`Afkorting`, ''), " +
         "       p.`Customer-id`, COALESCE(k.`name`, ''), p.`Contactpersoon`, COALESCE(c.`Naam`, ''), " +
@@ -80,14 +108,25 @@ public class MySqlPOKlantRepository : IPOKlantRepository
         "       COALESCE(p.`Opmerking`, ''), p.`DatumInvoer`, COALESCE(w.`NaamVoluit`, ''), " +
         "       (SELECT COUNT(*) FROM `Payments` t WHERE t.`POinkomendID` = p.`PO_inkomendID`), " +
         "       (SELECT COALESCE(SUM(t.`Amount`), 0) FROM `Payments` t " +
-        "         WHERE t.`POinkomendID` = p.`PO_inkomendID` AND COALESCE(t.`Invoiced`, 0) <> 0) " +
-        "  FROM `PO_Inkomend` p " +
+        "         WHERE t.`POinkomendID` = p.`PO_inkomendID` AND COALESCE(t.`Invoiced`, 0) <> 0)" +
+        " FROM `PO_Inkomend` p " +
         "  LEFT JOIN `Relations` k ON k.`id_supplier` = p.`Customer-id` " +
         "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = p.`Werkmaatschappij` " +
         "  LEFT JOIN `Contacts` c ON c.`ID_contact` = p.`Contactpersoon` " +
         "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = p.`CreatedBy` ";
 
-    private static POKlant LeesPo(MySqlDataReader r) => new()
+    private static POKlant LeesPo(MySqlDataReader r)
+    {
+        var po = LeesPoBasis(r);
+        if (r.FieldCount > 16)
+        {
+            po.ProjectId = I(r, 16);
+            po.Project = S(r, 17);
+        }
+        return po;
+    }
+
+    private static POKlant LeesPoBasis(MySqlDataReader r) => new()
     {
         Id = r.GetInt32(0),
         Datum = D(r, 1),
@@ -125,7 +164,7 @@ public class MySqlPOKlantRepository : IPOKlantRepository
             cmd.Parameters.AddWithValue("@zoek", "%" + f.Zoek.Trim() + "%");
         }
 
-        cmd.CommandText = Basis + (waar.Count > 0 ? " WHERE " + string.Join(" AND ", waar) : "") +
+        cmd.CommandText = await BasisAsync() + (waar.Count > 0 ? " WHERE " + string.Join(" AND ", waar) : "") +
                           " ORDER BY p.`PO_Date` DESC, p.`PO_inkomendID` DESC";
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(LeesPo(r));
@@ -137,7 +176,7 @@ public class MySqlPOKlantRepository : IPOKlantRepository
     {
         await using var cn = await OpenAsync();
         POKlant? po;
-        await using (var cmd = new MySqlCommand(Basis + " WHERE p.`PO_inkomendID` = @id", cn))
+        await using (var cmd = new MySqlCommand(await BasisAsync() + " WHERE p.`PO_inkomendID` = @id", cn))
         {
             cmd.Parameters.AddWithValue("@id", id);
             await using var r = await cmd.ExecuteReaderAsync();
@@ -175,10 +214,26 @@ public class MySqlPOKlantRepository : IPOKlantRepository
 
     public async Task<int> BewaarAsync(POKlant po, int? door)
     {
+        var metProject = await HeeftProjectKolomAsync();
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
 
         var nieuw = po.Id == 0;
+        // het bedrag van voor deze wijziging: de budgetregel volgt de PO alleen als hij nog gelijk was aan de PO
+        decimal? oudBedrag = null;
+        int? oudProject = null;
+        if (!nieuw)
+        {
+            await using var oud = new MySqlCommand(
+                "SELECT `Bedrag`, " + (metProject ? "`Project-id`" : "NULL") + " FROM `PO_Inkomend` WHERE `PO_inkomendID` = @id", cn, tx);
+            oud.Parameters.AddWithValue("@id", po.Id);
+            await using var r = await oud.ExecuteReaderAsync();
+            if (await r.ReadAsync())
+            {
+                oudBedrag = r.IsDBNull(0) ? null : Math.Round(Convert.ToDecimal(r.GetValue(0)), 2);
+                oudProject = r.IsDBNull(1) ? null : Convert.ToInt32(r.GetValue(1));
+            }
+        }
         await using (var cmd = new MySqlCommand(nieuw
             ? "INSERT INTO `PO_Inkomend` (`PO_Date`, `DatumInvoer`, `CreatedBy`, `Customer-id`, `Bedrag`, `Contactpersoon`, " +
               "  `Opmerking`, `Werkmaatschappij`, `PO_Klant`, `Description`) " +
@@ -199,6 +254,18 @@ public class MySqlPOKlantRepository : IPOKlantRepository
             cmd.Parameters.AddWithValue("@oms", Kort(po.Omschrijving.Trim(), 100));
             cmd.Parameters.AddWithValue("@id", po.Id);
             po.Id = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+
+        if (metProject)
+        {
+            await using (var cmd = new MySqlCommand("UPDATE `PO_Inkomend` SET `Project-id` = @pr WHERE `PO_inkomendID` = @id", cn, tx))
+            {
+                cmd.Parameters.AddWithValue("@pr", (object?)po.ProjectId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@id", po.Id);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            if (po.ProjectId is int projectId)
+                await BudgetVolgtPoAsync(cn, tx, po, projectId, oudBedrag, nieuweKoppeling: nieuw || oudProject != projectId);
         }
 
         // Termijnen: Access gooide ze weg en zette ze opnieuw neer; hier bijwerken, toevoegen en
@@ -255,6 +322,8 @@ public class MySqlPOKlantRepository : IPOKlantRepository
                  {
                      "DELETE FROM `Payments` WHERE `POinkomendID` = @id",
                      "DELETE FROM `PO_Offertes` WHERE `POinkomendID` = @id",
+                     // het budget dat bij deze PO hoort gaat mee (Projecten ▸ Budget); andere budgetregels blijven
+                     "DELETE FROM `BudgetProject` WHERE `POklant` = @id",
                      "DELETE FROM `PO_Inkomend` WHERE `PO_inkomendID` = @id",
                  })
         {
@@ -263,6 +332,53 @@ public class MySqlPOKlantRepository : IPOKlantRepository
             await cmd.ExecuteNonQueryAsync();
         }
         await tx.CommitAsync();
+    }
+
+    /// <summary>
+    /// De budgetregel van deze PO (BudgetProject.POklant): bestaat hij niet, dan komt hij erbij met het PO-bedrag (het
+    /// projectbudget gaat omhoog). Bestaat hij al, dan verhuist hij mee naar het project van de PO, en volgt het bedrag
+    /// de PO zolang het nog gelijk was aan het oude PO-bedrag (een met de hand aangepast budget blijft staan). Een
+    /// gewiste budgetregel komt alleen terug bij een nieuwe PO of als het project van de PO verandert.
+    /// </summary>
+    private static async Task BudgetVolgtPoAsync(MySqlConnection cn, MySqlTransaction tx, POKlant po, int projectId, decimal? oudBedrag,
+                                                 bool nieuweKoppeling)
+    {
+        var regels = new List<(int Id, decimal Bedrag)>();
+        await using (var cmd = new MySqlCommand(
+            "SELECT `BudgetProjectID`, COALESCE(`Bedrag`, 0) FROM `BudgetProject` WHERE `POklant` = @po", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@po", po.Id);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) regels.Add((r.GetInt32(0), Math.Round(Convert.ToDecimal(r.GetValue(1)), 2)));
+        }
+        var bedrag = Math.Round(po.Bedrag, 2);
+        if (regels.Count == 0)
+        {
+            // alleen bij een nieuwe PO of een ander project: is de regel op de tab Budget gewist, dan komt hij niet terug
+            if (!nieuweKoppeling) return;
+            var oms = "PO " + po.PoNummer.Trim() + (po.Omschrijving.Trim().Length > 0 ? " · " + po.Omschrijving.Trim() : "");
+            await using var cmd = new MySqlCommand(
+                "INSERT INTO `BudgetProject` (`ProjectID`, `Omschrijving`, `Bedrag`, `POklant`, `Opmerking`) " +
+                "VALUES (@pr, @oms, @bedrag, @po, @opm)", cn, tx);
+            cmd.Parameters.AddWithValue("@pr", projectId);
+            cmd.Parameters.AddWithValue("@oms", Kort(oms, 100));
+            cmd.Parameters.AddWithValue("@bedrag", (double)bedrag);
+            cmd.Parameters.AddWithValue("@po", po.Id);
+            cmd.Parameters.AddWithValue("@opm", "Automatisch bij het invoeren van de PO");
+            await cmd.ExecuteNonQueryAsync();
+            return;
+        }
+        foreach (var (id, huidig) in regels)
+        {
+            var volgBedrag = regels.Count == 1 && (oudBedrag is null || huidig == oudBedrag || huidig == 0);
+            await using var cmd = new MySqlCommand(
+                "UPDATE `BudgetProject` SET `ProjectID` = @pr" + (volgBedrag ? ", `Bedrag` = @bedrag" : "") +
+                " WHERE `BudgetProjectID` = @id", cn, tx);
+            cmd.Parameters.AddWithValue("@pr", projectId);
+            cmd.Parameters.AddWithValue("@bedrag", (double)bedrag);
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     public async Task<bool> PoNummerBestaatAsync(int klantId, string poNummer, int negeerId)
