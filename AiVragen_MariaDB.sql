@@ -39,3 +39,6 @@ ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Financieel` TINYINT(1) NOT NULL
 ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `GesprekID` INT NULL AFTER `Financieel`;
 ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Berichten` MEDIUMTEXT NULL AFTER `Gegevens`;
 ALTER TABLE `AiVragen` ADD INDEX IF NOT EXISTS `IX_AiVragen_Gesprek` (`GesprekID`);
+
+-- Privé met delen (22-10-2026): Openbaar = 1 op de eerste vraag = zichtbaar voor de directie (ook los: AiVragen_Openbaar_MariaDB.sql).
+ALTER TABLE `AiVragen` ADD COLUMN IF NOT EXISTS `Openbaar` TINYINT(1) NOT NULL DEFAULT 0;

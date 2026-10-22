@@ -3727,3 +3727,13 @@ html[data-thema="donker"] .drv-rij.drv-nieuw > td { background: #3a3420; }
 
 /* Samenstelling: een afgekeurd exemplaar dat (nog) gekoppeld is */
 .sam-exemplaar.sam-afgekeurd { outline: 2px solid #dc2626; border-radius: 4px; }
+
+/* ExemplaarWerk: taak op de agent die dit scherm niet volgt */
+.melding.lopende-taak { position: static; max-width: none; margin: 0 0 .7rem; cursor: default; box-shadow: none; }
+.lopende-taak .btngroup { margin-top: .35rem; align-items: center; }
+.lopende-taak-log { margin: .35rem 0 0; padding: .3rem .45rem; max-height: 8.5rem; overflow: auto; font-size: .78rem;
+                    white-space: pre-wrap; background: rgba(0,0,0,.05); border-radius: 4px; }
+
+/* Vragen aan AI: kop van een gesprek (delen met de directie, wissen) */
+.ai-gesprek-kop { display: flex; align-items: center; gap: .6rem; margin: 0 0 .6rem; padding-bottom: .45rem; border-bottom: 1px solid #e3e8ee; }
+html[data-thema="donker"] .ai-gesprek-kop { border-bottom-color: #3a4450; }

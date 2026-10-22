@@ -6,9 +6,12 @@
 @inject IAiVraagRepository Vragen
 @inject HuidigeGebruiker Ik
 @inject AiSignaal Signaal
+@inject IJSRuntime JS
 
 @* Financiën ▸ Analyse ▸ Vragen aan AI: vragen stellen aan het taalmodel (Amazon Bedrock), met de wachtrij en de eerdere
-   vragen. Bij elk antwoord staan de gegevens die het model opvroeg, om na te rekenen. Services/AiAnalyseService.cs. *@
+   vragen. Bij elk antwoord staan de gegevens die het model opvroeg, om na te rekenen. Services/AiAnalyseService.cs.
+   Privé (besluit gebruiker 22-10-2026): je ziet alleen je eigen gesprekken; met "Delen met de directie" maak je een
+   gesprek zichtbaar voor de directieleden. Eigen gesprekken kun je wissen. *@
 
 <div class="page">
     <header class="topbar">
@@ -36,7 +39,8 @@
                 @if (Ik.Mag("Directie"))
                 {
                     <div class="wn-filters">
-                        <label class="vink"><input type="checkbox" checked="@_iedereen" @onchange="IedereenGewijzigd" /> Van iedereen</label>
+                        <label class="vink" title="Gesprekken die andere collega's met de directie gedeeld hebben">
+                            <input type="checkbox" checked="@_gedeeld" @onchange="GedeeldGewijzigd" /> Ook gedeelde gesprekken</label>
                     </div>
                 }
                 <div class="wn-namen">
@@ -53,7 +57,8 @@
                                 <small>
                                     @v.Aangemaakt.ToString("dd-MM HH:mm") · @(v.Prioriteit == AiVraag.Wachten ? "mag wachten" : "direct")
                                     @if (v.Vervolgen > 0) { <text> · +@v.Vervolgen vervolgvra@(v.Vervolgen == 1 ? "ag" : "gen")</text> }
-                                    @if (_iedereen) { <text> · @v.Wie</text> }
+                                    @if (v.WerknemerId != Ik.WerknemerId) { <text> · 👥 @v.Wie</text> }
+                                    else if (v.Openbaar) { <text> · 👥 gedeeld</text> }
                                     @if (v.Kosten is decimal k) { <text> · € @k.ToString("0.000", Nl)</text> }
                                 </small>
                             </span>
@@ -83,6 +88,23 @@
                 }
                 else
                 {
+                    var eigen = _gesprek.Count > 0 && _gesprek[0].WerknemerId == Ik.WerknemerId;
+                    <div class="ai-gesprek-kop">
+                        @if (eigen)
+                        {
+                            <label class="vink" title="Standaard ziet alleen jij dit gesprek. Aangevinkt zien de directieleden het ook (alleen lezen).">
+                                <input type="checkbox" checked="@_gekozen.Openbaar" disabled="@_deelBezig" @onchange="DeelGewijzigd" /> Delen met de directie</label>
+                            <span style="flex:1"></span>
+                            <button class="klein rood" disabled="@(_gesprek.Any(x => x.Loopt))"
+                                    title="@(_gesprek.Any(x => x.Loopt) ? "Kan pas als er niets meer loopt in dit gesprek" : "Dit gesprek met alle vervolgvragen wissen")"
+                                    @onclick="WisGesprek">🗑 Gesprek wissen</button>
+                        }
+                        else
+                        {
+                            <span class="uitleg">👥 Gedeeld door @_gekozen.Wie (alleen lezen)</span>
+                        }
+                    </div>
+                    @if (_kopFout is not null) { <p class="ai-fout">@_kopFout</p> }
                     @foreach (var g in _gesprek)
                     {
                     var gegevens = g.Gegevens;
@@ -200,7 +222,8 @@
     private List<AiVraag> _lijst = new();
     private AiVraag? _gekozen;                      // de eerste vraag van het gekozen gesprek
     private List<AiVraag> _gesprek = new();         // het hele gesprek, oudste eerst
-    private bool _iedereen, _vervolgBezig;
+    private bool _gedeeld = true, _vervolgBezig, _deelBezig;
+    private string? _kopFout;
     private string _vervolg = "";
     private string? _vervolgFout;
 
@@ -218,7 +241,7 @@
 
     private async Task LaadLijst()
     {
-        try { _lijst = await Vragen.LijstAsync(_iedereen ? null : Ik.WerknemerId ?? -1, 100); }
+        try { _lijst = await Vragen.LijstAsync(Ik.WerknemerId ?? -1, _gedeeld && Ik.Mag("Directie"), 100); }
         catch { _lijst = new(); }
     }
 
@@ -226,13 +249,17 @@
     {
         try
         {
+            _kopFout = null;
             var v = await Vragen.GetAsync(id);
-            // alleen eigen vragen, of Directie
-            if (v is null || (v.WerknemerId != Ik.WerknemerId && !Ik.Mag("Directie"))) { _gekozen = null; _gesprek = new(); return; }
+            if (v is null) { _gekozen = null; _gesprek = new(); return; }
             var begin = v.GesprekId ?? v.Id;
-            _gesprek = await Vragen.GesprekAsync(begin);
-            if (_gesprek.Count == 0) _gesprek = new() { v };
-            _gekozen = _gesprek[0];
+            var gesprek = await Vragen.GesprekAsync(begin);
+            if (gesprek.Count == 0) gesprek = new() { v };
+            // privé: alleen je eigen gesprek, of een gesprek dat iemand met de directie deelde (en jij bent directie)
+            var eerste = gesprek[0];
+            if (eerste.WerknemerId != Ik.WerknemerId && !(eerste.Openbaar && Ik.Mag("Directie"))) { _gekozen = null; _gesprek = new(); return; }
+            _gesprek = gesprek;
+            _gekozen = eerste;
         }
         catch { _gekozen = null; _gesprek = new(); }
     }
@@ -243,7 +270,38 @@
         await Kies(id);
     }
 
-    private async Task IedereenGewijzigd(ChangeEventArgs e) { _iedereen = e.Value is true; await LaadLijst(); }
+    private async Task GedeeldGewijzigd(ChangeEventArgs e) { _gedeeld = e.Value is true; await LaadLijst(); }
+
+    private async Task DeelGewijzigd(ChangeEventArgs e)
+    {
+        if (_gekozen is null || Ik.WerknemerId is not int wn) return;
+        var aan = e.Value is true;
+        _deelBezig = true; _kopFout = null;
+        try
+        {
+            if (await Vragen.ZetOpenbaarAsync(_gekozen.Id, wn, aan)) _gekozen.Openbaar = aan;
+            else _kopFout = "Alleen je eigen gesprekken kun je delen.";
+        }
+        catch (Exception ex) { _kopFout = ex.Message; }
+        finally { _deelBezig = false; }
+        await LaadLijst();
+    }
+
+    private async Task WisGesprek()
+    {
+        if (_gekozen is null || Ik.WerknemerId is not int wn) return;
+        var titel = _gekozen.Vraag.Length > 80 ? _gekozen.Vraag[..77] + "…" : _gekozen.Vraag;
+        var vervolg = _gesprek.Count > 1 ? $" en {_gesprek.Count - 1} vervolgvra{(_gesprek.Count == 2 ? "ag" : "gen")}" : "";
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Dit gesprek wissen?\n\n‘{titel}’{vervolg}\n\nHet is daarna weg, ook voor wie het gedeeld zag.")) return;
+        try
+        {
+            var n = await Vragen.WisGesprekAsync(_gekozen.Id, wn);
+            if (n == 0) { _kopFout = "Wissen lukte niet (loopt er nog iets?)."; return; }
+            _gekozen = null; _gesprek = new();
+            await LaadLijst();
+        }
+        catch (Exception ex) { _kopFout = "Wissen mislukt: " + ex.Message; }
+    }
 
     /// <summary>Een vraag is veranderd (wachtrij, bezig, klaar): lijst en detail bijwerken.</summary>
     private void OpSignaal(int id)

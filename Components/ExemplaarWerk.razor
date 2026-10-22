@@ -18,6 +18,24 @@
 
 <AgentVersieMelding />
 
+@* Een taak op de agent die dit scherm niet volgt (pagina vernieuwd, ander tabblad, vastgelopen): tonen met de laatste
+   regels en een stopknop. Bij openen van het scherm en bij elke "Er loopt al een taak" (wens gebruiker 22-10-2026). *@
+@if (_lopendeTaak is { } lt)
+{
+    <div class="melding waarschuwing lopende-taak">
+        <b>Op de werkplek-agent loopt nog een taak:</b> @lt.Taak · @lt.Stand · al @Duur(lt.Seconden)
+        @if (lt.Regels.Count > 0)
+        {
+            <pre class="lopende-taak-log">@string.Join("\n", lt.Regels)</pre>
+        }
+        <div class="btngroup">
+            <button class="klein rood" disabled="@_stoptLopende" @onclick="StopLopendeTaak">■ Taak stoppen</button>
+            <button class="klein" disabled="@_stoptLopende" @onclick="ZoekLopendeTaak">↻ Vernieuwen</button>
+            @if (_lopendeStatus is not null) { <small>@_lopendeStatus</small> }
+        </div>
+    </div>
+}
+
 @if (_melding is not null)
 {
     <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
@@ -2729,9 +2747,10 @@
                 _serStatus = start.status switch
                 {
                     404 => "de agent kent serieel.monitor niet (agent bijwerken naar 1.13)",
-                    409 => "er loopt al een taak bij de agent",
+                    409 => "er loopt al een taak bij de agent (zie bovenaan)",
                     _ => FoutUit(start.tekst) ?? $"agent antwoordde {start.status}",
                 };
+                if (start.status == 409) await ZoekLopendeTaak();
                 return;
             }
             using (var doc = JsonDocument.Parse(start.tekst)) _serJobId = doc.RootElement.GetProperty("job").GetString();
@@ -3817,25 +3836,95 @@
         if (!await Bevestig($"Op de werkplek-agent loopt nog een taak ({naam}) die dit scherm niet volgt, bijvoorbeeld na het " +
                             "vernieuwen van de pagina of een recept dat op Klaar wacht.\n\nDie taak stoppen en daarna deze starten?"))
             return false;
+        _taakRegels.Add($"… lopende taak {naam} stoppen; wachten tot hij klaar is …");
+        StateHasChanged();
+        var fout = await StopEnWacht(id);
+        if (fout is not null) { _taakRegels.Add("… " + fout); return false; }
+        _lopendeTaak = null;
+        return true;
+    }
+
+    /// <summary>Taak op de agent stoppen en wachten tot hij weg is. Null = gelukt, anders wat er misging.</summary>
+    private async Task<string?> StopEnWacht(string id)
+    {
         try
         {
             var r = await Agent($"/jobs/{id}/stop", 10, "{}");
-            if (r.status != 200) { _taakRegels.Add($"… stoppen lukte niet ({r.status}: {FoutUit(r.tekst) ?? r.tekst})"); return false; }
-            _taakRegels.Add($"… lopende taak {naam} gestopt; wachten tot hij klaar is …");
-            StateHasChanged();
+            if (r.status == 409) return null;             // "De taak loopt niet meer."
+            if (r.status != 200) return $"stoppen lukte niet ({r.status}: {FoutUit(r.tekst) ?? r.tekst})";
             // een recept rondt netjes af (uitgangen uit); een vastgelopen werker wordt na hoogstens 8 s afgebroken
             for (var i = 0; i < 30; i++)
             {
                 await Task.Delay(500);
                 var st = await Agent($"/jobs/{id}", 10);
-                if (st.status != 200) return true;
+                if (st.status != 200) return null;
                 using var doc = JsonDocument.Parse(st.tekst);
-                if (Tekst(doc.RootElement, "stand") is not ("bezig" or "wacht")) return true;
+                if (Tekst(doc.RootElement, "stand") is not ("bezig" or "wacht")) return null;
             }
-            _taakRegels.Add("… de oude taak stopt niet; herstart de agent-service als dit zo blijft.");
-            return false;
+            return "de taak stopt niet; herstart de agent (tray-icoon ▸ Agent herstarten) als dit zo blijft.";
         }
-        catch (Exception ex) { _taakRegels.Add("… stoppen lukte niet: " + ex.Message); return false; }
+        catch (Exception ex) { return "stoppen lukte niet: " + ex.Message; }
+    }
+
+    // ---- lopende taak die dit scherm niet volgt ----
+    private sealed record LopendeTaak(string Id, string Taak, string Stand, double Seconden, List<string> Regels);
+    private LopendeTaak? _lopendeTaak;
+    private bool _stoptLopende, _lopendeGezocht;
+    private string? _lopendeStatus;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // één keer na het openen kijken of de agent nog met iets bezig is (bv. na het vernieuwen van de pagina)
+        if (_lopendeGezocht || _agentUrl.Length == 0) return;
+        _lopendeGezocht = true;
+        await ZoekLopendeTaak();
+        if (_lopendeTaak is not null) StateHasChanged();
+    }
+
+    /// <summary>/health zegt welke job bezig is; is dat niet een taak van dit scherm, dan tonen met de laatste regels.</summary>
+    private async Task ZoekLopendeTaak()
+    {
+        _lopendeStatus = null;
+        try
+        {
+            var h = await Agent("/health", 5);
+            if (h.status != 200) { _lopendeTaak = null; return; }
+            string? id;
+            using (var doc = JsonDocument.Parse(h.tekst))
+                id = doc.RootElement.TryGetProperty("bezig", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null;
+            if (id is null || id == _taakJobId || id == _encJobId || id == _serJobId) { _lopendeTaak = null; return; }
+            var st = await Agent($"/jobs/{id}", 10);
+            if (st.status != 200) { _lopendeTaak = null; return; }
+            using var job = JsonDocument.Parse(st.tekst);
+            var w = job.RootElement;
+            var regels = w.TryGetProperty("regels", out var r) && r.ValueKind == JsonValueKind.Array
+                ? r.EnumerateArray().Select(x => x.GetString() ?? "").TakeLast(6).ToList() : new List<string>();
+            var stand = Tekst(w, "stand");
+            if (stand is not ("bezig" or "wacht")) { _lopendeTaak = null; return; }
+            _lopendeTaak = new LopendeTaak(id, Tekst(w, "taak"), stand,
+                w.TryGetProperty("seconden", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetDouble() : 0, regels);
+        }
+        catch { _lopendeTaak = null; }
+    }
+
+    private async Task StopLopendeTaak()
+    {
+        if (_lopendeTaak is not { } lt) return;
+        if (!await Bevestig($"De taak {lt.Taak} op de werkplek-agent stoppen?")) return;
+        _stoptLopende = true;
+        _lopendeStatus = "stoppen …";
+        StateHasChanged();
+        var fout = await StopEnWacht(lt.Id);
+        _stoptLopende = false;
+        if (fout is not null) { _lopendeStatus = fout; return; }
+        _lopendeTaak = null;
+        Toon($"Taak {lt.Taak} gestopt. Je kunt nu weer uitlezen of programmeren.", false);
+    }
+
+    private static string Duur(double seconden)
+    {
+        var t = TimeSpan.FromSeconds(seconden);
+        return t.TotalHours >= 1 ? $"{(int)t.TotalHours} u {t.Minutes} min" : t.TotalMinutes >= 1 ? $"{(int)t.TotalMinutes} min {t.Seconds} s" : $"{t.Seconds} s";
     }
 
     // ---------------------------------------------------------------- drives uitlezen
@@ -4011,6 +4100,13 @@
         try
         {
             var antwoord = await Agent("/drives", 120);
+            if (antwoord.status == 409)
+            {
+                // geen uitleesfout (dus ook geen NO-GO): er loopt een andere taak; die tonen met een stopknop
+                await ZoekLopendeTaak();
+                if (_lopendeTaak is null) _driveFouten.Add("Er liep net een taak op de agent; lees opnieuw uit.");
+                return;
+            }
             if (antwoord.status == 0 || antwoord.status == 401)
             {
                 _driveFouten.Add(antwoord.status == 401 ? "De agent weigert: token klopt niet (Productie:AgentToken)." : antwoord.tekst);

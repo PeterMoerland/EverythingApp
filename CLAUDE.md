@@ -750,6 +750,29 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Vragen aan AI: privé, delen met de directie, wissen (22-10-2026)
+
+Besluit gebruiker: gesprekken zijn **privé** (alleen de vraagsteller); met het vinkje **Delen met de directie** (kolom
+`AiVragen.Openbaar` op de eerste vraag van het gesprek, `AiVragen_Openbaar_MariaDB.sql`, ook achteraan
+AiVragen_MariaDB.sql) zien directieleden het ook, alleen lezen. Het oude "Van iedereen" voor Directie is weg; Directie
+heeft "Ook gedeelde gesprekken" (standaard aan). `LijstAsync(werknemerId, ookGedeeld, max)`, toegang in
+`AiAnalyse.Kies` (eigen, of gedeeld en Directie; ook via ?vraag= uit de bel). Eigen gesprek wissen:
+`WisGesprekAsync` (DELETE eerste vraag + vervolgvragen, alleen eigen, niet als er nog iets wacht/loopt), met
+`mdeBevestig`. Zonder de kolom: alleen eigen gesprekken, delen geeft een melding. Kolomcontrole onthoudt alleen "ja".
+Gebouwd; DELETE gecontroleerd met EXPLAIN; niet in de browser getest (lokaal geen login, en een vraag stellen kost
+Bedrock-tokens).
+
+## Lopende taak op de agent zichtbaar en te stoppen (22-10-2026)
+
+Melding gebruiker: uitlezen gaf "NO-GO 0 drive(s) … uitlezen mislukt / Er loopt al een taak." (`/drives` geeft 409 als er een
+job loopt; de `StopAchtergeblevenTaak`-route gold alleen voor taken via `VoerTaakUit`). Nu in ExemplaarWerk een paneel
+bovenaan (`_lopendeTaak`, inline: `.melding.lopende-taak` is niet zwevend): taak, stand, duur en de laatste 6 logregels,
+knoppen Taak stoppen en Vernieuwen. `ZoekLopendeTaak`: `/health` ▸ `bezig` (job-id), dan `/jobs/<id>`; jobs van dit scherm
+(`_taakJobId`, `_encJobId`, `_serJobId`) tellen niet. Gezocht bij het openen (`OnAfterRenderAsync`, één keer), bij 409 op
+`/drives` (dan geen NO-GO) en bij 409 van de seriële monitor. Stoppen + wachten: `StopEnWacht` (ook gebruikt door
+`StopAchtergeblevenTaak`). Werkt met elke agentversie. Getest met een nep-agent op poort 5066
+(`Productie__UitleesAgent`); op deze pc draait een echte agent op 5055.
+
 ## Ureningave: vragen bij weggaan met een niet-opgeslagen nieuwe regel (22-10-2026)
 
 Bestaande regels slaan zichzelf op bij het wegklikken uit een veld; alleen de nieuwe regel (+ Nieuwe regel) moet met
