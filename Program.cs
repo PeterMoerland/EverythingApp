@@ -561,7 +561,7 @@ app.MapPost("/werkplek/koppelen", async (HttpContext ctx, IWerkplekRepository re
 // /bestand/12/download -> opslaan
 // Vertrouwelijke soorten (personeelsdossier) alleen voor HRM/Directie.
 async Task<IResult> BestandUitgeven(int id, bool alsDownload,
-                                    FilestoreService store, HuidigeGebruiker ik)
+                                    FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen)
 {
     var gevonden = await store.ZoekAsync(id);
     if (gevonden is null) return Results.NotFound("Bestand niet gevonden.");
@@ -576,6 +576,13 @@ async Task<IResult> BestandUitgeven(int id, bool alsDownload,
         if (!mag) return Results.Forbid();
     }
 
+    // plaatje bij een bericht aan een collega: alleen voor de ontvanger en de afzender (berichten zijn privé)
+    if (storeType == BerichtBijlage.StoreType)
+    {
+        await ik.ZorgGeladenAsync();
+        if (ik.WerknemerId is not int wn || !await meldingen.MagBijlageZienAsync(id, wn)) return Results.Forbid();
+    }
+
     var mime = FilestoreService.MimeVoor(naam);
     return alsDownload
         ? Results.File(pad, mime, naam)   // met bestandsnaam = opslaan
@@ -583,10 +590,10 @@ async Task<IResult> BestandUitgeven(int id, bool alsDownload,
 }
 
 app.MapGet("/bestand/{id:int}",
-    (int id, FilestoreService store, HuidigeGebruiker ik) => BestandUitgeven(id, false, store, ik));
+    (int id, FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen) => BestandUitgeven(id, false, store, ik, meldingen));
 
 app.MapGet("/bestand/{id:int}/download",
-    (int id, FilestoreService store, HuidigeGebruiker ik) => BestandUitgeven(id, true, store, ik));
+    (int id, FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen) => BestandUitgeven(id, true, store, ik, meldingen));
 
 // --- installer van de MDE Werkplek-agent: de nieuwste van de share (AgentUitgave), voor de knop in de melding
 // "nieuwere agent" (Components/AgentVersieMelding.razor). Een link naar een netwerkmap blokkeert de browser. ---

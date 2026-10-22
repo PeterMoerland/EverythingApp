@@ -750,6 +750,16 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Berichten: plaatjes meesturen (22-10-2026)
+
+Wens gebruiker. In het schrijfvak van de berichtenbox (`MeldingBel`) plaatjes plakken (Ctrl+V, `mdeKlembord.koppelPlakken`
+op het schrijfvak, zoals het lampje) of kiezen; hoogstens 3, 10 MB (`BerichtBijlage`). Na versturen naar de filestore:
+**StoreType 341** (`Meldingen_Bijlagen_MariaDB.sql`, zelf draaien: FK naar FileStoreType, anders weigert de database),
+MasterID = MeldingID (`StuurBerichtAsync` geeft nu het id terug). `AlleAsync` haalt ze op (GROUP_CONCAT), de lijst toont
+ze als miniatuur met link. **Privé**: `BestandUitgeven` (Program.cs) laat soort 341 alleen zien aan de ontvanger of de
+afzender (`IMeldingRepository.MagBijlageZienAsync`). Wist de ontvanger het bericht, dan blijft het bestand in de
+filestore staan. Gebouwd; query's gecontroleerd tegen de database; niet in de browser (lokaal geen login, dus geen bel).
+
 ## Projecten: voortgang per project voor het OHW (22-10-2026)
 
 Wens gebruiker: per project een percentage gereed (aanname, voor het onderhanden werk) met een knop **Bepaal zelf**.

@@ -1,4 +1,5 @@
 @implements IDisposable
+@inject FilestoreService Store
 @inject HuidigeGebruiker Ik
 @inject IBestelRepository Bestel
 @inject IMeldingRepository Meldingen
@@ -16,7 +17,9 @@
    Een order opent in een nieuw tabblad (bestellingen?order=…), daar druk je op Volgende. Ververst elke minuut en meteen
    na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet of een bericht stuurt.
    Geluidje bij een nieuw bericht (wens gebruiker 22-10-2026): aan/uit met 🔊/🔇 in de kop, per werknemer onthouden in de
-   browser (mdeOpslag, sleutel mde-geluid-<id>; standaard aan). Afspelen: mdeBerichtGeluid in App.razor. *@
+   browser (mdeOpslag, sleutel mde-geluid-<id>; standaard aan). Afspelen: mdeBerichtGeluid in App.razor.
+   Plaatjes bij een bericht (wens gebruiker 22-10-2026): plakken (Ctrl+V in het schrijfvak) of kiezen, hoogstens 3; na
+   versturen in de filestore (StoreType 341, MasterID = het bericht). Alleen ontvanger en afzender kunnen ze openen. *@
 
 @if (Ik.WerknemerId is not null)
 {
@@ -45,7 +48,7 @@
             <div class="bel-inhoud">
                 @if (_schrijven)
                 {
-                    <div class="bel-schrijf">
+                    <div class="bel-schrijf" @ref="_schrijfVak">
                         <h4>@(_antwoordOp is not null ? "Antwoord" : "Nieuw bericht")</h4>
                         <label class="bankveld"><span>Aan</span>
                             <select value="@(_aan?.ToString() ?? "")" @onchange="e => _aan = int.TryParse((string?)e.Value, out var id) ? id : null">
@@ -57,6 +60,27 @@
                             </select></label>
                         <textarea rows="5" maxlength="1000" placeholder="Je bericht…" value="@_tekst"
                                   @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                        @if (Store.Beschikbaar)
+                        {
+                            <div class="idee-shots">
+                                @foreach (var (shot, i) in _plaatjes.Select((s, i) => (s, i)))
+                                {
+                                    var nr = i;
+                                    <span class="idee-shot">
+                                        <img src="@shot.Voorbeeld" alt="plaatje @(nr + 1)" />
+                                        <button class="klein rood" title="Weghalen" @onclick="() => _plaatjes.RemoveAt(nr)">✕</button>
+                                    </span>
+                                }
+                                @if (_plaatjes.Count < BerichtBijlage.Max)
+                                {
+                                    <span class="idee-plakvak">
+                                        🖼 Plaatje: <b>Ctrl+V</b> hier (schermafdruk: Win+Shift+S)
+                                        <label class="klein knop-label">of kies een bestand…
+                                            <InputFile OnChange="PlaatjeGekozen" accept="image/*" multiple /></label>
+                                    </span>
+                                }
+                            </div>
+                        }
                         @if (_schrijfFout is not null) { <div class="melding fout">@_schrijfFout</div> }
                         <div class="btngroup">
                             <span style="flex:1"></span>
@@ -113,7 +137,19 @@
                             {
                                 <div class="bel-regel" @onclick="() => ZetGelezen(m, true)">
                                     <span class="bel-po">@Icoon(m)</span>
-                                    <span class="bel-tekst bel-brief">@m.Tekst<small>@Onder(m)</small></span>
+                                    <span class="bel-tekst bel-brief">@m.Tekst
+                                        @if (m.Bijlagen.Count > 0)
+                                        {
+                                            <span class="bel-plaatjes">
+                                                @foreach (var b in m.Bijlagen)
+                                                {
+                                                    <a href="@($"bestand/{b}")" target="_blank" rel="noopener" title="Plaatje groot openen" @onclick:stopPropagation>
+                                                        <img src="@($"bestand/{b}")" alt="plaatje" loading="lazy" />
+                                                    </a>
+                                                }
+                                            </span>
+                                        }
+                                        <small>@Onder(m)</small></span>
                                 </div>
                             }
                             <span class="bel-acties">
@@ -181,9 +217,75 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_koppelPlakken && _schrijven)
+        {
+            // Ctrl+V met een plaatje in het schrijfvak (zelfde opzet als het lampje: mdeKlembord in klembord.js)
+            _koppelPlakken = false;
+            try
+            {
+                _zelf ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _schrijfVak, _zelf);
+            }
+            catch { }
+        }
         if (!firstRender || Ik.WerknemerId is not int wn) return;
         try { _geluid = await JS.InvokeAsync<string?>("mdeOpslag.lees", $"mde-geluid-{wn}") != "uit"; } catch { }
     }
+
+    // ---- plaatjes bij een nieuw bericht: pas na versturen naar de filestore ----
+    private sealed record Plaatje(byte[] Inhoud, string Soort, string Voorbeeld);
+    private readonly List<Plaatje> _plaatjes = new();
+    private ElementReference _schrijfVak;
+    private DotNetObjectReference<MeldingBel>? _zelf;
+    private bool _koppelPlakken;
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: BerichtBijlage.MaxGrootte);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await InvokeAsync(() => { VoegPlaatjeToe(m.ToArray(), soort); StateHasChanged(); });
+        }
+        catch (Exception ex) { _schrijfFout = "Plakken mislukt: " + ex.Message; await InvokeAsync(StateHasChanged); }
+    }
+
+    /// <summary>Gewone tekst geplakt (in het tekstvak): niets aan de hand.</summary>
+    [JSInvokable]
+    public Task GeenAfbeelding() => Task.CompletedTask;
+
+    private async Task PlaatjeGekozen(InputFileChangeEventArgs e)
+    {
+        foreach (var f in e.GetMultipleFiles(BerichtBijlage.Max))
+        {
+            if (_plaatjes.Count >= BerichtBijlage.Max) break;
+            try
+            {
+                await using var s = f.OpenReadStream(maxAllowedSize: BerichtBijlage.MaxGrootte);
+                using var m = new MemoryStream();
+                await s.CopyToAsync(m);
+                VoegPlaatjeToe(m.ToArray(), f.ContentType is { Length: > 0 } ct ? ct : "image/png");
+            }
+            catch (Exception ex) { _schrijfFout = $"{f.Name} lezen mislukt: " + ex.Message; }
+        }
+    }
+
+    private void VoegPlaatjeToe(byte[] inhoud, string soort)
+    {
+        if (!soort.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { _schrijfFout = "Alleen plaatjes."; return; }
+        if (_plaatjes.Count >= BerichtBijlage.Max) { _schrijfFout = $"Hoogstens {BerichtBijlage.Max} plaatjes."; return; }
+        _schrijfFout = null;
+        _plaatjes.Add(new Plaatje(inhoud, soort, $"data:{soort};base64,{Convert.ToBase64String(inhoud)}"));
+    }
+
+    private static string Extensie(string soort) => soort.ToLowerInvariant() switch
+    {
+        "image/jpeg" or "image/jpg" => ".jpg", "image/gif" => ".gif", "image/webp" => ".webp", "image/bmp" => ".bmp", _ => ".png",
+    };
 
     /// <summary>Geluidje als er sinds het vorige laden een ongelezen bericht bij is gekomen (niet bij het eerste laden).</summary>
     private async Task SpeelBijNieuw(int wn)
@@ -256,6 +358,7 @@
     private async Task NieuwBericht(Melding? antwoordOp)
     {
         _schrijven = true; _schrijfFout = null; _verstuurd = null; _tekst = "";
+        _plaatjes.Clear(); _koppelPlakken = true;
         _aan = antwoordOp?.VanId; _antwoordOp = antwoordOp?.Id;
         if (antwoordOp is not null) await ZetGelezen(antwoordOp, true);
         if (_collegas.Count == 0)
@@ -276,9 +379,21 @@
         _bezig = true; _schrijfFout = null;
         try
         {
-            await Meldingen.StuurBerichtAsync(naar, van, _tekst, _antwoordOp);
-            _verstuurd = $"Verstuurd aan {_collegas.FirstOrDefault(w => w.WerknemerId == naar)?.Naam ?? "je collega"}.";
-            _schrijven = false; _tekst = "";
+            var id = await Meldingen.StuurBerichtAsync(naar, van, _tekst, _antwoordOp);
+            var mislukt = 0;
+            string? reden = null;
+            for (var i = 0; i < _plaatjes.Count; i++)
+            {
+                try
+                {
+                    using var m = new MemoryStream(_plaatjes[i].Inhoud);
+                    await Store.ToevoegenAsync(m, $"bericht {id}-{i + 1}{Extensie(_plaatjes[i].Soort)}", BerichtBijlage.StoreType, id, van);
+                }
+                catch (Exception ex) { mislukt++; reden ??= ex.GetBaseException().Message; }
+            }
+            _verstuurd = $"Verstuurd aan {_collegas.FirstOrDefault(w => w.WerknemerId == naar)?.Naam ?? "je collega"}."
+                         + (mislukt > 0 ? $" Let op: {mislukt} plaatje(s) konden niet mee: {reden}" : "");
+            _schrijven = false; _tekst = ""; _plaatjes.Clear();
             Signaal.Geef();          // de bel van de ontvanger ververst meteen (zelfde server)
         }
         catch (Exception ex) { _schrijfFout = "Versturen mislukt: " + ex.Message; }
@@ -292,5 +407,6 @@
     {
         Signaal.Gewijzigd -= OpSignaal;
         _klok?.Dispose();
+        _zelf?.Dispose();
     }
 }

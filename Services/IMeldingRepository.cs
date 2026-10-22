@@ -10,6 +10,16 @@ public record Melding(int Id, string Soort, int? OrderId, string Tekst, DateTime
     /// <summary>Afzender van een bericht van een collega (Soort 'bericht'); null bij meldingen van de app.</summary>
     public int? VanId { get; init; }
     public string Van { get; init; } = "";
+    /// <summary>Plaatjes bij een bericht (FileStore, StoreType <see cref="BerichtBijlage.StoreType"/>, MasterID = MeldingID).</summary>
+    public List<int> Bijlagen { get; init; } = new();
+}
+
+/// <summary>Plaatjes bij een bericht aan een collega (wens gebruiker 22-10-2026; Meldingen_Bijlagen_MariaDB.sql).</summary>
+public static class BerichtBijlage
+{
+    public const int StoreType = 341;
+    public const int Max = 3;
+    public const long MaxGrootte = 10_000_000;
 }
 
 /// <summary>
@@ -34,8 +44,10 @@ public interface IMeldingRepository
     Task WisAsync(int meldingId, int werknemerId);
     /// <summary>Kan de tabel berichten tussen collega's aan (kolom VanWerknemerID, Meldingen_Berichten_MariaDB.sql)?</summary>
     Task<bool> BerichtenMogelijkAsync();
-    /// <summary>Een bericht aan een collega (Soort 'bericht'); OrderId = het bericht waarop dit een antwoord is.</summary>
-    Task StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null);
+    /// <summary>Een bericht aan een collega (Soort 'bericht'); OrderId = het bericht waarop dit een antwoord is. Geeft het MeldingID.</summary>
+    Task<int> StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null);
+    /// <summary>Mag deze werknemer dit plaatje van een bericht zien? Alleen de ontvanger en de afzender.</summary>
+    Task<bool> MagBijlageZienAsync(int fileStoreId, int werknemerId);
 }
 
 public class GeenMeldingRepository : IMeldingRepository
@@ -50,7 +62,8 @@ public class GeenMeldingRepository : IMeldingRepository
     public Task ZetGelezenAsync(int meldingId, int werknemerId, bool gelezen) => Task.CompletedTask;
     public Task WisAsync(int meldingId, int werknemerId) => Task.CompletedTask;
     public Task<bool> BerichtenMogelijkAsync() => Task.FromResult(false);
-    public Task StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null) => Task.CompletedTask;
+    public Task<int> StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null) => Task.FromResult(0);
+    public Task<bool> MagBijlageZienAsync(int fileStoreId, int werknemerId) => Task.FromResult(false);
 }
 
 public class MySqlMeldingRepository : IMeldingRepository
@@ -136,6 +149,8 @@ public class MySqlMeldingRepository : IMeldingRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT m.`MeldingID`, m.`Soort`, m.`OrderID`, m.`Tekst`, m.`Aangemaakt`, m.`Gelezen`, " +
+            $"(SELECT GROUP_CONCAT(f.`FileStoreID` ORDER BY f.`FileStoreID`) FROM `FileStore` f " +
+            $"  WHERE f.`StoreType` = {BerichtBijlage.StoreType} AND f.`MasterID` = m.`MeldingID`), " +
             (metVan ? "m.`VanWerknemerID`, COALESCE(w.`NaamVoluit`, '') FROM `Meldingen` m " +
                       "LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = m.`VanWerknemerID` "
                     : "NULL, '' FROM `Meldingen` m ") +
@@ -146,8 +161,9 @@ public class MySqlMeldingRepository : IMeldingRepository
             lijst.Add(new Melding(r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2), r.GetString(3), r.GetDateTime(4))
             {
                 Gelezen = r.IsDBNull(5) ? null : r.GetDateTime(5),
-                VanId = r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
-                Van = r.IsDBNull(7) ? "" : r.GetString(7),
+                Bijlagen = r.IsDBNull(6) ? new() : r.GetValue(6).ToString()!.Split(',').Select(int.Parse).ToList(),
+                VanId = r.IsDBNull(7) ? null : Convert.ToInt32(r.GetValue(7)),
+                Van = r.IsDBNull(8) ? "" : r.GetString(8),
             });
         return lijst;
     }
@@ -172,19 +188,32 @@ public class MySqlMeldingRepository : IMeldingRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null)
+    public async Task<bool> MagBijlageZienAsync(int fileStoreId, int werknemerId)
+    {
+        var metVan = await BerichtenMogelijkAsync();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM `FileStore` f JOIN `Meldingen` m ON m.`MeldingID` = f.`MasterID` " +
+            $" WHERE f.`FileStoreID` = @f AND f.`StoreType` = {BerichtBijlage.StoreType} " +
+            "   AND (m.`WerknemerID` = @wn" + (metVan ? " OR m.`VanWerknemerID` = @wn)" : ")"), cn);
+        cmd.Parameters.AddWithValue("@f", fileStoreId);
+        cmd.Parameters.AddWithValue("@wn", werknemerId);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    public async Task<int> StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null)
     {
         if (!await BerichtenMogelijkAsync()) throw new InvalidOperationException("Voer eerst Meldingen_Berichten_MariaDB.sql uit.");
         tekst = tekst.Trim();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "INSERT INTO `Meldingen` (`WerknemerID`, `Soort`, `OrderID`, `Tekst`, `Aangemaakt`, `VanWerknemerID`) " +
-            "VALUES (@naar, 'bericht', @op, @t, NOW(), @van)", cn);
+            "VALUES (@naar, 'bericht', @op, @t, NOW(), @van); SELECT LAST_INSERT_ID();", cn);
         cmd.Parameters.AddWithValue("@naar", naar);
         cmd.Parameters.AddWithValue("@op", (object?)antwoordOp ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@t", tekst.Length > 1000 ? tekst[..1000] : tekst);
         cmd.Parameters.AddWithValue("@van", van);
-        await cmd.ExecuteNonQueryAsync();
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 
     public async Task GelezenAsync(int meldingId, int werknemerId)
