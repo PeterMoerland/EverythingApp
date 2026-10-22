@@ -295,6 +295,8 @@ builder.Services.AddSingleton<NdaDocumentService>();
 builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<SonosService>();
 builder.Services.AddSingleton<MeldingSignaal>();
+builder.Services.AddSingleton<BelCentrale>();        // videobellen op het intranet (Components/Layout/Videobellen.razor)
+builder.Services.AddScoped<BelVerzoek>();           // "bel deze collega" vanuit de berichtenbox naar het belvenster
 builder.Services.AddSingleton<AltecPrinter>();
 builder.Services.AddSingleton<FusionPakketten>();
 builder.Services.AddSingleton<FirmwarePakketten>();

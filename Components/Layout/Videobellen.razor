@@ -1,0 +1,296 @@
+@implements IBelDeelnemer
+@implements IAsyncDisposable
+@inject BelCentrale Centrale
+@inject BelVerzoek Verzoek
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Videobellen op het intranet (wens gebruiker 22-10-2026). Staat in MainLayout, dus het gesprek blijft staan als je door
+   de app klikt (niet bij F5 of tabblad sluiten). Bellen: de berichtenbox (📹), via BelVerzoek. Overgaan, opnemen en
+   ophangen regelt Services/BelCentrale.cs; beeld en geluid gaan rechtstreeks tussen de browsers (wwwroot/videobellen.js).
+   Alleen via https en binnen het eigen netwerk. *@
+
+@if (_inkomend is { } ink && _gesprek is null)
+{
+    <div class="bel-inkomend" role="alertdialog" aria-label="Inkomende videooproep">
+        <div class="bel-inkomend-kop"><span class="bel-inkomend-icoon">📹</span> <b>@ink.BellerNaam</b> belt je</div>
+        <div class="btngroup">
+            <button class="rood" disabled="@_bezig" @onclick="Weiger">Weigeren</button>
+            <button class="primair bel-opnemen" disabled="@_bezig" @onclick="NeemOp">Opnemen</button>
+        </div>
+    </div>
+}
+
+@if (_venster)
+{
+    <div class="bel-venster @(_groot ? "groot" : "")" role="dialog" aria-label="Videogesprek">
+        <div class="bel-kop">
+            <b>📹 @(_gesprek?.Ander(_wn) ?? _naarNaam)</b>
+            <span class="bel-stand">@_stand</span>
+            <span style="flex:1"></span>
+            <button class="knopje" title="@(_groot ? "Kleiner" : "Groter")" @onclick="() => _groot = !_groot">@(_groot ? "🗗" : "⛶")</button>
+        </div>
+        <div class="bel-beeld">
+            <video id="mde-video-ander" autoplay playsinline></video>
+            <video id="mde-video-eigen" class="@(_cameraUit || _soort == "audio" ? "verborgen" : "")" autoplay playsinline muted></video>
+            @if (_soort == "audio") { <div class="bel-alleen-geluid">Alleen geluid (geen camera gevonden)</div> }
+        </div>
+        <div class="bel-knoppen">
+            <button class="klein" disabled="@(_soort.Length == 0)" @onclick="Dempen">@(_gedempt ? "🔇 Microfoon aan" : "🎤 Dempen")</button>
+            @if (_soort == "video")
+            {
+                <button class="klein" @onclick="Camera">@(_cameraUit ? "📷 Camera aan" : "📷 Camera uit")</button>
+            }
+            <span style="flex:1"></span>
+            <button class="rood" @onclick="Ophangen">Ophangen</button>
+        </div>
+    </div>
+}
+
+@if (_melding is not null)
+{
+    <div class="melding waarschuwing bel-melding" @onclick="() => _melding = null">📹 @_melding</div>
+}
+
+@code {
+    private int _wn;                         // waarmee dit scherm bij de centrale staat (0 = niet aangemeld)
+    private bool _aangemeld;
+    private DotNetObjectReference<Videobellen>? _zelf;
+
+    private BelGesprek? _gesprek;            // lopend gesprek (overgaan bij de ander, of actief)
+    private BelGesprek? _inkomend;           // iemand belt ons
+    private bool _venster, _bezig, _gedempt, _cameraUit, _groot, _koppel;
+    private string _soort = "";              // "video" of "audio" zodra camera/microfoon aan staan
+    private string _stand = "", _naarNaam = "";
+    private string? _melding;
+
+    int IBelDeelnemer.WerknemerId => _wn;
+
+    private string MijnNaam => Ik.Medewerker?.Naam is { Length: > 0 } m ? m : Ik.Naam;
+
+    protected override void OnInitialized()
+    {
+        Verzoek.Gevraagd += BelAsync;
+        Ik.MedewerkerGewijzigd += OpMedewerker;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // pas hier aanmelden: het voorgerenderde exemplaar (zonder verbinding) telt niet
+            await Ik.ZorgGeladenAsync();
+            _zelf = DotNetObjectReference.Create(this);
+            Meld();
+        }
+        if (_koppel)
+        {
+            _koppel = false;
+            try { await JS.InvokeVoidAsync("mdeVideo.koppel"); } catch { }
+        }
+    }
+
+    private void Meld()
+    {
+        var wn = Ik.WerknemerId ?? 0;
+        if (_aangemeld && wn == _wn) return;
+        if (_aangemeld) { Centrale.Afmelden(this); _aangemeld = false; }
+        _wn = wn;
+        if (_wn > 0) { Centrale.Aanmelden(this); _aangemeld = true; }
+    }
+
+    /// <summary>Op een werkplek meldde iemand anders zich aan (of de tijd is om): onder die naam bereikbaar.</summary>
+    private void OpMedewerker() => _ = InvokeAsync(() => { if (_zelf is not null) Meld(); });
+
+    // ---------------------------------------------------------------- zelf bellen
+
+    private async Task BelAsync(int naar, string naam)
+    {
+        await InvokeAsync(async () =>
+        {
+            if (_gesprek is not null || _venster) { _melding = "Je bent al in gesprek."; StateHasChanged(); return; }
+            if (!_aangemeld) { _melding = "Bellen kan alleen als je aangemeld bent."; StateHasChanged(); return; }
+            _melding = null; _naarNaam = naam; _venster = true; _stand = "camera en microfoon aanzetten…";
+            StateHasChanged();
+            if (!await StartMedia()) return;
+            var (g, reden) = await Centrale.BelAsync(this, MijnNaam, naar, naam);
+            if (g is null) { await Sluit(reden); return; }
+            _gesprek = g;
+            _stand = "gaat over…";
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Camera en microfoon aan (de browser vraagt de eerste keer toestemming). False = niet gelukt, venster dicht.</summary>
+    private async Task<bool> StartMedia()
+    {
+        try
+        {
+            _soort = await JS.InvokeAsync<string>("mdeVideo.start", _zelf);
+            _gedempt = false; _cameraUit = false; _koppel = true;
+            return true;
+        }
+        catch (JSException ex)
+        {
+            await Sluit(ex.Message.Split('\n')[0]);
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------------- gebeld worden
+
+    public Task InkomendAsync(BelGesprek gesprek) => InvokeAsync(async () =>
+    {
+        if (_gesprek is not null || _inkomend is not null) return;
+        _inkomend = gesprek;
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("mdeVideo.belgeluid", true); } catch { }
+    });
+
+    private async Task NeemOp()
+    {
+        if (_inkomend is not { } g) return;
+        _bezig = true;
+        try
+        {
+            await StopBelgeluid();
+            _venster = true; _stand = "camera en microfoon aanzetten…";
+            StateHasChanged();
+            if (!await StartMedia())
+            {
+                await Centrale.BeeindigAsync(g.Id, this, $"{MijnNaam} kon camera of microfoon niet gebruiken.");
+                _inkomend = null;
+                return;
+            }
+            // eerst vastleggen: het aanbod van de beller kan al binnenkomen terwijl NeemOpAsync nog loopt
+            _gesprek = g;
+            _inkomend = null;
+            _stand = "verbinden…";
+            var reden = await Centrale.NeemOpAsync(g.Id, this);
+            if (reden is not null) { _gesprek = null; await Sluit(reden); return; }
+        }
+        finally { _bezig = false; }
+    }
+
+    private async Task Weiger()
+    {
+        if (_inkomend is not { } g) return;
+        _inkomend = null;
+        await StopBelgeluid();
+        await Centrale.BeeindigAsync(g.Id, this, $"{MijnNaam} kan nu niet opnemen.");
+    }
+
+    // ---------------------------------------------------------------- van de centrale
+
+    public Task OpgenomenAsync(BelGesprek gesprek, bool doorJou) => InvokeAsync(async () =>
+    {
+        if (doorJou && _gesprek?.Id == gesprek.Id)
+        {
+            _stand = "verbinden…";
+            StateHasChanged();
+            try { await JS.InvokeVoidAsync("mdeVideo.aanbod"); }
+            catch (JSException ex) { await Ophangen(); _melding = "Verbinden mislukt: " + ex.Message.Split('\n')[0]; }
+        }
+        else if (_inkomend?.Id == gesprek.Id)
+        {
+            // in een ander tabblad opgenomen
+            _inkomend = null;
+            await StopBelgeluid();
+            StateHasChanged();
+        }
+    });
+
+    public Task BeeindigdAsync(BelGesprek gesprek, string reden) => InvokeAsync(async () =>
+    {
+        if (_inkomend?.Id == gesprek.Id)
+        {
+            _inkomend = null;
+            await StopBelgeluid();
+            if (reden.StartsWith("Niet opgenomen")) _melding = $"Gemiste oproep van {gesprek.BellerNaam}.";
+            StateHasChanged();
+        }
+        if (_gesprek?.Id == gesprek.Id)
+        {
+            _gesprek = null;
+            await Sluit(reden);
+        }
+    });
+
+    public Task SignaalAsync(BelGesprek gesprek, string soort, string data) => InvokeAsync(async () =>
+    {
+        if (_gesprek?.Id != gesprek.Id) return;
+        try { await JS.InvokeVoidAsync("mdeVideo.ontvang", soort, data); }
+        catch (JSException ex) { _stand = "fout: " + ex.Message.Split('\n')[0]; StateHasChanged(); }
+    });
+
+    // ---------------------------------------------------------------- vanuit de browser
+
+    [JSInvokable]
+    public Task StuurSignaal(string soort, string data)
+        => _gesprek is { } g ? Centrale.SignaalAsync(g.Id, this, soort, data) : Task.CompletedTask;
+
+    [JSInvokable]
+    public Task Verbinding(string stand) => InvokeAsync(async () =>
+    {
+        _stand = stand switch
+        {
+            "connected" => "verbonden",
+            "connecting" => "verbinden…",
+            "disconnected" => "verbinding hapert…",
+            "failed" => "verbinding mislukt",
+            _ => _stand,
+        };
+        StateHasChanged();
+        if (stand == "failed")
+        {
+            await Ophangen();
+            _melding = "Er kwam geen verbinding tot stand. Werkt het niet binnen het eigen netwerk, dan houdt een firewall het verkeer tussen de pc's tegen.";
+        }
+    });
+
+    // ---------------------------------------------------------------- knoppen
+
+    private async Task Dempen()
+    {
+        _gedempt = !_gedempt;
+        try { await JS.InvokeVoidAsync("mdeVideo.dempen", _gedempt); } catch { }
+    }
+
+    private async Task Camera()
+    {
+        _cameraUit = !_cameraUit;
+        try { await JS.InvokeVoidAsync("mdeVideo.camera", _cameraUit); } catch { }
+    }
+
+    private async Task Ophangen()
+    {
+        var g = _gesprek;
+        _gesprek = null;
+        if (g is not null)
+            await Centrale.BeeindigAsync(g.Id, this, $"{MijnNaam} heeft opgehangen.");
+        await Sluit(null);
+    }
+
+    private async Task Sluit(string? reden)
+    {
+        try { await JS.InvokeVoidAsync("mdeVideo.stop"); } catch { }
+        _venster = false; _soort = ""; _stand = ""; _groot = false;
+        if (reden is not null) _melding = reden;
+        StateHasChanged();
+    }
+
+    private async Task StopBelgeluid()
+    {
+        try { await JS.InvokeVoidAsync("mdeVideo.belgeluid", false); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Verzoek.Gevraagd -= BelAsync;
+        Ik.MedewerkerGewijzigd -= OpMedewerker;
+        if (_aangemeld) Centrale.Afmelden(this);
+        try { await JS.InvokeVoidAsync("mdeVideo.stop"); } catch { }
+        try { await JS.InvokeVoidAsync("mdeVideo.belgeluid", false); } catch { }
+        _zelf?.Dispose();
+    }
+}

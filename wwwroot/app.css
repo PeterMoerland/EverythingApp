@@ -3753,3 +3753,40 @@ html[data-thema="donker"] .voortgang-balk { background: #2b333c; }
 .bel-plaatjes { display: flex; flex-wrap: wrap; gap: .3rem; margin: .3rem 0 .1rem; }
 .bel-plaatjes img { max-height: 4.5rem; max-width: 9rem; border: 1px solid #c9d3df; border-radius: 3px; display: block; }
 .bel-schrijf .idee-shots { margin: 0; }
+
+/* Videobellen (Components/Layout/Videobellen.razor) */
+.bel-inkomend { position: fixed; right: 1rem; bottom: 1rem; z-index: 2600; width: min(22rem, calc(100vw - 2rem));
+                background: #fff; border: 2px solid #2f7d4f; border-radius: 10px; padding: .8rem 1rem;
+                box-shadow: 0 10px 32px rgba(0,0,0,.28); animation: bel-in .2s ease-out; }
+.bel-inkomend-kop { font-size: 1.05rem; margin-bottom: .6rem; }
+.bel-inkomend-icoon { display: inline-block; animation: bel-schud 1s infinite; }
+.bel-opnemen { background: #2f7d4f !important; border-color: #2f7d4f !important; }
+@keyframes bel-in { from { opacity: 0; transform: translateY(.6rem); } to { opacity: 1; transform: none; } }
+@keyframes bel-schud { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+.bel-venster { position: fixed; right: 1rem; bottom: 1rem; z-index: 2500; width: min(26rem, calc(100vw - 2rem));
+               background: #1d2329; color: #e8edf2; border-radius: 10px; overflow: hidden; box-shadow: 0 12px 36px rgba(0,0,0,.35);
+               display: flex; flex-direction: column; }
+.bel-venster.groot { inset: 4vh 4vw; width: auto; }
+.bel-kop { display: flex; align-items: center; gap: .5rem; padding: .45rem .7rem; background: #262e36; }
+.bel-kop .knopje { background: transparent; color: inherit; border: 0; cursor: pointer; font-size: 1rem; }
+.bel-stand { font-size: .8rem; opacity: .75; }
+.bel-beeld { position: relative; background: #000; aspect-ratio: 16 / 9; }
+.bel-venster.groot .bel-beeld { flex: 1; aspect-ratio: auto; min-height: 0; }
+#mde-video-ander { width: 100%; height: 100%; object-fit: contain; display: block; }
+#mde-video-eigen { position: absolute; right: .5rem; bottom: .5rem; width: 28%; max-width: 12rem; border: 2px solid rgba(255,255,255,.6);
+                   border-radius: 6px; background: #111; transform: scaleX(-1); }
+#mde-video-eigen.verborgen { display: none; }
+.bel-alleen-geluid { position: absolute; left: .6rem; top: .5rem; font-size: .8rem; opacity: .8; }
+.bel-knoppen { display: flex; align-items: center; gap: .4rem; padding: .5rem .7rem; }
+.bel-melding { z-index: 2600; }
+.bel-bellijst { display: grid; gap: .25rem; margin-bottom: .6rem; }
+.bel-bellijst h4 { margin: 0 0 .2rem; }
+.bel-collega { display: flex; align-items: center; gap: .45rem; text-align: left; padding: .35rem .5rem; border-radius: 6px;
+               border: 1px solid transparent; background: transparent; cursor: pointer; font: inherit; color: inherit; }
+.bel-collega.online:hover { background: #eef6f0; border-color: #b9dcc4; }
+.bel-collega:disabled { opacity: .5; cursor: default; }
+.bel-bolletje { width: .6rem; height: .6rem; border-radius: 50%; background: #b8c1cb; flex: none; }
+.bel-collega.online .bel-bolletje { background: #2f9e57; }
+.bel-belicoon { margin-left: auto; }
+html[data-thema="donker"] .bel-inkomend { background: #232a31; color: #e8edf2; }
+html[data-thema="donker"] .bel-collega.online:hover { background: #24352b; border-color: #2f5a3d; }

@@ -750,6 +750,26 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Videobellen op het intranet (22-10-2026)
+
+Wens gebruiker: camera en microfoon rechtstreeks naar een collega, zonder externe dienst. **WebRTC** tussen de browsers
+(`wwwroot/videobellen.js`, `mdeVideo`), zonder STUN/TURN: werkt binnen het eigen netwerk, niet van buiten. Camera en
+microfoon alleen op **https** (https://everything.mde-automation.nl), niet via http://172.16.1.13:5010 (de app zegt dat).
+- `Services/BelCentrale.cs` (singleton): wie online is (`IBelDeelnemer` per tabblad), overgaan (40 s, daarna
+  "Niet opgenomen" + bericht soort `gemist` in de berichtenbox), opnemen (andere tabbladen stoppen met overgaan), ophangen,
+  en het doorgeven van offer/answer/ice. In het geheugen: na een herstart van de app is iedereen offline.
+- `Components/Layout/Videobellen.razor` in MainLayout (gesprek blijft staan bij doorklikken, niet bij F5): inkomende
+  oproep rechtsonder met belgeluid (Opnemen/Weigeren), belvenster met beeld van de ander groot en het eigen beeld klein,
+  Dempen, Camera uit, Groter, Ophangen. Geen camera = alleen geluid. Meldt zich pas aan in `OnAfterRenderAsync` (niet het
+  voorgerenderde exemplaar); op een werkplek opnieuw bij `MedewerkerGewijzigd`.
+- Bellen: berichtenbox ▸ **📹 Bellen** (collega's, online met groen bolletje eerst) en 📹 bij een bericht van een online
+  collega; via de scoped `BelVerzoek`.
+- **Valkuil (gevonden bij testen)**: bij opnemen `_gesprek` vastleggen vóór `NeemOpAsync`, anders komt het offer van de
+  beller binnen terwijl het nog niet als eigen gesprek telt en wordt het weggegooid (verbinding blijft op "verbinden").
+- Getest lokaal met twee tabbladen (tijdelijke testingang `?belwn=` en nepbeeld via canvas, teruggezet): verbonden,
+  beeld 320x180 over en weer, doorklikken, dempen, ophangen aan beide kanten. Niet getest: twee echte pc's met camera,
+  een firewall ertussen, gemiste oproep (zou in de echte database schrijven), Weigeren.
+
 ## Berichten: plaatjes meesturen (22-10-2026)
 
 Wens gebruiker. In het schrijfvak van de berichtenbox (`MeldingBel`) plaatjes plakken (Ctrl+V, `mdeKlembord.koppelPlakken`

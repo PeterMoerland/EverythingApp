@@ -6,6 +6,8 @@
 @inject IUrenRepository Uren
 @inject MeldingSignaal Signaal
 @inject IJSRuntime JS
+@inject BelCentrale Bellen
+@inject BelVerzoek BelVraag
 
 @* Bel in de bovenbalk = de berichtenbox, altijd te openen (wens gebruiker 22-10-2026). Het getal = goed te keuren plus
    ongelezen berichten.
@@ -19,7 +21,9 @@
    Geluidje bij een nieuw bericht (wens gebruiker 22-10-2026): aan/uit met 🔊/🔇 in de kop, per werknemer onthouden in de
    browser (mdeOpslag, sleutel mde-geluid-<id>; standaard aan). Afspelen: mdeBerichtGeluid in App.razor.
    Plaatjes bij een bericht (wens gebruiker 22-10-2026): plakken (Ctrl+V in het schrijfvak) of kiezen, hoogstens 3; na
-   versturen in de filestore (StoreType 341, MasterID = het bericht). Alleen ontvanger en afzender kunnen ze openen. *@
+   versturen in de filestore (StoreType 341, MasterID = het bericht). Alleen ontvanger en afzender kunnen ze openen.
+   📹 Bellen: lijst van collega's, wie online is (BelCentrale) eerst met een groen bolletje; het gesprek zelf is
+   Components/Layout/Videobellen.razor. Ook 📹 bij een bericht van een collega. Gemiste oproep = soort 'gemist'. *@
 
 @if (Ik.WerknemerId is not null)
 {
@@ -39,6 +43,7 @@
                 <span style="flex:1"></span>
                 <button class="klein" title="@(_geluid ? "Geluid bij een nieuw bericht staat aan; klik om uit te zetten" : "Geluid bij een nieuw bericht staat uit; klik om aan te zetten")"
                         @onclick="WisselGeluid">@(_geluid ? "🔊 Geluid aan" : "🔇 Geluid uit")</button>
+                <button class="klein @(_bellen ? "actief" : "")" title="Videobellen met een collega (binnen het eigen netwerk)" @onclick="WisselBellen">📹 Bellen</button>
                 @if (_berichtenMogelijk && !_schrijven)
                 {
                     <button class="klein" @onclick="() => NieuwBericht(null)">✉ Nieuw bericht</button>
@@ -46,6 +51,22 @@
                 <button class="klein" title="Sluiten" @onclick="() => _open = false">✕</button>
             </div>
             <div class="bel-inhoud">
+                @if (_bellen)
+                {
+                    var online = Bellen.Online();
+                    <div class="bel-bellijst">
+                        <h4>Videobellen <small class="uitleg">· alleen met collega's die de app open hebben</small></h4>
+                        @if (_collegas.Count == 0) { <p class="uitleg">Collega's laden…</p> }
+                        @foreach (var w in _collegas.OrderByDescending(w => online.Contains(w.WerknemerId)).ThenBy(w => w.Naam))
+                        {
+                            var aan = online.Contains(w.WerknemerId);
+                            <button class="bel-collega @(aan ? "online" : "")" disabled="@(!aan)" title="@(aan ? $"{w.Naam} bellen" : $"{w.Naam} heeft de app nu niet open")"
+                                    @onclick="() => Bel(w.WerknemerId, w.Naam)">
+                                <span class="bel-bolletje"></span> @w.Naam @if (aan) { <span class="bel-belicoon">📹</span> }
+                            </button>
+                        }
+                    </div>
+                }
                 @if (_schrijven)
                 {
                     <div class="bel-schrijf" @ref="_schrijfVak">
@@ -157,6 +178,10 @@
                                 {
                                     <button class="klein" title="Beantwoorden" @onclick="() => NieuwBericht(m)">↩</button>
                                 }
+                                @if (m.VanId is int beller && Bellen.Online().Contains(beller))
+                                {
+                                    <button class="klein" title="@($"{m.Van} videobellen")" @onclick="() => Bel(beller, m.Van)">📹</button>
+                                }
                                 <button class="klein" title="@(ongelezen ? "Markeer als gelezen" : "Markeer als ongelezen")"
                                         @onclick="() => ZetGelezen(m, ongelezen)">@(ongelezen ? "✓" : "○")</button>
                                 <button class="klein rood" title="Bericht wissen" @onclick="() => Wis(m)">✕</button>
@@ -192,6 +217,7 @@
     private string? _schrijfFout, _verstuurd;
     private List<Werknemer> _collegas = new();
 
+    private bool _bellen;
     private int Ongelezen => _meldingen.Count(m => m.Gelezen is null);
     private int Aantal => _teKeuren.Count + Ongelezen;
     private IEnumerable<Melding> Zichtbaar => _alleenOngelezen ? _meldingen.Where(m => m.Gelezen is null) : _meldingen;
@@ -200,11 +226,39 @@
     {
         await Ik.ZorgGeladenAsync();
         Signaal.Gewijzigd += OpSignaal;
+        Bellen.OnlineGewijzigd += OpOnline;
         await Laad();
         _klok = new Timer(_ => OpSignaal(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
     private void OpSignaal() => _ = InvokeAsync(async () => { await Laad(); StateHasChanged(); });
+
+    /// <summary>Iemand opende of sloot de app: het groene bolletje bijwerken (alleen als de box open staat).</summary>
+    private void OpOnline() { if (_open) _ = InvokeAsync(StateHasChanged); }
+
+    private async Task WisselBellen()
+    {
+        _bellen = !_bellen;
+        if (_bellen) { _schrijven = false; await LaadCollegas(); }
+    }
+
+    private async Task Bel(int wie, string naam)
+    {
+        _open = false; _bellen = false;
+        await BelVraag.BelAsync(wie, naam);
+    }
+
+    private async Task LaadCollegas()
+    {
+        if (_collegas.Count > 0) return;
+        try
+        {
+            _collegas = (await Uren.GetWerknemersAsync())
+                .Where(w => w.Actief && w.WerknemerId != Ik.WerknemerId)
+                .OrderBy(w => w.Naam).ToList();
+        }
+        catch (Exception ex) { _schrijfFout = "Collega's ophalen mislukt: " + ex.Message; }
+    }
 
     private async Task Laad()
     {
@@ -327,7 +381,7 @@
 
     private static string Icoon(Melding m) => m.Soort switch
     {
-        "bericht" => "💬", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "goedgekeurd" => "✅", _ => "•",
+        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "goedgekeurd" => "✅", _ => "•",
     };
 
     private static string Onder(Melding m)
@@ -361,16 +415,8 @@
         _plaatjes.Clear(); _koppelPlakken = true;
         _aan = antwoordOp?.VanId; _antwoordOp = antwoordOp?.Id;
         if (antwoordOp is not null) await ZetGelezen(antwoordOp, true);
-        if (_collegas.Count == 0)
-        {
-            try
-            {
-                _collegas = (await Uren.GetWerknemersAsync())
-                    .Where(w => w.Actief && w.WerknemerId != Ik.WerknemerId)
-                    .OrderBy(w => w.Naam).ToList();
-            }
-            catch (Exception ex) { _schrijfFout = "Collega's ophalen mislukt: " + ex.Message; }
-        }
+        _bellen = false;
+        await LaadCollegas();
     }
 
     private async Task Verstuur()
@@ -406,6 +452,7 @@
     public void Dispose()
     {
         Signaal.Gewijzigd -= OpSignaal;
+        Bellen.OnlineGewijzigd -= OpOnline;
         _klok?.Dispose();
         _zelf?.Dispose();
     }
