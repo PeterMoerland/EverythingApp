@@ -17,10 +17,15 @@ public class Verbeterverzoek
     public string Reactie { get; set; } = "";
     public DateTime? GewijzigdOp { get; set; }
     public string GewijzigdDoor { get; set; } = "";
+    /// <summary>Meegestuurde schermafdrukken: FileStore-id's (StoreType 340, MasterID = dit verzoek).</summary>
+    public List<int> Schermafdrukken { get; set; } = new();
 }
 
 public static class VerzoekStatus
 {
+    /// <summary>FileStore.StoreType van een schermafdruk bij een verbeterverzoek (MasterID = VerzoekID).</summary>
+    public const int StoreTypeSchermafdruk = 340;
+
     public const string Nieuw = "nieuw", Gepland = "gepland", Bezig = "bezig", Gedaan = "gedaan", Afgewezen = "afgewezen";
     public static readonly string[] Alle = { Nieuw, Gepland, Bezig, Gedaan, Afgewezen };
     public static bool IsOpen(string status) => status is Nieuw or Gepland or Bezig;
@@ -114,7 +119,9 @@ public class MySqlVerbeterRepository : IVerbeterRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT v.`VerzoekID`, v.`Tekst`, COALESCE(v.`Pagina`, ''), v.`IngediendOp`, v.`IngediendDoor`, COALESCE(i.`NaamVoluit`, ''), " +
-            "       COALESCE(v.`Werkplek`, ''), v.`Status`, COALESCE(v.`Reactie`, ''), v.`GewijzigdOp`, COALESCE(g.`NaamVoluit`, '') " +
+            "       COALESCE(v.`Werkplek`, ''), v.`Status`, COALESCE(v.`Reactie`, ''), v.`GewijzigdOp`, COALESCE(g.`NaamVoluit`, ''), " +
+            $"      (SELECT GROUP_CONCAT(f.`FileStoreID` ORDER BY f.`FileStoreID`) FROM `FileStore` f " +
+            $"        WHERE f.`StoreType` = {VerzoekStatus.StoreTypeSchermafdruk} AND f.`MasterID` = v.`VerzoekID`) " +
             "  FROM `Verbeterverzoeken` v " +
             "  LEFT JOIN `Werknemers` i ON i.`Werknemer-id` = v.`IngediendDoor` " +
             "  LEFT JOIN `Werknemers` g ON g.`Werknemer-id` = v.`GewijzigdDoor` " +
@@ -128,6 +135,8 @@ public class MySqlVerbeterRepository : IVerbeterRepository
                 IngediendDoorId = r.IsDBNull(4) ? null : r.GetInt32(4), IngediendDoor = r.GetString(5), Werkplek = r.GetString(6),
                 Status = r.GetString(7), Reactie = r.GetString(8), GewijzigdOp = r.IsDBNull(9) ? null : r.GetDateTime(9),
                 GewijzigdDoor = r.GetString(10),
+                Schermafdrukken = r.IsDBNull(11) ? new() : Convert.ToString(r.GetValue(11))!.Split(',')
+                    .Select(s => int.TryParse(s, out var id) ? id : 0).Where(id => id > 0).ToList(),
             });
         return lijst;
     }

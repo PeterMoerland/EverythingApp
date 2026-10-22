@@ -305,6 +305,11 @@ naam). Directie ziet het aantal 'nieuw' op het lampje (hoogstens elke 30 s getel
 `/verbeterverzoeken` (Beheer > Verbeteren): filter open/gedaan/afgewezen/mijn/alles en zoeken; Directie wijzigt tekst,
 status (nieuw, gepland, bezig, gedaan, afgewezen) en reactie in de tabel, meteen opgeslagen (ook in `Wijzig` gecontroleerd).
 Niet verwijderen: afwijzen. Lokaal getest met de geheugen-opslag (indienen, lijst, status wijzigen).
+**Schermafdrukken** (22-10-2026, verzoek collega): in het idee-venster Ctrl+V (na Win+Shift+S) of "kies een bestand",
+hoogstens 3, 10 MB, voorbeeld met ✕. `mdeKlembord.koppelPlakken` hangt aan het hele venster (tekst plakken in het vak
+blijft gewoon werken: `GeenAfbeelding` doet niets). Pas na indienen naar de filestore (`FilestoreService.ToevoegenAsync`,
+**StoreType 340**, MasterID = VerzoekID, naam "schermafdruk <id>-<n>.png"). Lijst: plaatjes via `bestand/<id>`
+(`Verbeterverzoek.Schermafdrukken`, GROUP_CONCAT in `LijstAsync`). Plakken lokaal getest; versturen niet (echte filestore).
 Bericht aan de indiener (zelfde dag, op verzoek): bij een nieuwe status of reactie maakt `BerichtAanIndiener` een
 melding (tabel Meldingen, soort `verbeter`, OrderID = verzoek, max. 250 tekens) en geeft `MeldingSignaal`; de bel toont
 💡 met een link `verbeterverzoeken?verzoek=<id>` (dat verzoek uitgelicht, filter "alles"). Niet aan jezelf, niet bij een
@@ -728,6 +733,31 @@ Niet overgenomen: de Access-rapporten "Overzicht project" en "Weekoverzicht per 
 In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met Liquiditeitsoverzicht (verhuisd uit
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
+
+## Programmeren en testen: eerst uitlezen; node-adressen met het echte type (22-10-2026)
+
+- **Eerst uitlezen** (wens gebruiker): in `ExemplaarWerk` staan Programmeren, Node-adressen en Testen in een
+  `fieldset disabled="@Vergrendeld"` (`ToonUitlezen && !_uitgelezen && !_tochDoor`), met erboven een melding en de knop
+  "toch doorgaan" (print die niet antwoordt). `_uitgelezen` wordt gezet als het uitlezen iets vond: `Beoordeel` met minstens
+  één drive, eRob via CAN, of de servo. Per exemplaar opnieuw (component heeft @key op het product).
+- **Node-adressen**: de kolom Slave toonde de EEPROM-naam ("Capitan Drv" bij een Everest). Nu `NoemAliasSlaves`: positie-
+  naam van het product + type uit het uitlezen (`DriveRegel.TypeUitTabel`) of de drivetypen-tabel op productcode/vendor;
+  de EEPROM-naam staat in het wolkje. Gebouwd; niet in de browser gezien (geen agent/login lokaal).
+
+## Bel = berichtenbox: altijd open, historie, berichten aan collega's (22-10-2026)
+
+Wens gebruiker: het "messageboard" altijd toegankelijk; gelezen/ongelezen, historie bewaren tot de eigenaar wist; een
+bericht naar een collega. `Components/Layout/MeldingBel.razor`: de bel staat er altijd (grijs zonder iets nieuws; getal =
+goed te keuren + ongelezen). Venster "Berichten": Goed te keuren (zoals voorheen), dan alle meldingen en berichten
+(`IMeldingRepository.AlleAsync`, nieuwste 200), filter Alles/Ongelezen, per regel ✓/○ (gelezen/ongelezen,
+`ZetGelezenAsync`), ↩ antwoorden (alleen bij een bericht van een collega), ✕ wissen (vraag; `WisAsync` alleen op
+`WerknemerID` = jij). Klikken op een melding met link zet hem op gelezen (verbeterverzoek: zelfde tabblad, anders nieuw).
+**✉ Nieuw bericht**: collega kiezen (`IUrenRepository.GetWerknemersAsync`, actief, zonder jezelf), tekst tot 1000 tekens
+-> `StuurBerichtAsync` (Soort `bericht`, `VanWerknemerID`, OrderID = bericht waarop geantwoord) + `MeldingSignaal`.
+`Melding` heeft nu `Gelezen`, `VanId`, `Van` (init-eigenschappen, constructor ongewijzigd). **`Meldingen_Berichten_MariaDB.sql`
+zelf draaien** (kolom VanWerknemerID, Tekst 1000); zonder kolom werkt de box wel, maar sturen niet (melding in het venster).
+Gelezen meldingen werden al nooit gewist, dus de historie is er meteen. Gebouwd; leesquery op de database gecontroleerd;
+de bel zelf niet in de browser bekeken (zonder login geen werknemer).
 
 ## PO klant: verplicht project, PO-bedrag als projectbudget (22-10-2026)
 

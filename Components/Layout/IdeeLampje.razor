@@ -2,6 +2,8 @@
 @inject HuidigeGebruiker Ik
 @inject IVerbeterRepository Repo
 @inject NavigationManager Nav
+@inject FilestoreService Store
+@inject IJSRuntime JS
 
 @* Lampje in de bovenbalk: een idee of verbeterverzoek voor de app intypen. De pagina waar je was gaat vanzelf mee.
    Alles komt in Beheer ▸ Verbeterverzoeken (iedereen ziet de lijst; Directie zet de status). Directie ziet op het
@@ -19,7 +21,7 @@
 @if (_open)
 {
     <div class="cmdk-overlay midden" @onclick="Sluit">
-        <div class="kiezer idee-venster" @onclick:stopPropagation role="dialog" aria-label="Idee of verbeterverzoek">
+        <div class="kiezer idee-venster" @ref="_venster" @onclick:stopPropagation role="dialog" aria-label="Idee of verbeterverzoek">
             <div class="kiezer-kop">
                 <b>💡 Idee of verbeterverzoek</b>
                 <span style="flex:1"></span>
@@ -33,6 +35,7 @@
                 else if (_verstuurd)
                 {
                     <p class="idee-bedankt">Bedankt! Je verzoek staat in de lijst.</p>
+                    @if (_fout is not null) { <div class="melding fout">@_fout</div> }
                     <div class="btngroup">
                         <a class="knopje" href="verbeterverzoeken" @onclick="Sluit">Alle verzoeken bekijken</a>
                         <button class="klein" @onclick="Nogeen">Nog een idee</button>
@@ -43,8 +46,30 @@
                 {
                     <p class="uitleg">Wat kan er beter of handiger in de app? Beschrijf het kort; de pagina waar je nu bent
                        (<code>@Pagina</code>) gaat mee.</p>
-                    <textarea class="idee-tekst" rows="6" maxlength="2000" placeholder="bv. Op het bestelscherm wil ik ook op leverancier kunnen zoeken"
+                    <textarea @ref="_tekstvak" class="idee-tekst" rows="6" maxlength="2000" placeholder="bv. Op het bestelscherm wil ik ook op leverancier kunnen zoeken"
                               value="@_tekst" @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                    @if (Store.Beschikbaar)
+                    {
+                        @* schermafdruk: Win+Shift+S en dan Ctrl+V ergens in dit venster (koppelPlakken op het hele venster) *@
+                        <div class="idee-shots">
+                            @foreach (var (shot, i) in _shots.Select((s, i) => (s, i)))
+                            {
+                                var nr = i;
+                                <span class="idee-shot">
+                                    <img src="@shot.Voorbeeld" alt="schermafdruk @(nr + 1)" />
+                                    <button class="klein rood" title="Weghalen" @onclick="() => _shots.RemoveAt(nr)">✕</button>
+                                </span>
+                            }
+                            @if (_shots.Count < MaxShots)
+                            {
+                                <span class="idee-plakvak">
+                                    📷 Schermafdruk: <b>Win+Shift+S</b>, dan <b>Ctrl+V</b> hier
+                                    <label class="klein knop-label">of kies een bestand…
+                                        <InputFile OnChange="BestandGekozen" accept="image/*" multiple /></label>
+                                </span>
+                            }
+                        </div>
+                    }
                     @if (_fout is not null) { <div class="melding fout">@_fout</div> }
                     <div class="btngroup">
                         <a class="knopje" href="verbeterverzoeken" @onclick="Sluit">Lijst bekijken</a>
@@ -67,6 +92,79 @@
 
     private string Pagina => "/" + Nav.ToBaseRelativePath(Nav.Uri);
 
+    // ---- schermafdrukken: plakken (Ctrl+V in het venster) of kiezen; pas na indienen naar de filestore ----
+    private const int MaxShots = 3;
+    private const long MaxGrootte = 10_000_000;
+    private sealed record Shot(byte[] Inhoud, string Soort, string Voorbeeld);
+    private readonly List<Shot> _shots = new();
+    private ElementReference _venster;
+    private DotNetObjectReference<IdeeLampje>? _ref;
+    private bool _koppelen;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_koppelen || !_open || _verstuurd || !_tabel) return;
+        _koppelen = false;
+        try
+        {
+            _ref ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _venster, _ref);
+        }
+        catch { }
+        // meteen kunnen typen: de cursor in het tekstvak (ook na "Nog een idee")
+        try { await _tekstvak.FocusAsync(); } catch { }
+    }
+
+    private ElementReference _tekstvak;
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: MaxGrootte);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await InvokeAsync(() => { VoegToe(m.ToArray(), soort); StateHasChanged(); });
+        }
+        catch (Exception ex) { _fout = "Plakken mislukt: " + ex.Message; await InvokeAsync(StateHasChanged); }
+    }
+
+    /// <summary>Gewone tekst geplakt (in het tekstvak): niets aan de hand.</summary>
+    [JSInvokable]
+    public Task GeenAfbeelding() => Task.CompletedTask;
+
+    private async Task BestandGekozen(InputFileChangeEventArgs e)
+    {
+        foreach (var f in e.GetMultipleFiles(MaxShots))
+        {
+            if (_shots.Count >= MaxShots) break;
+            try
+            {
+                await using var s = f.OpenReadStream(maxAllowedSize: MaxGrootte);
+                using var m = new MemoryStream();
+                await s.CopyToAsync(m);
+                VoegToe(m.ToArray(), f.ContentType is { Length: > 0 } ct ? ct : "image/png");
+            }
+            catch (Exception ex) { _fout = $"{f.Name} lezen mislukt: " + ex.Message; }
+        }
+    }
+
+    private void VoegToe(byte[] inhoud, string soort)
+    {
+        if (!soort.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { _fout = "Alleen afbeeldingen."; return; }
+        if (_shots.Count >= MaxShots) { _fout = $"Hoogstens {MaxShots} schermafdrukken."; return; }
+        _fout = null;
+        _shots.Add(new Shot(inhoud, soort, $"data:{soort};base64,{Convert.ToBase64String(inhoud)}"));
+    }
+
+    private static string Extensie(string soort) => soort.ToLowerInvariant() switch
+    {
+        "image/jpeg" or "image/jpg" => ".jpg", "image/gif" => ".gif", "image/webp" => ".webp", "image/bmp" => ".bmp", _ => ".png",
+    };
+
     protected override async Task OnInitializedAsync()
     {
         Nav.LocationChanged += BijNavigatie;
@@ -87,13 +185,13 @@
 
     private async Task Open()
     {
-        _open = true; _verstuurd = false; _fout = null;
+        _open = true; _verstuurd = false; _fout = null; _shots.Clear(); _koppelen = true;
         try { _tabel = await Repo.TabelAanwezigAsync(); } catch { _tabel = false; }
     }
 
     private void Sluit() => _open = false;
 
-    private void Nogeen() { _verstuurd = false; _tekst = ""; }
+    private void Nogeen() { _verstuurd = false; _tekst = ""; _shots.Clear(); _koppelen = true; }
 
     private async Task Verstuur()
     {
@@ -102,13 +200,30 @@
         _bezig = true; _fout = null;
         try
         {
-            await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            var id = await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            var mislukt = 0;
+            for (var i = 0; i < _shots.Count; i++)
+            {
+                try
+                {
+                    using var m = new MemoryStream(_shots[i].Inhoud);
+                    await Store.ToevoegenAsync(m, $"schermafdruk {id}-{i + 1}{Extensie(_shots[i].Soort)}",
+                                               VerzoekStatus.StoreTypeSchermafdruk, id, Ik.WerknemerId ?? 0);
+                }
+                catch { mislukt++; }
+            }
+            _shots.Clear();
             _verstuurd = true; _tekst = "";
+            if (mislukt > 0) _fout = $"Het verzoek staat erin, maar {mislukt} schermafdruk(ken) konden niet worden opgeslagen.";
             await TelNieuw(altijd: true);
         }
         catch (Exception ex) { _fout = "Versturen mislukt: " + ex.Message; }
         finally { _bezig = false; }
     }
 
-    public void Dispose() => Nav.LocationChanged -= BijNavigatie;
+    public void Dispose()
+    {
+        Nav.LocationChanged -= BijNavigatie;
+        _ref?.Dispose();
+    }
 }

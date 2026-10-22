@@ -2,33 +2,67 @@
 @inject HuidigeGebruiker Ik
 @inject IBestelRepository Bestel
 @inject IMeldingRepository Meldingen
+@inject IUrenRepository Uren
 @inject MeldingSignaal Signaal
+@inject IJSRuntime JS
 
-@* Bel in de bovenbalk: alleen zichtbaar als er iets is. Rood uitroepteken met het aantal.
+@* Bel in de bovenbalk = de berichtenbox, altijd te openen (wens gebruiker 22-10-2026). Het getal = goed te keuren plus
+   ongelezen berichten.
    - Goed te keuren: bestellingen in Goedkeuring PM waarvan jij projectverantwoordelijke bent, en als Directie ook
      Goedkeuring Directie (IBestelRepository.TeKeurenAsync; volgt uit de status, geen eigen tabel).
-   - Meldingen voor jou (IMeldingRepository), bv. "goedgekeurd, je kunt bestellen".
+   - Berichten (IMeldingRepository): meldingen van de app (goedgekeurd, geleverd, verbeterverzoek …) en berichten van
+     collega's. Gelezen blijft bewaard tot jij het wist; terugzetten op ongelezen kan. Zelf een bericht sturen of
+     beantwoorden (Soort 'bericht', VanWerknemerID; Meldingen_Berichten_MariaDB.sql).
    Een order opent in een nieuw tabblad (bestellingen?order=…), daar druk je op Volgende. Ververst elke minuut en meteen
-   na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet. *@
+   na een seintje (MeldingSignaal) als iemand op deze server een bestelling doorzet of een bericht stuurt. *@
 
-@if (Aantal > 0)
+@if (Ik.WerknemerId is not null)
 {
-    <button type="button" class="bel-knop" @onclick="() => _open = !_open"
-            title="@($"{_teKeuren.Count} goed te keuren, {_meldingen.Count} melding(en)")">
-        <span class="bel-icoon">🔔</span><span class="bel-teken">!</span><span class="bel-aantal">@Aantal</span>
+    <button type="button" class="bel-knop @(Aantal > 0 ? "met-aantal" : "leeg")" @onclick="Wissel"
+            title="@($"Berichten — {_teKeuren.Count} goed te keuren, {Ongelezen} ongelezen")">
+        <span class="bel-icoon">🔔</span>
+        @if (Aantal > 0) { <span class="bel-teken">!</span><span class="bel-aantal">@Aantal</span> }
     </button>
 }
 
 @if (_open)
 {
     <div class="cmdk-overlay midden" @onclick="() => _open = false">
-        <div class="kiezer bel-venster" @onclick:stopPropagation role="dialog" aria-label="Meldingen">
+        <div class="kiezer bel-venster" @onclick:stopPropagation role="dialog" aria-label="Berichten">
             <div class="kiezer-kop">
-                <b>🔔 Meldingen</b>
+                <b>🔔 Berichten</b>
                 <span style="flex:1"></span>
+                @if (_berichtenMogelijk && !_schrijven)
+                {
+                    <button class="klein" @onclick="() => NieuwBericht(null)">✉ Nieuw bericht</button>
+                }
                 <button class="klein" title="Sluiten" @onclick="() => _open = false">✕</button>
             </div>
             <div class="bel-inhoud">
+                @if (_schrijven)
+                {
+                    <div class="bel-schrijf">
+                        <h4>@(_antwoordOp is not null ? "Antwoord" : "Nieuw bericht")</h4>
+                        <label class="bankveld"><span>Aan</span>
+                            <select value="@(_aan?.ToString() ?? "")" @onchange="e => _aan = int.TryParse((string?)e.Value, out var id) ? id : null">
+                                <option value="">— kies een collega —</option>
+                                @foreach (var w in _collegas)
+                                {
+                                    <option value="@w.WerknemerId">@w.Naam</option>
+                                }
+                            </select></label>
+                        <textarea rows="5" maxlength="1000" placeholder="Je bericht…" value="@_tekst"
+                                  @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                        @if (_schrijfFout is not null) { <div class="melding fout">@_schrijfFout</div> }
+                        <div class="btngroup">
+                            <span style="flex:1"></span>
+                            <button class="klein" @onclick="() => _schrijven = false">Annuleren</button>
+                            <button class="primair" disabled="@(_bezig || _aan is null || _tekst.Trim().Length == 0)" @onclick="Verstuur">Versturen</button>
+                        </div>
+                    </div>
+                }
+                @if (_verstuurd is not null) { <div class="melding ok" @onclick="() => _verstuurd = null">@_verstuurd</div> }
+
                 @if (_teKeuren.Count > 0)
                 {
                     <h4>Goed te keuren (@_teKeuren.Count)</h4>
@@ -47,42 +81,56 @@
                         }
                     </div>
                 }
-                @if (_meldingen.Count > 0)
-                {
-                    <h4>Voor jou (@_meldingen.Count) <button class="klein" @onclick="AllesGelezen">Alles gelezen</button></h4>
-                    <div class="bel-lijst">
-                        @foreach (var m in _meldingen)
-                        {
-                            var mid = m.Id;
-                            @if (m.OrderId is int oid)
+
+                <h4>
+                    Berichten (@Ongelezen ongelezen)
+                    <span style="flex:1"></span>
+                    <select class="bel-filter" value="@(_alleenOngelezen ? "ongelezen" : "alles")" @onchange='e => _alleenOngelezen = (string?)e.Value == "ongelezen"'>
+                        <option value="alles">Alles</option>
+                        <option value="ongelezen">Ongelezen</option>
+                    </select>
+                    @if (Ongelezen > 0) { <button class="klein" @onclick="AllesGelezen">Alles gelezen</button> }
+                </h4>
+                <div class="bel-lijst">
+                    @foreach (var m in Zichtbaar)
+                    {
+                        var mid = m.Id;
+                        var ongelezen = m.Gelezen is null;
+                        <div class="bel-bericht @(ongelezen ? "ongelezen" : "")" @key="m.Id">
+                            @if (Link(m) is { } link)
                             {
-                                @* bij soort 'analyse' is OrderId het nummer van de vraag (Vragen aan AI), bij 'verbeter' het verbeterverzoek *@
-                                @if (m.Soort == "verbeter")
-                                {
-                                    <a class="bel-regel" href="@($"verbeterverzoeken?verzoek={oid}")" @onclick="async () => { await Gelezen(mid); _open = false; }">
-                                        <span class="bel-po">💡</span>
-                                        <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
-                                    </a>
-                                    continue;
-                                }
-                                <a class="bel-regel" href="@(m.Soort == "analyse" ? $"ai?vraag={oid}" : $"bestellingen?order={oid}")" target="_blank" rel="noopener" @onclick="() => Gelezen(mid)">
-                                    <span class="bel-po">@(m.Soort == "analyse" ? "✨" : m.Soort == "afgekeurd" ? "❌" : m.Soort == "geleverd" ? "📦" : "✅")</span>
-                                    <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
+                                <a class="bel-regel" href="@link" target='@(m.Soort == "verbeter" ? null : "_blank")' rel="noopener"
+                                   @onclick='async () => { await ZetGelezen(m, true); if (m.Soort == "verbeter") _open = false; }'>
+                                    <span class="bel-po">@Icoon(m)</span>
+                                    <span class="bel-tekst">@m.Tekst<small>@Onder(m)</small></span>
                                 </a>
                             }
                             else
                             {
-                                <div class="bel-regel" @onclick="() => Gelezen(mid)">
-                                    <span class="bel-po">•</span>
-                                    <span class="bel-tekst">@m.Tekst<small>@m.Aangemaakt.ToString("dd-MM HH:mm")</small></span>
+                                <div class="bel-regel" @onclick="() => ZetGelezen(m, true)">
+                                    <span class="bel-po">@Icoon(m)</span>
+                                    <span class="bel-tekst bel-brief">@m.Tekst<small>@Onder(m)</small></span>
                                 </div>
                             }
-                        }
-                    </div>
-                }
-                @if (Aantal == 0)
+                            <span class="bel-acties">
+                                @if (m.VanId is int van && _berichtenMogelijk)
+                                {
+                                    <button class="klein" title="Beantwoorden" @onclick="() => NieuwBericht(m)">↩</button>
+                                }
+                                <button class="klein" title="@(ongelezen ? "Markeer als gelezen" : "Markeer als ongelezen")"
+                                        @onclick="() => ZetGelezen(m, ongelezen)">@(ongelezen ? "✓" : "○")</button>
+                                <button class="klein rood" title="Bericht wissen" @onclick="() => Wis(m)">✕</button>
+                            </span>
+                        </div>
+                    }
+                    @if (!Zichtbaar.Any())
+                    {
+                        <p class="uitleg">@(_alleenOngelezen ? "Geen ongelezen berichten." : "Nog geen berichten.")</p>
+                    }
+                </div>
+                @if (!_berichtenMogelijk && Meldingen.Beschikbaar)
                 {
-                    <p class="uitleg">Niets meer te doen.</p>
+                    <p class="uitleg">Berichten aan collega's sturen kan nadat Meldingen_Berichten_MariaDB.sql is uitgevoerd.</p>
                 }
             </div>
         </div>
@@ -91,11 +139,20 @@
 
 @code {
     private List<TeKeurenOrder> _teKeuren = new();
-    private List<Melding> _meldingen = new();
-    private bool _open;
+    private List<Melding> _meldingen = new();       // de box: gelezen en ongelezen
+    private bool _open, _alleenOngelezen, _berichtenMogelijk;
     private Timer? _klok;
 
-    private int Aantal => _teKeuren.Count + _meldingen.Count;
+    // nieuw bericht / antwoord
+    private bool _schrijven, _bezig;
+    private int? _aan, _antwoordOp;
+    private string _tekst = "";
+    private string? _schrijfFout, _verstuurd;
+    private List<Werknemer> _collegas = new();
+
+    private int Ongelezen => _meldingen.Count(m => m.Gelezen is null);
+    private int Aantal => _teKeuren.Count + Ongelezen;
+    private IEnumerable<Melding> Zichtbaar => _alleenOngelezen ? _meldingen.Where(m => m.Gelezen is null) : _meldingen;
 
     protected override async Task OnInitializedAsync()
     {
@@ -111,24 +168,84 @@
     {
         if (Ik.WerknemerId is not int wn) { _teKeuren = new(); _meldingen = new(); return; }
         try { _teKeuren = Bestel.Beschikbaar ? await Bestel.TeKeurenAsync(wn, Ik.Mag("Directie")) : new(); } catch { }
-        try { _meldingen = Meldingen.Beschikbaar ? await Meldingen.OngelezenAsync(wn) : new(); } catch { }
-        if (Aantal == 0) _open = false;
+        try { _meldingen = Meldingen.Beschikbaar ? await Meldingen.AlleAsync(wn) : new(); } catch { }
+        try { _berichtenMogelijk = Meldingen.Beschikbaar && await Meldingen.BerichtenMogelijkAsync(); } catch { _berichtenMogelijk = false; }
     }
 
-    private async Task Gelezen(int id)
+    private async Task Wissel()
     {
-        if (Ik.WerknemerId is not int wn) return;
-        try { await Meldingen.GelezenAsync(id, wn); } catch { }
-        _meldingen.RemoveAll(m => m.Id == id);
-        if (Aantal == 0) _open = false;
+        _open = !_open;
+        _verstuurd = null;
+        if (_open) await Laad();
+    }
+
+    private static string? Link(Melding m) => m.OrderId is not int oid || m.Soort == "bericht" ? null : m.Soort switch
+    {
+        "analyse" => $"ai?vraag={oid}",           // OrderId = de vraag (Vragen aan AI)
+        "verbeter" => $"verbeterverzoeken?verzoek={oid}",
+        _ => $"bestellingen?order={oid}",
+    };
+
+    private static string Icoon(Melding m) => m.Soort switch
+    {
+        "bericht" => "💬", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "goedgekeurd" => "✅", _ => "•",
+    };
+
+    private static string Onder(Melding m)
+        => (m.Van.Length > 0 ? "van " + m.Van + " · " : "") + m.Aangemaakt.ToString("dd-MM HH:mm");
+
+    private async Task ZetGelezen(Melding m, bool gelezen)
+    {
+        if (Ik.WerknemerId is not int wn || (m.Gelezen is not null) == gelezen) return;
+        try { await Meldingen.ZetGelezenAsync(m.Id, wn, gelezen); } catch { }
+        var i = _meldingen.FindIndex(x => x.Id == m.Id);
+        if (i >= 0) _meldingen[i] = m with { Gelezen = gelezen ? DateTime.Now : null };
     }
 
     private async Task AllesGelezen()
     {
         if (Ik.WerknemerId is not int wn) return;
         try { await Meldingen.AllesGelezenAsync(wn); } catch { }
-        _meldingen.Clear();
-        if (Aantal == 0) _open = false;
+        _meldingen = _meldingen.Select(m => m.Gelezen is null ? m with { Gelezen = DateTime.Now } : m).ToList();
+    }
+
+    private async Task Wis(Melding m)
+    {
+        if (Ik.WerknemerId is not int wn) return;
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", "Dit bericht wissen? Het is daarna weg.")) return;
+        try { await Meldingen.WisAsync(m.Id, wn); _meldingen.RemoveAll(x => x.Id == m.Id); } catch { }
+    }
+
+    private async Task NieuwBericht(Melding? antwoordOp)
+    {
+        _schrijven = true; _schrijfFout = null; _verstuurd = null; _tekst = "";
+        _aan = antwoordOp?.VanId; _antwoordOp = antwoordOp?.Id;
+        if (antwoordOp is not null) await ZetGelezen(antwoordOp, true);
+        if (_collegas.Count == 0)
+        {
+            try
+            {
+                _collegas = (await Uren.GetWerknemersAsync())
+                    .Where(w => w.Actief && w.WerknemerId != Ik.WerknemerId)
+                    .OrderBy(w => w.Naam).ToList();
+            }
+            catch (Exception ex) { _schrijfFout = "Collega's ophalen mislukt: " + ex.Message; }
+        }
+    }
+
+    private async Task Verstuur()
+    {
+        if (Ik.WerknemerId is not int van || _aan is not int naar || _tekst.Trim().Length == 0) return;
+        _bezig = true; _schrijfFout = null;
+        try
+        {
+            await Meldingen.StuurBerichtAsync(naar, van, _tekst, _antwoordOp);
+            _verstuurd = $"Verstuurd aan {_collegas.FirstOrDefault(w => w.WerknemerId == naar)?.Naam ?? "je collega"}.";
+            _schrijven = false; _tekst = "";
+            Signaal.Geef();          // de bel van de ontvanger ververst meteen (zelfde server)
+        }
+        catch (Exception ex) { _schrijfFout = "Versturen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
     }
 
     private static string Sinds(DateTime? d) => d is { } x ? " · sinds " + x.ToString("dd-MM HH:mm") : "";

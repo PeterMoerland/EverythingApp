@@ -185,6 +185,18 @@
     </div>
 }
 
+@* Eerst automatisch uitlezen (wens gebruiker 22-10-2026): pas daarna zijn programmeren, node-adressen en testen te
+   gebruiken. Een fieldset zet alle knoppen en velden in die stappen in één keer uit; "toch doorgaan" voor een print die
+   niet uit te lezen is (bv. een drive die niet antwoordt). *@
+@if (Vergrendeld)
+{
+    <div class="melding waarschuwing prod-eerst-uitlezen">
+        Lees eerst de print uit met <b>Automatisch uitlezen</b> hierboven; daarna worden programmeren, node-adressen en testen beschikbaar.
+        <button class="klein" title="Zonder uitlezen verder (bv. als de print niet antwoordt)" @onclick="() => _tochDoor = true">toch doorgaan</button>
+    </div>
+}
+<fieldset class="prod-alleen-lezen prod-na-uitlezen" disabled="@Vergrendeld">
+
 @* ---------- programmeren (weg bij bv. een kabel) ---------- *@
 @if (!ToonProgrammeren && !ToonTesten && AantalTechnieken == 0 && !MotorModus)
 {
@@ -406,6 +418,7 @@
         @if (_testLaatste.Length > 0) { <span class="uitleg">laatste: @_testLaatste</span> }
     </div>
 }
+</fieldset>
 
 @* ---------- testvenster: test kiezen, parameters, starten, verloop en uitslag ---------- *@
 @if (_testOpen)
@@ -906,7 +919,7 @@
                                 var rij = a;
                                 <tr @key="rij.Positie" class="@(rij.Melding.StartsWith("schrijven mislukt") ? "ec-fout" : rij.Geschreven ? "hist-ok" : "")">
                                     <td><b>@rij.Positie</b></td>
-                                    <td>@rij.Naam</td>
+                                    <td title="@(rij.EepromNaam.Length > 0 ? "Naam in de EEPROM: " + rij.EepromNaam : "")">@rij.Naam</td>
                                     <td><small>@rij.ProductCode</small></td>
                                     <td><b>@(rij.Alias?.ToString() ?? "?")</b>@if (rij.AliasEeprom is int ee && rij.AliasRegister is int rr && ee != rr) { <small class="uitleg" title="EEPROM en register verschillen: het EEPROM-nummer geldt na spanning uit/aan"> (EEPROM @ee)</small> }</td>
                                     <td><input type="number" min="0" max="65535" style="width:6.5rem" placeholder="@rij.Alias" value="@rij.Nieuw" disabled="@_taakBezig"
@@ -2022,10 +2035,17 @@
     }
 
     // ---- EtherCAT node-adressen (station alias) — agenttaak ecat.alias
+    // ---- eerst uitlezen ----
+    private bool _uitgelezen, _tochDoor;
+    /// <summary>Programmeren, node-adressen en testen staan uit tot de print is uitgelezen (alleen als de stap Uitlezen er is).</summary>
+    private bool Vergrendeld => ToonUitlezen && !_uitgelezen && !_tochDoor;
+
     private sealed class AliasRegel
     {
         public int Positie;
-        public string Naam = "", ProductCode = "", Melding = "";
+        public string Naam = "", ProductCode = "", VendorId = "", Melding = "";
+        /// <summary>Wat de bus zelf zegt (EEPROM-naam, bij Everest "Capitan Drv"): alleen als wolkje.</summary>
+        public string EepromNaam = "";
         public int? Alias, AliasEeprom, AliasRegister, Nieuw;
         public bool Geschreven;
     }
@@ -2033,6 +2053,25 @@
     private List<AliasRegel> _aliasSlaves = new();
     private string _aliasSamenvatting = "";
     private IEnumerable<AliasRegel> AliasWijzigingen => _aliasSlaves.Where(a => a.Nieuw is int n && n != a.Alias);
+
+    /// <summary>
+    /// Leesbare naam per slave: de positie van het product (bv. "Drive 4") en het type zoals Automatisch uitlezen het vond
+    /// (drivetypen-tabel op productcode). De EEPROM-naam ("Capitan Drv" bij een Everest) verwarde; die staat nog in het wolkje.
+    /// </summary>
+    private void NoemAliasSlaves()
+    {
+        foreach (var a in _aliasSlaves)
+        {
+            var gelezen = _drives?.FirstOrDefault(d => d.Positie == a.Positie && (d.ProductCode.Length == 0 || d.ProductCode == a.ProductCode));
+            var type = gelezen?.TypeUitTabel is { Length: > 0 } tt ? tt
+                     : _driveTypen.FirstOrDefault(t => string.Equals(t.ProductCode, a.ProductCode, StringComparison.OrdinalIgnoreCase)
+                                                       && (t.VendorId.Length == 0 || a.VendorId.Length == 0
+                                                           || string.Equals(t.VendorId, a.VendorId, StringComparison.OrdinalIgnoreCase)))?.Naam
+                     ?? a.EepromNaam.Replace(" Drv", "", StringComparison.OrdinalIgnoreCase).Trim();
+            var positie = DrivePosities.FirstOrDefault(p => p.Positie == a.Positie)?.Naam ?? "";
+            a.Naam = positie.Length > 0 ? $"{positie} · {type}" : type;
+        }
+    }
 
     private async Task OpenAlias()
     {
@@ -2050,7 +2089,8 @@
                 var oud = _aliasSlaves.FirstOrDefault(a => a.Positie == Getal(s, "positie"));
                 lijst.Add(new AliasRegel
                 {
-                    Positie = Getal(s, "positie"), Naam = Tekst(s, "naam"), ProductCode = Tekst(s, "product_code"),
+                    Positie = Getal(s, "positie"), Naam = Tekst(s, "naam"), EepromNaam = Tekst(s, "naam"),
+                    ProductCode = Tekst(s, "product_code"), VendorId = Tekst(s, "vendor_id"),
                     Alias = G("alias"), AliasEeprom = G("alias_eeprom"), AliasRegister = G("alias_register"),
                     Geschreven = s.TryGetProperty("geschreven", out var g) && g.ValueKind == JsonValueKind.True,
                     Melding = Tekst(s, "melding"),
@@ -2058,6 +2098,7 @@
                 });
             }
         _aliasSlaves = lijst;
+        NoemAliasSlaves();
         _aliasSamenvatting = lijst.Count == 0 ? "" : string.Join(" · ", lijst.Select(a => $"{a.Positie}: {(a.Alias?.ToString() ?? "?")}"));
     }
 
@@ -4106,6 +4147,7 @@
             });
             // eigen beoordeling (Beoordeel() telt EtherCAT-assen): één eRob, met serienummer, zonder meldingen
             _drives = new List<DriveRegel> { r };
+            _uitgelezen = true;
             var redenen = new List<string>();
             if (r.Serienummer.Length == 0) redenen.Add("geen serienummer gelezen");
             if (r.Fouten.Count > 0) redenen.Add($"{r.Fouten.Count} melding(en)");
@@ -4165,6 +4207,7 @@
     private void Beoordeel(List<DriveRegel> regels)
     {
         _drives = regels;
+        if (regels.Count > 0) _uitgelezen = true;
         var assen = VerwachteAssen();
         var redenen = new List<string>();
         if (regels.Count != assen.Length)
@@ -4292,6 +4335,7 @@
         await VoerTaakUit("feetech.uitlezen", body, "Servo uitlezen", 120, async res =>
         {
             _servo = ServoUit(res);
+            _uitgelezen = true;
             _servoId = _servo.Id > 0 ? _servo.Id.ToString() : _servoId;
             await ZetViaBron("motor:id", _servo.Id.ToString());
             await ZetViaBron("motor:model", _servo.Model);

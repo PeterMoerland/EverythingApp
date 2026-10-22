@@ -72,6 +72,17 @@
                                 <span class="verbeter-tekst-lees">@v.Tekst</span>
                             }
                             @if (v.Pagina.Length > 1) { <br /><a class="uitleg" href="@v.Pagina.TrimStart('/')">@v.Pagina</a> }
+                            @if (v.Schermafdrukken.Count > 0)
+                            {
+                                <div class="verbeter-shots">
+                                    @foreach (var s in v.Schermafdrukken)
+                                    {
+                                        <a href="@($"bestand/{s}")" target="_blank" rel="noopener" title="Schermafdruk groot openen">
+                                            <img src="@($"bestand/{s}")" alt="schermafdruk" loading="lazy" />
+                                        </a>
+                                    }
+                                </div>
+                            }
                         </td>
                         <td>
                             @if (MagBeheren)
