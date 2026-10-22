@@ -95,7 +95,12 @@ def _ingebouwd_scan(ifname: str) -> list[dict]:
                     slave.state_check(pysoem.PREOP_STATE, 3_000_000)
             rec["device_name"] = tekst(0x1008)
             rec["hardware_version"] = tekst(0x1009)
-            rec["software_version"] = tekst(0x100A) if eigen else (tekst(0x26E4) or tekst(0x100A))
+            if eigen:
+                # de Swivel meldt "v1.0.9"; firmware laden, EEPROM en de app schrijven "1.0.9" (zelfde regel als mde.py)
+                from .mde import kale_versie
+                rec["software_version"] = kale_versie(tekst(0x100A))
+            else:
+                rec["software_version"] = tekst(0x26E4) or tekst(0x100A)
             rec["coco_software_version"] = "" if eigen else tekst(0x5EE4)
             rec["ingenia_product_code"] = None
             if not eigen:

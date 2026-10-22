@@ -745,6 +745,21 @@ verwijderen) alleen met de kolom **`Werknemers.MagFirmware`** (`Werknemers_MagFi
 werknemer in SQL zetten, besluit gebruiker). Zonder recht: tabel in een `fieldset disabled` (downloadlinks blijven werken)
 en een uitleg; de handlers controleren `MagFirmware` ook zelf. Directie krijgt het niet vanzelf. Testrecepten vallen er
 niet onder. Lokaal bekeken zonder recht (alles uit, 4 downloadlinks werken).
+Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", `WerknemerVelden`; die tab ziet alleen HRM).
+
+## Firmware teruggevallen na herstart (agent 1.21.1, 22-10-2026)
+
+Product 738 (Swivel SN 40): FoE-laden meldde "firmware 1.0.9 geladen, drive meldt 1.0.9", na EEPROM vullen en
+herstart gaf uitlezen 1.0.8 (andere borden hielden 1.0.9). `drives.py` leest 0x100A live, dus geen cache in de app:
+vermoedelijk een OTA-rollback in de ESP32 (de nieuwe image markeert zich niet als goed,
+`esp_ota_mark_app_valid_cancel_rollback()`); dat is aan de firmware, niet aan de app.
+- **Waarschuwing bij uitlezen** (`ExemplaarWerk.ControleerTerugval`, EtherCAT-route, na `ControleerDrives`): per
+  positie het laatste wat de historie over de firmware zegt, "Drive N (...): firmware X geladen, drive meldt Y" of
+  "Drive N uitgelezen (...): ..., firmware Z". Is dat het laden en meldt de drive nu iets anders (`VersieGelijk`), dan
+  een regel in `_driveFouten` (geen NO-GO). Na opslaan van het uitlezen verdwijnt hij dus. Laden via USB (esptool,
+  "Firmware geladen (ESP32): ...") telt niet mee: noemt geen positie en schrijft het hele flash.
+- **Agent 1.21.1**: `drives.py` geeft bij eigen MDE-slaves `mde.kale_versie(0x100A)`, dus "1.0.9" in plaats van
+  "v1.0.9", net als firmware laden en de EEPROM.
 
 ## Tray-icoon van de agent (agent 1.21.0, 22-10-2026)
 

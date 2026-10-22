@@ -4052,6 +4052,7 @@
 
             await ControleerDrives(regels);
             if (ProductModus) await KoppelHalffabricaten(regels);
+            await ControleerTerugval(regels);
             Beoordeel(regels);
 
             // GO? Dan meteen opslaan (niet bij een product: daar horen de nummers bij de halffabricaten).
@@ -4201,6 +4202,40 @@
             var tekst = $"{h.Code} {h.Serienummer}".Trim();
             if (onderdelen.Any(o => o.ProductId == h.ProductId)) { r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen"; }
             else { r.Halffabricaat = tekst + " — niet in de samenstelling"; r.HalfKleur = "s-rood"; r.HalfVreemd = true; }
+        }
+    }
+
+    /// <summary>
+    /// Meldt een drive bij uitlezen een andere firmware dan de laatst geladen versie, dan waarschuwen: de Swivel (ESP32)
+    /// viel na laden + herstart terug op de oude versie (product 738, 22-10-2026: 1.0.9 geladen, uitgelezen 1.0.8).
+    /// Alleen als het laden het laatste is wat de historie over de firmware van die positie zegt.
+    /// </summary>
+    private async Task ControleerTerugval(List<DriveRegel> regels)
+    {
+        List<ProductGebeurtenis> historie;
+        try { historie = await Repo.GetHistorieAsync(ProductId); }
+        catch { return; }
+        var geladen = new System.Text.RegularExpressions.Regex(@"^Drive (\d+) \(.*?\): firmware \S+ geladen, drive meldt ([^,\s]+)");
+        var gelezen = new System.Text.RegularExpressions.Regex(@"^Drive (\d+) uitgelezen \(.*?firmware ([^,\s]+)");
+        // per positie wat de historie het laatst over de firmware zei: geladen (true) of uitgelezen (false)
+        var laatst = new Dictionary<string, (DateTime Wanneer, bool Geladen, string Versie)>();
+        foreach (var h in historie.Where(h => h.Wanneer is not null).OrderBy(h => h.Wanneer))
+        {
+            var m = geladen.Match(h.Event);
+            var laden = m.Success;
+            if (!laden) m = gelezen.Match(h.Event);
+            if (m.Success) laatst[m.Groups[1].Value] = (h.Wanneer!.Value, laden, m.Groups[2].Value);
+        }
+        for (var i = 0; i < regels.Count; i++)
+        {
+            var r = regels[i];
+            var pos = (i + 1).ToString();
+            if (r.Firmware.Length == 0 || !laatst.TryGetValue(pos, out var l) || !l.Geladen || VersieGelijk(l.Versie, r.Firmware)) continue;
+            var versie = l.Versie;
+            var w = l.Wanneer;
+            var wanneer = w.Date == DateTime.Today ? $"om {w:HH:mm}" : $"op {w:d-M-yyyy HH:mm}";
+            _driveFouten.Add($"Let op, drive {pos} ({r.As}): {wanneer} is firmware {versie} geladen, nu meldt de drive {r.Firmware}. " +
+                             "Teruggevallen op de oude versie na de herstart? Laad de firmware opnieuw; blijft het zo, dan ligt het aan de firmware zelf.");
         }
     }
 
