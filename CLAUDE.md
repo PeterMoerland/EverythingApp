@@ -750,6 +750,34 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Ureningave: vragen bij weggaan met een niet-opgeslagen nieuwe regel (22-10-2026)
+
+Bestaande regels slaan zichzelf op bij het wegklikken uit een veld; alleen de nieuwe regel (+ Nieuwe regel) moet met
+Opslaan. Ureningave.razor vraagt nu (`mdeBevestig`) als die regel iets anders bevat dan vooringevuld (JSON-vergelijking met
+`_nieuwBegin`): via `<NavigationLock>` bij een andere pagina, de browser-vraag bij sluiten/herladen, en `MagWeg()` bij
+andere dag/week/werknemer/datum, Me, Plak dag en de boekknoppen. Na "Annuleren" zet `_herteken` (@key) de werknemer- en
+datumkeuze terug. Lokaal getest (dag wisselen, zijbalk, annuleren, doorgaan); niets opgeslagen.
+
+## Afgekeurd exemplaar niet inbouwen (22-10-2026)
+
+Melding gebruiker: een afgekeurd halffabricaat kon nog aan een robot gekoppeld worden. Afgekeurd = `ProductStatus`
+met StatusShort **FAILED** (id 8, "Product afgekeurd"). `IProductRepository.AfgekeurdTest` (EXISTS-subquery op
+`p.ProductStatusID`) zit in alle samenstellingsquery's en vult `SamenstellingRegel.Afgekeurd`.
+- `ZoekVrijeExemplarenAsync` biedt afgekeurde niet meer aan (`ookAfgekeurd: true` alleen om de reden te kunnen noemen:
+  SN typen in `SamenstellingKiezer` zegt dan "… is afgekeurd").
+- `KoppelAsync` weigert zelf ook (InvalidOperationException) als er een ouder komt; de kiezers in SamenstellingKiezer
+  en Producten controleren `v.Afgekeurd` vooraf.
+- Al gekoppelde afgekeurde delen: rood omrand met chip "afgekeurd" in de samenstelling (`sam-afgekeurd`).
+- Automatisch uitlezen van een product: drive op een afgekeurd halffabricaat = "AFGEKEURD" (rood) en NO-GO.
+- Bij het bouwen zat er al één in: product 410 (MPR-PCBA-RZ SN 72) in MPR-1 SN 4 (product 86); niet aangepast.
+
+## Verbeterverzoeken ook in de lijst toevoegen (22-10-2026)
+
+Beheer ▸ Verbeterverzoeken heeft **+ Nieuw verzoek** (wens gebruiker): tekstvak met de cursor erin, Toevoegen =
+`IVerbeterRepository.IndienenAsync` zoals het lampje, maar zonder pagina en zonder schermafdruk (daarvoor blijft het
+lampje). Mag wie het lampje ook mag (`Ik.Ingelogd || Ik.IsWerkplek`). Staat het filter op Gedaan/Afgewezen, dan springt
+het naar Open zodat het nieuwe verzoek zichtbaar is. Lokaal getest met `Verbeter__Geheugen=true`.
+
 ## Berichtenbox: geluidje; werkplek: minuten per werknemer (22-10-2026)
 
 - **Geluidje bij een nieuw bericht** (`MeldingBel.SpeelBijNieuw`): na elk laden (elke minuut of na een seintje) een
@@ -776,7 +804,10 @@ en **📋 Map kopiëren** (pad van installeer.bat, `mdeKopieer` in App.razor met
 Een `file://`- of `\server`-link kan niet: de browser blokkeert die vanaf een webpagina. De gedownloade setup vraagt
 zelf om beheerderrechten; de tokenpagina leeg laten houdt het bestaande token. Getest: download (200, 88 MB) en kopiëren,
 lokaal met een tijdelijk geforceerde melding. Niet getest: installeren via de download (SmartScreen kan waarschuwen,
-de setup is niet ondertekend).
+de setup is niet ondertekend). Getest door de gebruiker: download en installeren werken, maar hij vulde het token
+opnieuw in (de tokenpagina stond er altijd). Nu slaat installer.iss die pagina over als agent.json al een token heeft
+(`HeeftToken`, `ShouldSkipPage`); wijzigen kan met `installeer.bat /token`. Compileert (ISCC), komt mee met de
+volgende agentbuild; het overslaan zelf is nog niet getest.
 
 ## Firmware teruggevallen na herstart (agent 1.21.1, 22-10-2026)
 
@@ -791,6 +822,16 @@ vermoedelijk een OTA-rollback in de ESP32 (de nieuwe image markeert zich niet al
   "Firmware geladen (ESP32): ...") telt niet mee: noemt geen positie en schrijft het hele flash.
 - **Agent 1.21.1**: `drives.py` geeft bij eigen MDE-slaves `mde.kale_versie(0x100A)`, dus "1.0.9" in plaats van
   "v1.0.9", net als firmware laden en de EEPROM.
+- **Patroon** (historie 22-10-2026): alleen boards die met **1.0.8** binnenkwamen (SN 38-42, via USB geflasht,
+  vermoedelijk met rollback in de bootloader) vallen terug; boards van 1.0.3/1.0.7 (SN 15-19) houden 1.0.9. Na een
+  tweede keer laden meldde 738/740 wel 1.0.9, maar toen zat er geen herstart tussen laden en uitlezen.
+- **Agent 1.21.2, controleherstart** (`mde._controle_herstart`, na de versiecontrole in `_werker_firmware`, uit te
+  zetten met `controle: false`): nog eens INIT → BOOT → INIT (de Swivel herstart bij het verlaten van BOOT),
+  `_wacht_terug`, 0x100A opnieuw. Anders dan net geladen = taak faalt ("teruggevallen", historie MISLUKT). Of hij echt
+  herstartte: PDI-watchdogteller van de ESC (0x0443) voor/na; niet veranderd = `controle: "geen herstart"`, de app
+  zet dan "(controleherstart niet gezien: …)" achter de historieregel, "bleef" geeft ", ook na een controleherstart".
+  Getest met nagebootste objecten; **niet op een echte Swivel**: of BOOT → INIT zonder bestand herstart, of een
+  ESP32 met een onbevestigde update BOOT wel aanneemt, en of 0x0443 op de LAN9252 optelt.
 
 ## Tray-icoon van de agent (agent 1.21.0, 22-10-2026)
 

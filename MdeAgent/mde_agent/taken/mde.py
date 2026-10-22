@@ -1014,25 +1014,8 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
         pass
     wacht = float(o.get("wachten") or 20)
     log(f"Wachten tot de slave terug is (max. {wacht:g} s) …")
-    einde = time.time() + wacht
-    gemeld = ""
-    terug = False
-    vendor, product = s.man, s.id
-    while time.time() < einde:
-        time.sleep(2)
-        try:
-            n = master.config_init()
-            if n >= d.positie:
-                d2 = _Drive(master, d.positie)
-                # Terug = dezelfde slave op dezelfde positie. Niet eisen dat 0x100A gevuld is: niet elke
-                # firmware vult die (de eerste Swivel-firmware niet), en dan stond de slave er gewoon.
-                if d2.slave.man == vendor and d2.slave.id == product:
-                    terug = True
-                    gemeld = kale_versie(d2.tekst(0x100A))
-                    break
-        except Exception:  # noqa: BLE001
-            pass
-    if not terug:
+    d2, gemeld = _wacht_terug(master, d.positie, s.man, s.id, wacht)
+    if d2 is None:
         raise RuntimeError("De slave kwam niet terug op de bus na het laden; controleer voeding en kabel. "
                            "De firmware is mogelijk wel geladen.")
     log(f"Slave is terug en meldt firmware {gemeld or '? (0x100A leeg)'}.")
@@ -1041,7 +1024,85 @@ def _werker_firmware(master, d: _Drive, o: dict, log) -> dict:
         raise RuntimeError(f"Slave meldt firmware {gemeld}, verwacht {verwacht}. Laden lijkt niet gelukt.")
     if verwacht and not gemeld:
         log(f"Versie niet te controleren: de slave vult 0x100A niet (verwacht {verwacht}).")
-    return {"versie": gemeld, "positie": d.positie, "was": ident_voor["firmware"]}
+
+    # Controleherstart (22-10-2026): Swivels die met 1.0.8 via USB geflasht zijn, starten een FoE-update één keer
+    # "op proef" (ESP32-rollback) en vallen bij de volgende herstart terug op de oude versie. Dus nog eens herstarten
+    # en opnieuw lezen. Of de slave echt herstartte, zegt de PDI-watchdogteller van de ESC (0x0443): die telt op als
+    # de ESP32 even niet met de ESC praat.
+    controle = "uit"
+    if o.get("controle", True) and gemeld:
+        log("Controle: de slave nog eens laten herstarten en opnieuw uitlezen (valt de nieuwe firmware terug?) …")
+        herstart, na = _controle_herstart(master, d2, log, wacht)
+        was = ident_voor["firmware"]
+        if na and not coe_versie_gelijk(na, gemeld):
+            raise RuntimeError(
+                f"Na een tweede herstart meldt de slave {na} in plaats van {gemeld}"
+                + (f" (de versie van vóór het laden)" if was and coe_versie_gelijk(na, was) else "")
+                + ". De nieuwe firmware is teruggevallen: de ESP32 zet een update terug die zichzelf niet als goed "
+                  "markeert (esp_ota_mark_app_valid_cancel_rollback). Laad deze print via USB (esptool) of gebruik "
+                  "firmware die zichzelf bevestigt.")
+        if not na:
+            controle = "onbekend"
+            log("Controle: na de herstart geen versie gelezen (0x100A leeg of slave niet terug).")
+        elif herstart:
+            controle = "bleef"
+            log(f"Controle: na een tweede herstart nog steeds {na}. Goed.")
+        else:
+            controle = "geen herstart"
+            log(f"Controle: niet gezien dat de slave herstartte; hij meldt {na}, maar dat zegt weinig. "
+                "Geef spanning uit/aan en lees opnieuw uit.")
+    return {"versie": gemeld, "positie": d.positie, "was": ident_voor["firmware"], "controle": controle}
+
+
+def _wacht_terug(master, positie: int, vendor: int, product: int, wacht: float):
+    """Na een herstart wachten tot dezelfde slave weer op `positie` staat; (drive, 0x100A) of (None, "")."""
+    einde = time.time() + wacht
+    while time.time() < einde:
+        time.sleep(2)
+        try:
+            n = master.config_init()
+            if n >= positie:
+                d2 = _Drive(master, positie)
+                # Terug = dezelfde slave op dezelfde positie. Niet eisen dat 0x100A gevuld is: niet elke
+                # firmware vult die (de eerste Swivel-firmware niet), en dan stond de slave er gewoon.
+                if d2.slave.man == vendor and d2.slave.id == product:
+                    return d2, kale_versie(d2.tekst(0x100A))
+        except Exception:  # noqa: BLE001
+            pass
+    return None, ""
+
+
+def _pdi_teller(s) -> int | None:
+    """ESC-register 0x0443: hoe vaak de PDI-watchdog afliep (de ESP32 praatte even niet met de ESC)."""
+    try:
+        return s._fprd(0x0443, 1)[0]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _controle_herstart(master, d: _Drive, log, wacht: float) -> tuple[bool, str]:
+    """INIT → BOOT → INIT zonder bestand, zoals na FoE, waarna de Swivel herstart; dan 0x100A opnieuw lezen.
+    Geeft (herstart gezien, gemelde versie)."""
+    import pysoem
+    s = d.slave
+    vendor, product = s.man, s.id
+    voor = _pdi_teller(s)
+    _vraag_toestand(s, log, pysoem.INIT_STATE, 2.0)
+    _bootstrap_mailbox(s, log)
+    if _vraag_toestand(s, log, pysoem.BOOT_STATE, 10.0) != pysoem.BOOT_STATE:
+        log("Controle: de slave gaat nu niet naar BOOT; toch terug naar INIT.")
+    try:
+        s.state = pysoem.INIT_STATE
+        s.write_state()
+    except Exception:  # noqa: BLE001
+        pass
+    d2, na = _wacht_terug(master, d.positie, vendor, product, wacht)
+    if d2 is None:
+        return False, ""
+    erna = _pdi_teller(d2.slave)
+    log(f"Controle: PDI-watchdogteller (0x0443) {voor if voor is not None else '?'} → {erna if erna is not None else '?'}.")
+    herstart = voor is not None and erna is not None and erna != voor
+    return herstart, na
 
 
 def werker(ifname: str, opdracht_json: str) -> dict:

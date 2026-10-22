@@ -37,8 +37,10 @@
                     <td>
                         @foreach (var o in gekoppeld)
                         {
-                            <span class="sam-exemplaar" @key="o.ProductId">
+                            <span class="sam-exemplaar @(o.Afgekeurd ? "sam-afgekeurd" : "")" @key="o.ProductId"
+                                  title="@(o.Afgekeurd ? "Dit exemplaar is afgekeurd en hoort niet in dit product: haal het eruit." : null)">
                                 <span class="nummer">@o.Serienummer</span>
+                                @if (o.Afgekeurd) { <span class="stand-chip s-rood">afgekeurd</span> }
                                 <button class="knopje rood" title="Uit de samenstelling halen" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
                             </span>
                             @if (OpGaNaar.HasDelegate)
@@ -205,6 +207,16 @@
             var kandidaten = await Repo.ZoekVrijeExemplarenAsync(sn, 50, s.OnderdeelNameId);
             var tref = kandidaten.FirstOrDefault(k => SerieGelijk(k.Serienummer, sn))
                        ?? (kandidaten.Count == 1 ? kandidaten[0] : null);
+            if (tref is null && kandidaten.Count == 0)
+            {
+                // niet vrij: misschien afgekeurd (die biedt de kiezer niet aan); dat dan ook zeggen
+                var ook = await Repo.ZoekVrijeExemplarenAsync(sn, 50, s.OnderdeelNameId, ookAfgekeurd: true);
+                if (ook.FirstOrDefault(k => SerieGelijk(k.Serienummer, sn)) is { Afgekeurd: true } af)
+                {
+                    _fout = $"{af.Code} {af.Serienummer} is afgekeurd en kan niet worden ingebouwd.";
+                    return;
+                }
+            }
             if (tref is null)
             {
                 _fout = kandidaten.Count > 1
@@ -227,6 +239,7 @@
     private async Task Koppel(SamenstellingRegel v, StuklijstRegel? s)
     {
         if (v.ProductId == ProductId) { _fout = "Een product kan niet zichzelf bevatten."; return; }
+        if (v.Afgekeurd) { _fout = $"{v.Code} {v.Serienummer} is afgekeurd en kan niet worden ingebouwd."; return; }
         // Buiten de stuklijst, of al vol? Dan wel koppelen maar het zeggen — de stuklijst is een hulpmiddel, geen slot.
         var regel = s ?? _stuklijst.FirstOrDefault(x => x.OnderdeelNameId == v.ProductNameId);
         var melding = regel is null && _stuklijst.Count > 0 ? $" (let op: {v.Code} staat niet in de stuklijst)"

@@ -4,7 +4,8 @@
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
 
-@* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk).
+@* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk, of hier
+   met + Nieuw verzoek: wens gebruiker 22-10-2026; dan zonder pagina en zonder schermafdruk).
    Iedereen ziet de lijst; Directie past tekst, status en reactie aan (besluit gebruiker 22-10-2026). *@
 
 <PageTitle>Verbeterverzoeken — MDE</PageTitle>
@@ -29,8 +30,29 @@
         {
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
         }
+        @if (MagIndienen)
+        {
+            <div class="verbeter-nieuw">
+                @if (!_nieuwOpen)
+                {
+                    <button class="primair klein" @onclick="OpenNieuw">+ Nieuw verzoek</button>
+                }
+                else
+                {
+                    <textarea @ref="_nieuwVeld" class="verbeter-tekst" rows="4" maxlength="2000"
+                              placeholder="Wat kan er beter? Welk scherm, wat gebeurt er nu, en wat zou je willen?"
+                              value="@_nieuweTekst" @oninput="e => _nieuweTekst = (string?)e.Value ?? string.Empty"></textarea>
+                    <div class="btngroup">
+                        <small class="uitleg">Een schermafdruk meesturen kan met het lampje 💡 rechtsboven.</small>
+                        <span style="flex:1"></span>
+                        <button class="klein" @onclick="() => { _nieuwOpen = false; _nieuweTekst = string.Empty; }">Annuleren</button>
+                        <button class="primair" disabled="@(_bezig || _nieuweTekst.Trim().Length < 3)" @onclick="Indienen">Toevoegen</button>
+                    </div>
+                }
+            </div>
+        }
         <p class="uitleg">
-            Een idee of wens voor de app? Klik op het lampje 💡 rechtsboven. @(MagBeheren ? "Als Directie zet je hier de status en schrijf je een reactie; wijzigingen worden meteen opgeslagen." : "Directie bekijkt de verzoeken en zet hier de status.")
+            Een idee of wens voor de app? Voeg het hierboven toe, of klik op het lampje 💡 rechtsboven (dat neemt de pagina en schermafdrukken mee). @(MagBeheren ? "Als Directie zet je hier de status en schrijf je een reactie; wijzigingen worden meteen opgeslagen." : "Directie bekijkt de verzoeken en zet hier de status.")
         </p>
         <div class="bankfilters">
             <label class="bankveld"><span>Tonen</span>
@@ -128,6 +150,38 @@
     private bool _fout;
 
     private bool MagBeheren => Ik.Mag("Directie");
+    /// <summary>Zelf een verzoek toevoegen: wie het lampje ook mag gebruiken (aangemeld of op een werkplek).</summary>
+    private bool MagIndienen => Ik.Ingelogd || Ik.IsWerkplek;
+
+    private bool _nieuwOpen, _bezig, _focusNieuw;
+    private string _nieuweTekst = "";
+    private ElementReference _nieuwVeld;
+
+    private void OpenNieuw() { _nieuwOpen = true; _focusNieuw = true; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusNieuw) return;
+        _focusNieuw = false;
+        try { await _nieuwVeld.FocusAsync(); } catch { }
+    }
+
+    private async Task Indienen()
+    {
+        var tekst = _nieuweTekst.Trim();
+        if (tekst.Length < 3 || _bezig) return;
+        _bezig = true;
+        try
+        {
+            var id = await Repo.IndienenAsync(tekst, "", Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            _lijst = await Repo.LijstAsync();
+            _nieuwOpen = false; _nieuweTekst = "";
+            if (_filter is "gedaan" or "afgewezen") _filter = "open";      // anders zie je het nieuwe verzoek niet
+            Toon($"Verzoek {id} toegevoegd.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
 
     private IEnumerable<Verbeterverzoek> Zichtbaar => _lijst
         .Where(v => _filter switch

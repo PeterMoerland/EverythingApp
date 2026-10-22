@@ -2264,10 +2264,17 @@
             var gelezen = Tekst(res, "versie");
             var versie = gelezen.Length > 0 ? gelezen : fw.Versie;
             await ZetViaBron($"drive:{p.Positie}:firmware", versie);
+            // MDE-slaves (agent 1.21.2+): controleherstart tegen de ESP32-rollback. Valt hij terug, dan faalt de taak al.
+            var controle = Tekst(res, "controle") switch
+            {
+                "bleef" => ", ook na een controleherstart",
+                "geen herstart" => " (controleherstart niet gezien: na spanning uit/aan opnieuw uitlezen)",
+                _ => "",
+            };
             await Repo.VoegHistorieToeAsync(ProductId,
-                $"Drive {p.Positie} ({p.Naam}): firmware {fw.Versie} geladen, drive meldt {versie}" + Opm(),
+                $"Drive {p.Positie} ({p.Naam}): firmware {fw.Versie} geladen, drive meldt {versie}{controle}" + Opm(),
                 SoortId("Firmware") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
-            return $"firmware {versie} geladen en teruggelezen";
+            return $"firmware {versie} geladen en teruggelezen{controle}";
         });
     }
 
@@ -3860,7 +3867,7 @@
         public string As = "";
         /// <summary>Productmodus: het halffabricaat bij dit serienummer, en of het in de samenstelling zit.</summary>
         public string Halffabricaat = "", HalfKleur = "s-grijs";
-        public bool HalfOnbekend, HalfVreemd;
+        public bool HalfOnbekend, HalfVreemd, HalfAfgekeurd;
         public string Naam = "";
         public string VendorId = "";       // EtherCAT Vendor ID (0x1018:1), hex
         public string ProductCode = "";
@@ -4200,7 +4207,9 @@
             try { h = await Repo.ZoekOpDriveSerienummerAsync(r.Serienummer); } catch { }
             if (h is null) { r.Halffabricaat = "onbekend serienummer"; r.HalfKleur = "s-geel"; r.HalfOnbekend = true; continue; }
             var tekst = $"{h.Code} {h.Serienummer}".Trim();
-            if (onderdelen.Any(o => o.ProductId == h.ProductId)) { r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen"; }
+            // een afgekeurd halffabricaat hoort niet in een product, ook niet als het (eerder) gekoppeld is
+            if (h.Afgekeurd) { r.Halffabricaat = tekst + " — AFGEKEURD"; r.HalfKleur = "s-rood"; r.HalfAfgekeurd = true; }
+            else if (onderdelen.Any(o => o.ProductId == h.ProductId)) { r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen"; }
             else { r.Halffabricaat = tekst + " — niet in de samenstelling"; r.HalfKleur = "s-rood"; r.HalfVreemd = true; }
         }
     }
@@ -4255,6 +4264,8 @@
             : $"{handmatig} drive(s) zonder elektronisch serienummer (eRob): vul het nummer van het typeplaatje in bij het attribuut.");
         var vreemd = regels.Count(r => r.HalfVreemd);
         if (vreemd > 0) redenen.Add($"{vreemd} drive(s) van een halffabricaat dat niet in de samenstelling zit");
+        var afgekeurd = regels.Count(r => r.HalfAfgekeurd);
+        if (afgekeurd > 0) redenen.Add($"{afgekeurd} drive(s) van een afgekeurd halffabricaat");
         var onbekend = regels.Count(r => r.HalfOnbekend);
         if (onbekend > 0) _driveFouten.Add($"{onbekend} serienummer(s) niet gevonden bij een getest halffabricaat.");
         var metFout = regels.Count(r => r.Fouten.Count > 0);

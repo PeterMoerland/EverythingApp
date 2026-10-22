@@ -94,7 +94,11 @@ public interface IProductRepository
 
     /// <summary>Exemplaren die nog vrij zijn (geen ouder), om als onderdeel te kiezen;
     /// met <paramref name="productNameId"/> alleen van dat halffabricaat.</summary>
-    Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null);
+    /// <summary>
+    /// Exemplaren zonder ouder, om in te bouwen. Afgekeurde (ProductStatus FAILED) niet, tenzij
+    /// <paramref name="ookAfgekeurd"/>: dan alleen om te kunnen zeggen waarom een serienummer niet kan.
+    /// </summary>
+    Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null, bool ookAfgekeurd = false);
 
     // --- stuklijst per producttype (ProductSamenstelling_MariaDB.sql) ---
     /// <summary>Welke halffabricaten er in dit producttype gaan, en hoeveel. Lege lijst als de tabel ontbreekt.</summary>
@@ -172,7 +176,7 @@ public class GeenProductRepository : IProductRepository
     public Task<SamenstellingRegel?> GetGebruiktInAsync(int productId)
         => Task.FromResult<SamenstellingRegel?>(null);
     public Task KoppelAsync(int onderdeelId, int? ouderId) => Task.CompletedTask;
-    public Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null)
+    public Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null, bool ookAfgekeurd = false)
         => Task.FromResult(new List<SamenstellingRegel>());
     public Task<List<StuklijstRegel>> GetStuklijstAsync(int productNameId) => Task.FromResult(new List<StuklijstRegel>());
     public Task<int> BewaarStuklijstRegelAsync(StuklijstRegel regel, int? door) => Task.FromResult(0);
@@ -1006,6 +1010,10 @@ public class MySqlProductRepository : IProductRepository
     // ============================================================
     //  Samenstelling — onderdelen hangen met ParentProductenID aan een exemplaar
     // ============================================================
+    /// <summary>Is exemplaar p afgekeurd (ProductStatus 'Product afgekeurd', StatusShort FAILED)? Mag niet ingebouwd worden.</summary>
+    private const string AfgekeurdTest =
+        "EXISTS (SELECT 1 FROM `ProductStatus` ps WHERE ps.`ProductStatusID` = p.`ProductStatusID` AND ps.`StatusShort` = 'FAILED')";
+
     private const string SamenstellingSelect =
         "SELECT p.`ProductenID`, p.`ProductNameID`, COALESCE(n.`ProductName`, ''), " +
         "       COALESCE(t.`Afkorting`, ''), COALESCE(n.`Omschrijving`, '') ";
@@ -1024,7 +1032,8 @@ public class MySqlProductRepository : IProductRepository
                 S(2),                       // code (MPR-PCBA-DISP)
                 S(5),                       // serienummer
                 S(4),                       // omschrijving van het type
-                S(3)));                     // afkorting van het producttype
+                S(3),                       // afkorting van het producttype
+                r.FieldCount > 6 && !r.IsDBNull(6) && Convert.ToInt64(r.GetValue(6)) != 0));   // afgekeurd
         }
         return lijst;
     }
@@ -1034,7 +1043,7 @@ public class MySqlProductRepository : IProductRepository
         var serie = await Kolom("Serienummer", "SerieNummer");
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            SamenstellingSelect + $", p.`{serie}` " +
+            SamenstellingSelect + $", p.`{serie}`, {AfgekeurdTest} " +
             "  FROM `Producten` p " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
             "  LEFT JOIN `ProductTypes` t ON t.`ProductTypeID` = n.`ProductTypeID` " +
@@ -1050,7 +1059,7 @@ public class MySqlProductRepository : IProductRepository
         var serie = await Kolom("Serienummer", "SerieNummer");
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            SamenstellingSelect + $", p.`{serie}` " +
+            SamenstellingSelect + $", p.`{serie}`, {AfgekeurdTest} " +
             "  FROM `Producten` p " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
             "  LEFT JOIN `ProductTypes` t ON t.`ProductTypeID` = n.`ProductTypeID` " +
@@ -1069,7 +1078,7 @@ public class MySqlProductRepository : IProductRepository
         var serie = await Kolom("Serienummer", "SerieNummer");
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            SamenstellingSelect + $", p.`{serie}` " +
+            SamenstellingSelect + $", p.`{serie}`, {AfgekeurdTest} " +
             "  FROM `Producten` kind " +
             "  JOIN `Producten` p ON p.`ProductenID` = kind.`ParentProductenID` " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
@@ -1084,6 +1093,14 @@ public class MySqlProductRepository : IProductRepository
     public async Task KoppelAsync(int onderdeelId, int? ouderId)
     {
         await using var cn = await OpenAsync();
+        if (ouderId is not null)
+        {
+            // Een afgekeurd exemplaar hoort niet in een product (melding gebruiker 22-10-2026); ook hier, niet alleen in de kiezer.
+            await using var test = new MySqlCommand($"SELECT {AfgekeurdTest} FROM `Producten` p WHERE p.`ProductenID` = @id", cn);
+            test.Parameters.AddWithValue("@id", onderdeelId);
+            if (await test.ExecuteScalarAsync() is { } a && a is not DBNull && Convert.ToInt64(a) != 0)
+                throw new InvalidOperationException("Dit exemplaar is afgekeurd en kan niet in een product worden ingebouwd.");
+        }
         await using var cmd = new MySqlCommand(
             "UPDATE `Producten` SET `ParentProductenID` = @ouder WHERE `ProductenID` = @id", cn);
         cmd.Parameters.AddWithValue("@ouder", (object?)ouderId ?? DBNull.Value);
@@ -1092,7 +1109,7 @@ public class MySqlProductRepository : IProductRepository
     }
 
     /// <summary>Exemplaren zonder ouder, om als onderdeel toe te voegen.</summary>
-    public async Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null)
+    public async Task<List<SamenstellingRegel>> ZoekVrijeExemplarenAsync(string zoek, int max, int? productNameId = null, bool ookAfgekeurd = false)
     {
         var serie = await Kolom("Serienummer", "SerieNummer");
         var kolommen = await KolommenAsync();
@@ -1101,11 +1118,11 @@ public class MySqlProductRepository : IProductRepository
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            SamenstellingSelect + $", p.`{serie}` " +
+            SamenstellingSelect + $", p.`{serie}`, {AfgekeurdTest} " +
             "  FROM `Producten` p " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = p.`ProductNameID` " +
             "  LEFT JOIN `ProductTypes` t ON t.`ProductTypeID` = n.`ProductTypeID` " +
-            " WHERE p.`ParentProductenID` IS NULL " + gewist + type +
+            " WHERE p.`ParentProductenID` IS NULL " + gewist + type + (ookAfgekeurd ? "" : $"AND NOT {AfgekeurdTest} ") +
             $"   AND (p.`{serie}` LIKE @z OR n.`ProductName` LIKE @z OR n.`Omschrijving` LIKE @z) " +
             $" ORDER BY n.`ProductName`, CAST(p.`{serie}` AS UNSIGNED) DESC, p.`{serie}` DESC LIMIT {Math.Clamp(max, 1, 200)}", cn);
         cmd.Parameters.AddWithValue("@z", "%" + (zoek ?? "").Trim() + "%");

@@ -115,7 +115,7 @@ public class StuklijstRegel
 /// Zowel gebruikt voor 'Gebruikt' (de onderdelen) als voor 'Wordt gebruikt in'.
 /// </summary>
 public record SamenstellingRegel(int ProductId, int ProductNameId, string Code, string Serienummer,
-                                 string Omschrijving, string TypeCode);
+                                 string Omschrijving, string TypeCode, bool Afgekeurd = false);
 
 /// <summary>
 /// Een attribuut. Dezelfde vorm voor beide tabellen: bij een producttype komt het

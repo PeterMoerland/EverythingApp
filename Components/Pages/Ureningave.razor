@@ -4,6 +4,12 @@
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 
+@* Nieuwe regel nog niet opgeslagen (wel iets ingevuld)? Dan eerst vragen bij weggaan: naar een andere pagina
+   (OnBeforeInternalNavigation), tabblad sluiten of herladen (browser-vraag), en binnen de pagina bij een andere
+   dag/week/werknemer, Plak dag en de boekknoppen (MagWeg). Wens gebruiker 22-10-2026. Bestaande regels slaan zichzelf
+   al op bij het wegklikken uit een veld. *@
+<NavigationLock OnBeforeInternalNavigation="VoorVertrek" ConfirmExternalNavigation="@Onopgeslagen" />
+
 <div class="page">
     <header class="topbar">
         <h1>Ureningave</h1>
@@ -13,7 +19,7 @@
 
     <section class="toolbar">
         <label>Werknemer:</label>
-        <select @onchange="WerknemerGewijzigd">
+        <select @key="@("wn" + _herteken)" @onchange="WerknemerGewijzigd">
             @foreach (var w in _werknemers)
             {
                 <option value="@w.WerknemerId" selected="@(w.WerknemerId == _werknemerId)">@w.Naam</option>
@@ -33,7 +39,7 @@
                     @onclick="DitBenIk">dit ben ik</button>
         }
 
-        <input type="date" value="@_datum.ToString("yyyy-MM-dd")" @onchange="DatumGewijzigd" />
+        <input type="date" @key="@("dt" + _herteken)" value="@_datum.ToString("yyyy-MM-dd")" @onchange="DatumGewijzigd" />
 
         <div class="btngroup">
             <button title="Vorige week" @onclick="() => VerschuifDagen(-7)">« week</button>
@@ -295,6 +301,7 @@
 
     private async Task WerknemerGewijzigd(ChangeEventArgs e)
     {
+        if (!await MagWeg()) return;
         _werknemerId = int.Parse((string)e.Value!);
         await Ververs();
     }
@@ -356,7 +363,7 @@
     // VBA: cmdMe_Click
     private async Task NaarMijzelf()
     {
-        if (_ikId is null) return;
+        if (_ikId is null || !await MagWeg()) return;
         _werknemerId = _ikId.Value;
         await Ververs();
     }
@@ -371,12 +378,13 @@
 
     private async Task DatumGewijzigd(ChangeEventArgs e)
     {
+        if (!await MagWeg()) return;
         if (DateOnly.TryParse((string?)e.Value, out var d)) { _datum = d; await Ververs(); }
     }
 
-    private async Task VerschuifDagen(int n) { _datum = _datum.AddDays(n); await Ververs(); }
-    private async Task Vandaag() { _datum = DateOnly.FromDateTime(DateTime.Today); await Ververs(); }
-    private async Task SelecteerDag(int dagnr) { _datum = UrenService.DatumVanJaarWeekDag(_jaar, _week, dagnr); await Ververs(); }
+    private async Task VerschuifDagen(int n) { if (!await MagWeg()) return; _datum = _datum.AddDays(n); await Ververs(); }
+    private async Task Vandaag() { if (!await MagWeg()) return; _datum = DateOnly.FromDateTime(DateTime.Today); await Ververs(); }
+    private async Task SelecteerDag(int dagnr) { if (!await MagWeg()) return; _datum = UrenService.DatumVanJaarWeekDag(_jaar, _week, dagnr); await Ververs(); }
 
     // === VBA: btnKopieer_Click / btnPlak_Click ===
     private void KopieerDag()
@@ -388,6 +396,7 @@
 
     private async Task PlakDag()
     {
+        if (!await MagWeg()) return;
         if (_kopieerDatum is null) { Toon("Plakken niet mogelijk. Jammer joh.", fout: true); return; }
         var n = await Service.PlakDagAsync(_kopieerWerknemer, _kopieerDatum.Value, _werknemerId, _datum);
         Toon($"{n} regels geplakt.", fout: false);
@@ -397,6 +406,7 @@
     // === VBA: WoonWerk_Click ===
     private async Task BoekWoonWerk()
     {
+        if (!await MagWeg()) return;
         var geboekt = await Service.BoekWoonWerkAsync(_werknemerId, _datum);
         Toon(geboekt ? "Woon-werk kilometers geboekt (heen en terug)." : "Woon-werk kilometers staan al geboekt op deze dag.", fout: !geboekt);
         await Ververs();
@@ -405,7 +415,7 @@
     // === VBA: KnopVrijeUrenInboeken_Click ===
     private async Task BoekVrijeUren()
     {
-        if (_specialOrderId == 0) return;
+        if (_specialOrderId == 0 || !await MagWeg()) return;
         await Service.BoekVrijeUrenAsync(_werknemerId, _datum, _specialOrderId);
         _specialOrderId = 0;
         await Ververs();
@@ -424,9 +434,32 @@
             UrenActiviteitId = _huidigeWerknemer?.Hoofdactiviteit, // VBA: defaultActiviteit
             FixedTypeId = 0
         };
+        _nieuwBegin = System.Text.Json.JsonSerializer.Serialize(_bewerkt);
     }
 
     private void AnnuleerBewerken() => _bewerkt = null;
+
+    // ---- niet opgeslagen nieuwe regel ----
+    private string _nieuwBegin = "";   // de nieuwe regel zoals hij begon (vooringevuld); anders = er is iets ingevuld
+    private int _herteken;             // @key van werknemer- en datumkeuze: na "nee" de oude keuze terugzetten
+
+    private bool Onopgeslagen => _bewerkt is { UrenId: 0 } b && System.Text.Json.JsonSerializer.Serialize(b) != _nieuwBegin;
+
+    /// <summary>True = doorgaan (niets open, of de gebruiker laat de nieuwe regel gaan).</summary>
+    private async Task<bool> MagWeg()
+    {
+        if (!Onopgeslagen) return true;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", "De nieuwe regel is nog niet opgeslagen.\n\nToch doorgaan? Dan gaat de regel verloren."); }
+        catch { ja = true; }
+        if (!ja) _herteken++;
+        return ja;
+    }
+
+    private async Task VoorVertrek(LocationChangingContext context)
+    {
+        if (!await MagWeg()) context.PreventNavigation();
+    }
 
     private void StartGewijzigd(UrenEntry e, ChangeEventArgs ev)
     {

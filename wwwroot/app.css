@@ -3246,6 +3246,8 @@ html[data-thema="donker"] .idee-plakvak { border-color: #2b4a73; color: #9fb0c4;
 .budget-tekort { color: #c92a2a; }
 .verbeter-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
 .verbeter-tekst-lees { white-space: pre-wrap; }
+.verbeter-nieuw { display: grid; gap: .4rem; margin: 0 0 .6rem; max-width: 52rem; }
+.verbeter-nieuw > button { justify-self: start; }
 .verbeter-gedaan td { opacity: .75; }
 .verbeter-uitgelicht td { background: #fff7d6; }
 html[data-thema="donker"] .verbeter-uitgelicht td { background: #3a3215; }
@@ -3722,3 +3724,6 @@ html[data-thema="donker"] .drv-rij.drv-nieuw > td { background: #3a3420; }
 .agent-download:hover { background: #1d4ed8; }
 .agent-versie-ok { font-size: .85rem; }
 .agent-versie small { display: block; }
+
+/* Samenstelling: een afgekeurd exemplaar dat (nog) gekoppeld is */
+.sam-exemplaar.sam-afgekeurd { outline: 2px solid #dc2626; border-radius: 4px; }

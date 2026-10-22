@@ -106,9 +106,38 @@ begin
   TokenPagina := CreateInputQueryPage(wpSelectDir,
     'Koppeling met de EverythingApp',
     'Token',
-    'Vul het token in dat in de app staat (appsettings: Productie:AgentToken). ' +
-    'Laat leeg om het bestaande token te behouden of een nieuw te laten maken.');
+    'Deze pc heeft nog geen token. Vul het token in dat in de app staat (appsettings: Productie:AgentToken). ' +
+    'Leeg laten kan; instellen kan later met installeer.bat /token.');
   TokenPagina.Add('Token:', False);
+end;
+
+{ Staat er al een token in agent.json (bijwerken), dan de tokenpagina overslaan: het bestaande blijft staan.
+  Een gebruiker vulde het bij de download uit de app anders opnieuw in (22-10-2026). Wijzigen: installeer.bat /token.
+  agent.json schrijft de agent met indent=2, dus "token" staat op een eigen regel. }
+function HeeftToken: Boolean;
+var
+  Regels: TArrayOfString;
+  i, p: Integer;
+  r: String;
+begin
+  Result := False;
+  if not LoadStringsFromFile(ExpandConstant('{commonappdata}\MDE\Agent\agent.json'), Regels) then Exit;
+  for i := 0 to GetArrayLength(Regels) - 1 do
+  begin
+    p := Pos('"token"', Regels[i]);
+    if p > 0 then
+    begin
+      r := Copy(Regels[i], p + 7, Length(Regels[i]));
+      p := Pos('"', r);
+      Result := (p > 0) and (Copy(r, p + 1, 1) <> '"') and (Copy(r, p + 1, 1) <> '');
+      Exit;
+    end;
+  end;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = TokenPagina.ID) and HeeftToken;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

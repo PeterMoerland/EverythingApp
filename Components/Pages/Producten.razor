@@ -2699,6 +2699,7 @@
     {
         if (_productId is null) return;
         if (v.ProductId == _productId) { Toon("Een product kan niet in zichzelf zitten.", true); return; }
+        if (v.Afgekeurd) { Toon($"{v.Code} {v.Serienummer} is afgekeurd en kan niet worden ingebouwd.", true); return; }
 
         try
         {
