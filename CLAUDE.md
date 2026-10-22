@@ -310,6 +310,10 @@ hoogstens 3, 10 MB, voorbeeld met ✕. `mdeKlembord.koppelPlakken` hangt aan het
 blijft gewoon werken: `GeenAfbeelding` doet niets). Pas na indienen naar de filestore (`FilestoreService.ToevoegenAsync`,
 **StoreType 340**, MasterID = VerzoekID, naam "schermafdruk <id>-<n>.png"). Lijst: plaatjes via `bestand/<id>`
 (`Verbeterverzoek.Schermafdrukken`, GROUP_CONCAT in `LijstAsync`). Plakken lokaal getest; versturen niet (echte filestore).
+**Fout na uitrol** (verzoek 20): FileStore.StoreType heeft een FK naar `FileStoreType`; 340 stond er niet in, dus elke
+schermafdruk werd geweigerd. `Verbeterverzoeken_Schermafdruk_MariaDB.sql` (INSERT IGNORE 340) moet gedraaid worden; ook
+in `Verbeterverzoeken_MariaDB.sql` opgenomen. **Let op bij een nieuwe StoreType: altijd ook in FileStoreType zetten.**
+De melding noemt nu de echte reden en logt de fout.
 Bericht aan de indiener (zelfde dag, op verzoek): bij een nieuwe status of reactie maakt `BerichtAanIndiener` een
 melding (tabel Meldingen, soort `verbeter`, OrderID = verzoek, max. 250 tekens) en geeft `MeldingSignaal`; de bel toont
 💡 met een link `verbeterverzoeken?verzoek=<id>` (dat verzoek uitgelicht, filter "alles"). Niet aan jezelf, niet bij een
@@ -733,6 +737,14 @@ Niet overgenomen: de Access-rapporten "Overzicht project" en "Weekoverzicht per 
 In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met Liquiditeitsoverzicht (verhuisd uit
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
+
+## Recht MagFirmware (22-10-2026)
+
+Firmwareversies toevoegen en wijzigen (Controllertypen > tab Firmware: versie, status, bestanden, vrijgegeven, opmerking,
+verwijderen) alleen met de kolom **`Werknemers.MagFirmware`** (`Werknemers_MagFirmware_MariaDB.sql`, zelf draaien; per
+werknemer in SQL zetten, besluit gebruiker). Zonder recht: tabel in een `fieldset disabled` (downloadlinks blijven werken)
+en een uitleg; de handlers controleren `MagFirmware` ook zelf. Directie krijgt het niet vanzelf. Testrecepten vallen er
+niet onder. Lokaal bekeken zonder recht (alles uit, 4 downloadlinks werken).
 
 ## Tray-icoon van de agent (agent 1.21.0, 22-10-2026)
 

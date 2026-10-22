@@ -122,6 +122,13 @@
                             <h3 class="wn-kop">Firmwareversies van @_type.Naam</h3>
                             <button class="klein drv-hulp" title="Uitleg" @onclick="@(() => _hulp = "firmware")">?</button>
                         </div>
+                        @if (!MagFirmware)
+                        {
+                            <p class="uitleg">Bekijken en downloaden kan; firmware toevoegen of wijzigen mag alleen met het recht
+                               <b>MagFirmware</b> (per werknemer, Werknemers_MagFirmware_MariaDB.sql).</p>
+                        }
+                        @* zonder recht: alle velden en knoppen uit; de downloadlinks (a) blijven werken *@
+                        <fieldset class="prod-alleen-lezen" disabled="@(!MagFirmware)">
                         <table class="kiezer-tabel drv-firmwares">
                             <thead>
                                 <tr>
@@ -177,6 +184,7 @@
                         <div class="btngroup">
                             <button class="klein" @onclick="NieuweFirmware">+ Firmwareversie</button>
                         </div>
+                        </fieldset>
                     }
                     else
                     {
@@ -310,6 +318,8 @@
     private bool _receptTabelOntbreekt;
     private int _receptVersie;
     private string _tab = "firmware";
+    /// <summary>Firmwareversies toevoegen en wijzigen: kolom MagFirmware in Werknemers (per werknemer in SQL).</summary>
+    private bool MagFirmware => Ik.Mag("MagFirmware");
     private string? _hulp;                       // "firmware" / "recepten": uitlegvenster open
     private DriveRecept? _gekozen;               // het recept in de editor
     private ReceptConcept? _concept;             // wat er in de editor staat (pas na Opslaan in de database)
@@ -520,6 +530,7 @@
     // ------------------------------------------------------------ firmwares
     private async Task NieuweFirmware()
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         if (_type is null) return;
         try
         {
@@ -532,12 +543,14 @@
 
     private async Task ZetFirmware(DriveFirmware f, Action<string> zet, ChangeEventArgs e)
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         zet(((string?)e.Value ?? "").Trim());
         await BewaarFirmware(f);
     }
 
     private async Task ZetDatum(DriveFirmware f, ChangeEventArgs e)
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         f.Vrijgegeven = DateTime.TryParse((string?)e.Value, out var d) ? d : null;
         await BewaarFirmware(f);
     }
@@ -550,6 +563,7 @@
 
     private async Task ZetStatus(DriveFirmware f, ChangeEventArgs e)
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         var status = (string?)e.Value ?? DriveStatus.Toegestaan;
         try
         {
@@ -562,6 +576,7 @@
 
     private async Task VerwijderFirmware(DriveFirmware f)
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         if (!await Bevestig($"Firmwareversie '{f.Versie}' verwijderen? Parametersets die eraan hangen gaan mee.")) return;
         try
         {
@@ -599,6 +614,7 @@
 
     private async Task Upload(DriveFirmware f, int storeType, InputFileChangeEventArgs e)
     {
+        if (!MagFirmware) { Toon("Firmware toevoegen of wijzigen mag alleen met het recht MagFirmware.", true); return; }
         if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
         try
         {

@@ -20,3 +20,6 @@ CREATE TABLE IF NOT EXISTS `Verbeterverzoeken` (
     PRIMARY KEY (`VerzoekID`),
     KEY `IX_Verbeterverzoeken_Status` (`Status`, `IngediendOp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Filestore-soort voor schermafdrukken bij een verzoek (MasterID = VerzoekID); ook los: Verbeterverzoeken_Schermafdruk_MariaDB.sql
+INSERT IGNORE INTO `FileStoreType` (`FilestoreTypeID`, `FileStoreTypeDescription`) VALUES (340, 'Verbeterverzoek schermafdruk');

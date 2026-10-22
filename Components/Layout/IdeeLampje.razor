@@ -4,6 +4,7 @@
 @inject NavigationManager Nav
 @inject FilestoreService Store
 @inject IJSRuntime JS
+@inject ILogger<IdeeLampje> Log
 
 @* Lampje in de bovenbalk: een idee of verbeterverzoek voor de app intypen. De pagina waar je was gaat vanzelf mee.
    Alles komt in Beheer ▸ Verbeterverzoeken (iedereen ziet de lijst; Directie zet de status). Directie ziet op het
@@ -202,6 +203,7 @@
         {
             var id = await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
             var mislukt = 0;
+            string? reden = null;
             for (var i = 0; i < _shots.Count; i++)
             {
                 try
@@ -210,11 +212,18 @@
                     await Store.ToevoegenAsync(m, $"schermafdruk {id}-{i + 1}{Extensie(_shots[i].Soort)}",
                                                VerzoekStatus.StoreTypeSchermafdruk, id, Ik.WerknemerId ?? 0);
                 }
-                catch { mislukt++; }
+                catch (Exception ex)
+                {
+                    // de echte reden tonen en loggen (eerder: alleen "niet opgeslagen", oorzaak was een ontbrekende
+                    // FileStoreType 340)
+                    mislukt++;
+                    reden ??= ex.GetBaseException().Message;
+                    Log.LogError(ex, "Schermafdruk bij verbeterverzoek {Id} opslaan mislukt", id);
+                }
             }
             _shots.Clear();
             _verstuurd = true; _tekst = "";
-            if (mislukt > 0) _fout = $"Het verzoek staat erin, maar {mislukt} schermafdruk(ken) konden niet worden opgeslagen.";
+            if (mislukt > 0) _fout = $"Het verzoek staat erin, maar {mislukt} schermafdruk(ken) konden niet worden opgeslagen: {reden}";
             await TelNieuw(altijd: true);
         }
         catch (Exception ex) { _fout = "Versturen mislukt: " + ex.Message; }
