@@ -29,6 +29,9 @@ public record Veld(string Label, VeldType Type, string[] Kolommen,
 
     /// <summary>Keuzeveld met een zoekvak in plaats van een lange lijst (VeldRaster: Components/ZoekKeuze.razor).</summary>
     public bool Zoekbaar { get; init; }
+
+    /// <summary>Getal links uitlijnen, zoals tekst: voor nummers (projectnummer) in plaats van hoeveelheden.</summary>
+    public bool Links { get; init; }
 }
 
 /// <summary>Tabblad met velden; Recht bepaalt wie het mag zien (kolomnaam in Werknemers).</summary>

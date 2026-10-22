@@ -30,7 +30,7 @@ public static class ProjectVelden
     public static readonly VeldTab[] ProjectTabs =
     {
         new("Project", null,
-            new Veld("Projectnummer", VeldType.Getal, new[] { "Projectnumber" }),
+            new Veld("Projectnummer", VeldType.Getal, new[] { "Projectnumber" }) { Links = true },
             new Veld("Werkmaatschappij", VeldType.Keuze, new[] { "Werkmaatschappij" }, Lijst: "BV"),
             new Veld("Omschrijving", VeldType.Tekst, new[] { "Projectdescription" }),
             new Veld("Projectleider", VeldType.Keuze, new[] { "ProjectResponsible" }, Lijst: "Werknemer"),

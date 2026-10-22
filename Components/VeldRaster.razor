@@ -44,7 +44,7 @@
                 }
                 else if (veld.Type is VeldType.Getal or VeldType.Bedrag)
                 {
-                    <input value="@Tekst(kolom)" class="r smal"
+                    <input value="@Tekst(kolom)" class="@(veld.Links ? "smal" : "r smal")"
                            @onchange="e => ZetGetal(kolom, (string?)e.Value)" />
                 }
                 else
