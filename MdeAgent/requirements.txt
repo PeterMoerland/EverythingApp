@@ -5,5 +5,7 @@ esptool>=4.8
 pyserial>=3.5
 pyocd>=0.36
 pywin32>=306
+pystray>=0.19              # tray-icoon (MdeAgentTray.exe)
+pillow>=10                 # plaatjes van het tray-icoon (en maak_icoon.py)
 pyinstaller>=6.11          # oudere versies struikelen over numpy.f2py.__main__ (sys.exit in het isolatie-proces)
 pyinstaller-hooks-contrib>=2024.10

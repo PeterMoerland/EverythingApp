@@ -41,6 +41,9 @@ Name: "{commonappdata}\MDE\Agent\werk"
 Name: "{group}\MDE Werkplek-agent (console)"; Filename: "{app}\MdeAgent.exe"
 Name: "{group}\MDE Werkplek-agent - token tonen"; Filename: "{app}\MdeAgent.exe"; Parameters: "--toon-token"
 Name: "{group}\MDE Werkplek-agent - instellingen"; Filename: "notepad.exe"; Parameters: """{commonappdata}\MDE\Agent\agent.json"""
+Name: "{group}\MDE Werkplek-agent - tray-icoon"; Filename: "{app}\MdeAgentTray.exe"
+; tray-icoon voor elke gebruiker bij het aanmelden
+Name: "{commonstartup}\MDE Werkplek-agent"; Filename: "{app}\MdeAgentTray.exe"
 
 [Run]
 ; Npcap alleen als er nog geen zit (WinPcap-compatibel, nodig voor pysoem).
@@ -49,10 +52,16 @@ Filename: "{tmp}\{code:NpcapBestand}"; Parameters: "/winpcap_mode=yes"; StatusMs
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service stop";    Flags: runhidden waituntilterminated; StatusMsg: "Oude service stoppen…"
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service remove";  Flags: runhidden waituntilterminated
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service install"; Flags: runhidden waituntilterminated; StatusMsg: "Service registreren…"
+; Ingelogde gebruikers mogen deze service starten en stoppen (tray-icoon: Agent herstarten), verder niets
+; (besluit gebruiker 22-10-2026). Standaardrechten voor SYSTEM/Administrators/interactief blijven.
+Filename: "{sys}\sc.exe"; Parameters: "sdset MdeAgent ""D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)"""; Flags: runhidden waituntilterminated; StatusMsg: "Rechten van de service zetten…"
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service start";   Flags: runhidden waituntilterminated; StatusMsg: "Service starten…"
+; tray-icoon meteen tonen (bij de volgende aanmelding start het vanzelf)
+Filename: "{app}\MdeAgentTray.exe"; Flags: nowait runasoriginaluser skipifdoesntexist
 Filename: "{app}\MdeAgent.exe"; Parameters: "--toon-token"; Description: "Token tonen (voor in appsettings van de app)"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM MdeAgentTray.exe"; Flags: runhidden waituntilterminated; RunOnceId: "tray"
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service stop";   Flags: runhidden waituntilterminated; RunOnceId: "stop"
 Filename: "{app}\MdeAgent.exe"; Parameters: "--service remove"; Flags: runhidden waituntilterminated; RunOnceId: "remove"
 
@@ -70,6 +79,8 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop MdeAgent', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Sleep(2500);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM MdeAgent.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { ook de tray-icoontjes (alle sessies), anders blijft MdeAgentTray.exe in gebruik }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM MdeAgentTray.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Sleep(500);
 end;
 

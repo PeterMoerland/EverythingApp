@@ -734,6 +734,21 @@ In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met 
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
 
+## Tray-icoon van de agent (agent 1.21.0, 22-10-2026)
+
+`MdeAgentTray.exe` (tweede EXE in `MdeAgent.spec`, `console=False`, startpunt `tray_start.py`, code `mde_agent/tray.py`;
+tijdens ontwikkelen `python -m mde_agent --tray`). Draait in de sessie van de gebruiker; start voor iedereen bij het
+aanmelden (snelkoppeling in `{commonstartup}`) en na installeren meteen (`runasoriginaluser`). Peilt elke 3 s
+`/health` (+ `/jobs/<id>` met het token uit agent.json voor de naam van de taak) en de service. Kleur groen klaar /
+blauw bezig / grijs service gestopt / rood antwoordt niet. Menu: status, Lopende taak stoppen (`/jobs/<id>/stop`),
+Agent herstarten/stoppen/starten, Logboek openen, EverythingApp openen, Tray-icoon sluiten. Eén per gebruiker (mutex
+`Local\MdeAgentTray`).
+**Servicerechten** (besluit gebruiker: iedereen mag): installer.iss zet met `sc sdset` voor Authenticated Users
+start/stop/query op de service MdeAgent (SDDL met `(A;;CCLCSWRPWPDTLOCRRC;;;AU)`); `tray._service` opent de service
+met alleen START|STOP|QUERY_STATUS (niet SERVICE_ALL_ACCESS zoals win32serviceutil). Installer en verwijderen doden ook
+`MdeAgentTray.exe`. `pystray` en `pillow` in requirements.txt. Getest: plaatjes, peilen tegen de draaiende 1.20.2 op de
+ontwikkel-pc, menu; niet: herstarten als gewone gebruiker (na installeren met de nieuwe rechten).
+
 ## Programmeren en testen: eerst uitlezen; node-adressen met het echte type (22-10-2026)
 
 - **Eerst uitlezen** (wens gebruiker): in `ExemplaarWerk` staan Programmeren, Node-adressen en Testen in een

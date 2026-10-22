@@ -86,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
             pass
         os._exit(int(code or 0))
 
+    if argv[:1] == ["--tray"]:
+        # tijdens ontwikkelen; uitgerold draait het tray-icoon als MdeAgentTray.exe (zonder console)
+        from . import tray
+        return tray.main()
+
     if argv[:1] == ["--toon-token"]:
         inst = instellingen.lees()
         print(inst.get("token") or "(geen token ingesteld)")

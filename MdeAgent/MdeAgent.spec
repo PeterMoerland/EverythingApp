@@ -48,4 +48,22 @@ exe = EXE(
     console=True,
     uac_admin=False,      # de service draait als LocalSystem; de installer regelt de rechten
 )
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="MdeAgent")
+# Tweede programma in dezelfde map: het tray-icoon, zonder console (mde_agent/tray.py).
+b = Analysis(
+    ["tray_start.py"],
+    pathex=["."],
+    hiddenimports=["pystray", "pystray._win32", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
+                   "win32service", "win32event", "mde_agent.tray", "mde_agent.instellingen"],
+    excludes=["tkinter", "matplotlib", "numpy", "scipy", "ingeniamotion", "ingenialink", "pysoem", "esptool", "pyocd"],
+    noarchive=False,
+)
+pyz_tray = PYZ(b.pure)
+exe_tray = EXE(
+    pyz_tray, b.scripts, [],
+    exclude_binaries=True,
+    name="MdeAgentTray",
+    icon=ICOON,
+    console=False,
+)
+
+coll = COLLECT(exe, exe_tray, a.binaries, a.datas, b.binaries, b.datas, strip=False, upx=False, name="MdeAgent")
