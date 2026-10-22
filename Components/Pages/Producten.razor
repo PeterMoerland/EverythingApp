@@ -916,234 +916,241 @@
                     @* ===== TECHNIEK van een halffabricaat: wat zit erop, drives, parametersets ===== *@
                     @if (_tab == "Techniek" && _productId is null)
                     {
-                        <p class="uitleg">
-                            Wat er op deze print zit bepaalt welke stappen Productie ▸ Test PCB aanbiedt:
-                            uitlezen/firmware/parameters/IO-test voor drives, chip programmeren voor ESP32 en STM32.
-                        </p>
-                        <div class="prod-techniek">
-                            @foreach (var t in ProductTechniek.Alle)
-                            {
-                                var code = t.Code;
-                                <label class="prod-techniek-vink" title="@t.Uitleg">
-                                    <input type="checkbox" checked="@_technieken.Contains(code)" @onchange="e => ZetTechniek(code, e)" />
-                                    <b>@t.Naam</b> <small class="uitleg">@t.Uitleg</small>
-                                </label>
-                                @if (code == ProductTechniek.Drives && _technieken.Contains(ProductTechniek.Drives))
+                        <fieldset class="prod-alleen-lezen" disabled="@(!MagTechniek)">
+                            @if (!MagTechniek) { <div class="melding waarschuwing">Alleen Directie kan de techniek van een type wijzigen; je kijkt alleen.</div> }
+                            <p class="uitleg">
+                                Wat er op deze print zit bepaalt welke stappen Productie ▸ Test PCB aanbiedt:
+                                uitlezen/firmware/parameters/IO-test voor drives, chip programmeren voor ESP32 en STM32.
+                            </p>
+                            <div class="prod-techniek" @key="_techniekVersie">
+                                @foreach (var t in ProductTechniek.Alle)
                                 {
-                                    <label class="prod-techniek-vink prod-techniek-sub" title="Uit = op deze print wordt alleen firmware geladen; de keuze en knop voor parametersets verdwijnen uit Programmeren">
-                                        <input type="checkbox" checked="@MetParameters" @onchange="ZetMetParameters" />
-                                        <b>Parametersets laden</b> <small class="uitleg">per positie een parameterset (.xcf / .json) bij de firmware; uit als deze print alleen firmware krijgt</small>
+                                    var code = t.Code;
+                                    <label class="prod-techniek-vink" title="@t.Uitleg">
+                                        <input type="checkbox" checked="@_technieken.Contains(code)" @onchange="e => ZetTechniek(code, e)" />
+                                        <b>@t.Naam</b> <small class="uitleg">@t.Uitleg</small>
                                     </label>
-                                    <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints: het serienummer van het exemplaar in de EEPROM van de ESC zetten (SII 0x0E), zodat de print zijn eigen nummer meldt">
-                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.SerienummerSchrijven)" @onchange="e => ZetTechniek(ProductTechniek.SerienummerSchrijven, e)" />
-                                        <b>Serienummer schrijven</b> <small class="uitleg">het serienummer van het exemplaar in de EEPROM van de eigen MDE-slave zetten (knop in Programmeren)</small>
-                                    </label>
-                                    <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints met een lege of verkeerde EEPROM: de complete EEPROM-inhoud (PDI/SPI, identiteit, mailboxen, PDO's) uit het ESI van het controllertype schrijven, zoals TwinCAT 'Write EEPROM'">
-                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.EepromVullen)" @onchange="e => ZetTechniek(ProductTechniek.EepromVullen, e)" />
-                                        <b>EEPROM vullen uit ESI</b> <small class="uitleg">nieuwe print met lege EEPROM: PDI (SPI), fabrikant, productcode, revisie, serienummer, mailboxen en PDO's uit het ESI</small>
-                                    </label>
-                                    <label class="prod-techniek-vink prod-techniek-sub" title="Knop Objecten in Programmeren: de complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">
-                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Objecten)" @onchange="e => ZetTechniek(ProductTechniek.Objecten, e)" />
-                                        <b>Objecten</b> <small class="uitleg">objectdictionary lezen en losse SDO's lezen/schrijven (eigen MDE-slave, eRob)</small>
-                                    </label>
-                                    <label class="prod-techniek-vink prod-techniek-sub" title="Knop Monitoring in Programmeren: objecten van de eigen MDE-slave live volgen in een grafiek, alleen lezen">
-                                        <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Monitoring)" @onchange="e => ZetTechniek(ProductTechniek.Monitoring, e)" />
-                                        <b>Monitoring</b> <small class="uitleg">objecten van de eigen MDE-slave live volgen (druk, joints, statusword …), alleen lezen</small>
+                                    @if (code == ProductTechniek.Drives && _technieken.Contains(ProductTechniek.Drives))
+                                    {
+                                        <label class="prod-techniek-vink prod-techniek-sub" title="Uit = op deze print wordt alleen firmware geladen; de keuze en knop voor parametersets verdwijnen uit Programmeren">
+                                            <input type="checkbox" checked="@MetParameters" @onchange="ZetMetParameters" />
+                                            <b>Parametersets laden</b> <small class="uitleg">per positie een parameterset (.xcf / .json) bij de firmware; uit als deze print alleen firmware krijgt</small>
+                                        </label>
+                                        <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints: het serienummer van het exemplaar in de EEPROM van de ESC zetten (SII 0x0E), zodat de print zijn eigen nummer meldt">
+                                            <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.SerienummerSchrijven)" @onchange="e => ZetTechniek(ProductTechniek.SerienummerSchrijven, e)" />
+                                            <b>Serienummer schrijven</b> <small class="uitleg">het serienummer van het exemplaar in de EEPROM van de eigen MDE-slave zetten (knop in Programmeren)</small>
+                                        </label>
+                                        <label class="prod-techniek-vink prod-techniek-sub" title="Voor eigen MDE-prints met een lege of verkeerde EEPROM: de complete EEPROM-inhoud (PDI/SPI, identiteit, mailboxen, PDO's) uit het ESI van het controllertype schrijven, zoals TwinCAT 'Write EEPROM'">
+                                            <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.EepromVullen)" @onchange="e => ZetTechniek(ProductTechniek.EepromVullen, e)" />
+                                            <b>EEPROM vullen uit ESI</b> <small class="uitleg">nieuwe print met lege EEPROM: PDI (SPI), fabrikant, productcode, revisie, serienummer, mailboxen en PDO's uit het ESI</small>
+                                        </label>
+                                        <label class="prod-techniek-vink prod-techniek-sub" title="Knop Objecten in Programmeren: de complete objectdictionary van de slave lezen en losse SDO's lezen/schrijven">
+                                            <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Objecten)" @onchange="e => ZetTechniek(ProductTechniek.Objecten, e)" />
+                                            <b>Objecten</b> <small class="uitleg">objectdictionary lezen en losse SDO's lezen/schrijven (eigen MDE-slave, eRob)</small>
+                                        </label>
+                                        <label class="prod-techniek-vink prod-techniek-sub" title="Knop Monitoring in Programmeren: objecten van de eigen MDE-slave live volgen in een grafiek, alleen lezen">
+                                            <input type="checkbox" checked="@_technieken.Contains(ProductTechniek.Monitoring)" @onchange="e => ZetTechniek(ProductTechniek.Monitoring, e)" />
+                                            <b>Monitoring</b> <small class="uitleg">objecten van de eigen MDE-slave live volgen (druk, joints, statusword …), alleen lezen</small>
+                                        </label>
+                                    }
+                                }
+                            </div>
+                            @if (_drvOntbreekt)
+                            {
+                                <div class="melding fout">De drive-tabellen ontbreken nog: voer <code>DriveTypen_MariaDB.sql</code> en <code>ProductTechniek_MariaDB.sql</code> uit.</div>
+                            }
+
+                            <h4 class="prod-subkop">Stappen in Half-fabricaten en Producten</h4>
+                            <p class="uitleg">
+                                Welke onderdelen de productieschermen tonen voor dit producttype. Een kabel hoeft niet
+                                geprogrammeerd of automatisch getest te worden — vink die stappen dan uit; de handmatige eindcheck
+                                (tab Eindcheck) blijft beschikbaar in 'Opbouw en eindcontrole'. Zonder techniek verdwijnen
+                                Programmeren en Testen sowieso. Niet elk product gaat de testrig in: zet dan 'Stap Duurtest' uit.
+                            </p>
+                            <div class="prod-techniek" @key="_techniekVersie">
+                                @foreach (var s in ProductStap.Alle)
+                                {
+                                    var code = s.Code;
+                                    <label class="prod-techniek-vink" title="@s.Uitleg">
+                                        <input type="checkbox" checked="@(_naam?.ToonStap(code) ?? true)" @onchange="e => ZetStapZichtbaar(code, e)" />
+                                        <b>@s.Naam</b> <small class="uitleg">@s.Uitleg</small>
                                     </label>
                                 }
-                            }
-                        </div>
-                        @if (_drvOntbreekt)
-                        {
-                            <div class="melding fout">De drive-tabellen ontbreken nog: voer <code>DriveTypen_MariaDB.sql</code> en <code>ProductTechniek_MariaDB.sql</code> uit.</div>
-                        }
-
-                        <h4 class="prod-subkop">Stappen in Half-fabricaten en Producten</h4>
-                        <p class="uitleg">
-                            Welke onderdelen de productieschermen tonen voor dit producttype. Een kabel hoeft niet
-                            geprogrammeerd of automatisch getest te worden — vink die stappen dan uit; de handmatige eindcheck
-                            (tab Eindcheck) blijft beschikbaar in 'Opbouw en eindcontrole'. Zonder techniek verdwijnen
-                            Programmeren en Testen sowieso. Niet elk product gaat de testrig in: zet dan 'Stap Duurtest' uit.
-                        </p>
-                        <div class="prod-techniek">
-                            @foreach (var s in ProductStap.Alle)
-                            {
-                                var code = s.Code;
-                                <label class="prod-techniek-vink" title="@s.Uitleg">
-                                    <input type="checkbox" checked="@(_naam?.ToonStap(code) ?? true)" @onchange="e => ZetStapZichtbaar(code, e)" />
-                                    <b>@s.Naam</b> <small class="uitleg">@s.Uitleg</small>
-                                </label>
-                            }
-                        </div>
+                            </div>
+                        </fieldset>
                     }
                     @if (_tab == "Techniek" && _productId is null && (HeeftDrivesOfServo || HeeftChip))
                     {
-                        <p class="uitleg">
-                            @if (HeeftChip && !HeeftDrivesOfServo)
-                            {
-                                <text>Voor een chip: maak één positie met het controllertype (bv. 'ESP32 (alle varianten)' of 'STM32 …').
-                                De firmwareversies (.hex/.bin) met status staan bij dat type onder Productie ▸ Controllertypen en firmware;
-                                in Half-fabricaten ▸ stap 4 wordt de actuele versie voorgeselecteerd.</text>
-                            }
-                            else if (_technieken.Contains(ProductTechniek.Feetech))
-                            {
-                                <text>Voor een servo: maak één positie (1) met het controllertype (bv. Feetech STS3215) en koppel daaraan de
-                                parameterset (.json) bij de firmwareversie van de servo. Sjabloon: MdeAgent\voorbeelden\feetech-sts3215.json.</text>
-                            }
-                            else
-                            {
-                                <text>Welke slaves er op deze print zitten (per positie op de EtherCAT-bus) en welke
-                                parameterset erin moet (.xcf voor Ingenia-drives, .json met SDO's voor eRob en MDE-slaves) — die hoort
-                                bij een firmwareversie, want elke firmware heeft haar eigen set. Het firmwarebestand zelf staat bij
-                                Productie ▸ Controllertypen.</text>
-                            }
-                        </p>
+                        <fieldset class="prod-alleen-lezen" disabled="@(!MagTechniek)">
+                            <p class="uitleg">
+                                @if (HeeftChip && !HeeftDrivesOfServo)
+                                {
+                                    <text>Voor een chip: maak één positie met het controllertype (bv. 'ESP32 (alle varianten)' of 'STM32 …').
+                                    De firmwareversies (.hex/.bin) met status staan bij dat type onder Productie ▸ Controllertypen en firmware;
+                                    in Half-fabricaten ▸ stap 4 wordt de actuele versie voorgeselecteerd.</text>
+                                }
+                                else if (_technieken.Contains(ProductTechniek.Feetech))
+                                {
+                                    <text>Voor een servo: maak één positie (1) met het controllertype (bv. Feetech STS3215) en koppel daaraan de
+                                    parameterset (.json) bij de firmwareversie van de servo. Sjabloon: MdeAgent\voorbeelden\feetech-sts3215.json.</text>
+                                }
+                                else
+                                {
+                                    <text>Welke slaves er op deze print zitten (per positie op de EtherCAT-bus) en welke
+                                    parameterset erin moet (.xcf voor Ingenia-drives, .json met SDO's voor eRob en MDE-slaves) — die hoort
+                                    bij een firmwareversie, want elke firmware heeft haar eigen set. Het firmwarebestand zelf staat bij
+                                    Productie ▸ Controllertypen.</text>
+                                }
+                            </p>
 
-                        <h4 class="prod-subkop">Posities</h4>
-                        <table class="kiezer-tabel drv-posities">
-                            <thead>
-                                <tr>
-                                    <th style="width:5rem">Positie</th>
-                                    <th style="width:12rem">Naam</th>
-                                    <th>Verwacht controllertype</th>
-                                    <th style="width:4rem"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var p in _posities)
-                                {
-                                    <tr @key="p.Id">
-                                        <td><input type="number" min="1" max="16" value="@p.Positie"
-                                                   @onchange="e => ZetPositie(p, () => p.Positie = int.TryParse((string?)e.Value, out var n) ? n : p.Positie)" /></td>
-                                        <td><input value="@p.Naam" placeholder="bv. R-as" @onchange="e => ZetPositie(p, () => p.Naam = (string?)e.Value ?? string.Empty)" /></td>
-                                        <td>
-                                            <select value="@(p.DriveTypeId?.ToString() ?? string.Empty)"
-                                                    @onchange="e => ZetPositie(p, () => p.DriveTypeId = int.TryParse((string?)e.Value, out var t) ? t : null)">
-                                                <option value="">— niet controleren —</option>
-                                                @foreach (var t in TypenVoorProduct)
-                                                {
-                                                    <option value="@t.Id">@t.Naam (@t.ProductCode)</option>
-                                                }
-                                            </select>
-                                            @if (MagControllertypen && TypenVoorProduct.FirstOrDefault(x => x.Id == p.DriveTypeId) is { } dt)
-                                            {
-                                                @* directie: rechtstreeks naar het controllertype (firmware, en testrecepten bij een SDO-slave) *@
-                                                <a class="knopje drv-bewerk" href="@ControllertypeUrl(dt)" title="@($"{dt.Naam} bewerken: firmware" + (DriveProtocol.ViaSdo(dt.Protocol) ? " en testrecepten" : ""))">✎ bewerken</a>
-                                            }
-                                        </td>
-                                        <td class="c"><button class="klein rood" @onclick="() => VerwijderPositie(p)">✕</button></td>
+                            <h4 class="prod-subkop">Posities</h4>
+                            <table class="kiezer-tabel drv-posities">
+                                <thead>
+                                    <tr>
+                                        <th style="width:5rem">Positie</th>
+                                        <th style="width:12rem">Naam</th>
+                                        <th>Verwacht controllertype</th>
+                                        <th style="width:4rem"></th>
                                     </tr>
-                                }
-                                @if (_posities.Count == 0)
+                                </thead>
+                                <tbody>
+                                    @foreach (var p in _posities)
+                                    {
+                                        <tr @key="p.Id">
+                                            <td><input type="number" min="1" max="16" value="@p.Positie"
+                                                       @onchange="e => ZetPositie(p, () => p.Positie = int.TryParse((string?)e.Value, out var n) ? n : p.Positie)" /></td>
+                                            <td><input value="@p.Naam" placeholder="bv. R-as" @onchange="e => ZetPositie(p, () => p.Naam = (string?)e.Value ?? string.Empty)" /></td>
+                                            <td>
+                                                <select value="@(p.DriveTypeId?.ToString() ?? string.Empty)"
+                                                        @onchange="e => ZetPositie(p, () => p.DriveTypeId = int.TryParse((string?)e.Value, out var t) ? t : null)">
+                                                    <option value="">— niet controleren —</option>
+                                                    @foreach (var t in TypenVoorProduct)
+                                                    {
+                                                        <option value="@t.Id">@t.Naam (@t.ProductCode)</option>
+                                                    }
+                                                </select>
+                                                @if (MagControllertypen && TypenVoorProduct.FirstOrDefault(x => x.Id == p.DriveTypeId) is { } dt)
+                                                {
+                                                    @* directie: rechtstreeks naar het controllertype (firmware, en testrecepten bij een SDO-slave) *@
+                                                    <a class="knopje drv-bewerk" href="@ControllertypeUrl(dt)" title="@($"{dt.Naam} bewerken: firmware" + (DriveProtocol.ViaSdo(dt.Protocol) ? " en testrecepten" : ""))">✎ bewerken</a>
+                                                }
+                                            </td>
+                                            <td class="c"><button class="klein rood" @onclick="() => VerwijderPositie(p)">✕</button></td>
+                                        </tr>
+                                    }
+                                    @if (_posities.Count == 0)
+                                    {
+                                        <tr><td colspan="4" class="kiezer-info">Nog geen posities. Voeg er één toe per drive op de print.</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            <div class="btngroup">
+                                <button class="klein" @onclick="NieuwePositie">+ Positie</button>
+                                @if (HeeftChip && !HeeftDrivesOfServo)
                                 {
-                                    <tr><td colspan="4" class="kiezer-info">Nog geen posities. Voeg er één toe per drive op de print.</td></tr>
+                                    <a class="knopje" href="productie/drivetypen">Controllertypen en firmware beheren ↗</a>
                                 }
-                            </tbody>
-                        </table>
-                        <div class="btngroup">
-                            <button class="klein" @onclick="NieuwePositie">+ Positie</button>
-                            @if (HeeftChip && !HeeftDrivesOfServo)
-                            {
-                                <a class="knopje" href="productie/drivetypen">Controllertypen en firmware beheren ↗</a>
-                            }
-                        </div>
+                            </div>
+                        </fieldset>
                     }
                     @if (_tab == "Techniek" && _productId is null && HeeftDrivesOfServo && (MetParameters || _technieken.Contains(ProductTechniek.Feetech)))
                     {
-                        <h4 class="prod-subkop">Parametersets</h4>
-                        <div class="drv-params-wrap">
-                        <table class="kiezer-tabel drv-params">
-                            <thead>
-                                <tr>
-                                    <th style="width:8rem">Positie</th>
-                                    <th>Firmwareversie</th>
-                                    <th style="width:11rem">Omschrijving</th>
-                                    <th title="De parameterset zelf: .xcf voor Ingenia-drives, .json (SDO's of Feetech-registers) voor eRob, MDE-slaves en servo's. Het firmwarebestand staat bij Controllertypen.">Parameterbestand (.xcf / .json)</th>
-                                    <th style="width:7rem">Status</th>
-                                    <th style="width:4rem"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @* Vaste volgorde (aanmaakvolgorde), zodat een regel niet verspringt als je de positie of firmware wijzigt. *@
-                                @foreach (var ps in _parametersets.OrderBy(x => x.Id))
-                                {
-                                    var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json";
-                                    <tr @key="ps.Id" class="drv-rij">
-                                        <td>
-                                            <select value="@ps.Positie" @onchange="e => ZetParam(ps, () => ps.Positie = int.TryParse((string?)e.Value, out var n) ? n : ps.Positie)">
-                                                @foreach (var p in _posities.OrderBy(p => p.Positie))
+                        <fieldset class="prod-alleen-lezen" disabled="@(!MagTechniek)">
+                            <h4 class="prod-subkop">Parametersets</h4>
+                            <div class="drv-params-wrap">
+                            <table class="kiezer-tabel drv-params">
+                                <thead>
+                                    <tr>
+                                        <th style="width:8rem">Positie</th>
+                                        <th>Firmwareversie</th>
+                                        <th style="width:11rem">Omschrijving</th>
+                                        <th title="De parameterset zelf: .xcf voor Ingenia-drives, .json (SDO's of Feetech-registers) voor eRob, MDE-slaves en servo's. Het firmwarebestand staat bij Controllertypen.">Parameterbestand (.xcf / .json)</th>
+                                        <th style="width:7rem">Status</th>
+                                        <th style="width:4rem"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @* Vaste volgorde (aanmaakvolgorde), zodat een regel niet verspringt als je de positie of firmware wijzigt. *@
+                                    @foreach (var ps in _parametersets.OrderBy(x => x.Id))
+                                    {
+                                        var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json";
+                                        <tr @key="ps.Id" class="drv-rij">
+                                            <td>
+                                                <select value="@ps.Positie" @onchange="e => ZetParam(ps, () => ps.Positie = int.TryParse((string?)e.Value, out var n) ? n : ps.Positie)">
+                                                    @foreach (var p in _posities.OrderBy(p => p.Positie))
+                                                    {
+                                                        <option value="@p.Positie">@p.Positie @(p.Naam.Length > 0 ? "· " + p.Naam : "")</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <select value="@ps.DriveFirmwareId" @onchange="e => ZetParam(ps, () => ps.DriveFirmwareId = int.TryParse((string?)e.Value, out var f) ? f : ps.DriveFirmwareId)">
+                                                    @foreach (var f in _alleFirmwares)
+                                                    {
+                                                        <option value="@f.Id">@f.TypeNaam · @f.Versie (@f.Status)</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                            <td><input value="@ps.Omschrijving" placeholder="bv. R_drive A v0.0.2"
+                                                       @onchange="e => ZetParam(ps, () => ps.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                                            <td>
+                                                @if (ps.ParameterFileId is int fid)
                                                 {
-                                                    <option value="@p.Positie">@p.Positie @(p.Naam.Length > 0 ? "· " + p.Naam : "")</option>
+                                                    <a class="knopje" href="@DownloadUrl(fid)" target="_blank" rel="noopener">⬇ @ps.ParameterBestand</a>
+                                                    <button class="klein" title="Vervangen" @onclick="() => _drvVervang = ps.Id">↻</button>
+                                                    @if (_drvVervang == ps.Id)
+                                                    {
+                                                        <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                    }
                                                 }
-                                            </select>
-                                        </td>
-                                        <td>
-                                            <select value="@ps.DriveFirmwareId" @onchange="e => ZetParam(ps, () => ps.DriveFirmwareId = int.TryParse((string?)e.Value, out var f) ? f : ps.DriveFirmwareId)">
-                                                @foreach (var f in _alleFirmwares)
-                                                {
-                                                    <option value="@f.Id">@f.TypeNaam · @f.Versie (@f.Status)</option>
-                                                }
-                                            </select>
-                                        </td>
-                                        <td><input value="@ps.Omschrijving" placeholder="bv. R_drive A v0.0.2"
-                                                   @onchange="e => ZetParam(ps, () => ps.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
-                                        <td>
-                                            @if (ps.ParameterFileId is int fid)
-                                            {
-                                                <a class="knopje" href="@DownloadUrl(fid)" target="_blank" rel="noopener">⬇ @ps.ParameterBestand</a>
-                                                <button class="klein" title="Vervangen" @onclick="() => _drvVervang = ps.Id">↻</button>
-                                                @if (_drvVervang == ps.Id)
+                                                else
                                                 {
                                                     <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                    <small class="uitleg">@extensie</small>
                                                 }
-                                            }
-                                            else
-                                            {
-                                                <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
-                                                <small class="uitleg">@extensie</small>
-                                            }
-                                        </td>
-                                        <td>
-                                            <select value="@ps.Status" class="drv-status @DriveStatus.Kleur(ps.Status)"
-                                                    @onchange="e => ZetParam(ps, () => ps.Status = (string?)e.Value ?? DriveStatus.Actueel)">
-                                                @foreach (var s in DriveStatus.Parameters)
+                                            </td>
+                                            <td>
+                                                <select value="@ps.Status" class="drv-status @DriveStatus.Kleur(ps.Status)"
+                                                        @onchange="e => ZetParam(ps, () => ps.Status = (string?)e.Value ?? DriveStatus.Actueel)">
+                                                    @foreach (var s in DriveStatus.Parameters)
+                                                    {
+                                                        <option value="@s.Code">@s.Tekst</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                            <td class="c drv-knoppen">
+                                                @if (IsFeetechSet(ps))
                                                 {
-                                                    <option value="@s.Code">@s.Tekst</option>
+                                                    <button class="klein" title="Registers bewerken in de app" @onclick="() => _editorPs = ps">✎</button>
                                                 }
-                                            </select>
-                                        </td>
-                                        <td class="c drv-knoppen">
-                                            @if (IsFeetechSet(ps))
-                                            {
-                                                <button class="klein" title="Registers bewerken in de app" @onclick="() => _editorPs = ps">✎</button>
-                                            }
-                                            <button class="klein rood" title="Parameterset verwijderen" @onclick="() => VerwijderParam(ps)">✕</button>
-                                        </td>
-                                    </tr>
-                                    <tr @key="@($"{ps.Id}-opm")" class="drv-opm">
-                                        <td colspan="6">
-                                            <input value="@ps.Opmerking" placeholder="Opmerking bij deze parameterset…"
-                                                   @onchange="e => ZetParam(ps, () => ps.Opmerking = (string?)e.Value ?? string.Empty)" />
-                                        </td>
-                                    </tr>
-                                }
-                                @if (_parametersets.Count == 0)
+                                                <button class="klein rood" title="Parameterset verwijderen" @onclick="() => VerwijderParam(ps)">✕</button>
+                                            </td>
+                                        </tr>
+                                        <tr @key="@($"{ps.Id}-opm")" class="drv-opm">
+                                            <td colspan="6">
+                                                <input value="@ps.Opmerking" placeholder="Opmerking bij deze parameterset…"
+                                                       @onchange="e => ZetParam(ps, () => ps.Opmerking = (string?)e.Value ?? string.Empty)" />
+                                            </td>
+                                        </tr>
+                                    }
+                                    @if (_parametersets.Count == 0)
+                                    {
+                                        <tr><td colspan="6" class="kiezer-info">Nog geen parametersets.</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            </div>
+                            <div class="btngroup">
+                                <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweParam"
+                                        title="@(_alleFirmwares.Count == 0 ? "Maak eerst een firmwareversie aan bij Productie ▸ Drivetypen" : "")">+ Parameterset</button>
+                                @if (_technieken.Contains(ProductTechniek.Feetech))
                                 {
-                                    <tr><td colspan="6" class="kiezer-info">Nog geen parametersets.</td></tr>
+                                    <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweFeetechSet"
+                                            title="Een Feetech-parameterset maken uit het sjabloon en meteen bewerken — geen JSON-bestand nodig">+ Feetech-set uit sjabloon…</button>
                                 }
-                            </tbody>
-                        </table>
-                        </div>
-                        <div class="btngroup">
-                            <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweParam"
-                                    title="@(_alleFirmwares.Count == 0 ? "Maak eerst een firmwareversie aan bij Productie ▸ Drivetypen" : "")">+ Parameterset</button>
-                            @if (_technieken.Contains(ProductTechniek.Feetech))
-                            {
-                                <button class="klein" disabled="@(_posities.Count == 0 || _alleFirmwares.Count == 0)" @onclick="NieuweFeetechSet"
-                                        title="Een Feetech-parameterset maken uit het sjabloon en meteen bewerken — geen JSON-bestand nodig">+ Feetech-set uit sjabloon…</button>
-                            }
-                            <a class="knopje" href="productie/drivetypen">Drivetypen en firmware beheren ↗</a>
-                        </div>
+                                <a class="knopje" href="productie/drivetypen">Drivetypen en firmware beheren ↗</a>
+                            </div>
+                        </fieldset>
                     }
                 }
             </section>
@@ -2421,6 +2428,8 @@
     // ---- historie opschonen: regels aanvinken en wissen, alleen Directie ----
     private bool MagHistorieWissen => Ik.Mag("Directie");
     private bool MagControllertypen => Ik.Mag("Directie");
+    /// <summary>Tab Techniek (technieken, stappen, posities, parametersets) wijzigen: alleen Directie (besluit 22-10-2026).</summary>
+    private bool MagTechniek => Ik.Mag("Directie");
     private static string ControllertypeUrl(DriveSoort t) => $"productie/drivetypen?type={t.Id}" + (DriveProtocol.ViaSdo(t.Protocol) ? "&tab=recepten" : "");
     private readonly HashSet<int> _histGekozen = new();
     /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
@@ -2975,8 +2984,10 @@
     /// <summary>Vinkje 'stap zichtbaar in Half-fabricaten' — kolom Toon… in ProductNameExtra.</summary>
     private async Task ZetStapZichtbaar(string code, ChangeEventArgs e)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); _techniekVersie++; return; }
         if (_naamId is null || _naam is null) return;
         var toon = e.Value is bool b && b;
+        if (!toon && !await BevestigUit(ProductStap.Alle.FirstOrDefault(x => x.Code == code).Naam ?? code)) return;
         try
         {
             await Repo.ZetStapZichtbaarAsync(_naamId.Value, code, toon);
@@ -2989,13 +3000,41 @@
     /// <summary>Parametersets laden staat aan zolang er géén regel 'geenparams' is (zie ProductTechniek.GeenParameters).</summary>
     private bool MetParameters => !_technieken.Contains(ProductTechniek.GeenParameters);
 
-    private Task ZetMetParameters(ChangeEventArgs e)
-        => ZetTechniek(ProductTechniek.GeenParameters, new ChangeEventArgs { Value = !(e.Value is bool b && b) });
-
-    private async Task ZetTechniek(string code, ChangeEventArgs e)
+    private async Task ZetMetParameters(ChangeEventArgs e)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); _techniekVersie++; return; }
+        // "Parametersets laden" uit = de techniek GeenParameters aan
+        var metParameters = e.Value is bool b && b;
+        if (!metParameters && !await BevestigUit("Parametersets laden")) return;
+        await ZetTechniek(ProductTechniek.GeenParameters, new ChangeEventArgs { Value = !metParameters }, bevestigd: true);
+    }
+
+    private int _techniekVersie;
+
+    /// <summary>
+    /// Een stap of techniek uitzetten geldt voor alle exemplaren van dit type, op elke werkplek, en wordt nergens
+    /// vastgelegd. Een klik op de regel is genoeg om hem om te zetten; daarom bij uitzetten eerst vragen
+    /// (21-10-2026: 'Programmeren' stond bij een collega onverwacht uit).
+    /// </summary>
+    private async Task<bool> BevestigUit(string wat)
+    {
+        if (await Bevestig($"'{wat}' uitzetten voor {_naam?.Naam ?? "dit type"}?\n\nDit geldt voor alle exemplaren van dit type, op elke werkplek."))
+            return true;
+        _techniekVersie++;          // vinkje terug zoals het was
+        return false;
+    }
+
+    private async Task ZetTechniek(string code, ChangeEventArgs e, bool bevestigd = false)
+    {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); _techniekVersie++; return; }
         if (_naamId is null) return;
         var aan = e.Value is bool b && b;
+        var naam = ProductTechniek.Alle.FirstOrDefault(x => x.Code == code).Naam ?? code switch
+        {
+            ProductTechniek.SerienummerSchrijven => "Serienummer schrijven", ProductTechniek.EepromVullen => "EEPROM vullen uit ESI",
+            ProductTechniek.Objecten => "Objecten", ProductTechniek.Monitoring => "Monitoring", _ => code,
+        };
+        if (!aan && !bevestigd && !await BevestigUit(naam)) return;
         try
         {
             await Repo.ZetTechniekAsync(_naamId.Value, code, aan);
@@ -3034,6 +3073,7 @@
 
     private async Task NieuwePositie()
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         if (_naamId is null) return;
         try
         {
@@ -3046,6 +3086,7 @@
 
     private async Task ZetPositie(DrivePositie p, Action wijzig)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         wijzig();
         try { await Drives.BewaarPositieAsync(p); if (_naamId is int n) await LaadDrives(n); Toon("Opgeslagen.", false); }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
@@ -3053,6 +3094,7 @@
 
     private async Task VerwijderPositie(DrivePositie p)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         if (!await Bevestig($"Positie {p.Positie} ({p.Naam}) verwijderen?")) return;
         try { await Drives.VerwijderPositieAsync(p.Id); if (_naamId is int n) await LaadDrives(n); }
         catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
@@ -3060,6 +3102,7 @@
 
     private async Task NieuweParam()
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         if (_naamId is null || _posities.Count == 0 || _alleFirmwares.Count == 0) return;
         try
         {
@@ -3113,6 +3156,7 @@
 
     private async Task ZetParam(DriveParameterset ps, Action wijzig)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         wijzig();
         try { await Drives.BewaarParametersetAsync(ps, Ik.WerknemerId); if (_naamId is int n) await LaadDrives(n); Toon("Opgeslagen.", false); }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
@@ -3173,6 +3217,7 @@
 
     private async Task VerwijderParam(DriveParameterset ps)
     {
+        if (!MagTechniek) { Toon("Alleen Directie kan de techniek van een type wijzigen.", true); return; }
         if (!await Bevestig($"Parameterset '{ps.Omschrijving}' (positie {ps.Positie}, firmware {ps.FirmwareVersie}) verwijderen?")) return;
         try
         {
