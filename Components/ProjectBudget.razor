@@ -1,0 +1,242 @@
+@inject IProjectBudgetRepository Repo
+@inject IJSRuntime JS
+
+@* Projecten ▸ tab Budget en tab Budget verdeling, overgezet uit Access (Projects ▸ BudgetProject / ProjectBudgetVerdeling).
+   Budget: regels in BudgetProject (omschrijving, PO van de klant uit PO_Inkomend, bedrag, % van PO, opmerking).
+   Budget verdeling: per werkorder het eigen budget (Workorders.Budget) en het deel van het projectbudget, met de
+   totalen. Alleen Directie en Budgetverantwoordelijke (besluit gebruiker 22-10-2026); de pagina toont de tabs dan
+   pas. Wijzigingen worden meteen opgeslagen, zoals de rest van het projectscherm. *@
+
+@if (!Repo.Beschikbaar)
+{
+    <p class="kiezer-info">Budget werkt alleen met de live database.</p>
+}
+else
+{
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (Verdeling)
+    {
+        <div class="budget-schuif"><table class="kiezer-tabel budget-tabel">
+            <thead>
+                <tr>
+                    <th style="width:7rem">Werkorder</th>
+                    <th>Omschrijving</th>
+                    <th style="width:8rem">Doorbelasten</th>
+                    <th style="width:10rem" class="r">Bedrag</th>
+                    <th style="width:7rem" class="r">% van project</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var w in _werkorders)
+                {
+                    <tr @key="(w.WerkbonId, _versie)" class="@(w.Gesloten ? "budget-gesloten" : "")">
+                        <td>@w.Nummer</td>
+                        <td>@w.Omschrijving @if (w.Gesloten) { <small class="uitleg"> · gesloten</small> }</td>
+                        <td>@Doorbelasten(w.Doorbelasten)</td>
+                        <td class="r"><input class="budget-bedrag" type="text" inputmode="decimal" value="@Invoer(w.Budget)"
+                                             @onchange="e => ZetWerkorderBudget(w, e)" /></td>
+                        <td class="r">@Procent(ProjectTotaal == 0 ? null : w.Budget / ProjectTotaal)</td>
+                    </tr>
+                }
+                @if (_werkorders.Count == 0)
+                {
+                    <tr><td colspan="5" class="kiezer-info">Dit project heeft nog geen werkorders.</td></tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="budget-totalen">
+            <span>Totaal budget werkorders</span><b>@Bedrag(WerkorderTotaal)</b><span>@Procent(ProjectTotaal == 0 ? null : WerkorderTotaal / ProjectTotaal)</span>
+            <span>Totaal project budget</span><b>@Bedrag(ProjectTotaal)</b><span></span>
+            <span>Budget overschot</span><b class="@(Overschot < 0 ? "budget-tekort" : "")">@Bedrag(Overschot)</b>
+            <span class="uitleg">@(Overschot < 0 ? "werkorders boven het projectbudget" : "")</span>
+        </div>
+    }
+    else
+    {
+        <div class="budget-schuif"><table class="kiezer-tabel budget-tabel">
+            <thead>
+                <tr>
+                    <th>Omschrijving</th>
+                    <th style="width:16rem">PO klant</th>
+                    <th style="width:2.4rem"></th>
+                    <th style="width:10rem" class="r">Bedrag</th>
+                    <th style="width:6rem" class="r">% van PO</th>
+                    <th style="width:2.6rem"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in _regels)
+                {
+                    <tr @key="(b.Id, _versie)" class="@(b.Id == _gekozenId ? "gekozen-rij" : "")" @onclick="() => _gekozenId = b.Id">
+                        <td><input value="@b.Omschrijving" maxlength="100" @onchange="e => Wijzig(b, () => b.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                        <td>
+                            <select value="@(b.PoId?.ToString() ?? "")" @onchange="e => KiesPo(b, e)">
+                                <option value="">— geen PO —</option>
+                                @if (b.PoId is int eigen && _pos.All(p => p.Id != eigen))
+                                {
+                                    <option value="@eigen">@b.PoNummer</option>
+                                }
+                                @foreach (var p in _pos)
+                                {
+                                    <option value="@p.Id">@PoTekst(p)</option>
+                                }
+                            </select>
+                        </td>
+                        <td class="c">
+                            @if (b.PoPdfId is int pdf)
+                            {
+                                <a href="@($"bestand/{pdf}")" target="_blank" rel="noopener" title="PDF van de PO openen">🔍</a>
+                            }
+                        </td>
+                        <td class="r"><input class="budget-bedrag" type="text" inputmode="decimal" value="@Invoer(b.Bedrag)"
+                                             @onchange="e => ZetBedrag(b, e)" /></td>
+                        <td class="r">@(b.DeelVanPo is decimal d ? Procent(d) : "NVT")</td>
+                        <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => Verwijder(b)" @onclick:stopPropagation>✕</button></td>
+                    </tr>
+                    @if (b.FactuurNummer.Length > 0 || b.FactuurAangemaakt is not null)
+                    {
+                        <tr @key="(b.Id, _versie, 1)"><td colspan="6"><small class="uitleg">Gefactureerd: @b.FactuurNummer @(b.FactuurAangemaakt?.ToString("dd-MM-yyyy") ?? "")</small></td></tr>
+                    }
+                }
+                @if (_regels.Count == 0)
+                {
+                    <tr><td colspan="6" class="kiezer-info">Nog geen budget voor dit project.</td></tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="btngroup">
+            <button class="klein" @onclick="Nieuw">+ Budgetregel</button>
+            @if (KlantId is null) { <span class="uitleg">Het project heeft geen klant: kies die eerst om een PO te kunnen koppelen.</span> }
+        </div>
+
+        <div class="budget-onder">
+            <label class="bankveld groei">
+                <span>Opmerking @(Gekozen is { } g ? $"bij '{(g.Omschrijving.Length > 0 ? g.Omschrijving : "regel")}'" : "(kies een regel)")</span>
+                <textarea rows="4" maxlength="400" disabled="@(Gekozen is null)" value="@(Gekozen?.Opmerking ?? "")"
+                          @onchange="e => { if (Gekozen is { } g) _ = Wijzig(g, () => g.Opmerking = (string?)e.Value ?? string.Empty); }"></textarea>
+            </label>
+            <div class="budget-totaal"><span>Totaal</span><b>@Bedrag(ProjectTotaal)</b></div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int ProjectId { get; set; }
+    /// <summary>De klant van het project: diens PO's staan in de keuzelijst.</summary>
+    [Parameter] public int? KlantId { get; set; }
+    /// <summary>True = tab Budget verdeling (werkorders), anders tab Budget.</summary>
+    [Parameter] public bool Verdeling { get; set; }
+
+    private List<BudgetRegel> _regels = new();
+    private List<KlantPo> _pos = new();
+    private List<WerkorderBudget> _werkorders = new();
+    private int? _gekozenId;
+    private int _versie;
+    private int _geladenVoor = -1;
+    private string? _melding;
+    private bool _fout;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private decimal ProjectTotaal => _regels.Sum(r => r.Bedrag);
+    private decimal WerkorderTotaal => _werkorders.Sum(w => w.Budget);
+    private decimal Overschot => ProjectTotaal - WerkorderTotaal;
+    private BudgetRegel? Gekozen => _regels.FirstOrDefault(r => r.Id == _gekozenId);
+
+    private static string Bedrag(decimal b) => b.ToString("C2", Nl);
+    private static string Invoer(decimal b) => b.ToString("#,##0.00", Nl);
+    private static string Procent(decimal? d) => d is decimal x ? x.ToString("P0", Nl) : "";
+    private static string Doorbelasten(int? code) => ProjectVelden.DoorbelastBasis.FirstOrDefault(k => k.Id == code)?.Naam ?? "";
+    private static string PoTekst(KlantPo p)
+        => string.Join(" · ", new[] { p.Nummer, p.Omschrijving, p.Bedrag is decimal b ? b.ToString("C0", Nl) : "" }.Where(s => s.Length > 0));
+
+    /// <summary>"12.500", "12500,50", "€ 1.000" — punten zijn duizendtallen, komma is de decimaal (Nederlands).</summary>
+    private static decimal? LeesBedrag(object? waarde)
+    {
+        var t = (waarde as string ?? "").Replace("€", "").Replace(" ", "").Trim();
+        if (t.Length == 0) return 0;
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number, Nl, out var d) ? Math.Round(d, 2) : null;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProjectId) return;
+        _geladenVoor = ProjectId;
+        _gekozenId = null;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _regels = await Repo.BudgetRegelsAsync(ProjectId);
+            if (Verdeling) _werkorders = await Repo.WerkorderBudgettenAsync(ProjectId);
+            else _pos = await Repo.PosVanKlantAsync(KlantId);
+            _versie++;
+        }
+        catch (Exception ex) { Toon("Budget laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wijzig(BudgetRegel b, Action wijzig)
+    {
+        wijzig();
+        try { b.Id = await Repo.BewaarBudgetRegelAsync(b); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); await Laad(); }
+    }
+
+    private async Task ZetBedrag(BudgetRegel b, ChangeEventArgs e)
+    {
+        if (LeesBedrag(e.Value) is not decimal bedrag) { Toon("Dat is geen bedrag.", true); _versie++; return; }
+        await Wijzig(b, () => b.Bedrag = bedrag);
+    }
+
+    /// <summary>PO kiezen: zoals Access het PO-bedrag als budget voorstellen (leeg bedrag = meteen overnemen).</summary>
+    private async Task KiesPo(BudgetRegel b, ChangeEventArgs e)
+    {
+        var po = int.TryParse((string?)e.Value, out var id) ? _pos.FirstOrDefault(p => p.Id == id) : null;
+        b.PoId = po?.Id; b.PoNummer = po?.Nummer ?? ""; b.PoBedrag = po?.Bedrag; b.PoPdfId = null;
+        if (po?.Bedrag is decimal poBedrag && poBedrag != b.Bedrag)
+        {
+            if (b.Bedrag == 0) b.Bedrag = poBedrag;
+            else if (await JS.InvokeAsync<bool>("mdeBevestig",
+                         $"Het huidige budget is {Bedrag(b.Bedrag)}, het bedrag op de PO is {Bedrag(poBedrag)}. Wilt u dit bedrag overnemen?"))
+                b.Bedrag = poBedrag;
+        }
+        await Wijzig(b, () => { });
+        await Laad();       // de PDF-link van de nieuwe PO
+    }
+
+    private async Task Nieuw()
+    {
+        var b = new BudgetRegel { ProjectId = ProjectId };
+        try
+        {
+            b.Id = await Repo.BewaarBudgetRegelAsync(b);
+            await Laad();
+            _gekozenId = b.Id;
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder(BudgetRegel b)
+    {
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Budgetregel '{(b.Omschrijving.Length > 0 ? b.Omschrijving : "zonder omschrijving")}' ({Bedrag(b.Bedrag)}) verwijderen?"))
+            return;
+        try { await Repo.VerwijderBudgetRegelAsync(b.Id); await Laad(); Toon("Verwijderd.", false); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetWerkorderBudget(WerkorderBudget w, ChangeEventArgs e)
+    {
+        if (LeesBedrag(e.Value) is not decimal bedrag) { Toon("Dat is geen bedrag.", true); _versie++; return; }
+        try { await Repo.ZetWerkorderBudgetAsync(w.WerkbonId, bedrag); w.Budget = bedrag; Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

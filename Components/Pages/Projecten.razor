@@ -150,13 +150,28 @@
                             <button class="@(tab.Naam == _tabProject ? "actief" : "")"
                                     @onclick="() => _tabProject = tab.Naam">@tab.Naam</button>
                         }
+                        @if (MagBudget)
+                        {
+                            @foreach (var tab in BudgetTabs)
+                            {
+                                <button class="@(tab == _tabProject ? "actief" : "")" @onclick="() => _tabProject = tab">@tab</button>
+                            }
+                        }
                     </div>
 
                     <DetailMetZij>
                         <Hoofd>
-                            <VeldRaster @key="_projectId" Tab="HuidigProjectTab" Kolommen="_projectKolommen" Velden="_projectVelden"
-                                        Lijsten="_lijsten" OpSlaan="BewaarProject" />
-                            <p class="uitleg">@Aangemaakt(_projectVelden, "Created at", "Created by")</p>
+                            @if (MagBudget && BudgetTabs.Contains(_tabProject) && _projectId is int budgetProject)
+                            {
+                                <ProjectBudget @key="(budgetProject, _tabProject)" ProjectId="budgetProject" KlantId="KlantId()"
+                                               Verdeling="@(_tabProject == "Budget verdeling")" />
+                            }
+                            else
+                            {
+                                <VeldRaster @key="_projectId" Tab="HuidigProjectTab" Kolommen="_projectKolommen" Velden="_projectVelden"
+                                            Lijsten="_lijsten" OpSlaan="BewaarProject" />
+                                <p class="uitleg">@Aangemaakt(_projectVelden, "Created at", "Created by")</p>
+                            }
                         </Hoofd>
                         <Zij>
                             <ZijBlok Titel="Werkorders" Aantal="_werkorders.Count"
@@ -269,8 +284,7 @@
     }
 
     <footer class="voet">
-        Budget, budgetverdeling, documenten, milestones, team en activiteiten volgen als
-        aparte tabbladen — die hangen elk aan hun eigen tabel.
+        Documenten, milestones, team en activiteiten volgen als aparte tabbladen — die hangen elk aan hun eigen tabel.
     </footer>
 </div>
 
@@ -780,6 +794,14 @@
     }
 
     private string? KlantNaam() => UitLijst(_projectVelden, "Customer-id", "Klant");
+
+    // ---- budget (Access: tabs Budget en Budget verdeling): alleen Directie en Budgetverantwoordelijke ----
+    private static readonly string[] BudgetTabs = { "Budget", "Budget verdeling" };
+    private bool MagBudget => Ik.Mag("Directie") || Ik.Mag("Budgetverantwoordelijke");
+
+    private int? KlantId()
+        => _projectVelden.TryGetValue("Customer-id", out var k) && k is not null && k is not DBNull
+           && int.TryParse(Convert.ToString(k), out var id) && id > 0 ? id : null;
 
     private string? ProjectleiderNaam()
     {

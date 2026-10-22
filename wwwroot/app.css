@@ -3200,6 +3200,20 @@ html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
 .idee-bedankt { font-size: 1.05rem; margin: .4rem 0; }
 .verbeter-tabel td { vertical-align: top; }
+/* Projecten > Budget en Budget verdeling */
+.budget-schuif { overflow-x: auto; }
+.budget-tabel { min-width: 44rem; }
+.budget-tabel input, .budget-tabel select { width: 100%; min-width: 8rem; box-sizing: border-box; }
+.budget-tabel .budget-bedrag { min-width: 7rem; }
+.budget-tabel .budget-bedrag { text-align: right; }
+.budget-gesloten td { opacity: .7; }
+.budget-onder { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: flex-start; margin-top: .8rem; }
+.budget-onder textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.budget-totaal { display: grid; gap: .2rem; min-width: 10rem; text-align: right; padding-top: 1.2rem; }
+.budget-totalen { display: grid; grid-template-columns: max-content 10rem 5rem; gap: .3rem 1rem; justify-content: end; align-items: baseline;
+                  margin-top: .8rem; }
+.budget-totalen > b { text-align: right; }
+.budget-tekort { color: #c92a2a; }
 .verbeter-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
 .verbeter-tekst-lees { white-space: pre-wrap; }
 .verbeter-gedaan td { opacity: .75; }

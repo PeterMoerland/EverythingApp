@@ -349,6 +349,7 @@ eraf halen" als terugzetten of checksum mislukt. De bevestiging in de app vraagt
 Getest met een nagebootste EEPROM (scratchpad `aliastoets.py`), niet op een echte drive.
 Herstel van een drive met alleen een kapotte checksum: los aansluiten, Node-adressen lezen (checksum ok = false), het
 gewenste nummer opnieuw schrijven, spanning uit/aan. Werkt alleen als de ESC de EEPROM zelf beheert (geen emulatie).
+**22-10-2026: agent 1.20.2 uitgerold; beide Everests op deze manier hersteld en weer bereikbaar (gebruiker).**
 
 ## Controllertypen: tabs, receptenlijst met editor (21-10-2026)
 
@@ -727,6 +728,21 @@ Niet overgenomen: de Access-rapporten "Overzicht project" en "Weekoverzicht per 
 In `Services/Menu.cs` bij Financiën een groep **Analyse** onder Rapporten, met Liquiditeitsoverzicht (verhuisd uit
 Rapporten). Hier zet een collega van de gebruiker zijn tools bij: een `MenuItem` met recht `"Financial"` toevoegen.
 De lege knop "Bankgegevens exporteren" (Bank) is weg.
+
+## Projecten: tabs Budget en Budget verdeling (22-10-2026)
+
+Overgezet uit Access (Project/werkorder registratie, formulieren BudgetProject en ProjectBudgetVerdeling; VBA in
+`Migration_Analysis\VBA_Source`). Alleen **Directie en Budgetverantwoordelijke** zien de tabs (`Projecten.MagBudget`,
+besluit gebruiker). `Components/ProjectBudget.razor` + `Services/IProjectBudgetRepository.cs`, geen nieuwe tabellen:
+- **Budget**: regels in `BudgetProject` (Omschrijving, Bedrag, POklant = `PO_Inkomend.PO_inkomendID`, Opmerking; Factuur*
+  alleen tonen). PO-keuze = PO's van de klant van het project; kiezen stelt zoals Access het PO-bedrag voor (leeg bedrag =
+  overnemen, anders vraag). % van PO = bedrag / PO-bedrag (NVT zonder PO). Vergrootglas = PDF van de PO (FileStore,
+  StoreType 20, MasterID = PO). Opmerking van de gekozen regel onderaan, totaal rechts. Toevoegen en verwijderen (vraag).
+- **Budget verdeling**: alle niet-verwijderde werkorders met `Workorders.Budget` (in te vullen), Doorbelasten
+  (`ProjectVelden.DoorbelastBasis`), % van het projectbudget; onder: totaal werkorders (en %), totaal project, overschot
+  (rood als negatief). De tabel `budget` (per werkorder, leeg) wordt niet gebruikt.
+Bedragen Nederlands invoeren ("12.500,50"). Lokaal bekeken met project 218183 (budget 248.940, werkorders 273.200, dus
+-24.260); niet geklikt om te wijzigen (zou in de echte database schrijven).
 
 ## Uitgaande facturen: project per factuur in plaats van werkorder (22-10-2026)
 
