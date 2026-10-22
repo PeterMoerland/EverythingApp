@@ -3737,3 +3737,14 @@ html[data-thema="donker"] .drv-rij.drv-nieuw > td { background: #3a3420; }
 /* Vragen aan AI: kop van een gesprek (delen met de directie, wissen) */
 .ai-gesprek-kop { display: flex; align-items: center; gap: .6rem; margin: 0 0 .6rem; padding-bottom: .45rem; border-bottom: 1px solid #e3e8ee; }
 html[data-thema="donker"] .ai-gesprek-kop { border-bottom-color: #3a4450; }
+
+/* Projecten ▸ tab Budget: voortgang van het project */
+.voortgang-blok { margin-top: 1rem; padding-top: .6rem; border-top: 1px solid #e3e8ee; }
+.voortgang-blok h4 { margin: 0 0 .4rem; }
+.voortgang-rij { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; }
+.voortgang-invoer { display: inline-flex; align-items: center; gap: .3rem; }
+.voortgang-invoer input { width: 5rem; text-align: right; }
+.voortgang-balk { flex: 1; min-width: 10rem; max-width: 24rem; height: .7rem; margin-bottom: .45rem; border-radius: 4px; background: #e5e9ee; overflow: hidden; }
+.voortgang-balk > div { height: 100%; background: #2f7d4f; }
+html[data-thema="donker"] .voortgang-blok { border-top-color: #3a4450; }
+html[data-thema="donker"] .voortgang-balk { background: #2b333c; }

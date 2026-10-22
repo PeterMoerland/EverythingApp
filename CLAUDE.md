@@ -750,6 +750,19 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Projecten: voortgang per project voor het OHW (22-10-2026)
+
+Wens gebruiker: per project een percentage gereed (aanname, voor het onderhanden werk) met een knop **Bepaal zelf**.
+Op de tab **Budget** (dus alleen Directie en Budgetverantwoordelijke), onder het totaal (`ProjectBudget.razor`).
+Kolommen `Projects.Voortgang` (0-100, 1 decimaal), `VoortgangOp`, `VoortgangDoor`, `VoortgangBron`
+(**`Projects_Voortgang_MariaDB.sql`, zelf draaien**; zonder: een uitleg in plaats van het veld). Alleen de huidige
+stand (besluit gebruiker), met wie/wanneer/hoe. **Bepaal zelf** = gemaakte kosten / totaal projectbudget (tab Budget;
+besluit gebruiker: het projectbudget, ook al is dat meestal de verkoopwaarde). Kosten = de nacalculatie (inkoop +
+materiaal + uren); de rekenregels staan nu in `NacalcData` (`Inkoop`, `Materiaalkosten`, `Uurkosten`, `Totaal`,
+`TotaalKosten`), Nacalculatie.razor gebruikt dezelfde. Boven 100% wordt 100% met een melding; uren zonder
+kostprijstarief worden genoemd. Lokaal getest met project 218183 (kosten € 155.775,79 van € 248.940 = 62,6%), met
+opslaan tijdelijk uitgezet en de rechten tijdelijk open; teruggezet.
+
 ## Vragen aan AI: privé, delen met de directie, wissen (22-10-2026)
 
 Besluit gebruiker: gesprekken zijn **privé** (alleen de vraagsteller); met het vinkje **Delen met de directie** (kolom

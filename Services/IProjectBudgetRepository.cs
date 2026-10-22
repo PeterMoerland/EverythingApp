@@ -37,6 +37,12 @@ public class WerkorderBudget
     public bool Gesloten { get; set; }
 }
 
+/// <summary>
+/// Hoever het project gevorderd is (aanname, voor het onderhanden werk), met wie het wanneer zette en hoe: handmatig of
+/// "bepaal zelf" (gemaakte kosten uit de nacalculatie / projectbudget). Kolommen in Projects (Projects_Voortgang_MariaDB.sql).
+/// </summary>
+public record ProjectVoortgang(decimal? Procent, DateTime? Op, string Door, string Bron);
+
 public interface IProjectBudgetRepository
 {
     bool Beschikbaar { get; }
@@ -48,6 +54,10 @@ public interface IProjectBudgetRepository
     Task<List<KlantPo>> PosVanKlantAsync(int? klantId);
     Task<List<WerkorderBudget>> WerkorderBudgettenAsync(int projectId);
     Task ZetWerkorderBudgetAsync(int werkbonId, decimal budget);
+    /// <summary>De voortgang van het project; null = de kolommen ontbreken nog (script niet gedraaid).</summary>
+    Task<ProjectVoortgang?> VoortgangAsync(int projectId);
+    /// <summary>Voortgang zetten (null = wissen); <paramref name="bron"/> = "handmatig" of hoe het berekend is.</summary>
+    Task ZetVoortgangAsync(int projectId, decimal? procent, string bron, int? door);
 }
 
 public class GeenProjectBudgetRepository : IProjectBudgetRepository
@@ -59,6 +69,8 @@ public class GeenProjectBudgetRepository : IProjectBudgetRepository
     public Task<List<KlantPo>> PosVanKlantAsync(int? klantId) => Task.FromResult(new List<KlantPo>());
     public Task<List<WerkorderBudget>> WerkorderBudgettenAsync(int projectId) => Task.FromResult(new List<WerkorderBudget>());
     public Task ZetWerkorderBudgetAsync(int werkbonId, decimal budget) => Task.CompletedTask;
+    public Task<ProjectVoortgang?> VoortgangAsync(int projectId) => Task.FromResult<ProjectVoortgang?>(null);
+    public Task ZetVoortgangAsync(int projectId, decimal? procent, string bron, int? door) => Task.CompletedTask;
 }
 
 public class MySqlProjectBudgetRepository : IProjectBudgetRepository
@@ -168,6 +180,48 @@ public class MySqlProjectBudgetRepository : IProjectBudgetRepository
         await using var cmd = new MySqlCommand("UPDATE `Workorders` SET `Budget` = @b WHERE `Werkbon-id` = @id", cn);
         cmd.Parameters.AddWithValue("@b", (double)budget);
         cmd.Parameters.AddWithValue("@id", werkbonId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---- voortgang (Projects.Voortgang*) ----
+    private bool _voortgangKolommen;     // alleen "ja" onthouden: werkt meteen na het script
+
+    private async Task<bool> VoortgangKolommenAsync(MySqlConnection cn)
+    {
+        if (_voortgangKolommen) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Projects' " +
+            "   AND COLUMN_NAME IN ('Voortgang', 'VoortgangOp', 'VoortgangDoor', 'VoortgangBron')", cn);
+        _voortgangKolommen = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 4;
+        return _voortgangKolommen;
+    }
+
+    public async Task<ProjectVoortgang?> VoortgangAsync(int projectId)
+    {
+        await using var cn = await OpenAsync();
+        if (!await VoortgangKolommenAsync(cn)) return null;
+        await using var cmd = new MySqlCommand(
+            "SELECT p.`Voortgang`, p.`VoortgangOp`, COALESCE(w.`NaamVoluit`, ''), COALESCE(p.`VoortgangBron`, '') " +
+            "  FROM `Projects` p LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = p.`VoortgangDoor` WHERE p.`Project-Id` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", projectId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return new ProjectVoortgang(null, null, "", "");
+        return new ProjectVoortgang(r.IsDBNull(0) ? null : r.GetDecimal(0), r.IsDBNull(1) ? null : r.GetDateTime(1),
+                                    r.GetString(2), r.GetString(3));
+    }
+
+    public async Task ZetVoortgangAsync(int projectId, decimal? procent, string bron, int? door)
+    {
+        await using var cn = await OpenAsync();
+        if (!await VoortgangKolommenAsync(cn))
+            throw new InvalidOperationException("De voortgang kan pas opgeslagen worden als Projects_Voortgang_MariaDB.sql is uitgevoerd.");
+        await using var cmd = new MySqlCommand(
+            "UPDATE `Projects` SET `Voortgang` = @p, `VoortgangOp` = NOW(), `VoortgangDoor` = @door, `VoortgangBron` = @bron " +
+            " WHERE `Project-Id` = @id", cn);
+        cmd.Parameters.AddWithValue("@p", procent is decimal d ? Math.Round(Math.Clamp(d, 0, 100), 1) : DBNull.Value);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@bron", Kort(bron, 200));
+        cmd.Parameters.AddWithValue("@id", projectId);
         await cmd.ExecuteNonQueryAsync();
     }
 

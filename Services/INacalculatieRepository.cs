@@ -42,6 +42,16 @@ public class NacalcData
     public List<NacalcUrenZonderTarief> ZonderTarief { get; init; } = new();
     public List<NacalcMateriaal> Materiaal { get; init; } = new();
     public List<NacalcPo> Pos { get; init; } = new();
+
+    // De rekenregels van de nacalculatie (tab Totaal): inkoop = per bestelling gefactureerd, zonder factuur besteld;
+    // totaal = inkoop + materiaal + uren. Ook gebruikt door de voortgang van een project (ProjectBudget, Bepaal zelf).
+    public decimal Besteld(int wo) => Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Besteld);
+    public decimal Gefactureerd(int wo) => Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Gefactureerd);
+    public decimal Inkoop(int wo) => Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Facturen > 0 ? p.Gefactureerd : p.Besteld);
+    public decimal Materiaalkosten(int wo) => Materiaal.Where(m => m.WerkorderId == wo).Sum(m => m.Kosten);
+    public decimal Uurkosten(int wo) => Uren.Where(u => u.WerkorderId == wo).Sum(u => u.Totaal);
+    public decimal Totaal(int wo) => Inkoop(wo) + Materiaalkosten(wo) + Uurkosten(wo);
+    public decimal TotaalKosten(IEnumerable<NacalcWerkorder> wos) => wos.Sum(w => Totaal(w.Id));
 }
 
 public interface INacalculatieRepository

@@ -497,14 +497,14 @@
 
     private List<int> Jaren => _data.Uren.Select(u => u.Jaar).Concat(_data.ZonderTarief.Select(z => z.Jaar)).Distinct().OrderByDescending(j => j).ToList();
 
-    private decimal Besteld(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Besteld);
-    private decimal Gefactureerd(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Gefactureerd);
+    private decimal Besteld(int wo) => _data.Besteld(wo);
+    private decimal Gefactureerd(int wo) => _data.Gefactureerd(wo);
     /// <summary>Per bestelling het gefactureerde bedrag; zonder gekoppelde factuur het bestelde.</summary>
-    private decimal Inkoop(int wo) => _data.Pos.Where(p => p.WerkorderId == wo).Sum(p => p.Facturen > 0 ? p.Gefactureerd : p.Besteld);
-    private decimal Materiaal(int wo) => _data.Materiaal.Where(m => m.WerkorderId == wo).Sum(m => m.Kosten);
-    private decimal Uurkosten(int wo) => _data.Uren.Where(u => u.WerkorderId == wo).Sum(u => u.Totaal);
-    private decimal Totaal(int wo) => Inkoop(wo) + Materiaal(wo) + Uurkosten(wo);
-    private decimal TotaalKosten(IEnumerable<NacalcWerkorder> wos) => wos.Sum(w => Totaal(w.Id));
+    private decimal Inkoop(int wo) => _data.Inkoop(wo);
+    private decimal Materiaal(int wo) => _data.Materiaalkosten(wo);
+    private decimal Uurkosten(int wo) => _data.Uurkosten(wo);
+    private decimal Totaal(int wo) => _data.Totaal(wo);
+    private decimal TotaalKosten(IEnumerable<NacalcWerkorder> wos) => _data.TotaalKosten(wos);
 
     /// <summary>Uren van een werkorder (in het gekozen jaar), per werknemer, soort en kostprijs; alle jaren opgeteld.</summary>
     private List<NacalcUren> UrenRegels(int wo) => _data.Uren
