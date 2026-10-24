@@ -1,6 +1,4 @@
 @inject IProjectBudgetRepository Repo
-@inject INacalculatieRepository Nacalc
-@inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
 @* Projecten ▸ tab Budget en tab Budget verdeling, overgezet uit Access (Projects ▸ BudgetProject / ProjectBudgetVerdeling).
@@ -8,8 +6,8 @@
    Budget verdeling: per werkorder het eigen budget (Workorders.Budget) en het deel van het projectbudget, met de
    totalen. Alleen Directie en Budgetverantwoordelijke (besluit gebruiker 22-10-2026); de pagina toont de tabs dan
    pas. Wijzigingen worden meteen opgeslagen, zoals de rest van het projectscherm.
-   Onder het budget de voortgang van het project (aanname voor het OHW, wens gebruiker 22-10-2026): zelf een percentage,
-   of "Bepaal zelf" = gemaakte kosten (nacalculatie: inkoop + materiaal + uren) / totaal projectbudget. *@
+   De voortgang (OHW) staat sinds 24-10-2026 op de tab Kostenbegroting (ProjectKostenbegroting.razor): gemaakte kosten
+   tegen begrote kosten, niet tegen dit verkoopbudget. *@
 
 @if (!Repo.Beschikbaar)
 {
@@ -126,31 +124,6 @@ else
             <div class="budget-totaal"><span>Totaal</span><b>@Bedrag(ProjectTotaal)</b></div>
         </div>
 
-        <div class="voortgang-blok">
-            <h4>Voortgang van het project</h4>
-            @if (_voortgang is null)
-            {
-                <p class="uitleg">Voortgang bijhouden kan nadat Projects_Voortgang_MariaDB.sql is uitgevoerd.</p>
-            }
-            else
-            {
-                <div class="voortgang-rij">
-                    <label class="bankveld"><span>Gereed (aanname, voor OHW)</span>
-                        <span class="voortgang-invoer">
-                            <input @key='("vg", _versie)' type="text" inputmode="decimal" value="@(_voortgang.Procent?.ToString("0.#", Nl) ?? "")"
-                                   placeholder="—" disabled="@_rekent" @onchange="ZetVoortgang" /> %
-                        </span></label>
-                    <button class="klein" disabled="@_rekent" title="Voortgang = gemaakte kosten (nacalculatie: inkoop + materiaal + uren) gedeeld door het totale projectbudget"
-                            @onclick="BepaalZelf">@(_rekent ? "Rekenen…" : "Bepaal zelf")</button>
-                    <div class="voortgang-balk" title="@(_voortgang.Procent?.ToString("0.#", Nl) ?? "0")%"><div style="width:@((_voortgang.Procent ?? 0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div></div>
-                </div>
-                @if (_voortgang.Op is DateTime op)
-                {
-                    <p class="uitleg">Gezet @op.ToString("dd-MM-yyyy HH:mm")@(_voortgang.Door.Length > 0 ? " door " + _voortgang.Door : "")@(_voortgang.Bron.Length > 0 ? " · " + _voortgang.Bron : "")</p>
-                }
-                @if (_voortgangLet is not null) { <p class="uitleg fout-tekst">@_voortgangLet</p> }
-            }
-        </div>
     }
 }
 
@@ -169,9 +142,6 @@ else
     private int _geladenVoor = -1;
     private string? _melding;
     private bool _fout;
-    private ProjectVoortgang? _voortgang;
-    private bool _rekent;
-    private string? _voortgangLet;
 
     private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
     private decimal ProjectTotaal => _regels.Sum(r => r.Bedrag);
@@ -209,11 +179,7 @@ else
         {
             _regels = await Repo.BudgetRegelsAsync(ProjectId);
             if (Verdeling) _werkorders = await Repo.WerkorderBudgettenAsync(ProjectId);
-            else
-            {
-                _pos = await Repo.PosVanKlantAsync(KlantId);
-                _voortgang = await Repo.VoortgangAsync(ProjectId);
-            }
+            else _pos = await Repo.PosVanKlantAsync(KlantId);
             _versie++;
         }
         catch (Exception ex) { Toon("Budget laden mislukt: " + ex.Message, true); }
@@ -273,57 +239,6 @@ else
         if (LeesBedrag(e.Value) is not decimal bedrag) { Toon("Dat is geen bedrag.", true); _versie++; return; }
         try { await Repo.ZetWerkorderBudgetAsync(w.WerkbonId, bedrag); w.Budget = bedrag; Toon("Opgeslagen.", false); }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
-    }
-
-    /// <summary>Zelf een percentage invullen (leeg = wissen).</summary>
-    private async Task ZetVoortgang(ChangeEventArgs e)
-    {
-        var t = ((string?)e.Value ?? "").Replace("%", "").Trim();
-        decimal? p = null;
-        if (t.Length > 0)
-        {
-            if (!decimal.TryParse(t, System.Globalization.NumberStyles.Number, Nl, out var d) || d < 0 || d > 100)
-            { Toon("Vul een percentage van 0 tot 100 in.", true); _versie++; return; }
-            p = d;
-        }
-        _voortgangLet = null;
-        await BewaarVoortgang(p, "handmatig");
-    }
-
-    /// <summary>Voortgang = gemaakte kosten (zelfde rekenregels als de nacalculatie) / totaal projectbudget.</summary>
-    private async Task BepaalZelf()
-    {
-        _voortgangLet = null;
-        if (ProjectTotaal <= 0) { Toon("Er is nog geen budget: vul eerst de budgetregels hierboven in.", true); return; }
-        _rekent = true;
-        try
-        {
-            var werkorders = await Nacalc.WerkordersAsync(new[] { ProjectId });
-            var data = await Nacalc.LaadAsync(werkorders);
-            var kosten = data.TotaalKosten(werkorders);
-            var procent = Math.Round(kosten / ProjectTotaal * 100, 1);
-            var bron = $"bepaald: kosten {Bedrag(kosten)} van budget {Bedrag(ProjectTotaal)}";
-            var let = new List<string>();
-            if (procent > 100) { let.Add($"De kosten zijn hoger dan het budget ({procent.ToString("0.#", Nl)}%); voortgang op 100% gezet."); procent = 100; }
-            var zonder = data.ZonderTarief.Sum(z => z.Uren);
-            if (zonder > 0) let.Add($"{zonder.ToString("0.#", Nl)} uur heeft geen kostprijstarief en telt niet mee (zie Nacalculatie).");
-            await BewaarVoortgang(procent, bron);
-            _voortgangLet = let.Count > 0 ? string.Join(" ", let) : null;
-        }
-        catch (Exception ex) { Toon("Bepalen mislukt: " + ex.Message, true); }
-        finally { _rekent = false; }
-    }
-
-    private async Task BewaarVoortgang(decimal? procent, string bron)
-    {
-        try
-        {
-            await Repo.ZetVoortgangAsync(ProjectId, procent, bron, Ik.WerknemerId);
-            _voortgang = await Repo.VoortgangAsync(ProjectId);
-            _versie++;
-            Toon(procent is decimal p ? $"Voortgang {p.ToString("0.#", Nl)}% opgeslagen." : "Voortgang gewist.", false);
-        }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); _versie++; }
     }
 
     private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }

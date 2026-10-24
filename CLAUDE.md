@@ -750,6 +750,21 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Projecten: tab Kostenbegroting, voortgang tegen begrote kosten (24-10-2026)
+
+Wens gebruiker: het budget (tab Budget) is het **verkoop**budget; de voortgang moet gemaakte kosten tegen **begrote
+kosten** afzetten. Nieuwe tab **Kostenbegroting** (zelfde rechten als de budgettabs), `Components/ProjectKostenbegroting.razor`:
+- Regels per kostensoort (Uren / Materiaal / Inkoop / Overig, `KostenSoort`) in tabel `ProjectKostenbegroting`
+  (**`ProjectKostenbegroting_MariaDB.sql`, zelf draaien**; zonder: een uitleg). `IProjectBudgetRepository.KostenRegelsAsync`
+  (null = geen tabel), `BewaarKostenRegelAsync`, `VerwijderKostenRegelAsync`.
+- **Begroot tegenover gemaakt** per soort: gemaakt = `NacalcData` (Uurkosten, Materiaalkosten, Inkoop) van alle
+  werkorders; "Overig" kent de nacalculatie niet. Nog over en % verbruikt; uren zonder kostprijstarief genoemd.
+- **Marge**: verkoopbudget (som BudgetProject) min begrote kosten.
+- **Voortgang** (`Projects.Voortgang*`) verhuisd van de tab Budget naar hier; "Bepaal zelf" = gemaakt / begroot (bron
+  "bepaald: gemaakt … van begroot …"). Eerder gezette waarden (tegen het verkoopbudget) blijven staan tot opnieuw bepaald.
+Lokaal bekeken met 218183 (nep-begroting in het scherm, rechten tijdelijk open; teruggezet): gemaakt uren 54.930,22,
+inkoop 100.845,57, totaal 155.775,79 = zelfde als de nacalculatie.
+
 ## Todo-overzicht: een punt overal hernoemen (24-10-2026)
 
 Verzoek collega (Tim Franke). Producten ▸ Todo-overzicht: knop **✎ Punt hernoemen** staat er altijd, klikbaar als je een

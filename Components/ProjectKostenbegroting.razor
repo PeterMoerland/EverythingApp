@@ -1,0 +1,295 @@
+@inject IProjectBudgetRepository Repo
+@inject INacalculatieRepository Nacalc
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Projecten ▸ tab Kostenbegroting (wens gebruiker 24-10-2026): wat het project naar verwachting kost, in regels per
+   kostensoort (tabel ProjectKostenbegroting, ProjectKostenbegroting_MariaDB.sql), los van het verkoopbudget (tab Budget).
+   Daaronder begroot tegenover gemaakt per soort (gemaakt = de nacalculatie: uren, materiaal, inkoop), de verwachte
+   marge (verkoopbudget min begrote kosten) en de voortgang voor het OHW: zelf invullen, of "Bepaal zelf" = gemaakte
+   kosten / begrote kosten. Zelfde rechten als de budgettabs (Directie en Budgetverantwoordelijke). *@
+
+@if (!Repo.Beschikbaar)
+{
+    <p class="kiezer-info">De kostenbegroting werkt alleen met de live database.</p>
+}
+else
+{
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (_kosten is null)
+    {
+        <p class="uitleg">De kostenbegroting kan pas nadat ProjectKostenbegroting_MariaDB.sql is uitgevoerd.</p>
+    }
+    else
+    {
+        <div class="budget-schuif"><table class="kiezer-tabel budget-tabel">
+            <thead>
+                <tr>
+                    <th>Omschrijving</th>
+                    <th style="width:9rem">Soort</th>
+                    <th style="width:10rem" class="r">Begrote kosten</th>
+                    <th style="width:2.6rem"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var k in _kosten)
+                {
+                    <tr @key="(k.Id, _versie)">
+                        <td><input value="@k.Omschrijving" maxlength="150" placeholder="bv. engineering, frame, pneumatiek"
+                                   @onchange="e => Wijzig(k, () => k.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                        <td>
+                            <select value="@k.Soort" @onchange="e => Wijzig(k, () => k.Soort = (string?)e.Value ?? KostenSoort.Overig)">
+                                @foreach (var s in KostenSoort.Alle) { <option value="@s.Code">@s.Naam</option> }
+                            </select>
+                        </td>
+                        <td class="r"><input class="budget-bedrag" type="text" inputmode="decimal" value="@Invoer(k.Bedrag)"
+                                             @onchange="e => ZetBedrag(k, e)" /></td>
+                        <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => Verwijder(k)">✕</button></td>
+                    </tr>
+                }
+                @if (_kosten.Count == 0)
+                {
+                    <tr><td colspan="4" class="kiezer-info">Nog geen kostenbegroting voor dit project.</td></tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="btngroup">
+            <button class="klein" @onclick="Nieuw">+ Kostenregel</button>
+            <span style="flex:1"></span>
+            <span class="budget-totaal"><span>Totaal begroot</span><b>@Bedrag(KostenTotaal)</b></span>
+        </div>
+
+        <h4 class="kosten-kop">Begroot tegenover gemaakt</h4>
+        @if (_gemaakt is null)
+        {
+            <p class="uitleg">@(_gemaaktFout ?? "Gemaakte kosten ophalen…")</p>
+        }
+        else
+        {
+            <table class="kiezer-tabel kosten-vergelijk">
+                <thead>
+                    <tr><th>Soort</th><th class="r">Begroot</th><th class="r">Gemaakt</th><th class="r">Nog over</th><th class="r">Verbruikt</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in KostenSoort.Alle)
+                    {
+                        var begroot = Begroot(s.Code);
+                        var gemaakt = _gemaakt.GetValueOrDefault(s.Code);
+                        @if (begroot == 0 && gemaakt == 0) { continue; }
+                        <tr>
+                            <td>@s.Naam</td>
+                            <td class="r">@Bedrag(begroot)</td>
+                            <td class="r">@(s.Code == KostenSoort.Overig ? "—" : Bedrag(gemaakt))</td>
+                            <td class="r @(begroot - gemaakt < 0 ? "fout-tekst" : "")">@Bedrag(begroot - gemaakt)</td>
+                            <td class="r">@Procent(begroot == 0 ? null : gemaakt / begroot)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td><b>Totaal</b></td>
+                        <td class="r"><b>@Bedrag(KostenTotaal)</b></td>
+                        <td class="r"><b>@Bedrag(GemaaktTotaal)</b></td>
+                        <td class="r @(KostenTotaal - GemaaktTotaal < 0 ? "fout-tekst" : "")"><b>@Bedrag(KostenTotaal - GemaaktTotaal)</b></td>
+                        <td class="r"><b>@Procent(KostenTotaal == 0 ? null : GemaaktTotaal / KostenTotaal)</b></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <p class="uitleg">
+                Gemaakt = de nacalculatie (uren tegen kostprijs, materiaal, inkoop: gefactureerd of anders besteld); "Overig" kent de
+                nacalculatie niet.
+                @if (_zonderTarief > 0) { <text>@_zonderTarief.ToString("0.#", Nl) uur heeft geen kostprijstarief en telt niet mee.</text> }
+            </p>
+        }
+
+        <h4 class="kosten-kop">Marge</h4>
+        <div class="kosten-marge">
+            <span>Verkoopbudget (tab Budget)</span><b>@Bedrag(_verkoop)</b>
+            <span>Begrote kosten</span><b>@Bedrag(KostenTotaal)</b>
+            <span>Verwachte marge</span>
+            <b class="@(_verkoop - KostenTotaal < 0 ? "fout-tekst" : "")">@Bedrag(_verkoop - KostenTotaal) @(_verkoop == 0 ? "" : "(" + Procent((_verkoop - KostenTotaal) / _verkoop) + ")")</b>
+        </div>
+    }
+
+    <div class="voortgang-blok">
+        <h4>Voortgang van het project</h4>
+        @if (_voortgang is null)
+        {
+            <p class="uitleg">Voortgang bijhouden kan nadat Projects_Voortgang_MariaDB.sql is uitgevoerd.</p>
+        }
+        else
+        {
+            <div class="voortgang-rij">
+                <label class="bankveld"><span>Gereed (aanname, voor OHW)</span>
+                    <span class="voortgang-invoer">
+                        <input @key='("vg", _versie)' type="text" inputmode="decimal" value="@(_voortgang.Procent?.ToString("0.#", Nl) ?? "")"
+                               placeholder="—" disabled="@_rekent" @onchange="ZetVoortgang" /> %
+                    </span></label>
+                <button class="klein" disabled="@_rekent" title="Voortgang = gemaakte kosten (nacalculatie) gedeeld door de begrote kosten hierboven"
+                        @onclick="BepaalZelf">@(_rekent ? "Rekenen…" : "Bepaal zelf")</button>
+                <div class="voortgang-balk" title="@(_voortgang.Procent?.ToString("0.#", Nl) ?? "0")%"><div style="width:@((_voortgang.Procent ?? 0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div></div>
+            </div>
+            @if (_voortgang.Op is DateTime op)
+            {
+                <p class="uitleg">Gezet @op.ToString("dd-MM-yyyy HH:mm")@(_voortgang.Door.Length > 0 ? " door " + _voortgang.Door : "")@(_voortgang.Bron.Length > 0 ? " · " + _voortgang.Bron : "")</p>
+            }
+            @if (_voortgangLet is not null) { <p class="uitleg fout-tekst">@_voortgangLet</p> }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int ProjectId { get; set; }
+
+    private List<KostenRegel>? _kosten;          // null = tabel ontbreekt
+    private Dictionary<string, decimal>? _gemaakt; // per soort, uit de nacalculatie
+    private string? _gemaaktFout;
+    private decimal _zonderTarief, _verkoop;
+    private ProjectVoortgang? _voortgang;
+    private bool _rekent, _fout;
+    private string? _melding, _voortgangLet;
+    private int _versie, _geladenVoor = -1;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private decimal KostenTotaal => _kosten?.Sum(k => k.Bedrag) ?? 0;
+    private decimal GemaaktTotaal => _gemaakt?.Values.Sum() ?? 0;
+    private decimal Begroot(string soort) => _kosten?.Where(k => k.Soort == soort).Sum(k => k.Bedrag) ?? 0;
+
+    private static string Bedrag(decimal b) => b.ToString("C2", Nl);
+    private static string Invoer(decimal b) => b.ToString("#,##0.00", Nl);
+    private static string Procent(decimal? d) => d is decimal x ? x.ToString("P0", Nl) : "";
+
+    /// <summary>"12.500", "12500,50", "€ 1.000" — punten zijn duizendtallen, komma is de decimaal (Nederlands).</summary>
+    private static decimal? LeesBedrag(object? waarde)
+    {
+        var t = (waarde as string ?? "").Replace("€", "").Replace(" ", "").Trim();
+        if (t.Length == 0) return 0;
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number, Nl, out var d) ? Math.Round(d, 2) : null;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProjectId) return;
+        _geladenVoor = ProjectId;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _kosten = await Repo.KostenRegelsAsync(ProjectId);
+            _verkoop = (await Repo.BudgetRegelsAsync(ProjectId)).Sum(r => r.Bedrag);
+            _voortgang = await Repo.VoortgangAsync(ProjectId);
+            _versie++;
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        await LaadGemaakt();
+    }
+
+    /// <summary>Gemaakte kosten per soort, met dezelfde rekenregels als de nacalculatie (NacalcData).</summary>
+    private async Task LaadGemaakt()
+    {
+        try
+        {
+            var werkorders = await Nacalc.WerkordersAsync(new[] { ProjectId });
+            var data = await Nacalc.LaadAsync(werkorders);
+            _gemaakt = new()
+            {
+                [KostenSoort.Uren] = werkorders.Sum(w => data.Uurkosten(w.Id)),
+                [KostenSoort.Materiaal] = werkorders.Sum(w => data.Materiaalkosten(w.Id)),
+                [KostenSoort.Inkoop] = werkorders.Sum(w => data.Inkoop(w.Id)),
+            };
+            _zonderTarief = data.ZonderTarief.Sum(z => z.Uren);
+            _gemaaktFout = null;
+        }
+        catch (Exception ex) { _gemaakt = null; _gemaaktFout = "Gemaakte kosten ophalen mislukt: " + ex.Message; }
+    }
+
+    private async Task Wijzig(KostenRegel k, Action wijzig)
+    {
+        wijzig();
+        try { k.Id = await Repo.BewaarKostenRegelAsync(k, Ik.WerknemerId); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); await Laad(); }
+    }
+
+    private async Task ZetBedrag(KostenRegel k, ChangeEventArgs e)
+    {
+        if (LeesBedrag(e.Value) is not decimal bedrag) { Toon("Dat is geen bedrag.", true); _versie++; return; }
+        await Wijzig(k, () => k.Bedrag = bedrag);
+    }
+
+    private async Task Nieuw()
+    {
+        var k = new KostenRegel { ProjectId = ProjectId };
+        try { k.Id = await Repo.BewaarKostenRegelAsync(k, Ik.WerknemerId); _kosten?.Add(k); _versie++; }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Verwijder(KostenRegel k)
+    {
+        if (!await JS.InvokeAsync<bool>("mdeBevestig",
+                $"Kostenregel '{(k.Omschrijving.Length > 0 ? k.Omschrijving : KostenSoort.Naam(k.Soort))}' ({Bedrag(k.Bedrag)}) verwijderen?"))
+            return;
+        try { await Repo.VerwijderKostenRegelAsync(k.Id); _kosten?.Remove(k); _versie++; Toon("Verwijderd.", false); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ---- voortgang (Projects.Voortgang*, Projects_Voortgang_MariaDB.sql) ----
+
+    /// <summary>Zelf een percentage invullen (leeg = wissen).</summary>
+    private async Task ZetVoortgang(ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Replace("%", "").Trim();
+        decimal? p = null;
+        if (t.Length > 0)
+        {
+            if (!decimal.TryParse(t, System.Globalization.NumberStyles.Number, Nl, out var d) || d < 0 || d > 100)
+            { Toon("Vul een percentage van 0 tot 100 in.", true); _versie++; return; }
+            p = d;
+        }
+        _voortgangLet = null;
+        await BewaarVoortgang(p, "handmatig");
+    }
+
+    /// <summary>Voortgang = gemaakte kosten (zelfde rekenregels als de nacalculatie) / begrote kosten (deze tab).</summary>
+    private async Task BepaalZelf()
+    {
+        _voortgangLet = null;
+        if (KostenTotaal <= 0) { Toon("Er zijn nog geen begrote kosten: vul eerst de kostenbegroting hierboven in.", true); return; }
+        _rekent = true;
+        try
+        {
+            await LaadGemaakt();
+            if (_gemaakt is null) { Toon(_gemaaktFout ?? "Gemaakte kosten ophalen mislukt.", true); return; }
+            var procent = Math.Round(GemaaktTotaal / KostenTotaal * 100, 1);
+            var bron = $"bepaald: gemaakt {Bedrag(GemaaktTotaal)} van begroot {Bedrag(KostenTotaal)}";
+            var let = new List<string>();
+            if (procent > 100) { let.Add($"De gemaakte kosten zijn hoger dan begroot ({procent.ToString("0.#", Nl)}%); voortgang op 100% gezet."); procent = 100; }
+            if (_zonderTarief > 0) let.Add($"{_zonderTarief.ToString("0.#", Nl)} uur heeft geen kostprijstarief en telt niet mee (zie Nacalculatie).");
+            await BewaarVoortgang(procent, bron);
+            _voortgangLet = let.Count > 0 ? string.Join(" ", let) : null;
+        }
+        catch (Exception ex) { Toon("Bepalen mislukt: " + ex.Message, true); }
+        finally { _rekent = false; }
+    }
+
+    private async Task BewaarVoortgang(decimal? procent, string bron)
+    {
+        try
+        {
+            await Repo.ZetVoortgangAsync(ProjectId, procent, bron, Ik.WerknemerId);
+            _voortgang = await Repo.VoortgangAsync(ProjectId);
+            _versie++;
+            Toon(procent is decimal p ? $"Voortgang {p.ToString("0.#", Nl)}% opgeslagen." : "Voortgang gewist.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); _versie++; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

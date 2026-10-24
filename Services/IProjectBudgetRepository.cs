@@ -43,6 +43,25 @@ public class WerkorderBudget
 /// </summary>
 public record ProjectVoortgang(decimal? Procent, DateTime? Op, string Door, string Bron);
 
+/// <summary>Eén regel van de kostenbegroting van een project (tabel ProjectKostenbegroting): wat het naar verwachting kost.</summary>
+public class KostenRegel
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public string Soort { get; set; } = KostenSoort.Uren;
+    public string Omschrijving { get; set; } = "";
+    public decimal Bedrag { get; set; }
+}
+
+/// <summary>De kostensoorten van de begroting; uren, materiaal en inkoop komen overeen met de nacalculatie.</summary>
+public static class KostenSoort
+{
+    public const string Uren = "uren", Materiaal = "materiaal", Inkoop = "inkoop", Overig = "overig";
+    public static readonly (string Code, string Naam)[] Alle =
+        { (Uren, "Uren"), (Materiaal, "Materiaal"), (Inkoop, "Inkoop"), (Overig, "Overig") };
+    public static string Naam(string code) => Alle.FirstOrDefault(s => s.Code == code).Naam ?? code;
+}
+
 public interface IProjectBudgetRepository
 {
     bool Beschikbaar { get; }
@@ -58,6 +77,11 @@ public interface IProjectBudgetRepository
     Task<ProjectVoortgang?> VoortgangAsync(int projectId);
     /// <summary>Voortgang zetten (null = wissen); <paramref name="bron"/> = "handmatig" of hoe het berekend is.</summary>
     Task ZetVoortgangAsync(int projectId, decimal? procent, string bron, int? door);
+    /// <summary>De kostenbegroting van het project; null = de tabel ProjectKostenbegroting bestaat nog niet.</summary>
+    Task<List<KostenRegel>?> KostenRegelsAsync(int projectId);
+    /// <summary>Nieuw (Id 0) of bijwerken; geeft het Id terug.</summary>
+    Task<int> BewaarKostenRegelAsync(KostenRegel r, int? door);
+    Task VerwijderKostenRegelAsync(int id);
 }
 
 public class GeenProjectBudgetRepository : IProjectBudgetRepository
@@ -71,6 +95,9 @@ public class GeenProjectBudgetRepository : IProjectBudgetRepository
     public Task ZetWerkorderBudgetAsync(int werkbonId, decimal budget) => Task.CompletedTask;
     public Task<ProjectVoortgang?> VoortgangAsync(int projectId) => Task.FromResult<ProjectVoortgang?>(null);
     public Task ZetVoortgangAsync(int projectId, decimal? procent, string bron, int? door) => Task.CompletedTask;
+    public Task<List<KostenRegel>?> KostenRegelsAsync(int projectId) => Task.FromResult<List<KostenRegel>?>(null);
+    public Task<int> BewaarKostenRegelAsync(KostenRegel r, int? door) => throw new InvalidOperationException("Er is geen database.");
+    public Task VerwijderKostenRegelAsync(int id) => Task.CompletedTask;
 }
 
 public class MySqlProjectBudgetRepository : IProjectBudgetRepository
@@ -180,6 +207,63 @@ public class MySqlProjectBudgetRepository : IProjectBudgetRepository
         await using var cmd = new MySqlCommand("UPDATE `Workorders` SET `Budget` = @b WHERE `Werkbon-id` = @id", cn);
         cmd.Parameters.AddWithValue("@b", (double)budget);
         cmd.Parameters.AddWithValue("@id", werkbonId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---- kostenbegroting (ProjectKostenbegroting) ----
+    private bool _kostenTabel;      // alleen "ja" onthouden: werkt meteen na het script
+
+    private async Task<bool> KostenTabelAsync(MySqlConnection cn)
+    {
+        if (_kostenTabel) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ProjectKostenbegroting'", cn);
+        _kostenTabel = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        return _kostenTabel;
+    }
+
+    public async Task<List<KostenRegel>?> KostenRegelsAsync(int projectId)
+    {
+        await using var cn = await OpenAsync();
+        if (!await KostenTabelAsync(cn)) return null;
+        await using var cmd = new MySqlCommand(
+            "SELECT `KostenbegrotingID`, `ProjectID`, `Soort`, `Omschrijving`, `Bedrag` FROM `ProjectKostenbegroting` " +
+            " WHERE `ProjectID` = @p ORDER BY `KostenbegrotingID`", cn);
+        cmd.Parameters.AddWithValue("@p", projectId);
+        var lijst = new List<KostenRegel>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new KostenRegel
+            {
+                Id = r.GetInt32(0), ProjectId = r.GetInt32(1), Soort = r.GetString(2), Omschrijving = r.GetString(3), Bedrag = r.GetDecimal(4),
+            });
+        return lijst;
+    }
+
+    public async Task<int> BewaarKostenRegelAsync(KostenRegel k, int? door)
+    {
+        await using var cn = await OpenAsync();
+        if (!await KostenTabelAsync(cn))
+            throw new InvalidOperationException("De kostenbegroting kan pas na ProjectKostenbegroting_MariaDB.sql.");
+        await using var cmd = new MySqlCommand(k.Id == 0
+            ? "INSERT INTO `ProjectKostenbegroting` (`ProjectID`, `Soort`, `Omschrijving`, `Bedrag`, `AangemaaktOp`, `AangemaaktDoor`) " +
+              "VALUES (@p, @s, @o, @b, NOW(), @door); SELECT LAST_INSERT_ID();"
+            : "UPDATE `ProjectKostenbegroting` SET `Soort` = @s, `Omschrijving` = @o, `Bedrag` = @b, `GewijzigdOp` = NOW(), " +
+              "       `GewijzigdDoor` = @door WHERE `KostenbegrotingID` = @id; SELECT @id;", cn);
+        cmd.Parameters.AddWithValue("@p", k.ProjectId);
+        cmd.Parameters.AddWithValue("@s", KostenSoort.Alle.Any(s => s.Code == k.Soort) ? k.Soort : KostenSoort.Overig);
+        cmd.Parameters.AddWithValue("@o", Kort(k.Omschrijving, 150));
+        cmd.Parameters.AddWithValue("@b", k.Bedrag);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", k.Id);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task VerwijderKostenRegelAsync(int id)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `ProjectKostenbegroting` WHERE `KostenbegrotingID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", id);
         await cmd.ExecuteNonQueryAsync();
     }
 

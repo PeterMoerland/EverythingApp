@@ -163,8 +163,15 @@
                         <Hoofd>
                             @if (MagBudget && BudgetTabs.Contains(_tabProject) && _projectId is int budgetProject)
                             {
-                                <ProjectBudget @key="(budgetProject, _tabProject)" ProjectId="budgetProject" KlantId="KlantId()"
-                                               Verdeling="@(_tabProject == "Budget verdeling")" />
+                                @if (_tabProject == "Kostenbegroting")
+                                {
+                                    <ProjectKostenbegroting @key="budgetProject" ProjectId="budgetProject" />
+                                }
+                                else
+                                {
+                                    <ProjectBudget @key="(budgetProject, _tabProject)" ProjectId="budgetProject" KlantId="KlantId()"
+                                                   Verdeling="@(_tabProject == "Budget verdeling")" />
+                                }
                             }
                             else
                             {
@@ -796,7 +803,7 @@
     private string? KlantNaam() => UitLijst(_projectVelden, "Customer-id", "Klant");
 
     // ---- budget (Access: tabs Budget en Budget verdeling): alleen Directie en Budgetverantwoordelijke ----
-    private static readonly string[] BudgetTabs = { "Budget", "Budget verdeling" };
+    private static readonly string[] BudgetTabs = { "Budget", "Budget verdeling", "Kostenbegroting" };
     private bool MagBudget => Ik.Mag("Directie") || Ik.Mag("Budgetverantwoordelijke");
 
     private int? KlantId()
