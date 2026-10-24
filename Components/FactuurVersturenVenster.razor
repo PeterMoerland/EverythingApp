@@ -71,6 +71,33 @@
                                     <label>Tekst</label>
                                     <textarea rows="9" value="@_tekst" @onchange="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
                                 </div>
+                                @* de handtekening uit de eigen Gmail eronder (wens collega 24-10-2026; vroeger deed Outlook dat) *@
+                                <div class="wn-veld breed">
+                                    <label>Handtekening</label>
+                                    @if (_handtekening is null)
+                                    {
+                                        <span class="alleen-lezen zij-extra">ophalen uit je Gmail…</span>
+                                    }
+                                    else if (_handtekening.Length == 0)
+                                    {
+                                        <span class="alleen-lezen zij-extra">Geen handtekening gevonden in je Gmail.
+                                            <a href="@GmailInstellingen" target="_blank" rel="noopener">Handtekening instellen in Gmail ↗</a>
+                                            (Algemeen ▸ Handtekening, onderaan Wijzigingen opslaan), daarna
+                                            <button class="klein" @onclick="HaalHandtekening">↻ opnieuw ophalen</button></span>
+                                    }
+                                    else
+                                    {
+                                        <div class="factuur-handtekening">
+                                            <span>
+                                                <label class="vink"><input type="checkbox" checked="@_metHandtekening"
+                                                       @onchange="e => _metHandtekening = e.Value is true" /> Mijn Gmail-handtekening eronder</label>
+                                                · <a href="@GmailInstellingen" target="_blank" rel="noopener" title="Gmail ▸ Instellingen ▸ Algemeen ▸ Handtekening">wijzigen in Gmail ↗</a>
+                                                · <button class="klein" title="Na een wijziging in Gmail opnieuw ophalen" @onclick="HaalHandtekening">↻</button>
+                                            </span>
+                                            @if (_metHandtekening) { <div class="factuur-handtekening-voorbeeld">@((MarkupString)_handtekening)</div> }
+                                        </div>
+                                    }
+                                </div>
                                 <div class="wn-veld breed">
                                     <label>Bijlagen</label>
                                     <span class="alleen-lezen">
@@ -140,6 +167,19 @@
     private bool _klaar;
 
     private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
+    private string? _handtekening;          // uit de eigen Gmail; null = nog bezig, "" = geen
+    private bool _metHandtekening = true;
+
+    /// <summary>Gmail ▸ Instellingen ▸ Algemeen (daar staat Handtekening), in het account van de gebruiker (authuser).</summary>
+    private string GmailInstellingen => $"https://mail.google.com/mail/?authuser={Uri.EscapeDataString(Ik.Email)}#settings/general";
+
+    private async Task HaalHandtekening()
+    {
+        _handtekening = null;
+        StateHasChanged();
+        _handtekening = await Post.HandtekeningAsync(MailService.Eigen(Ik.Email));
+        if (_handtekening.Length > 0) _metHandtekening = true;
+    }
     private string _bezig = "";
     private string? _melding;
     private bool _meldingFout;
@@ -174,6 +214,7 @@
 
             VulMail(await Repo.MailTekstAsync(_g.Factuur.Engels));
             await ToonPdf(_bijlagen[0]);
+            _handtekening ??= await Post.HandtekeningAsync(MailService.Eigen(Ik.Email));
         }
         catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
         finally { _bezig = ""; }
@@ -234,8 +275,10 @@
         try
         {
             _bezig = "Mail versturen…";
-            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp, _tekst,
-                                     _bijlagen.Select(b => (b.Naam, b.Inhoud)), _cc.Length > 0 ? _cc : null);
+            var metHt = _metHandtekening && _handtekening is { Length: > 0 };
+            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
+                                     metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst,
+                                     _bijlagen.Select(b => (b.Naam, b.Inhoud)), _cc.Length > 0 ? _cc : null, html: metHt);
         }
         catch (Exception ex)
         {

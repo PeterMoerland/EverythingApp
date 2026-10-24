@@ -750,6 +750,17 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Uitgaande factuur: Gmail-handtekening onder de mail (24-10-2026)
+
+Wens collega ("vroeger deed Outlook dat"). Versturen via de Gmail-API zet de Gmail-handtekening er niet onder, dus
+`MailService.HandtekeningAsync` leest hem (`settings/sendAs/<adres>` → `signature`, HTML; scope gmail.readonly/modify
+volstaat) en `MailService.MetHandtekening` maakt van de platte tekst HTML met de handtekening eronder (dan `html: true`).
+`FactuurVersturenVenster`: onder Tekst een vinkje "Mijn Gmail-handtekening eronder" (standaard aan) met voorbeeld; zonder
+handtekening in Gmail de uitleg waar je hem instelt. Geen veld in Werknemers nodig (besluit: één plek, Gmail). Niet lokaal
+te testen (geen Google-login). Andere mails (bestellingen, offertes) hebben het nog niet.
+Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
+authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
+
 ## Producten: exemplarenlijst duidelijk en actueel (24-10-2026)
 
 Verbeterverzoek 36 (collega): "Als er geen product is geselecteerd laat hij wel de lijst van mpedes zien … statussen

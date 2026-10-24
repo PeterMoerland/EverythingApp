@@ -442,6 +442,35 @@ public class MailService
     }
 
     /// <summary>
+    /// De handtekening die de gebruiker in Gmail heeft ingesteld (Instellingen ▸ Algemeen ▸ Handtekening), als HTML; leeg
+    /// als er geen is of als hij niet te lezen is. Versturen via de API zet hem er niet vanzelf onder (Outlook deed dat
+    /// vroeger wel), dus het venster plakt hem zelf onder de tekst. Gmail-scope readonly/modify volstaat (sendAs.get).
+    /// </summary>
+    public async Task<string> HandtekeningAsync(MailPostbus postbus)
+    {
+        try
+        {
+            var client = await ClientAsync(postbus);
+            if (client is null) return "";
+            var antwoord = await client.GetAsync($"{Basis}/settings/sendAs/{Uri.EscapeDataString(postbus.Adres)}");
+            if (!antwoord.IsSuccessStatusCode) return "";
+            using var doc = JsonDocument.Parse(await antwoord.Content.ReadAsStringAsync());
+            return doc.RootElement.TryGetProperty("signature", out var s) && s.ValueKind == JsonValueKind.String ? (s.GetString() ?? "").Trim() : "";
+        }
+        catch (Exception ex)
+        {
+            _log.LogInformation("Gmail-handtekening van {Adres} niet te lezen: {Fout}", postbus.Adres, ex.Message);
+            return "";
+        }
+    }
+
+    /// <summary>Platte tekst als HTML (regels behouden) met de Gmail-handtekening eronder, zoals Gmail het zelf doet.</summary>
+    public static string MetHandtekening(string tekst, string handtekening)
+        => "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:13px\">"
+           + System.Net.WebUtility.HtmlEncode(tekst).Replace("\r\n", "\n").Replace("\n", "<br>")
+           + "<br><br><div class=\"gmail_signature\">" + handtekening + "</div></div>";
+
+    /// <summary>
     /// Zet een bericht als concept klaar in de map Concepten van de postbus (Gmail drafts), zodat de gebruiker het
     /// in Gmail nakijkt en zelf verstuurt. Geeft het id van het bericht terug (voor een link naar het concept).
     /// </summary>
