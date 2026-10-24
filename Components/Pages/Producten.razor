@@ -14,6 +14,7 @@
 @inject IJSRuntime JS
 @inject IConfiguration Config
 @inject WerkplekAgent Agent
+@implements IDisposable
 
 <div class="page">
     <header class="topbar">
@@ -112,13 +113,18 @@
                     <button class="klein rood" disabled="@(_naamId is null)" @onclick="WisType">✕ Type wissen</button>
                 </div>
 
-                <h3 class="wn-kop">Exemplaren <small class="uitleg">(@_producten.Count, nieuwste boven)</small></h3>
+                @* "van <type>": welk type deze lijst is, ook als dat type in de typelijst weggescrold is (verbeterverzoek 36) *@
+                <h3 class="wn-kop">Exemplaren@(_naam is not null ? " van " + _naam.Naam : "") <small class="uitleg">(@_producten.Count, nieuwste boven)</small></h3>
                 @* Filter op status (meerkeuze) en gewist; de keuze wordt per pc onthouden. *@
                 <div class="exemplaar-filter">
                     <button class="klein statusknop" @onclick="() => _statusOpen = !_statusOpen" title="Welke statussen in de lijst staan">
                         Status: @StatusFilterTekst <span class="navpijl">@(_statusOpen ? "▴" : "▾")</span>
                     </button>
                     @if (_inclGewist) { <span class="stand-chip s-rood" title="Gewiste exemplaren staan ook in de lijst">+ gewist</span> }
+                    @if (_naamId is not null)
+                    {
+                        <button class="klein" title="@($"Statussen opnieuw ophalen (vanzelf elke minuut; laatst {_lijstVers:HH:mm:ss})")" @onclick="VerversLijst">↻</button>
+                    }
                     @if (_statusOpen)
                     {
                         <div class="status-popover">
@@ -1256,6 +1262,13 @@
     {
         await Ik.ZorgGeladenAsync();
         if (!Repo.Beschikbaar) return;
+        // de exemplarenlijst (statussen) elke minuut vers, zodat een status die elders veranderde (testen, collega) klopt
+        _verversKlok = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            if (_naamId is null) return;
+            await VerversLijst();
+            StateHasChanged();
+        }), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
         try
         {
@@ -1586,6 +1599,11 @@
         {
             try { await _scanVeld.FocusAsync(); } catch { }
         }
+        if (_naarType)
+        {
+            _naarType = false;
+            try { await JS.InvokeVoidAsync("mdeInBeeld", ".product-namen .wn-naam.actief"); } catch { }
+        }
 
         // Verwijzingen naar andere exemplaren in de historie: type en serienummer erbij halen
         if (Repo.Beschikbaar && await VulVerwijzingen()) StateHasChanged();
@@ -1863,6 +1881,7 @@
     // ================================================================
     private async Task KiesNaam(ProductNaam n)
     {
+        _naarType = true;          // gekozen type in de typelijst in beeld scrollen (na het tekenen)
         _naamId = n.Id;
         _naam = n;
         _naamNaam = n.Naam;
@@ -1971,6 +1990,32 @@
     // ================================================================
     //  Exemplaren
     // ================================================================
+    private bool _naarType;
+    private Timer? _verversKlok;
+    private DateTime _lijstVers;
+
+    /// <summary>
+    /// Alleen de exemplarenlijst opnieuw (statussen, klanten): voor de knop ↻ en de klok. Raakt het geopende exemplaar niet
+    /// aan, behalve dat zijn regel (status in de kop) de verse wordt.
+    /// </summary>
+    private async Task VerversLijst()
+    {
+        if (_naamId is not int naam) return;
+        try
+        {
+            var alle = await Repo.GetProductenAsync(naam, _inclGewist);
+            if (_naamId != naam) return;                 // intussen een ander type gekozen
+            _alleProducten = alle;
+            _producten = NieuwsteBoven(alle.Where(p => StatusZichtbaar(p) || p.Id == _productId)).ToList();
+            if (_productId is int pid && _producten.FirstOrDefault(p => p.Id == pid) is { } vers) _product = vers;
+            _gekozen.RemoveWhere(id => _producten.All(p => p.Id != id));
+            _lijstVers = DateTime.Now;
+        }
+        catch { /* volgende keer opnieuw; de lijst blijft staan */ }
+    }
+
+    public void Dispose() => _verversKlok?.Dispose();
+
     private async Task LaadProducten()
     {
         if (_naamId is null) { _producten = new(); return; }
@@ -1983,6 +2028,7 @@
             _producten = NieuwsteBoven(alle.Where(p => StatusZichtbaar(p) || p.Id == _productId)).ToList();
         }
         catch (Exception ex) { _producten = new(); _alleProducten = new(); Toon("Exemplaren ophalen mislukt: " + ex.Message, true); }
+        _lijstVers = DateTime.Now;
         await LaadTodoTelling();
 
         // Aangevinkte exemplaren die niet meer in de lijst staan (bijvoorbeeld nadat

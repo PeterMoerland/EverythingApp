@@ -93,6 +93,12 @@
             schrijf: function (sleutel, waarde) { try { localStorage.setItem(sleutel, waarde); } catch (e) { } }
         };
 
+        // Een element (bv. het gekozen type in een lijst) in beeld scrollen, alleen binnen zijn eigen schuiflijst.
+        window.mdeInBeeld = function (selector) {
+            var e = document.querySelector(selector);
+            if (e) e.scrollIntoView({ block: 'nearest' });
+        };
+
         // Tekst naar het klembord; ook zonder https (navigator.clipboard werkt alleen in een veilige context). True = gelukt.
         window.mdeKopieer = async function (tekst) {
             try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(tekst); return true; } } catch (e) { }

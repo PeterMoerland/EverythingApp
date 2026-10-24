@@ -750,6 +750,14 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Producten: exemplarenlijst duidelijk en actueel (24-10-2026)
+
+Verbeterverzoek 36 (collega): "Als er geen product is geselecteerd laat hij wel de lijst van mpedes zien … statussen
+niet up to date". Oorzaak: het gekozen type stond weggescrold in de typelijst (leek niets gekozen), en de exemplarenlijst
+werd alleen bij het kiezen geladen. Nu: kop "Exemplaren van <type>"; het gekozen type scrolt in beeld (`_naarType`,
+`mdeInBeeld` in App.razor); `VerversLijst` (alleen de lijst, het geopende exemplaar krijgt zijn verse regel) via ↻ naast
+het statusfilter en elke minuut (`_verversKlok`, Producten is nu IDisposable). Lokaal bekeken met ?product=410.
+
 ## Activity board: werkorder, "Onderwerp" in plaats van "Probleem", bijlagen (24-10-2026)
 
 Wensen gebruiker. **Script `ActivityBoard_Werkorder_Bijlagen_MariaDB.sql` zelf draaien** (kolom `ActivityBoards.WerkorderID`
