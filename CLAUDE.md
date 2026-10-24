@@ -759,6 +759,9 @@ tooltip. Eerst `WatTellingAsync` (exemplaren, open, gereed) in de bevestiging; b
 dat ze samengevoegd worden. `HernoemWatAsync` = UPDATE op `Wat`, open én gereed. Getest met `ProductTodo__Geheugen=true`
 (knop uit zonder recht; met recht tijdelijk open: samenvoegen naar een bestaande naam); query's gecontroleerd. Op 24-10
 waren 18 werknemers projectleider van een open project.
+**Gereed melden vraagt bevestiging** (wens gebruiker 24-10-2026), in het todo-overzicht én op de tab Todo van een
+exemplaar (`ProductTodoTab`); weer open zetten niet. Bij Annuleren springt het vinkje terug via `_herteken` (@key op het
+vinkje: Blazor zet een checkbox anders niet terug, want het model is niet veranderd). Getest in het overzicht (geheugen).
 
 ## Scannen: AIM-voorvoegsel van de barcode eraf (24-10-2026)
 

@@ -1,6 +1,7 @@
 @inject IProductTodoRepository Todos
 @inject IProductRepository Repo
 @inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
 
 @* Producten ▸ exemplaar ▸ tab Todo: punten die nog gedaan moeten worden, bij dit exemplaar én bij wat erin zit
    (de print in een robot). 'Wat' is kort en herbruikbaar (bv. Doorsolderen): het Todo-overzicht groepeert erop.
@@ -50,7 +51,7 @@ else
             @foreach (var t in Zichtbaar)
             {
                 <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
-                    <td><input type="checkbox" checked="@(!t.Open)" disabled="@_bezig" title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")"
+                    <td><input @key="(t.Id, _herteken)" type="checkbox" checked="@(!t.Open)" disabled="@_bezig" title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")"
                                @onchange="e => ZetGereed(t, e.Value is true)" /></td>
                     <td>
                         <b>@t.Wat</b>
@@ -291,11 +292,19 @@ else
         });
     }
 
-    private Task ZetGereed(ProductTodo t, bool gereed) => Doe(async () =>
+    private int _herteken;        // @key van de vinkjes: na "nee" bij gereed melden het vinkje terugzetten
+
+    private async Task ZetGereed(ProductTodo t, bool gereed)
     {
-        await Todos.ZetGereedAsync(t.Id, gereed, Ik.WerknemerId);
-        await Historie(t.ProductId, (gereed ? "Todo gereed: " : "Todo weer open: ") + t.Wat);
-    });
+        // gereed melden: eerst bevestigen (wens gebruiker 24-10-2026); bij nee springt het vinkje terug
+        if (gereed && !await JS.InvokeAsync<bool>("mdeBevestig", $"‘{t.Wat}’ bij {t.Exemplaar} gereed melden?"))
+        { _herteken++; return; }
+        await Doe(async () =>
+        {
+            await Todos.ZetGereedAsync(t.Id, gereed, Ik.WerknemerId);
+            await Historie(t.ProductId, (gereed ? "Todo gereed: " : "Todo weer open: ") + t.Wat);
+        });
+    }
 
     private Task Verwijder(ProductTodo t) => Doe(() => Todos.VerwijderAsync(t.Id));
 

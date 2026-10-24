@@ -99,7 +99,7 @@
                     {
                         <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
                             <td class="niet-afdrukken">
-                                <input type="checkbox" checked="@(!t.Open)" disabled="@_bezig"
+                                <input @key="(t.Id, _herteken)" type="checkbox" checked="@(!t.Open)" disabled="@_bezig"
                                        title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")" @onchange="e => ZetGereed(t, e.Value is true)" />
                             </td>
                             <td><a href="producten?product=@(t.WortelId ?? t.ProductId)" title="Exemplaar openen">@(t.WortelId is null ? t.Exemplaar : t.Wortel)</a></td>
@@ -142,6 +142,7 @@
     private string _zoek = "";
     private string? _melding;
     private bool _meldingOk;
+    private int _herteken;        // @key van de vinkjes: na "nee" bij gereed melden het vinkje terugzetten
     private List<ProductTodo> _lijst = new();
 
     // ---- een punt overal hernoemen (projectleider van een open project, of Directie) ----
@@ -240,6 +241,9 @@
 
     private async Task ZetGereed(ProductTodo t, bool gereed)
     {
+        // gereed melden: eerst bevestigen (wens gebruiker 24-10-2026); bij nee springt het vinkje terug (_herteken)
+        if (gereed && !await JS.InvokeAsync<bool>("mdeBevestig", $"‘{t.Wat}’ bij {(t.InOnderdeel ? t.Exemplaar + " (" + t.Wortel + ")" : t.Wortel.Length > 0 ? t.Wortel : t.Exemplaar)} gereed melden?"))
+        { _herteken++; return; }
         _bezig = true;
         try
         {
