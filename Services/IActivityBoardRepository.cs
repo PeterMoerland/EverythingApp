@@ -29,15 +29,19 @@ public interface IActivityBoardRepository
     Task<int> ZorgVoorBoardAsync(int projectId, int? door);
     /// <summary>Het board van deze klant (één per klant); zo nodig aangemaakt.</summary>
     Task<int> ZorgVoorKlantBoardAsync(int relatieId, int? door);
+    /// <summary>Kunnen boards bij een werkorder? (ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd)</summary>
+    Task<bool> WerkorderAanwezigAsync();
+    /// <summary>Het board van deze werkorder (één per werkorder); zo nodig aangemaakt.</summary>
+    Task<int> ZorgVoorWerkorderBoardAsync(int werkbonId, int? door);
     /// <summary>Nieuw vrij board met alleen een naam.</summary>
     Task<int> NieuwVrijBoardAsync(string naam, int? door);
     /// <summary>Eigen naam van het board; leeg = de naam van het project of de klant.</summary>
     Task HernoemBoardAsync(int boardId, string naam);
     /// <summary>
-    /// Het board aan een project of een klant hangen (of los: beide null). Geeft een melding als dat project of die
-    /// klant al een ander board heeft (één per project en per klant), anders null.
+    /// Het board aan een project, een werkorder of een klant hangen (of los: alle null). Geeft een melding als dat al
+    /// een ander board heeft (één per project, per werkorder en per klant), anders null.
     /// </summary>
-    Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId);
+    Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null);
     Task<ActBoardData?> LaadAsync(int boardId);
     Task<List<ActPersoon>> GetPersonenAsync();
 
@@ -73,9 +77,11 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task<bool> SoortenAanwezigAsync() => Task.FromResult(false);
     public Task<int> ZorgVoorBoardAsync(int projectId, int? door) => Task.FromResult(0);
     public Task<int> ZorgVoorKlantBoardAsync(int relatieId, int? door) => Task.FromResult(0);
+    public Task<bool> WerkorderAanwezigAsync() => Task.FromResult(false);
+    public Task<int> ZorgVoorWerkorderBoardAsync(int werkbonId, int? door) => Task.FromResult(0);
     public Task<int> NieuwVrijBoardAsync(string naam, int? door) => Task.FromResult(0);
     public Task HernoemBoardAsync(int boardId, string naam) => Task.CompletedTask;
-    public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId) => Task.FromResult<string?>(null);
+    public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null) => Task.FromResult<string?>(null);
     public Task<ActBoardData?> LaadAsync(int boardId) => Task.FromResult<ActBoardData?>(null);
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(new List<ActPersoon>());
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur) => Task.FromResult(0);
@@ -145,6 +151,31 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         return _metRelatie;
     }
 
+    // Kolom WerkorderID aanwezig? Alleen 'ja' onthouden (ActivityBoard_Werkorder_Bijlagen_MariaDB.sql).
+    private bool _metWerkorder;
+    public async Task<bool> WerkorderAanwezigAsync()
+    {
+        if (_metWerkorder) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'ActivityBoards' AND COLUMN_NAME = 'WerkorderID'", cn);
+            _metWerkorder = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _metWerkorder;
+    }
+
+    /// <summary>Kolommen (id, nummer 218183-03, omschrijving) en join voor de werkorder, of lege kolommen zonder het script.</summary>
+    private async Task<(string Kolommen, string Join)> WerkorderDeelAsync()
+        => await WerkorderAanwezigAsync()
+            ? (", b.`WerkorderID`, COALESCE(CONCAT(wp.`Projectnumber`, '-', RIGHT(CONCAT('00', wo.`Werkbonnummer`), 2)), ''), " +
+               "COALESCE(wo.`Werkbonomschrijving`, '')",
+               " LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = b.`WerkorderID` LEFT JOIN `Projects` wp ON wp.`Project-Id` = wo.`Project-id` ")
+            : (", NULL, '', ''", " ");
+
     /// <summary>Kolom en join voor de klant, of niets als het script nog niet gedraaid heeft.</summary>
     private async Task<(string Kolommen, string Join)> RelatieDeelAsync()
         => await SoortenAanwezigAsync()
@@ -155,25 +186,50 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
     {
         var lijst = new List<ActBoardRegel>();
         var (rk, rj) = await RelatieDeelAsync();
+        var (wk, wj) = await WerkorderDeelAsync();
+        // voor de boom: klant van het project (projectboard), en bij een werkorder het project, de klant en de ouderwerkorder
+        var metWo = await WerkorderAanwezigAsync();
+        var bk = ", p.`Customer-id`, COALESCE(pr.`name`, '')" + (metWo
+            ? ", wp.`Project-Id`, wp.`Projectnumber`, COALESCE(wp.`Projectdescription`, ''), wp.`Customer-id`, COALESCE(wr.`name`, ''), " +
+              "NULLIF(wo.`ParentWerkbonID`, 0), COALESCE(CONCAT(wp2.`Projectnumber`, '-', RIGHT(CONCAT('00', wo2.`Werkbonnummer`), 2)), ''), " +
+              "COALESCE(wo2.`Werkbonomschrijving`, '')"
+            : ", NULL, NULL, '', NULL, '', NULL, '', ''");
+        var bj = " LEFT JOIN `Relations` pr ON pr.`id_supplier` = p.`Customer-id` " + (metWo
+            ? " LEFT JOIN `Relations` wr ON wr.`id_supplier` = wp.`Customer-id` " +
+              " LEFT JOIN `Workorders` wo2 ON wo2.`Werkbon-id` = NULLIF(wo.`ParentWerkbonID`, 0) " +
+              " LEFT JOIN `Projects` wp2 ON wp2.`Project-Id` = wo2.`Project-id` "
+            : " ");
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, ''), " +
             "       SUM(a.`ActiviteitID` IS NOT NULL AND a.`Status` NOT IN ('opgelost','nietopgelost')), " +
             "       SUM(a.`Status` IN ('opgelost','nietopgelost')), " +
-            "       GREATEST(COALESCE(MAX(a.`last_updated`), b.`last_updated`), b.`last_updated`)" + rk +
+            "       GREATEST(COALESCE(MAX(a.`last_updated`), b.`last_updated`), b.`last_updated`)" + rk + wk + bk +
             "  FROM `ActivityBoards` b " +
-            "  LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj +
+            "  LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj + bj +
             "  LEFT JOIN `ActivityBoardActiviteiten` a ON a.`BoardID` = b.`BoardID` " +
             " GROUP BY b.`BoardID` ORDER BY 8 DESC", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
+        {
+            var relatie = I(r, 8);
+            var werkorder = I(r, 10);
             lijst.Add(new ActBoardRegel(r.GetInt32(0), I(r, 1), I(r, 2), S(r, 3), S(r, 4),
-                                        I(r, 5) ?? 0, I(r, 6) ?? 0, D(r, 7), I(r, 8), S(r, 9)));
+                                        I(r, 5) ?? 0, I(r, 6) ?? 0, D(r, 7), relatie, S(r, 9), werkorder, S(r, 11), S(r, 12))
+            {
+                // klant: klantboard = zichzelf; werkorderboard = klant van zijn project; projectboard = klant van het project
+                KlantId = relatie ?? (werkorder is not null ? I(r, 18) : I(r, 13)),
+                KlantNaam = relatie is not null ? S(r, 9) : werkorder is not null ? S(r, 19) : S(r, 14),
+                HoofdProjectId = I(r, 15), HoofdProjectNummer = I(r, 16), HoofdProjectNaam = S(r, 17),
+                OuderWerkorderId = I(r, 20), OuderWerkorderNummer = S(r, 21), OuderWerkorderNaam = S(r, 22),
+            });
+        }
         return lijst;
     }
 
     public Task<int> ZorgVoorBoardAsync(int projectId, int? door) => ZorgVoorAsync("ProjectID", projectId, door);
     public Task<int> ZorgVoorKlantBoardAsync(int relatieId, int? door) => ZorgVoorAsync("RelatieID", relatieId, door);
+    public Task<int> ZorgVoorWerkorderBoardAsync(int werkbonId, int? door) => ZorgVoorAsync("WerkorderID", werkbonId, door);
 
     private async Task<int> ZorgVoorAsync(string kolom, int waarde, int? door)
     {
@@ -207,23 +263,32 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         => UitvoerenAsync("UPDATE `ActivityBoards` SET `Naam` = @n WHERE `BoardID` = @b",
                           ("@n", naam.Trim().Length > 0 ? Kort(naam.Trim(), 200) : DBNull.Value), ("@b", boardId));
 
-    public async Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId)
+    public async Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null)
     {
+        var metWerkorder = await WerkorderAanwezigAsync();
+        if (werkorderId is not null && !metWerkorder) return "Boards bij een werkorder kan pas na ActivityBoard_Werkorder_Bijlagen_MariaDB.sql.";
+        // precies één koppeling (werkorder gaat voor project, project voor klant)
+        if (werkorderId is not null) { projectId = null; relatieId = null; }
+        else if (projectId is not null) relatieId = null;
         await using var cn = await OpenAsync();
-        // één board per project en per klant
-        if (projectId is not null || relatieId is not null)
+        // één board per project, per werkorder en per klant
+        var (kolom, waarde, melding) = werkorderId is not null ? ("WerkorderID", werkorderId, "Deze werkorder heeft al een board.")
+                                     : projectId is not null ? ("ProjectID", projectId, "Dit project heeft al een board.")
+                                     : ("RelatieID", relatieId, "Deze klant heeft al een board.");
+        if (waarde is not null)
         {
             await using var bezet = new MySqlCommand(
-                $"SELECT COUNT(*) FROM `ActivityBoards` WHERE `BoardID` <> @b AND `{(projectId is not null ? "ProjectID" : "RelatieID")}` = @x", cn);
+                $"SELECT COUNT(*) FROM `ActivityBoards` WHERE `BoardID` <> @b AND `{kolom}` = @x", cn);
             bezet.Parameters.AddWithValue("@b", boardId);
-            bezet.Parameters.AddWithValue("@x", projectId ?? relatieId!.Value);
-            if (Convert.ToInt32(await bezet.ExecuteScalarAsync()) > 0)
-                return projectId is not null ? "Dit project heeft al een board." : "Deze klant heeft al een board.";
+            bezet.Parameters.AddWithValue("@x", waarde.Value);
+            if (Convert.ToInt32(await bezet.ExecuteScalarAsync()) > 0) return melding;
         }
         await using var cmd = new MySqlCommand(
-            "UPDATE `ActivityBoards` SET `ProjectID` = @p, `RelatieID` = @r WHERE `BoardID` = @b", cn);
+            "UPDATE `ActivityBoards` SET `ProjectID` = @p, `RelatieID` = @r" + (metWerkorder ? ", `WerkorderID` = @w" : "") +
+            " WHERE `BoardID` = @b", cn);
         cmd.Parameters.AddWithValue("@p", (object?)projectId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@r", (object?)(projectId is null ? relatieId : null) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@r", (object?)relatieId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@w", (object?)werkorderId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@b", boardId);
         await cmd.ExecuteNonQueryAsync();
         return null;
@@ -235,14 +300,15 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using var cn = await OpenAsync();
 
         var (rk, rj) = await RelatieDeelAsync();
+        var (wk, wj) = await WerkorderDeelAsync();
         await using (var cmd = new MySqlCommand(
-            "SELECT b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, '')" + rk +
-            "  FROM `ActivityBoards` b LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + " WHERE b.`BoardID` = @b", cn))
+            "SELECT b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, '')" + rk + wk +
+            "  FROM `ActivityBoards` b LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj + " WHERE b.`BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
             await using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync()) return null;
-            data.Board = new ActBoard(r.GetInt32(0), I(r, 1), I(r, 2), S(r, 3), S(r, 4), I(r, 5), S(r, 6));
+            data.Board = new ActBoard(r.GetInt32(0), I(r, 1), I(r, 2), S(r, 3), S(r, 4), I(r, 5), S(r, 6), I(r, 7), S(r, 8), S(r, 9));
         }
 
         await using (var cmd = new MySqlCommand(

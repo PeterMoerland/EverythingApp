@@ -2718,7 +2718,7 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .dicht > .ab-caret, .dicht .ab-caret { transform: rotate(-90deg); }
 .ab-leeg { color: var(--ab-muted); font-size: 13px; font-style: italic; padding: .4rem 0 0 .3rem; margin: 0; list-style: none; }
 #ab-problijst { list-style: none; margin: .6rem 0 0; padding: 0; }
-.ab-prob { display: grid; grid-template-columns: 26px 28px minmax(0, 1fr) auto 30px; align-items: center; gap: 8px;
+.ab-prob { display: grid; grid-template-columns: 26px 28px minmax(0, 1fr) auto auto 30px; align-items: center; gap: 8px;
            padding: 3px 6px; border: 1px solid transparent; border-radius: 3px; background: var(--ab-wit); }
 .ab-prob:hover { border-color: var(--ab-rand); background: #fafafa; }
 .ab-greep { border: none; background: none; cursor: grab; color: #9aa1a9; font-size: 15px; line-height: 1; padding: 6px 4px;
@@ -2937,6 +2937,7 @@ html[data-thema="donker"] .ab-nieuw:hover { background: rgba(255, 255, 255, .06)
 .ab-soortkeuze { margin-top: .5rem; }
 .ab-soort { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 3px; }
 .ab-soort-project { background: #d3e5ef; color: #183347; }
+.ab-soort-werkorder { background: #e8def3; color: #36244f; }
 .ab-soort-klant { background: #dbeddb; color: #1c3829; }
 .ab-soort-vrij { background: #ececea; color: #37352f; }
 .ab-bordnaam { font: inherit; font-size: inherit; font-weight: 600; color: var(--ab-ink); border: none; border-bottom: 1px dashed transparent;
@@ -3803,3 +3804,52 @@ html[data-thema="donker"] .bel-collega.online:hover { background: #24352b; borde
 .kosten-vergelijk td.r, .kosten-vergelijk th.r { text-align: right; font-variant-numeric: tabular-nums; }
 .kosten-marge { display: grid; grid-template-columns: max-content max-content; gap: .25rem 1.2rem; font-variant-numeric: tabular-nums; }
 .kosten-marge b { text-align: right; }
+
+/* PO van klant: insleepvak en uitkomst van het uitlezen met AI */
+.po-insleep { position: relative; display: grid; gap: .15rem; place-items: center; text-align: center; padding: .9rem .6rem;
+              margin-bottom: .5rem; border: 2px dashed #b8c4d2; border-radius: 8px; background: #f6f9fc; cursor: pointer; }
+.po-insleep:hover, .po-insleep.actief { border-color: #2563eb; background: #eaf1fe; }
+.po-insleep small { color: #66727f; }
+.po-insleep-invoer { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.po-ai { margin: 0 0 .6rem; padding: .5rem .7rem; border-radius: 6px; background: #eef4ff; border: 1px solid #c7d7f5; font-size: .9rem;
+         display: grid; gap: .2rem; cursor: pointer; }
+.po-ai.bezig { display: flex; align-items: center; gap: .5rem; cursor: default; }
+html[data-thema="donker"] .po-insleep { background: #1f262d; border-color: #3a4652; }
+html[data-thema="donker"] .po-insleep:hover, html[data-thema="donker"] .po-insleep.actief { background: #22324a; border-color: #4b7fd6; }
+html[data-thema="donker"] .po-ai { background: #1e2a3a; border-color: #34507a; }
+
+/* Activity board: bijlagen bij een onderwerp */
+.ab-pbijl { border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 0 .3rem; cursor: pointer; opacity: .45; font: inherit; }
+.ab-pbijl.heeft, .ab-pbijl.open, .ab-prob:hover .ab-pbijl { opacity: 1; }
+.ab-pbijl.open { border-color: #b8c4d2; background: #f2f5f9; }
+.ab-prob-bijlagen { list-style: none; margin: 0 0 .4rem 2.6rem; padding: .5rem .6rem; border: 1px dashed #c3ccd6; border-radius: 6px; outline: none; }
+.ab-prob-bijlagen:focus-within, .ab-prob-bijlagen:focus { border-color: #2563eb; }
+.ab-bijl-lijst { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .4rem; }
+.ab-bijl { position: relative; display: inline-flex; align-items: center; }
+.ab-bijl img { max-height: 5rem; max-width: 10rem; border: 1px solid #c9d3df; border-radius: 3px; display: block; }
+.ab-bijl-bestand { padding: .2rem .45rem; border: 1px solid #c9d3df; border-radius: 4px; font-size: .85rem; text-decoration: none; }
+.ab-bijl-weg { position: absolute; top: -.4rem; right: -.4rem; width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 1px solid #c9d3df;
+               background: #fff; color: #b42318; font-size: .75rem; line-height: 1; cursor: pointer; padding: 0; }
+.ab-bijl-toevoegen { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: .85rem; color: #55606b; }
+html[data-thema="donker"] .ab-pbijl.open { background: #26303a; border-color: #3a4652; }
+html[data-thema="donker"] .ab-bijl-weg { background: #232a31; }
+
+/* Activity board: boom op het startscherm (Klant ▸ Project ▸ Werkorder) */
+.ab-boomkop { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .5rem 0; }
+.ab-boomzoek { flex: 1; min-width: 14rem; }
+.ab-boom { list-style: none; margin: 0; padding: 0; }
+.ab-boomknoop { margin: 0; }
+.ab-boomregel { display: flex; align-items: center; gap: .45rem; padding-top: .28rem; padding-bottom: .28rem; padding-right: .4rem;
+                border-bottom: 1px solid #eef1f4; min-height: 2rem; }
+.ab-boomregel:hover { background: #f7f9fb; }
+.ab-boomcaret { width: 1.2rem; flex: none; border: 0; background: transparent; cursor: pointer; color: #66727f; transition: transform .12s; padding: 0; }
+.ab-boomcaret.open { transform: rotate(90deg); }
+.ab-boomcaret.leeg { cursor: default; }
+.ab-boomnaam { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.ab-boomnaam.link { border: 0; background: transparent; padding: 0; font: inherit; color: var(--ab-ink, inherit); cursor: pointer; }
+.ab-boomnaam.link:hover b { text-decoration: underline; }
+.ab-boomnaam.ab-boomgroep { cursor: pointer; color: #55606b; }
+.ab-boomtel { font-size: .85rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ab-boomsom { font-size: .8rem; white-space: nowrap; }
+html[data-thema="donker"] .ab-boomregel { border-bottom-color: #2a333c; }
+html[data-thema="donker"] .ab-boomregel:hover { background: #1f262d; }

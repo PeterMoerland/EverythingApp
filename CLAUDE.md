@@ -750,6 +750,46 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Activity board: werkorder, "Onderwerp" in plaats van "Probleem", bijlagen (24-10-2026)
+
+Wensen gebruiker. **Script `ActivityBoard_Werkorder_Bijlagen_MariaDB.sql` zelf draaien** (kolom `ActivityBoards.WerkorderID`
+en FileStoreType 342).
+- **Board bij een werkorder**: vierde soort naast project, klant en vrij (`ActBoardSoort.Werkorder`, gaat voor project
+  in `Van`). Eén board per werkorder; een werkorderboard heeft geen ProjectID. `ZorgVoorWerkorderBoardAsync`,
+  `KoppelBoardAsync(…, werkorderId)`, `WerkorderDeelAsync` (nummer = projectnummer-werkbonnummer, omschrijving).
+  Zoeken via `IUrenRepository.ZoekWerkordersAsync` (ook gesloten). Knop Werkorder alleen als de kolom er is.
+- **"Probleem" heet op het scherm "Onderwerp"** (ook voor verbeterpunten en andere todo's). Alleen zichtbare teksten;
+  database, code en de sleutel `"problemen"` (ZetKoppelingenAsync) zijn ongewijzigd.
+- **Bijlagen bij een onderwerp**: 📎 in de regel (aantal), uitklapregel `li.ab-prob-bijlagen` (geen `ab-prob`, dus het
+  slepen in activityboard.js slaat hem over) met miniaturen/bestandslinks, × (mdeBevestig), bestand kiezen of Ctrl+V
+  (mdeKlembord.koppelPlakken; `AfbeeldingGeplakt` in de pagina). Filestore StoreType 342, MasterID = ProbleemID, meteen
+  opgeslagen. Raster van `.ab-prob` heeft er een kolom bij.
+Lokaal getest met `ActivityBoard__Geheugen=true`: werkorders zoeken (echte database, alleen lezen), werkorderboard
+openen, onderwerp toevoegen, bijlagenvak; uploaden niet getest (zou in de echte filestore schrijven).
+- **Boom op het startscherm** (wens gebruiker, meer overzicht bij een grote lijst): Boom / Lijst (onthouden per pc,
+  `mdeOpslag` "ab-weergave", standaard Boom). Klant ▸ Project ▸ Werkorder ▸ subwerkorder (`Workorders.ParentWerkbonID`,
+  één niveau), daarnaast "Zonder klant" en "Vrije boards". `GetBoardsAsync` geeft per board `KlantId/KlantNaam` (klantboard:
+  zelf; projectboard: Projects.Customer-id; werkorderboard: klant van zijn project), `HoofdProject*` en `OuderWerkorder*`.
+  Tussenniveaus zonder eigen board zijn groeperingen (grijs, met aantal boards en open). Klanten standaard ingeklapt;
+  Alles uit-/inklappen; zoekvak filtert en klapt de treffers open; het soortfilter werkt ook in de boom. Valkuilen:
+  padding met `InvariantCulture` (anders "1,55rem"), en de klasse `groep` bestaat al globaal (dus `ab-boomgroep`).
+  Getest in het geheugen (met nep-hiërarchie in `GeheugenActivityBoardRepository`); de klantjoin tegen de echte boards
+  gecontroleerd (225086 → Andela, 225092 → Sojitz).
+
+## PO van klant: PDF erin slepen en met AI uitlezen (24-10-2026)
+
+Wens gebruiker (en verbeterverzoek "uitlezen van de PO voor naam klant en bedragen"). In `POKlantVenster` is het
+documentenvak een **insleepvak** (`.po-insleep`: label met een onzichtbare `InputFile` erover, dus slepen of klikken).
+De eerste PDF/afbeelding wordt meteen gelezen door `FactuurLezer.LeesPoAsync` (eigen opdracht `PoOpdracht`; zelfde
+wegen als facturen via `LeesRuwAsync`: tekstlaag → tekst naar het model, scan → beeld, Bedrock of Ollama). ✨ bij een
+document (opgeslagen of nog in de wachtrij) doet het opnieuw. `Vul` zet alleen **lege** velden (klant: precies één
+treffer of exact gelijk, anders de zoeklijst met de naam zonder rechtsvorm; contactpersoon op naam; PO-nummer; datum
+ook als bij een nieuwe PO nog "vandaag" staat; bedrag ex btw; omschrijving; termijnen als er nog geen zijn) en meldt
+verschillen met wat er al staat, plus de opmerkingen van het model. Nooit vanzelf opslaan.
+Getest (rechten tijdelijk open, teruggezet, niets opgeslagen) met PO 148 (TDC/Tembo): bestaande PO = verschillen klant en
+datum gemeld; nieuwe PO met dezelfde PDF via het bestandsveld = PO-nummer, datum, bedrag en omschrijving ingevuld, klant
+"Technical Development Corporation" niet bij de relaties → zoeklijst.
+
 ## Projecten: tab Kostenbegroting, voortgang tegen begrote kosten (24-10-2026)
 
 Wens gebruiker: het budget (tab Budget) is het **verkoop**budget; de voortgang moet gemaakte kosten tegen **begrote

@@ -7,24 +7,27 @@ namespace EverythingApp.Models;
 //  het gekoppelde probleem met de hoogste prioriteit, anders in "Geen probleem".
 // ===========================================================================
 
-/// <summary>Waar een board bij hoort: een project, een klant (relatie) of niets (vrij board).</summary>
+/// <summary>Waar een board bij hoort: een project, een werkorder, een klant (relatie) of niets (vrij board).</summary>
 public static class ActBoardSoort
 {
-    public const string Project = "project", Klant = "klant", Vrij = "vrij";
-    public static string Van(int? projectId, int? relatieId) => projectId is not null ? Project : relatieId is not null ? Klant : Vrij;
-    public static string Naam(string soort) => soort switch { Project => "Project", Klant => "Klant", _ => "Vrij" };
+    public const string Project = "project", Werkorder = "werkorder", Klant = "klant", Vrij = "vrij";
+    public static string Van(int? projectId, int? relatieId, int? werkorderId = null)
+        => werkorderId is not null ? Werkorder : projectId is not null ? Project : relatieId is not null ? Klant : Vrij;
+    public static string Naam(string soort) => soort switch { Project => "Project", Werkorder => "Werkorder", Klant => "Klant", _ => "Vrij" };
 }
 
 /// <summary>Een board met het project of de klant waar het bij hoort.</summary>
 public record ActBoard(int Id, int? ProjectId, int? ProjectNummer, string ProjectNaam, string Naam,
-                       int? RelatieId = null, string RelatieNaam = "")
+                       int? RelatieId = null, string RelatieNaam = "",
+                       int? WerkorderId = null, string WerkorderNummer = "", string WerkorderNaam = "")
 {
-    public string Soort => ActBoardSoort.Van(ProjectId, RelatieId);
+    public string Soort => ActBoardSoort.Van(ProjectId, RelatieId, WerkorderId);
 
     /// <summary>Titel zonder eigen naam: "224091 · Paprika", de klantnaam, of "Naamloos board".</summary>
     public string StandaardTitel => Soort switch
     {
         ActBoardSoort.Project => $"{(ProjectNummer is int n ? n + " · " : "")}{ProjectNaam}".Trim(),
+        ActBoardSoort.Werkorder => $"{(WerkorderNummer.Length > 0 ? WerkorderNummer + " · " : "")}{WerkorderNaam}".Trim(),
         ActBoardSoort.Klant => RelatieNaam,
         _ => "Naamloos board",
     };
@@ -35,10 +38,25 @@ public record ActBoard(int Id, int? ProjectId, int? ProjectNummer, string Projec
 
 /// <summary>Regel in de lijst met boards (startscherm).</summary>
 public record ActBoardRegel(int BoardId, int? ProjectId, int? ProjectNummer, string ProjectNaam, string Naam,
-                            int Open, int Klaar, DateTime? Gewijzigd, int? RelatieId = null, string RelatieNaam = "")
+                            int Open, int Klaar, DateTime? Gewijzigd, int? RelatieId = null, string RelatieNaam = "",
+                            int? WerkorderId = null, string WerkorderNummer = "", string WerkorderNaam = "")
 {
-    public string Soort => ActBoardSoort.Van(ProjectId, RelatieId);
-    public string Titel => new ActBoard(BoardId, ProjectId, ProjectNummer, ProjectNaam, Naam, RelatieId, RelatieNaam).Titel;
+    public string Soort => ActBoardSoort.Van(ProjectId, RelatieId, WerkorderId);
+    public string Titel => new ActBoard(BoardId, ProjectId, ProjectNummer, ProjectNaam, Naam, RelatieId, RelatieNaam,
+                                        WerkorderId, WerkorderNummer, WerkorderNaam).Titel;
+
+    // ---- voor de boom op het startscherm (Klant ▸ Project ▸ Werkorder ▸ subwerkorder) ----
+    /// <summary>De klant waar het board onder valt: zelf (klantboard), van het project, of van het project van de werkorder.</summary>
+    public int? KlantId { get; init; }
+    public string KlantNaam { get; init; } = "";
+    /// <summary>Bij een werkorderboard: het project van die werkorder.</summary>
+    public int? HoofdProjectId { get; init; }
+    public int? HoofdProjectNummer { get; init; }
+    public string HoofdProjectNaam { get; init; } = "";
+    /// <summary>Bij een werkorderboard: de werkorder waar deze onder valt (Workorders.ParentWerkbonID), één niveau.</summary>
+    public int? OuderWerkorderId { get; init; }
+    public string OuderWerkorderNummer { get; init; } = "";
+    public string OuderWerkorderNaam { get; init; } = "";
 }
 
 public class ActProbleem

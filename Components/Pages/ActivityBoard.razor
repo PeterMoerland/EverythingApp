@@ -5,14 +5,17 @@
 @inject IActivityBoardRepository Repo
 @inject IProjectRepository Projecten
 @inject IRelatieRepository Relaties
+@inject IUrenRepository Uren
+@inject IWerknemerRepository Bestanden
+@inject FilestoreService Store
 @inject ActivityBoardLive Live
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
 @* Activity board (spec "Design specificatie MDE Activity Board", Freek Moerland, prototype v0.5).
-   Problemen op volgorde van prioriteit; het kanbanbord heeft een baan per probleem in die volgorde.
-   Een kaart staat één keer op het bord: in de baan van het gekoppelde probleem met de hoogste prioriteit.
+   Onderwerpen op volgorde van prioriteit; het kanbanbord heeft een baan per onderwerp in die volgorde.
+   Een kaart staat één keer op het bord: in de baan van het gekoppelde onderwerp met de hoogste prioriteit.
    Elke wijziging gaat direct naar de database; collega's op hetzelfde board zien hem meteen (ActivityBoardLive).
    Slepen: wwwroot/activityboard.js. Fase 1: nog geen snel-editor met alle velden en geen ongedaan maken
    van alles (wel van verwijderen). *@
@@ -34,11 +37,15 @@ else if (BoardId is null)
 {
     @* ---------- startscherm: alle boards, en een board openen voor een project of klant, of een vrij board maken ---------- *@
     <div class="topbar"><h1>Activity board</h1></div>
-    <p class="uitleg">Een board per project of per klant, of een vrij board met alleen een naam: problemen op volgorde van
+    <p class="uitleg">Een board per project, per werkorder of per klant, of een vrij board met alleen een naam: onderwerpen op volgorde van
         prioriteit en activiteiten op een kanbanbord.</p>
     <section class="ab-paneel">
         <div class="ab-pkop-vast">
             <span class="ab-titel">Boards</span><span class="ab-count">@BoardsGefilterd.Count()</span>
+            <span class="ab-soortfilter">
+                <button type="button" class="ab-vtab @(_boom ? "actief" : "")" @onclick="() => ZetBoom(true)" title="Klant ▸ project ▸ werkorder">Boom</button>
+                <button type="button" class="ab-vtab @(_boom ? "" : "actief")" @onclick="() => ZetBoom(false)">Lijst</button>
+            </span>
             @if (_soorten)
             {
                 <span class="ab-soortfilter">
@@ -55,7 +62,25 @@ else if (BoardId is null)
         }
         else if (_boards.Count == 0)
         {
-            <p class="ab-leeg">Nog geen boards. Kies hieronder een project@(_soorten ? " of klant, of maak een vrij board" : "") om te beginnen.</p>
+            <p class="ab-leeg">Nog geen boards. Kies hieronder een project@(_soorten ? (_metWerkorder ? ", werkorder" : "") + " of klant, of maak een vrij board" : "") om te beginnen.</p>
+        }
+        else if (_boom)
+        {
+            @* boom (wens gebruiker 24-10-2026): Klant ▸ Project ▸ Werkorder ▸ subwerkorder; vrije boards en boards zonder klant apart *@
+            <div class="ab-boomkop">
+                <input class="ab-boomzoek" placeholder="Zoek klant, project, werkorder of board…" value="@_boomZoek" autocomplete="off"
+                       @oninput="e => _boomZoek = (string?)e.Value ?? string.Empty" />
+                <button type="button" class="ab-btn klein" @onclick="AllesUit">Alles uitklappen</button>
+                <button type="button" class="ab-btn klein" @onclick="() => _boomOpen.Clear()">Alles inklappen</button>
+            </div>
+            var wortels = Boom();
+            @if (wortels.Count == 0)
+            {
+                <p class="ab-leeg">Niets gevonden.</p>
+            }
+            <ul class="ab-boom">
+                @foreach (var k in wortels) { @Knoop(k, 0) }
+            </ul>
         }
         else
         {
@@ -67,8 +92,8 @@ else if (BoardId is null)
                     <tr class="ab-rij" tabindex="0" @key="b.BoardId" @onclick="() => NaarBoard(b.BoardId)"
                         @onkeydown="e => BoardToets(e, b.BoardId)">
                         <td><span class="ab-soort ab-soort-@b.Soort">@ActBoardSoort.Naam(b.Soort)</span></td>
-                        <td class="ab-num">@b.ProjectNummer</td>
-                        <td class="ab-t">@b.Titel@if (b.Naam.Length > 0 && b.Soort != ActBoardSoort.Vrij) { <small class="ab-muted"> · @(b.Soort == ActBoardSoort.Klant ? b.RelatieNaam : b.ProjectNaam)</small> }</td>
+                        <td class="ab-num">@(b.Soort == ActBoardSoort.Werkorder ? b.WerkorderNummer : b.ProjectNummer?.ToString())</td>
+                        <td class="ab-t">@b.Titel@if (b.Naam.Length > 0 && b.Soort != ActBoardSoort.Vrij) { <small class="ab-muted"> · @(b.Soort == ActBoardSoort.Klant ? b.RelatieNaam : b.Soort == ActBoardSoort.Werkorder ? b.WerkorderNummer : b.ProjectNaam)</small> }</td>
                         <td class="ab-num">@b.Open</td>
                         <td class="ab-num">@b.Klaar</td>
                         <td class="ab-num">@(b.Gewijzigd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
@@ -109,7 +134,7 @@ else
             <a class="ab-link" href="activityboard">Alle boards</a>
             @if (_soorten)
             {
-                <button class="ab-btn" type="button" @onclick="OpenKoppel" title="Dit board aan een project of klant hangen, of losmaken">Koppelen…</button>
+                <button class="ab-btn" type="button" @onclick="OpenKoppel" title="Dit board aan een project, werkorder of klant hangen, of losmaken">Koppelen…</button>
             }
             <button class="ab-btn" type="button" @onclick="NaarExcel" title="Activiteiten van dit board naar Excel (csv)">Naar Excel</button>
         </div>
@@ -119,7 +144,7 @@ else
     <section class="ab-paneel">
         <div class="ab-pkop @(_probDicht ? "dicht" : "")" role="button" tabindex="0" aria-expanded="@(!_probDicht)"
              @onclick="() => _probDicht = !_probDicht" @onkeydown="e => Klap(e, () => _probDicht = !_probDicht)">
-            <span class="ab-caret">▼</span><span class="ab-titel">Problemen</span>
+            <span class="ab-caret">▼</span><span class="ab-titel">Onderwerpen</span>
             <span class="ab-count">@_data.Problemen.Count · volgorde = prioriteit</span>
             <span class="ab-hint">Sleep aan ⠿ om de prioriteit te wijzigen</span>
         </div>
@@ -128,7 +153,7 @@ else
             <ol id="ab-problijst">
                 @if (_data.Problemen.Count == 0)
                 {
-                    <li class="ab-leeg">Nog geen problemen. Voeg hieronder het eerste probleem toe.</li>
+                    <li class="ab-leeg">Nog geen onderwerpen. Voeg hieronder het eerste onderwerp toe.</li>
                 }
                 @for (var i = 0; i < _data.Problemen.Count; i++)
                 {
@@ -140,17 +165,49 @@ else
                         <span class="ab-pnr">@(i + 1)</span>
                         <span class="ab-pnaam">
                             <span class="ab-pdot ab-dot-@p.Kleur"></span>
-                            <input @key="NaamSleutel(p.Id)" value="@p.Naam" aria-label="@("Naam probleem " + (i + 1))"
+                            <input @key="NaamSleutel(p.Id)" value="@p.Naam" aria-label="@("Naam onderwerp " + (i + 1))"
                                    @onchange="e => HernoemProbleem(p, e)" @onkeydown="InvoerEnterBlur" />
                         </span>
+                        @{ var nb = _bijlagen.GetValueOrDefault(p.Id)?.Count ?? 0; }
+                        <button class="ab-pbijl @(nb > 0 ? "heeft" : "") @(_bijlagenOpen == p.Id ? "open" : "")" type="button"
+                                title="@(nb > 0 ? $"{nb} bijlage(n): plaatjes en bestanden" : "Plaatje of bestand toevoegen")"
+                                @onclick="() => WisselBijlagen(p.Id)">📎@(nb > 0 ? nb.ToString() : "")</button>
                         <span class="ab-ptel"><b>@t.Open</b> open · @t.Klaar klaar</span>
-                        <button class="ab-pdel" type="button" title="Probleem verwijderen" aria-label="@(p.Naam + " verwijderen")"
+                        <button class="ab-pdel" type="button" title="Onderwerp verwijderen" aria-label="@(p.Naam + " verwijderen")"
                                 @onclick="() => VerwijderProbleem(p)">×</button>
                     </li>
+                    @if (_bijlagenOpen == p.Id)
+                    {
+                        @* geen ab-prob: het slepen (activityboard.js) slaat deze regel over *@
+                        <li class="ab-prob-bijlagen" @key='("bijl", p.Id)' @ref="_bijlagenVak" tabindex="-1">
+                            <div class="ab-bijl-lijst">
+                                @foreach (var bst in _bijlagen.GetValueOrDefault(p.Id) ?? new())
+                                {
+                                    <span class="ab-bijl" @key="bst.FileStoreId">
+                                        @if (IsPlaatje(bst.Bestandsnaam))
+                                        {
+                                            <a href="@($"bestand/{bst.FileStoreId}")" target="_blank" rel="noopener" title="@bst.Bestandsnaam">
+                                                <img src="@($"bestand/{bst.FileStoreId}")" alt="@bst.Bestandsnaam" loading="lazy" /></a>
+                                        }
+                                        else
+                                        {
+                                            <a class="ab-bijl-bestand" href="@($"bestand/{bst.FileStoreId}")" target="_blank" rel="noopener">📄 @bst.Bestandsnaam</a>
+                                        }
+                                        <button class="ab-bijl-weg" type="button" title="Bijlage verwijderen" @onclick="() => WisBijlage(p, bst)">×</button>
+                                    </span>
+                                }
+                            </div>
+                            <div class="ab-bijl-toevoegen">
+                                <span>📷 Plaatje: <b>Win+Shift+S</b>, dan <b>Ctrl+V</b> hier, of</span>
+                                <label class="ab-btn klein">bestand kiezen…<InputFile OnChange="e => BijlagenGekozen(p, e)" multiple style="display:none" /></label>
+                                @if (_bijlBezig) { <span class="ab-muted">opslaan…</span> }
+                            </div>
+                        </li>
+                    }
                 }
             </ol>
             <div class="ab-padd">
-                <input id="ab-probnieuw" placeholder="Nieuw probleem toevoegen…" aria-label="Nieuw probleem" autocomplete="off"
+                <input id="ab-probnieuw" placeholder="Nieuw onderwerp toevoegen…" aria-label="Nieuw onderwerp" autocomplete="off"
                        value="@_nieuwProbleem" @oninput="e => _nieuwProbleem = (string?)e.Value ?? string.Empty"
                        @onkeydown="ProbNieuwToets" />
                 <button class="ab-btn klein" type="button" @onclick="VoegProbleemToe">Toevoegen</button>
@@ -205,14 +262,14 @@ else
         }
         <button class="ab-btn primair klein" type="button" @onclick="NieuweActiviteit">+ Activiteit</button>
         <div class="ab-filters">
-            <select class="@(_fProb.Length > 0 ? "aan" : "")" value="@_fProb" aria-label="Filter probleem"
+            <select class="@(_fProb.Length > 0 ? "aan" : "")" value="@_fProb" aria-label="Filter onderwerp"
                     @onchange="e => _fProb = (string?)e.Value ?? string.Empty">
-                <option value="">Probleem: alle</option>
+                <option value="">Onderwerp: alle</option>
                 @for (var i = 0; i < _data.Problemen.Count; i++)
                 {
                     <option value="@_data.Problemen[i].Id">@(i + 1). @_data.Problemen[i].Naam</option>
                 }
-                <option value="geen">Geen probleem</option>
+                <option value="geen">Geen onderwerp</option>
             </select>
             <select class="@(_fWie.Length > 0 ? "aan" : "")" value="@_fWie" aria-label="Filter toegewezen aan"
                     @onchange="e => _fWie = (string?)e.Value ?? string.Empty">
@@ -251,7 +308,7 @@ else
 
         @if (_data.Activiteiten.Count == 0)
         {
-            <div class="ab-melding"><b>Dit board is nog leeg.</b> Zet eerst de problemen hierboven op volgorde van prioriteit.
+            <div class="ab-melding"><b>Dit board is nog leeg.</b> Zet eerst de onderwerpen hierboven op volgorde van prioriteit.
                 Maak daarna activiteiten aan met <b>+ Activiteit</b>, of beweeg met de muis over een vak en kies <b>+ Nieuwe activiteit</b>.</div>
         }
         <div id="ab-wrap">
@@ -276,7 +333,7 @@ else
                             }
                             else
                             {
-                                <span class="ab-geenp">Geen probleem</span>
+                                <span class="ab-geenp">Geen onderwerp</span>
                             }
                             <span class="ab-count">@n</span>
                         </span>
@@ -406,12 +463,12 @@ else
                     }
                 </div>
 
-                <div class="ab-lab">Problemen</div>
+                <div class="ab-lab">Onderwerpen</div>
                 <div>
                     <div class="ab-kiezer">
                         @if (_data.Problemen.Count == 0)
                         {
-                            <span class="ab-ro ab-muted">Nog geen problemen. Voeg ze toe in de lijst bovenin.</span>
+                            <span class="ab-ro ab-muted">Nog geen onderwerpen. Voeg ze toe in de lijst bovenin.</span>
                         }
                         @for (var i = 0; i < _data.Problemen.Count; i++)
                         {
@@ -423,7 +480,7 @@ else
                             </button>
                         }
                     </div>
-                    <p class="ab-hint">Een activiteit kan meerdere problemen oplossen. De kaart staat in de baan van het probleem met de
+                    <p class="ab-hint">Een activiteit kan bij meerdere onderwerpen horen. De kaart staat in de baan van het onderwerp met de
                         hoogste prioriteit. De lijst beheer je bovenin.</p>
                 </div>
 
@@ -475,12 +532,12 @@ else
         <div class="ab-mbox ab-koppel" role="dialog" aria-modal="true">
             <h3>Board koppelen</h3>
             <p>Nu: <b>@ActBoardSoort.Naam(_data.Board.Soort)</b>@(_data.Board.Soort == ActBoardSoort.Vrij ? "" : " · " + _data.Board.StandaardTitel).
-                Kies een project of klant; alle problemen, types en activiteiten gaan mee. Eén board per project en per klant.</p>
+                Kies een project, werkorder of klant; alle onderwerpen, types en activiteiten gaan mee. Eén board per project, per werkorder en per klant.</p>
             @ZoekVak(koppelen: true)
             <div class="ab-mknop">
                 @if (_data.Board.Soort != ActBoardSoort.Vrij)
                 {
-                    <button class="ab-btn klein" type="button" @onclick="Losmaken" title="Geen project of klant meer; het board houdt zijn naam">Losmaken (vrij board)</button>
+                    <button class="ab-btn klein" type="button" @onclick="Losmaken" title="Geen project, werkorder of klant meer; het board houdt zijn naam">Losmaken (vrij board)</button>
                 }
                 <span style="flex:1"></span>
                 <button class="ab-btn klein" type="button" id="ab-knee" @onclick="() => _koppelOpen = false">Sluiten</button>
@@ -517,9 +574,10 @@ else
     // startscherm en koppelen: zoeken naar een project of klant, of een naam voor een vrij board
     private List<ActBoardRegel>? _boards;
     private bool _soorten;                                  // ActivityBoard_Soorten_MariaDB.sql uitgevoerd
+    private bool _metWerkorder;                             // ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd
     private string _boardSoort = "";                        // filter op het startscherm
     private static readonly (string Code, string Naam)[] SoortFilters =
-        { ("", "Alle"), (ActBoardSoort.Project, "Project"), (ActBoardSoort.Klant, "Klant"), (ActBoardSoort.Vrij, "Vrij") };
+        { ("", "Alle"), (ActBoardSoort.Project, "Project"), (ActBoardSoort.Werkorder, "Werkorder"), (ActBoardSoort.Klant, "Klant"), (ActBoardSoort.Vrij, "Vrij") };
     private string _zoekSoort = ActBoardSoort.Project;
     private string _zoek = "";
     private bool _zoekt;
@@ -566,6 +624,7 @@ else
         _tabellen ??= await Repo.TabellenAanwezigAsync();
         if (_tabellen != true) return;
         _soorten = await Repo.SoortenAanwezigAsync();
+        _metWerkorder = _soorten && await Repo.WerkorderAanwezigAsync();
 
         if (BoardId is null)
         {
@@ -586,6 +645,7 @@ else
             }
             _data = await Repo.LaadAsync(BoardId.Value);
             if (_data is null) _laadFout = "Dit board bestaat niet (meer).";
+            else await LaadBijlagen();
         }
         catch (Exception ex) { _data = null; _laadFout = "Laden mislukt: " + ex.Message; }
     }
@@ -597,6 +657,15 @@ else
             _zelf = DotNetObjectReference.Create(this);
             try { await JS.InvokeVoidAsync("mdeAb.koppel", _zelf); } catch { }
         }
+        if (!_weergaveGelezen)
+        {
+            _weergaveGelezen = true;
+            try
+            {
+                if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-weergave") == "lijst") { _boom = false; StateHasChanged(); }
+            }
+            catch { }
+        }
         if (_focusNa is { } f)
         {
             _focusNa = null;
@@ -607,6 +676,110 @@ else
             _focusKaart = null;
             try { await JS.InvokeVoidAsync("mdeAb.focus", k); } catch { }
         }
+        if (_koppelPlakken && _bijlagenOpen is not null && _zelf is not null)
+        {
+            // Ctrl+V met een plaatje in de uitgeklapte bijlagen (zelfde opzet als het lampje: mdeKlembord in klembord.js)
+            _koppelPlakken = false;
+            try { await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _bijlagenVak, _zelf); } catch { }
+            try { await _bijlagenVak.FocusAsync(); } catch { }
+        }
+    }
+
+    // ================================================================ bijlagen bij een onderwerp
+    // Plaatjes en bestanden (wens gebruiker 24-10-2026): filestore-soort 342, MasterID = het onderwerp (ProbleemID).
+    // Meteen opgeslagen; FileStoreType 342 komt uit ActivityBoard_Werkorder_Bijlagen_MariaDB.sql.
+    private const int StoreTypeOnderwerp = 342;
+    private const long MaxBijlage = 20_000_000;
+    private Dictionary<int, List<Bestand>> _bijlagen = new();
+    private int? _bijlagenOpen;
+    private ElementReference _bijlagenVak;
+    private bool _koppelPlakken, _bijlBezig;
+
+    private async Task LaadBijlagen()
+    {
+        if (_data is null || !Bestanden.Beschikbaar) { _bijlagen = new(); return; }
+        var uit = new Dictionary<int, List<Bestand>>();
+        foreach (var p in _data.Problemen)
+        {
+            try { uit[p.Id] = await Bestanden.GetBestandenAsync(StoreTypeOnderwerp, p.Id); }
+            catch { uit[p.Id] = new(); }
+        }
+        _bijlagen = uit;
+    }
+
+    private void WisselBijlagen(int id)
+    {
+        _bijlagenOpen = _bijlagenOpen == id ? null : id;
+        _koppelPlakken = _bijlagenOpen is not null;
+    }
+
+    private static bool IsPlaatje(string naam)
+        => Path.GetExtension(naam).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp";
+
+    private async Task BijlagenGekozen(ActProbleem p, InputFileChangeEventArgs e)
+    {
+        foreach (var f in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                await using var s = f.OpenReadStream(maxAllowedSize: MaxBijlage);
+                using var m = new MemoryStream();
+                await s.CopyToAsync(m);
+                await BewaarBijlage(p.Id, m.ToArray(), f.Name);
+            }
+            catch (Exception ex) { Toon($"{f.Name} toevoegen mislukt: {ex.GetBaseException().Message}", fout: true); }
+        }
+    }
+
+    private async Task BewaarBijlage(int probleemId, byte[] inhoud, string naam)
+    {
+        _bijlBezig = true;
+        try
+        {
+            using var m = new MemoryStream(inhoud);
+            await Store.ToevoegenAsync(m, naam, StoreTypeOnderwerp, probleemId, Ik.WerknemerId ?? 0);
+            _bijlagen[probleemId] = await Bestanden.GetBestandenAsync(StoreTypeOnderwerp, probleemId);
+            Toon($"Bijlage ‘{naam}’ toegevoegd");
+        }
+        catch (Exception ex)
+        {
+            Toon("Bijlage opslaan mislukt: " + ex.GetBaseException().Message
+                 + " (is ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd?)", fout: true);
+        }
+        finally { _bijlBezig = false; }
+    }
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        if (_bijlagenOpen is not int id) return;
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: MaxBijlage);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            var ext = soort.ToLowerInvariant() switch { "image/jpeg" or "image/jpg" => ".jpg", "image/gif" => ".gif", "image/webp" => ".webp", _ => ".png" };
+            await InvokeAsync(async () => { await BewaarBijlage(id, m.ToArray(), $"plaatje {DateTime.Now:yyyy-MM-dd HHmmss}{ext}"); StateHasChanged(); });
+        }
+        catch (Exception ex) { Toon("Plakken mislukt: " + ex.Message, fout: true); await InvokeAsync(StateHasChanged); }
+    }
+
+    /// <summary>Gewone tekst geplakt: niets aan de hand.</summary>
+    [JSInvokable]
+    public Task GeenAfbeelding() => Task.CompletedTask;
+
+    private async Task WisBijlage(ActProbleem p, Bestand b)
+    {
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Bijlage ‘{b.Bestandsnaam}’ bij ‘{p.Naam}’ verwijderen?")) return;
+        try
+        {
+            await Store.VerwijderAsync(b.FileStoreId);
+            _bijlagen[p.Id] = await Bestanden.GetBestandenAsync(StoreTypeOnderwerp, p.Id);
+            Toon("Bijlage verwijderd");
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, fout: true); }
     }
     private string? _focusNa;
     private int? _focusKaart;
@@ -627,12 +800,158 @@ else
     private IEnumerable<ActBoardRegel> BoardsGefilterd
         => (_boards ?? new()).Where(b => _boardSoort.Length == 0 || b.Soort == _boardSoort);
 
+    // ---- boom op het startscherm ----
+    private bool _boom = true;                   // onthouden per pc (mdeOpslag "ab-weergave")
+    private string _boomZoek = "";
+    private readonly HashSet<string> _boomOpen = new();
+    private bool _weergaveGelezen;
+
+    private sealed class BoomKnoop
+    {
+        public string Sleutel = "", Soort = "", Label = "", Sub = "";
+        public ActBoardRegel? Board;
+        public List<BoomKnoop> Kinderen = new();
+        public IEnumerable<ActBoardRegel> AlleBoards() => (Board is null ? Enumerable.Empty<ActBoardRegel>() : new[] { Board })
+            .Concat(Kinderen.SelectMany(k => k.AlleBoards()));
+    }
+
+    private async Task ZetBoom(bool boom)
+    {
+        _boom = boom;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "ab-weergave", boom ? "boom" : "lijst"); } catch { }
+    }
+
+    private void AllesUit()
+    {
+        void Open(BoomKnoop k) { if (k.Kinderen.Count > 0) _boomOpen.Add(k.Sleutel); k.Kinderen.ForEach(Open); }
+        Boom().ForEach(Open);
+    }
+
+    /// <summary>De boom uit de (gefilterde) boards; alleen takken met een board, en bij zoeken alleen wat past.</summary>
+    private List<BoomKnoop> Boom()
+    {
+        var knopen = new Dictionary<string, BoomKnoop>();
+        var wortels = new List<BoomKnoop>();
+        BoomKnoop Haal(string sleutel, string soort, string label, string sub, BoomKnoop? ouder)
+        {
+            if (!knopen.TryGetValue(sleutel, out var k))
+            {
+                k = knopen[sleutel] = new BoomKnoop { Sleutel = sleutel, Soort = soort, Label = label, Sub = sub };
+                (ouder?.Kinderen ?? wortels).Add(k);
+            }
+            return k;
+        }
+        BoomKnoop KlantKnoop(int? id, string naam) => id is int k
+            ? Haal($"k{k}", ActBoardSoort.Klant, naam.Length > 0 ? naam : $"Klant #{k}", "", null)
+            : Haal("k-", "groep", "Zonder klant", "", null);
+
+        foreach (var b in BoardsGefilterd)
+        {
+            switch (b.Soort)
+            {
+                case ActBoardSoort.Klant:
+                    KlantKnoop(b.RelatieId, b.RelatieNaam).Board = b;
+                    break;
+                case ActBoardSoort.Project:
+                    Haal($"p{b.ProjectId}", ActBoardSoort.Project, $"{b.ProjectNummer}", b.ProjectNaam, KlantKnoop(b.KlantId, b.KlantNaam)).Board = b;
+                    break;
+                case ActBoardSoort.Werkorder:
+                {
+                    var ouder = b.HoofdProjectId is int hp
+                        ? Haal($"p{hp}", ActBoardSoort.Project, $"{b.HoofdProjectNummer}", b.HoofdProjectNaam, KlantKnoop(b.KlantId, b.KlantNaam))
+                        : KlantKnoop(b.KlantId, b.KlantNaam);
+                    if (b.OuderWerkorderId is int ow)
+                        ouder = Haal($"w{ow}", ActBoardSoort.Werkorder, b.OuderWerkorderNummer, b.OuderWerkorderNaam, ouder);
+                    Haal($"w{b.WerkorderId}", ActBoardSoort.Werkorder, b.WerkorderNummer, b.WerkorderNaam, ouder).Board = b;
+                    break;
+                }
+                default:
+                    Haal($"b{b.BoardId}", ActBoardSoort.Vrij, b.Titel, "", Haal("vrij", "groep", "Vrije boards", "", null)).Board = b;
+                    break;
+            }
+        }
+
+        // zoeken: een knoop blijft als hij zelf past of iets eronder past; past hij zelf, dan alles eronder
+        var woorden = _boomZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        bool Past(BoomKnoop k) => woorden.All(w => $"{k.Label} {k.Sub} {k.Board?.Titel}".Contains(w, StringComparison.OrdinalIgnoreCase));
+        List<BoomKnoop> Filter(List<BoomKnoop> lijst) => lijst
+            .Select(k => Past(k) ? k : new BoomKnoop { Sleutel = k.Sleutel, Soort = k.Soort, Label = k.Label, Sub = k.Sub, Board = k.Board, Kinderen = Filter(k.Kinderen) })
+            .Where(k => Past(k) || k.Kinderen.Count > 0).ToList();
+        var uit = woorden.Length == 0 ? wortels : Filter(wortels);
+
+        // volgorde: klanten op naam (zonder klant en vrije boards achteraan), projecten nieuwste eerst, werkorders op nummer
+        void Sorteer(List<BoomKnoop> l)
+        {
+            l.Sort((a, b) =>
+            {
+                int Rang(BoomKnoop k) => k.Sleutel == "vrij" ? 3 : k.Sleutel == "k-" ? 2 : 1;
+                var r = Rang(a).CompareTo(Rang(b));
+                if (r != 0) return r;
+                if (a.Soort == ActBoardSoort.Project && b.Soort == ActBoardSoort.Project)
+                    return string.Compare(b.Label, a.Label, StringComparison.OrdinalIgnoreCase);
+                return string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase);
+            });
+            l.ForEach(k => Sorteer(k.Kinderen));
+        }
+        Sorteer(uit);
+        return uit;
+    }
+
+    /// <summary>Eén regel van de boom met zijn kinderen; uitgeklapt als hij open staat of als er gezocht wordt.</summary>
+    private RenderFragment Knoop(BoomKnoop k, int diepte) => __builder =>
+    {
+        var open = _boomZoek.Trim().Length > 0 || _boomOpen.Contains(k.Sleutel);
+        var boards = k.AlleBoards().ToList();
+        var eigen = k.Board;
+        <li class="ab-boomknoop" @key="k.Sleutel">
+            <div class="ab-boomregel @(eigen is not null ? "met-board" : "")" style="padding-left:@((diepte * 1.25 + .3).ToString(System.Globalization.CultureInfo.InvariantCulture))rem">
+                @if (k.Kinderen.Count > 0)
+                {
+                    <button type="button" class="ab-boomcaret @(open ? "open" : "")" aria-label="@(open ? "Inklappen" : "Uitklappen")"
+                            @onclick="() => { if (!_boomOpen.Remove(k.Sleutel)) _boomOpen.Add(k.Sleutel); }">▸</button>
+                }
+                else
+                {
+                    <span class="ab-boomcaret leeg"></span>
+                }
+                @if (k.Soort != "groep") { <span class="ab-soort ab-soort-@k.Soort">@ActBoardSoort.Naam(k.Soort)</span> }
+                @if (eigen is not null)
+                {
+                    <button type="button" class="ab-boomnaam link" title="Board openen" @onclick="() => NaarBoard(eigen.BoardId)">
+                        <b>@k.Label</b>@if (k.Sub.Length > 0) { <span> · @k.Sub</span> }@if (eigen.Naam.Length > 0 && eigen.Soort != ActBoardSoort.Vrij) { <small class="ab-muted"> (@eigen.Naam)</small> }
+                    </button>
+                    <span class="ab-boomtel">@eigen.Open open · @eigen.Klaar klaar</span>
+                }
+                else
+                {
+                    <span class="ab-boomnaam ab-boomgroep" @onclick="() => { if (!_boomOpen.Remove(k.Sleutel)) _boomOpen.Add(k.Sleutel); }">
+                        <b>@k.Label</b>@if (k.Sub.Length > 0) { <span> · @k.Sub</span> }
+                    </span>
+                }
+                @if (k.Kinderen.Count > 0)
+                {
+                    <span class="ab-muted ab-boomsom">@boards.Count board@(boards.Count == 1 ? "" : "s") · @boards.Sum(x => x.Open) open</span>
+                }
+            </div>
+            @if (open && k.Kinderen.Count > 0)
+            {
+                <ul class="ab-boom">
+                    @foreach (var kind in k.Kinderen) { @Knoop(kind, diepte + 1) }
+                </ul>
+            }
+        </li>
+    };
+
     /// <summary>Zoeken naar een project of klant, of een naam voor een vrij board; op het startscherm of bij Koppelen.</summary>
     private RenderFragment ZoekVak(bool koppelen) => @<div class="ab-zoekvak">
         @if (_soorten)
         {
             <div class="ab-soortkeuze">
                 <button type="button" class="ab-vtab @(_zoekSoort == ActBoardSoort.Project ? "actief" : "")" @onclick="() => KiesZoekSoort(ActBoardSoort.Project)">Project</button>
+                @if (_metWerkorder)
+                {
+                    <button type="button" class="ab-vtab @(_zoekSoort == ActBoardSoort.Werkorder ? "actief" : "")" @onclick="() => KiesZoekSoort(ActBoardSoort.Werkorder)">Werkorder</button>
+                }
                 <button type="button" class="ab-vtab @(_zoekSoort == ActBoardSoort.Klant ? "actief" : "")" @onclick="() => KiesZoekSoort(ActBoardSoort.Klant)">Klant</button>
                 @if (!koppelen)
                 {
@@ -651,7 +970,7 @@ else
         else
         {
             <div class="ab-padd ab-vrij">
-                <input id="ab-zoek" placeholder="@(_zoekSoort == ActBoardSoort.Klant ? "Naam van de klant…" : "Projectnummer of omschrijving…")"
+                <input id="ab-zoek" placeholder="@(_zoekSoort == ActBoardSoort.Klant ? "Naam van de klant…" : _zoekSoort == ActBoardSoort.Werkorder ? "Werkordernummer, omschrijving of klant…" : "Projectnummer of omschrijving…")"
                        value="@_zoek" autocomplete="off" aria-label="Zoeken" @oninput="ZoekGewijzigd" />
             </div>
             @if (_treffers.Count > 0)
@@ -667,7 +986,7 @@ else
             }
             else if (_zoek.Trim().Length >= 2 && !_zoekt)
             {
-                <p class="ab-leeg">@(_zoekSoort == ActBoardSoort.Klant ? "Geen klant gevonden." : "Geen project gevonden.")</p>
+                <p class="ab-leeg">@(_zoekSoort == ActBoardSoort.Klant ? "Geen klant gevonden." : _zoekSoort == ActBoardSoort.Werkorder ? "Geen werkorder gevonden." : "Geen project gevonden.")</p>
             }
         }
     </div>;
@@ -696,6 +1015,9 @@ else
             await Task.Delay(250, stop.Token);
             List<Treffer> gevonden = soort == ActBoardSoort.Klant
                 ? (await Relaties.ZoekAsync(q, alleenKlanten: true, alleenLeveranciers: false, 0, 15)).Select(k => new Treffer(k.Id, "", k.Naam)).ToList()
+                : soort == ActBoardSoort.Werkorder
+                ? (await Uren.ZoekWerkordersAsync(q, alleenOpen: false, 15))
+                    .Select(w => new Treffer(w.WerkbonId, w.Nummer, w.Omschrijving + (w.Klant.Length > 0 ? " · " + w.Klant : ""))).ToList()
                 : (await Projecten.ZoekProjectenAsync(null, q, null, 0, 15)).Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving)).ToList();
             if (!stop.IsCancellationRequested) _treffers = gevonden;
         }
@@ -707,12 +1029,17 @@ else
     /// <summary>Een treffer gekozen: het board van dat project of die klant openen (of maken), of dit board eraan koppelen.</summary>
     private async Task Gekozen(int id, bool koppelen)
     {
-        if (koppelen) { await Koppel(_zoekSoort == ActBoardSoort.Klant ? null : id, _zoekSoort == ActBoardSoort.Klant ? id : null); return; }
+        if (koppelen)
+        {
+            await Koppel(_zoekSoort == ActBoardSoort.Project ? id : null, _zoekSoort == ActBoardSoort.Klant ? id : null,
+                         _zoekSoort == ActBoardSoort.Werkorder ? id : null);
+            return;
+        }
         try
         {
-            var board = _zoekSoort == ActBoardSoort.Klant
-                ? await Repo.ZorgVoorKlantBoardAsync(id, Ik.WerknemerId)
-                : await Repo.ZorgVoorBoardAsync(id, Ik.WerknemerId);
+            var board = _zoekSoort == ActBoardSoort.Klant ? await Repo.ZorgVoorKlantBoardAsync(id, Ik.WerknemerId)
+                      : _zoekSoort == ActBoardSoort.Werkorder ? await Repo.ZorgVoorWerkorderBoardAsync(id, Ik.WerknemerId)
+                      : await Repo.ZorgVoorBoardAsync(id, Ik.WerknemerId);
             _zoek = ""; _treffers = new();
             Nav.NavigateTo($"activityboard/{board}");
         }
@@ -751,29 +1078,30 @@ else
         if (!await Bewaar(() => Repo.HernoemBoardAsync(_data.Board.Id, naam))) return;
         _data.Board = _data.Board with { Naam = naam };
         _bordNaamVersie++;
-        Toon(naam.Length > 0 ? "Board hernoemd" : "Board heet weer naar " + (_data.Board.Soort == ActBoardSoort.Klant ? "de klant" : "het project"));
+        Toon(naam.Length > 0 ? "Board hernoemd" : "Board heet weer naar " + (_data.Board.Soort == ActBoardSoort.Klant ? "de klant"
+             : _data.Board.Soort == ActBoardSoort.Werkorder ? "de werkorder" : "het project"));
     }
 
     private void OpenKoppel()
     {
         _koppelOpen = true;
-        _zoekSoort = _data?.Board.Soort == ActBoardSoort.Klant ? ActBoardSoort.Klant : ActBoardSoort.Project;
+        _zoekSoort = _data?.Board.Soort is ActBoardSoort.Klant or ActBoardSoort.Werkorder ? _data.Board.Soort : ActBoardSoort.Project;
         _zoek = ""; _treffers = new();
         _focusNa = "#ab-zoek";
     }
 
     private void KoppelToets(KeyboardEventArgs e) { if (e.Key == "Escape") _koppelOpen = false; }
 
-    private async Task Koppel(int? projectId, int? relatieId)
+    private async Task Koppel(int? projectId, int? relatieId, int? werkorderId = null)
     {
         if (_data is null) return;
         string? fout = null;
-        if (!await Bewaar(async () => fout = await Repo.KoppelBoardAsync(_data.Board.Id, projectId, relatieId))) return;
+        if (!await Bewaar(async () => fout = await Repo.KoppelBoardAsync(_data.Board.Id, projectId, relatieId, werkorderId))) return;
         if (fout is not null) { Toon(fout, fout: true); return; }
         _koppelOpen = false;
         await HerlaadAsync();
         _bordNaamVersie++;
-        Toon("Board gekoppeld aan " + (projectId is not null ? "project " : "klant ") + _data?.Board.StandaardTitel);
+        Toon("Board gekoppeld aan " + (werkorderId is not null ? "werkorder " : projectId is not null ? "project " : "klant ") + _data?.Board.StandaardTitel);
     }
 
     /// <summary>Geen project of klant meer. Zonder eigen naam krijgt het board de naam die het nu toont.</summary>
@@ -808,6 +1136,7 @@ else
             var vers = await Repo.LaadAsync(_data.Board.Id);
             if (vers is null) { _data = null; _laadFout = "Dit board is verwijderd."; _open = null; return; }
             _data = vers;
+            await LaadBijlagen();
             if (_open is { Id: > 0 } o)
             {
                 var a = vers.Activiteiten.FirstOrDefault(x => x.Id == o.Id);
@@ -987,7 +1316,7 @@ else
     private static readonly Dictionary<string, string> KolomNaam = new()
     {
         ["titel"] = "Activiteit", ["wie"] = "Toegewezen aan", ["status"] = "Status", ["type"] = "Type", ["prio"] = "Prioriteit",
-        ["gemaakt"] = "Gemaakt op", ["verval"] = "Vervaldatum", ["dagen"] = "Dagen open", ["prob"] = "Problemen",
+        ["gemaakt"] = "Gemaakt op", ["verval"] = "Vervaldatum", ["dagen"] = "Dagen open", ["prob"] = "Onderwerpen",
     };
 
     private RenderFragment TabelWeergave(Dictionary<int, int> idx) => @<text>
@@ -1063,16 +1392,16 @@ else
     {
         if (_data is null) return;
         var naam = _nieuwProbleem.Trim();
-        if (naam.Length == 0) { Toon("Typ eerst de naam van het probleem", fout: true); _focusNa = "#ab-probnieuw"; return; }
+        if (naam.Length == 0) { Toon("Typ eerst de naam van het onderwerp", fout: true); _focusNa = "#ab-probnieuw"; return; }
         if (_data.Problemen.Any(p => p.Naam.Equals(naam, StringComparison.OrdinalIgnoreCase)))
-        { Toon("Dit probleem staat al in de lijst", fout: true); _focusNa = "#ab-probnieuw"; return; }
+        { Toon("Dit onderwerp staat al in de lijst", fout: true); _focusNa = "#ab-probnieuw"; return; }
         var kleur = ActKleur.Volgende(ActKleur.Problemen, _data.Problemen.Select(p => p.Kleur), _data.Problemen.Count);
         var p = new ActProbleem { Naam = naam, Kleur = kleur, Positie = _data.Problemen.Count + 1 };
         if (!await Bewaar(async () => p.Id = await Repo.VoegProbleemToeAsync(_data.Board.Id, naam, kleur))) return;
         _data.Problemen.Add(p);
         _nieuwProbleem = "";
         _focusNa = "#ab-probnieuw";
-        Toon($"Probleem toegevoegd met prioriteit {_data.Problemen.Count}. Sleep het omhoog als het belangrijker is.");
+        Toon($"Onderwerp toegevoegd met prioriteit {_data.Problemen.Count}. Sleep het omhoog als het belangrijker is.");
     }
 
     private async Task HernoemProbleem(ActProbleem p, ChangeEventArgs e)
@@ -1080,12 +1409,12 @@ else
         if (_data is null) return;
         var naam = ((string?)e.Value ?? "").Trim();
         if (naam == p.Naam) { _versie++; return; }
-        if (naam.Length == 0) { _versie++; Toon("Een probleem heeft een naam nodig", fout: true); return; }
+        if (naam.Length == 0) { _versie++; Toon("Een onderwerp heeft een naam nodig", fout: true); return; }
         if (_data.Problemen.Any(x => x != p && x.Naam.Equals(naam, StringComparison.OrdinalIgnoreCase)))
         { _versie++; Toon("Deze naam bestaat al", fout: true); return; }
         if (!await Bewaar(() => Repo.HernoemProbleemAsync(p.Id, naam))) return;
         p.Naam = naam;
-        Toon("Probleem hernoemd. Overal bijgewerkt.");
+        Toon("Onderwerp hernoemd. Overal bijgewerkt.");
     }
 
     private async Task VerwijderProbleem(ActProbleem p)
@@ -1093,7 +1422,7 @@ else
         if (_data is null) return;
         var n = _data.Activiteiten.Count(a => a.Problemen.Contains(p.Id));
         if (n == 0) { await DoeVerwijderProbleem(p); return; }
-        _modal = new Modal("Probleem verwijderen?",
+        _modal = new Modal("Onderwerp verwijderen?",
             $"\"{p.Naam}\" is gekoppeld aan {n} activiteit{(n == 1 ? "" : "en")}. Die blijven bestaan; alleen de koppeling verdwijnt.",
             "Verwijderen", () => DoeVerwijderProbleem(p));
         _focusNa = "#ab-mnee";
@@ -1109,7 +1438,7 @@ else
         _dicht.Remove(p.Id.ToString());
         await HerlaadVolgorde();
         ValideerFilters();
-        Toon($"Probleem \"{p.Naam}\" verwijderd");
+        Toon($"Onderwerp \"{p.Naam}\" verwijderd");
         StateHasChanged();
     }
 
@@ -1281,18 +1610,18 @@ else
         if (nieuweStatus != oudeStatus) { ZetStatus(a, nieuweStatus); meldingen.Add("Status: " + ActStatus.Naam(nieuweStatus)); }
         if (nieuweLane != oudeLane)
         {
-            if (nieuweLane == "geen") { a.Problemen.Clear(); meldingen.Add("Koppeling met problemen verwijderd"); }
+            if (nieuweLane == "geen") { a.Problemen.Clear(); meldingen.Add("Koppeling met onderwerpen verwijderd"); }
             else
             {
                 var nl = int.Parse(nieuweLane);
                 if (oudeLane != "geen") a.Problemen.Remove(int.Parse(oudeLane));
                 if (!a.Problemen.Contains(nl)) a.Problemen.Add(nl);
-                meldingen.Add($"Probleem: {(oudeLane == "geen" ? "geen" : ProbNaam(int.Parse(oudeLane)))} → {ProbNaam(nl)}");
+                meldingen.Add($"Onderwerp: {(oudeLane == "geen" ? "geen" : ProbNaam(int.Parse(oudeLane)))} → {ProbNaam(nl)}");
             }
         }
         var echt = Lane(a, idx);
         if (nieuweLane != "geen" && echt != nieuweLane)
-            meldingen.Add($"staat bij \"{ProbNaam(int.Parse(echt))}\" omdat dat gekoppelde probleem een hogere prioriteit heeft");
+            meldingen.Add($"staat bij \"{ProbNaam(int.Parse(echt))}\" omdat dat gekoppelde onderwerp een hogere prioriteit heeft");
         // het doelvak opnieuw nummeren, zodat gelijke waarden nooit blijven hangen
         var lijst = CelVan(echt, a.Status, a);
         lijst.Insert(echt == nieuweLane ? Plaats(lijst) : lijst.Count, a);
@@ -1498,7 +1827,7 @@ else
     {
         if (_data is null) return;
         var idx = ProbIndex();
-        var kop = new[] { "Board", "Activiteit", "Status", "Prioriteit", "Type", "Problemen (op prioriteit)", "Baan op bord",
+        var kop = new[] { "Board", "Activiteit", "Status", "Prioriteit", "Type", "Onderwerpen (op prioriteit)", "Baan op bord",
                           "Toegewezen aan", "Vervaldatum", "Gemaakt op", "Dagen open" };
         var regels = new List<string> { string.Join(";", kop.Select(CsvVeld)) };
         foreach (var a in _data.Activiteiten.OrderByDescending(x => x.GemaaktOp))
@@ -1509,7 +1838,7 @@ else
                 _data.Board.Titel, a.Titel, ActStatus.Naam(a.Status), ActPrioriteit.Naam(a.Prioriteit),
                 string.Join(", ", a.Types.Select(t => _data.Types.FirstOrDefault(x => x.Id == t)?.Naam).Where(n => n is not null)),
                 string.Join(", ", ProblemenGesorteerd(a, idx).Select(id => $"{idx[id] + 1}. {ProbNaam(id)}")),
-                lane == "geen" ? "Geen probleem" : ProbNaam(int.Parse(lane)),
+                lane == "geen" ? "Geen onderwerp" : ProbNaam(int.Parse(lane)),
                 string.Join(", ", a.Personen.Where(_persoonOpId.ContainsKey).Select(p => _persoonOpId[p].Naam)),
                 a.Vervaldatum?.ToString("dd-MM-yyyy") ?? "", a.GemaaktOp.ToString("dd-MM-yyyy"), a.DagenOpen?.ToString() ?? "",
             }.Select(CsvVeld)));

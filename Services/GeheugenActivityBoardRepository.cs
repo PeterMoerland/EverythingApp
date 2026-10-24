@@ -10,7 +10,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 {
     private readonly object _slot = new();
     private int _volgend = 100;
-    private sealed class Bord { public int Id; public int? ProjectId; public int? RelatieId; public string Naam = ""; }
+    private sealed class Bord { public int Id; public int? ProjectId; public int? RelatieId; public int? WerkorderId; public string Naam = ""; }
     private readonly List<Bord> _boards = new();
     private readonly List<(int BoardId, ActProbleem P)> _problemen = new();
     private readonly List<(int BoardId, ActType T)> _types = new();
@@ -33,7 +33,15 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
                 b.ProjectId is null ? "" : $"Testproject {b.ProjectId}", b.Naam,
                 _acts.Count(a => a.BoardId == b.Id && ActStatus.Groep(a.A.Status) != ActStatus.GroepKlaar),
                 _acts.Count(a => a.BoardId == b.Id && ActStatus.Groep(a.A.Status) == ActStatus.GroepKlaar), DateTime.Now,
-                b.RelatieId, b.RelatieId is null ? "" : $"Testklant {b.RelatieId}")).ToList());
+                b.RelatieId, b.RelatieId is null ? "" : $"Testklant {b.RelatieId}",
+                b.WerkorderId, b.WerkorderId is null ? "" : $"WO-{b.WerkorderId}", b.WerkorderId is null ? "" : $"Testwerkorder {b.WerkorderId}")
+            {
+                // nep-hiërarchie om de boom te kunnen bekijken: alles onder Testklant 1, werkorders onder Testproject 500
+                KlantId = b.RelatieId ?? (b.ProjectId is not null || b.WerkorderId is not null ? 1 : null),
+                KlantNaam = b.RelatieId is not null ? $"Testklant {b.RelatieId}" : b.ProjectId is not null || b.WerkorderId is not null ? "Testklant 1" : "",
+                HoofdProjectId = b.WerkorderId is null ? null : 500, HoofdProjectNummer = b.WerkorderId is null ? null : 500,
+                HoofdProjectNaam = b.WerkorderId is null ? "" : "Testproject 500",
+            }).ToList());
     }
 
     public Task<bool> SoortenAanwezigAsync() => Task.FromResult(true);
@@ -60,6 +68,19 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         }
     }
 
+    public Task<bool> WerkorderAanwezigAsync() => Task.FromResult(true);
+
+    public Task<int> ZorgVoorWerkorderBoardAsync(int werkbonId, int? door)
+    {
+        lock (_slot)
+        {
+            if (_boards.FirstOrDefault(x => x.WerkorderId == werkbonId) is { } b) return Task.FromResult(b.Id);
+            var n = new Bord { Id = Nieuw(), WerkorderId = werkbonId };
+            _boards.Add(n);
+            return Task.FromResult(n.Id);
+        }
+    }
+
     public Task<int> NieuwVrijBoardAsync(string naam, int? door)
     {
         lock (_slot) { var n = new Bord { Id = Nieuw(), Naam = naam.Trim() }; _boards.Add(n); return Task.FromResult(n.Id); }
@@ -68,16 +89,24 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     public Task HernoemBoardAsync(int boardId, string naam)
     { lock (_slot) _boards.First(x => x.Id == boardId).Naam = naam.Trim(); return Task.CompletedTask; }
 
-    public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId)
+    public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null)
     {
         lock (_slot)
         {
+            if (werkorderId is not null)
+            {
+                if (_boards.Any(x => x.Id != boardId && x.WerkorderId == werkorderId))
+                    return Task.FromResult<string?>("Deze werkorder heeft al een board.");
+                var w = _boards.First(x => x.Id == boardId);
+                w.WerkorderId = werkorderId; w.ProjectId = null; w.RelatieId = null;
+                return Task.FromResult<string?>(null);
+            }
             if (projectId is not null && _boards.Any(x => x.Id != boardId && x.ProjectId == projectId))
                 return Task.FromResult<string?>("Dit project heeft al een board.");
             if (projectId is null && relatieId is not null && _boards.Any(x => x.Id != boardId && x.RelatieId == relatieId))
                 return Task.FromResult<string?>("Deze klant heeft al een board.");
             var b = _boards.First(x => x.Id == boardId);
-            b.ProjectId = projectId; b.RelatieId = projectId is null ? relatieId : null;
+            b.ProjectId = projectId; b.RelatieId = projectId is null ? relatieId : null; b.WerkorderId = null;
             return Task.FromResult<string?>(null);
         }
     }
@@ -91,7 +120,8 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
             return Task.FromResult<ActBoardData?>(new ActBoardData
             {
                 Board = new ActBoard(b.Id, b.ProjectId, b.ProjectId, b.ProjectId is null ? "" : $"Testproject {b.ProjectId}", b.Naam,
-                                     b.RelatieId, b.RelatieId is null ? "" : $"Testklant {b.RelatieId}"),
+                                     b.RelatieId, b.RelatieId is null ? "" : $"Testklant {b.RelatieId}",
+                                     b.WerkorderId, b.WerkorderId is null ? "" : $"WO-{b.WerkorderId}", b.WerkorderId is null ? "" : $"Testwerkorder {b.WerkorderId}"),
                 Problemen = _problemen.Where(x => x.BoardId == boardId).Select(x => x.P).OrderBy(p => p.Positie)
                     .Select(p => new ActProbleem { Id = p.Id, Naam = p.Naam, Kleur = p.Kleur, Positie = p.Positie }).ToList(),
                 Types = _types.Where(x => x.BoardId == boardId).Select(x => new ActType { Id = x.T.Id, Naam = x.T.Naam, Kleur = x.T.Kleur }).ToList(),

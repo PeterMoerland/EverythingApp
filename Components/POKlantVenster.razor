@@ -1,5 +1,8 @@
 @* Een PO van een klant toevoegen of aanpassen; vervangt "POInkomend toevoegen" en "POInkomend aanpassen"
-   met het subformulier PO_Payments. PoId: 0 = nieuw, een getal = die PO, null = dicht. *@
+   met het subformulier PO_Payments. PoId: 0 = nieuw, een getal = die PO, null = dicht.
+   PDF erin slepen (wens gebruiker 24-10-2026): het documentenvak is een insleepvak; de eerste PDF/afbeelding wordt
+   meteen door AI gelezen (FactuurLezer.LeesPoAsync, Bedrock) en vult alleen lege velden; ✨ bij een document doet het
+   opnieuw. Er wordt niets vanzelf opgeslagen. *@
 @inject IPOKlantRepository Repo
 @inject IRelatieRepository Relaties
 @inject IBestelRepository Bestel
@@ -7,6 +10,7 @@
 @inject FilestoreService Filestore
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject FactuurLezer Lezer
 
 @if (PoId is not null)
 {
@@ -25,6 +29,16 @@
                 @if (!MagInvoeren)
                 {
                     <div class="melding fout">Alleen bekijken: PO's invoeren mag met het recht Financial of Directie.</div>
+                }
+                @if (_leest)
+                {
+                    <div class="po-ai bezig"><span class="draaier"></span> ✨ AI leest de PO: @_leesStatus</div>
+                }
+                else if (_aiUitleg.Count > 0)
+                {
+                    <div class="po-ai" @onclick="() => _aiUitleg.Clear()" title="Klik om te sluiten">
+                        @foreach (var regel in _aiUitleg) { <div>@regel</div> }
+                    </div>
                 }
 
                 <div class="po-tweeluik">
@@ -217,12 +231,23 @@
                         <h3 class="wn-kop">Documenten</h3>
                         @if (MagInvoeren)
                         {
-                            <InputFile OnChange="BestandenGekozen" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.png,.jpg,.jpeg" />
+                            @* het hele vak is de bestandskeuze: erin slepen (de browser zet het bestand in het invoerveld) of klikken *@
+                            <label class="po-insleep @(_sleept ? "actief" : "")" @ondragenter="() => _sleept = true"
+                                   @ondragleave="() => _sleept = false" @ondrop="() => _sleept = false">
+                                <span>📄 Sleep de PO (PDF) hierheen, of klik om te kiezen</span>
+                                <small>Een PDF wordt meteen door AI uitgelezen om lege velden in te vullen.</small>
+                                <InputFile OnChange="BestandenGekozen" multiple class="po-insleep-invoer"
+                                           accept=".pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.png,.jpg,.jpeg" />
+                            </label>
                         }
                         @foreach (var doc in _documenten)
                         {
                             <div class="po-doc @(doc.FileStoreId == _kies ? "actief" : "")">
                                 <button class="link" @onclick="() => _kies = doc.FileStoreId">@doc.Bestandsnaam</button>
+                                @if (MagInvoeren && KanLezen(doc.Bestandsnaam))
+                                {
+                                    <button class="klein" disabled="@_leest" title="Met AI uitlezen en lege velden invullen" @onclick="() => LeesDocument(doc)">✨</button>
+                                }
                                 <a class="knopje" href="@("bestand/" + doc.FileStoreId + "/download")" title="Downloaden">⭳</a>
                                 @if (MagInvoeren) { <button class="klein rood" title="Document wissen" @onclick="() => WisDocument(doc)">✕</button> }
                             </div>
@@ -230,6 +255,10 @@
                         @foreach (var wt in _wachtrij)
                         {
                             <div class="po-doc"><span>@wt.Naam</span> <span class="uitleg">wordt opgeslagen bij Opslaan</span>
+                                @if (KanLezen(wt.Naam))
+                                {
+                                    <button class="klein" disabled="@_leest" title="Met AI uitlezen en lege velden invullen" @onclick="() => LeesUit(wt.Inhoud, wt.Naam)">✨</button>
+                                }
                                 <button class="klein rood" @onclick="() => _wachtrij.Remove(wt)">✕</button></div>
                         }
                         @if (_documenten.Count == 0 && _wachtrij.Count == 0)
@@ -289,6 +318,11 @@
     private record Wachtend(string Naam, byte[] Inhoud);
     private List<Wachtend> _wachtrij = new();
 
+    // ---- PO uitlezen met AI ----
+    private bool _leest, _sleept;
+    private string _leesStatus = "";
+    private List<string> _aiUitleg = new();
+
     private POTermijn? _koppelVoor;
     private List<POFactuurKeuze> _facturen = new();
     private int? _factuurOpen;
@@ -303,6 +337,7 @@
         _geladenVoor = PoId;
         _melding = null; _klantZoek = ""; _klanten = new(); _contacten = new(); _documenten = new();
         _wachtrij = new(); _kies = null; _koppelVoor = null; _gewijzigd = false; _bestaatAl = false;
+        _aiUitleg = new(); _leest = false;
         if (PoId is null) return;
 
         try
@@ -507,7 +542,131 @@
             catch (Exception ex) { fouten.Add($"{f.Name}: {ex.Message}"); }
         }
         if (fouten.Count > 0) Toon(string.Join(" ", fouten), true);
+        // de eerste PDF (of afbeelding) meteen laten uitlezen; vult alleen lege velden
+        var eerste = _wachtrij.FirstOrDefault(w => KanLezen(w.Naam));
+        if (eerste is not null && MagInvoeren && !_leest) await LeesUit(eerste.Inhoud, eerste.Naam);
         if (_po.Id > 0) await UploadWachtrij();          // bestaande PO: meteen opslaan
+    }
+
+    private static bool KanLezen(string naam)
+        => Path.GetExtension(naam).ToLowerInvariant() is ".pdf" or ".png" or ".jpg" or ".jpeg";
+
+    private async Task LeesDocument(Bestand d)
+    {
+        try
+        {
+            if (await Filestore.ZoekAsync(d.FileStoreId) is not { } gevonden) { Toon("Document niet gevonden.", true); return; }
+            await LeesUit(await File.ReadAllBytesAsync(gevonden.Pad), d.Bestandsnaam);
+        }
+        catch (Exception ex) { Toon("Document lezen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>De PO laten uitlezen en wat gevonden is in de LEGE velden zetten; afwijkingen alleen melden.</summary>
+    private async Task LeesUit(byte[] inhoud, string naam)
+    {
+        _leest = true; _leesStatus = "begint…"; _aiUitleg = new();
+        StateHasChanged();
+        try
+        {
+            var voortgang = new Progress<string>(s => { _leesStatus = s; _ = InvokeAsync(StateHasChanged); });
+            var (uit, fout) = await Lezer.LeesPoAsync(inhoud, naam, voortgang);
+            if (uit is null) { _aiUitleg = new() { "✨ Uitlezen lukte niet: " + fout }; return; }
+            await Vul(uit);
+        }
+        catch (Exception ex) { _aiUitleg = new() { "✨ Uitlezen mislukt: " + ex.Message }; }
+        finally { _leest = false; }
+    }
+
+    private async Task Vul(PoUitPdf uit)
+    {
+        var gevuld = new List<string>();
+        var anders = new List<string>();
+        static string Kort(string s, int max) => s.Length > max ? s[..max] : s;
+
+        // klant: alleen als er nog geen is; precies één treffer (of exact gelijk) = kiezen, anders de zoeklijst tonen
+        if (uit.Klant.Length > 0)
+        {
+            if (_po.KlantId is null)
+            {
+                var zoek = KlantZoekterm(uit.Klant);
+                List<Keuze> kandidaten;
+                try { kandidaten = await Relaties.ZoekAsync(zoek, true, false, 0, 15); } catch { kandidaten = new(); }
+                var exact = kandidaten.FirstOrDefault(k => string.Equals(k.Naam.Trim(), uit.Klant.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (exact is not null || kandidaten.Count == 1)
+                {
+                    await KiesKlant(exact ?? kandidaten[0]);
+                    gevuld.Add("klant");
+                }
+                else
+                {
+                    _klantZoekOpen = true; _klantZoek = zoek; _klanten = kandidaten;
+                    anders.Add(kandidaten.Count == 0
+                        ? $"Klant ‘{uit.Klant}’ niet gevonden bij de relaties; kies of zoek de klant zelf."
+                        : $"Klant ‘{uit.Klant}’: kies de juiste uit de lijst.");
+                }
+            }
+            else if (!_po.Klant.Contains(KlantZoekterm(uit.Klant), StringComparison.OrdinalIgnoreCase))
+                anders.Add($"Op de PO staat als klant ‘{uit.Klant}’ (ingevuld: {_po.Klant}).");
+        }
+        // contactpersoon bij die klant: alle woorden van de gelezen naam moeten in de naam staan
+        if (uit.Contactpersoon.Length > 0 && _po.ContactId is null && _contacten.Count > 0)
+        {
+            var woorden = uit.Contactpersoon.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length > 1).ToList();
+            var c = _contacten.FirstOrDefault(k => woorden.All(w => k.Naam.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                    ?? _contacten.FirstOrDefault(k => woorden.Count > 0 && k.Naam.Contains(woorden[^1], StringComparison.OrdinalIgnoreCase));
+            if (c is not null) { _po.ContactId = c.Id; gevuld.Add("contactpersoon"); }
+            else anders.Add($"Contactpersoon ‘{uit.Contactpersoon}’ staat niet bij deze klant.");
+        }
+        if (uit.PoNummer.Length > 0)
+        {
+            if (_po.PoNummer.Trim().Length == 0) { _po.PoNummer = Kort(uit.PoNummer, 100); gevuld.Add("PO-nummer"); await ControleerPoNummer(); }
+            else if (!string.Equals(_po.PoNummer.Trim(), uit.PoNummer, StringComparison.OrdinalIgnoreCase))
+                anders.Add($"PO-nummer op het document: {uit.PoNummer} (ingevuld: {_po.PoNummer}).");
+        }
+        if (uit.Datum is DateOnly d)
+        {
+            // bij een nieuwe PO staat vandaag vooringevuld; die mag de datum van het document vervangen
+            if (_po.Datum is null || (_po.Id == 0 && _po.Datum == DateOnly.FromDateTime(DateTime.Today))) { _po.Datum = d; gevuld.Add("datum"); }
+            else if (_po.Datum != d) anders.Add($"Datum op het document: {d:d-M-yyyy} (ingevuld: {_po.Datum:d-M-yyyy}).");
+        }
+        if (uit.BedragExBtw is decimal b && b != 0)
+        {
+            if (_po.Bedrag == 0) { _po.Bedrag = Math.Round(b, 2); gevuld.Add("bedrag"); }
+            else if (Math.Abs(_po.Bedrag - b) > 0.005m) anders.Add($"Bedrag op het document: {Geld(b)} (ingevuld: {Geld(_po.Bedrag)}).");
+        }
+        if (uit.Valuta.Length > 0 && uit.Valuta != "EUR") anders.Add($"Let op: de PO is in {uit.Valuta}, niet in euro.");
+        if (uit.Omschrijving.Length > 0 && _po.Omschrijving.Trim().Length == 0) { _po.Omschrijving = Kort(uit.Omschrijving, 100); gevuld.Add("omschrijving"); }
+        if (uit.Termijnen.Count > 0)
+        {
+            if (_po.Termijnen.Count == 0)
+            {
+                foreach (var (oms, pct, bedrag) in uit.Termijnen)
+                    _po.Termijnen.Add(new POTermijn
+                    {
+                        Omschrijving = Kort(oms.Length > 0 ? oms : pct is decimal p ? $"{p:0.#}%" : "Termijn", 50),
+                        Bedrag = bedrag is decimal tb ? Math.Round(tb, 2) : 0,
+                    });
+                gevuld.Add($"{uit.Termijnen.Count} termijn{(uit.Termijnen.Count == 1 ? "" : "en")}");
+            }
+            else anders.Add($"Het document noemt {uit.Termijnen.Count} betaaltermijn(en); er staan er al termijnen, die zijn niet aangepast.");
+        }
+
+        _aiUitleg = new()
+        {
+            gevuld.Count > 0
+                ? $"✨ Ingevuld door AI ({uit.Bron}): {string.Join(", ", gevuld)}. Controleer alles voor je opslaat."
+                : $"✨ AI ({uit.Bron}) vond niets nieuws om in te vullen.",
+        };
+        _aiUitleg.AddRange(anders);
+        _aiUitleg.AddRange(uit.Opmerkingen.Select(o => "Opmerking AI: " + o));
+    }
+
+    /// <summary>Klantnaam zonder rechtsvorm, om te zoeken (bv. "Omron Europe B.V." -> "Omron Europe").</summary>
+    private static string KlantZoekterm(string naam)
+    {
+        var t = System.Text.RegularExpressions.Regex.Replace(naam, @"\b(B\.?V\.?|N\.?V\.?|GmbH|Ltd\.?|Inc\.?|S\.?A\.?|AG|BVBA|V\.?O\.?F\.?)\s*$", "",
+                                                             System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(' ', ',', '.');
+        return t.Length >= 2 ? t : naam.Trim();
     }
 
     private async Task UploadWachtrij()
