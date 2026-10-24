@@ -1,0 +1,83 @@
+@implements IDisposable
+@inject HuidigeGebruiker Ik
+@inject IBroodjesRepository Repo
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* Stokbroodje in de bovenbalk op donderdag en vrijdag: naar de broodjeslijst van het Kaeswienkeltje (/broodjes).
+   Op vrijdag vóór 11:00 bij het openen van de app een herinnering als je nog niets op de lijst hebt (eenmaal per dag,
+   "Niet nodig" onthoudt de browser). Wens gebruiker 24-10-2026. *@
+
+@if (Repo.Beschikbaar && _dag && (Ik.Ingelogd || Ik.IsWerkplek))
+{
+    <span class="broodje-plek">
+        <a class="broodje-knop @(_herinnering ? "wiebel" : "")" href="broodjes" title="Broodjes bestellen bij het Kaeswienkeltje">🥖</a>
+        @if (_herinnering)
+        {
+            <div class="broodje-herinnering" role="alert">
+                <b>🥖 Het is vrijdag!</b>
+                <span>Je staat nog niet op de broodjeslijst. Bestellen kan tot 11:00.</span>
+                <div class="btngroup">
+                    <button class="klein" @onclick="NietNodig">Niet nodig</button>
+                    <button class="primair klein" @onclick="Bestellen">Broodje bestellen</button>
+                </div>
+            </div>
+        }
+    </span>
+}
+
+@code {
+    private bool _dag, _herinnering, _gekeken;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _dag = BroodjesRegels.IsBroodjesdag(DateTime.Now);
+        Nav.LocationChanged += BijNavigatie;
+        await Ik.ZorgGeladenAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        // eenmaal per sessie kijken, pas na de eerste weergave (localStorage kan alleen dan)
+        if (_gekeken) return;
+        _gekeken = true;
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            var nu = DateTime.Now;
+            if (!Repo.Beschikbaar || nu.DayOfWeek != DayOfWeek.Friday || TimeOnly.FromDateTime(nu) >= BroodjesRegels.Sluitingstijd) return;
+            if (Ik.WerknemerId is not int wn || Nav.ToBaseRelativePath(Nav.Uri).StartsWith("broodjes", StringComparison.OrdinalIgnoreCase)) return;
+            if (await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel(wn)) is { Length: > 0 }) return;
+            if (await Repo.HeeftBesteldAsync(DateOnly.FromDateTime(nu), wn)) return;
+            _herinnering = true;
+            StateHasChanged();
+        }
+        catch { /* geen herinnering is ook goed */ }
+    }
+
+    private static string Sleutel(int wn) => $"broodje-herinnering-{wn}-{DateTime.Today:yyyyMMdd}";
+
+    private async Task Onthoud()
+    {
+        _herinnering = false;
+        if (Ik.WerknemerId is int wn)
+            try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel(wn), "gezien"); } catch { }
+    }
+
+    private async Task NietNodig() => await Onthoud();
+
+    private async Task Bestellen()
+    {
+        await Onthoud();
+        Nav.NavigateTo("broodjes");
+    }
+
+    // naar /broodjes (via het stokbroodje of het menu) = gezien
+    private void BijNavigatie(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (!_herinnering || !Nav.ToBaseRelativePath(e.Location).StartsWith("broodjes", StringComparison.OrdinalIgnoreCase)) return;
+        _ = InvokeAsync(async () => { await Onthoud(); StateHasChanged(); });
+    }
+
+    public void Dispose() => Nav.LocationChanged -= BijNavigatie;
+}

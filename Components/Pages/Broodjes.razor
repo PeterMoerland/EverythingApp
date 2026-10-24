@@ -1,0 +1,521 @@
+@page "/broodjes"
+@using System.Globalization
+@using System.Text
+@inject IBroodjesRepository Repo
+@inject BroodjesAssortimentService Assortiment
+@inject IUrenRepository Uren
+@inject HuidigeGebruiker Ik
+@inject MailService Post
+@inject IConfiguration Config
+@inject IJSRuntime JS
+
+@* Broodjes bestellen bij het Kaeswienkeltje (Tholen), wens gebruiker 24-10-2026. Iedereen bestelt voor zichzelf of
+   een collega (ook inleen) of een gast; iedereen mag de lijst mailen. De vrijdaglijst sluit vrijdag 11:00, daarna
+   telefonisch. Losse lijsten voor een klantbezoek e.d. Assortiment van de webshop (BroodjesAssortimentService). *@
+
+<PageTitle>Broodjes — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>🥖 Broodjes · Kaeswienkeltje</h1>
+        @if (_lijst is not null)
+        {
+            <span class="weeklabel">@LangeTitel(_lijst) · @_bestellingen.Sum(b => b.Aantal) besteld@(Totaal > 0 ? $" · {Euro(Totaal)}" : "")</span>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_tabellen)
+    {
+        <section class="module-placeholder"><p>De tabellen voor de broodjes ontbreken nog (Broodjes_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-tabs">
+            @foreach (var l in _lijsten)
+            {
+                var lijst = l;
+                <button class="@(lijst.Id == _lijst?.Id ? "actief" : "")" @onclick="() => KiesLijst(lijst)">
+                    @(lijst.Soort == BroodjesRegels.Vrijdag ? "🥖 " : "🤝 ")@lijst.Titel
+                    @if (lijst.GemaildOp is not null) { <span class="uitleg" title="Gemaild">✉</span> }
+                </button>
+            }
+            <button class="@(_nieuwOpen ? "actief" : "")" title="Een aparte lijst, bijvoorbeeld voor een klantbezoek" @onclick="() => _nieuwOpen = !_nieuwOpen">+ Losse lijst</button>
+        </div>
+
+        @if (_nieuwOpen)
+        {
+            <div class="broodjes-nieuw">
+                <label class="bankveld"><span>Datum</span>
+                    <input type="date" value="@_nieuwDatum.ToString("yyyy-MM-dd")"
+                           @onchange="e => { if (DateOnly.TryParse((string?)e.Value, out var d)) _nieuwDatum = d; }" /></label>
+                <label class="bankveld breed"><span>Waarvoor</span>
+                    <input maxlength="150" placeholder="bv. Klantbezoek Lely, 12:30 klaar" value="@_nieuwOmschrijving"
+                           @oninput="e => _nieuwOmschrijving = (string?)e.Value ?? string.Empty" /></label>
+                <button class="primair" disabled="@(_bezig || _nieuwOmschrijving.Trim().Length < 2)" @onclick="MaakLijst">Lijst maken</button>
+                <button class="klein" @onclick="() => _nieuwOpen = false">Annuleren</button>
+            </div>
+        }
+
+        @if (_lijst is not null)
+        {
+            @if (_lijst.Gesloten)
+            {
+                <div class="broodjes-gesloten">
+                    <b>⏰ De lijst is om @_lijst.SluitOp!.Value.ToString("HH:mm") gesloten.</b>
+                    Nog iets erbij? Bel het Kaeswienkeltje: <a href="tel:+31166603018">@BroodjesRegels.Telefoon</a>.
+                    <label class="vink"><input type="checkbox" checked="@_alGebeld" @onchange="e => _alGebeld = e.Value is true" />
+                        Ik heb gebeld; toch op de lijst zetten</label>
+                </div>
+            }
+            else if (_lijst.SluitOp is DateTime sluit && sluit.Date == DateTime.Today)
+            {
+                <p class="uitleg">Bestellen kan tot <b>@sluit.ToString("HH:mm")</b>; daarna alleen nog telefonisch (@BroodjesRegels.Telefoon).</p>
+            }
+
+            <div class="broodjes-raster">
+                @* ---------------- bestellen ---------------- *@
+                <section class="broodjes-bestel @(MagToevoegen ? "" : "uit")">
+                    <h3 class="wn-kop">Bestellen</h3>
+                    <label class="bankveld"><span>Voor wie</span>
+                        <select value="@_voorKeuze" @onchange="e => _voorKeuze = (string?)e.Value ?? string.Empty" disabled="@(!MagToevoegen)">
+                            @if (Ik.WerknemerId is null) { <option value="">— kies —</option> }
+                            @foreach (var w in _werknemers)
+                            {
+                                <option value="@w.WerknemerId">@w.Naam@(w.WerknemerId == Ik.WerknemerId ? " (ik)" : "")</option>
+                            }
+                            <option value="@AnderVoor">Iemand anders (gast)…</option>
+                        </select>
+                    </label>
+                    @if (_voorKeuze == AnderVoor)
+                    {
+                        <label class="bankveld"><span>Naam</span>
+                            <input maxlength="100" placeholder="bv. Jan (Lely)" value="@_andereNaam"
+                                   @oninput="e => _andereNaam = (string?)e.Value ?? string.Empty" disabled="@(!MagToevoegen)" /></label>
+                    }
+
+                    <div class="broodjes-groepen">
+                        <button class="klein @(_groep is null ? "actief" : "")" @onclick="() => _groep = null">Alles</button>
+                        @foreach (var g in Groepen)
+                        {
+                            var groep = g;
+                            <button class="klein @(_groep == groep ? "actief" : "")" @onclick="() => _groep = groep">@groep</button>
+                        }
+                    </div>
+                    <input class="broodjes-zoek" placeholder="Zoek een broodje, drankje…" value="@_zoek"
+                           @oninput="e => _zoek = (string?)e.Value ?? string.Empty" disabled="@(!MagToevoegen)" />
+                    <div class="broodjes-producten">
+                        @if (_assortiment.Count == 0)
+                        {
+                            <p class="uitleg">@(_ophalen ? "Assortiment ophalen van de site…" : "Nog geen assortiment; klik op ↻ hieronder.")</p>
+                        }
+                        @foreach (var a in Gefilterd)
+                        {
+                            var art = a;
+                            <button type="button" class="broodjes-product @(_artikel?.Id == art.Id ? "gekozen" : "")" disabled="@(!MagToevoegen)"
+                                    title="@(art.Omschrijving.Length > 0 ? art.Omschrijving : art.Categorie)" @onclick="() => _artikel = art">
+                                <span class="naam">@art.Naam</span>
+                                @if (art.Omschrijving.Length > 0) { <small>@art.Omschrijving</small> }
+                                <span class="prijs">@Euro(art.Prijs)</span>
+                            </button>
+                        }
+                        @if (_zoek.Trim().Length >= 3 && !Gefilterd.Any())
+                        {
+                            <p class="uitleg">Niet gevonden. Toch bestellen? Dan komt "@_zoek.Trim()" zo op de lijst (zonder prijs).</p>
+                        }
+                    </div>
+
+                    <div class="broodjes-regel">
+                        <label class="bankveld smal"><span>Aantal</span>
+                            <input type="number" min="1" max="50" value="@_aantal" disabled="@(!MagToevoegen)"
+                                   @onchange="e => _aantal = int.TryParse((string?)e.Value, out var n) ? Math.Clamp(n, 1, 50) : 1" /></label>
+                        <label class="bankveld breed"><span>Opmerking</span>
+                            <input maxlength="200" placeholder="bv. zonder ui, op bruin" value="@_opmerking" disabled="@(!MagToevoegen)"
+                                   @oninput="e => _opmerking = (string?)e.Value ?? string.Empty" /></label>
+                    </div>
+                    <div class="btngroup">
+                        <span class="uitleg">@(ProductTekst is { Length: > 0 } pt ? $"{_aantal}× {pt}" + (_artikel?.Prijs is decimal pr ? $" · {Euro(pr * _aantal)}" : "") : "Kies een product")</span>
+                        <span style="flex:1"></span>
+                        <button class="primair" disabled="@(!KanToevoegen)" @onclick="VoegToe">Op de lijst</button>
+                    </div>
+                    <p class="uitleg broodjes-bron">
+                        Assortiment van <a href="@Assortiment.Webshop" target="_blank" rel="noopener">kaeswienkeltje.nl ↗</a>
+                        @if (_bijgewerkt is DateTime bij) { <span>· bijgewerkt @bij.ToString("d-M HH:mm")</span> }
+                        <button class="klein" title="Opnieuw van de site halen" disabled="@_ophalen" @onclick="AssortimentBijwerken">↻</button>
+                    </p>
+                </section>
+
+                @* ---------------- de lijst ---------------- *@
+                <section class="broodjes-lijst">
+                    <div class="btngroup">
+                        <h3 class="wn-kop">De lijst</h3>
+                        <span style="flex:1"></span>
+                        <button class="klein" title="Lijst opnieuw ophalen (collega's bestellen ook)" @onclick="LaadBestellingen">↻</button>
+                        <button class="primair" disabled="@(_bestellingen.Count == 0)" @onclick="OpenMail">📧 Lijst mailen</button>
+                    </div>
+                    @if (_lijst.GemaildOp is DateTime gm)
+                    {
+                        <p class="uitleg">✉ Gemaild op @gm.ToString("d-M HH:mm")@(_lijst.GemaildDoor.Length > 0 ? $" door {_lijst.GemaildDoor}" : "").</p>
+                    }
+                    @if (_bestellingen.Count == 0)
+                    {
+                        <p class="uitleg">Nog niemand op de lijst.</p>
+                    }
+                    @foreach (var p in PerPersoon)
+                    {
+                        var eigen = p.Any(b => b.WerknemerId is int w && w == Ik.WerknemerId);
+                        <div class="broodjes-persoon @(eigen ? "eigen" : "")">
+                            <div class="wie">@p.Key @if (eigen) { <span class="stand-chip s-groen">jij</span> }</div>
+                            @foreach (var b in p)
+                            {
+                                var best = b;
+                                <div class="broodjes-item" title="@($"Op de lijst gezet {best.AangemaaktOp:d-M HH:mm}" + (best.AangemaaktDoor.Length > 0 ? $" door {best.AangemaaktDoor}" : ""))">
+                                    <span>@best.Aantal× @best.Product@if (best.Opmerking.Length > 0) { <em> — @best.Opmerking</em> }</span>
+                                    <span class="prijs">@Euro(best.Prijs * best.Aantal)</span>
+                                    <button class="klein rood" title="Van de lijst halen" @onclick="() => Verwijder(best)">✕</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (_bestellingen.Count > 0)
+                    {
+                        <h4 class="broodjes-subkop">Totaal per product</h4>
+                        <table class="broodjes-totaal">
+                            @foreach (var (product, aantal, bedrag) in PerProduct)
+                            {
+                                <tr><td class="getal">@aantal×</td><td>@product</td><td class="getal">@Euro(bedrag)</td></tr>
+                            }
+                            <tr class="som"><td class="getal">@_bestellingen.Sum(b => b.Aantal)×</td><td>Totaal (MDE betaalt)</td><td class="getal">@(Totaal > 0 ? Euro(Totaal) : "")</td></tr>
+                        </table>
+                    }
+                </section>
+            </div>
+        }
+    }
+</div>
+
+@if (_mailOpen && _lijst is not null)
+{
+    <div class="cmdk-overlay midden" @onclick="() => _mailOpen = false">
+        <div class="kiezer broodjes-mail" @onclick:stopPropagation role="dialog" aria-label="Broodjeslijst mailen">
+            <div class="kiezer-kop">
+                <b>📧 Broodjeslijst mailen</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten" @onclick="() => _mailOpen = false">✕</button>
+            </div>
+            <div class="broodjes-mail-inhoud">
+                @if (_lijst.GemaildOp is DateTime al)
+                {
+                    <div class="melding fout">Deze lijst is al gemaild op @al.ToString("d-M HH:mm")@(_lijst.GemaildDoor.Length > 0 ? $" door {_lijst.GemaildDoor}" : ""). Nog eens sturen geeft een dubbele bestelling, tenzij je dat in de tekst zegt.</div>
+                }
+                @if (_fout && _melding is not null)
+                {
+                    <div class="melding fout">@_melding</div>
+                }
+                @if (!_mailKan)
+                {
+                    <div class="melding fout">Mailen vanuit de app kan nog niet voor jou: @Post.Beschrijf(MailService.Eigen(Ik.Email)) Kopieer de tekst en mail hem zelf.</div>
+                }
+                <label class="bankveld breed"><span>Aan</span>
+                    <input value="@_aan" @oninput="e => _aan = (string?)e.Value ?? string.Empty" /></label>
+                <label class="bankveld breed"><span>Onderwerp</span>
+                    <input value="@_onderwerp" @oninput="e => _onderwerp = (string?)e.Value ?? string.Empty" /></label>
+                <label class="bankveld breed"><span>Tekst</span>
+                    <textarea rows="14" value="@_tekst" @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea></label>
+                @if (_mailKan)
+                {
+                    @if (_handtekening is null)
+                    {
+                        <span class="uitleg">handtekening ophalen uit je Gmail…</span>
+                    }
+                    else if (_handtekening.Length > 0)
+                    {
+                        <label class="vink"><input type="checkbox" checked="@_metHandtekening" @onchange="e => _metHandtekening = e.Value is true" />
+                            Mijn Gmail-handtekening eronder</label>
+                    }
+                }
+                <div class="btngroup">
+                    <button class="klein" @onclick="KopieerTekst">Tekst kopiëren</button>
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="() => _mailOpen = false">Annuleren</button>
+                    <button class="primair" disabled="@(_bezig || !_mailKan || _aan.Trim().Length < 5)" @onclick="Verstuur">Versturen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly CultureInfo Nl = CultureInfo.GetCultureInfo("nl-NL");
+    private const string AnderVoor = "anders";
+
+    private bool _tabellen, _bezig, _fout, _ophalen, _nieuwOpen, _alGebeld;
+    private string? _melding;
+    private List<BroodjesLijst> _lijsten = new();
+    private BroodjesLijst? _lijst;
+    private List<BroodjeBestelling> _bestellingen = new();
+    private List<BroodjeArtikel> _assortiment = new();
+    private List<Werknemer> _werknemers = new();
+    private DateTime? _bijgewerkt;
+
+    // bestellen
+    private string _voorKeuze = "", _andereNaam = "", _zoek = "", _opmerking = "";
+    private string? _groep;
+    private BroodjeArtikel? _artikel;
+    private int _aantal = 1;
+
+    // losse lijst
+    private DateOnly _nieuwDatum = DateOnly.FromDateTime(DateTime.Today);
+    private string _nieuwOmschrijving = "";
+
+    // mailen
+    private bool _mailOpen, _mailKan, _metHandtekening;
+    private string _aan = "", _onderwerp = "", _tekst = "";
+    private string? _handtekening;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _tabellen = await Repo.TabellenAanwezigAsync(); } catch { _tabellen = false; }
+        if (!_tabellen) return;
+        try
+        {
+            _werknemers = (await Uren.ZoekWerknemersAsync(inclusiefIngeleend: true, inclusiefUitDienst: false, alleenPersonen: true, zoek: null))
+                          .OrderBy(w => w.Naam, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch { _werknemers = new(); }
+        _voorKeuze = Ik.WerknemerId?.ToString() ?? "";
+        await LaadLijsten(kies: null);
+        await LaadAssortiment();
+        _ = VersAssortiment();
+    }
+
+    private async Task LaadLijsten(int? kies)
+    {
+        try
+        {
+            var vrijdag = await Repo.VrijdagLijstAsync(BroodjesRegels.VrijdagVan(DateOnly.FromDateTime(DateTime.Today)), Ik.WerknemerId);
+            var recent = await Repo.RecenteLijstenAsync();
+            // de vrijdaglijst van deze week vooraan, dan de rest (nieuwste eerst)
+            _lijsten = new List<BroodjesLijst> { vrijdag }.Concat(recent.Where(l => l.Id != vrijdag.Id)).ToList();
+            _lijst = _lijsten.FirstOrDefault(l => l.Id == (kies ?? _lijst?.Id)) ?? vrijdag;
+            await LaadBestellingen();
+        }
+        catch (Exception ex) { Toon("Lijsten ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KiesLijst(BroodjesLijst l)
+    {
+        _lijst = l; _alGebeld = false; _nieuwOpen = false;
+        await LaadBestellingen();
+    }
+
+    private async Task LaadBestellingen()
+    {
+        if (_lijst is null) return;
+        try { _bestellingen = await Repo.BestellingenAsync(_lijst.Id); }
+        catch (Exception ex) { Toon("Bestellingen ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadAssortiment()
+    {
+        try
+        {
+            _assortiment = (await Repo.AssortimentAsync()).Where(a => a.Leverbaar && !a.Verborgen).ToList();
+            _bijgewerkt = await Repo.AssortimentBijgewerktAsync();
+        }
+        catch (Exception ex) { Toon("Assortiment ophalen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Leeg of ouder dan een week: op de achtergrond van de site halen, daarna de keuzelijst ververst.</summary>
+    private async Task VersAssortiment()
+    {
+        if (_bijgewerkt is DateTime d && DateTime.Now - d < BroodjesAssortimentService.Verversen) return;
+        _ophalen = true;
+        await InvokeAsync(StateHasChanged);
+        await Assortiment.ZorgVersAsync();
+        await InvokeAsync(async () => { await LaadAssortiment(); _ophalen = false; StateHasChanged(); });
+    }
+
+    private async Task AssortimentBijwerken()
+    {
+        _ophalen = true;
+        try { Toon(await Assortiment.BijwerkenAsync(), false); }
+        catch (Exception ex) { Toon("Assortiment van de site halen mislukt: " + ex.Message, true); }
+        await LaadAssortiment();
+        _ophalen = false;
+    }
+
+    // ---------------------------------------------------------------- keuzelijst
+
+    private IEnumerable<string> Groepen => _assortiment.Select(a => a.Groep).Where(g => g.Length > 0).Distinct()
+        .OrderBy(g => GroepVolgorde.IndexOf(g) is var i && i >= 0 ? i : 99).ThenBy(g => g);
+
+    private static readonly List<string> GroepVolgorde = new()
+        { "Warme broodjes", "Italiaanse broodjes", "Koude broodjes", "Wraps, pizza & tosti", "Salades", "Hartig & tapas", "Drinken", "Gebak & zoet", "Kids" };
+
+    private IEnumerable<BroodjeArtikel> Gefilterd
+    {
+        get
+        {
+            var z = _zoek.Trim();
+            return _assortiment
+                .Where(a => (_groep is null || a.Groep == _groep || z.Length > 0)
+                            && (z.Length == 0 || a.Naam.Contains(z, StringComparison.OrdinalIgnoreCase)
+                                              || a.Omschrijving.Contains(z, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(a => GroepVolgorde.IndexOf(a.Groep) is var i && i >= 0 ? i : 99).ThenBy(a => a.Naam)
+                .Take(150);
+        }
+    }
+
+    private string ProductTekst => _artikel?.Naam ?? (_zoek.Trim().Length >= 3 && !Gefilterd.Any() ? _zoek.Trim() : "");
+
+    private bool MagToevoegen => _lijst is not null && (!_lijst.Gesloten || _alGebeld);
+
+    private bool KanToevoegen => MagToevoegen && !_bezig && ProductTekst.Length > 0
+                                 && (_voorKeuze == AnderVoor ? _andereNaam.Trim().Length >= 2 : int.TryParse(_voorKeuze, out _));
+
+    private async Task VoegToe()
+    {
+        if (!KanToevoegen || _lijst is null) return;
+        int? wn = _voorKeuze == AnderVoor ? null : int.Parse(_voorKeuze);
+        var naam = wn is int id ? _werknemers.FirstOrDefault(w => w.WerknemerId == id)?.Naam ?? "?" : _andereNaam.Trim();
+        _bezig = true;
+        try
+        {
+            await Repo.VoegToeAsync(new BroodjeBestelling
+            {
+                LijstId = _lijst.Id, WerknemerId = wn, Naam = naam, ArtikelId = _artikel?.Id, Product = ProductTekst,
+                Prijs = _artikel?.Prijs, Aantal = _aantal, Opmerking = _opmerking.Trim(),
+            }, Ik.WerknemerId);
+            Toon($"{_aantal}× {ProductTekst} voor {naam} staat op de lijst.", false);
+            _artikel = null; _zoek = ""; _opmerking = ""; _aantal = 1;
+            await LaadBestellingen();
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder(BroodjeBestelling b)
+    {
+        var vanIemandAnders = b.WerknemerId != Ik.WerknemerId || Ik.WerknemerId is null;
+        if (vanIemandAnders || _lijst?.GemaildOp is not null || _lijst?.Gesloten == true)
+        {
+            var waarom = _lijst?.GemaildOp is not null ? " De lijst is al gemaild; laat het het Kaeswienkeltje dan ook weten." : "";
+            try { if (!await JS.InvokeAsync<bool>("mdeBevestig", $"{b.Aantal}× {b.Product} van {b.Naam} van de lijst halen?{waarom}")) return; }
+            catch { return; }
+        }
+        try { await Repo.VerwijderAsync(b.Id); await LaadBestellingen(); }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task MaakLijst()
+    {
+        _bezig = true;
+        try
+        {
+            var id = await Repo.NieuweLijstAsync(_nieuwDatum, _nieuwOmschrijving.Trim(), Ik.WerknemerId);
+            _nieuwOpen = false; _nieuwOmschrijving = "";
+            await LaadLijsten(kies: id);
+        }
+        catch (Exception ex) { Toon("Lijst maken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---------------------------------------------------------------- overzicht
+
+    private decimal Totaal => _bestellingen.Sum(b => (b.Prijs ?? 0) * b.Aantal);
+
+    private IEnumerable<IGrouping<string, BroodjeBestelling>> PerPersoon
+        => _bestellingen.GroupBy(b => b.Naam).OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase);
+
+    private IEnumerable<(string Product, int Aantal, decimal? Bedrag)> PerProduct
+        => _bestellingen.GroupBy(b => b.Product, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (g.First().Product, g.Sum(b => b.Aantal),
+                          g.All(b => b.Prijs is null) ? (decimal?)null : g.Sum(b => (b.Prijs ?? 0) * b.Aantal)))
+            .OrderByDescending(x => x.Item2).ThenBy(x => x.Item1);
+
+    private static string Euro(decimal? bedrag) => bedrag is decimal d ? d.ToString("C", Nl) : "";
+
+    private static string LangeTitel(BroodjesLijst l)
+        => l.Soort == BroodjesRegels.Vrijdag
+            ? "vrijdag " + l.Datum.ToString("d MMMM", Nl)
+            : $"{l.Omschrijving} · {l.Datum.ToString("dddd d MMMM", Nl)}";
+
+    // ---------------------------------------------------------------- mailen
+
+    private async Task OpenMail()
+    {
+        if (_lijst is null) return;
+        await LaadBestellingen();             // collega's kunnen intussen iets toegevoegd hebben
+        _aan = Config["Broodjes:Mail"] is { Length: > 0 } m ? m : BroodjesRegels.StandaardMail;
+        _onderwerp = _lijst.Soort == BroodjesRegels.Vrijdag
+            ? $"Broodjesbestelling MDE Automation - {LangeTitel(_lijst)}"
+            : $"Broodjesbestelling MDE Automation - {_lijst.Omschrijving} ({_lijst.Datum.ToString("dddd d MMMM", Nl)})";
+        _tekst = MaakTekst();
+        _mailKan = Ik.Email.Length > 0 && Post.Beschikbaar(MailService.Eigen(Ik.Email));
+        _mailOpen = true;
+        _handtekening = null; _metHandtekening = false;
+        if (_mailKan)
+        {
+            try { _handtekening = await Post.HandtekeningAsync(MailService.Eigen(Ik.Email)); } catch { _handtekening = ""; }
+            _metHandtekening = _handtekening.Length > 0;
+        }
+    }
+
+    private string MaakTekst()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Goedemorgen,").AppendLine();
+        sb.AppendLine(_lijst!.Soort == BroodjesRegels.Vrijdag
+            ? $"Hierbij onze broodjesbestelling voor {LangeTitel(_lijst)}:"
+            : $"Hierbij onze bestelling voor {_lijst.Datum.ToString("dddd d MMMM", Nl)} ({_lijst.Omschrijving}):");
+        sb.AppendLine();
+        foreach (var (product, aantal, _) in PerProduct) sb.AppendLine($"  {aantal}x {product}");
+        sb.AppendLine().AppendLine("Per persoon:");
+        foreach (var p in PerPersoon)
+            sb.AppendLine($"  {p.Key}: " + string.Join(", ", p.Select(b => $"{b.Aantal}x {b.Product}" + (b.Opmerking.Length > 0 ? $" ({b.Opmerking})" : ""))));
+        sb.AppendLine().AppendLine("Alvast bedankt!");
+        if (_handtekening is not { Length: > 0 }) sb.AppendLine().AppendLine("Met vriendelijke groet,").AppendLine(Ik.Naam).AppendLine("MDE Automation");
+        return sb.ToString();
+    }
+
+    private async Task KopieerTekst()
+    {
+        try { await JS.InvokeVoidAsync("mdeKopieer", _tekst); Toon("Tekst gekopieerd.", false); } catch { }
+    }
+
+    private async Task Verstuur()
+    {
+        if (_lijst is null) return;
+        if (_lijst.GemaildOp is not null)
+        {
+            try { if (!await JS.InvokeAsync<bool>("mdeBevestig", "Deze lijst is al gemaild. Toch nog eens versturen?")) return; }
+            catch { return; }
+        }
+        _bezig = true;
+        try
+        {
+            var metHt = _metHandtekening && _handtekening is { Length: > 0 };
+            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan.Trim(), _onderwerp,
+                                     metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst, html: metHt);
+            await Repo.ZetGemaildAsync(_lijst.Id, Ik.WerknemerId);
+            _mailOpen = false;
+            Toon($"Gemaild naar {_aan.Trim()}.", false);
+            await LaadLijsten(kies: _lijst.Id);
+        }
+        catch (Exception ex) { Toon("Versturen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

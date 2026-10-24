@@ -295,6 +295,40 @@ uit de view `@LaatstBesteldeArtikelen`, PO opent in Bestellingen. Rechten = `Mag
 Getest lokaal alleen lezend (artikel 830 gelijk aan Access); toevoegen, wijzigen, weghalen en kostprijs bijwerken zijn
 niet tegen de database getest.
 
+## Broodjes bij het Kaeswienkeltje (24-10-2026)
+
+Wens gebruiker: op vrijdag bestellen we broodjes bij het Kaeswienkeltje (Tholen, 0166 603 018, info@kaeswienkeltje.nl).
+Besluiten: iedereen mag voor iedereen bestellen (ook inleen, ook een gast) en de lijst mailen ("verantwoording regelen we
+onderling"); MDE betaalt; prijzen in beeld (later misschien beperken); vrijdag tot 11:00, daarna telefonisch; ook
+bruikbaar voor een klantbezoek (losse lijst).
+- Tabellen `BroodjesAssortiment`, `BroodjesLijsten`, `BroodjesBestellingen` (**`Broodjes_MariaDB.sql`, zelf draaien**),
+  `Services/IBroodjesRepository.cs` (Geen / Geheugen via `Broodjes__Geheugen=true` / MySql) met `BroodjesRegels`
+  (vrijdag van de week; za/zo = volgende week; sluitingstijd 11:00).
+- **Assortiment** (`Services/BroodjesAssortimentService.cs`): hun webshop is WooCommerce, de openbare Store API
+  (`/wp-json/wc/store/v1/products?per_page=100&page=N`, header X-WP-TotalPages) geeft naam, prijs (in centen,
+  `currency_minor_unit`), categorieën (HTML-entiteiten en zachte afbreekstreepjes), korte omschrijving, voorraad. Alleen
+  producten in een lunchcategorie (`Broodjes:Categorieen`, stukjes van namen) komen mee: ca. 139 van de 280; de winkel
+  (vleeswaren per ons, kaas, noten, wijn, jam) niet. Groep in de keuzelijst via een vaste volgorde (warm gaat voor koud).
+  Vanzelf bijgewerkt bij het openen van /broodjes als het ouder is dan 7 dagen (een tweede scherm wacht op het eerste),
+  of met ↻. Wat van de site verdwijnt wordt `Leverbaar = 0`, niet gewist; `Verborgen` is een eigen keuze die blijft
+  (nog geen knop voor). Een bestelling bewaart naam en prijs zoals ze toen waren.
+- **Pagina `/broodjes`** (menu Werknemers ▸ Lunch): tabs met de vrijdaglijst van deze week (bij openen aangemaakt) en
+  losse lijsten van de afgelopen week en later (+ Losse lijst: datum en waarvoor). Links bestellen (voor wie: werknemers
+  incl. inleen, of een gast met vrije naam; groepknoppen, zoeken; niet gevonden = als vrije tekst zonder prijs), rechts
+  de lijst per persoon (eigen naam geel, "jij"), ✕ met bevestiging als het niet van jou is of al gemaild/gesloten, totaal
+  per product en in euro. Na vrijdag 11:00: oranje balk met het telefoonnummer en een vinkje "Ik heb gebeld; toch op de
+  lijst zetten".
+- **Mailen**: tekst gemaakt (totaal per product, per persoon met opmerkingen), aanpasbaar; Aan = `Broodjes:Mail`
+  (standaard info@kaeswienkeltje.nl); met de eigen Gmail-handtekening (zoals de factuurmail); `GemaildOp/Door` en een
+  waarschuwing bij nog eens mailen. Zonder Gmail-toegang: melding + "Tekst kopiëren".
+- **Bovenbalk** (`Components/Layout/BroodjeKnop.razor`, links van het lampje): 🥖 op donderdag en vrijdag. Op vrijdag
+  vóór 11:00 bij het openen van de app een wolkje "Het is vrijdag!" (stokbroodje wiebelt) als je nog niets op de
+  vrijdaglijst hebt (`HeeftBesteldAsync`); "Niet nodig", "Broodje bestellen" of naar /broodjes gaan onthoudt de
+  browser voor die dag (`broodje-herinnering-<wn>-<yyyyMMdd>`).
+- Lokaal getest met de geheugen-opslag op een zaterdag: assortiment echt van de site, gast bestellen, vrije tekst, losse
+  lijst, mailvenster (niet verstuurd). **Niet getest**: het stokbroodje en de vrijdagherinnering (alleen do/vr en met
+  inloggen), de gesloten-stand na 11:00, echt mailen, de MySql-opslag.
+
 ## Verbeterverzoeken: lampje in de bovenbalk (22-10-2026)
 
 Wens gebruiker: collega's dienen ideeën in via een knop in de bovenbalk; iedereen ziet de lijst, Directie wijzigt en zet

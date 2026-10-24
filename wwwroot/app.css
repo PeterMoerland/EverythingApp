@@ -3859,3 +3859,67 @@ html[data-thema="donker"] .ab-boomregel:hover { background: #1f262d; }
 .factuur-handtekening-voorbeeld { padding: .45rem .6rem; border: 1px dashed #c9d3df; border-radius: 4px; background: #fff; color: #222;
                                   font-family: Arial, Helvetica, sans-serif; font-size: 13px; max-height: 14rem; overflow: auto; }
 .factuur-handtekening-voorbeeld img { max-width: 100%; height: auto; }
+
+/* Broodjes (Kaeswienkeltje): stokbroodje in de bovenbalk op do/vr, herinnering op vrijdag, pagina /broodjes */
+.broodje-plek { position: relative; display: inline-flex; }
+.broodje-knop { display: inline-flex; align-items: center; padding: .1rem .3rem; border: 1px solid transparent; border-radius: 6px;
+                font-size: 1.15rem; text-decoration: none; }
+.broodje-knop:hover { background: #fbf0dc; border-color: #e3c38a; }
+.broodje-knop.wiebel { animation: broodje-wiebel 1.2s ease-in-out 3; }
+@keyframes broodje-wiebel { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+.broodje-herinnering { position: absolute; top: calc(100% + .4rem); right: -4rem; z-index: 60; width: min(17rem, calc(100vw - 2rem)); display: grid; gap: .4rem;
+                       padding: .7rem .8rem; background: #fffaf0; border: 1px solid #e3c38a; border-radius: 8px;
+                       box-shadow: 0 6px 18px rgba(0,0,0,.18); color: #3d2f12; font-size: .9rem; }
+.broodje-herinnering .btngroup { justify-content: flex-end; }
+.broodjes-nieuw { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem; margin-bottom: .8rem; }
+.broodjes-nieuw .bankveld.breed { flex: 1; min-width: 16rem; }
+.broodjes-gesloten { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .8rem; padding: .55rem .8rem; margin-bottom: .8rem;
+                     background: #fff3d6; border: 1px solid #e6a817; border-radius: 6px; color: #5c3d00; }
+.broodjes-raster { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+@media (max-width: 900px) { .broodjes-raster { grid-template-columns: minmax(0, 1fr); } }
+.broodjes-bestel, .broodjes-lijst { display: grid; gap: .55rem; padding: .8rem .9rem; border: 1px solid #dde3ea; border-radius: 8px; background: #fff; }
+.broodjes-bestel.uit { opacity: .6; }
+.broodjes-bestel .wn-kop, .broodjes-lijst .wn-kop { margin: 0; }
+.broodjes-groepen { display: flex; flex-wrap: wrap; gap: .25rem; }
+.broodjes-groepen button.actief { background: var(--accent); border-color: var(--accent); color: #fff; }
+.broodjes-zoek { width: 100%; box-sizing: border-box; }
+.broodjes-producten { display: grid; gap: 2px; max-height: 22rem; overflow: auto; padding: 2px; border: 1px solid #e6eaef; border-radius: 6px; }
+.broodjes-product { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 .6rem; text-align: left; padding: .3rem .5rem;
+                    border: 1px solid transparent; border-radius: 4px; background: none; cursor: pointer; }
+.broodjes-product:hover:not(:disabled) { background: #f1f5fa; }
+.broodjes-product.gekozen { background: #e4edf9; border-color: #9db8dc; }
+.broodjes-product .naam { font-weight: 600; }
+.broodjes-product small { grid-column: 1; color: #6b7682; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.broodjes-product .prijs { grid-column: 2; grid-row: 1; color: #445; font-variant-numeric: tabular-nums; }
+.broodjes-regel { display: flex; gap: .5rem; align-items: flex-end; }
+.broodjes-regel .bankveld.smal input { width: 4.5rem; }
+.broodjes-regel .bankveld.breed { flex: 1; }
+.broodjes-bron { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0; }
+.broodjes-persoon { padding: .35rem .55rem; border-radius: 6px; border: 1px solid transparent; }
+.broodjes-persoon.eigen { background: #fff7d6; border-color: #f0d36b; }
+.broodjes-persoon .wie { font-weight: 700; margin-bottom: .1rem; }
+.broodjes-item { display: grid; grid-template-columns: minmax(0, 1fr) auto 2rem; align-items: center; gap: .5rem; padding-left: .6rem; }
+.broodjes-item em { color: #6b7682; }
+.broodjes-item .prijs, .broodjes-totaal .getal { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.broodjes-subkop { margin: .5rem 0 0; font-size: .95rem; color: var(--accent); }
+.broodjes-totaal { border-collapse: collapse; width: 100%; }
+.broodjes-totaal td { padding: .15rem .4rem; border-bottom: 1px solid #eef1f4; }
+.broodjes-totaal td:first-child { width: 3rem; }
+.broodjes-totaal tr.som td { font-weight: 700; border-bottom: none; border-top: 2px solid #ccd5e0; }
+.broodjes-mail { width: min(44rem, calc(100vw - 2rem)); }
+.broodjes-mail-inhoud { display: grid; gap: .55rem; padding: .8rem; }
+.broodjes-mail-inhoud .bankveld input, .broodjes-mail-inhoud textarea { width: 100%; box-sizing: border-box; }
+.broodjes-mail-inhoud textarea { font-family: inherit; font-size: .9rem; }
+.broodjes-mail-inhoud .melding { position: static; max-width: none; box-shadow: none; cursor: default; animation: none; }
+html[data-thema="donker"] .broodje-knop:hover { background: #3a3215; border-color: #8a7420; }
+html[data-thema="donker"] .broodje-herinnering { background: #2d2716; border-color: #8a7420; color: #f3e3bd; }
+html[data-thema="donker"] .broodjes-gesloten { background: #3a2c12; border-color: #a87a2a; color: #f3d9a4; }
+html[data-thema="donker"] .broodjes-bestel, html[data-thema="donker"] .broodjes-lijst { background: #1f2630; border-color: #38424f; }
+html[data-thema="donker"] .broodjes-producten { border-color: #38424f; }
+html[data-thema="donker"] .broodjes-product:hover:not(:disabled) { background: #2a3442; }
+html[data-thema="donker"] .broodjes-product.gekozen { background: #24395a; border-color: #4f6f9c; }
+html[data-thema="donker"] .broodjes-product small, html[data-thema="donker"] .broodjes-item em { color: #9aa6b4; }
+html[data-thema="donker"] .broodjes-product .prijs { color: #c9d2dc; }
+html[data-thema="donker"] .broodjes-persoon.eigen { background: #3a3215; border-color: #8a7420; }
+html[data-thema="donker"] .broodjes-totaal td { border-bottom-color: #2e3744; }
+html[data-thema="donker"] .broodjes-totaal tr.som td { border-top-color: #4a5664; }

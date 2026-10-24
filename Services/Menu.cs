@@ -54,7 +54,9 @@ public static class Menu
                 new MenuItem("Mijn pincode (werkplekken)", "/mijn-pincode")),
             new MenuGroep("Overzichten",
                 new MenuItem("Verjaardagen", "/werknemers/kalender/verjaardagen"),
-                new MenuItem("Jubilea", "/werknemers/kalender/jubilea"))),
+                new MenuItem("Jubilea", "/werknemers/kalender/jubilea")),
+            new MenuGroep("Lunch",
+                new MenuItem("Broodjes bestellen (Kaeswienkeltje)", "/broodjes"))),
 
         new("relaties", "Relaties", "users",
             new MenuGroep("Onderhoud",
