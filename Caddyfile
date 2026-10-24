@@ -24,6 +24,10 @@
 (apps) {
     encode gzip
 
+    # Root doorsturen naar de app op /mde/
+    redir / /mde/
+    redir /mde /mde/
+
     # Basiscertificaat voor nieuwe apparaten (gevuld door https-aanzetten.bat)
     handle /mde-root.crt {
         root * C:\Caddy\publiek
