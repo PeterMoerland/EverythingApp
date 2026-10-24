@@ -56,7 +56,9 @@ window.mdeScan = (function () {
     // Geeft door of dit een echte scan is (zelfde label binnen twee tellen
     // is dezelfde scan) en meldt hem dan bij Blazor.
     async function meld(tekst, dotnet) {
-        tekst = (tekst || "").trim();
+        // Sommige lezers zetten de AIM-code van het soort barcode ervoor (bv. "]C1" = Code 128 / GS1-128) en
+        // geven FNC1/GS als teken \x1D mee: dat hoort niet bij het nummer (melding 24-10-2026: "]C1MDE56262").
+        tekst = (tekst || "").replace(/^\][A-Za-z][0-9A-Za-z]/, "").replace(/[\x00-\x1F]/g, "").trim();
         const nu = Date.now();
         if (!tekst || (tekst === laatste && nu - laatsteTijd <= 2000)) return;
         laatste = tekst;

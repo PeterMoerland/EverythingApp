@@ -208,10 +208,11 @@
    niet uit te lezen is (bv. een drive die niet antwoordt). *@
 @if (Vergrendeld)
 {
-    <div class="melding waarschuwing prod-eerst-uitlezen">
-        Lees eerst de print uit met <b>Automatisch uitlezen</b> hierboven; daarna worden programmeren, node-adressen en testen beschikbaar.
+    @* geen zwevende (oranje) melding meer (wens gebruiker 23-10-2026): een grijze regel in de pagina *@
+    <p class="uitleg prod-eerst-uitlezen">
+        Na <b>Automatisch uitlezen</b> worden de stappen hieronder beschikbaar.
         <button class="klein" title="Zonder uitlezen verder (bv. als de print niet antwoordt)" @onclick="() => _tochDoor = true">toch doorgaan</button>
-    </div>
+    </p>
 }
 <fieldset class="prod-alleen-lezen prod-na-uitlezen" disabled="@Vergrendeld">
 

@@ -56,6 +56,10 @@ public interface IProductTodoRepository
     /// </summary>
     Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
                                                      IReadOnlyList<int> doelen, int? door);
+    /// <summary>Bij hoeveel exemplaren dit punt staat, en hoeveel punten open en gereed zijn (vóór het hernoemen).</summary>
+    Task<(int Exemplaren, int Open, int Gereed)> WatTellingAsync(string wat);
+    /// <summary>Een punt overal hernoemen (open én gereed). Geeft het aantal gewijzigde punten.</summary>
+    Task<int> HernoemWatAsync(string oud, string nieuw);
 }
 
 public class GeenProductTodoRepository : IProductTodoRepository
@@ -66,6 +70,8 @@ public class GeenProductTodoRepository : IProductTodoRepository
     public Task<Dictionary<int, int>> OpenPerExemplaarAsync(int productNameId) => Task.FromResult(new Dictionary<int, int>());
     public Task<List<ProductTodo>> OverzichtAsync(string? wat, bool ookGereed, int max) => Task.FromResult(new List<ProductTodo>());
     public Task<List<TodoWat>> WatLijstAsync() => Task.FromResult(new List<TodoWat>());
+    public Task<(int Exemplaren, int Open, int Gereed)> WatTellingAsync(string wat) => Task.FromResult((0, 0, 0));
+    public Task<int> HernoemWatAsync(string oud, string nieuw) => Task.FromResult(0);
     public Task<int> MaakAsync(int productId, string wat, string? toelichting, int? door) => Task.FromResult(0);
     public Task ZetGereedAsync(int todoId, bool gereed, int? door) => Task.CompletedTask;
     public Task VerwijderAsync(int todoId) => Task.CompletedTask;
@@ -227,6 +233,29 @@ public class MySqlProductTodoRepository : IProductTodoRepository
         return lijst;
     }
 
+    public async Task<(int Exemplaren, int Open, int Gereed)> WatTellingAsync(string wat)
+    {
+        if (!await TabelAanwezigAsync()) return (0, 0, 0);
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(DISTINCT `ProductenID`), COALESCE(SUM(`GereedOp` IS NULL), 0), COALESCE(SUM(`GereedOp` IS NOT NULL), 0) " +
+            "  FROM `ProductTodo` WHERE `Wat` = @wat", cn);
+        cmd.Parameters.AddWithValue("@wat", wat.Trim());
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return (0, 0, 0);
+        return (Convert.ToInt32(r.GetValue(0)), Convert.ToInt32(r.GetValue(1)), Convert.ToInt32(r.GetValue(2)));
+    }
+
+    public async Task<int> HernoemWatAsync(string oud, string nieuw)
+    {
+        if (!await TabelAanwezigAsync()) return 0;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("UPDATE `ProductTodo` SET `Wat` = @nieuw WHERE `Wat` = @oud", cn);
+        cmd.Parameters.AddWithValue("@oud", oud.Trim());
+        cmd.Parameters.AddWithValue("@nieuw", Kort(nieuw, 60));
+        return await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<int> MaakAsync(int productId, string wat, string? toelichting, int? door)
     {
         if (!await TabelAanwezigAsync()) throw new InvalidOperationException("De tabel ProductTodo bestaat nog niet (ProductTodo_MariaDB.sql).");
@@ -346,6 +375,29 @@ public class GeheugenProductTodoRepository : IProductTodoRepository
         return Task.CompletedTask;
     }
     public Task VerwijderAsync(int todoId) { _lijst.RemoveAll(t => t.Id == todoId); return Task.CompletedTask; }
+    public Task<(int Exemplaren, int Open, int Gereed)> WatTellingAsync(string wat)
+    {
+        var m = _lijst.Where(t => t.Wat == wat).ToList();
+        return Task.FromResult((m.Select(t => t.ProductId).Distinct().Count(), m.Count(t => t.Open), m.Count(t => !t.Open)));
+    }
+    public Task<int> HernoemWatAsync(string oud, string nieuw)
+    {
+        var n = 0;
+        for (var i = 0; i < _lijst.Count; i++)
+        {
+            var o = _lijst[i];
+            if (o.Wat != oud) continue;
+            _lijst[i] = new ProductTodo
+            {
+                Id = o.Id, ProductId = o.ProductId, ProductNameId = o.ProductNameId, Type = o.Type, Serienummer = o.Serienummer,
+                Wat = nieuw, Toelichting = o.Toelichting, Aangemaakt = o.Aangemaakt, Door = o.Door, Gereed = o.Gereed,
+                GereedDoor = o.GereedDoor, WortelId = o.WortelId, WortelNameId = o.WortelNameId, WortelType = o.WortelType,
+                WortelSerienummer = o.WortelSerienummer, Klant = o.Klant, Project = o.Project, Status = o.Status,
+            };
+            n++;
+        }
+        return Task.FromResult(n);
+    }
     public Task<Dictionary<int, List<string>>> KopieerAsync(IReadOnlyList<(string Wat, string Toelichting)> punten,
                                                             IReadOnlyList<int> doelen, int? door)
     {

@@ -750,6 +750,23 @@ Ook aan te vinken op het werknemersscherm, tab Rechten ("Mag firmware beheren", 
 "(versie)" sprong naar boven terwijl de knop onder de tabel staat. Nu blijven de bestaande regels staan en komt de nieuwe
 onderaan (`_nieuweFirmware`, geel), met een leeg versieveld en de cursor erin; opnieuw openen sorteert weer op versie.
 
+## Todo-overzicht: een punt overal hernoemen (24-10-2026)
+
+Verzoek collega (Tim Franke). Producten ▸ Todo-overzicht: knop **✎ Punt hernoemen** staat er altijd, klikbaar als je een
+punt (Wat) gekozen hebt én projectleider bent van een open project (`IProjectRepository.IsProjectleiderAsync`:
+Projects.ProjectResponsible, ProjectStatus 1) of Directie (besluit gebruiker); anders uitgeschakeld met uitleg in de
+tooltip. Eerst `WatTellingAsync` (exemplaren, open, gereed) in de bevestiging; bestaat de nieuwe naam al, dan staat erbij
+dat ze samengevoegd worden. `HernoemWatAsync` = UPDATE op `Wat`, open én gereed. Getest met `ProductTodo__Geheugen=true`
+(knop uit zonder recht; met recht tijdelijk open: samenvoegen naar een bestaande naam); query's gecontroleerd. Op 24-10
+waren 18 werknemers projectleider van een open project.
+
+## Scannen: AIM-voorvoegsel van de barcode eraf (24-10-2026)
+
+Melding: bestellen met de telefoon gaf "']C1MDE56262' is geen artikelnummer". `]C1` is de AIM-code van het barcodesoort
+(Code 128 als GS1-128, FNC1 voorop) die de lezer meegeeft; geen deel van het nummer. `scan.js` (`meld`, v=10) en
+`Scannen.ZoekCode` halen nu `^\][A-Za-z][0-9A-Za-z]` en stuurtekens (FNC1/GS = \x1D) eraf, daarna gaat MDE eraf zoals
+voorheen. Getest op de regels (JS en .NET): "]C1MDE56262" -> 56262.
+
 ## Videobellen op het intranet (22-10-2026)
 
 Wens gebruiker: camera en microfoon rechtstreeks naar een collega, zonder externe dienst. **WebRTC** tussen de browsers

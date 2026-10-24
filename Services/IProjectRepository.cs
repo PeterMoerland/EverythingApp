@@ -54,6 +54,9 @@ public interface IProjectRepository
     Task<List<Keuze>> GetWerknemersAsync();
     Task<List<Keuze>> GetProjectsoortenAsync();
     Task<List<Keuze>> GetWerkordersoortenAsync();
+
+    /// <summary>Is deze werknemer projectleider (Projects.ProjectResponsible) van minstens één open project?</summary>
+    Task<bool> IsProjectleiderAsync(int werknemerId);
 }
 
 /// <summary>Doet niets — demo-modus zonder live database.</summary>
@@ -87,6 +90,7 @@ public class GeenProjectRepository : IProjectRepository
     public Task<List<Keuze>> GetWerknemersAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetProjectsoortenAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<Keuze>> GetWerkordersoortenAsync() => Task.FromResult(new List<Keuze>());
+    public Task<bool> IsProjectleiderAsync(int werknemerId) => Task.FromResult(false);
 }
 
 /// <summary>
@@ -646,5 +650,15 @@ public class MySqlProjectRepository : IProjectRepository
             catch { /* volgende tabelnaam proberen */ }
         }
         return new List<Keuze>();
+    }
+
+    public async Task<bool> IsProjectleiderAsync(int werknemerId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT EXISTS (SELECT 1 FROM `Projects` WHERE `ProjectResponsible` = @wn AND `ProjectStatus` = @open)", cn);
+        cmd.Parameters.AddWithValue("@wn", werknemerId);
+        cmd.Parameters.AddWithValue("@open", ProjectVelden.ProjectStatussen[0].Id);      // Open
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync()) != 0;
     }
 }

@@ -244,7 +244,9 @@ else
     /// </summary>
     private async Task ZoekCode(string code)
     {
-        code = code.Trim();
+        // AIM-code van het barcodesoort ("]C1" = Code 128/GS1-128) en stuurtekens (FNC1/GS) eraf: een handscanner
+        // of de camera kan ze meesturen (melding 24-10-2026: "]C1MDE56262" werd niet herkend)
+        code = System.Text.RegularExpressions.Regex.Replace(code ?? "", @"^\][A-Za-z][0-9A-Za-z]|[\x00-\x1F]", "").Trim();
         if (code.StartsWith("MDE", StringComparison.OrdinalIgnoreCase)) code = code[3..];
         code = code.TrimStart('#').Trim();
 

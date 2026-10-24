@@ -3,10 +3,13 @@
 @inject IProductRepository Repo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IProjectRepository Projecten
 
 @* Producten ▸ Todo-overzicht: alle open punten van exemplaren (tabel ProductTodo), met het product waar ze in zitten
    (de robot boven de print), bv. "welke robots moeten nog worden doorgesoldeerd". Invoeren gaat per exemplaar in
-   Producten ▸ tab Todo; hier kun je filteren, afvinken en afdrukken. *@
+   Producten ▸ tab Todo; hier kun je filteren, afvinken en afdrukken.
+   Een punt (Wat) overal hernoemen (wens collega 24-10-2026): kies het punt, ✎ Hernoemen; eerst de waarschuwing voor hoeveel
+   exemplaren het geldt. Alleen projectleiders van een open project en Directie (besluit gebruiker). *@
 
 <div class="page">
     <header class="topbar">
@@ -26,7 +29,7 @@
     {
         @if (_melding is not null)
         {
-            <div class="melding fout" @onclick="() => _melding = null">@_melding</div>
+            <div class="melding @(_meldingOk ? "ok" : "fout")" @onclick="() => _melding = null">@_melding</div>
         }
 
         <div class="todo-chips niet-afdrukken">
@@ -37,6 +40,23 @@
                     @w.Wat (@(_ookGereed ? $"{w.Open}/{w.Totaal}" : w.Open.ToString()))
                 </button>
             }
+        </div>
+
+        @* de knop staat er altijd; klikbaar alleen als je het mag en een punt gekozen hebt (wens gebruiker 24-10-2026) *@
+        <div class="todo-hernoem niet-afdrukken">
+                @if (!_hernoemen || _wat is null || !_magHernoemen)
+                {
+                    <button class="klein" disabled="@(_wat is null || !_magHernoemen)" title="@HernoemUitleg" @onclick="StartHernoemen">
+                        ✎ @(_wat is null ? "Punt hernoemen" : $"‘{_wat}’ hernoemen")</button>
+                }
+                else
+                {
+                    <label class="bankveld"><span>Nieuwe naam voor ‘@_wat’</span>
+                        <input @ref="_hernoemVeld" maxlength="60" value="@_nieuweNaam" @oninput="e => _nieuweNaam = (string?)e.Value ?? string.Empty"
+                               @onkeydown="HernoemToets" /></label>
+                    <button class="primair" disabled="@(_bezig || _nieuweNaam.Trim().Length == 0 || _nieuweNaam.Trim() == _wat)" @onclick="Hernoem">Hernoemen…</button>
+                    <button class="klein" @onclick="() => _hernoemen = false">Annuleren</button>
+                }
         </div>
 
         <div class="bankfilters niet-afdrukken">
@@ -121,7 +141,13 @@
     private string? _wat;
     private string _zoek = "";
     private string? _melding;
+    private bool _meldingOk;
     private List<ProductTodo> _lijst = new();
+
+    // ---- een punt overal hernoemen (projectleider van een open project, of Directie) ----
+    private bool _magHernoemen, _hernoemen, _focusHernoem;
+    private string _nieuweNaam = "";
+    private ElementReference _hernoemVeld;
     private List<TodoWat> _watLijst = new();
 
     private List<ProductTodo> Getoond
@@ -140,7 +166,57 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (Todos.Beschikbaar) await Laad();
+        if (!Todos.Beschikbaar) return;
+        await Ik.ZorgGeladenAsync();
+        try { _magHernoemen = Ik.Mag("Directie") || (Ik.WerknemerId is int wn && await Projecten.IsProjectleiderAsync(wn)); }
+        catch { _magHernoemen = Ik.Mag("Directie"); }
+        await Laad();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusHernoem) return;
+        _focusHernoem = false;
+        try { await _hernoemVeld.FocusAsync(); } catch { }
+    }
+
+    private string HernoemUitleg => !_magHernoemen
+        ? "Alleen voor projectleiders van een open project en Directie."
+        : _wat is null ? "Kies eerst hierboven een punt." : "Dit punt overal een andere naam geven";
+
+    private void StartHernoemen() { _hernoemen = true; _nieuweNaam = _wat ?? ""; _focusHernoem = true; }
+
+    private async Task HernoemToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Hernoem();
+        else if (e.Key == "Escape") _hernoemen = false;
+    }
+
+    /// <summary>Eerst laten zien voor hoeveel exemplaren het geldt (en of de nieuwe naam al bestaat), dan overal hernoemen.</summary>
+    private async Task Hernoem()
+    {
+        var oud = _wat;
+        var nieuw = _nieuweNaam.Trim();
+        if (oud is null || nieuw.Length == 0 || nieuw == oud || _bezig || !_magHernoemen) return;
+        _bezig = true;
+        try
+        {
+            var (exemplaren, open, gereed) = await Todos.WatTellingAsync(oud);
+            var bestaand = _watLijst.FirstOrDefault(w => string.Equals(w.Wat, nieuw, StringComparison.OrdinalIgnoreCase) && w.Wat != oud);
+            var tekst = $"‘{oud}’ wordt ‘{nieuw}’.\n\nDit geldt voor {exemplaren} exempla{(exemplaren == 1 ? "ar" : "ren")}: " +
+                        $"{open} open en {gereed} gereed punt{(open + gereed == 1 ? "" : "en")}.";
+            if (bestaand is not null)
+                tekst += $"\n\n‘{bestaand.Wat}’ bestaat al ({bestaand.Totaal} punt{(bestaand.Totaal == 1 ? "" : "en")}): beide komen onder één naam.";
+            if (!await JS.InvokeAsync<bool>("mdeBevestig", tekst + "\n\nDoorgaan?")) return;
+            var n = await Todos.HernoemWatAsync(oud, nieuw);
+            _hernoemen = false;
+            _wat = bestaand?.Wat ?? nieuw;
+            await Laad();
+            _melding = $"‘{oud}’ hernoemd naar ‘{_wat}’: {n} punt{(n == 1 ? "" : "en")} aangepast.";
+            _meldingOk = true;
+        }
+        catch (Exception ex) { _melding = "Hernoemen mislukt: " + ex.Message; _meldingOk = false; }
+        finally { _bezig = false; }
     }
 
     private async Task Laad()
@@ -154,11 +230,11 @@
                 _lijst = await Todos.OverzichtAsync(_wat, _ookGereed, Max);
             }
         }
-        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; }
+        catch (Exception ex) { _melding = "Ophalen mislukt: " + ex.Message; _meldingOk = false; }
         _geladen = true;
     }
 
-    private async Task KiesWat(string? wat) { _wat = wat; await Laad(); }
+    private async Task KiesWat(string? wat) { _wat = wat; _hernoemen = false; await Laad(); }
 
     private async Task OokGereedGewijzigd(ChangeEventArgs e) { _ookGereed = e.Value is true; await Laad(); }
 
@@ -172,7 +248,7 @@
             catch { /* de todo zelf staat er wel */ }
             await Laad();
         }
-        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; _meldingOk = false; }
         finally { _bezig = false; }
     }
 

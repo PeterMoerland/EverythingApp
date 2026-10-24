@@ -3245,6 +3245,8 @@ html[data-thema="donker"] .idee-plakvak { border-color: #2b4a73; color: #9fb0c4;
 .budget-totalen > b { text-align: right; }
 .budget-tekort { color: #c92a2a; }
 .verbeter-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+/* Verbeterverzoeken: tekstvakken zo hoog als de tekst (Chrome/Edge; Firefox houdt rows="2"). Wens gebruiker 24-10-2026. */
+.verbeter-tabel .verbeter-tekst { field-sizing: content; min-height: 2.6em; max-height: 24em; }
 .verbeter-tekst-lees { white-space: pre-wrap; }
 .verbeter-nieuw { display: grid; gap: .4rem; margin: 0 0 .6rem; max-width: 52rem; }
 .verbeter-nieuw > button { justify-self: start; }
@@ -3790,3 +3792,7 @@ html[data-thema="donker"] .voortgang-balk { background: #2b333c; }
 .bel-belicoon { margin-left: auto; }
 html[data-thema="donker"] .bel-inkomend { background: #232a31; color: #e8edf2; }
 html[data-thema="donker"] .bel-collega.online:hover { background: #24352b; border-color: #2f5a3d; }
+
+/* Todo-overzicht: een punt overal hernoemen */
+.todo-hernoem { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem; margin: .2rem 0 .6rem; }
+.todo-hernoem input { min-width: 16rem; }
