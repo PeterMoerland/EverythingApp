@@ -826,7 +826,12 @@ begindatum op of vóór die dag; vóór alle periodes: de eerste), zelfde regels
 in de tab Uren "≈" voor de kostprijs, voetnoot in Totaal. Daarmee tellen ook de uren precies op een begindatum mee (de
 view eist `> Begindatum`). Alleen werknemers zonder enig tarief blijven "niet meegeteld". Werkt door in de voortgang
 (Bepaal zelf) en de AI-opvraging. Getest met 225086-02 (Marc 37,5 uur à 65,00; rechten tijdelijk opengezet en
-teruggezet). Het factureren (`Tariefregels`) rekent nog níet met het laatst bekende tarief: zonder kostprijs geen bedrag.
+teruggezet).
+**Factureren** (zelfde dag, op verzoek): `Tariefregels.Reken` (uren importeren op een factuur en de pagina Tarieven)
+gebruikt zonder kostprijstarief voor die datum ook het laatst bekende tarief (afwijking van Access, waar de regel dan
+geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs voor deze datum voor X: laatst bekende
+kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
+(binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
 ## Activity board wissen (24-10-2026)
 

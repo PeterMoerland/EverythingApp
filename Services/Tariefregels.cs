@@ -10,7 +10,9 @@ namespace EverythingApp.Services;
 /// 1. verkoopprijs per uur/reisuur/km uit het werkorderteam (0 = niet ingevuld);
 /// 2. wat daar 0 is, uit de tariefafspraak met de klant op die datum, anders uit die van
 ///    MDE Automation B.V.; daar komen ook de overwerkpercentages vandaan;
-/// 3. kostprijs uit WerknemersTarieven op die datum (ontbreekt die, dan geen nieuw bedrag);
+/// 3. kostprijs uit WerknemersTarieven op die datum; is er voor die datum geen, dan het laatst bekende tarief van de
+///    werknemer (afwijking van Access, wens gebruiker 24-10-2026; zelfde regel als de nacalculatie). Alleen zonder
+///    enig tarief geen nieuw bedrag;
 /// 4. doorbelastpercentages van de werkorder (standaard 100% uren, 130% onkosten).
 /// </summary>
 public static class Tariefregels
@@ -55,9 +57,16 @@ public static class Tariefregels
         var kost = kostprijzen.FirstOrDefault(k => k.Begin <= u.Datum && k.Eind >= u.Datum);
         if (kost is null)
         {
-            // Zonder datum: zo telt de samenvatting per medewerker; de dag staat in de regel zelf.
-            u.Melding = $"geen kostprijs bekend voor {u.Werknemer} (Werknemers > tarieven)";
-            return;
+            // Laatst bekende tarief: de periode met de laatste begindatum op of vóór die dag; ligt de dag vóór alle
+            // periodes, dan de eerste. Zonder datum in de melding: zo telt de samenvatting per medewerker.
+            kost = kostprijzen.Where(k => k.Begin <= u.Datum).MaxBy(k => k.Begin) ?? kostprijzen.MinBy(k => k.Begin);
+            if (kost is null)
+            {
+                u.Melding = $"geen kostprijs bekend voor {u.Werknemer} (Werknemers > tarieven)";
+                return;
+            }
+            var melding = $"geen kostprijs voor deze datum voor {u.Werknemer}: laatst bekende kostprijs gebruikt (Werknemers > tarieven)";
+            u.Melding = u.Melding.Length > 0 ? u.Melding + "; " + melding : melding;
         }
 
         var doorUren = doorbelasting?.Uren ?? 100m;
