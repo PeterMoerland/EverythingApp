@@ -89,6 +89,18 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     public Task HernoemBoardAsync(int boardId, string naam)
     { lock (_slot) _boards.First(x => x.Id == boardId).Naam = naam.Trim(); return Task.CompletedTask; }
 
+    public Task VerwijderBoardAsync(int boardId)
+    {
+        lock (_slot)
+        {
+            _boards.RemoveAll(b => b.Id == boardId);
+            _problemen.RemoveAll(x => x.BoardId == boardId);
+            _types.RemoveAll(x => x.BoardId == boardId);
+            _acts.RemoveAll(x => x.BoardId == boardId);
+        }
+        return Task.CompletedTask;
+    }
+
     public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null)
     {
         lock (_slot)

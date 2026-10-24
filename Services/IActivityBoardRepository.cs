@@ -42,6 +42,11 @@ public interface IActivityBoardRepository
     /// een ander board heeft (één per project, per werkorder en per klant), anders null.
     /// </summary>
     Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null);
+    /// <summary>
+    /// Het hele board wissen (alleen Directie, de controle zit in het scherm): onderwerpen, types, activiteiten en hun
+    /// koppelingen gaan mee via ON DELETE CASCADE. Bijlagen van onderwerpen blijven in de filestore (soort 342).
+    /// </summary>
+    Task VerwijderBoardAsync(int boardId);
     Task<ActBoardData?> LaadAsync(int boardId);
     Task<List<ActPersoon>> GetPersonenAsync();
 
@@ -82,6 +87,7 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task<int> NieuwVrijBoardAsync(string naam, int? door) => Task.FromResult(0);
     public Task HernoemBoardAsync(int boardId, string naam) => Task.CompletedTask;
     public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null) => Task.FromResult<string?>(null);
+    public Task VerwijderBoardAsync(int boardId) => Task.CompletedTask;
     public Task<ActBoardData?> LaadAsync(int boardId) => Task.FromResult<ActBoardData?>(null);
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(new List<ActPersoon>());
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur) => Task.FromResult(0);
@@ -262,6 +268,9 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
     public Task HernoemBoardAsync(int boardId, string naam)
         => UitvoerenAsync("UPDATE `ActivityBoards` SET `Naam` = @n WHERE `BoardID` = @b",
                           ("@n", naam.Trim().Length > 0 ? Kort(naam.Trim(), 200) : DBNull.Value), ("@b", boardId));
+
+    public Task VerwijderBoardAsync(int boardId)
+        => UitvoerenAsync("DELETE FROM `ActivityBoards` WHERE `BoardID` = @b", ("@b", boardId));
 
     public async Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null)
     {

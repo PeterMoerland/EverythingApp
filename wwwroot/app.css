@@ -2701,7 +2701,8 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .ab-btn.klein { font-size: 12px; padding: .3rem .7rem; }
 .ab-btn.primair { background: var(--ab-rood); border-color: var(--ab-rood); color: #fff; }
 .ab-btn.primair:hover { background: var(--ab-rood-donker); color: #fff; }
-.ab-btn.gevaar:hover { background: var(--ab-rood); border-color: var(--ab-rood); color: #fff; }
+.ab-btn.gevaar:hover:not(:disabled) { background: var(--ab-rood); border-color: var(--ab-rood); color: #fff; }
+.ab-btn:disabled { opacity: .45; cursor: not-allowed; }
 .ab :focus-visible { outline: 2px solid var(--ab-rood); outline-offset: 1px; }
 
 /* panelen problemen en types */

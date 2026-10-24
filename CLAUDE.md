@@ -803,6 +803,16 @@ Niet lokaal getest (geen Google-login).
 Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
 authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
 
+## Activity board wissen (24-10-2026)
+
+Wens gebruiker: een board kunnen wissen, alleen Directie. Knop **Board wissen…** in de kop van het board (naast Naar
+Excel), voor iedereen zichtbaar maar alleen voor Directie te gebruiken (zoals bij todo hernoemen). Bevestiging in de pagina
+met het aantal onderwerpen, types en activiteiten ("kan niet ongedaan worden gemaakt"; bij een project-/werkorder-/
+klantboard: opnieuw openen begint leeg). `IActivityBoardRepository.VerwijderBoardAsync` = alleen `DELETE FROM
+ActivityBoards`; de rest gaat mee via ON DELETE CASCADE (op de echte database gecontroleerd: alle 8 FK's CASCADE).
+Bijlagen van onderwerpen (filestore 342) blijven staan, net als bij het wissen van één onderwerp. Open schermen van
+collega's krijgen via de live-melding "Dit board is verwijderd." Lokaal getest met `ActivityBoard__Geheugen=true`.
+
 ## Subwerkorders in nacalculatie, uren importeren en tarieven (24-10-2026)
 
 Gevolg van de werkorderboom (`Workorders.ParentWerkbonID`, altijd hetzelfde project): wat per project optelt klopte al,

@@ -137,6 +137,9 @@ else
                 <button class="ab-btn" type="button" @onclick="OpenKoppel" title="Dit board aan een project, werkorder of klant hangen, of losmaken">Koppelen…</button>
             }
             <button class="ab-btn" type="button" @onclick="NaarExcel" title="Activiteiten van dit board naar Excel (csv)">Naar Excel</button>
+            @* wissen: alleen Directie (wens gebruiker 24-10-2026); de knop staat er altijd, uit voor de rest *@
+            <button class="ab-btn gevaar" type="button" disabled="@(!MagWissen)" @onclick="WisBoard"
+                    title="@(MagWissen ? "Dit board met alle onderwerpen, types en activiteiten wissen" : "Een board wissen kan alleen Directie")">Board wissen…</button>
         </div>
     </div>
 
@@ -1102,6 +1105,31 @@ else
         await HerlaadAsync();
         _bordNaamVersie++;
         Toon("Board gekoppeld aan " + (werkorderId is not null ? "werkorder " : projectId is not null ? "project " : "klant ") + _data?.Board.StandaardTitel);
+    }
+
+    private bool MagWissen => Ik.Mag("Directie");
+
+    private void WisBoard()
+    {
+        if (_data is null || !MagWissen) return;
+        var d = _data;
+        var n = d.Activiteiten.Count;
+        _modal = new Modal("Board wissen?",
+            $"\"{d.Board.Titel}\" wordt gewist met {d.Problemen.Count} onderwerp{(d.Problemen.Count == 1 ? "" : "en")}, " +
+            $"{d.Types.Count} type{(d.Types.Count == 1 ? "" : "s")} en {n} activiteit{(n == 1 ? "" : "en")}. Dit kan niet ongedaan worden gemaakt." +
+            (d.Board.Soort != ActBoardSoort.Vrij ? " Open je later het board van dit " + ActBoardSoort.Naam(d.Board.Soort).ToLowerInvariant() + " opnieuw, dan begint dat leeg." : ""),
+            "Wissen", DoeWisBoard);
+        _focusNa = "#ab-mnee";
+    }
+
+    private async Task DoeWisBoard()
+    {
+        if (_data is null || !MagWissen) return;
+        var titel = _data.Board.Titel;
+        if (!await Bewaar(() => Repo.VerwijderBoardAsync(_data.Board.Id))) return;   // Bewaar meldt het ook aan open schermen
+        _data = null; _open = null;
+        Nav.NavigateTo("activityboard");
+        Toon($"Board \"{titel}\" gewist");
     }
 
     /// <summary>Geen project of klant meer. Zonder eigen naam krijgt het board de naam die het nu toont.</summary>
