@@ -19,7 +19,7 @@ public record ProductNaam(int Id, string Naam, string Omschrijving, string TypeC
 
 /// <summary>Eén exemplaar uit Producten, zoals het in de serienummerlijst staat.</summary>
 public record ProductRegel(int Id, string Serienummer, string Klant, string StatusKort,
-                           string Opmerking, bool Gewist, int? StatusId = null, string Project = "");
+                           string Opmerking, bool Gewist, int? StatusId = null, string Project = "", int? WerkorderId = null);
 
 /// <summary>Een regel uit ProductHistorie.</summary>
 /// <param name="Uitkomst">true = geslaagd, false = mislukt, null = neutraal (kolom Uitkomst, ProductTechniek_MariaDB.sql).</param>

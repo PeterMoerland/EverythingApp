@@ -72,11 +72,15 @@
                         }
                     </div>
                     <div class="wn-namen kort nc-werkorders">
-                        @foreach (var w in _werkorders)
+                        @* subwerkorders ingesprongen onder hun ouder; kies je de ouder, dan tellen ze mee (wens gebruiker 24-10-2026) *@
+                        @foreach (var (w, diepte) in NacalcBoom.Ordenen(_werkorders))
                         {
-                            <button class="wn-naam nc-regel @(_gekozenWerkorders.Contains(w.Id) ? "actief" : "")" @key="w.Id" @onclick="() => WisselWerkorder(w.Id)">
-                                <span class="nc-vink">@(_gekozenWerkorders.Contains(w.Id) ? "☑" : "☐")</span>
-                                <span><b>@w.Nummer</b> @w.Omschrijving</span>
+                            var via = !_gekozenWerkorders.Contains(w.Id) && ViaOuder.Contains(w.Id);
+                            <button class="wn-naam nc-regel @(_gekozenWerkorders.Contains(w.Id) ? "actief" : "") @(via ? "nc-via" : "")" @key="w.Id"
+                                    style="@Inspringen(diepte)" title="@(via ? "Telt mee met de gekozen bovenliggende werkorder" : null)"
+                                    @onclick="() => WisselWerkorder(w.Id)">
+                                <span class="nc-vink">@(_gekozenWerkorders.Contains(w.Id) || via ? "☑" : "☐")</span>
+                                <span>@(diepte > 0 ? "↳ " : "")<b>@w.Nummer</b> @w.Omschrijving</span>
                             </button>
                         }
                     </div>
@@ -127,11 +131,11 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var w in _data.Werkorders)
+                                @foreach (var (w, diepte) in NacalcBoom.Ordenen(_data.Werkorders))
                                 {
                                     var zonder = _data.ZonderTarief.Where(z => z.WerkorderId == w.Id).Sum(z => z.Uren);
                                     <tr @key="w.Id">
-                                        <td><b>@w.Nummer</b></td>
+                                        <td style="@Inspringen(diepte)" class="nc-nowrap">@(diepte > 0 ? "↳ " : "")<b>@w.Nummer</b></td>
                                         <td>@w.Omschrijving</td>
                                         <td class="r nc-klik" @onclick="() => KiesTab(TBestellingen, w.Id)">@Geld(Besteld(w.Id))</td>
                                         <td class="r nc-klik" @onclick="() => KiesTab(TBestellingen, w.Id)">@Geld(Gefactureerd(w.Id))</td>
@@ -146,6 +150,23 @@
                                         </td>
                                         <td class="r"><b>@Geld(Totaal(w.Id))</b></td>
                                     </tr>
+                                    @if (SubtotaalNa.GetValueOrDefault(w.Id) is { Count: > 0 } ouders)
+                                    {
+                                        @* na de laatste subwerkorder: per ouder het totaal inclusief alles eronder *@
+                                        @foreach (var o in ouders)
+                                        {
+                                            var groep = NacalcBoom.MetNakomelingen(_data.Werkorders, new[] { o.Werkorder.Id });
+                                            <tr class="nc-subtotaal" @key="@($"sub{o.Werkorder.Id}")">
+                                                <td colspan="2" style="@Inspringen(o.Diepte)">Subtotaal @o.Werkorder.Nummer <span class="uitleg">incl. @(groep.Count - 1) subwerkorder@(groep.Count == 2 ? "" : "s")</span></td>
+                                                <td class="r">@Geld(groep.Sum(Besteld))</td>
+                                                <td class="r">@Geld(groep.Sum(Gefactureerd))</td>
+                                                <td class="r">@Geld(groep.Sum(Inkoop))</td>
+                                                <td class="r">@Geld(groep.Sum(Materiaal))</td>
+                                                <td class="r">@Geld(groep.Sum(Uurkosten))</td>
+                                                <td class="r"><b>@Geld(groep.Sum(Totaal))</b></td>
+                                            </tr>
+                                        }
+                                    }
                                 }
                             </tbody>
                             <tfoot>
@@ -462,11 +483,44 @@
 
     private async Task AlleWerkorders() { _gekozenWerkorders.Clear(); await LaadData(); }
 
+    /// <summary>Niet zelf gekozen, maar een bovenliggende werkorder wel: telt mee.</summary>
+    private HashSet<int> ViaOuder => NacalcBoom.MetNakomelingen(_werkorders, _gekozenWerkorders);
+
+    private static string Inspringen(int diepte)
+        => diepte == 0 ? "" : $"padding-left:{(diepte * 1.2 + .4).ToString(System.Globalization.CultureInfo.InvariantCulture)}rem";
+
+    /// <summary>
+    /// Na welke regel (de laatste nakomeling) welke subtotalen komen: per werkorder met subwerkorders in de keuze, de
+    /// diepste ouder eerst.
+    /// </summary>
+    private Dictionary<int, List<(NacalcWerkorder Werkorder, int Diepte)>> SubtotaalNa
+    {
+        get
+        {
+            var volgorde = NacalcBoom.Ordenen(_data.Werkorders);
+            var plek = volgorde.Select((x, i) => (x.Werkorder.Id, i)).ToDictionary(x => x.Id, x => x.i);
+            var uit = new Dictionary<int, List<(NacalcWerkorder, int)>>();
+            foreach (var (w, d) in volgorde)
+            {
+                var onder = NacalcBoom.Nakomelingen(_data.Werkorders, w.Id);
+                if (onder.Count == 0) continue;
+                var laatste = onder.OrderBy(id => plek[id]).Last();
+                if (!uit.TryGetValue(laatste, out var l)) uit[laatste] = l = new();
+                l.Add((w, d));
+            }
+            foreach (var l in uit.Values) l.Sort((a, b) => b.Item2.CompareTo(a.Item2));
+            return uit;
+        }
+    }
+
     private async Task LaadData()
     {
         _details.Clear();
         _focus = null;
-        var keuze = _gekozenWerkorders.Count == 0 ? _werkorders : _werkorders.Where(w => _gekozenWerkorders.Contains(w.Id)).ToList();
+        // een gekozen werkorder neemt zijn subwerkorders mee; de volgorde is die van de boom
+        var gekozen = NacalcBoom.MetNakomelingen(_werkorders, _gekozenWerkorders);
+        var keuze = (_gekozenWerkorders.Count == 0 ? _werkorders : _werkorders.Where(w => gekozen.Contains(w.Id)).ToList());
+        keuze = NacalcBoom.Ordenen(keuze).Select(x => x.Werkorder).ToList();
         try { _data = await Repo.LaadAsync(keuze); }
         catch (Exception ex) { _melding = "Kosten ophalen mislukt: " + ex.Message; _data = new(); }
         if (_jaar is int j && !Jaren.Contains(j)) _jaar = null;

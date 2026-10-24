@@ -3480,6 +3480,12 @@ html[data-thema="donker"] .ai-regel small, html[data-thema="donker"] .ai-voet { 
 .nc-focus { background: #fff1d6; border-radius: 4px; padding: .1rem .4rem; font-size: .9em; }
 .nc-tabel { margin-bottom: .6rem; }
 .nc-tabel tfoot td { border-top: 1px solid #c8d1dc; font-weight: 600; }
+/* subwerkorders: telt mee via de ouder (links), subtotaal per ouder (kostenoverzicht) */
+.nc-regel.nc-via { color: #5b6b80; background: #f1f5fa; }
+.nc-subtotaal td { background: #f4f7fb; font-style: italic; border-top: 1px dashed #c8d1dc; }
+.nc-nowrap { white-space: nowrap; }
+html[data-thema="donker"] .nc-regel.nc-via { color: #a9b6c6; background: #243042; }
+html[data-thema="donker"] .nc-subtotaal td { background: #222b37; border-top-color: #3d4856; }
 .nc-klik { cursor: pointer; }
 .nc-klik:hover { background: rgba(26, 95, 180, .07); }
 .nc-groep { font-weight: 600; margin: .9rem 0 .3rem; }

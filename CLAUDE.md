@@ -803,6 +803,36 @@ Niet lokaal getest (geen Google-login).
 Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
 authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
 
+## Subwerkorders in nacalculatie, uren importeren en tarieven (24-10-2026)
+
+Gevolg van de werkorderboom (`Workorders.ParentWerkbonID`, altijd hetzelfde project): wat per project optelt klopte al,
+maar per werkorder niet. Gedeelde hulp `Services/WerkorderBoom.cs` (Ordenen diepte-eerst op nummer, Nakomelingen,
+MetNakomelingen, Voorouders; bestand tegen kringen). Zonder de kolom blijft alles plat (kolomcheck, alleen 'ja' onthouden).
+- **Nacalculatie**: `NacalcWerkorder.OuderId` (LEFT JOIN Workorders op de view). Een gekozen werkorder (ook via
+  `?werkorder=`) neemt zijn subwerkorders mee; links ingesprongen, "telt mee via ouder" grijs aangevinkt (`nc-via`). In
+  het kostenoverzicht boomvolgorde met ↳ en na de laatste nakomeling een regel **Subtotaal <nummer> incl. n
+  subwerkorders** (`SubtotaalNa`, diepste eerst); het eindtotaal blijft de som van de eigen kosten (niets dubbel).
+  Lokaal getest met 224101-12 (17 en 18 eronder), rechten tijdelijk opengezet en teruggezet.
+- **Uren importeren** (factuur) en **Tarieven**: `WerkorderKeuzeUren.OuderId`, lijst in boomvolgorde en ingesprongen; een
+  ouder aan- of uitvinken doet de subwerkorders mee.
+- **Teamtarief** (`RekenAsync`): heeft een werknemer op de subwerkorder geen teamtarief (geen regel of alles 0), dan dat
+  van de dichtstbijzijnde bovenliggende werkorder, met de melding "subwerkorder zonder eigen teamtarief: tarief van
+  <nummer> gebruikt". Doorbelast deel en "materiaalkosten niet meenemen" blijven per werkorder (overal standaard).
+  Niet in de browser getest (factuur/rechten); de opvraging van de ouders is los op de database gecontroleerd.
+
+## Producten: filter op werkorder (24-10-2026)
+
+Wens gebruiker. Onder producttype/groep een keuzelijst "Alle werkorders" met alleen werkorders waar exemplaren op staan
+(`IProductRepository.ExemplarenPerWerkorderAsync`: per WorkorderID de ProductNameIDs met aantal, niet gewist; labels via
+het nieuwe `IUrenRepository.GetWorkordersAsync(ids)`, open en gesloten, nieuwste boven, met het aantal erachter). Gekozen:
+de typelijst toont alleen types met exemplaren op die werkorder (`NamenGefilterd`), de exemplarenlijst alleen die
+exemplaren (`ProductRegel.WerkorderId`, `OpWerkorder` in `StatusZichtbaar` en de tellingen). Het statusfilter blijft
+gelden; vallen alle exemplaren van de werkorder erbuiten (vaak: alles "Product gereed"), dan een melding met de knop
+"Alle statussen tonen". Scannen of openen via een link buiten het filter zet het werkorderfilter los. De lijst wordt bij
+het openen van de pagina opgehaald en na de groepsbewerking Werkorder opnieuw. Lokaal getest (lezen).
+Zelfde dag: het **typeplaatje** heeft een eigen tab "Typeplaatje" (na Samenstelling, alleen bij een exemplaar; stond
+onder Algemeen) en **Bouwjaar** staat links uitgelijnd (`ProductVelden`: `Links = true`).
+
 ## Producten: exemplarenlijst duidelijk en actueel (24-10-2026)
 
 Verbeterverzoek 36 (collega): "Als er geen product is geselecteerd laat hij wel de lijst van mpedes zien … statussen

@@ -32,6 +32,8 @@ public interface IUrenRepository
     Task<HashSet<string>> WerknemerKolommenAsync();
     Task<List<Workorder>> GetOpenWorkordersAsync();
     Task<Workorder?> GetWorkorderAsync(int id);
+    /// <summary>Werkorders bij een lijst id's (open en gesloten), in de volgorde van de lijst; onbekende vallen weg.</summary>
+    Task<List<Workorder>> GetWorkordersAsync(IReadOnlyCollection<int> ids);
 
     // --- werkorder zoeken (vervangt de Access-popups
     //     'Projectreg_zoek_naar_workorder' en 'SelectRecentWorkorder') ---

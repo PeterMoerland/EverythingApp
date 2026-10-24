@@ -560,6 +560,8 @@ public class MySqlUrenRepository : IUrenRepository
         return list;
     }
 
+    public Task<List<Workorder>> GetWorkordersAsync(IReadOnlyCollection<int> ids) => WerkordersBijIdsAsync(ids.Distinct().ToList());
+
     public async Task<Workorder?> GetWorkorderAsync(int id)
     {
         var q = WorkorderQuery();

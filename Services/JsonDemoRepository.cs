@@ -192,6 +192,8 @@ public class JsonDemoRepository : IUrenRepository
     }
     public Task<List<Workorder>> GetOpenWorkordersAsync() => Task.FromResult(_workorders.Where(w => w.WorkorderStatus != 0).ToList());
     public Task<Workorder?> GetWorkorderAsync(int id) => Task.FromResult(_workorders.FirstOrDefault(w => w.WerkbonId == id));
+    public Task<List<Workorder>> GetWorkordersAsync(IReadOnlyCollection<int> ids)
+        => Task.FromResult(ids.Select(id => _workorders.FirstOrDefault(w => w.WerkbonId == id)).OfType<Workorder>().ToList());
 
     // --- werkorder zoeken (demo) ---
     private readonly List<(int Werknemer, int Werkorder)> _persoonlijk = new();

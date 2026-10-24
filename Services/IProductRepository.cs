@@ -29,6 +29,12 @@ public interface IProductRepository
     /// <summary>De exemplaren van een producttype (serienummers).</summary>
     Task<List<ProductRegel>> GetProductenAsync(int productNameId, bool inclusiefGewist);
 
+    /// <summary>
+    /// Per werkorder: welke producttypes er exemplaren op hebben en hoeveel (niet gewist). Voor het werkorderfilter op
+    /// Producten; alleen werkorders met minstens één exemplaar.
+    /// </summary>
+    Task<Dictionary<int, Dictionary<int, int>>> ExemplarenPerWerkorderAsync();
+
     /// <summary>Zoekt een product op serienummer — voor het scanveld.</summary>
     Task<(int ProductId, int ProductNameId)?> ZoekOpSerienummerAsync(string serienummer);
 
@@ -139,6 +145,8 @@ public class GeenProductRepository : IProductRepository
     public Task VerwijderTypeAttribuutAsync(int productNameAttributeId) => Task.CompletedTask;
     public Task<List<ProductRegel>> GetProductenAsync(int productNameId, bool inclusiefGewist)
         => Task.FromResult(new List<ProductRegel>());
+    public Task<Dictionary<int, Dictionary<int, int>>> ExemplarenPerWerkorderAsync()
+        => Task.FromResult(new Dictionary<int, Dictionary<int, int>>());
     public Task<(int ProductId, int ProductNameId)?> ZoekOpSerienummerAsync(string serienummer)
         => Task.FromResult<(int, int)?>(null);
     public Task<(string Type, string Serienummer, string Bouwjaar)?> GetLabelGegevensAsync(int productId)
@@ -550,6 +558,7 @@ public class MySqlProductRepository : IProductRepository
         var gewistKolom = kolommen.Contains("isDeleted") ? "p.`isDeleted`" : "0";
         // Project bestaat pas na Producten_Project_MariaDB.sql.
         var projectKolom = kolommen.Contains("Project") ? "COALESCE(p.`Project`, '')" : "''";
+        var werkorderKolom = kolommen.Contains("WorkorderID") ? "p.`WorkorderID`" : "NULL";
         var filter = inclusiefGewist || !kolommen.Contains("isDeleted")
             ? ""
             : "AND (p.`isDeleted` = 0 OR p.`isDeleted` IS NULL) ";
@@ -559,7 +568,7 @@ public class MySqlProductRepository : IProductRepository
         await using var cmd = new MySqlCommand(
             $"SELECT p.`ProductenID`, p.`{serie}`, COALESCE(r.`name`, ''), " +
             "        COALESCE(s.`StatusShort`, s.`Status`, ''), COALESCE(p.`Opmerking`, ''), " +
-            $"       {gewistKolom}, p.`ProductStatusID`, {projectKolom} " +
+            $"       {gewistKolom}, p.`ProductStatusID`, {projectKolom}, {werkorderKolom} " +
             "  FROM `Producten` p " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = p.`KlantID` " +
             "  LEFT JOIN `ProductStatus` s ON s.`ProductStatusID` = p.`ProductStatusID` " +
@@ -578,9 +587,32 @@ public class MySqlProductRepository : IProductRepository
             string S(int i) => r2.IsDBNull(i) ? "" : r2.GetValue(i).ToString() ?? "";
 
             lijst.Add(new ProductRegel(r2.GetInt32(0), S(1), S(2), S(3), S(4), B(5),
-                                       r2.IsDBNull(6) ? null : Convert.ToInt32(r2.GetValue(6)), S(7)));
+                                       r2.IsDBNull(6) ? null : Convert.ToInt32(r2.GetValue(6)), S(7),
+                                       r2.IsDBNull(8) ? null : Convert.ToInt32(r2.GetValue(8))));
         }
         return lijst;
+    }
+
+    public async Task<Dictionary<int, Dictionary<int, int>>> ExemplarenPerWerkorderAsync()
+    {
+        var uit = new Dictionary<int, Dictionary<int, int>>();
+        var kolommen = await KolommenAsync();
+        if (!kolommen.Contains("WorkorderID")) return uit;
+        var filter = kolommen.Contains("isDeleted") ? "AND (`isDeleted` = 0 OR `isDeleted` IS NULL) " : "";
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `WorkorderID`, `ProductNameID`, COUNT(*) FROM `Producten` " +
+            $" WHERE `WorkorderID` IS NOT NULL AND `WorkorderID` <> 0 {filter}" +
+            " GROUP BY `WorkorderID`, `ProductNameID`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            if (r.IsDBNull(1)) continue;
+            var wo = Convert.ToInt32(r.GetValue(0));
+            if (!uit.TryGetValue(wo, out var perType)) uit[wo] = perType = new();
+            perType[Convert.ToInt32(r.GetValue(1))] = Convert.ToInt32(r.GetValue(2));
+        }
+        return uit;
     }
 
     /// <summary>

@@ -11,8 +11,22 @@ namespace EverythingApp.Services;
 
 public record NacalcProject(int Id, string Nummer, string Omschrijving, string Klant, int? Status);
 
+/// <param name="OuderId">Bovenliggende werkorder (Workorders.ParentWerkbonID, altijd van hetzelfde project); null = direct onder het project.</param>
 public record NacalcWerkorder(int Id, int ProjectId, string Nummer, string Omschrijving, string ProjectNummer,
-                              string Project, string Klant, bool MateriaalNietMeenemen);
+                              string Project, string Klant, bool MateriaalNietMeenemen, int? OuderId = null);
+
+/// <summary>Werkorderboom voor de nacalculatie (zie <see cref="WerkorderBoom"/>).</summary>
+public static class NacalcBoom
+{
+    public static List<(NacalcWerkorder Werkorder, int Diepte)> Ordenen(IReadOnlyCollection<NacalcWerkorder> lijst)
+        => WerkorderBoom.Ordenen(lijst, w => w.Id, w => w.OuderId, w => w.Nummer);
+
+    public static HashSet<int> Nakomelingen(IReadOnlyCollection<NacalcWerkorder> lijst, int id)
+        => WerkorderBoom.Nakomelingen(lijst, w => w.Id, w => w.OuderId, id);
+
+    public static HashSet<int> MetNakomelingen(IReadOnlyCollection<NacalcWerkorder> lijst, IEnumerable<int> gekozen)
+        => WerkorderBoom.MetNakomelingen(lijst, w => w.Id, w => w.OuderId, gekozen);
+}
 
 /// <summary>Uurkosten per werkorder, werknemer, tariefsoort, jaar en kostprijs (view _Nacalc_Uurkosten_Overview).</summary>
 public record NacalcUren(int WerkorderId, int WerknemerId, string Werknemer, int TariefsoortId, string Tariefsoort, int Jaar,
@@ -119,20 +133,38 @@ public class MySqlNacalculatieRepository : INacalculatieRepository
         return lijst;
     }
 
-    private const string WerkorderSelect =
-        "SELECT v.`Werkbon-id`, v.`Project-Id`, v.`Werkordernummer`, COALESCE(v.`Werkbonomschrijving`, ''), CAST(v.`ProjectNumber` AS CHAR), " +
-        "       COALESCE(v.`Projectdescription`, ''), COALESCE(v.`Klant`, ''), v.`MateriaalKostenNietMeenemen` " +
-        "  FROM `@VW_Full_OrderData` v ";
+    private bool _ouderKolom;
+
+    /// <summary>Workorders.ParentWerkbonID (Werkorders_Boom_MariaDB.sql); alleen 'ja' onthouden.</summary>
+    private async Task<bool> HeeftOuderKolomAsync(MySqlConnection cn)
+    {
+        if (_ouderKolom) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+            "   AND TABLE_NAME = 'Workorders' AND COLUMN_NAME = 'ParentWerkbonID'", cn);
+        return _ouderKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    private async Task<string> WerkorderSelectAsync(MySqlConnection cn)
+    {
+        var ouder = await HeeftOuderKolomAsync(cn);
+        return "SELECT v.`Werkbon-id`, v.`Project-Id`, v.`Werkordernummer`, COALESCE(v.`Werkbonomschrijving`, ''), CAST(v.`ProjectNumber` AS CHAR), " +
+               "       COALESCE(v.`Projectdescription`, ''), COALESCE(v.`Klant`, ''), v.`MateriaalKostenNietMeenemen`, " +
+               (ouder ? "wb.`ParentWerkbonID` " : "NULL ") +
+               "  FROM `@VW_Full_OrderData` v " +
+               (ouder ? "  LEFT JOIN `Workorders` wb ON wb.`Werkbon-id` = v.`Werkbon-id` " : "");
+    }
 
     private static NacalcWerkorder LeesWerkorder(MySqlDataReader r)
-        => new(r.GetInt32(0), r.GetInt32(1), S(r, 2), S(r, 3), S(r, 4), S(r, 5), S(r, 6), B(r, 7));
+        => new(r.GetInt32(0), r.GetInt32(1), S(r, 2), S(r, 3), S(r, 4), S(r, 5), S(r, 6), B(r, 7),
+               r.IsDBNull(8) || I(r, 8) == 0 ? null : I(r, 8));
 
     public async Task<List<NacalcWerkorder>> WerkordersAsync(IReadOnlyCollection<int> projectIds)
     {
         var lijst = new List<NacalcWerkorder>();
         if (projectIds.Count == 0) return lijst;
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(WerkorderSelect + $" WHERE v.`Project-Id` IN ({Lijst(projectIds)}) ORDER BY v.`Werkordernummer`", cn);
+        await using var cmd = new MySqlCommand(await WerkorderSelectAsync(cn) + $" WHERE v.`Project-Id` IN ({Lijst(projectIds)}) ORDER BY v.`Werkordernummer`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(LeesWerkorder(r));
         return lijst;
@@ -141,7 +173,7 @@ public class MySqlNacalculatieRepository : INacalculatieRepository
     public async Task<NacalcWerkorder?> WerkorderAsync(int werkorderId)
     {
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(WerkorderSelect + " WHERE v.`Werkbon-id` = @id", cn);
+        await using var cmd = new MySqlCommand(await WerkorderSelectAsync(cn) + " WHERE v.`Werkbon-id` = @id", cn);
         cmd.Parameters.AddWithValue("@id", werkorderId);
         await using var r = await cmd.ExecuteReaderAsync();
         return await r.ReadAsync() ? LeesWerkorder(r) : null;

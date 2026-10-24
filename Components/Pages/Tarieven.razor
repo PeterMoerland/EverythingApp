@@ -78,9 +78,11 @@
                         <div class="wn-veld breed">
                             <label>Werkorders</label>
                             <div class="ui-werkorders">
-                                @foreach (var w in _werkorders)
+                                @* subwerkorders ingesprongen; een ouder aanvinken vinkt ze mee aan (wens gebruiker 24-10-2026) *@
+                                @foreach (var (w, diepte) in WerkorderBoom.Ordenen(_werkorders, x => x.WerkbonId, x => x.OuderId, x => x.Nummer))
                                 {
-                                    <label class="vinkje" @key="w.WerkbonId">
+                                    <label class="vinkje" @key="w.WerkbonId" style="@(diepte == 0 ? "" : FormattableString.Invariant($"padding-left:{diepte * 1.2m}rem"))">
+                                        @if (diepte > 0) { <span class="zij-extra">↳</span> }
                                         <input type="checkbox" checked="@_selectie.WerkbonIds.Contains(w.WerkbonId)"
                                                @onchange="e => WerkorderGewijzigd(w.WerkbonId, e)" />
                                         @w.Nummer @w.Omschrijving
@@ -264,8 +266,10 @@
     /// <summary>Werkorder aan- of uitgevinkt: de periode volgt de uren van die keuze; geen uren = periode blijft staan.</summary>
     private async Task WerkorderGewijzigd(int werkbonId, ChangeEventArgs e)
     {
-        if (e.Value is true) { if (!_selectie.WerkbonIds.Contains(werkbonId)) _selectie.WerkbonIds.Add(werkbonId); }
-        else _selectie.WerkbonIds.Remove(werkbonId);
+        // de subwerkorders gaan mee aan of uit
+        var groep = WerkorderBoom.MetNakomelingen(_werkorders, x => x.WerkbonId, x => x.OuderId, new[] { werkbonId });
+        if (e.Value is true) { foreach (var id in groep) if (!_selectie.WerkbonIds.Contains(id)) _selectie.WerkbonIds.Add(id); }
+        else _selectie.WerkbonIds.RemoveAll(groep.Contains);
         WisLijst();
         try
         {

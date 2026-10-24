@@ -71,6 +71,25 @@
                             </select>
                         }
                     </div>
+                    @if (_werkorderKeuzes.Count > 0 || _werkorderFilter is not null)
+                    {
+                        @* filter op werkorder (wens gebruiker 24-10-2026): alleen types met exemplaren op die werkorder,
+                           en in de exemplarenlijst alleen die exemplaren *@
+                        <div class="zoekregel">
+                            <select value="@(_werkorderFilter?.ToString() ?? string.Empty)" @onchange="WerkorderFilterGewijzigd"
+                                    title="Alleen producttypes en exemplaren van deze werkorder">
+                                <option value="">Alle werkorders</option>
+                                @foreach (var w in _werkorderKeuzes)
+                                {
+                                    <option value="@w.Id">@w.Naam (@w.Aantal)</option>
+                                }
+                            </select>
+                            @if (_werkorderFilter is not null)
+                            {
+                                <button class="klein" title="Werkorderfilter wissen" @onclick="WisWerkorderFilter">✕</button>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div class="wn-namen product-namen">
@@ -162,7 +181,15 @@
                     }
                     else if (_producten.Count == 0)
                     {
-                        <div class="kiezer-info">@(_alleProducten.Count > 0 ? $"Geen exemplaren met de gekozen status ({_alleProducten.Count} verborgen)." : "Nog geen exemplaren.")</div>
+                        @if (_werkorderFilter is not null && _alleProducten.Count(OpWerkorder) is var opWo and > 0)
+                        {
+                            <div class="kiezer-info">@opWo exempla@(opWo == 1 ? "ar" : "ren") op deze werkorder, maar niet met de gekozen status.
+                                <button class="knopje" @onclick="StatusAlles">Alle statussen tonen</button></div>
+                        }
+                        else
+                        {
+                            <div class="kiezer-info">@(_alleProducten.Count > 0 ? $"Geen exemplaren met de gekozen status{(_werkorderFilter is not null ? " op deze werkorder" : "")} ({_alleProducten.Count} verborgen)." : "Nog geen exemplaren.")</div>
+                        }
                     }
                     else
                     {
@@ -363,26 +390,6 @@
                                 {
                                     <VeldRaster @key="_productId" Tab="ProductVelden.Tabs[0]" Kolommen="_kolommen" Velden="_velden"
                                                 Lijsten="_lijsten" OpSlaan="Bewaar" />
-
-                                    <h3 class="wn-kop">Typeplaatje</h3>
-                                    <div class="label-blok">
-                                        <img class="label-voorbeeld" src="@LabelUrl()" alt="Typeplaatje" />
-                                        <div class="btngroup">
-                                            <a class="knopje" href="@LabelUrl()" target="_blank">Bekijken</a>
-                                            <a class="knopje" href="@LabelPdfUrl()" target="_blank">PDF openen</a>
-                                            <button class="primair" disabled="@_laserBezig" @onclick="ExporteerLaser">
-                                                @(_laserBezig ? "Bezig…" : "Naar de laser")
-                                            </button>
-                                            @if (Altec.Beschikbaar)
-                                            {
-                                                <input type="number" min="1" max="100" style="width:4rem"
-                                                       title="Aantal labels" @bind="_altecAantal" />
-                                                <button class="primair" disabled="@_altecBezig" @onclick="PrintAltec">
-                                                    @(_altecBezig ? "Bezig…" : "Print label (Altec)")
-                                                </button>
-                                            }
-                                        </div>
-                                    </div>
                                 }
                             </Hoofd>
                             <Zij>
@@ -690,6 +697,29 @@
                                 </tbody>
                             </table>
                         }
+                    }
+
+                    @* ===== TYPEPLAATJE van een exemplaar (eigen tab, wens gebruiker 24-10-2026; stond onder Algemeen) ===== *@
+                    @if (_tab == "Typeplaatje" && _productId is not null)
+                    {
+                        <div class="label-blok">
+                            <img class="label-voorbeeld" src="@LabelUrl()" alt="Typeplaatje" />
+                            <div class="btngroup">
+                                <a class="knopje" href="@LabelUrl()" target="_blank">Bekijken</a>
+                                <a class="knopje" href="@LabelPdfUrl()" target="_blank">PDF openen</a>
+                                <button class="primair" disabled="@_laserBezig" @onclick="ExporteerLaser">
+                                    @(_laserBezig ? "Bezig…" : "Naar de laser")
+                                </button>
+                                @if (Altec.Beschikbaar)
+                                {
+                                    <input type="number" min="1" max="100" style="width:4rem"
+                                           title="Aantal labels" @bind="_altecAantal" />
+                                    <button class="primair" disabled="@_altecBezig" @onclick="PrintAltec">
+                                        @(_altecBezig ? "Bezig…" : "Print label (Altec)")
+                                    </button>
+                                }
+                            </div>
+                        </div>
                     }
 
                     @* ===== ATTRIBUTEN van een exemplaar: met waarde ===== *@
@@ -1238,8 +1268,8 @@
     private string[] Tabs => _productId is null
         ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
         : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
-            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
-            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
+            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
+            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
 
     private string Titel
     {
@@ -1286,6 +1316,7 @@
             try { _groepen = await Repo.GetProductgroepenAsync(); } catch { }
 
             await LaadNamen();
+            await LaadWerkorderKeuzes();
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
     }
@@ -1422,6 +1453,7 @@
                             + GekozenTekst())) return;
 
         await GroepVeld("WorkorderID", werkorderId, $"Gekoppeld aan werkorder {naam}.");
+        await LaadWerkorderKeuzes();          // de werkorder komt (met het nieuwe aantal) in het werkorderfilter
     }
 
     private async Task GroepVeld(string kolom, object? waarde, string historie)
@@ -1677,7 +1709,7 @@
             if (naam is null)
             {
                 // buiten het huidige filter: filters wissen en opnieuw zoeken
-                _zoek = ""; _typeId = null; _groepFilter = null;
+                _zoek = ""; _typeId = null; _groepFilter = null; _werkorderFilter = null;
                 await LaadNamen();
                 naam = _namen.FirstOrDefault(n => n.Id == naamId);
             }
@@ -1781,10 +1813,14 @@
                 // buiten het huidige filter: filters wissen en opnieuw zoeken
                 _zoek = "";
                 _typeId = null;
+                _groepFilter = null;
+                _werkorderFilter = null;
                 await LaadNamen();
                 naam = _namen.FirstOrDefault(n => n.Id == gevonden.Value.ProductNameId);
             }
             if (naam is null) { Toon("Het producttype van dit exemplaar is niet gevonden.", true); return; }
+            // gescand exemplaar valt buiten het werkorderfilter: filter los, anders staat het type niet in de lijst
+            if (_werkorderFilter is not null && !NamenGefilterd().Any(n => n.Id == naam.Id)) _werkorderFilter = null;
 
             await KiesNaam(naam);
 
@@ -1838,8 +1874,46 @@
         }
     }
 
-    private int AantalMetStatus(int id) => _alleProducten.Count(p => (p.StatusId ?? 0) == id);
-    private bool StatusZichtbaar(ProductRegel p) => _statusFilter.Contains(p.StatusId ?? 0);
+    private int AantalMetStatus(int id) => _alleProducten.Count(p => OpWerkorder(p) && (p.StatusId ?? 0) == id);
+    private bool StatusZichtbaar(ProductRegel p) => _statusFilter.Contains(p.StatusId ?? 0) && OpWerkorder(p);
+    private bool OpWerkorder(ProductRegel p) => _werkorderFilter is null || p.WerkorderId == _werkorderFilter;
+
+    // ---- filter op werkorder: welke werkorders exemplaren hebben, met per werkorder de producttypes ----
+    private int? _werkorderFilter;
+    private Dictionary<int, Dictionary<int, int>> _perWerkorder = new();
+    private List<(int Id, string Naam, int Aantal)> _werkorderKeuzes = new();
+
+    private async Task LaadWerkorderKeuzes()
+    {
+        try
+        {
+            _perWerkorder = await Repo.ExemplarenPerWerkorderAsync();
+            var werkorders = await Uren.GetWorkordersAsync(_perWerkorder.Keys.ToList());
+            // nieuwste werkorder boven (hoogste id)
+            _werkorderKeuzes = werkorders
+                .Select(w => (w.WerkbonId, $"{w.Nummer} · {w.Omschrijving}".Trim(' ', '·'), _perWerkorder[w.WerkbonId].Values.Sum()))
+                .OrderByDescending(w => w.WerkbonId).ToList();
+        }
+        catch { _perWerkorder = new(); _werkorderKeuzes = new(); }
+    }
+
+    private async Task WerkorderFilterGewijzigd(ChangeEventArgs e)
+    {
+        _werkorderFilter = int.TryParse((string?)e.Value, out var w) ? w : null;
+        // Het gekozen producttype heeft niets op deze werkorder? Dan de eerste uit de nieuwe lijst openen.
+        if (_naam is null || !NamenGefilterd().Any(n => n.Id == _naam.Id))
+        {
+            Leegmaken();
+            await KiesEerste();
+        }
+        else await LaadProducten();
+    }
+
+    private async Task WisWerkorderFilter()
+    {
+        _werkorderFilter = null;
+        await LaadProducten();
+    }
 
     /// <summary>Standaard: alles behalve de eindstatus.</summary>
     private void StatusStandaardZetten()
@@ -2929,7 +3003,10 @@
     // Filter op groep in de linkerlijst (naast het producttype).
     private int? _groepFilter;
     private List<ProductNaam> NamenGefilterd()
-        => _groepFilter is null ? _namen : _namen.Where(n => n.GroepId == _groepFilter).ToList();
+        => _groepFilter is null && _werkorderFilter is null ? _namen
+         : _namen.Where(n => (_groepFilter is null || n.GroepId == _groepFilter)
+                          && (_werkorderFilter is not int wo || (_perWerkorder.TryGetValue(wo, out var perType) && perType.ContainsKey(n.Id))))
+                 .ToList();
     private async Task GroepFilterGewijzigd(ChangeEventArgs e)
     {
         _groepFilter = int.TryParse((string?)e.Value, out var g) ? g : null;

@@ -12,7 +12,7 @@ public static class ProductVelden
             new Veld("Producttype", VeldType.Keuze, new[] { "ProductNameID" }, Lijst: "ProductNaam"),
             new Veld("Status", VeldType.Keuze, new[] { "ProductStatusID" }, Lijst: "Status"),
             new Veld("Serienummer", VeldType.Tekst, new[] { "Serienummer", "SerieNummer" }),
-            new Veld("Bouwjaar", VeldType.Getal, new[] { "Bouwjaar" }),
+            new Veld("Bouwjaar", VeldType.Getal, new[] { "Bouwjaar" }) { Links = true },
             new Veld("Werkorder", VeldType.Keuze, new[] { "WorkorderID" }, Lijst: "Werkorder"),
             new Veld("Artikel", VeldType.Keuze, new[] { "ArtikelID" }, Lijst: "Artikel"),
             new Veld("Klant", VeldType.Keuze, new[] { "KlantID" }, Lijst: "Klant"),

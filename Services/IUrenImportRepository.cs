@@ -78,16 +78,53 @@ public class MySqlUrenImportRepository : IUrenImportRepository
     {
         var lijst = new List<WerkorderKeuzeUren>();
         await using var cn = await OpenAsync();
+        var ouder = await HeeftOuderKolomAsync(cn) ? "w.`ParentWerkbonID`" : "NULL";
         await using var cmd = new MySqlCommand(
             "SELECT w.`Werkbon-id`, LPAD(COALESCE(w.`Werkbonnummer`, 0), 2, '0'), " +
-            "       COALESCE(w.`Werkbonomschrijving`, ''), LEFT(COALESCE(d.`Description`, ''), 3) " +
+            $"       COALESCE(w.`Werkbonomschrijving`, ''), LEFT(COALESCE(d.`Description`, ''), 3), {ouder} " +
             "  FROM `Workorders` w LEFT JOIN `Doorbelasten` d ON d.`Doorbelasten` = w.`Doorbelasten` " +
             " WHERE w.`Project-id` = @p ORDER BY w.`Werkbonnummer`", cn);
         cmd.Parameters.AddWithValue("@p", projectId);
-        await using var r = await cmd.ExecuteReaderAsync();
-        while (await r.ReadAsync())
-            lijst.Add(new WerkorderKeuzeUren(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3)));
-        return lijst;
+        await using (var r = await cmd.ExecuteReaderAsync())
+            while (await r.ReadAsync())
+                lijst.Add(new WerkorderKeuzeUren(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3),
+                                                 r.IsDBNull(4) || Convert.ToInt32(r.GetValue(4)) == 0 ? null : Convert.ToInt32(r.GetValue(4))));
+        // subwerkorders onder hun ouder (wens gebruiker 24-10-2026)
+        return WerkorderBoom.Ordenen(lijst, w => w.WerkbonId, w => w.OuderId, w => w.Nummer).Select(x => x.Item).ToList();
+    }
+
+    private bool _ouderKolom;
+
+    /// <summary>Workorders.ParentWerkbonID (Werkorders_Boom_MariaDB.sql); alleen 'ja' onthouden.</summary>
+    private async Task<bool> HeeftOuderKolomAsync(MySqlConnection cn)
+    {
+        if (_ouderKolom) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+            "   AND TABLE_NAME = 'Workorders' AND COLUMN_NAME = 'ParentWerkbonID'", cn);
+        return _ouderKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    /// <summary>Ouder en nummer van deze werkorders en van alle werkorders erboven (voor het teamtarief van de ouder).</summary>
+    private async Task<Dictionary<int, (int? Ouder, string Nummer)>> BovenliggendAsync(MySqlConnection cn, IEnumerable<int> werkbonnen)
+    {
+        var uit = new Dictionary<int, (int? Ouder, string Nummer)>();
+        if (!await HeeftOuderKolomAsync(cn)) return uit;
+        var vragen = werkbonnen.Distinct().ToList();
+        for (var ronde = 0; ronde < 10 && vragen.Count > 0; ronde++)
+        {
+            await using (var cmd = new MySqlCommand(
+                "SELECT w.`Werkbon-id`, w.`ParentWerkbonID`, " +
+                "       CONCAT(COALESCE(p.`Projectnumber`, ''), '-', LPAD(COALESCE(w.`Werkbonnummer`, 0), 2, '0')) " +
+                "  FROM `Workorders` w LEFT JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+                $" WHERE w.`Werkbon-id` IN ({string.Join(",", vragen)})", cn))
+            await using (var r = await cmd.ExecuteReaderAsync())
+                while (await r.ReadAsync())
+                    uit[r.GetInt32(0)] = (r.IsDBNull(1) || Convert.ToInt32(r.GetValue(1)) == 0 ? null : Convert.ToInt32(r.GetValue(1)),
+                                         r.IsDBNull(2) ? "" : r.GetString(2));
+            vragen = uit.Values.Where(v => v.Ouder is int o && !uit.ContainsKey(o)).Select(v => v.Ouder!.Value).Distinct().ToList();
+        }
+        return uit;
     }
 
     // ============================================================
@@ -198,13 +235,19 @@ public class MySqlUrenImportRepository : IUrenImportRepository
         var werkbonnen = uren.Select(u => u.WerkbonId).Distinct().ToList();
         var werknemers = uren.Select(u => u.WerknemerId).Distinct().ToList();
 
+        // Subwerkorders: heeft een werknemer op de subwerkorder geen teamtarief, dan dat van de dichtstbijzijnde
+        // bovenliggende werkorder (wens gebruiker 24-10-2026). Daarvoor ook de teams van de ouders ophalen.
+        var boven = await BovenliggendAsync(cn, werkbonnen);
+        var ouderVan = boven.ToDictionary(b => b.Key, b => b.Value.Ouder);
+        var metOuders = werkbonnen.Concat(boven.Keys).Distinct().ToList();
+
         // Verkoopprijzen per werkorder en werknemer. WorkorderTeam koppelt via de tekstkolom
         // Workorder-Id (Werkbon-id is daar leeg), net als Access.
         var team = new Dictionary<(int, int), TeamTarief>();
         await using (var cmd = new MySqlCommand(
             "SELECT CAST(`Workorder-Id` AS SIGNED), `Werknemer-id`, COALESCE(`VKwerkuur`, 0), " +
             "       COALESCE(`VKreisuur`, 0), COALESCE(`VKkilometer`, 0) FROM `WorkorderTeam` " +
-            $" WHERE `Workorder-Id` IN ({string.Join(",", werkbonnen.Select(w => $"'{w}'"))})", cn))
+            $" WHERE `Workorder-Id` IN ({string.Join(",", metOuders.Select(w => $"'{w}'"))})", cn))
         {
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
@@ -245,13 +288,26 @@ public class MySqlUrenImportRepository : IUrenImportRepository
                     r.IsDBNull(2) ? 0 : Convert.ToDecimal(r.GetValue(2)));
         }
 
+        static bool Leeg(TeamTarief? t) => t is null || (t.Werkuur == 0 && t.Reisuur == 0 && t.Kilometer == 0);
+
         foreach (var u in uren)
         {
-            Tariefregels.Reken(u,
-                team.GetValueOrDefault((u.WerkbonId, u.WerknemerId)),
+            var eigen = team.GetValueOrDefault((u.WerkbonId, u.WerknemerId));
+            int? vanOuder = null;
+            if (Leeg(eigen))
+                foreach (var o in WerkorderBoom.Voorouders(ouderVan, u.WerkbonId))
+                    if (!Leeg(team.GetValueOrDefault((o, u.WerknemerId)))) { vanOuder = o; eigen = team[(o, u.WerknemerId)]; break; }
+
+            Tariefregels.Reken(u, eigen,
                 klantAfspraken, standaard,
                 kostprijzen.GetValueOrDefault(u.WerknemerId) ?? new List<Kostprijstarief>(),
                 doorbelasting.GetValueOrDefault(u.WerkbonId));
+
+            if (vanOuder is int ov && u.NieuwBedrag is not null)
+            {
+                var melding = $"subwerkorder zonder eigen teamtarief: tarief van {boven.GetValueOrDefault(ov).Nummer} gebruikt";
+                u.Melding = u.Melding.Length > 0 ? u.Melding + "; " + melding : melding;
+            }
         }
     }
 

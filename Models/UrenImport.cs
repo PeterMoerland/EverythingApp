@@ -17,7 +17,8 @@ public class UrenSelectie
 
 public record ProjectKeuze(int Id, string Nummer, string Omschrijving);
 
-public record WerkorderKeuzeUren(int WerkbonId, string Nummer, string Omschrijving, string Soort);
+/// <param name="OuderId">Bovenliggende werkorder (Workorders.ParentWerkbonID); null = direct onder het project.</param>
+public record WerkorderKeuzeUren(int WerkbonId, string Nummer, string Omschrijving, string Soort, int? OuderId = null);
 
 /// <summary>Eén regel uit Uren, met wat nodig is om het tarief te rekenen en te factureren.</summary>
 public class UurRegel
