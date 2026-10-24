@@ -2283,6 +2283,7 @@
             var gelezen = Tekst(res, "versie");
             var versie = gelezen.Length > 0 ? gelezen : fw.Versie;
             await ZetViaBron($"drive:{p.Positie}:firmware", versie);
+            await FirmwareBijgewerkt(p.Positie, versie);
             // MDE-slaves (agent 1.21.2+): controleherstart tegen de ESP32-rollback. Valt hij terug, dan faalt de taak al.
             var controle = Tekst(res, "controle") switch
             {
@@ -2367,7 +2368,7 @@
                 var registers = res.ValueKind == JsonValueKind.Object ? Getal(res, "registers") : 0;
                 await ZetViaBron($"drive:{p.Positie}:parameters", naam);
                 var fwGelezen = Tekst(res, "firmware");
-                if (fwGelezen.Length > 0) await ZetViaBron($"drive:{p.Positie}:firmware", fwGelezen);
+                if (fwGelezen.Length > 0) { await ZetViaBron($"drive:{p.Positie}:firmware", fwGelezen); await FirmwareBijgewerkt(p.Positie, fwGelezen); }
                 await Repo.VoegHistorieToeAsync(ProductId,
                     $"Drive {p.Positie} ({p.Naam}): parameterset '{naam}' geladen ({registers} SDO's, {afwijkingen} afwijkingen)" + Opm(),
                     SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: afwijkingen == 0);
@@ -3948,6 +3949,8 @@
         public string FirmwareTekst = "", FirmwareKleur = "s-grijs";
         public string ParametersTekst = "";
         public bool TypeFout;
+        /// <summary>Herkend type (drivetypen-tabel), om de firmwareregel na "Firmware laden" bij te werken.</summary>
+        public int? TypeId;
     }
     private List<DriveControle> _controles = new();
 
@@ -4017,6 +4020,7 @@
                 continue;
             }
             r.TypeUitTabel = type.Naam;
+            c.TypeId = type.Id;
             if (DriveProtocol.ViaSdo(type.Protocol))
             {
                 // eRob en MDE-slaves: geen elektronisch serienummer (0x1018:4 = 0) en geen Ingenia-registers.
@@ -4039,41 +4043,61 @@
                     c.TypeTekst += $" — fabrikantcode {r.VendorId} nog niet vastgelegd";
             }
 
-            DriveFirmware? fw = null;
-            if (r.Firmware.Length > 0)
-                fw = await Drives.ZoekFirmwareAsync(type.Id, r.Firmware);
-            if (r.Firmware.Length == 0)
-            {
-                c.FirmwareTekst = "niet gelezen";
-                c.FirmwareKleur = "s-grijs";
-            }
-            else if (fw is null)
-            {
-                c.FirmwareTekst = $"{r.Firmware} — onbekende versie";
-                c.FirmwareKleur = "s-geel";
-            }
-            else
-            {
-                c.FirmwareTekst = fw.Status switch
-                {
-                    DriveStatus.Actueel => $"{fw.Versie} · actueel",
-                    DriveStatus.Toegestaan => $"{fw.Versie} · toegestaan (nieuwere beschikbaar)",
-                    DriveStatus.Geblokkeerd => $"{fw.Versie} · GEBLOKKEERD",
-                    _ => fw.Versie
-                };
-                c.FirmwareKleur = DriveStatus.Kleur(fw.Status);
-            }
-
-            if (fw is not null)
-            {
-                var ps = await Drives.ZoekParametersetAsync(Naam.Id, i + 1, fw.Id);
-                c.ParametersTekst = ps is null
-                    ? "geen parameterset voor deze positie en firmware"
-                    : (ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand);
-            }
-            else c.ParametersTekst = "—";
-
+            await VulFirmware(c, type.Id, r.Firmware);
             _controles.Add(c);
+        }
+    }
+
+    /// <summary>Firmwarestatus (actueel / toegestaan / geblokkeerd) en de parameterset die daarbij hoort.</summary>
+    private async Task VulFirmware(DriveControle c, int typeId, string firmware)
+    {
+        DriveFirmware? fw = null;
+        if (firmware.Length > 0)
+            fw = await Drives.ZoekFirmwareAsync(typeId, firmware);
+        if (firmware.Length == 0)
+        {
+            c.FirmwareTekst = "niet gelezen";
+            c.FirmwareKleur = "s-grijs";
+        }
+        else if (fw is null)
+        {
+            c.FirmwareTekst = $"{firmware} — onbekende versie";
+            c.FirmwareKleur = "s-geel";
+        }
+        else
+        {
+            c.FirmwareTekst = fw.Status switch
+            {
+                DriveStatus.Actueel => $"{fw.Versie} · actueel",
+                DriveStatus.Toegestaan => $"{fw.Versie} · toegestaan (nieuwere beschikbaar)",
+                DriveStatus.Geblokkeerd => $"{fw.Versie} · GEBLOKKEERD",
+                _ => fw.Versie
+            };
+            c.FirmwareKleur = DriveStatus.Kleur(fw.Status);
+        }
+
+        if (fw is not null)
+        {
+            var ps = await Drives.ZoekParametersetAsync(Naam.Id, c.Positie, fw.Id);
+            c.ParametersTekst = ps is null
+                ? "geen parameterset voor deze positie en firmware"
+                : (ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand);
+        }
+        else c.ParametersTekst = "—";
+    }
+
+    /// <summary>
+    /// Na "Firmware laden" (of een teruggelezen versie bij parameters): de regel in de controletabel en de uitlezing
+    /// meteen bijwerken, zonder opnieuw uitlezen (wens gebruiker 24-10-2026: na een update stond de oude versie er nog).
+    /// </summary>
+    private async Task FirmwareBijgewerkt(int positie, string versie)
+    {
+        if (versie.Length == 0) return;
+        if (_drives?.FirstOrDefault(d => d.Positie + 1 == positie) is { } d) d.Firmware = versie;
+        if (_controles.FirstOrDefault(c => c.Positie == positie) is { TypeId: int typeId } c)
+        {
+            try { await VulFirmware(c, typeId, versie); }
+            catch { c.FirmwareTekst = versie; c.FirmwareKleur = "s-grijs"; }
         }
     }
 

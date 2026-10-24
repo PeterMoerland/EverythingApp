@@ -803,6 +803,16 @@ Niet lokaal getest (geen Google-login).
 Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
 authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
 
+## Programmeren: firmwareregel bijgewerkt na "Firmware laden" (24-10-2026)
+
+Wens gebruiker (Everest vervangen: 2.09.0, na de update stond er nog steeds 2.09.0 tot opnieuw uitlezen). De
+controletabel bovenaan Programmeren (Node / Type / Firmware / Parameterset, `_controles`) werd alleen bij Automatisch
+uitlezen gevuld. Nu `ExemplaarWerk.FirmwareBijgewerkt(positie, versie)` na `drives.firmware`/`mde.firmware` (de door de
+agent teruggelezen versie) en na `coe.parameters` (teruggelezen firmware): de regel krijgt opnieuw status en parameterset
+via `VulFirmware` (uit `ControleerDrives` gehaald; `DriveControle.TypeId` onthoudt het herkende type), en een nog open
+uitlezing (`_drives`) krijgt de nieuwe versie, zodat de waarschuwing "andere firmware" bij Parameters laden niet meer op
+de oude versie afgaat. Niet getest met een echte drive (schrijft attribuut en historie).
+
 ## Kostprijstarieven: melding bovenin en laatst bekend tarief in de nacalculatie (24-10-2026)
 
 Verbeterverzoek. **Melding** `Components/TariefBalk.razor` (in MainLayout onder de Vault-balk, oranje, alleen Financial en
