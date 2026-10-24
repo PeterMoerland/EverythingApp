@@ -59,6 +59,24 @@
                                 <div class="wn-veld"><label title="Orders.Purchasenote: het gele blok onder de tabel">Melding</label>
                                     <textarea rows="4" placeholder="Melding op orderformulier (het gele blok onder de tabel; mag leeg)" value="@_melding2"
                                               @oninput="e => _melding2 = (string?)e.Value ?? string.Empty"></textarea></div>
+                                @* Gmail-handtekening in plaats van naam en logo (wens gebruiker 24-10-2026, zoals bij de factuurmail) *@
+                                <div class="wn-veld"><label>Ondertekening</label>
+                                    @if (_handtekening is null)
+                                    {
+                                        <span class="alleen-lezen zij-extra">handtekening ophalen uit Gmail…</span>
+                                    }
+                                    else if (_handtekening.Length == 0)
+                                    {
+                                        <span class="alleen-lezen zij-extra">Naam en logo (geen Gmail-handtekening gevonden@(Postbus?.Eigen == true ? "" : " voor deze afzender"))
+                                            @if (Postbus?.Eigen == true) { <text>· </text><a href="@GmailInstellingen" target="_blank" rel="noopener">instellen in Gmail ↗</a> }</span>
+                                    }
+                                    else
+                                    {
+                                        <label class="vink"><input type="checkbox" checked="@_metHandtekening" @onchange="e => _metHandtekening = e.Value is true" />
+                                            Gmail-handtekening (in plaats van naam en logo)
+                                            @if (Postbus?.Eigen == true) { <text>· </text><a href="@GmailInstellingen" target="_blank" rel="noopener">wijzigen ↗</a> }</label>
+                                    }
+                                </div>
                                 @if (_g.Aanhef.Length == 0 && _g.ContactId is not null)
                                 {
                                     <div class="wn-veld"><label></label>
@@ -126,7 +144,25 @@
     private string Titel => _g is null ? "Mail aan de leverancier"
         : BestelMail.IsAanvraag(_g) ? $"Offerte aanvragen · PI-{_g.OrderId} · {_g.Leverancier}" : $"Bestelling versturen · PO-{_g.OrderId} · {_g.Leverancier}";
     private bool Blokkeert => _controles.Any(c => c.Blokkerend) || _aan.Trim().Length == 0;
-    private string Voorbeeld => _g is null ? "" : "<html><body style=\"margin:14px;background:#fff;\">" + BestelMail.Html(MetMelding!, _aanhef, "logo-mde.png") + "</body></html>";
+    private string Voorbeeld => _g is null ? "" : "<html><body style=\"margin:14px;background:#fff;\">" + BestelMail.Html(MetMelding!, _aanhef, "logo-mde.png", Handtekening) + "</body></html>";
+
+    /// <summary>Gmail-handtekening van de afzender: null = nog bezig, "" = geen.</summary>
+    private string? _handtekening;
+    private bool _metHandtekening;
+    private string? Handtekening => _metHandtekening && _handtekening is { Length: > 0 } h ? h : null;
+    private string GmailInstellingen => $"https://mail.google.com/mail/?authuser={Uri.EscapeDataString(Ik.Email)}#settings/general";
+
+    private async Task LaadHandtekening(int voor)
+    {
+        var ht = Postbus is { } p ? await Post.HandtekeningAsync(p) : "";
+        await InvokeAsync(() =>
+        {
+            if (_geladenVoor != voor) return;          // intussen een andere bestelling
+            _handtekening = ht;
+            _metHandtekening = ht.Length > 0;
+            StateHasChanged();
+        });
+    }
     private long GekozenGrootte => _g?.Bijlagen.Where(b => _gekozen.Contains(b.FileStoreId)).Sum(b => b.Grootte) ?? 0;
     private string ZipNaam => _g is null ? "" : $"{(BestelMail.IsAanvraag(_g) ? "PI" : "PO")}-{_g.OrderId}.zip";
     private bool CcLeverancier => _g is not null && _cc.Contains(_g.CcAdres, StringComparison.OrdinalIgnoreCase);
@@ -168,6 +204,8 @@
             _g = _g with { Bijlagen = metGrootte };
             _zip = GekozenGrootte > ZipVanaf;
             if (Postbus is null) Toon("Versturen kan niet: " + Van, true);
+            _handtekening = null; _metHandtekening = false;
+            _ = LaadHandtekening(id);
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
         finally { _laden = false; }
@@ -229,10 +267,13 @@
                 return;
             }
 
-            var logo = await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"));
-            var html = "<html><body>" + BestelMail.Html(MetMelding!, _aanhef, "cid:" + BestelMail.LogoCid) + "</body></html>";
-            await Post.VerstuurAsync(postbus, _aan, _onderwerp, html, bijlagen, _cc.Length > 0 ? _cc : null, html: true,
-                                     ingebed: new[] { (BestelMail.LogoCid, "logo-mde.png", logo) });
+            // met de Gmail-handtekening staat ons logo er niet in, dus dan ook niet meesturen
+            var ht = Handtekening;
+            var html = "<html><body>" + BestelMail.Html(MetMelding!, _aanhef, "cid:" + BestelMail.LogoCid, ht) + "</body></html>";
+            var ingebed = ht is null
+                ? new[] { (BestelMail.LogoCid, "logo-mde.png", await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"))) }
+                : null;
+            await Post.VerstuurAsync(postbus, _aan, _onderwerp, html, bijlagen, _cc.Length > 0 ? _cc : null, html: true, ingebed: ingebed);
 
             // na het versturen: aangepaste melding en aanhef bewaren (aanhef zoals Access vroeg), en vastleggen dat er gemaild is
             if (_melding2.Trim() != _g.Opmerking.Trim())

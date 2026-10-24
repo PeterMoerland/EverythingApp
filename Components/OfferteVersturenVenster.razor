@@ -44,6 +44,23 @@
                                 <div class="wn-veld"><label>Onderwerp</label><input value="@_onderwerp" @onchange="e => _onderwerp = Tekst(e)" /></div>
                             </div>
                             <textarea class="of-mailtekst" rows="8" @onchange="e => _tekst = (string?)e.Value ?? string.Empty">@_tekst</textarea>
+                            @* Gmail zet zijn handtekening niet onder een concept dat via de API klaarstaat; daarom hier (wens gebruiker 24-10-2026) *@
+                            @if (_handtekening is null)
+                            {
+                                <span class="uitleg">handtekening ophalen uit je Gmail…</span>
+                            }
+                            else if (_handtekening.Length == 0)
+                            {
+                                <span class="uitleg">Geen Gmail-handtekening gevonden · <a href="@GmailInstellingen" target="_blank" rel="noopener">instellen in Gmail ↗</a></span>
+                            }
+                            else
+                            {
+                                <div class="factuur-handtekening">
+                                    <label class="vink"><input type="checkbox" checked="@_metHandtekening" @onchange="e => _metHandtekening = e.Value is true" />
+                                        Mijn Gmail-handtekening eronder · <a href="@GmailInstellingen" target="_blank" rel="noopener">wijzigen ↗</a></label>
+                                    @if (_metHandtekening) { <div class="factuur-handtekening-voorbeeld">@((MarkupString)_handtekening)</div> }
+                                </div>
+                            }
                             <div class="of-bijlagen">
                                 <strong>Bijlagen</strong>
                                 <div>📄 @_pdfNaam</div>
@@ -95,7 +112,22 @@
     private (string Naam, byte[] Inhoud)? _voorwaarden;
     private List<string> _waarschuwingen = new();
     private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
-    private bool _bezig, _bezigPdf, _fout, _verstuurd;
+    private bool _bezig, _bezigPdf, _fout, _verstuurd, _metHandtekening;
+    private string? _handtekening;          // uit de eigen Gmail; null = nog bezig, "" = geen
+    private string GmailInstellingen => $"https://mail.google.com/mail/?authuser={Uri.EscapeDataString(Ik.Email)}#settings/general";
+
+    private async Task LaadHandtekening(int voor)
+    {
+        string ht;
+        try { ht = Ik.Email.Length > 0 ? await Post.HandtekeningAsync(MailService.Eigen(Ik.Email)) : ""; } catch { ht = ""; }
+        await InvokeAsync(() =>
+        {
+            if (_geladenVoor != voor) return;
+            _handtekening = ht;
+            _metHandtekening = ht.Length > 0;
+            StateHasChanged();
+        });
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -110,6 +142,8 @@
         try
         {
             await Ik.ZorgGeladenAsync();
+            _handtekening = null; _metHandtekening = false;
+            _ = LaadHandtekening(id);
             _g = await Pdf.LaadAsync(id, Ik.WerknemerId);
             var o = _g.Offerte;
             var en = o.Taal == OfferteTaal.Engels;
@@ -180,7 +214,10 @@
             // 3. concept in de eigen Gmail
             var bijlagen = new List<(string, byte[])> { (_pdfNaam, _pdf) };
             if (_voorwaarden is { } v) bijlagen.Add(v);
-            await Post.MaakConceptAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp, _tekst, bijlagen, _cc.Length > 0 ? _cc : null);
+            var metHt = _metHandtekening && _handtekening is { Length: > 0 };
+            await Post.MaakConceptAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
+                                        metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst,
+                                        bijlagen, _cc.Length > 0 ? _cc : null, html: metHt);
 
             _stap = Stap.Klaar;
             Toon(fouten.Count == 0 ? "Concept klaargezet; de PDF staat in de offertemap en de filestore."

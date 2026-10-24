@@ -34,7 +34,9 @@ public static class BestelMail
         => g.Aanhef.Length > 0 ? g.Aanhef.TrimEnd(',') : g.Engels ? "Dear Sir/Madam" : "Geachte heer/mevrouw";
 
     /// <param name="logoSrc">Waar het logo vandaan komt: "cid:logo-mde" in de mail, een gewone url in het voorbeeld.</param>
-    public static string Html(BestelMailGegevens g, string aanhef, string logoSrc)
+    /// <param name="handtekening">De Gmail-handtekening van de afzender (HTML); komt in plaats van naam, gegevens en logo.
+    /// Leeg = de eigen ondertekening met het logo (zonder handtekening wordt het logo niet gebruikt).</param>
+    public static string Html(BestelMailGegevens g, string aanhef, string logoSrc, string? handtekening = null)
     {
         var en = g.Engels;
         var aanvraag = IsAanvraag(g);
@@ -127,6 +129,14 @@ public static class BestelMail
 
         // ---- groet, ondertekening, logo, adresregel ----
         h.Append($"<p style=\"margin:18px 0 4px;\">{(en ? "Kind regards," : "Met vriendelijke groet,")}</p>");
+        if (handtekening is { Length: > 0 })
+        {
+            // Gmail-handtekening (wens gebruiker 24-10-2026): in plaats van naam, gegevens en logo; adresregel blijft
+            h.Append("<div class=\"gmail_signature\" style=\"margin:0 0 14px;\">").Append(handtekening).Append("</div>");
+            h.Append($"<p style=\"margin:0;padding-top:8px;border-top:1px solid #e3e8ef;font-size:11px;color:#888;\">{E(g.Bedrijfsregel)}</p>");
+            h.Append("</div>");
+            return h.ToString();
+        }
         h.Append("<p style=\"margin:0 0 14px;\">");
         if (g.Afzender.Naam.Length > 0) h.Append($"<b>{E(g.Afzender.Naam)}</b><br>");
         h.Append("MDE Automation B.V.<br>");

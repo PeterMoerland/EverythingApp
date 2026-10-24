@@ -445,6 +445,7 @@ public class MailService
     /// De handtekening die de gebruiker in Gmail heeft ingesteld (Instellingen ▸ Algemeen ▸ Handtekening), als HTML; leeg
     /// als er geen is of als hij niet te lezen is. Versturen via de API zet hem er niet vanzelf onder (Outlook deed dat
     /// vroeger wel), dus het venster plakt hem zelf onder de tekst. Gmail-scope readonly/modify volstaat (sendAs.get).
+    /// Bij een werkplek-alias de handtekening van dat afzenderadres.
     /// </summary>
     public async Task<string> HandtekeningAsync(MailPostbus postbus)
     {
@@ -452,7 +453,9 @@ public class MailService
         {
             var client = await ClientAsync(postbus);
             if (client is null) return "";
-            var antwoord = await client.GetAsync($"{Basis}/settings/sendAs/{Uri.EscapeDataString(postbus.Adres)}");
+            var adres = postbus.Afzender ?? postbus.Adres;
+            if (adres.IndexOf('<') is var b and >= 0 && adres.IndexOf('>', b) is var e and > 0) adres = adres[(b + 1)..e];   // "Naam <adres>"
+            var antwoord = await client.GetAsync($"{Basis}/settings/sendAs/{Uri.EscapeDataString(adres.Trim())}");
             if (!antwoord.IsSuccessStatusCode) return "";
             using var doc = JsonDocument.Parse(await antwoord.Content.ReadAsStringAsync());
             return doc.RootElement.TryGetProperty("signature", out var s) && s.ValueKind == JsonValueKind.String ? (s.GetString() ?? "").Trim() : "";
@@ -476,11 +479,11 @@ public class MailService
     /// </summary>
     public async Task<string> MaakConceptAsync(MailPostbus postbus, string naar, string onderwerp, string tekst,
                                                IEnumerable<(string Naam, byte[] Inhoud)>? bijlagen = null,
-                                               string? cc = null)
+                                               string? cc = null, bool html = false)
     {
         var client = await ClientOfFoutAsync(postbus);
 
-        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar ?? "", cc, onderwerp, tekst, bijlagen);
+        var raw = BouwBericht(postbus.Afzender ?? postbus.Adres, naar ?? "", cc, onderwerp, tekst, bijlagen, html);
         var json = JsonSerializer.Serialize(new { message = new { raw = NaarBase64Url(Encoding.UTF8.GetBytes(raw)) } });
 
         var antwoord = await client.PostAsync($"{Basis}/drafts",

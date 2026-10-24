@@ -791,7 +791,15 @@ Wens collega ("vroeger deed Outlook dat"). Versturen via de Gmail-API zet de Gma
 volstaat) en `MailService.MetHandtekening` maakt van de platte tekst HTML met de handtekening eronder (dan `html: true`).
 `FactuurVersturenVenster`: onder Tekst een vinkje "Mijn Gmail-handtekening eronder" (standaard aan) met voorbeeld; zonder
 handtekening in Gmail de uitleg waar je hem instelt. Geen veld in Werknemers nodig (besluit: één plek, Gmail). Niet lokaal
-te testen (geen Google-login). Andere mails (bestellingen, offertes) hebben het nog niet.
+te testen (geen Google-login).
+**Ook bij bestellingen en offertes** (zelfde dag, op verzoek): `BestelMailVenster` (offerteaanvraag/bestelling aan de
+leverancier) heeft een vinkje Ondertekening "Gmail-handtekening (in plaats van naam en logo)", standaard aan als er een
+is; `BestelMail.Html(..., handtekening)` zet hem na "Met vriendelijke groet," in plaats van naam/gegevens/logo (de grijze
+adresregel blijft) en het logo gaat dan niet als ingebed plaatje mee. Op een werkplek de handtekening van de alias
+(`HandtekeningAsync` vraagt `sendAs/<Afzender>`, "Naam <adres>" wordt het adres). `OfferteVersturenVenster`: vinkje +
+voorbeeld zoals de factuur, het concept wordt dan HTML (`MaakConceptAsync(..., html:)`); Gmail zet zelf geen handtekening
+onder een concept dat via de API klaarstaat. De handtekening wordt op de achtergrond opgehaald (venster opent meteen).
+Niet lokaal getest (geen Google-login).
 Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
 authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
 
