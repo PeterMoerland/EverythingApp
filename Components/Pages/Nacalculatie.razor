@@ -188,9 +188,13 @@
                             {
                                 <br /><text>ⓘ Bij deze werkorder staat "materiaalkosten niet meenemen" aan: het materiaal telt als 0.</text>
                             }
+                            @if (_data.Uren.Where(u => u.LaatstBekend).Sum(u => u.Uren) is var lb and > 0)
+                            {
+                                <br /><text>≈ @Getal(lb) uur heeft geen kostprijstarief voor die datum en is gerekend met het laatst bekende tarief van de werknemer (zie Uren).</text>
+                            }
                             @if (_data.ZonderTarief.Count > 0)
                             {
-                                <br /><text>⚠ @Getal(_data.ZonderTarief.Sum(z => z.Uren)) uur heeft geen kostprijstarief voor die datum en telt niet mee (zie Uren).</text>
+                                <br /><text>⚠ @Getal(_data.ZonderTarief.Sum(z => z.Uren)) uur is van werknemers zonder enig kostprijstarief en telt niet mee (zie Uren).</text>
                             }
                         </p>
                     }
@@ -313,7 +317,7 @@
                                                 <td>@u.Tariefsoort</td>
                                                 <td class="r">@Getal(u.Uren)</td>
                                                 <td class="r">@(u.Km == 0 ? "" : Getal(u.Km))</td>
-                                                <td class="r">@Kostprijs(u)</td>
+                                                <td class="r" title="@(u.LaatstBekend ? "Geen kostprijstarief voor die datum: het laatst bekende tarief van deze werknemer" : null)">@(u.LaatstBekend ? "≈ " : "")@Kostprijs(u)</td>
                                                 <td class="r">@Geld(u.Totaal)</td>
                                             </tr>
                                             @if (_details.TryGetValue(sleutel, out var regels) && u == uren.Last(x => x.WerknemerId == u.WerknemerId))
@@ -344,7 +348,7 @@
                             @if (zonder.Count > 0)
                             {
                                 <p class="nc-zonder">
-                                    ⚠ Niet meegeteld, geen kostprijstarief voor die datum (Werknemers ▸ tarieven):
+                                    ⚠ Niet meegeteld, deze werknemer heeft helemaal geen kostprijstarief (Werknemers ▸ tarieven):
                                     @string.Join(", ", zonder.GroupBy(z => z.Werknemer).Select(g => $"{g.Key} {Getal(g.Sum(z => z.Uren))} uur"))
                                 </p>
                             }
@@ -563,11 +567,12 @@
     /// <summary>Uren van een werkorder (in het gekozen jaar), per werknemer, soort en kostprijs; alle jaren opgeteld.</summary>
     private List<NacalcUren> UrenRegels(int wo) => _data.Uren
         .Where(u => u.WerkorderId == wo && (_jaar is null || u.Jaar == _jaar))
-        .GroupBy(u => (u.WerknemerId, u.Werknemer, u.TariefsoortId, u.Tariefsoort, u.KostprijsWerkuur, u.KostprijsReisuur, u.KostprijsKm))
+        .GroupBy(u => (u.WerknemerId, u.Werknemer, u.TariefsoortId, u.Tariefsoort, u.KostprijsWerkuur, u.KostprijsReisuur, u.KostprijsKm, u.LaatstBekend))
         .Select(g => new NacalcUren(wo, g.Key.WerknemerId, g.Key.Werknemer, g.Key.TariefsoortId, g.Key.Tariefsoort, 0,
                                     g.Key.KostprijsWerkuur, g.Key.KostprijsReisuur, g.Key.KostprijsKm,
-                                    g.Sum(u => u.Uren), g.Sum(u => u.Km), g.Sum(u => u.WerkKosten), g.Sum(u => u.ReisKosten), g.Sum(u => u.KmKosten)))
-        .OrderBy(u => u.Werknemer).ThenBy(u => u.TariefsoortId).ToList();
+                                    g.Sum(u => u.Uren), g.Sum(u => u.Km), g.Sum(u => u.WerkKosten), g.Sum(u => u.ReisKosten), g.Sum(u => u.KmKosten),
+                                    g.Key.LaatstBekend))
+        .OrderBy(u => u.Werknemer).ThenBy(u => u.TariefsoortId).ThenBy(u => u.LaatstBekend).ToList();
 
     private static string Kostprijs(NacalcUren u) => u.TariefsoortId == 1
         ? $"{Geld(u.KostprijsReisuur)}/u" + (u.Km != 0 ? $" + {Geld(u.KostprijsKm)}/km" : "")

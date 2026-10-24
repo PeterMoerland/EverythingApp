@@ -421,7 +421,7 @@ public class AlgemeneAiTools
             g.Rijen.Add(new() { w.Nummer, w.Omschrijving, B(b), B(inkoop), B(mat), B(uur), B(inkoop + mat + uur), U(zonder) });
         }
         g.Opmerking = $"Project {project.Nummer} {project.Omschrijving} ({project.Klant}). Totaal: budget {B(tb)}, inkoop {B(ti)}, materiaal {B(tm)}, " +
-                      $"uurkosten {B(tu)}, totaal kosten {B(ti + tm + tu)}. {U(tz)} uur zonder kostprijstarief is niet meegeteld. " +
+                      $"uurkosten {B(tu)}, totaal kosten {B(ti + tm + tu)}. {U(tz)} uur van werknemers zonder enig kostprijstarief is niet meegeteld; uren zonder tarief voor die datum tellen tegen het laatst bekende tarief. " +
                       "Inkoop = per bestelling het gefactureerde bedrag, anders het bestelde. Budget 0 = niet ingevuld. Geen omzet in deze opvraging.";
     }
 }

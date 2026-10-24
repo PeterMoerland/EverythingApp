@@ -1,0 +1,49 @@
+@* Melding bovenin (verbeterverzoek 24-10-2026): wie de laatste 30 dagen uren schreef maar voor vandaag geen
+   kostprijstarief heeft (WerknemersTarieven), zodat iemand ze aanvult. Alleen voor Financial en Directie; is alles in
+   orde, dan is hij er niet. Eén opvraging bij het openen van de app; ✕ = voor vandaag gezien (per pc onthouden).
+   De nacalculatie rekent zulke uren intussen met het laatst bekende tarief. Staat in MainLayout. *@
+
+@inject INacalculatieRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (_ontbreekt.Count > 0 && !_weg)
+{
+    <div class="vault-balk tarief-balk">
+        <span class="vault-teken">⚠</span>
+        <span class="vault-tekst">
+            <b>Kostprijstarieven:</b> voor vandaag ontbreekt een tarief bij
+            @string.Join(", ", _ontbreekt.Select(o => o.Naam + (o.LaatsteEind is DateTime e ? $" (laatste tot {e:dd-MM-yyyy})" : " (nog nooit)")))
+            <span class="zij-extra">— vul ze aan bij Werknemers ▸ tarieven. De nacalculatie rekent tot dan met het laatst bekende tarief.</span>
+        </span>
+        <button class="klein" title="Voor vandaag gezien" @onclick="Weg">✕</button>
+    </div>
+}
+
+@code {
+    private List<(string Naam, DateTime? LaatsteEind)> _ontbreekt = new();
+    private bool _weg, _gekeken;
+    private static string Sleutel => $"tarief-balk-{DateTime.Today:yyyyMMdd}";
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        // pas na de eerste weergave (localStorage), eenmaal per sessie
+        if (_gekeken) return;
+        _gekeken = true;
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            if (!Repo.Beschikbaar || !(Ik.Mag("Financial") || Ik.Mag("Directie"))) return;
+            if (await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel) is { Length: > 0 }) return;
+            _ontbreekt = await Repo.ZonderTariefVandaagAsync();
+            if (_ontbreekt.Count > 0) StateHasChanged();
+        }
+        catch { /* geen melding is ook goed */ }
+    }
+
+    private async Task Weg()
+    {
+        _weg = true;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel, "gezien"); } catch { }
+    }
+}

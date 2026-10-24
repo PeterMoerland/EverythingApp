@@ -29,14 +29,15 @@ public static class NacalcBoom
 }
 
 /// <summary>Uurkosten per werkorder, werknemer, tariefsoort, jaar en kostprijs (view _Nacalc_Uurkosten_Overview).</summary>
+/// <param name="LaatstBekend">Geen kostprijstarief voor die datum: gerekend met het laatst bekende tarief van de werknemer.</param>
 public record NacalcUren(int WerkorderId, int WerknemerId, string Werknemer, int TariefsoortId, string Tariefsoort, int Jaar,
                          decimal KostprijsWerkuur, decimal KostprijsReisuur, decimal KostprijsKm,
-                         decimal Uren, decimal Km, decimal WerkKosten, decimal ReisKosten, decimal KmKosten)
+                         decimal Uren, decimal Km, decimal WerkKosten, decimal ReisKosten, decimal KmKosten, bool LaatstBekend = false)
 {
     public decimal Totaal => WerkKosten + ReisKosten + KmKosten;
 }
 
-/// <summary>Uren die de nacalculatie níet meetelt: er is voor die datum geen kostprijstarief (WerknemersTarieven).</summary>
+/// <summary>Uren die de nacalculatie níet meetelt: de werknemer heeft helemaal geen kostprijstarief (WerknemersTarieven).</summary>
 public record NacalcUrenZonderTarief(int WerkorderId, int WerknemerId, string Werknemer, int Jaar, decimal Uren, int Regels);
 
 /// <summary>MDE-materiaal (ProjectMaterials, vrijgegeven voor bestellen) tegen kostprijs (view _Nacalc_ProjectMaterials_TotalPerSupplier_Ordered).</summary>
@@ -77,6 +78,11 @@ public interface INacalculatieRepository
     Task<NacalcWerkorder?> WerkorderAsync(int werkorderId);
     Task<NacalcData> LaadAsync(IReadOnlyCollection<NacalcWerkorder> werkorders);
     Task<List<NacalcUurRegel>> UurRegelsAsync(int werkorderId, int werknemerId, int? jaar);
+    /// <summary>
+    /// Werknemers die de laatste 30 dagen uren schreven, maar voor vandaag geen kostprijstarief hebben (voor de melding
+    /// bovenin), met de einddatum van hun laatste tarief.
+    /// </summary>
+    Task<List<(string Naam, DateTime? LaatsteEind)>> ZonderTariefVandaagAsync();
 }
 
 public class GeenNacalculatieRepository : INacalculatieRepository
@@ -87,6 +93,7 @@ public class GeenNacalculatieRepository : INacalculatieRepository
     public Task<NacalcWerkorder?> WerkorderAsync(int werkorderId) => Task.FromResult<NacalcWerkorder?>(null);
     public Task<NacalcData> LaadAsync(IReadOnlyCollection<NacalcWerkorder> werkorders) => Task.FromResult(new NacalcData());
     public Task<List<NacalcUurRegel>> UurRegelsAsync(int werkorderId, int werknemerId, int? jaar) => Task.FromResult(new List<NacalcUurRegel>());
+    public Task<List<(string Naam, DateTime? LaatsteEind)>> ZonderTariefVandaagAsync() => Task.FromResult(new List<(string, DateTime?)>());
 }
 
 public class MySqlNacalculatieRepository : INacalculatieRepository
@@ -202,17 +209,66 @@ public class MySqlNacalculatieRepository : INacalculatieRepository
                 data.Uren.Add(new NacalcUren(I(r, 0), I(r, 1), S(r, 2), I(r, 3), S(r, 4), I(r, 5), M(r, 6), M(r, 7), M(r, 8),
                                              M(r, 9), M(r, 10), M(r, 11), M(r, 12), M(r, 13)));
 
-        // uren zonder kostprijstarief (de view laat ze weg; zelfde datumregel: > Begindatum en <= Einddatum)
+        // Uren zonder kostprijstarief voor die datum (de view laat ze weg; zelfde datumregel: > Begindatum en <= Einddatum).
+        // Verbeterverzoek 24-10-2026: die tellen mee tegen het laatst bekende tarief van de werknemer (de periode met de
+        // laatste begindatum op of voor die dag; ligt de dag vóór alle periodes, dan de eerste). Alleen wie helemaal
+        // geen tarief heeft, blijft "niet meegeteld".
+        var los = new List<(int Wo, int Wn, string Naam, int Soort, string SoortNaam, DateTime Datum, decimal Uren, decimal Km, int Regels)>();
         await using (var cmd = new MySqlCommand(
-            "SELECT x.`werkorder`, x.`Werknemer-id`, COALESCE(w.`NaamVoluit`, ''), YEAR(x.`StartDatum`), SUM(x.`Uren`), COUNT(*) " +
+            "SELECT x.`werkorder`, x.`Werknemer-id`, COALESCE(w.`NaamVoluit`, ''), x.`Tariefsoort-id`, COALESCE(t.`Tariefsoort`, ''), " +
+            "       x.`StartDatum`, SUM(x.`Uren`), SUM(x.`Kilometers`), COUNT(*) " +
             "  FROM `Uren` x LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = x.`Werknemer-id` " +
-            $" WHERE x.`werkorder` IN ({ids}) " +
-            "   AND NOT EXISTS (SELECT 1 FROM `WerknemersTarieven` t WHERE t.`WerknemerID` = x.`Werknemer-id` " +
-            "                      AND x.`StartDatum` > t.`Begindatum` AND x.`StartDatum` <= t.`Einddatum`) " +
-            " GROUP BY x.`werkorder`, x.`Werknemer-id`, w.`NaamVoluit`, YEAR(x.`StartDatum`)", cn))
+            "  LEFT JOIN `Tariefsoort` t ON t.`Tariefsoort-id` = x.`Tariefsoort-id` " +
+            $" WHERE x.`werkorder` IN ({ids}) AND x.`StartDatum` IS NOT NULL " +
+            "   AND NOT EXISTS (SELECT 1 FROM `WerknemersTarieven` k WHERE k.`WerknemerID` = x.`Werknemer-id` " +
+            "                      AND x.`StartDatum` > k.`Begindatum` AND x.`StartDatum` <= k.`Einddatum`) " +
+            " GROUP BY x.`werkorder`, x.`Werknemer-id`, w.`NaamVoluit`, x.`Tariefsoort-id`, t.`Tariefsoort`, x.`StartDatum`", cn))
         await using (var r = await cmd.ExecuteReaderAsync())
             while (await r.ReadAsync())
-                data.ZonderTarief.Add(new NacalcUrenZonderTarief(I(r, 0), I(r, 1), S(r, 2), I(r, 3), M(r, 4), I(r, 5)));
+                los.Add((I(r, 0), I(r, 1), S(r, 2), I(r, 3), S(r, 4), r.GetDateTime(5), M(r, 6), M(r, 7), I(r, 8)));
+
+        var tarieven = new Dictionary<int, List<(DateTime Begin, decimal Werk, decimal Reis, decimal Km)>>();
+        if (los.Count > 0)
+        {
+            await using var cmd = new MySqlCommand(
+                "SELECT `WerknemerID`, `Begindatum`, COALESCE(`KostprijsWerkuur`, 0), COALESCE(`KostprijsReisuur`, 0), COALESCE(`KostprijsKM`, 0) " +
+                $"  FROM `WerknemersTarieven` WHERE `Begindatum` IS NOT NULL AND `WerknemerID` IN ({Lijst(los.Select(l => l.Wn))})", cn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var wn = I(r, 0);
+                if (!tarieven.TryGetValue(wn, out var l)) tarieven[wn] = l = new();
+                l.Add((r.GetDateTime(1), M(r, 2), M(r, 3), M(r, 4)));
+            }
+        }
+
+        var laatstBekend = new List<NacalcUren>();
+        foreach (var x in los)
+        {
+            if (tarieven.GetValueOrDefault(x.Wn) is not { Count: > 0 } perioden)
+            {
+                data.ZonderTarief.Add(new NacalcUrenZonderTarief(x.Wo, x.Wn, x.Naam, x.Datum.Year, x.Uren, x.Regels));
+                continue;
+            }
+            var k = perioden.Where(p => p.Begin.Date <= x.Datum.Date).OrderByDescending(p => p.Begin).Select(p => ((DateTime, decimal, decimal, decimal)?)p).FirstOrDefault()
+                    ?? perioden.OrderBy(p => p.Begin).First();
+            var (_, werk, reis, km) = k;
+            // zelfde regels als de view: tariefsoort 1 = reisuren + km, 2-5 = werkuren, overige 0
+            laatstBekend.Add(new NacalcUren(x.Wo, x.Wn, x.Naam, x.Soort, x.SoortNaam, x.Datum.Year, werk, reis, km, x.Uren, x.Km,
+                x.Soort is > 1 and <= 5 ? x.Uren * werk : 0, x.Soort == 1 ? x.Uren * reis : 0, x.Soort == 1 ? x.Km * km : 0, LaatstBekend: true));
+        }
+        // per werkorder, werknemer, soort, jaar en kostprijs samen (zoals de view per dag, hier al opgeteld)
+        data.Uren.AddRange(laatstBekend
+            .GroupBy(u => (u.WerkorderId, u.WerknemerId, u.Werknemer, u.TariefsoortId, u.Tariefsoort, u.Jaar, u.KostprijsWerkuur, u.KostprijsReisuur, u.KostprijsKm))
+            .Select(g => new NacalcUren(g.Key.WerkorderId, g.Key.WerknemerId, g.Key.Werknemer, g.Key.TariefsoortId, g.Key.Tariefsoort, g.Key.Jaar,
+                                        g.Key.KostprijsWerkuur, g.Key.KostprijsReisuur, g.Key.KostprijsKm, g.Sum(u => u.Uren), g.Sum(u => u.Km),
+                                        g.Sum(u => u.WerkKosten), g.Sum(u => u.ReisKosten), g.Sum(u => u.KmKosten), LaatstBekend: true)));
+        // per werkorder, werknemer en jaar samen (het blok "niet meegeteld")
+        var zonder = data.ZonderTarief.GroupBy(z => (z.WerkorderId, z.WerknemerId, z.Werknemer, z.Jaar))
+            .Select(g => new NacalcUrenZonderTarief(g.Key.WerkorderId, g.Key.WerknemerId, g.Key.Werknemer, g.Key.Jaar, g.Sum(z => z.Uren), g.Sum(z => z.Regels)))
+            .ToList();
+        data.ZonderTarief.Clear();
+        data.ZonderTarief.AddRange(zonder);
 
         // MDE-materiaal
         await using (var cmd = new MySqlCommand(
@@ -241,6 +297,22 @@ public class MySqlNacalculatieRepository : INacalculatieRepository
                 data.Pos.Add(new NacalcPo(I(r, 0), I(r, 1), S(r, 2), I(r, 3), S(r, 4), r.IsDBNull(5) ? null : r.GetDateTime(5),
                                           S(r, 6), M(r, 7), M(r, 8), I(r, 9)));
         return data;
+    }
+
+    public async Task<List<(string Naam, DateTime? LaatsteEind)>> ZonderTariefVandaagAsync()
+    {
+        var lijst = new List<(string, DateTime?)>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COALESCE(w.`NaamVoluit`, CONCAT('#', w.`Werknemer-id`)), (SELECT MAX(t.`Einddatum`) FROM `WerknemersTarieven` t WHERE t.`WerknemerID` = w.`Werknemer-id`) " +
+            "  FROM `Werknemers` w " +
+            " WHERE EXISTS (SELECT 1 FROM `Uren` u WHERE u.`Werknemer-id` = w.`Werknemer-id` AND u.`StartDatum` >= CURDATE() - INTERVAL 30 DAY) " +
+            "   AND NOT EXISTS (SELECT 1 FROM `WerknemersTarieven` t WHERE t.`WerknemerID` = w.`Werknemer-id` " +
+            "                      AND CURDATE() >= DATE(t.`Begindatum`) AND CURDATE() <= DATE(t.`Einddatum`)) " +
+            " ORDER BY 1", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add((S(r, 0), r.IsDBNull(1) ? null : r.GetDateTime(1)));
+        return lijst;
     }
 
     public async Task<List<NacalcUurRegel>> UurRegelsAsync(int werkorderId, int werknemerId, int? jaar)

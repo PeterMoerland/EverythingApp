@@ -803,6 +803,21 @@ Niet lokaal getest (geen Google-login).
 Link naar de plek in Gmail: `https://mail.google.com/mail/?authuser=<adres>#settings/general` (Algemeen ▸ Handtekening;
 authuser opent het goede account), plus ↻ om na het opslaan in Gmail opnieuw op te halen.
 
+## Kostprijstarieven: melding bovenin en laatst bekend tarief in de nacalculatie (24-10-2026)
+
+Verbeterverzoek. **Melding** `Components/TariefBalk.razor` (in MainLayout onder de Vault-balk, oranje, alleen Financial en
+Directie): werknemers die de laatste 30 dagen uren schreven maar voor vandaag geen periode in `WerknemersTarieven` hebben
+(`INacalculatieRepository.ZonderTariefVandaagAsync`, met de einddatum van hun laatste tarief); één opvraging na de eerste
+weergave, ✕ = voor vandaag gezien (`mdeOpslag` "tarief-balk-yyyyMMdd"). Tarieven worden in Access bijgehouden, niet in
+de app. Op 24-10-2026: Marc de Kock (laatste tarief tot 31-12-2025).
+**Nacalculatie**: uren zonder tarief voor die datum (de view `_Nacalc_Uurkosten_Overview` laat ze weg) worden in
+`LaadAsync` per dag opgehaald en gerekend met het **laatst bekende tarief** van de werknemer (periode met de laatste
+begindatum op of vóór die dag; vóór alle periodes: de eerste), zelfde regels als de view; `NacalcUren.LaatstBekend`,
+in de tab Uren "≈" voor de kostprijs, voetnoot in Totaal. Daarmee tellen ook de uren precies op een begindatum mee (de
+view eist `> Begindatum`). Alleen werknemers zonder enig tarief blijven "niet meegeteld". Werkt door in de voortgang
+(Bepaal zelf) en de AI-opvraging. Getest met 225086-02 (Marc 37,5 uur à 65,00; rechten tijdelijk opengezet en
+teruggezet). Het factureren (`Tariefregels`) rekent nog níet met het laatst bekende tarief: zonder kostprijs geen bedrag.
+
 ## Activity board wissen (24-10-2026)
 
 Wens gebruiker: een board kunnen wissen, alleen Directie. Knop **Board wissen…** in de kop van het board (naast Naar
