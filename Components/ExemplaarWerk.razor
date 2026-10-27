@@ -488,6 +488,9 @@
                         <label class="bankveld" title="Maximaal toegestane positievolgfout tijdens de beweging, in omwentelingen (1 = 131072 increments bij een 17-bit encoder)"><span>Max. volgfout (omw)</span>
                             <input type="number" step="0.1" min="0.01" max="10" value="@_mtVolgfout" style="width:4.5rem" disabled="@_taakBezig"
                                    @onchange="e => _mtVolgfout = double.TryParse((string?)e.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0 ? v : 1.0" /></label>
+                        <label class="bankveld" title="Hoogste toegestane motorstroom (|Iq|) tijdens een beweging; leeg = alleen meten"><span>Max. stroom (A)</span>
+                            <input type="number" step="0.1" min="0" placeholder="alleen meten" value="@_mtMaxStroom" style="width:6rem" disabled="@_taakBezig"
+                                   @onchange="e => _mtMaxStroom = double.TryParse((string?)e.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null" /></label>
                     }
                     @if (_testCode == "dualmotion")
                     {
@@ -501,6 +504,9 @@
                         <label class="vink" title="Lineair geïnterpoleerd: de as met de langste weg krijgt de ingestelde snelheid/acceleratie, de andere evenredig minder, zodat beide tegelijk vertrekken en aankomen">
                             <input type="checkbox" checked="@_dmInterpoleren" disabled="@_taakBezig" @onchange="e => _dmInterpoleren = e.Value is bool b && b" /> geïnterpoleerd
                         </label>
+                        <label class="bankveld" title="Hoogste toegestane motorstroom (|Iq|) tijdens een beweging; leeg = alleen meten"><span>Max. stroom (A)</span>
+                            <input type="number" step="0.1" min="0" placeholder="alleen meten" value="@_mtMaxStroom" style="width:6rem" disabled="@_taakBezig"
+                                   @onchange="e => _mtMaxStroom = double.TryParse((string?)e.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null" /></label>
                     }
                     @if (!IsRecept)
                     {
@@ -766,11 +772,11 @@
                     <div class="prod-drives @(dm.Geslaagd ? "go" : dm.Bezig ? "" : "nogo")">
                         <div class="prod-drives-kop"><b>@(dm.Bezig ? "BEZIG" : dm.Geslaagd ? "GO" : "NO-GO")</b><span>@dm.Samenvatting</span>@if (!dm.Bezig) { <button class="klein" @onclick="() => _dm = null">Sluiten</button> }</div>
                         <table class="kiezer-tabel smal-tabel">
-                            <thead><tr><th style="width:4rem">#</th><th style="width:6rem">naar</th><th style="width:6rem">duur (s)</th><th style="width:9rem">volgfout A</th><th style="width:9rem">volgfout B</th><th>melding</th></tr></thead>
+                            <thead><tr><th style="width:4rem">#</th><th style="width:6rem">naar</th><th style="width:6rem">duur (s)</th><th style="width:8rem">volgfout A</th><th style="width:8rem">volgfout B</th><th style="width:9rem" title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom A (A)</th><th style="width:9rem" title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom B (A)</th><th>melding</th></tr></thead>
                             <tbody>
                                 @foreach (var b in dm.Bewegingen)
                                 {
-                                    <tr class="@(b.Ok ? "" : "hist-fout")"><td>@b.Herhaling</td><td>@b.Doel</td><td>@b.Duur.ToString("0.00")</td><td>@b.VfA</td><td>@b.VfB</td><td><small>@b.Reden</small></td></tr>
+                                    <tr class="@(b.Ok ? "" : "hist-fout")"><td>@b.Herhaling</td><td>@b.Doel</td><td>@b.Duur.ToString("0.00")</td><td>@b.VfA</td><td>@b.VfB</td><td>@Stroom(b.ImaxA, b.IgemA)</td><td>@Stroom(b.ImaxB, b.IgemB)</td><td><small>@b.Reden</small></td></tr>
                                 }
                             </tbody>
                         </table>
@@ -799,7 +805,20 @@
                             <span class="stand-chip @(et.FoutTerug <= et.Marge ? "s-groen" : "s-rood")">terug @et.Terug (@et.FoutTerug.ToString("0.00") %)</span>
                             <span class="stand-chip @(et.Symmetrie <= et.Marge ? "s-groen" : "s-rood")">symmetrie @et.Symmetrie.ToString("0.00") %</span>
                             <span class="stand-chip s-grijs">polariteit @et.Polariteit · @et.Poolparen poolparen</span>
+                            @if (et.Encoderstatus.Length > 0)
+                            {
+                                <span class="stand-chip @(et.Encoderstatus == "ok" ? "s-groen" : "s-rood")" title="meldingen van de feedbackmodule (0x73xx) tijdens de test">encoder @et.Encoderstatus</span>
+                            }
                         </div>
+                        @if (et.Meldingen.Count > 0)
+                        {
+                            <ul class="uitleg" style="margin:.3rem 0 0">
+                                @foreach (var m in et.Meldingen)
+                                {
+                                    <li style="@(m.Encoder ? "color:var(--rood)" : "")">@(m.Waarschuwing ? "waarschuwing" : "fout"): @m.Tekst</li>
+                                }
+                            </ul>
+                        }
                     </div>
                 }
                 @if (_mt is { } mt)
@@ -807,11 +826,11 @@
                     <div class="prod-drives @(mt.Geslaagd ? "go" : "nogo")">
                         <div class="prod-drives-kop"><b>@(mt.Geslaagd ? "GO" : "NO-GO")</b><span>@mt.Samenvatting</span><button class="klein" @onclick="() => _mt = null">Sluiten</button></div>
                         <table class="kiezer-tabel smal-tabel">
-                            <thead><tr><th style="width:6rem">rpm</th><th style="width:4rem">#</th><th style="width:6rem">richting</th><th style="width:6rem">duur (s)</th><th style="width:8rem">volgfout max</th><th>melding</th></tr></thead>
+                            <thead><tr><th style="width:6rem">rpm</th><th style="width:4rem">#</th><th style="width:6rem">richting</th><th style="width:6rem">duur (s)</th><th style="width:8rem">volgfout max</th><th style="width:8rem" title="motorstroom |Iq| tijdens de beweging">stroom max (A)</th><th style="width:8rem" title="gemiddelde motorstroom |Iq| tijdens de beweging">stroom gem (A)</th><th>melding</th></tr></thead>
                             <tbody>
                                 @foreach (var b in mt.Bewegingen)
                                 {
-                                    <tr class="@(b.Ok ? "" : "hist-fout")"><td>@b.Rpm</td><td>@b.Herhaling</td><td>@b.Richting</td><td>@b.Duur.ToString("0.00")</td><td>@b.Volgfout</td><td><small>@b.Reden</small></td></tr>
+                                    <tr class="@(b.Ok ? "" : "hist-fout")"><td>@b.Rpm</td><td>@b.Herhaling</td><td>@b.Richting</td><td>@b.Duur.ToString("0.00")</td><td>@b.Volgfout</td><td>@(b.Imax?.ToString("0.00") ?? "—")</td><td>@(b.Igem?.ToString("0.00") ?? "—")</td><td><small>@b.Reden</small></td></tr>
                                 }
                             </tbody>
                         </table>
@@ -3206,10 +3225,10 @@
     private static string TestUitlegVast(string code) => code switch
     {
         "stroomlus" => "Current Direct Tuning zoals in MotionLab: controle van de STO, modus Current, enable, blokgolf ±amplitude op de d-as (geen beweging) via de disturbance van de drive; demand en werkelijke stroom via monitoring. GO bij stijgtijd, overshoot, fout en rimpel binnen de grenzen (Productie:Stroomlus).",
-        "encodertest" => "Zoals de feedback-test in MotionLab: het veld wordt in open lus (interne generator) precies één mechanische omwenteling vooruit en één terug gedraaid; de encoder moet daarbij het verwachte aantal increments laten zien (±marge) en vooruit/terug moeten symmetrisch zijn. De motor draait écht: as vrij laten.",
+        "encodertest" => "Zoals de feedback-test in MotionLab: het veld wordt in open lus (interne generator) precies één mechanische omwenteling vooruit en één terug gedraaid; de encoder moet daarbij het verwachte aantal increments laten zien (±marge) en vooruit/terug moeten symmetrisch zijn. Meldt de encoder tijdens de test een waarschuwing of fout (bv. niet goed uitgelijnd), dan is de test afgekeurd. De motor draait écht: as vrij laten.",
         "phasing" => "Motor-phasing zoals in MotionLab: de drive lijnt de commutatiehoek uit op de encoder (COMMU_ANGLE_OFFSET), met live de stroom (command/actual) en de hoeken (reference/commutation). Bij succes wordt opgeslagen; daarna spanning uit/aan. De as moet vrij kunnen draaien.",
-        "dualmotion" => "Twee assen tegelijk: zet de assen met de hand op positie 1 en druk Teach pos 1, dan op positie 2 en Teach pos 2. Start schakelt beide drives in en beweegt ze x keer heen en weer (Profile Position, zonder interpolatie); per beweging duur en maximale volgfout per as. Motoren gaan daarna uit.",
-        "motiontest" => "Gesloten lus (Profile Position): per snelheid één omwenteling vooruit en één terug, x keer herhaald. Elke positie moet binnen de verwachte tijd gehaald worden en de volgfout blijft onder de grens. De motor draait écht: as vrij laten.",
+        "dualmotion" => "Twee assen tegelijk: zet de assen met de hand op positie 1 en druk Teach pos 1, dan op positie 2 en Teach pos 2. Start schakelt beide drives in en beweegt ze x keer heen en weer (Profile Position, zonder interpolatie); per beweging duur, maximale volgfout en motorstroom (max / gemiddeld) per as. Motoren gaan daarna uit.",
+        "motiontest" => "Gesloten lus (Profile Position): per snelheid één omwenteling vooruit en één terug, x keer herhaald. Elke positie moet binnen de verwachte tijd gehaald worden en de volgfout blijft onder de grens; per beweging de motorstroom (max en gemiddeld, met een optionele grens). De motor draait écht: as vrij laten.",
         "iotest" => "De digitale uitgangen van elke drive gaan één voor één aan (looplicht) en worden teruggelezen; jij bevestigt of de LED's op de testrig brandden.",
         "basistest" => "Alle verwachte drives antwoorden op de EtherCAT-bus en hebben een serienummer.",
         _ => "Test via de werkplek-agent."
@@ -3281,8 +3300,11 @@
     {
         public bool Geslaagd; public string Samenvatting = "", Polariteit = "";
         public int Verwacht, Vooruit, Terug, Poolparen; public double FoutVooruit, FoutTerug, Symmetrie, Marge;
+        public string Encoderstatus = "";                       // ok / waarschuwing / fout (agent >= 1.23.0)
+        public List<DriveMelding> Meldingen = new();
     }
-    private sealed record Beweging(double Rpm, int Herhaling, string Richting, double Duur, int Volgfout, bool Ok, string Reden);
+    private sealed record DriveMelding(string Tekst, bool Waarschuwing, bool Encoder);
+    private sealed record Beweging(double Rpm, int Herhaling, string Richting, double Duur, int Volgfout, bool Ok, string Reden, double? Imax, double? Igem);
     private sealed class MotionUitslag { public bool Geslaagd; public string Samenvatting = ""; public List<Beweging> Bewegingen = new(); }
     private EncoderUitslag? _et;
     private MotionUitslag? _mt;
@@ -3293,6 +3315,13 @@
     private int _mtHerhalingen = 3;
     private double _mtAcc = 500;
     private double _mtVolgfout = 1.0;     // omwentelingen
+    private double? _mtMaxStroom;         // A; null = alleen meten (motiontest en dual motion)
+
+    /// <summary>Getal of null (bv. de motorstroom, die een oudere agent niet meestuurt).</summary>
+    private static double? GetalOfNiets(JsonElement e, string naam)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(naam, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+
+    private static string Stroom(double? max, double? gem) => max is null ? "—" : $"{max:0.00} / {gem:0.00}";
 
     /// <summary>Gezamenlijke start voor de drive-testen: STO-popup, historie, 'laatste'.</summary>
     private async Task VoerDriveTestUit(string taak, string titel, object parameters, Func<JsonElement, string> verwerk)
@@ -3401,12 +3430,18 @@
                 Samenvatting = Tekst(res, "samenvatting"), Polariteit = Tekst(res, "polariteit"),
                 Verwacht = Getal(res, "verwacht"), Vooruit = Getal(res, "vooruit"), Terug = Getal(res, "terug"), Poolparen = Getal(res, "poolparen"),
                 FoutVooruit = D("foutVooruitPct"), FoutTerug = D("foutTerugPct"), Symmetrie = D("symmetriePct"), Marge = _etMarge,
+                Encoderstatus = Tekst(res, "encoderstatus"),
             };
+            if (res.TryGetProperty("meldingen", out var ml) && ml.ValueKind == JsonValueKind.Array)
+                foreach (var m in ml.EnumerateArray())
+                    _et.Meldingen.Add(new DriveMelding(Tekst(m, "tekst"),
+                        m.TryGetProperty("waarschuwing", out var w) && w.ValueKind == JsonValueKind.True,
+                        m.TryGetProperty("encoder", out var en) && en.ValueKind == JsonValueKind.True));
             return _et.Samenvatting;
         });
 
     private Task StartMotiontest() => VoerDriveTestUit("drives.motiontest", "Motiontest",
-        new { snelheden = _mtSnelheden, herhalingen = _mtHerhalingen, acceleratie = _mtAcc, maxVolgfoutPct = _mtVolgfout * 100.0 }, res =>
+        new { snelheden = _mtSnelheden, herhalingen = _mtHerhalingen, acceleratie = _mtAcc, maxVolgfoutPct = _mtVolgfout * 100.0, maxStroom = _mtMaxStroom ?? 0 }, res =>
         {
             var u = new MotionUitslag
             {
@@ -3419,7 +3454,8 @@
                         b.TryGetProperty("rpm", out var r) && r.ValueKind == JsonValueKind.Number ? r.GetDouble() : 0,
                         Getal(b, "herhaling"), Tekst(b, "richting"),
                         b.TryGetProperty("duur", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0,
-                        Getal(b, "volgfout"), b.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True, Tekst(b, "reden")));
+                        Getal(b, "volgfout"), b.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True, Tekst(b, "reden"),
+                        GetalOfNiets(b, "imax"), GetalOfNiets(b, "igem")));
             _mt = u;
             MotionLive(res);
             return u.Samenvatting;
@@ -3484,7 +3520,8 @@
 
 
     // ---- dual motion (drives.dualmotion): twee assen, geteachte posities
-    private sealed record DualBeweging(int Herhaling, string Doel, double Duur, int VfA, int VfB, bool Ok, string Reden);
+    private sealed record DualBeweging(int Herhaling, string Doel, double Duur, int VfA, int VfB, bool Ok, string Reden,
+                                       double? ImaxA, double? IgemA, double? ImaxB, double? IgemB);
     private sealed class DualUitslag { public bool Geslaagd, Bezig; public string Samenvatting = ""; public List<DualBeweging> Bewegingen = new(); }
     private DualUitslag? _dm;
     private int _dmPositieB, _dmSnelheid = 200, _dmHerhalingen = 10;
@@ -3549,7 +3586,7 @@
             pos1 = _dmPos1!.ToDictionary(k => k.Key.ToString(), k => k.Value),
             pos2 = _dmPos2!.ToDictionary(k => k.Key.ToString(), k => k.Value),
             snelheid = _dmSnelheid, acceleratie = _dmAcc, herhalingen = _dmHerhalingen, maxVolgfoutPct = _mtVolgfout * 100.0,
-            interpoleren = _dmInterpoleren,
+            interpoleren = _dmInterpoleren, maxStroom = _mtMaxStroom ?? 0,
         }));
         await VoerTaakUit("drives.dualmotion", body, titel, 1800, async res =>
         {
@@ -3585,7 +3622,9 @@
                 lijst.Add(new DualBeweging(Getal(b, "herhaling"), Tekst(b, "doel"),
                     b.TryGetProperty("duur", out var du) && du.ValueKind == JsonValueKind.Number ? du.GetDouble() : 0,
                     d is null ? 0 : Getal(b, $"vf{d.Value.A.Positie}"), d is null ? 0 : Getal(b, $"vf{d.Value.B.Positie}"),
-                    b.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True, Tekst(b, "reden")));
+                    b.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True, Tekst(b, "reden"),
+                    d is null ? null : GetalOfNiets(b, $"imax{d.Value.A.Positie}"), d is null ? null : GetalOfNiets(b, $"igem{d.Value.A.Positie}"),
+                    d is null ? null : GetalOfNiets(b, $"imax{d.Value.B.Positie}"), d is null ? null : GetalOfNiets(b, $"igem{d.Value.B.Positie}")));
             _dm.Bewegingen = lijst;
             if (_dm.Bezig && r.TryGetProperty("n", out var n) && r.TryGetProperty("totaal", out var t)) _dm.Samenvatting = $"beweging {n.GetRawText()} van {t.GetRawText()}";
         }

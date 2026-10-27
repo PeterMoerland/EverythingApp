@@ -239,6 +239,18 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Motorstroom en encoderstatus in de drive-testen (agent 1.23.0, 27-10-2026)
+
+- **Motiontest en dual motion** meten per beweging de motorstroom |Iq| (`get_actual_current_quadrature`,
+  CL_CUR_Q_VALUE): max, gemiddeld en RMS (`_ingenia.Stroommeter`). Via SDO in de bewaakloop (±20-40 ms), dus een
+  heel korte piek kan ertussen vallen. Optionele grens `maxStroom` (A, invoer "Max. stroom" in de app; leeg =
+  alleen meten). Resultaat: `imax/igem/irms` per beweging (dual: met de drive-positie erachter) en `stromen`.
+- **Encodertest** bewaakt de foutbuffer en het statuswoord (`_ingenia.Foutbewaking`): elke nieuwe melding van de
+  feedbackmodule (0x73xx, bv. 0x7381 "BiSS-C warning bit active in absolute encoder 1") keurt af, ook een
+  waarschuwing (encoder niet goed uitgelijnd). Andere meldingen staan alleen in `meldingen`, want de test zet
+  zelf een paar foutopties tijdelijk op waarschuwing. Resultaat: `encoderstatus` ok/waarschuwing/fout.
+- Alleen met mocks getest (geen drive in handen).
+
 ## Projecten ↔ PO klant (27-10-2026)
 
 Wens collega: vanuit een project naar de PO van de klant klikken en terug.

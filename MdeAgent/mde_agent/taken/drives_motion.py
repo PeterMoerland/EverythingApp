@@ -11,14 +11,19 @@ drives.encodertest — encodertest met de interne generator (zoals de feedback-t
     Parameters: positie, dictionary, verwachtIncrementen (leeg = resolutie uit de drive),
                 margePct (2), frequentie (Hz van de zaagtand, 1 cyclus = 1 elektrische omwenteling, 0.5),
                 stroomPct (deel van de nominale stroom, 0.8)
+    Encoderstatus: de foutbuffer van de drive wordt bij de start onthouden en het statuswoord tijdens de test
+    bekeken; elke nieuwe melding van de feedbackmodule (0x73xx: BiSS-C-warningbit, foutbits, encoder los) keurt
+    de test af, ook een waarschuwing (bv. een encoder die niet goed uitgelijnd is). Andere meldingen staan in
+    het resultaat (sommige foutopties zet de test zelf tijdelijk op 'waarschuwing').
 
 drives.motiontest — bewegingstest in gesloten lus (Profile Position): per snelheid één omwenteling
     vooruit en één terug, x keer herhaald. Controleert dat elke positie binnen de tijd gehaald wordt
-    en bewaakt de volgfout.
+    en bewaakt de volgfout. Meet per beweging de motorstroom (|Iq|): max, gemiddeld en RMS.
 
     Parameters: positie, dictionary, snelheden ("60,120,300" in rpm), herhalingen (3),
                 acceleratie (rev/s², 500), incrementen (per omwenteling; leeg = resolutie uit de drive),
-                maxVolgfoutPct (100 = 1 omwenteling, % van een omwenteling), timeoutFactor (3 × de theoretische tijd + 2 s)
+                maxVolgfoutPct (100 = 1 omwenteling, % van een omwenteling), timeoutFactor (3 × de theoretische tijd + 2 s),
+                maxStroom (A; leeg/0 = niet beoordelen, alleen meten)
 """
 
 import time
@@ -88,14 +93,16 @@ def _live_positie(job, mc, res: int, extra: dict | None = None) -> int:
     return p
 
 
-def _wacht_met_live(job, mc, res: int, seconden: float, extra: dict | None = None) -> None:
-    """Wachten terwijl de positie ~20×/s wordt doorgegeven."""
+def _wacht_met_live(job, mc, res: int, seconden: float, extra: dict | None = None, bewaking=None) -> None:
+    """Wachten terwijl de positie ~20×/s wordt doorgegeven (en zo nodig het statuswoord bekeken)."""
     einde = time.time() + seconden
     while time.time() < einde:
         try:
             _live_positie(job, mc, res, extra)
         except Exception:  # noqa: BLE001
             pass
+        if bewaking is not None:
+            bewaking.kijk()
         time.sleep(0.05)
 
 
@@ -166,6 +173,10 @@ class Encodertest:
 
             backup = _backup(mc, job)
             _ingenia.sdo(mc.motion.motor_disable)
+            bewaking = _ingenia.Foutbewaking(mc, job)      # encoderstatus: warning en error tijdens de test
+            bewaking.kijk()
+            if bewaking.warning_gezien or bewaking.fault_gezien:
+                job.log("  (die melding stond er al vóór de test)")
             try:
                 mc.configuration.set_commutation_mode(CommutationMode.SINUSOIDAL)
                 for uid, w in (("PROF_POS_OPTION_CODE", 0), ("CL_POS_REF_MAX_RANGE_LIMIT", 0), ("CL_POS_REF_MIN_RANGE_LIMIT", 0)):
@@ -187,14 +198,14 @@ class Encodertest:
                 # uitlijnen: 1 cyclus zaagtand terwijl de stroom oploopt
                 mc.motion.internal_generator_saw_tooth_move(1, 1, freq)
                 mc.motion.current_quadrature_ramp(stroom, 2 / freq)
-                _wacht_met_live(job, mc, res or verwacht, 0.5, {"fase": "uitlijnen"})
+                _wacht_met_live(job, mc, res or verwacht, 0.5, {"fase": "uitlijnen"}, bewaking)
                 p0 = _positie(mc)
                 job.log(f"Uitgelijnd; startpositie {p0}.")
                 job.voortgang(30)
 
                 job.log("Vooruit: 1 omwenteling …")
                 mc.motion.internal_generator_saw_tooth_move(1, 1, freq)
-                _wacht_met_live(job, mc, res or verwacht, 1 / freq + 0.5, {"fase": "vooruit", "start": p0})
+                _wacht_met_live(job, mc, res or verwacht, 1 / freq + 0.5, {"fase": "vooruit", "start": p0}, bewaking)
                 p1 = _positie(mc)
                 vooruit = _verschil(p1, p0)
                 job.log(f"  positie {p1}: verplaatsing {vooruit:+d} increments")
@@ -202,7 +213,7 @@ class Encodertest:
 
                 job.log("Terug: 1 omwenteling …")
                 mc.motion.internal_generator_saw_tooth_move(-1, 1, freq)
-                _wacht_met_live(job, mc, res or verwacht, 1 / freq + 0.5, {"fase": "terug", "start": p0})
+                _wacht_met_live(job, mc, res or verwacht, 1 / freq + 0.5, {"fase": "terug", "start": p0}, bewaking)
                 p2 = _positie(mc)
                 terug = _verschil(p2, p1)
                 job.log(f"  positie {p2}: verplaatsing {terug:+d} increments")
@@ -216,6 +227,7 @@ class Encodertest:
                 _herstel(mc, backup, job)
                 if _ingenia.sdo_herhalingen:
                     job.log(f"LET OP: {_ingenia.sdo_herhalingen} SDO-herhaling(en) nodig gehad — de EtherCAT-verbinding hapert tijdens de test (EMI bij hoge motorstroom?).")
+                meldingen = bewaking.nieuwe()
 
         fout_vooruit = abs(abs(vooruit) - verwacht) / verwacht * 100
         fout_terug = abs(abs(terug) - verwacht) / verwacht * 100
@@ -229,14 +241,19 @@ class Encodertest:
             redenen.append(f"terug {abs(terug)} i.p.v. {verwacht} ({fout_terug:.2f} % > {marge:g} %)")
         if symmetrie > marge:
             redenen.append(f"vooruit en terug niet symmetrisch ({symmetrie:.2f} %)")
+        encoder = [m for m in meldingen if m["encoder"]]
+        for m in encoder:
+            redenen.append(f"encoder {'waarschuwing' if m['waarschuwing'] else 'fout'}: {m['tekst']}")
+        encoderstatus = ("fout" if any(not m["waarschuwing"] for m in encoder) else "waarschuwing") if encoder else "ok"
         polariteit = "normaal" if vooruit > 0 else "omgekeerd"
         geslaagd = not redenen
         samenvatting = (f"vooruit {vooruit:+d}, terug {terug:+d} increments (verwacht {verwacht}, fout {max(fout_vooruit, fout_terug):.2f} %, "
-                        f"polariteit {polariteit})") + ("" if geslaagd else " — " + "; ".join(redenen))
+                        f"polariteit {polariteit}, encoderstatus {encoderstatus})") + ("" if geslaagd else " — " + "; ".join(redenen))
         job.log(("GESLAAGD: " if geslaagd else "AFGEKEURD: ") + samenvatting)
         job.klaar({"geslaagd": geslaagd, "samenvatting": samenvatting, "verwacht": verwacht, "vooruit": vooruit, "terug": terug,
                    "foutVooruitPct": round(fout_vooruit, 3), "foutTerugPct": round(fout_terug, 3), "symmetriePct": round(symmetrie, 3),
-                   "polariteit": polariteit, "poolparen": pp, "resolutieDrive": res})
+                   "polariteit": polariteit, "poolparen": pp, "resolutieDrive": res,
+                   "encoderstatus": encoderstatus, "meldingen": meldingen})
 
 
 # ---------------------------------------------------------------------------------------------
@@ -266,6 +283,7 @@ class Motiontest:
         max_volgfout_pct = _ingenia.getal(parameters, "maxVolgfoutPct", 100.0)     # % van een omwenteling (100 = 1 omw)
         timeout_factor = _ingenia.getal(parameters, "timeoutFactor", 3.0)
         inc_param = _ingenia.getal(parameters, "incrementen", 0)
+        max_stroom = _ingenia.getal(parameters, "maxStroom", 0.0)                   # A; 0 = alleen meten
 
         with _ingenia.verbinding(inst, positie, xdf, job) as mc:
             melding = _ingenia.sto_vrij(mc, job)
@@ -336,6 +354,7 @@ class Motiontest:
                             v_max = 0.0
                             ok = True
                             reden = ""
+                            stroom = _ingenia.Stroommeter(mc)
                             try:
                                 van = _positie(mc)
                                 _ingenia.sdo(mc.motion.move_to_position, doel, blocking=False)
@@ -358,6 +377,7 @@ class Motiontest:
                                         v_max = max(v_max, abs(float(_ingenia.sdo(mc.motion.get_actual_velocity))))
                                     except Exception:  # noqa: BLE001
                                         pass
+                                    stroom.meet()
                                     time.sleep(0.02)
                                 else:
                                     ok = False
@@ -369,11 +389,18 @@ class Motiontest:
                             if ok and volgfout_max > max_volgfout:
                                 ok = False
                                 reden = f"volgfout {volgfout_max} > {max_volgfout} increments"
+                            i = stroom.uitkomst()
+                            if ok and max_stroom > 0 and i and i["max"] > max_stroom:
+                                ok = False
+                                reden = f"stroom {i['max']:.2f} A > {max_stroom:g} A"
                             n += 1
                             bewegingen.append({"rpm": rpm, "herhaling": h + 1, "richting": naam, "duur": round(duur, 2),
-                                               "volgfout": volgfout_max, "vmax": round(v_max, 3), "ok": ok, "reden": reden})
+                                               "volgfout": volgfout_max, "vmax": round(v_max, 3), "ok": ok, "reden": reden,
+                                               "imax": i["max"] if i else None, "igem": i["gem"] if i else None, "irms": i["rms"] if i else None})
                             job.log(f"  {rpm:g} rpm #{h + 1} {naam}: {duur:.2f} s, snelheid max {v_max:.3f} (register-eenheid; rev/s → {v_max * 60:.0f} rpm), "
-                                    f"volgfout max {volgfout_max}{'' if ok else ' — ' + reden}")
+                                    f"volgfout max {volgfout_max}"
+                                    + (f", stroom max {i['max']:.2f} A / gem {i['gem']:.2f} A / rms {i['rms']:.2f} A ({i['n']} metingen)" if i else ", stroom niet gemeten")
+                                    + ('' if ok else ' — ' + reden))
                             job.voortgang(int(5 + 90 * n / totaal))
                             if not ok:
                                 fouten.append(f"{rpm:g} rpm #{h + 1} {naam}: {reden}")
@@ -406,15 +433,21 @@ class Motiontest:
         geslaagd = not fouten and len(bewegingen) == totaal
         per_rpm = {}
         for b in bewegingen:
-            d = per_rpm.setdefault(b["rpm"], {"n": 0, "duur": 0.0, "volgfout": 0})
+            d = per_rpm.setdefault(b["rpm"], {"n": 0, "duur": 0.0, "volgfout": 0, "imax": None, "igem": []})
             d["n"] += 1; d["duur"] += b["duur"]; d["volgfout"] = max(d["volgfout"], b["volgfout"])
+            if b.get("imax") is not None:
+                d["imax"] = max(d["imax"] or 0.0, b["imax"]); d["igem"].append(b["igem"])
+        stromen = {f"{rpm:g}": {"max": d["imax"], "gem": round(sum(d["igem"]) / len(d["igem"]), 3)}
+                   for rpm, d in per_rpm.items() if d["igem"]}
         samenvatting = f"{len(bewegingen)} van {totaal} bewegingen" + "".join(
-            f"; {rpm:g} rpm: {d['duur'] / d['n']:.2f} s/omw, volgfout max {d['volgfout']}" for rpm, d in per_rpm.items())
+            f"; {rpm:g} rpm: {d['duur'] / d['n']:.2f} s/omw, volgfout max {d['volgfout']}"
+            + (f", stroom max {d['imax']:.2f} A gem {sum(d['igem']) / len(d['igem']):.2f} A" if d["igem"] else "")
+            for rpm, d in per_rpm.items())
         if fouten:
             samenvatting += " — " + fouten[0]
         job.log(("GESLAAGD: " if geslaagd else "AFGEKEURD: ") + samenvatting)
         job.klaar({"geslaagd": geslaagd, "samenvatting": samenvatting, "bewegingen": bewegingen, "incrementen": inc,
-                   "maxVolgfout": max_volgfout, "reeks": reeks[-600:]})
+                   "maxVolgfout": max_volgfout, "maxStroom": max_stroom or None, "stromen": stromen, "reeks": reeks[-600:]})
 
 
 # ingangen voor taken/__init__.py

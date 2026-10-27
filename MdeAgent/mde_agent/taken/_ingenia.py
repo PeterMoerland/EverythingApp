@@ -263,3 +263,97 @@ def uid_voor(mc, idx: int, subidx: int = 0) -> tuple[str, int] | None:
     except Exception:  # noqa: BLE001
         pass
     return None
+
+
+class Stroommeter:
+    """Motorstroom tijdens een beweging: |Iq| (CL_CUR_Q_VALUE, de koppelvormende stroom, in A) bij elke meting.
+    Gemeten via SDO in de bewaakloop (±20-40 ms), dus een heel korte piek kan tussen twee metingen vallen.
+    Geeft max, gemiddeld en RMS (RMS = wat de motor warm maakt)."""
+
+    def __init__(self, mc, servo: str = "default"):
+        self.mc, self.servo = mc, servo
+        self.n, self.som, self.kwad, self.max = 0, 0.0, 0.0, 0.0
+        self.werkt = True
+
+    def meet(self) -> float | None:
+        if not self.werkt:
+            return None
+        try:
+            i = abs(float(sdo(self.mc.motion.get_actual_current_quadrature, servo=self.servo)))
+        except RuntimeError:
+            return None                          # bus hapert even: overslaan
+        except Exception:  # noqa: BLE001
+            self.werkt = False                   # register bestaat niet op deze drive: niet meer proberen
+            return None
+        self.n += 1
+        self.som += i
+        self.kwad += i * i
+        self.max = max(self.max, i)
+        return i
+
+    def uitkomst(self) -> dict | None:
+        if not self.n:
+            return None
+        return {"max": round(self.max, 3), "gem": round(self.som / self.n, 3), "rms": round((self.kwad / self.n) ** 0.5, 3), "n": self.n}
+
+
+def is_encoderfout(code: int) -> bool:
+    """Foutcodes van de feedbackmodule (0x73xx): absolute encoder los, foutbits, BiSS-C-warningbit, …"""
+    return 0x7300 <= (code & 0xFFFF) <= 0x73FF
+
+
+class Foutbewaking:
+    """Fouten en waarschuwingen die de drive tijdens een test meldt. Bij de start het aantal in de foutbuffer
+    onthouden; tijdens de test het statuswoord bekijken (bit 7 = warning, bit 3 = fault); aan het eind de
+    nieuwe regels uit de buffer lezen, met omschrijving uit de dictionary en of het een waarschuwing is."""
+
+    def __init__(self, mc, job, servo: str = "default"):
+        self.mc, self.job, self.servo = mc, job, servo
+        self.warning_gezien = self.fault_gezien = False
+        try:
+            self.start = int(sdo(mc.errors.get_number_total_errors, servo=servo))
+        except Exception as e:  # noqa: BLE001
+            self.start = None
+            job.log(f"  foutbuffer niet te lezen ({e}); alleen het statuswoord wordt bewaakt.")
+
+    def kijk(self) -> None:
+        try:
+            sw = int(sdo(self.mc.configuration.get_status_word, servo=self.servo))
+        except Exception:  # noqa: BLE001
+            return
+        if sw & 0x80 and not self.warning_gezien:
+            self.warning_gezien = True
+            self.job.log("  LET OP: de drive meldt een waarschuwing (statuswoord bit 7).")
+        if sw & 0x08 and not self.fault_gezien:
+            self.fault_gezien = True
+            self.job.log("  LET OP: de drive staat in fout (statuswoord bit 3).")
+
+    def nieuwe(self) -> list[dict]:
+        """Nieuwe regels in de foutbuffer sinds de start, oudste eerst: {code, waarschuwing, tekst, encoder}."""
+        if self.start is None:
+            return []
+        try:
+            totaal = int(sdo(self.mc.errors.get_number_total_errors, servo=self.servo))
+        except Exception:  # noqa: BLE001
+            return []
+        aantal = min(max(0, totaal - self.start), 32)
+        uit = []
+        for i in range(aantal - 1, -1, -1):              # index 0 = nieuwste
+            try:
+                code, _as, warning = sdo(self.mc.errors.get_buffer_error_by_index, i, servo=self.servo)
+            except Exception:  # noqa: BLE001
+                continue
+            if not code:
+                continue
+            code = int(code) & 0xFFFF
+            tekst = f"0x{code:04X}"
+            try:
+                data = self.mc.errors.get_error_data(code, servo=self.servo)
+                if data and len(data) >= 4 and data[3]:
+                    tekst += f" {data[3]}"
+            except Exception:  # noqa: BLE001
+                pass
+            uit.append({"code": code, "waarschuwing": bool(warning), "tekst": tekst, "encoder": is_encoderfout(code)})
+        for f in uit:
+            self.job.log(f"  drive meldde {'waarschuwing' if f['waarschuwing'] else 'FOUT'}: {f['tekst']}")
+        return uit

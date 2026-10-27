@@ -5,8 +5,8 @@ bewegen (Profile Position, beide assen gelijktijdig ingeschakeld, nog zonder int
   actie = "teach": de actuele positie van beide drives lezen (motoren uit, as met de hand verzet).
   actie = "run":   beide drives enablen, profiel (snelheid rpm, acceleratie rev/s²) zetten en
                    'herhalingen' keer: beide naar positie 2, wachten tot beide er zijn, beide naar
-                   positie 1, wachten. Per beweging duur en maximale volgfout per as. Aan het eind
-                   motoren uit.
+                   positie 1, wachten. Per beweging duur, maximale volgfout en motorstroom (|Iq|: max,
+                   gemiddeld, RMS) per as. Aan het eind motoren uit.
 
 Parameters:
     drives        [{"positie": 1, "dictionary": url, "naam": "Drive 1"}, {"positie": 2, ...}]
@@ -16,6 +16,7 @@ Parameters:
     interpoleren  true = lineair geïnterpoleerd: de as met de langste weg krijgt snelheid/acceleratie zoals
                   ingesteld, de andere evenredig minder, zodat beide assen tegelijk vertrekken én aankomen
     maxVolgfoutPct  % van een omwenteling (100)             timeoutFactor (3)
+    maxStroom     A per as; leeg/0 = niet beoordelen, alleen meten
 """
 
 import time
@@ -72,6 +73,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         herhalingen = max(1, int(_ingenia.getal(parameters, "herhalingen", 10)))
         max_vf_pct = _ingenia.getal(parameters, "maxVolgfoutPct", 100.0)
         timeout_factor = _ingenia.getal(parameters, "timeoutFactor", 3.0)
+        max_stroom = _ingenia.getal(parameters, "maxStroom", 0.0)
         interpoleren = str(parameters.get("interpoleren", "true")).lower() in ("1", "true", "ja")
         pos1 = {str(k): int(v) for k, v in (parameters.get("pos1") or {}).items()}
         pos2 = {str(k): int(v) for k, v in (parameters.get("pos2") or {}).items()}
@@ -142,6 +144,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                         _ingenia.sdo(mc.motion.move_to_position, doelen[str(pos)], servo=alias, blocking=False)
                     klaar = {a: False for a, _p, _n in aliassen}
                     vf_max = {a: 0 for a, _p, _n in aliassen}
+                    stroom = {a: _ingenia.Stroommeter(mc, a) for a, _p, _n in aliassen}
                     ok = True
                     reden = ""
                     einde = t0 + timeout
@@ -176,6 +179,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                                 vf_max[alias] = max(vf_max[alias], abs(_verschil(ref, p)))
                             except Exception:  # noqa: BLE001
                                 pass
+                            stroom[alias].meet()
                         if not ok:
                             break
                         time.sleep(0.02)
@@ -195,12 +199,22 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                         if ok and vf_max[alias] > grens:
                             ok = False
                             reden = f"{naam}: volgfout {vf_max[alias]} > {grens}"
+                        i = stroom[alias].uitkomst()
+                        if ok and max_stroom > 0 and i and i["max"] > max_stroom:
+                            ok = False
+                            reden = f"{naam}: stroom {i['max']:.2f} A > {max_stroom:g} A"
                     n += 1
                     rij = {"herhaling": h + 1, "doel": doelnaam, "duur": round(duur, 2), "ok": ok, "reden": reden}
                     for alias, pos, naam in aliassen:
                         rij[f"vf{pos}"] = vf_max[alias]
+                        i = stroom[alias].uitkomst()
+                        rij[f"imax{pos}"] = i["max"] if i else None
+                        rij[f"igem{pos}"] = i["gem"] if i else None
+                        rij[f"irms{pos}"] = i["rms"] if i else None
                     bewegingen.append(rij)
                     job.log(f"  #{h + 1} → {doelnaam}: {duur:.2f} s, volgfout max " + ", ".join(f"{naam} {vf_max[a]}" for a, _p, naam in aliassen)
+                            + "; stroom max/gem " + ", ".join(f"{naam} {i['max']:.2f}/{i['gem']:.2f} A" if (i := stroom[a].uitkomst()) else f"{naam} —"
+                                                             for a, _p, naam in aliassen)
                             + ("" if ok else " — " + reden))
                     job.resultaat = {"live": True, "bewegingen": bewegingen[-40:], "n": n, "totaal": totaal}
                     job.voortgang(int(5 + 90 * n / totaal))
@@ -227,9 +241,17 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
 
     geslaagd = not fouten and len(bewegingen) == totaal
     gem = (sum(b["duur"] for b in bewegingen) / len(bewegingen)) if bewegingen else 0
+    stromen = {}
+    for _a, pos, naam in aliassen:
+        maxen = [b[f"imax{pos}"] for b in bewegingen if b.get(f"imax{pos}") is not None]
+        gems = [b[f"igem{pos}"] for b in bewegingen if b.get(f"igem{pos}") is not None]
+        if maxen:
+            stromen[str(pos)] = {"naam": naam, "max": max(maxen), "gem": round(sum(gems) / len(gems), 3)}
     samenvatting = f"{len(bewegingen)} van {totaal} bewegingen, gemiddeld {gem:.2f} s" + (
-        "; volgfout max " + ", ".join(f"{naam} {max(b.get(f'vf{pos}', 0) for b in bewegingen)}" for _a, pos, naam in aliassen) if bewegingen else "")
+        "; volgfout max " + ", ".join(f"{naam} {max(b.get(f'vf{pos}', 0) for b in bewegingen)}" for _a, pos, naam in aliassen) if bewegingen else "") + (
+        "; stroom max/gem " + ", ".join(f"{s['naam']} {s['max']:.2f}/{s['gem']:.2f} A" for s in stromen.values()) if stromen else "")
     if fouten:
         samenvatting += " — " + fouten[0]
     job.log(("GESLAAGD: " if geslaagd else "AFGEKEURD: ") + samenvatting)
-    job.klaar({"geslaagd": geslaagd, "samenvatting": samenvatting, "bewegingen": bewegingen, "totaal": totaal, "interpoleren": interpoleren})
+    job.klaar({"geslaagd": geslaagd, "samenvatting": samenvatting, "bewegingen": bewegingen, "totaal": totaal, "interpoleren": interpoleren,
+               "stromen": stromen, "maxStroom": max_stroom or None})
