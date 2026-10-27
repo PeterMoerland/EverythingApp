@@ -237,7 +237,8 @@ public static class Menu
                 new MenuItem("Verbinding & schema", "/diag"),
                 new MenuItem("Filestore", "/beheer/filestore"),
                 new MenuItem("Computers", "/beheer/computers"),
-                new MenuItem("Werkplekken", "/beheer/werkplekken"))),
+                new MenuItem("Werkplekken", "/beheer/werkplekken"),
+                new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud"))),
     };
 
     /// <summary>Alle modules, inclusief de onderliggende (Tools ▸ Inventor enzovoort).</summary>

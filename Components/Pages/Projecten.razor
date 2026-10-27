@@ -1,5 +1,6 @@
 @page "/projecten"
 @inject IProjectRepository Repo
+@inject IPOKlantRepository PoRepo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -144,6 +145,21 @@
                 }
                 else if (_werkbonId is null)
                 {
+                    @* PO's van de klant die aan dit project hangen; klik = die PO openen (wens collega 27-10-2026).
+                       Alleen voor Financial/Directie: PO klant staat onder Financiën. *@
+                    @if (_pos.Count > 0)
+                    {
+                        <div class="project-pos">
+                            <span class="uitleg">PO klant:</span>
+                            @foreach (var po in _pos)
+                            {
+                                <a class="stand-chip s-blauw" href="financien/po-klant?po=@po.Id"
+                                   title="@($"{po.Omschrijving} · {po.Datum:dd-MM-yyyy} · gefactureerd {Geld(po.Gefactureerd)} van {Geld(po.Bedrag)} — klik om de PO te openen")">
+                                    PO @po.PoNummer · @Geld(po.Bedrag)@(po.Bedrag > 0 && po.Gefactureerd >= po.Bedrag - 0.005m ? " ✓" : "")
+                                </a>
+                            }
+                        </div>
+                    }
                     <div class="wn-tabs">
                         @foreach (var tab in ProjectVelden.ProjectTabs)
                         {
@@ -395,6 +411,7 @@
             await Vul("WerkorderType", Repo.GetWerkordersoortenAsync);
 
             await Laad();
+            await OpenUitUrl();
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
     }
@@ -446,6 +463,7 @@
         _projectOms = "";
         _projectVelden = new(StringComparer.OrdinalIgnoreCase);
         _werkorders = new();
+        _pos = new();
         LeegmakenWerkorder();
         _melding = null;
     }
@@ -504,6 +522,37 @@
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
 
         await LaadWerkorders();
+        await LaadPos(p.Id);
+    }
+
+    // ---- PO klant bij dit project (link naar Financiën ▸ PO klant) ----
+    private List<POKlant> _pos = new();
+
+    private async Task LaadPos(int projectId)
+    {
+        _pos = new();
+        if (!Ik.MagFinancien || !PoRepo.Beschikbaar) return;
+        try { _pos = await PoRepo.ZoekAsync(new POFilter { BvId = null, ProjectId = projectId }); }
+        catch { /* zonder PO's werkt het project gewoon */ }
+    }
+
+    private static string Geld(decimal d) => d.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("nl-NL"));
+
+    /// <summary>?project=&lt;id&gt; (link vanuit een PO klant): meteen dat project openen.</summary>
+    [SupplyParameterFromQuery(Name = "project")] public int? ProjectQuery { get; set; }
+
+    private async Task OpenUitUrl()
+    {
+        if (ProjectQuery is not int id) return;
+        try
+        {
+            var velden = await Repo.GetProjectVeldenAsync(id);
+            int? nummer = velden.TryGetValue("Projectnumber", out var n) && int.TryParse(n?.ToString(), out var nr) ? nr : null;
+            var oms = velden.TryGetValue("Projectdescription", out var o) ? o?.ToString() ?? "" : "";
+            if (nummer is int nn) { _project = nn.ToString(); await Laad(); }   // het project ook links in de lijst
+            await KiesProject(new ProjectRegel(id, nummer, oms));
+        }
+        catch (Exception ex) { Toon($"Project #{id} openen mislukt: " + ex.Message, true); }
     }
 
     private void TerugNaarProject() => LeegmakenWerkorder();

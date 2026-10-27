@@ -47,12 +47,35 @@ echo De service bestaat nog niet; die maak ik straks aan.
 goto :publiceren
 
 REM ------------------------------------------------------------
+REM  0. Gebruikers waarschuwen: iedereen die de app open heeft krijgt
+REM     bovenin een melding met een aftelklok (POST naar de app zelf,
+REM     alleen vanaf deze server toegestaan). Draait de app niet, dan
+REM     valt er niemand te waarschuwen.
+REM ------------------------------------------------------------
+:stoppen
+sc.exe query %SERVICE% | find "RUNNING" >nul
+if errorlevel 1 goto :stoppennu
+
+echo.
+echo == Gebruikers waarschuwen ==
+echo Iedereen die de app open heeft, krijgt bovenin een melding met een aftelklok.
+set WACHT=3
+set /p WACHT=Over hoeveel minuten stopt de app? [Enter = 3, 0 = niet waarschuwen]:
+set /a WACHT=WACHT
+if !WACHT! LEQ 0 goto :stoppennu
+powershell -NoProfile -Command "try { Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:5010/onderhoud/aankondigen?minuten=!WACHT!' -TimeoutSec 10 } catch { 'Waarschuwen lukte niet (' + $_.Exception.Message + '); ik ga gewoon door.' }"
+set /a WACHTSEC=WACHT*60
+echo.
+echo Wachten tot de tijd om is. Een toets = nu doorgaan.
+timeout /t !WACHTSEC!
+
+REM ------------------------------------------------------------
 REM  1. Stoppen en wachten tot hij echt stil is.
 REM     Zonder dit wachten is EverythingApp.exe nog in gebruik en
 REM     mislukt het publiceren -- de reden om anders maar te
 REM     verwijderen en opnieuw te installeren.
 REM ------------------------------------------------------------
-:stoppen
+:stoppennu
 echo.
 echo == Service stoppen ==
 sc.exe stop %SERVICE% >nul 2>&1

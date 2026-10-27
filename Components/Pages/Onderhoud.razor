@@ -1,0 +1,72 @@
+@page "/beheer/onderhoud"
+@implements IDisposable
+@inject OnderhoudMelding Melding
+@inject HuidigeGebruiker Ik
+
+@* Beheer ▸ Nieuwe versie aankondigen: de balk "nieuwe versie over …" bij iedereen met de hand zetten of intrekken
+   (Services/OnderhoudMelding.cs). service-herstarten.bat doet het zelf vóór het stoppen; dit is voor als je anders
+   publiceert of eerder wilt waarschuwen. Alleen Beheer of Directie. *@
+
+<PageTitle>Nieuwe versie aankondigen — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar"><h1>Nieuwe versie aankondigen</h1></header>
+    <p class="uitleg">Iedereen die de app open heeft, ziet bovenin een balk met een aftelklok en hoort een geluidje, zodat
+        werk afgemaakt en opgeslagen kan worden voordat de app stopt. <b>service-herstarten.bat</b> vraagt dit zelf vóór
+        het stoppen; hier kun je het met de hand doen. Na de herstart is de balk vanzelf weg.</p>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Alleen voor het recht Beheer of Directie.</p></section>
+    }
+    else
+    {
+        <div class="onderhoud-beheer">
+            @if (Melding.Huidig is { } a)
+            {
+                <div class="melding waarschuwing" style="position:static;max-width:none;box-shadow:none">
+                    Aangekondigd door @a.Door: om <b>@a.Om.ToString("HH:mm:ss")</b>
+                    (@(a.Om > DateTime.Now ? $"over {(int)(a.Om - DateTime.Now).TotalMinutes}:{(a.Om - DateTime.Now).Seconds:00}" : "nu"))@(a.Tekst.Length > 0 ? $" — {a.Tekst}" : "").
+                </div>
+            }
+            <p class="uitleg">Nu @Melding.OpenSchermen scherm@(Melding.OpenSchermen == 1 ? "" : "en") open (dit scherm telt mee).</p>
+            <div class="wn-velden een-kolom" style="max-width:40rem">
+                <div class="wn-veld"><label>Over</label>
+                    <span><input type="number" min="0" max="120" style="width:5rem" value="@_minuten"
+                                 @onchange="e => _minuten = int.TryParse((string?)e.Value, out var m) ? Math.Clamp(m, 0, 120) : 3" /> minuten</span></div>
+                <div class="wn-veld"><label>Extra tekst</label>
+                    <input maxlength="200" placeholder="mag leeg, bv. 'Nieuw: zoeken in bestelregels'" value="@_tekst"
+                           @oninput="e => _tekst = (string?)e.Value ?? string.Empty" /></div>
+            </div>
+            <div class="btngroup">
+                <button class="primair" @onclick="Kondig">@(Melding.Huidig is null ? "Aankondigen" : "Opnieuw aankondigen")</button>
+                <button class="klein" disabled="@(Melding.Huidig is null)" @onclick="Melding.TrekIn">Intrekken</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _minuten = 3;
+    private string _tekst = "";
+    private Timer? _klok;
+
+    private bool Mag => Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Ingelogd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        Melding.Gewijzigd += BijWijziging;
+        _klok = new Timer(_ => _ = InvokeAsync(StateHasChanged), null, 1000, 1000);
+    }
+
+    private void BijWijziging() => _ = InvokeAsync(StateHasChanged);
+
+    private void Kondig() => Melding.Kondig(_minuten, _tekst, Ik.Naam.Length > 0 ? Ik.Naam : "beheer");
+
+    public void Dispose()
+    {
+        Melding.Gewijzigd -= BijWijziging;
+        _klok?.Dispose();
+    }
+}

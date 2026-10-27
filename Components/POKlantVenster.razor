@@ -76,6 +76,12 @@
                                     <label>Project *</label>
                                     <ProjectVeld ProjectId="_po.ProjectId" Tekst="@_po.Project" KlantId="_po.KlantId" KlantNaam="@_po.Klant"
                                                  AlleenLezen="!MagInvoeren" OpGekozen="ProjectGekozen" />
+                                    @* naar het project (wens collega 27-10-2026); nieuw tabblad, zodat deze PO met eventuele wijzigingen open blijft *@
+                                    @if (_po.ProjectId is int projectId)
+                                    {
+                                        <a class="knopje po-naar-project" href="projecten?project=@projectId" target="_blank" rel="noopener"
+                                           title="Project openen in een nieuw tabblad">Project openen ↗</a>
+                                    }
                                 </div>
                             }
                             <div class="wn-veld">

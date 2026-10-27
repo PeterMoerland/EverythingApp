@@ -259,6 +259,8 @@ builder.Services.AddSingleton<UNiiKoppeling>();
 // aantal en zet een waarschuwing klaar voor de directiebalk. Als singleton
 // geregistreerd zodat de balk dezelfde stand ziet als de achtergrondtaak.
 builder.Services.AddSingleton<VaultBackupWaker>();
+// Nieuwe versie aankondigen: balk met aftelklok bij iedereen (service-herstarten.bat of Beheer ▸ Nieuwe versie aankondigen)
+builder.Services.AddSingleton<OnderhoudMelding>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 builder.Services.AddSingleton<FactuurLezer>();
 
@@ -534,6 +536,25 @@ static string KoppelFormulier(string pathBase, string? fout) =>
     "style=\"font-size:1.4rem;letter-spacing:.2em;text-transform:uppercase;padding:.4rem .6rem;width:10rem;border:1px solid #bbb;border-radius:5px\"> " +
     "<button type=\"submit\" style=\"font-size:1rem;padding:.55rem 1rem;background:#1a5fb4;color:#fff;border:none;border-radius:5px;cursor:pointer\">Koppelen</button>" +
     "</form><p class=\"klein\">Geen code? Vraag iemand met het recht Beheer of Directie.</p>";
+
+// --- nieuwe versie aankondigen (service-herstarten.bat, vóór het stoppen): alleen vanaf de server zelf ---
+// Het script roept http://127.0.0.1:5010 rechtstreeks aan. Een verzoek via Caddy draagt X-Forwarded-For (en krijgt van
+// UseForwardedHeaders het echte adres), dus dat telt nooit als "van de server".
+static bool VanDezeServer(HttpContext ctx)
+    => ctx.Connection.RemoteIpAddress is { } ip && System.Net.IPAddress.IsLoopback(ip)
+       && !ctx.Request.Headers.ContainsKey("X-Forwarded-For") && !ctx.Request.Headers.ContainsKey("X-Original-For");
+app.MapPost("/onderhoud/aankondigen", (HttpContext ctx, OnderhoudMelding melding, double? minuten, string? tekst) =>
+{
+    if (!VanDezeServer(ctx)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    var a = melding.Kondig(minuten ?? 3, tekst, "publiceerscript");
+    return Results.Text($"Aangekondigd: de app stopt om {a.Om:HH:mm:ss}; {melding.OpenSchermen} scherm(en) open gewaarschuwd.");
+}).DisableAntiforgery();
+app.MapPost("/onderhoud/intrekken", (HttpContext ctx, OnderhoudMelding melding) =>
+{
+    if (!VanDezeServer(ctx)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    melding.TrekIn();
+    return Results.Text("Aankondiging ingetrokken.");
+}).DisableAntiforgery();
 
 app.MapGet("/werkplek/koppelen", (HttpContext ctx) =>
 {

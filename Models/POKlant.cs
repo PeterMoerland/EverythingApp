@@ -67,4 +67,5 @@ public class POFilter
     public DateOnly? Van { get; set; }
     public DateOnly? Tot { get; set; }
     public bool AlleenOpen { get; set; }              // 'Niet volledig gefactureerd' (knop zonder code in Access)
+    public int? ProjectId { get; set; }               // alleen de PO's van dit project (Projecten ▸ PO klant)
 }

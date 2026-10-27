@@ -1,0 +1,72 @@
+@implements IDisposable
+@inject OnderhoudMelding Melding
+@inject IJSRuntime JS
+
+@* Nieuwe versie op komst (Services/OnderhoudMelding.cs): balk bovenin met aftelklok, voor iedereen, op elke pagina.
+   Komt meteen binnen op open schermen (event), niet pas bij het verversen. Niet weg te klikken: het is een
+   waarschuwing voor iedereen, en hij verdwijnt vanzelf zodra de nieuwe versie draait. *@
+
+@if (Melding.Huidig is { } a)
+{
+    var over = a.Om - DateTime.Now;
+    <div class="onderhoud-balk @(over <= TimeSpan.Zero ? "nu" : over < TimeSpan.FromMinutes(1) ? "bijna" : "")" role="alert">
+        <span class="onderhoud-teken">🔄</span>
+        <span class="onderhoud-tekst">
+            @if (over > TimeSpan.Zero)
+            {
+                <b>Nieuwe versie van de app over <span class="onderhoud-klok">@Klok(over)</span>.</b>
+                <span> Rond je werk af en sla op; de app is daarna ongeveer een minuut niet bereikbaar en laadt dan vanzelf opnieuw.</span>
+            }
+            else
+            {
+                <b>De app wordt nu bijgewerkt.</b>
+                <span> Niet-opgeslagen werk kan verloren gaan; de pagina komt vanzelf terug.</span>
+            }
+            @if (a.Tekst.Length > 0) { <span class="onderhoud-extra">@a.Tekst</span> }
+        </span>
+    </div>
+}
+
+@code {
+    private Timer? _klok;
+    private DateTime? _gemeld;   // voor welke aankondiging het geluidje al klonk
+
+    protected override void OnInitialized()
+    {
+        Melding.SchermOpen();
+        Melding.Gewijzigd += BijWijziging;
+        StelKlokIn();
+    }
+
+    private void BijWijziging() => _ = InvokeAsync(() => { StelKlokIn(); StateHasChanged(); });
+
+    /// <summary>Elke seconde opnieuw tekenen zolang er een aankondiging loopt; anders geen klok.</summary>
+    private void StelKlokIn()
+    {
+        if (Melding.Huidig is null) { _klok?.Dispose(); _klok = null; return; }
+        _klok ??= new Timer(_ => _ = InvokeAsync(() =>
+        {
+            if (Melding.Huidig is null) { _klok?.Dispose(); _klok = null; }
+            StateHasChanged();
+        }), null, 1000, 1000);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        // één keer een geluidje per aankondiging (zelfde twee tonen als een nieuw bericht; id 0 = altijd spelen)
+        if (Melding.Huidig is { } a && _gemeld != a.Om)
+        {
+            _gemeld = a.Om;
+            try { await JS.InvokeVoidAsync("mdeBerichtGeluid", 0, 0); } catch { }
+        }
+    }
+
+    private static string Klok(TimeSpan t) => t.TotalMinutes >= 1 ? $"{(int)t.TotalMinutes}:{t.Seconds:00}" : $"{Math.Max(0, (int)Math.Ceiling(t.TotalSeconds))} s";
+
+    public void Dispose()
+    {
+        Melding.Gewijzigd -= BijWijziging;
+        Melding.SchermDicht();
+        _klok?.Dispose();
+    }
+}

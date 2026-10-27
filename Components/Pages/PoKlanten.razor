@@ -182,6 +182,15 @@
         await Laad();
     }
 
+    /// <summary>?po=&lt;id&gt; (link vanuit Projecten): meteen die PO openen.</summary>
+    [SupplyParameterFromQuery(Name = "po")] public int? PoQuery { get; set; }
+    private int? _poQueryGedaan;
+
+    protected override void OnParametersSet()
+    {
+        if (PoQuery is int id && id != _poQueryGedaan) { _poQueryGedaan = id; _poOpen = id; }
+    }
+
     private async Task Laad()
     {
         _laden = true;

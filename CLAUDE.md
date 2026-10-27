@@ -239,6 +239,35 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Projecten ↔ PO klant (27-10-2026)
+
+Wens collega: vanuit een project naar de PO van de klant klikken en terug.
+- **Deep links**: `projecten?project=<id>` opent dat project (filter op het projectnummer, `OpenUitUrl` in
+  `Projecten.razor`); `financien/po-klant?po=<id>` opent die PO (`PoQuery` in `PoKlanten.razor`).
+- **Projecten**: boven de tabs chips "PO klant: PO <nummer> · € bedrag" (✓ = volledig gefactureerd), via
+  `POFilter.ProjectId` (`IPOKlantRepository.ZoekAsync`; zonder kolom `Project-id` geen PO's). Alleen voor
+  `Ik.MagFinancien`, want PO klant staat onder Financiën en de MainLayout blokkeert `/financien/*` anders toch.
+- **PO-venster**: onder het projectveld "Project openen ↗", in een nieuw tabblad zodat de PO open blijft.
+- Lokaal getest met PO 148 / project 1929 (heen en terug). Op 27-10 hingen pas 2 PO's aan een project.
+
+## Nieuwe versie aankondigen (27-10-2026)
+
+Wens gebruiker: bij publiceren een melding op ieders scherm, zodat werk afgemaakt kan worden. `Services/OnderhoudMelding.cs`
+(singleton, alleen in het geheugen: na de herstart vanzelf weg, anders 10 min na het tijdstip) + `Components/Layout/
+OnderhoudBalk.razor` in Main-, Mobiel- en ScanLayout: oranje balk bovenin (sticky) met aftelklok, laatste minuut rood, daarna
+"wordt nu bijgewerkt" (rood, pulserend); komt meteen binnen op open schermen (event), geluidje eenmaal (`mdeBerichtGeluid(0,0)`),
+niet weg te klikken. Zetten:
+- **`service-herstarten.bat`** vraagt vóór het stoppen (alleen als de service draait) "Over hoeveel minuten stopt de app?"
+  (Enter = 3, 0 = niet), doet `POST http://127.0.0.1:5010/onderhoud/aankondigen?minuten=n` en wacht met `timeout` (toets =
+  nu door). Poort 5010 staat vast in het script.
+- `/onderhoud/aankondigen` en `/onderhoud/intrekken` (Program.cs) alleen vanaf de server zelf: loopback en geen
+  X-Forwarded-For/X-Original-For (via Caddy dus altijd 403). Antwoord noemt hoeveel schermen open zijn (balken tellen zich).
+- **Beheer ▸ Systeem ▸ Nieuwe versie aankondigen** (`/beheer/onderhoud`, Beheer of Directie): minuten + extra tekst,
+  Aankondigen / Intrekken.
+Lokaal getest: POST gaf "1 scherm(en) open gewaarschuwd", balk meteen zichtbaar met klok, via X-Forwarded-For 403, Intrekken.
+Mogelijke verbetering: eerst publiceren naar een aparte map terwijl de app draait en dan pas stoppen en wisselen
+(nu valt de hele `dotnet publish` in de stilstand).
+
 ## Bestellingen: zoeken in bestelregels (27-10-2026)
 
 Wens gebruiker: zoeken door de regels (items) van alle bestellingen in een groot apart venster. Knop **🔍 In regels…**

@@ -157,6 +157,11 @@ public class MySqlPOKlantRepository : IPOKlantRepository
         if (f.Van is DateOnly van) { waar.Add("p.`PO_Date` >= @van"); cmd.Parameters.AddWithValue("@van", van.ToDateTime(TimeOnly.MinValue)); }
         if (f.Tot is DateOnly tot) { waar.Add("p.`PO_Date` < @tot"); cmd.Parameters.AddWithValue("@tot", tot.AddDays(1).ToDateTime(TimeOnly.MinValue)); }
         if (f.Klant.Trim().Length > 0) { waar.Add("k.`name` LIKE @klant"); cmd.Parameters.AddWithValue("@klant", "%" + f.Klant.Trim() + "%"); }
+        if (f.ProjectId is int proj)
+        {
+            if (!await HeeftProjectKolomAsync()) return new();   // zonder kolom hangt er geen PO aan een project
+            waar.Add("p.`Project-id` = @proj"); cmd.Parameters.AddWithValue("@proj", proj);
+        }
         if (f.Zoek.Trim().Length > 0)
         {
             // Access: PO-nummer, klant, omschrijving en contactpersoon in één zoekveld
