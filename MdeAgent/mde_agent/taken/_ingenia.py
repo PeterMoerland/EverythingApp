@@ -225,8 +225,10 @@ def sdo(fn, *args, pogingen: int = 4, pauze: float = 0.08, job=None, **kwargs):
     """Een SDO-actie (lezen/schrijven/enable) met herhaling bij 'working counter unchanged' — een
     verloren of beschadigd EtherCAT-frame (EMI tijdens hoge motorstroom) is anders meteen fataal."""
     import time as _t
+    from ..jobs import tel_comm
     global sdo_herhalingen
     laatste = None
+    drive = str(kwargs.get("servo") or "")
     for poging in range(pogingen):
         try:
             return fn(*args, **kwargs)
@@ -235,10 +237,14 @@ def sdo(fn, *args, pogingen: int = 4, pauze: float = 0.08, job=None, **kwargs):
             if "working counter" not in tekst.lower() and "wkc" not in tekst.lower() and "timeout" not in tekst.lower():
                 raise
             laatste = e
+            if poging == pogingen - 1:
+                break
             sdo_herhalingen += 1
+            tel_comm("herhaald", drive, f"{getattr(fn, '__name__', 'sdo')}: {tekst}")
             if job is not None and poging == 0:
                 job.log(f"  SDO herhaald ({getattr(fn, '__name__', 'sdo')}): bus antwoordde niet — EMI/verbinding?")
             _t.sleep(pauze * (poging + 1))
+    tel_comm("mislukt", drive, f"{getattr(fn, '__name__', 'sdo')}: {laatste}")
     raise RuntimeError(f"Drive antwoordt niet meer op de EtherCAT-bus na {pogingen} pogingen: {laatste}")
 
 

@@ -39,7 +39,7 @@ def _backup(mc, job) -> dict:
     uit = {}
     for uid in _BACKUP:
         try:
-            uit[uid] = mc.communication.get_register(uid)
+            uit[uid] = _ingenia.sdo(mc.communication.get_register, uid)
         except Exception:  # noqa: BLE001
             pass
     job.log(f"{len(uit)} registers veiliggesteld voor herstel.")
@@ -157,20 +157,20 @@ class Encodertest:
             pp = int(mc.configuration.get_motor_pair_poles())
             if pp <= 0:
                 raise RuntimeError("Poolparen (MOT_PAIR_POLES) niet gelezen.")
-            nominaal = min(float(mc.communication.get_register("MOT_RATED_CURRENT")),
-                           float(mc.communication.get_register("DRV_PROT_MAN_MAX_CONT_CURRENT_VALUE")))
+            nominaal = min(float(_ingenia.sdo(mc.communication.get_register, "MOT_RATED_CURRENT")),
+                           float(_ingenia.sdo(mc.communication.get_register, "DRV_PROT_MAN_MAX_CONT_CURRENT_VALUE")))
             stroom = nominaal * stroom_deel
             job.log(f"Poolparen {pp}; 1 omwenteling = 1 generatorcyclus op {freq:g} Hz ({1 / freq:.1f} s per richting); "
                     f"teststroom {stroom:.2f} A ({stroom_deel:.0%} van {nominaal:.2f} A); verwacht {verwacht} increments ±{marge:g} %.")
             job.voortgang(10)
 
             backup = _backup(mc, job)
-            mc.motion.motor_disable()
+            _ingenia.sdo(mc.motion.motor_disable)
             try:
                 mc.configuration.set_commutation_mode(CommutationMode.SINUSOIDAL)
                 for uid, w in (("PROF_POS_OPTION_CODE", 0), ("CL_POS_REF_MAX_RANGE_LIMIT", 0), ("CL_POS_REF_MIN_RANGE_LIMIT", 0)):
                     try:
-                        mc.communication.set_register(uid, w)
+                        _ingenia.sdo(mc.communication.set_register, uid, w)
                     except Exception:  # noqa: BLE001
                         pass
                 mc.motion.set_internal_generator_configuration(OperationMode.CURRENT, pair_poles=pp)
@@ -178,7 +178,7 @@ class Encodertest:
                             "ERROR_POS_OUT_LIMITS_OPTION", "ERROR_POS_FOLLOWING_OPTION",
                             "COMMU_ANGLE_INTEGRITY1_OPTION", "COMMU_ANGLE_INTEGRITY2_OPTION"):
                     try:
-                        mc.communication.set_register(uid, 1)      # volgfouten → waarschuwing
+                        _ingenia.sdo(mc.communication.set_register, uid, 1)      # volgfouten → waarschuwing
                     except Exception:  # noqa: BLE001
                         pass
                 job.log("Commutatie op interne generator, modus Current; motor inschakelen …")
@@ -281,7 +281,7 @@ class Motiontest:
             backup = {}
             for uid in ("PROF_MAX_VEL", "PROF_MAX_ACC", "PROF_MAX_DEC", "DRV_OP_CMD"):
                 try:
-                    backup[uid] = mc.communication.get_register(uid)
+                    backup[uid] = _ingenia.sdo(mc.communication.get_register, uid)
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -307,7 +307,7 @@ class Motiontest:
                 # teruglezen: zo zien we in de log welke eenheden de drive werkelijk hanteert
                 for uid in ("DRV_OP_CMD", "PROF_MAX_VEL", "PROF_MAX_ACC", "PROF_MAX_DEC", "CL_VEL_REF_MAX", "PROF_POS_OPTION_CODE"):
                     try:
-                        job.log(f"  {uid} = {mc.communication.get_register(uid)}")
+                        job.log(f"  {uid} = {_ingenia.sdo(mc.communication.get_register, uid)}")
                     except Exception:  # noqa: BLE001
                         pass
                 _ingenia.motor_aan(mc, job)
@@ -319,7 +319,7 @@ class Motiontest:
                     rps = rpm / 60.0
                     mc.configuration.set_max_profile_velocity(rps)
                     try:
-                        job.log(f"  PROF_MAX_VEL teruggelezen: {mc.communication.get_register('PROF_MAX_VEL')} (gevraagd {rps:.3f} rev/s)")
+                        job.log(f"  PROF_MAX_VEL teruggelezen: {_ingenia.sdo(mc.communication.get_register, 'PROF_MAX_VEL')} (gevraagd {rps:.3f} rev/s)")
                     except Exception:  # noqa: BLE001
                         pass
                     # theoretische tijd: trapezium met acc; timeout = factor × tijd + 2 s
@@ -338,7 +338,7 @@ class Motiontest:
                             reden = ""
                             try:
                                 van = _positie(mc)
-                                mc.motion.move_to_position(doel, blocking=False)
+                                _ingenia.sdo(mc.motion.move_to_position, doel, blocking=False)
                                 einde = t0 + timeout
                                 while time.time() < einde:
                                     p = _positie(mc)
@@ -348,7 +348,7 @@ class Motiontest:
                                     # op hol? meer dan een halve omwenteling voorbij het doel → meteen uit
                                     afgelegd = _verschil(p, van)
                                     if abs(afgelegd) > 1.5 * inc:
-                                        mc.motion.motor_disable()
+                                        _ingenia.sdo(mc.motion.motor_disable)
                                         raise RuntimeError(f"op hol: {afgelegd:+d} increments verplaatst ({'goede' if afgelegd * richting > 0 else 'VERKEERDE'} richting), "
                                                            f"doel was {richting * inc:+d}; motor uitgeschakeld")
                                     vf = _volgfout(mc, p)

@@ -74,7 +74,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         afwijkend = []
         for i, r in enumerate(registers):
             try:
-                gelezen = mc.communication.get_register(r["id"], axis=r["subnode"])
+                gelezen = _ingenia.sdo(mc.communication.get_register, r["id"], axis=r["subnode"])
             except Exception as e:  # noqa: BLE001
                 afwijkend.append({"id": r["id"], "verwacht": r["storage"], "gelezen": f"fout: {e}"})
                 continue

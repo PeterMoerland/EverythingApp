@@ -39,7 +39,7 @@ def _offset_uid(mc, job) -> str:
         job.log(f"  dictionary doorzoeken: {e}")
     for uid in ("FBK_BISS1_POS_OFFSET", "FBK_SSI1_POS_OFFSET", "FBK_SERIAL1_POS_OFFSET", "CL_POS_FBK_OFFSET"):
         try:
-            mc.communication.get_register(uid)
+            _ingenia.sdo(mc.communication.get_register, uid)
             return uid
         except Exception:  # noqa: BLE001
             continue
@@ -53,12 +53,12 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
 
     with _ingenia.verbinding(inst, positie, xdf, job) as mc:
         uid = _offset_uid(mc, job)
-        actueel = int(mc.motion.get_actual_position())
-        oud = int(mc.communication.get_register(uid))
+        actueel = int(_ingenia.sdo(mc.motion.get_actual_position))
+        oud = int(_ingenia.sdo(mc.communication.get_register, uid))
         pol = None
         for puid in ("FBK_BISS1_POS_POLARITY", "FBK_SSI1_POS_POLARITY"):
             try:
-                pol = int(mc.communication.get_register(puid))
+                pol = int(_ingenia.sdo(mc.communication.get_register, puid))
                 break
             except Exception:  # noqa: BLE001
                 continue
@@ -72,13 +72,13 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             melding = _ingenia.sto_vrij(mc, job)   # niet nodig voor schrijven, wel informatief
             nieuw = ((oud - actueel + 2**31) % 2**32) - 2**31
             job.log(f"Nieuwe offset = {oud} − {actueel} = {nieuw} schrijven …")
-            mc.communication.set_register(uid, nieuw)
-            terug = int(mc.communication.get_register(uid))
+            _ingenia.sdo(mc.communication.set_register, uid, nieuw)
+            terug = int(_ingenia.sdo(mc.communication.get_register, uid))
             if terug != nieuw:
                 raise RuntimeError(f"Offset leest {terug} terug in plaats van {nieuw}.")
             job.log("Opslaan in de drive (store) …")
             mc.configuration.store_configuration()
-            na = int(mc.motion.get_actual_position())
+            na = int(_ingenia.sdo(mc.motion.get_actual_position))
             job.log(f"Positie nu {na} (geldt definitief na spanning uit/aan). Daarna: phasing uitvoeren!")
             job.klaar({"geslaagd": True, "offset": nieuw, "offsetRegister": uid, "positieVoor": actueel, "positieNa": na,
                        "herstartNodig": True, "phasingNodig": True,

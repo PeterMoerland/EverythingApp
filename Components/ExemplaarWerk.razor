@@ -3800,11 +3800,19 @@
                         _taakKlaar = true;
                     }
                     catch (Exception ex) { _taakFout = ex.Message; }
+                    // communicatiefouten met de drives (agent 1.22.0+): tonen en vastleggen, bewijs voor EMI/bekabeling
+                    if (CommTekst(w) is { } comm)
+                    {
+                        if (_taakResultaat is not null) _taakResultaat += " · " + comm;
+                        try { await Repo.VoegHistorieToeAsync(ProductId, $"{titel}: {comm}", SoortId("Test"), Ik.WerknemerId); } catch { }
+                    }
                     break;
                 }
                 if (stand == "mislukt")
                 {
                     _taakFout = Tekst(w, "fout");
+                    var comm = CommTekst(w);
+                    if (comm is not null) _taakFout += " · " + comm;
                     await Repo.VoegHistorieToeAsync(ProductId, $"{titel}: MISLUKT — {_taakFout}", SoortId("Test"), Ik.WerknemerId, uitkomst: false);
                     break;
                 }
@@ -3823,6 +3831,25 @@
             try { _attributen = await Repo.GetAttributenAsync(ProductId); } catch { }
             await Gewijzigd();
         }
+    }
+
+    /// <summary>
+    /// Communicatiefouten met de drives tijdens de taak (agent: "comm" in de jobstatus): hoe vaak een actie opnieuw
+    /// geprobeerd moest worden en hoe vaak hij na alle pogingen mislukte, per drive. Null als alles in één keer lukte.
+    /// </summary>
+    private static string? CommTekst(JsonElement job)
+    {
+        if (!job.TryGetProperty("comm", out var c) || c.ValueKind != JsonValueKind.Object) return null;
+        var herhaald = Getal(c, "herhaald");
+        var mislukt = Getal(c, "mislukt");
+        if (herhaald == 0 && mislukt == 0) return null;
+        var per = new List<string>();
+        if (c.TryGetProperty("perDrive", out var pd) && pd.ValueKind == JsonValueKind.Object)
+            foreach (var d in pd.EnumerateObject())
+                if (d.Value.ValueKind == JsonValueKind.Object)
+                    per.Add($"{d.Name}: {Getal(d.Value, "herhaald")}× herhaald" + (Getal(d.Value, "mislukt") > 0 ? $", {Getal(d.Value, "mislukt")}× mislukt" : ""));
+        return $"communicatie met de drives haperde: {herhaald}× opnieuw geprobeerd" + (mislukt > 0 ? $", {mislukt}× mislukt" : "")
+               + (per.Count > 0 ? $" ({string.Join("; ", per)})" : "");
     }
 
     /// <summary>

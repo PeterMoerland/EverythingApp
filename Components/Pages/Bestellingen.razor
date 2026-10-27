@@ -66,6 +66,8 @@
                     </div>
                     <div class="btngroup">
                         <button class="klein" @onclick="OpenNieuw">+ Nieuwe bestelling</button>
+                        <button class="klein" title="Zoeken door de regels van alle bestellingen (artikelnummer, omschrijving, MDE-nummer)"
+                                @onclick="OpenZoekRegels">🔍 In regels…</button>
                         <label class="vink" title="Bestellingen met status Cancel ook in de lijst">
                             <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde tonen
                         </label>
@@ -74,6 +76,7 @@
 
                 <NieuweBestellingVenster Open="_nieuwOpen" Leveranciers="_leveranciers" Werkorders="_openWerkorders"
                                          WerknemerId="Ik.WerknemerId" OpAanmaken="MaakBestelling" OpGesloten="SluitNieuw" />
+                <BestelZoekVenster Open="_zoekRegelsOpen" OpGekozen="ZoekRegelGekozen" OpGesloten="SluitZoekRegels" />
 
                 @* tabindex maakt de lijst zelf bereikbaar, zodat de pijltjestoetsen
                    hier binnenkomen in plaats van bij de losse knoppen *@
@@ -1055,7 +1058,8 @@
         var b = _lijst.FirstOrDefault(x => x.Id == id);
         if (b is null)
         {
-            try { b = (await Repo.ZoekAsync(id.ToString(), null, null, null, 20)).FirstOrDefault(x => x.Id == id); } catch { }
+            // LIKE op het nummer vindt ook PO-18123 bij 123; daarom ruim zoeken en op het id filteren
+            try { b = (await Repo.ZoekAsync(id.ToString(), null, null, null, 500)).FirstOrDefault(x => x.Id == id); } catch { }
         }
         if (b is null) { Toon($"PO-{id} niet gevonden.", true); return; }
         await Kies(b);
@@ -1248,6 +1252,18 @@
     private void OpenNieuw() => _nieuwOpen = true;
 
     private void SluitNieuw() => _nieuwOpen = false;
+
+    // Popup: Components/BestelZoekVenster.razor (zoeken door de regels van alle bestellingen)
+    private bool _zoekRegelsOpen;
+    private void OpenZoekRegels() => _zoekRegelsOpen = true;
+    private void SluitZoekRegels() => _zoekRegelsOpen = false;
+
+    /// <summary>Dubbelklik in het zoekvenster: venster dicht en die PO openen (ook als hij niet in de lijst links staat).</summary>
+    private async Task ZoekRegelGekozen(int orderId)
+    {
+        _zoekRegelsOpen = false;
+        await OpenOrder(orderId);
+    }
 
     private async Task MaakBestelling((int Leverancier, int? Werkorder, bool AfleverenBijStandaard) keuze)
     {

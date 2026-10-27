@@ -113,7 +113,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         for alias, _p, _n in aliassen:
             for uid in ("PROF_MAX_VEL", "PROF_MAX_ACC", "PROF_MAX_DEC", "DRV_OP_CMD"):
                 try:
-                    backup[(alias, uid)] = mc.communication.get_register(uid, servo=alias)
+                    backup[(alias, uid)] = _ingenia.sdo(mc.communication.get_register, uid, servo=alias)
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -139,7 +139,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                     t0 = time.time()
                     van = {a: _positie(mc, a) for a, _p, _n in aliassen}
                     for alias, pos, _n in aliassen:
-                        mc.motion.move_to_position(doelen[str(pos)], servo=alias, blocking=False)
+                        _ingenia.sdo(mc.motion.move_to_position, doelen[str(pos)], servo=alias, blocking=False)
                     klaar = {a: False for a, _p, _n in aliassen}
                     vf_max = {a: 0 for a, _p, _n in aliassen}
                     ok = True
@@ -167,7 +167,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                             if abs(_verschil(p, van[alias])) > afstanden[alias] + 1.5 * res[alias]:
                                 for a2, _p2, _n2 in aliassen:
                                     try:
-                                        mc.motion.motor_disable(servo=a2)
+                                        _ingenia.sdo(mc.motion.motor_disable, servo=a2)
                                     except Exception:  # noqa: BLE001
                                         pass
                                 raise RuntimeError(f"{naam} op hol: {_verschil(p, van[alias]):+d} increments; beide motoren uitgeschakeld")
@@ -187,7 +187,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                     if not ok:
                         for a2, _p2, _n2 in aliassen:
                             try:
-                                mc.motion.motor_disable(servo=a2)
+                                _ingenia.sdo(mc.motion.motor_disable, servo=a2)
                             except Exception:  # noqa: BLE001
                                 pass
                     for alias, _p, naam in aliassen:

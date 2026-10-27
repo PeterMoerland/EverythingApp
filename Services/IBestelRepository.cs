@@ -14,6 +14,12 @@ public interface IBestelRepository
     Task<List<BestelRegel>> ZoekAsync(string? zoek, int? status, int? leverancierId,
                                       int? besteldDoor, int max, bool metGeannuleerd = true);
 
+    /// <summary>
+    /// Zoeken door de bestelregels van alle bestellingen (artikelnummer, omschrijving, MDE-nummer, opmerking,
+    /// leverancier, PO-nummer). Alle woorden moeten voorkomen; nieuwste bestelling eerst.
+    /// </summary>
+    Task<List<BestelregelTreffer>> ZoekRegelsAsync(string zoek, int max, bool metGeannuleerd = false);
+
     Task<Dictionary<string, object?>> GetVeldenAsync(int orderId);
     Task UpdateVeldAsync(int orderId, string kolom, object? waarde);
 
@@ -89,6 +95,8 @@ public class GeenBestelRepository : IBestelRepository
     public Task<List<BestelRegel>> ZoekAsync(string? zoek, int? status, int? leverancierId,
                                              int? besteldDoor, int max, bool metGeannuleerd = true)
         => Task.FromResult(new List<BestelRegel>());
+    public Task<List<BestelregelTreffer>> ZoekRegelsAsync(string zoek, int max, bool metGeannuleerd = false)
+        => Task.FromResult(new List<BestelregelTreffer>());
     public Task<Dictionary<string, object?>> GetVeldenAsync(int orderId)
         => Task.FromResult(new Dictionary<string, object?>());
     public Task UpdateVeldAsync(int orderId, string kolom, object? waarde) => Task.CompletedTask;
@@ -555,6 +563,61 @@ public class MySqlBestelRepository : IBestelRepository
             lijst.Add(new Bestelstatus(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3)));
 
         return _statussen = lijst;
+    }
+
+    // ============================================================
+    //  Zoeken door de regels (popup op Bestellingen)
+    // ============================================================
+    public async Task<List<BestelregelTreffer>> ZoekRegelsAsync(string zoek, int max, bool metGeannuleerd = false)
+    {
+        var lijst = new List<BestelregelTreffer>();
+        var woorden = (zoek ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                  .Take(8).ToList();
+        if (woorden.Count == 0) return lijst;
+
+        // elk woord moet ergens in de regel of de bestelling voorkomen (AND over de woorden)
+        var delen = new List<string>();
+        for (var n = 0; n < woorden.Count; n++)
+        {
+            var w = woorden[n];
+            if (w.StartsWith("PO-", StringComparison.OrdinalIgnoreCase)) w = w[3..];
+            woorden[n] = w;
+            delen.Add($"(i.`Partnumber` LIKE @w{n} OR i.`Description` LIKE @w{n} OR i.`MDE_ID` LIKE @w{n} " +
+                      $" OR i.`Remark` LIKE @w{n} OR r.`name` LIKE @w{n} OR o.`Description` LIKE @w{n} " +
+                      $" OR CAST(o.`Order-id` AS CHAR) LIKE @w{n})");
+        }
+        if (!metGeannuleerd) delen.Add($"COALESCE(o.`Status`, 0) <> {BestelVelden.StatusGeannuleerd}");
+
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT o.`Order-id`, COALESCE(r.`name`, ''), COALESCE(o.`Description`, ''), COALESCE(o.`Status`, 0), " +
+            "       COALESCE(st.`Omschrijving`, ''), o.`Creation date`, " +
+            "       i.`Orderitem-id`, i.`Quantity ordered`, i.`Partnumber`, i.`Description`, i.`MDE_ID`, " +
+            "       i.`Grossprice per VE`, i.`Totalprice`, i.`Remark`, i.`Workorder-ID` " +
+            "  FROM `Orderitems` i " +
+            "  JOIN `Orders` o ON o.`Order-id` = i.`Order-id` " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
+            "  LEFT JOIN `OrderState` st ON st.`Id` = o.`Status` " +
+            " WHERE (i.`ToBeDeleted` = 0 OR i.`ToBeDeleted` IS NULL) " +
+            "   AND " + string.Join(" AND ", delen) +
+            $" ORDER BY o.`Order-id` DESC, i.`Orderitem-id` LIMIT {Math.Clamp(max, 1, 1000)}", cn);
+        for (var n = 0; n < woorden.Count; n++) cmd.Parameters.AddWithValue($"@w{n}", "%" + woorden[n] + "%");
+
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            string S(int i) => r.IsDBNull(i) ? "" : r.GetValue(i).ToString() ?? "";
+            decimal? M(int i) => r.IsDBNull(i) ? null : Convert.ToDecimal(r.GetValue(i));
+            lijst.Add(new BestelregelTreffer(
+                r.GetInt32(0), S(1), S(2),
+                r.IsDBNull(3) ? 0 : Convert.ToInt32(r.GetValue(3)), S(4),
+                r.IsDBNull(5) ? null : Convert.ToDateTime(r.GetValue(5)),
+                r.GetInt32(6),
+                r.IsDBNull(7) ? 0 : Convert.ToDouble(r.GetValue(7)),
+                S(8), S(9), S(10), M(11), M(12), S(13),
+                r.IsDBNull(14) ? null : Convert.ToInt32(r.GetValue(14))));
+        }
+        return lijst;
     }
 
     // ============================================================

@@ -149,7 +149,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
 
         # veiligheid: amplitude t.o.v. de maximale stroom van de drive
         try:
-            imax = float(mc.communication.get_register(REG_MAX))
+            imax = float(_ingenia.sdo(mc.communication.get_register, REG_MAX))
             job.log(f"Max. stroom in de drive ({REG_MAX}): {imax:g} A")
             if amplitude > imax * max_deel:
                 raise RuntimeError(f"Amplitude {amplitude:g} A is meer dan {max_deel:.0%} van de maximale stroom ({imax:g} A).")
@@ -169,7 +169,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         # Kp/Ki ter info (zodat de meting te vergelijken is met MotionLab)
         for reg in ("CL_CUR_D_KP", "CL_CUR_D_KI"):
             try:
-                job.log(f"  {reg} = {mc.communication.get_register(reg)}")
+                job.log(f"  {reg} = {_ingenia.sdo(mc.communication.get_register, reg)}")
             except Exception:  # noqa: BLE001
                 pass
 
@@ -177,7 +177,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         backup = {}
         for uid in ("DRV_OP_CMD", "CL_CUR_D_SET_POINT", "CL_CUR_Q_SET_POINT"):
             try:
-                backup[uid] = mc.communication.get_register(uid)
+                backup[uid] = _ingenia.sdo(mc.communication.get_register, uid)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -208,13 +208,13 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             for stap in (mc.capture.disable_monitoring_disturbance, lambda: mc.motion.set_current_direct(0.0),
                          mc.motion.motor_disable, mc.capture.clean_monitoring_disturbance):
                 try:
-                    stap()
+                    _ingenia.sdo(stap, job=job)
                 except Exception as e:  # noqa: BLE001
                     job.log(f"  afronden: {e}")
             fouten = 0
             for uid, w in backup.items():
                 try:
-                    mc.communication.set_register(uid, w)
+                    _ingenia.sdo(mc.communication.set_register, uid, w)
                 except Exception:  # noqa: BLE001
                     fouten += 1
             job.log(f"Motor uit, setpoint 0, bedrijfsmodus en setpoints hersteld ({len(backup) - fouten} registers).")

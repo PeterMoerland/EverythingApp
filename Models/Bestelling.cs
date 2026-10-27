@@ -4,6 +4,14 @@
 public record BestelRegel(int Id, string Nummer, string Leverancier, string Omschrijving,
                           int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal);
 
+/// <summary>Eén treffer bij het zoeken door de bestelregels (Bestellingen ▸ Zoeken in regels).</summary>
+public record BestelregelTreffer(int OrderId, string Leverancier, string OrderOmschrijving, int Status, string StatusNaam,
+                                 DateTime? Besteld, int RegelId, double Aantal, string Artikelcode, string Omschrijving,
+                                 string MdeCode, decimal? Prijs, decimal? Totaal, string Opmerking, int? WerkorderId)
+{
+    public string Nummer => "PO-" + OrderId;
+}
+
 /// <summary>Eén regel van een bestelling (Orderitems).</summary>
 public class Orderregel
 {

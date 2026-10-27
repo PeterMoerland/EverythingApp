@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import VERSIE, instellingen
-from .jobs import JobBeheer
+from .jobs import COMM_SINDS_START, JobBeheer
 from .taken import ALLE, drives, esp32
 
 log = logging.getLogger("mde_agent")
@@ -116,7 +116,8 @@ class Handler(BaseHTTPRequestHandler):
             lopend = self.jobs.bezig()
             self._stuur(200, {"ok": True, "versie": VERSIE, "pc": socket.gethostname(),
                               "taken": taken, "bezig": lopend.id if lopend else None,
-                              "tokenVereist": bool(self.inst.get("token"))})
+                              "tokenVereist": bool(self.inst.get("token")),
+                              "comm": dict(COMM_SINDS_START)})
             return
 
         if not self._token_ok(vraag):

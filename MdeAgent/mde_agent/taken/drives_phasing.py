@@ -46,7 +46,7 @@ def _uid_op_label(mc, label: str, terugval: list[str], job) -> str | None:
         pass
     for uid in terugval:
         try:
-            mc.communication.get_register(uid)
+            _ingenia.sdo(mc.communication.get_register, uid)
             return uid
         except Exception:  # noqa: BLE001
             continue
@@ -73,7 +73,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         }
         job.log("Meetregisters: " + ", ".join(f"{k} = {v or '—'}" for k, v in regs.items()))
         try:
-            job.log(f"  COMMU_ANGLE_OFFSET vóór: {mc.communication.get_register('COMMU_ANGLE_OFFSET')}")
+            job.log(f"  COMMU_ANGLE_OFFSET vóór: {_ingenia.sdo(mc.communication.get_register, 'COMMU_ANGLE_OFFSET')}")
         except Exception:  # noqa: BLE001
             pass
 
@@ -98,7 +98,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             for k in ("icmd", "iact", "ref", "commu"):
                 uid = regs[k]
                 try:
-                    punt.append(round(float(mc.communication.get_register(uid)), 4) if uid else None)
+                    punt.append(round(float(_ingenia.sdo(mc.communication.get_register, uid)), 4) if uid else None)
                 except Exception:  # noqa: BLE001
                     punt.append(None)
             reeks.append(punt)
@@ -112,7 +112,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
             if time.time() - t0 > 120:
                 job.log("Phasing duurt te lang; afbreken.")
                 try:
-                    mc.motion.motor_disable()
+                    _ingenia.sdo(mc.motion.motor_disable)
                 except Exception:  # noqa: BLE001
                     pass
                 break
@@ -121,7 +121,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
 
         if fout:
             try:
-                mc.motion.motor_disable()
+                _ingenia.sdo(mc.motion.motor_disable)
             except Exception:  # noqa: BLE001
                 pass
             code = _ingenia.laatste_fout(mc, job)
@@ -134,7 +134,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         ok = ernst in (0, "0", None) or str(ernst).upper().endswith("SUCCESS")
         job.log(f"Phasing: {tekst} (severity {ernst}, {duur:.1f} s); registers: {voorgesteld}")
         try:
-            job.log(f"  COMMU_ANGLE_OFFSET ná: {mc.communication.get_register('COMMU_ANGLE_OFFSET')}")
+            job.log(f"  COMMU_ANGLE_OFFSET ná: {_ingenia.sdo(mc.communication.get_register, 'COMMU_ANGLE_OFFSET')}")
         except Exception:  # noqa: BLE001
             pass
         if ok and opslaan:

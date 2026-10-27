@@ -62,13 +62,13 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
         laatste = None
         while time.time() - begin < seconden and not getattr(job, "stop_gevraagd", False):
             try:
-                p = int(mc.motion.get_actual_position())
+                p = int(_ingenia.sdo(mc.motion.get_actual_position))
             except Exception as e:  # noqa: BLE001
                 job.log(f"  positie lezen mislukt: {e}")
                 time.sleep(0.5)
                 continue
             try:
-                v = float(mc.motion.get_actual_velocity())
+                v = float(_ingenia.sdo(mc.motion.get_actual_velocity))
             except Exception:  # noqa: BLE001
                 v = 0.0
             single = p % res                      # Python: altijd 0..res-1, ook bij negatieve p
@@ -80,7 +80,7 @@ def voer_uit(job, inst: dict, parameters: dict) -> None:
                        "t": round(time.time() - begin, 2), "n": n}
             for naam, (uid, sn) in extra.items():
                 try:
-                    w = mc.communication.get_register(uid, axis=sn)
+                    w = _ingenia.sdo(mc.communication.get_register, uid, axis=sn)
                     laatste[naam] = int(w) if isinstance(w, (int, float)) else str(w)
                     laatste[naam + "Uid"] = uid
                     laatste[naam + "Dtype"] = extra_dtype.get(naam, "")

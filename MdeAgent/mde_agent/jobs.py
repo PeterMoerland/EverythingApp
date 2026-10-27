@@ -10,6 +10,29 @@ import time
 import traceback
 import uuid
 
+# ---- teller communicatiefouten met drives (verloren of beschadigde EtherCAT-frames, time-outs) ----
+# Eén job tegelijk, dus de lopende job is te vinden zonder hem overal door te geven (bv. in _ingenia.sdo).
+_huidig: "Job | None" = None
+_comm_slot = threading.Lock()
+COMM_SINDS_START = {"herhaald": 0, "mislukt": 0, "sinds": time.strftime("%Y-%m-%d %H:%M:%S"), "laatste": None}
+
+
+def tel_comm(soort: str, drive: str = "", fout: str = "") -> None:
+    """Een communicatiefout tellen: soort 'herhaald' (opnieuw geprobeerd) of 'mislukt' (na alle pogingen),
+    bij de lopende job (ook per drive) en in het totaal sinds de start van de agent."""
+    with _comm_slot:
+        COMM_SINDS_START[soort] = COMM_SINDS_START.get(soort, 0) + 1
+        COMM_SINDS_START["laatste"] = {"tijd": time.strftime("%Y-%m-%d %H:%M:%S"), "soort": soort,
+                                       "drive": drive, "fout": fout[:200],
+                                       "taak": _huidig.taak if _huidig is not None else ""}
+        job = _huidig
+        if job is not None:
+            job.comm[soort] = job.comm.get(soort, 0) + 1
+            if drive:
+                per = job.comm.setdefault("perDrive", {}).setdefault(drive, {"herhaald": 0, "mislukt": 0})
+                per[soort] = per.get(soort, 0) + 1
+            job.comm["laatste"] = fout[:200]
+
 
 class Job:
     def __init__(self, taak: str, parameters: dict):
@@ -26,6 +49,8 @@ class Job:
         self.stop_gevraagd = False    # gezet via POST /jobs/<id>/stop; de taak kijkt er zelf naar en rondt af
         self._invoer: list[str] = []  # tekst van de gebruiker via POST /jobs/<id>/invoer (seriële monitor)
         self._slot = threading.Lock()
+        # communicatiefouten met de drives tijdens deze job (tel_comm); naar de app via naar_dict
+        self.comm: dict = {"herhaald": 0, "mislukt": 0}
 
     def stuur(self, tekst: str) -> None:
         """Invoer van de gebruiker klaarzetten; een taak die ermee werkt haalt hem op met lees_invoer()."""
@@ -89,6 +114,7 @@ class Job:
             "regels": regels, "regelsTotaal": totaal,
             "resultaat": self.resultaat, "fout": self.fout,
             "seconden": round((self.einde or time.time()) - self.begin, 1),
+            "comm": dict(self.comm),
         }
 
 
@@ -111,7 +137,9 @@ class JobBeheer:
             self._opruimen()
 
         def draai():
+            global _huidig
             job.stand = "bezig"
+            _huidig = job
             job.log(f"Start {job.taak}")
             try:
                 taak_module.voer_uit(job, inst, parameters)
@@ -120,6 +148,15 @@ class JobBeheer:
             except Exception as e:  # noqa: BLE001
                 job.log(traceback.format_exc())
                 job.mislukt(str(e))
+            finally:
+                if _huidig is job:
+                    _huidig = None
+                c = job.comm
+                if c.get("herhaald") or c.get("mislukt"):
+                    per = "; ".join(f"{d}: {v.get('herhaald', 0)}× herhaald, {v.get('mislukt', 0)}× mislukt"
+                                    for d, v in (c.get("perDrive") or {}).items())
+                    job.log(f"Communicatie met de drives: {c.get('herhaald', 0)}× opnieuw geprobeerd, "
+                            f"{c.get('mislukt', 0)}× mislukt" + (f" ({per})" if per else ""))
 
         threading.Thread(target=draai, name=f"job-{job.id}", daemon=True).start()
         return job

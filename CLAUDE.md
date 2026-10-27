@@ -71,6 +71,14 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   `NAAM`, `OMSCHRIJVING`, `beschikbaar(inst)`, `voer_uit(job, inst, parameters)`; `job.log/voortgang/klaar/mislukt`;
   `job.resultaat` mag tussentijds gezet worden met `"live": True` voor live-weergave in de app
   (`VoerTaakUit(..., live: handler)` in ExemplaarWerk). `job.stop_gevraagd` = Stop-knop.
+- **Teller communicatiefouten** (agent 1.22.0, 26-10-2026, wens gebruiker): `_ingenia.sdo()` (4 pogingen, alleen bij
+  "working counter"/"wkc"/"timeout", pauze 0,08·n s) telt via `jobs.tel_comm` elke herhaling en elke actie die na alle
+  pogingen mislukt, bij de lopende job (`Job.comm`: herhaald, mislukt, perDrive op servo-alias, laatste) en sinds de start
+  van de agent (`COMM_SINDS_START`, in `/health` als `comm`). Aan het eind van een job een logregel "Communicatie met de
+  drives: …" als er iets was. De ~37 rechtstreekse ingeniamotion-aanroepen in de drivetaken (registers, posities,
+  move_to_position, motor_disable) lopen nu ook via `sdo()` (dus ook 3 retries; allemaal idempotent). De app
+  (`ExemplaarWerk.CommTekst`) zet het achter de uitslag van de taak en schrijft bij klaar een neutrale historieregel, bij
+  mislukt in de bestaande regel. Droog getest met een nepfunctie (scratchpad `comm_toets.py`); niet met een echte drive.
 - **Slave-identiteit = fabrikantcode + productcode** (okt 2026, `DriveTypen_Vendor_MariaDB.sql`: kolom `VendorID`,
   uniek op het paar). `ZoekTypeOpCodeAsync(code, vendor)`: eerst het paar, dan een type zonder vastgelegde
   fabrikantcode (alleen code); een ander vendor telt nooit. Test PCB meldt "fabrikantcode 0x… nog niet
@@ -230,6 +238,20 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   bij hardwarestappen altijd: motoren uit in `finally`, registers terugzetten, STO-check vooraf.
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
+
+## Bestellingen: zoeken in bestelregels (27-10-2026)
+
+Wens gebruiker: zoeken door de regels (items) van alle bestellingen in een groot apart venster. Knop **🔍 In regels…**
+naast "+ Nieuwe bestelling" opent `Components/BestelZoekVenster.razor` (`.brz-*`, 110rem × 88vh; eerst `.bz-*`, maar dat voorvoegsel is van Bezoekverslagen: `.bz-regel` = flex-wrap, waardoor elke cel onder de vorige kwam). Zoekvak bovenin (na 400 ms
+rust of Enter), eronder een platte tabel: **één regel per treffer** (wens gebruiker: alles op 1 regel) met PO · leverancier ·
+status · datum · aantal · artikelnummer · omschrijving · MDE · prijs · totaal · opmerking; vaste kolombreedtes
+(`table-layout: fixed`, colgroup), afgekapt met "…" en de volledige tekst in het wolkje. Bij meerdere regels van dezelfde
+PO staan PO/leverancier/datum op de vervolgregels grijs (`vervolg`) en de eerste regel krijgt een bovenlijn. `IBestelRepository.ZoekRegelsAsync(zoek,
+max, metGeannuleerd)`: Orderitems ⋈ Orders ⋈ Relations ⋈ OrderState, alle woorden moeten voorkomen in Partnumber /
+Description / MDE_ID / Remark / leveranciersnaam / orderomschrijving / PO-nummer, `ToBeDeleted` weg, geannuleerde alleen
+met het vinkje, nieuwste PO eerst, max 500 regels (`BestelregelTreffer` in Models/Bestelling.cs). Dubbelklik op een regel (of
+Enter) sluit het venster en roept `OpenOrder(id)` aan; die zoekt nu met
+max 500 omdat LIKE op het nummer ook PO-18123 bij "123" vindt. Buiten het venster klikken sluit het niet (wens gebruiker); ✕ of Esc. Lokaal getest ("coax": 15 regels in 14 bestellingen, alleen lezen).
 
 ## Bestellingen: popup Nieuwe bestelling (16-10-2026)
 

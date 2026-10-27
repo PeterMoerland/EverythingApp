@@ -1,0 +1,212 @@
+@inject IBestelRepository Repo
+
+@* ============================================================================
+   Zoeken door de bestelregels van alle bestellingen (Bestellingen ▸ 🔍 Zoeken in regels…, wens gebruiker 27-10-2026).
+   Groot venster: bovenin een zoekvak, eronder de regels die aan alle woorden voldoen (artikelnummer, omschrijving,
+   MDE-nummer, opmerking, leverancier, PO-nummer of omschrijving van de bestelling), gegroepeerd per bestelling
+   (nieuwste eerst). Dubbelklik op een regel (of Enter) sluit het venster en opent die PO via OpGekozen.
+   Zoeken gebeurt na 400 ms rust of met Enter in het zoekvak; geannuleerde bestellingen alleen met het vinkje.
+   ============================================================================ *@
+
+@if (Open)
+{
+    @* buiten het venster klikken sluit het niet (wens gebruiker 27-10-2026); sluiten met ✕ of Esc *@
+    <div class="cmdk-overlay midden">
+        <div class="kiezer brz-venster" @onkeydown="VensterToets" role="dialog" aria-modal="true" aria-label="Zoeken in bestelregels">
+            <div class="kiezer-kop">
+                <b>Zoeken in bestelregels</b>
+                <span class="brz-uitleg">artikelnummer, omschrijving, MDE-nummer, leverancier of PO-nummer · alle woorden moeten voorkomen · dubbelklik (of Enter) op een regel opent de bestelling</span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="brz-zoekregel">
+                <input @ref="_zoekVeld" class="brz-zoek" placeholder="Zoek in alle bestelregels…"
+                       value="@_zoek" @oninput="ZoekGetypt" @onkeydown="ZoekToets" />
+                <button class="klein" title="Wissen" disabled="@(_zoek.Length == 0)" @onclick="Wis">✕</button>
+                <label class="vink" title="Ook regels van geannuleerde bestellingen">
+                    <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde ook
+                </label>
+                <span class="brz-stand">
+                    @if (_bezig) { <text>Zoeken…</text> }
+                    else if (_gezocht.Length > 0) { <text>@_treffers.Count regel(s) in @_aantalOrders bestelling(en)@(_treffers.Count >= Max ? ", alleen de nieuwste getoond" : "")</text> }
+                </span>
+            </div>
+
+            <div class="brz-lijst">
+                @if (!_bezig && _gezocht.Length > 0 && _treffers.Count == 0)
+                {
+                    <div class="kiezer-info">Niets gevonden voor "@_gezocht".</div>
+                }
+                else if (_treffers.Count > 0)
+                {
+                    <table class="brz-tabel">
+                        <colgroup>
+                            <col class="c-po" /><col class="c-lev" /><col class="c-status" /><col class="c-datum" />
+                            <col class="c-aantal" /><col class="c-art" /><col class="c-oms" /><col class="c-mde" />
+                            <col class="c-prijs" /><col class="c-totaal" /><col class="c-opm" />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>PO</th>
+                                <th>Leverancier</th>
+                                <th>Status</th>
+                                <th>Datum</th>
+                                <th class="num">Aantal</th>
+                                <th>Artikelnummer</th>
+                                <th>Omschrijving</th>
+                                <th>MDE</th>
+                                <th class="num">Prijs</th>
+                                <th class="num">Totaal</th>
+                                <th>Opmerking</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{ int? vorige = null; }
+                            @foreach (var t in _treffers)
+                            {
+                                var eerste = t.OrderId != vorige;
+                                vorige = t.OrderId;
+                                <tr class="brz-regel @(eerste ? "eerste" : "vervolg") @(t.OrderId == _gekozenOrder ? "gekozen" : "")" tabindex="0"
+                                    title="@t.Nummer · @t.OrderOmschrijving — dubbelklik of Enter opent de bestelling"
+                                    @onclick="() => _gekozenOrder = t.OrderId" @ondblclick="() => Kies(t.OrderId)"
+                                    @onkeydown="e => OrderToets(e, t.OrderId)">
+                                    <td class="brz-po">@t.Nummer</td>
+                                    <td class="brz-lev">@t.Leverancier</td>
+                                    <td><span class="brz-status">@t.StatusNaam</span></td>
+                                    <td class="brz-datum">@(t.Besteld?.ToString("dd-MM-yyyy"))</td>
+                                    <td class="num">@Aantal(t.Aantal)</td>
+                                    <td>@t.Artikelcode</td>
+                                    <td title="@t.Omschrijving">@t.Omschrijving</td>
+                                    <td>@t.MdeCode</td>
+                                    <td class="num">@Geld(t.Prijs)</td>
+                                    <td class="num">@Geld(t.Totaal)</td>
+                                    <td class="brz-opm" title="@t.Opmerking">@t.Opmerking</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else if (_gezocht.Length == 0)
+                {
+                    <div class="kiezer-info">Typ een of meer woorden, bijvoorbeeld een artikelnummer of een stukje van de omschrijving.</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const int Max = 500;
+
+    [Parameter] public bool Open { get; set; }
+    /// <summary>Gekozen bestelling (Order-id); het venster is dan al gesloten.</summary>
+    [Parameter] public EventCallback<int> OpGekozen { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private ElementReference _zoekVeld;
+    private string _zoek = "";
+    private string _gezocht = "";
+    private bool _metGeannuleerd;
+    private bool _bezig;
+    private bool _wasOpen;
+    private int _versie;
+    private int? _gekozenOrder;
+    private List<BestelregelTreffer> _treffers = new();
+    private int _aantalOrders;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Open && !_wasOpen)
+        {
+            _wasOpen = true;
+            try { await _zoekVeld.FocusAsync(); } catch { }
+        }
+        else if (!Open) _wasOpen = false;
+    }
+
+    private async Task ZoekGetypt(ChangeEventArgs e)
+    {
+        _zoek = e.Value?.ToString() ?? "";
+        var mijn = ++_versie;
+        await Task.Delay(400);
+        if (mijn != _versie) return;          // er is verder getypt
+        await Zoek();
+    }
+
+    private async Task ZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { _versie++; await Zoek(); }
+    }
+
+    private async Task GeannuleerdGewijzigd(ChangeEventArgs e)
+    {
+        _metGeannuleerd = e.Value is bool b && b;
+        if (_gezocht.Length > 0) await Zoek();
+    }
+
+    private async Task Zoek()
+    {
+        var tekst = _zoek.Trim();
+        _gezocht = tekst;
+        _gekozenOrder = null;
+        if (tekst.Length == 0) { _treffers = new(); _aantalOrders = 0; return; }
+
+        _bezig = true;
+        StateHasChanged();
+        try
+        {
+            var uit = await Repo.ZoekRegelsAsync(tekst, Max, _metGeannuleerd);
+            if (_gezocht != tekst) return;    // intussen een nieuwere zoekopdracht
+            _treffers = uit;
+            _aantalOrders = uit.Select(t => t.OrderId).Distinct().Count();
+        }
+        catch (Exception ex)
+        {
+            _treffers = new();
+            _aantalOrders = 0;
+            _gezocht = tekst;
+            Console.WriteLine($"[BestelZoekVenster] {ex.Message}");
+        }
+        finally
+        {
+            _bezig = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Wis()
+    {
+        _zoek = "";
+        _gezocht = "";
+        _treffers = new();
+        _aantalOrders = 0;
+        _versie++;
+        try { await _zoekVeld.FocusAsync(); } catch { }
+    }
+
+    private async Task Kies(int orderId)
+    {
+        await Sluit();
+        await OpGekozen.InvokeAsync(orderId);
+    }
+
+    private async Task OrderToets(KeyboardEventArgs e, int orderId)
+    {
+        if (e.Key == "Enter") await Kies(orderId);
+    }
+
+    private async Task VensterToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await Sluit();
+    }
+
+    private async Task Sluit()
+    {
+        _versie++;
+        _bezig = false;
+        await OpGesloten.InvokeAsync();
+    }
+
+    private static string Aantal(double a) => a == Math.Floor(a) ? ((long)a).ToString() : a.ToString("0.##");
+    private static string Geld(decimal? m) => m is null ? "" : m.Value.ToString("N2");
+}

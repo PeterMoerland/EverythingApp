@@ -3166,6 +3166,42 @@ html[data-thema="donker"] .kiezer-tabel.regels input:focus, html[data-thema="don
 .nb-vraag { display: flex; flex-direction: column; gap: .35rem; padding: .5rem .7rem; border: 1px solid #ddd; border-radius: 6px; font-size: .92rem; }
 .nb-vraag.open { border-color: #e0a800; background: #fff8e1; }
 .nb-vraag button.gekozen { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ---- Bestellingen ▸ zoeken in bestelregels (Components/BestelZoekVenster.razor) ---- */
+.brz-venster { width: min(110rem, 97vw); height: 88vh; max-height: 88vh; }
+.brz-uitleg { font-size: .8rem; color: #667; flex: 1; }
+.brz-zoekregel { display: flex; align-items: center; gap: .5rem; padding: .6rem .9rem; border-bottom: 1px solid #e2e6ea; }
+.brz-zoek { flex: 1; font-size: 1.05rem; padding: .5rem .7rem; }
+.brz-stand { font-size: .85rem; color: #667; white-space: nowrap; }
+.brz-lijst { flex: 1; min-height: 0; overflow: auto; padding: 0 .4rem .4rem; }
+.brz-tabel { width: 100%; border-collapse: collapse; font-size: .9rem; table-layout: fixed; }
+.brz-tabel col.c-po { width: 6rem; }
+.brz-tabel col.c-lev { width: 14rem; }
+.brz-tabel col.c-status { width: 8rem; }
+.brz-tabel col.c-datum { width: 6.5rem; }
+.brz-tabel col.c-aantal { width: 4.5rem; }
+.brz-tabel col.c-art { width: 11rem; }
+.brz-tabel col.c-mde { width: 5.5rem; }
+.brz-tabel col.c-prijs { width: 6.5rem; }
+.brz-tabel col.c-totaal { width: 7.5rem; }
+.brz-tabel col.c-opm { width: 16rem; }
+.brz-tabel th { position: sticky; top: 0; background: #fff; text-align: left; padding: .35rem .5rem; border-bottom: 1px solid #ccc; font-weight: 600; z-index: 1; }
+.brz-tabel td { padding: .18rem .5rem; border-bottom: 1px solid #eef0f3; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.35; }
+.brz-tabel .num { text-align: right; }
+.brz-tabel tr.brz-regel { cursor: pointer; user-select: none; }
+.brz-tabel tr.brz-regel.eerste td { border-top: 1px solid #d5dbe3; }
+.brz-tabel tr.brz-regel.vervolg td.brz-po, .brz-tabel tr.brz-regel.vervolg td.brz-lev,
+.brz-tabel tr.brz-regel.vervolg td.brz-datum { color: #aab; font-weight: normal; }
+.brz-tabel tr.brz-regel.vervolg .brz-status { visibility: hidden; }
+.brz-tabel tr.brz-regel:hover td { background: #fffbe6; }
+.brz-tabel tr.brz-regel.gekozen td { background: var(--selected); }
+.brz-tabel tr.brz-regel.gekozen.eerste td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.brz-tabel tr.brz-regel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.brz-po { font-weight: 600; }
+.brz-lev { font-weight: 600; }
+.brz-status { font-size: .78rem; color: #556; border: 1px solid #c8ced6; border-radius: 10px; padding: 0 .5rem; background: #fff; white-space: nowrap; }
+.brz-datum { color: #778; font-size: .85rem; }
+.brz-opm { color: #556; }
 html[data-thema="donker"] .nb-vraag { border-color: var(--d3); }
 html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7a6320; }
 
