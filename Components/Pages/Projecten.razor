@@ -166,6 +166,7 @@
                             <button class="@(tab.Naam == _tabProject ? "actief" : "")"
                                     @onclick="() => _tabProject = tab.Naam">@tab.Naam</button>
                         }
+                        <button class="@(_tabProject == TeamTab ? "actief" : "")" @onclick="() => _tabProject = TeamTab">@TeamTab</button>
                         @if (MagBudget)
                         {
                             @foreach (var tab in BudgetTabs)
@@ -177,7 +178,12 @@
 
                     <DetailMetZij>
                         <Hoofd>
-                            @if (MagBudget && BudgetTabs.Contains(_tabProject) && _projectId is int budgetProject)
+                            @if (_tabProject == TeamTab && _projectId is int teamProject)
+                            {
+                                <ProjectTeam @key="teamProject" ProjectId="teamProject" Werknemers="Werknemers"
+                                             ProjectleiderId="ProjectleiderId()" />
+                            }
+                            else if (MagBudget && BudgetTabs.Contains(_tabProject) && _projectId is int budgetProject)
                             {
                                 @if (_tabProject == "Kostenbegroting")
                                 {
@@ -307,7 +313,7 @@
     }
 
     <footer class="voet">
-        Documenten, milestones, team en activiteiten volgen als aparte tabbladen — die hangen elk aan hun eigen tabel.
+        Documenten, milestones en activiteiten volgen als aparte tabbladen — die hangen elk aan hun eigen tabel.
     </footer>
 </div>
 
@@ -853,6 +859,12 @@
 
     // ---- budget (Access: tabs Budget en Budget verdeling): alleen Directie en Budgetverantwoordelijke ----
     private static readonly string[] BudgetTabs = { "Budget", "Budget verdeling", "Kostenbegroting" };
+    private const string TeamTab = "Team";      // Components/ProjectTeam.razor: rollen met een of meer werknemers
+
+    private List<Keuze> Werknemers => Lijst("Werknemer");
+
+    private int? ProjectleiderId()
+        => _projectVelden.TryGetValue("ProjectResponsible", out var v) && v is not null && int.TryParse(v.ToString(), out var id) ? id : null;
     private bool MagBudget => Ik.Mag("Directie") || Ik.Mag("Budgetverantwoordelijke");
 
     private int? KlantId()

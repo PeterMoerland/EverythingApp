@@ -3990,3 +3990,24 @@ html[data-thema="donker"] .onderhoud-balk.bijna, html[data-thema="donker"] .onde
 .project-pos a.stand-chip { text-decoration: none; cursor: pointer; }
 .project-pos a.stand-chip:hover { border-color: var(--accent); }
 .po-naar-project { margin-top: .3rem; display: inline-block; }
+
+/* Exemplaar ▸ motiontest / dual motion: uitslag per beweging over de volle breedte, cijfers verdeeld, melding rechts */
+.kiezer-tabel.beweging-tabel { table-layout: fixed; font-variant-numeric: tabular-nums; }
+.beweging-tabel th { text-align: center; vertical-align: bottom; font-size: .85rem; line-height: 1.2; }
+.beweging-tabel td { text-align: center; white-space: nowrap; }
+.beweging-tabel th.nr { width: 3rem; }
+.beweging-tabel th.kol-melding, .beweging-tabel td:last-child { width: 28%; text-align: left; white-space: normal; }
+
+/* Projecten ▸ tab Team (Components/ProjectTeam.razor): per rol een regel met de teamleden als chips */
+.team-lijst { display: grid; grid-template-columns: minmax(9rem, max-content) 1fr; border-top: 1px solid var(--rand, #e5e5e5); max-width: 60rem; }
+.team-rol { display: contents; }
+.team-rolnaam, .team-leden { padding: .45rem .5rem; border-bottom: 1px solid var(--rand, #e5e5e5); }
+.team-rolnaam { font-weight: 600; }
+.team-leden { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.team-lid { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .2rem .1rem .55rem; border-radius: 999px;
+            background: var(--selected); border: 1px solid var(--rand, #ddd); font-size: .9rem; }
+.team-weg { border: 0; background: transparent; padding: 0 .3rem; cursor: pointer; color: var(--tekst-zacht, #777); font-size: .8rem; line-height: 1; }
+.team-weg:hover { color: var(--rood); }
+.team-voorstel { font-size: .85rem; padding: .1rem .5rem; border-style: dashed; white-space: nowrap; }
+.team-kies { width: auto; min-width: 10rem; font-size: .85rem; padding: .15rem .3rem; }
+@media (max-width: 600px) { .team-lijst { grid-template-columns: 1fr; } .team-rolnaam { border-bottom: 0; padding-bottom: 0; } }

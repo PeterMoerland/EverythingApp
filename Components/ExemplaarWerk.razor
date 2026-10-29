@@ -467,6 +467,24 @@
                         <label class="bankveld"><span>Hz</span><input type="number" min="10" max="2000" value="@_slFrequentie" style="width:5rem" disabled="@_taakBezig"
                                @onchange="e => _slFrequentie = int.TryParse((string?)e.Value, out var v) ? v : 200" /></label>
                     }
+                    @if (_testCode == "phasing")
+                    {
+                        <label class="bankveld" title="Statisch: MotionLab's phasing (binair zoeken), de phasing mode blijft zoals hij is. Dynamisch: de as draait één omwenteling heen en terug; de gevonden hoek wordt vast ingesteld en de phasing mode wordt Preset (No phasing) — vraagt een absolute encoder."><span>Methode</span>
+                            <select value="@_phMethode" disabled="@_taakBezig" @onchange="e => _phMethode = (string?)e.Value ?? PhStatisch">
+                                <option value="@PhStatisch">Statisch</option>
+                                <option value="@PhDynamisch">Dynamisch (Preset)</option>
+                            </select></label>
+                        @if (_phMethode == PhDynamisch)
+                        {
+                            <label class="bankveld" title="Draaisnelheid van het veld; 0,03 Hz = 33 s per omwenteling (standaard van MotionLab). Sneller geeft eerder een asymmetrie-waarschuwing."><span>Frequentie (Hz)</span>
+                                <input type="number" step="0.01" min="0.005" max="1" value="@_phFrequentie" style="width:5rem" disabled="@_taakBezig"
+                                       @onchange="e => _phFrequentie = double.TryParse((string?)e.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= 0.005 && v <= 1 ? v : 0.03" /></label>
+                            <label class="bankveld" title="Stroom tijdens de phasing; leeg = 40 % van de nominale stroom (80 % bij een vertraging)"><span>Stroom (A)</span>
+                                <input type="number" step="0.1" min="0" placeholder="automatisch" value="@_phStroom" style="width:6rem" disabled="@_taakBezig"
+                                       @onchange="e => _phStroom = double.TryParse((string?)e.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null" /></label>
+                            <span class="uitleg">duurt ca. @((2 / _phFrequentie + 5).ToString("0")) s</span>
+                        }
+                    }
                     @if (_testCode == "encodertest")
                     {
                         <label class="bankveld"><span>Verwachte increments</span><input type="number" min="1" placeholder="uit de drive" value="@_etVerwacht" style="width:7rem" disabled="@_taakBezig"
@@ -771,8 +789,8 @@
                 {
                     <div class="prod-drives @(dm.Geslaagd ? "go" : dm.Bezig ? "" : "nogo")">
                         <div class="prod-drives-kop"><b>@(dm.Bezig ? "BEZIG" : dm.Geslaagd ? "GO" : "NO-GO")</b><span>@dm.Samenvatting</span>@if (!dm.Bezig) { <button class="klein" @onclick="() => _dm = null">Sluiten</button> }</div>
-                        <table class="kiezer-tabel smal-tabel">
-                            <thead><tr><th style="width:4rem">#</th><th style="width:6rem">naar</th><th style="width:6rem">duur (s)</th><th style="width:8rem">volgfout A</th><th style="width:8rem">volgfout B</th><th style="width:9rem" title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom A (A)</th><th style="width:9rem" title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom B (A)</th><th>melding</th></tr></thead>
+                        <table class="kiezer-tabel beweging-tabel">
+                            <thead><tr><th class="nr">#</th><th>naar</th><th>duur (s)</th><th>volgfout A</th><th>volgfout B</th><th title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom A (A)</th><th title="motorstroom |Iq| tijdens de beweging: max / gemiddeld">stroom B (A)</th><th class="kol-melding">melding</th></tr></thead>
                             <tbody>
                                 @foreach (var b in dm.Bewegingen)
                                 {
@@ -825,8 +843,8 @@
                 {
                     <div class="prod-drives @(mt.Geslaagd ? "go" : "nogo")">
                         <div class="prod-drives-kop"><b>@(mt.Geslaagd ? "GO" : "NO-GO")</b><span>@mt.Samenvatting</span><button class="klein" @onclick="() => _mt = null">Sluiten</button></div>
-                        <table class="kiezer-tabel smal-tabel">
-                            <thead><tr><th style="width:6rem">rpm</th><th style="width:4rem">#</th><th style="width:6rem">richting</th><th style="width:6rem">duur (s)</th><th style="width:8rem">volgfout max</th><th style="width:8rem" title="motorstroom |Iq| tijdens de beweging">stroom max (A)</th><th style="width:8rem" title="gemiddelde motorstroom |Iq| tijdens de beweging">stroom gem (A)</th><th>melding</th></tr></thead>
+                        <table class="kiezer-tabel beweging-tabel">
+                            <thead><tr><th>rpm</th><th class="nr">#</th><th>richting</th><th>duur (s)</th><th>volgfout max</th><th title="motorstroom |Iq| tijdens de beweging">stroom max (A)</th><th title="gemiddelde motorstroom |Iq| tijdens de beweging">stroom gem (A)</th><th class="kol-melding">melding</th></tr></thead>
                             <tbody>
                                 @foreach (var b in mt.Bewegingen)
                                 {
@@ -3226,7 +3244,7 @@
     {
         "stroomlus" => "Current Direct Tuning zoals in MotionLab: controle van de STO, modus Current, enable, blokgolf ±amplitude op de d-as (geen beweging) via de disturbance van de drive; demand en werkelijke stroom via monitoring. GO bij stijgtijd, overshoot, fout en rimpel binnen de grenzen (Productie:Stroomlus).",
         "encodertest" => "Zoals de feedback-test in MotionLab: het veld wordt in open lus (interne generator) precies één mechanische omwenteling vooruit en één terug gedraaid; de encoder moet daarbij het verwachte aantal increments laten zien (±marge) en vooruit/terug moeten symmetrisch zijn. Meldt de encoder tijdens de test een waarschuwing of fout (bv. niet goed uitgelijnd), dan is de test afgekeurd. De motor draait écht: as vrij laten.",
-        "phasing" => "Motor-phasing zoals in MotionLab: de drive lijnt de commutatiehoek uit op de encoder (COMMU_ANGLE_OFFSET), met live de stroom (command/actual) en de hoeken (reference/commutation). Bij succes wordt opgeslagen; daarna spanning uit/aan. De as moet vrij kunnen draaien.",
+        "phasing" => "Motor-phasing zoals in MotionLab: de drive lijnt de commutatiehoek uit op de encoder (COMMU_ANGLE_OFFSET), met live de stroom (command/actual) en de hoeken (reference/commutation). Statisch = de gewone phasing (binair zoeken); de phasing mode blijft zoals hij is. Dynamisch (Preset) = de as draait één omwenteling heen en terug, de gevonden hoek wordt vast ingesteld en de drive doet daarna geen phasing meer bij inschakelen (alleen met een absolute encoder). Bij succes wordt opgeslagen; daarna spanning uit/aan. De as moet vrij kunnen draaien.",
         "dualmotion" => "Twee assen tegelijk: zet de assen met de hand op positie 1 en druk Teach pos 1, dan op positie 2 en Teach pos 2. Start schakelt beide drives in en beweegt ze x keer heen en weer (Profile Position, zonder interpolatie); per beweging duur, maximale volgfout en motorstroom (max / gemiddeld) per as. Motoren gaan daarna uit.",
         "motiontest" => "Gesloten lus (Profile Position): per snelheid één omwenteling vooruit en één terug, x keer herhaald. Elke positie moet binnen de verwachte tijd gehaald worden en de volgfout blijft onder de grens; per beweging de motorstroom (max en gemiddeld, met een optionele grens). De motor draait écht: as vrij laten.",
         "iotest" => "De digitale uitgangen van elke drive gaan één voor één aan (looplicht) en worden teruggelezen; jij bevestigt of de LED's op de testrig brandden.",
@@ -3464,6 +3482,10 @@
 
     // ---- phasing (drives.phasing): live stroom- en hoekreeks
     private List<(double T, double? Icmd, double? Iact, double? Ref, double? Commu)> _ph = new();
+    private const string PhStatisch = "statisch", PhDynamisch = "dynamisch";
+    private string _phMethode = PhStatisch;
+    private double _phFrequentie = 0.03;     // Hz; standaard van MotionLab
+    private double? _phStroom;               // A; null = ingeniamotion kiest
 
     private void PhasingLive(JsonElement r)
     {
@@ -3509,7 +3531,8 @@
         </svg>
     };
 
-    private Task StartPhasingTest() => VoerDriveTestUit("drives.phasing", "Phasing", new { opslaan = true }, res =>
+    private Task StartPhasingTest() => VoerDriveTestUit("drives.phasing", _phMethode == PhDynamisch ? "Phasing dynamisch (Preset)" : "Phasing statisch",
+        new { opslaan = true, methode = _phMethode, frequentie = _phFrequentie, stroom = _phStroom ?? 0 }, res =>
     {
         PhasingLive(res);
         var samenvatting = Tekst(res, "samenvatting");

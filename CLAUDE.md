@@ -239,6 +239,33 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Phasing: statisch of dynamisch (Preset) (agent 1.24.0, 29-10-2026)
+
+- `drives.phasing` heeft `methode`: **statisch** (zoals voorheen, `tests.commutation`) of **dynamisch**
+  (`tests.dynamic_forced_phasing`, MotionLab's dynamic phasing): Id-stroom in open lus, één omwenteling vooruit en
+  één terug op `frequentie` (standaard 0,03 Hz = 33 s/omw), de drive meet met monitoring het verschil tussen
+  COMMU_ANGLE_VALUE en COMMU_ANGLE_REF_VALUE. Alleen bij SUCCESS zet de agent zelf COMMU_PHASING_MODE = 2 (No phasing,
+  in MotionLab "Preset") en COMMU_ANGLE_OFFSET / COMMU_ANGLE_REF_OFFSET op de gevonden hoek, dan store. ingeniamotion
+  zou ook bij WARNING (asymmetrie > 10 %, meestal te snel) toepassen; daarom `apply_changes=False`.
+- Eis: absolute encoder als commutatie- én referentiesensor (anders TestError, met uitleg in de melding).
+- `stroom` (A) optioneel; leeg = 40 % van MOT_RATED_CURRENT (80 % bij een vertraging), zoals ingeniamotion.
+- App: keuze Methode bij de test Phasing, met frequentie en stroom bij Dynamisch. De phasing-knop bij Nulpunt
+  (`drives.nulpunt`) is nog alleen statisch.
+- Alleen met mocks getest (geen drive in handen).
+
+## Projectteam: rollen per project (28-10-2026)
+
+- **Projecten ▸ tab Team** (`Components/ProjectTeam.razor`): per rol een regel met de teamleden als chips (✕ = weg) en
+  een keuzelijst "+ persoon…"; een rol mag meerdere personen hebben. Elke wijziging gaat meteen naar de database.
+  Bij de rol "Projectleider" staat de projectleider van de projectkaart (`ProjectResponsible`) als voorstel; niet
+  automatisch gekoppeld. Voor iedereen die Projecten mag openen.
+- **Tabellen** uit `ProjectTeam_MariaDB.sql`: `ProjectRollen` (Naam, Volgorde, Actief; 8 standaardrollen) en
+  `ProjectTeam` (ProjectID, RolID, WerknemerID, uniek per drietal). Zonder script: melding in de tab.
+- **Rollen beheren**: Beheer ▸ Tabellen ▸ Projectrollen, via de algemene beheertabel (`BeheerTabellen`, sleutel
+  `projectrollen`). `BeheerTabel.SorteerOp` (nieuw) sorteert op een getalkolom. Een rol die in een team staat kan niet
+  weg (verwijzing); niet actief = niet meer te kiezen, bestaande leden blijven zichtbaar.
+- Lokaal testen zonder te schrijven: `ProjectTeam__Geheugen=true` (`GeheugenProjectTeamRepository`).
+
 ## Motorstroom en encoderstatus in de drive-testen (agent 1.23.0, 27-10-2026)
 
 - **Motiontest en dual motion** meten per beweging de motorstroom |Iq| (`get_actual_current_quadrature`,

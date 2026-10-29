@@ -227,6 +227,7 @@ public static class Menu
                 new MenuItem("Activiteiten", "/beheer/tabel/activiteiten"),
                 new MenuItem("Gebeurtenissoorten", "/beheer/tabel/gebeurtenissoorten"),
                 new MenuItem("Pastypes", "/beheer/tabel/pastypes"),
+                new MenuItem("Projectrollen", "/beheer/tabel/projectrollen"),
                 new MenuItem("Tariefsoorten")),   // staat voorlopig vast
             new MenuGroep("Instellingen",
                 new MenuItem("Algemene instellingen", "/beheer/instellingen"),

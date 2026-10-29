@@ -144,7 +144,10 @@ else
         {
             _rijen = await WnRepo.LeesBeheerTabelAsync(_def);
             var eerste = _def.Velden.FirstOrDefault()?.Kolom;
-            if (eerste is not null)
+            if (_def.SorteerOp is { } op)
+                _rijen = _rijen.OrderBy(r => double.TryParse(Tekst(r, op), out var g) ? g : double.MaxValue)
+                               .ThenBy(r => eerste is null ? "" : Tekst(r, eerste)).ToList();
+            else if (eerste is not null)
                 _rijen = _rijen.OrderBy(r => Tekst(r, eerste)).ToList();
         }
         catch (Exception ex)

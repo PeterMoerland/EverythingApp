@@ -164,6 +164,11 @@ if (liveDb)
     builder.Services.AddSingleton<IVerbeterRepository>(_ => new MySqlVerbeterRepository(cs!));
     builder.Services.AddSingleton<IBroodjesRepository>(_ => new MySqlBroodjesRepository(cs!));
     builder.Services.AddSingleton<IProjectBudgetRepository>(_ => new MySqlProjectBudgetRepository(cs!));
+    // Projectteam; lokaal testen zonder in ProjectTeam te schrijven: ProjectTeam__Geheugen=true (rollen en namen wel echt)
+    if (builder.Configuration.GetValue<bool>("ProjectTeam:Geheugen"))
+        builder.Services.AddSingleton<IProjectTeamRepository>(sp => new GeheugenProjectTeamRepository(new MySqlProjectTeamRepository(cs!), sp.GetRequiredService<IProjectRepository>()));
+    else
+        builder.Services.AddSingleton<IProjectTeamRepository>(_ => new MySqlProjectTeamRepository(cs!));
     // Pakbonnen; lokaal testen zonder in de pakbontabellen te schrijven: Pakbon__Geheugen=true (leest wel echt)
     if (builder.Configuration.GetValue<bool>("Pakbon:Geheugen"))
         builder.Services.AddSingleton<IPakbonRepository>(_ => new GeheugenPakbonRepository(new MySqlPakbonRepository(cs!)));
@@ -204,6 +209,7 @@ else
     builder.Services.AddSingleton<IVerbeterRepository, GeenVerbeterRepository>();
     builder.Services.AddSingleton<IBroodjesRepository, GeenBroodjesRepository>();
     builder.Services.AddSingleton<IProjectBudgetRepository, GeenProjectBudgetRepository>();
+    builder.Services.AddSingleton<IProjectTeamRepository, GeenProjectTeamRepository>();
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();

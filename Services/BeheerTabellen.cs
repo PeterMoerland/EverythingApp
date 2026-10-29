@@ -14,7 +14,8 @@ public record BeheerTabel(
     string IdKolom,
     BeheerVeld[] Velden,
     Verwijzing[] Verwijzingen,
-    string? Uitleg = null);
+    string? Uitleg = null,
+    string? SorteerOp = null);     // getalkolom waarop de lijst staat (bv. Volgorde); anders op het eerste veld
 
 /// <summary>
 /// Tabellen die via Beheer te onderhouden zijn. Een nieuwe tabel toevoegen =
@@ -75,6 +76,22 @@ public static class BeheerTabellen
             Array.Empty<Verwijzing>(),
             "Bewerkingen voor maakdelen uit Inventor, met de afkorting die in " +
             "de bestandsnamen en op tekeningen terugkomt (DRA, FRE, PLA…)."),
+
+        new("projectrollen", "Projectrollen", "ProjectRollen", "RolID",
+            new BeheerVeld[]
+            {
+                new("Rol", "Naam", VeldType.Tekst, Breed: true),
+                new("Volgorde", "Volgorde", VeldType.Getal),
+                new("Actief", "Actief", VeldType.JaNee),
+            },
+            new Verwijzing[]
+            {
+                new("ProjectTeam", "RolID", "teamlid/teamleden in projecten"),
+            },
+            "Rollen in een projectteam (Projecten ▸ tab Team), in deze volgorde onder elkaar; een rol mag meerdere " +
+            "personen hebben. Een rol die nog in een team staat kan niet weg: zet hem dan op niet actief. " +
+            "Tabel uit ProjectTeam_MariaDB.sql.",
+            SorteerOp: "Volgorde"),
 
         new("pastypes", "Pastypes", "PasType", "PasTypeID",
             new BeheerVeld[]

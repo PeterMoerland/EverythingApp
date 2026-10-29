@@ -1,0 +1,118 @@
+@inject IProjectTeamRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Projecten ▸ tab Team (wens gebruiker 28-10-2026): per rol een of meer werknemers. De rollen komen uit ProjectRollen
+   (Beheer ▸ Tabellen ▸ Projectrollen, op volgorde); een niet-actieve rol staat er alleen nog als er iemand aan hangt.
+   Elke wijziging gaat meteen naar de database (ProjectTeam), net als de kostenbegroting. *@
+
+@if (!Repo.Beschikbaar)
+{
+    <p class="kiezer-info">Het projectteam werkt alleen met de live database.</p>
+}
+else if (_rollen is null)
+{
+    <p class="uitleg">@(_laadFout ?? "Het projectteam kan pas nadat ProjectTeam_MariaDB.sql is uitgevoerd.")</p>
+}
+else
+{
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    <div class="team-lijst">
+        @foreach (var rol in _rollen.Where(r => r.Actief || _team.Any(t => t.RolId == r.Id)))
+        {
+            var leden = _team.Where(t => t.RolId == rol.Id).ToList();
+            <div class="team-rol" @key="rol.Id">
+                <div class="team-rolnaam">@rol.Naam@(rol.Actief ? "" : " (niet meer actief)")</div>
+                <div class="team-leden">
+                    @foreach (var lid in leden)
+                    {
+                        <span class="team-lid" @key="lid.Id">
+                            @lid.Naam
+                            <button class="team-weg" title="@($"{lid.Naam} weghalen als {rol.Naam}")" disabled="@_bezig" @onclick="() => Verwijder(lid)">✕</button>
+                        </span>
+                    }
+                    @if (IsProjectleiderRol(rol) && ProjectleiderId is int pl && leden.All(l => l.WerknemerId != pl) && NaamVan(pl) is { } plNaam)
+                    {
+                        <button class="team-voorstel" disabled="@_bezig" title="Projectleider volgens de projectkaart" @onclick="() => VoegToe(rol, pl)">+ @plNaam (projectkaart)</button>
+                    }
+                    @if (rol.Actief)
+                    {
+                        <select @key="(rol.Id, _versie)" class="team-kies" disabled="@_bezig" @onchange="e => Gekozen(rol, e)">
+                            <option value="">+ persoon…</option>
+                            @foreach (var w in Werknemers.Where(w => leden.All(l => l.WerknemerId != w.Id)))
+                            {
+                                <option value="@w.Id">@w.Naam</option>
+                            }
+                        </select>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+    <p class="uitleg">Rollen toevoegen, hernoemen of de volgorde wijzigen: Beheer ▸ Tabellen ▸ Projectrollen.</p>
+}
+
+@code {
+    [Parameter, EditorRequired] public int ProjectId { get; set; }
+    /// <summary>Werknemers in dienst (dezelfde lijst als het veld Projectleider).</summary>
+    [Parameter] public List<Keuze> Werknemers { get; set; } = new();
+    /// <summary>Projectleider van de projectkaart (Projects.ProjectResponsible): voorstel bij de rol Projectleider.</summary>
+    [Parameter] public int? ProjectleiderId { get; set; }
+
+    private List<ProjectRol>? _rollen;
+    private List<TeamLid> _team = new();
+    private string? _laadFout, _melding;
+    private bool _fout, _bezig;
+    private int _versie;      // nieuwe sleutel voor de keuzelijsten, zodat ze na een keuze weer op "+ persoon…" staan
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _rollen = await Repo.RollenAsync();
+            if (_rollen is not null) _team = await Repo.TeamAsync(ProjectId);
+        }
+        catch (Exception ex) { _rollen = null; _laadFout = "Team ophalen mislukt: " + ex.Message; }
+    }
+
+    private static bool IsProjectleiderRol(ProjectRol r) => r.Naam.Trim().Equals("Projectleider", StringComparison.OrdinalIgnoreCase);
+
+    private string? NaamVan(int werknemerId) => Werknemers.FirstOrDefault(w => w.Id == werknemerId)?.Naam;
+
+    private async Task Gekozen(ProjectRol rol, ChangeEventArgs e)
+    {
+        _versie++;
+        if (int.TryParse((string?)e.Value, out var id)) await VoegToe(rol, id);
+    }
+
+    private async Task VoegToe(ProjectRol rol, int werknemerId)
+    {
+        _bezig = true;
+        try
+        {
+            await Repo.VoegToeAsync(ProjectId, rol.Id, werknemerId, Ik.WerknemerId);
+            _team = await Repo.TeamAsync(ProjectId);
+            Toon($"{NaamVan(werknemerId) ?? "Werknemer"} is nu {rol.Naam}.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder(TeamLid lid)
+    {
+        _bezig = true;
+        try
+        {
+            await Repo.VerwijderAsync(lid.Id);
+            _team = await Repo.TeamAsync(ProjectId);
+        }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
