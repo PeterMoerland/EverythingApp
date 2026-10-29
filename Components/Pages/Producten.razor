@@ -958,7 +958,7 @@
                                 Wat er op deze print zit bepaalt welke stappen Productie ▸ Test PCB aanbiedt:
                                 uitlezen/firmware/parameters/IO-test voor drives, chip programmeren voor ESP32 en STM32.
                             </p>
-                            <div class="prod-techniek" @key="_techniekVersie">
+                            <div class="prod-techniek" @key="@($"techniek-{_techniekVersie}")">
                                 @foreach (var t in ProductTechniek.Alle)
                                 {
                                     var code = t.Code;
@@ -1003,7 +1003,7 @@
                                 (tab Eindcheck) blijft beschikbaar in 'Opbouw en eindcontrole'. Zonder techniek verdwijnen
                                 Programmeren en Testen sowieso. Niet elk product gaat de testrig in: zet dan 'Stap Duurtest' uit.
                             </p>
-                            <div class="prod-techniek" @key="_techniekVersie">
+                            <div class="prod-techniek" @key="@($"stappen-{_techniekVersie}")">
                                 @foreach (var s in ProductStap.Alle)
                                 {
                                     var code = s.Code;
@@ -3133,7 +3133,7 @@
         await ZetTechniek(ProductTechniek.GeenParameters, new ChangeEventArgs { Value = !metParameters }, bevestigd: true);
     }
 
-    private int _techniekVersie;
+    private int _techniekVersie;      // nieuwe sleutel voor de vinkjes; de twee blokken hebben elk een eigen sleutel (gelijke sleutels = circuitfout)
 
     /// <summary>
     /// Een stap of techniek uitzetten geldt voor alle exemplaren van dit type, op elke werkplek, en wordt nergens
