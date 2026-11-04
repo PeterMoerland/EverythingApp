@@ -88,6 +88,10 @@ html[data-thema="donker"] .melding.waarschuwing { background: #3a2c12; border-co
 .grid th, .grid td { border: 1px solid #ddd; padding: .35rem .5rem; text-align: left; }
 .grid th { background: #eef2f7; font-weight: 600; }
 .grid tr.editing td { background: #fffbe6; }
+/* Ureningave: aangevinkte regels (kopiëren); --selected heeft ook een donkere waarde */
+.grid tr.gekozen td { background: var(--selected); }
+.grid .kies { padding-left: 0; padding-right: 0; }
+.grid .kies input { width: auto; cursor: pointer; }
 .grid td.r, .grid input.r, th.r { text-align: right; }
 .grid td.c { text-align: center; }
 .grid tfoot td { background: #f7f7f7; }

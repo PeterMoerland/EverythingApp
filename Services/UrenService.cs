@@ -153,24 +153,50 @@ public class UrenService
     {
         var bron = await _repo.GetUrenVanDagAsync(vanWerknemer, vanDatum);
         foreach (var b in bron)
-        {
-            var kopie = new UrenEntry
-            {
-                StartDatum = naarDatum,
-                EindDatum = naarDatum.AddDays((b.EindDatum ?? b.StartDatum).DayNumber - b.StartDatum.DayNumber),
-                StartTijd = b.StartTijd, EindTijd = b.EindTijd,
-                WerknemerId = naarWerknemer,
-                Uren = b.Uren, Werkorder = b.Werkorder,
-                Kilometers = b.Kilometers, PriveKMs = b.PriveKMs,
-                Omschrijving = b.Omschrijving, TariefsoortId = b.TariefsoortId,
-                FixedAmount = b.FixedAmount, FixedTypeId = b.FixedTypeId,
-                UrenActiviteitId = b.UrenActiviteitId, SourceUrenId = b.SourceUrenId,
-                GeneratedByRule = b.GeneratedByRule
-            };
-            await _repo.AddAsync(kopie);
-        }
+            await _repo.AddAsync(Kopie(b, naarWerknemer, naarDatum));
         return bron.Count;
     }
+
+    /// <summary>
+    /// Losse regels naar een andere dag/werknemer (wens collega 4-11-2026: één regel of een selectie kopiëren).
+    /// Anders dan Plak dag wordt elke kopie gecontroleerd zoals bij opslaan, want een losse regel komt vaak van
+    /// lang geleden (werkorder intussen gesloten); zo'n regel wordt overgeslagen en genoemd.
+    /// </summary>
+    public async Task<(int Geplakt, List<string> Fouten)> PlakRegelsAsync(IReadOnlyList<UrenEntry> bron, int naarWerknemer, DateOnly naarDatum)
+    {
+        var fouten = new List<string>();
+        var n = 0;
+        foreach (var b in bron)
+        {
+            var kopie = Kopie(b, naarWerknemer, naarDatum);
+            kopie.SourceUrenId = null;          // een eigen regel, niet gekoppeld aan de bron
+            kopie.GeneratedByRule = false;
+            var fout = await ValideerAsync(kopie);
+            if (fout is not null)
+            {
+                fouten.Add($"‘{(string.IsNullOrWhiteSpace(b.Omschrijving) ? $"{b.Uren:0.##} uur" : b.Omschrijving)}’: {fout}");
+                continue;
+            }
+            CheckMidnight(kopie);
+            await _repo.AddAsync(kopie);
+            n++;
+        }
+        return (n, fouten);
+    }
+
+    private static UrenEntry Kopie(UrenEntry b, int naarWerknemer, DateOnly naarDatum) => new()
+    {
+        StartDatum = naarDatum,
+        EindDatum = naarDatum.AddDays((b.EindDatum ?? b.StartDatum).DayNumber - b.StartDatum.DayNumber),
+        StartTijd = b.StartTijd, EindTijd = b.EindTijd,
+        WerknemerId = naarWerknemer,
+        Uren = b.Uren, Werkorder = b.Werkorder,
+        Kilometers = b.Kilometers, PriveKMs = b.PriveKMs,
+        Omschrijving = b.Omschrijving, TariefsoortId = b.TariefsoortId,
+        FixedAmount = b.FixedAmount, FixedTypeId = b.FixedTypeId,
+        UrenActiviteitId = b.UrenActiviteitId, SourceUrenId = b.SourceUrenId,
+        GeneratedByRule = b.GeneratedByRule
+    };
 
     // === VBA: WoonWerk_Click — book commute kilometers twice (there and back), only once per day ===
     public async Task<bool> BoekWoonWerkAsync(int werknemerId, DateOnly datum)

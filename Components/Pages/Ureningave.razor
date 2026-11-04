@@ -49,9 +49,10 @@
             <button title="Volgende week" @onclick="() => VerschuifDagen(7)">week »</button>
         </div>
 
+        @* Met regels aangevinkt kopieert de knop die regels, anders de hele dag; Plak plakt wat er gekopieerd is *@
         <div class="btngroup">
-            <button @onclick="KopieerDag">Kopieer dag</button>
-            <button disabled="@(_kopieerDatum is null)" @onclick="PlakDag">Plak dag</button>
+            <button title="@KopieerTitel" @onclick="Kopieer">@KopieerTekst</button>
+            <button disabled="@(_kopieerDatum is null && _kopieRegels is null)" title="@PlakTitel" @onclick="Plak">@PlakTekst</button>
         </div>
 
         @if (_huidigeWerknemer?.Directie == true)
@@ -93,6 +94,10 @@
         <table>
             <thead>
                 <tr>
+                    <th class="c kies" style="width:2rem">
+                        <input type="checkbox" title="Alle regels kiezen (om te kopiëren)" disabled="@(_dagEntries.Count == 0)"
+                               checked="@AllesGekozen" @onchange="KiesAlles" />
+                    </th>
                     <th style="width:13rem">Werkorder</th>
                     <th>Omschrijving</th>
                     <th style="width:4.2rem">Start</th>
@@ -109,7 +114,7 @@
                    Access-subformulier): typen in een veld en wegklikken slaat op. *@
                 @foreach (var e in _dagEntries)
                 {
-                    <tr @key="e.UrenId">@RegelRij(e)</tr>
+                    <tr @key="e.UrenId" class="@RijKlasse(e)">@RegelRij(e)</tr>
                 }
                 @if (_bewerkt is not null && _bewerkt.UrenId == 0)
                 {
@@ -118,7 +123,7 @@
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="4" class="r"><b>Totaal:</b></td>
+                    <td colspan="5" class="r"><b>Totaal:</b></td>
                     <td class="r"><b>@_dagEntries.Sum(x => x.Uren).ToString("0.##")</b></td>
                     <td colspan="4">
                         @if (_bewerkt is null)
@@ -147,6 +152,7 @@
 @code {
     private RenderFragment EditRow(UrenEntry e) => __builder =>
     {
+        <td></td>
         <td>
             <div class="wo-cel">
                 <span class="wo-tekst" title="@WerkorderTekst(e.Werkorder)">
@@ -194,6 +200,7 @@
     /// </summary>
     private RenderFragment RegelRij(UrenEntry e) => __builder =>
     {
+        <td class="c kies"><input type="checkbox" title="Kiezen om te kopiëren" checked="@_gekozen.Contains(e.UrenId)" @onchange="ev => Kies(e, ev)" /></td>
         <td>
             <div class="wo-cel">
                 <span class="wo-tekst" title="@WerkorderTekst(e.Werkorder)">@WerkorderTekst(e.Werkorder)</span>
@@ -226,6 +233,7 @@
         </td>
         <td><input class="r" value="@(e.Kilometers == 0 ? "" : e.Kilometers.ToString("0.#"))" @onchange="ev => ZetKm(e, ev)" /></td>
         <td class="c">
+            <button class="klein" title="Deze regel kopiëren; kies daarna een andere dag en klik ‘Plak 1 regel’" @onclick="() => KopieerRegels(new[] { e })">⧉</button>
             <button class="klein rood" title="Regel verwijderen" @onclick="() => Verwijder(e)">✕</button>
         </td>;
     };
@@ -252,6 +260,10 @@
     // VBA: SetSetting "KopieerDatum"/"KopieerWerknemer"
     private DateOnly? _kopieerDatum;
     private int _kopieerWerknemer;
+    // Losse regels kopiëren (wens collega 4-11-2026): de aangevinkte regels, of één via ⧉. Of een dag of regels
+    // gekopieerd zijn, niet allebei; het blijft staan zodat je op meer dagen kunt plakken.
+    private List<UrenEntry>? _kopieRegels;
+    private readonly HashSet<int> _gekozen = new();
     private int _specialOrderId;
 
     protected override async Task OnInitializedAsync()
@@ -288,6 +300,7 @@
             .Where(u => !u.GeneratedByRule)
             .ToList();
         _bewerkt = null;
+        _gekozen.Clear();
     }
 
     private string DagCss(int dagnr, DateOnly dagDatum, decimal? uren)
@@ -391,7 +404,52 @@
     {
         _kopieerDatum = _datum;
         _kopieerWerknemer = _werknemerId;
+        _kopieRegels = null;
         Toon($"Dag gekopieerd: {_datum:dd-MM-yyyy}. Kies nu een andere dag of werknemer en klik ‘Plak dag’.", fout: false);
+    }
+
+    private static string Regels(int n) => n == 1 ? "1 regel" : $"{n} regels";
+    private string KopieerTekst => _gekozen.Count > 0 ? $"Kopieer {Regels(_gekozen.Count)}" : "Kopieer dag";
+    private string KopieerTitel => _gekozen.Count > 0 ? "De aangevinkte regels kopiëren"
+        : "Alle regels van deze dag kopiëren (vink regels aan om alleen die te kopiëren)";
+    private string PlakTekst => _kopieRegels is { } k ? $"Plak {Regels(k.Count)}" : "Plak dag";
+    private string PlakTitel => _kopieRegels is { } k ? $"{Regels(k.Count)} op deze dag zetten"
+        : _kopieerDatum is { } d ? $"De regels van {d:dd-MM-yyyy} op deze dag zetten" : "Kopieer eerst een dag of regels";
+    private bool AllesGekozen => _dagEntries.Count > 0 && _gekozen.Count == _dagEntries.Count;
+    private string RijKlasse(UrenEntry e) => _gekozen.Contains(e.UrenId) ? "gekozen" : "";
+
+    private void Kies(UrenEntry e, ChangeEventArgs ev)
+    {
+        if (ev.Value is true) _gekozen.Add(e.UrenId); else _gekozen.Remove(e.UrenId);
+    }
+
+    private void KiesAlles(ChangeEventArgs ev)
+    {
+        _gekozen.Clear();
+        if (ev.Value is true) _gekozen.UnionWith(_dagEntries.Select(x => x.UrenId));
+    }
+
+    private void Kopieer()
+    {
+        if (_gekozen.Count > 0) KopieerRegels(_dagEntries.Where(x => _gekozen.Contains(x.UrenId)));
+        else KopieerDag();
+    }
+
+    private void KopieerRegels(IEnumerable<UrenEntry> regels)
+    {
+        _kopieRegels = regels.ToList();
+        _kopieerDatum = null;
+        _gekozen.Clear();
+        Toon($"{Regels(_kopieRegels.Count)} gekopieerd. Kies nu een andere dag of werknemer en klik ‘{PlakTekst}’.", fout: false);
+    }
+
+    private async Task Plak()
+    {
+        if (_kopieRegels is null) { await PlakDag(); return; }
+        if (!await MagWeg()) return;
+        var (n, fouten) = await Service.PlakRegelsAsync(_kopieRegels, _werknemerId, _datum);
+        Toon($"{Regels(n)} geplakt." + (fouten.Count > 0 ? $" Niet geplakt: {string.Join("; ", fouten)}" : ""), fout: fouten.Count > 0);
+        await Ververs();
     }
 
     private async Task PlakDag()
@@ -399,7 +457,7 @@
         if (!await MagWeg()) return;
         if (_kopieerDatum is null) { Toon("Plakken niet mogelijk. Jammer joh.", fout: true); return; }
         var n = await Service.PlakDagAsync(_kopieerWerknemer, _kopieerDatum.Value, _werknemerId, _datum);
-        Toon($"{n} regels geplakt.", fout: false);
+        Toon($"{Regels(n)} geplakt.", fout: false);
         await Ververs();
     }
 

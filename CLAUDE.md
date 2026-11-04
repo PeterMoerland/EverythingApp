@@ -239,6 +239,17 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Ureningave: losse regels kopiëren (4-11-2026)
+
+Wens collega: een regel (of een selectie) naar een andere dag kopiëren. Elke regel heeft een vinkje (kop = alles)
+en een knopje ⧉. Zijn er regels aangevinkt, dan wordt "Kopieer dag" "Kopieer 2 regels"; Plak wordt dan
+"Plak 2 regels". Een dag of regels, niet allebei; het gekopieerde blijft staan (meer dagen plakken), ook naar een
+andere werknemer, zoals Plak dag. `UrenService.PlakRegelsAsync` controleert elke kopie met `ValideerAsync` (Plak dag
+doet dat niet, zoals de VBA) en slaat een regel met bv. een gesloten werkorder over met de reden in de melding;
+`SourceUrenId`/`GeneratedByRule` gaan niet mee. Gekopieerd worden de regels zoals ze op het scherm staan (geen nieuwe
+query). Lokaal getest in demo-modus (JsonDemoRepository, eigen contentRoot): 2 regels, ⧉, alles, Plak dag.
+Niet getest: de overgeslagen regel (de demo heeft geen gesloten werkorder).
+
 ## EEPROM volgens ETG.2010 (agent 1.25.0, 30-10-2026)
 
 Een collega vergeleek met zijn M-Pede Tool Configurator wat `mde.eeprom` op een WJ1 schreef met een ETG.2010-
