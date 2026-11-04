@@ -239,6 +239,15 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Uitgaande factuur: ＋ Pakbon (4-11-2026)
+
+Melding collega: "Importeren uit pakbon bestaat niet meer". Nooit overgezet (analyse: in 2024-2026 niet gebruikt).
+Nu in `VerkoopFactuurVenster` naast ＋ Artikel/＋ Uren: zoekvak met de pakbonnen (`IPakbonRepository.ZoekAsync`,
+begint met de klant van de factuur, anders de nieuwste 30), klik = zoals Access' `PakbonZoeken.Importeer`: kopregel
+"Pakbon: PS-…", per pakbonregel code + omschrijving met het aantal (MDE-artikel: verkoopprijs project, anders 0 en
+een melding), daarna een lege regel. De PakbonID wordt niet in `InvoiceHours` bewaard (Access deed dat wel; nergens
+gebruikt). Lokaal getest tegen de live database op een nieuwe factuur (Annuleren, niets opgeslagen).
+
 ## Ureningave: losse regels kopiëren (4-11-2026)
 
 Wens collega: een regel (of een selectie) naar een andere dag kopiëren. Elke regel heeft een vinkje (kop = alles)

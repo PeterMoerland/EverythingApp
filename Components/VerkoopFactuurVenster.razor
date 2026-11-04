@@ -4,6 +4,7 @@
 @inject IVerkoopFactuurRepository Repo
 @inject IRelatieRepository Relaties
 @inject IArtikelRepository Artikelen
+@inject IPakbonRepository Pakbonnen
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 
@@ -300,6 +301,7 @@
                         <div class="btngroup">
                             <button class="klein" @onclick="() => VoegRegelIn(_f.Regels.Count)">＋ Regel</button>
                             <button class="klein" @onclick="() => _artikelZoekOpen = !_artikelZoekOpen">＋ Artikel</button>
+                            <button class="klein" title="De regels van een pakbon overnemen" @onclick="WisselPakbonZoek">＋ Pakbon</button>
                             <button class="klein" disabled="@(_f.KlantId is null)" @onclick="() => _urenOpen = true">＋ Uren</button>
                             @if (_f.KlantId is null)
                             {
@@ -322,6 +324,28 @@
                                 {
                                     <button class="wn-naam" @key="a.Id" title="@a.Merk" @onclick="() => KiesArtikel(a)">
                                         @a.Code — @a.Omschrijving
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @* Access: InvoiceHours > Importeer pakbon (PakbonZoeken); begint met de klant van de factuur *@
+                    @if (_pakbonZoekOpen && !Vast)
+                    {
+                        <div class="factuur-zoekvak">
+                            <input data-zoeklijst placeholder="Klant of pakbonnummer (PS-…)" value="@_pakbonZoek"
+                                   @oninput="PakbonZoekGewijzigd" autofocus />
+                            @if (_pakbonnen.Count == 0)
+                            {
+                                <p class="zij-extra">Geen pakbonnen gevonden@(_pakbonZoek.Trim().Length > 0 ? $" voor ‘{_pakbonZoek.Trim()}’" : "").</p>
+                            }
+                            <div class="wn-namen kort">
+                                @foreach (var p in _pakbonnen)
+                                {
+                                    <button class="wn-naam" @key="p.Id" disabled="@(p.Regels == 0)" title="@($"{p.Regels} regel(s) overnemen")"
+                                            @onclick="() => KiesPakbon(p)">
+                                        @p.Nummer — @p.Klant · @(p.Datum?.ToString("dd-MM-yyyy") ?? "") · @p.Status · @p.Regels regel(s)
                                     </button>
                                 }
                             </div>
@@ -439,6 +463,10 @@
     private string _artikelZoek = "";
     private List<ArtikelRegel> _artikelen = new();
 
+    private bool _pakbonZoekOpen;
+    private string _pakbonZoek = "";
+    private List<PakbonLijstRegel> _pakbonnen = new();
+
     private string? _melding;
     private bool _meldingFout;
 
@@ -471,6 +499,9 @@
         _artikelZoekOpen = false;
         _artikelZoek = "";
         _artikelen = new();
+        _pakbonZoekOpen = false;
+        _pakbonZoek = "";
+        _pakbonnen = new();
         _f = new();
 
         if (FactuurId is null) return;
@@ -592,6 +623,61 @@
         if (zoek.Length < 2) { _artikelen = new(); return; }
         try { _artikelen = await Artikelen.ZoekAsync(zoek, null, false, 15); }
         catch { _artikelen = new(); }
+    }
+
+    // ---- pakbon (Access: Form_PakbonZoeken, nooit verdwenen maar niet overgezet; wens collega 4-11-2026) ----
+    private async Task WisselPakbonZoek()
+    {
+        _pakbonZoekOpen = !_pakbonZoekOpen;
+        if (!_pakbonZoekOpen) return;
+        _pakbonZoek = _f.Klant;
+        await ZoekPakbonnen();
+    }
+
+    private async Task PakbonZoekGewijzigd(ChangeEventArgs e)
+    {
+        _pakbonZoek = (string?)e.Value ?? "";
+        await ZoekPakbonnen();
+    }
+
+    private async Task ZoekPakbonnen()
+    {
+        try { _pakbonnen = await Pakbonnen.ZoekAsync(_pakbonZoek, 30); }
+        catch (Exception ex) { _pakbonnen = new(); Toon("Pakbonnen zoeken mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Zoals Access' Importeer: een kopregel "Pakbon: PS-…" en dan per pakbonregel artikelcode + omschrijving met het
+    /// aantal; bij een MDE-artikel de verkoopprijs project, anders prijs 0 (zelf invullen). Daarna een lege regel.
+    /// </summary>
+    private async Task KiesPakbon(PakbonLijstRegel p)
+    {
+        try
+        {
+            var regels = await Pakbonnen.RegelsAsync(p.Id);
+            if (regels.Count == 0) { Toon($"{p.Nummer} heeft geen regels.", true); return; }
+            _f.Regels.Add(new VerkoopFactuurItem { Omschrijving = "Pakbon: " + p.Nummer, Totaal = 0 });
+            var zonderPrijs = 0;
+            foreach (var r in regels)
+            {
+                var art = r.MdeId is int id ? await Repo.ArtikelAsync(id) : null;
+                var tekst = (art is null ? r.Artikelnummer + " " + r.Omschrijving : art.Code + " " + art.Omschrijving).Trim();
+                var prijs = art?.Verkoopprijs ?? 0;
+                if (prijs == 0) zonderPrijs++;
+                _f.Regels.Add(new VerkoopFactuurItem
+                {
+                    Omschrijving = tekst.Length > 200 ? tekst[..200] : tekst,
+                    Aantal = r.Aantal,
+                    Stuksprijs = prijs,
+                    Korting = 0,
+                });
+            }
+            _f.Regels.Add(new VerkoopFactuurItem { Totaal = 0 });
+            _pakbonZoekOpen = false;
+            Toon($"{p.Nummer}: {regels.Count} regel(s) overgenomen." + (zonderPrijs > 0 ? $" {zonderPrijs} zonder verkoopprijs: vul de prijs zelf in." : ""),
+                 zonderPrijs > 0);
+        }
+        catch (Exception ex) { Toon("Pakbon overnemen mislukt: " + ex.Message, true); }
     }
 
     /// <summary>Zoals Access' ZoekArtikel: code + omschrijving, 1 stuk, verkoopprijs project.</summary>
