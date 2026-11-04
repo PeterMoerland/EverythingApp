@@ -402,7 +402,7 @@ public class MySqlDriveRepository : IDriveRepository
         var lijst = new List<DriveParameterset>();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(ParamSelect +
-            " WHERE p.`ProductNameID` = @n", cn);
+            " WHERE p.`ProductNameID` = @n ORDER BY p.`Positie`, p.`DriveParameterID`", cn);
         cmd.Parameters.AddWithValue("@n", productNameId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(LeesParam(r));

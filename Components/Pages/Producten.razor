@@ -1106,8 +1106,9 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @* Vaste volgorde (aanmaakvolgorde), zodat een regel niet verspringt als je de positie of firmware wijzigt. *@
-                                    @foreach (var ps in _parametersets.OrderBy(x => x.Id))
+                                    @* Op positie (wens gebruiker 4-11-2026; was aanmaakvolgorde, dat gaf 1, 4, 3, 2); bij dezelfde
+                                       positie in aanmaakvolgorde. Een andere positie kiezen verplaatst de regel naar zijn plek. *@
+                                    @foreach (var ps in _parametersets.OrderBy(x => x.Positie).ThenBy(x => x.Id))
                                     {
                                         var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json";
                                         <tr @key="ps.Id" class="drv-rij">
