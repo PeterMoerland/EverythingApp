@@ -174,7 +174,7 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   bouwt de SII volgens ETG.1000.6/ETG.2010: ConfigData (PDI-control: 0x80 = SPI op de LAN9252-familie, 0x05 = SPI
   op ET1100), CRC-8, vendor/product/revisie/serienummer, bootstrap- en standaardmailbox, protocollen, grootte,
   categorieën Strings/General/FMMU/SyncM/TxPDO/RxPDO/End. Het node-adres (alias, woord 4) van een gevulde EEPROM
-  blijft staan. De werker leest eerst, logt per gebied wat verschilt, schrijft alleen afwijkende woorden in INIT en
+  blijft staan (zie ook "EEPROM volgens ETG.2010", agent 1.25.0). De werker leest eerst, logt per gebied wat verschilt, schrijft alleen afwijkende woorden in INIT en
   leest terug; een andere identiteit of een ander serienummer alleen na bevestiging. Daarna spanning uit/aan.
   Getoetst met het ESI van de M-Pede-WJ1 (444 bytes, `siitoets.py`) en een nep-EEPROM in zes gevallen
   (`eepromtoets.py`); **niet op de print**. Eerst "vergelijken" op een door TwinCAT geschreven EEPROM draaien om de
@@ -238,6 +238,29 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   bij hardwarestappen altijd: motoren uit in `finally`, registers terugzetten, STO-check vooraf.
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
+
+## EEPROM volgens ETG.2010 (agent 1.25.0, 30-10-2026)
+
+Een collega vergeleek met zijn M-Pede Tool Configurator wat `mde.eeprom` op een WJ1 schreef met een ETG.2010-
+referentie (document: `MDE-Automation/M-Pede-tool-configurator`, `docs/eeprom-tool-etg2010-changes.md`, privé
+repo). Verschil: 3 bytes. Aangepast in `taken/sii.py` en `_werker_eeprom` (`taken/mde.py`):
+- **General, Flags (byte 0x0B)**: bit 0 `StartToSafeopNoSync`, bit 1 `Type/@UseLrdLwr`, **bit 2
+  `Mailbox/@DataLinkLayer`** (de WJ1 heeft dat: 0x00 -> 0x04), bit 3 `Info/IdentificationReg134`, bit 4
+  `Info/IdentificationAdo` (adres op 0x12). Ook EBusCurrent, ImgIdx, EoE, en `Physics` H = Fast Hot Connect (4).
+- **PDO-flags**: 0x0002 PdoDefault voor elke PDO met een `@Sm` (0x0011 -> 0x0013), plus Virtual, DependOnSlot(Group),
+  OverwrittenByModule. Alleen PDO's met een `@Sm` komen erin, en elke PDO krijgt een eigen categorie.
+- **DC-categorie** (60) per `Dc/OpMode`, `ConfigData2` (woord 0x28-0x2F met eigen CRC), `<Eeprom><Category>`,
+  SM-enable met Virtual/OpOnly. Categorieën oplopend op type.
+- **Bij herschrijven**: de alias (woord 4) uit het ESI telt als 0; die van de slave blijft, behalve bij een lege
+  chip (vendor 0 of 0xFFFFFFFF), een kop met foute checksum of 0xFFFF. Geeft de app geen serienummer (0), dan blijft
+  dat van de slave (niet 0xFFFFFFFF). Apparaatspecifieke categorieën (1-9, kalibratie) van de slave gaan mee;
+  leverancier-/applicatiespecifieke (>= 0x0800 of bit 15) die het ESI niet heeft geven een waarschuwing in het log.
+  De slave wordt gelezen tot de End-markering (`_lees_sii`), niet de hele chip. Na End blijft alles staan (punt 7
+  van het document, optioneel, niet gedaan: kost veel schrijfacties).
+- **Getoetst**: WJ1-ESI uit de filestore -> byte voor byte gelijk aan de referentiegenerator van de collega tot en
+  met End; t.o.v. de oude versie precies 0x111, 0x15C, 0x188. Werker met een nep-EEPROM: lege chip, nog eens
+  (niets te schrijven, sn blijft), alias 12 + categorie 3 + 0x0801, alias 0xFFFF, foute CRC, vergelijken. **Niet op
+  de print**: daar met de Configurator "Compare with slave" na vullen moet een lege lijst geven.
 
 ## Phasing: statisch of dynamisch (Preset) (agent 1.24.0, 29-10-2026)
 

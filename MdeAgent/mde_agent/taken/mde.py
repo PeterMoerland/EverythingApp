@@ -48,6 +48,9 @@ Taak mde.serienummer    parameters: positie, serienummer (getal), overschrijven?
                         EEPROM (SII) van de ESC zetten, woord 0x0E/0x0F: de vaste plek uit ETG.1000.6, buiten
                         de checksum en onafhankelijk van de firmware. Staat er al een ánder nummer (niet 0),
                         dan alleen met overschrijven. Leest daarna SII en 0x1018:4 terug.
+Taak mde.eeprom         parameters: positie, esi (URL/pad), serienummer (0 = dat van de slave houden), overschrijven?,
+                        alleen_vergelijken?. SII uit het ESI (taken/sii.py, ETG.2010); alias, serienummer en
+                        apparaatspecifieke categorieën (1-9) van de slave blijven staan, behalve van een lege chip.
 Taak mde.firmware       parameters: positie, firmware (URL/pad), versie, bestandsnaam?, wachtwoord? (0),
                         boot? (true). FoE: slave naar BOOT, bestand schrijven, terug naar INIT/PREOP, 0x100A lezen.
 """
@@ -832,6 +835,31 @@ def _lees_eeprom(s, aantal_bytes: int) -> bytes:
     return uit[:aantal_bytes]
 
 
+def _lees_sii(s, max_bytes: int) -> bytes:
+    """De EEPROM tot en met de End-markering van de categorieën (of tot max_bytes): kop plus categorieën,
+    zonder de rest van de chip te lezen."""
+    data = _lees_eeprom(s, 0x80)
+    w = 0x40
+    while w * 2 + 4 <= max_bytes:
+        while len(data) < w * 2 + 4:
+            data += _lees_blok(s, len(data) // 2, 64)
+        soort, lengte = struct.unpack_from("<HH", data, w * 2)
+        if soort in (0xFFFF, 0) or (w + 2 + lengte) * 2 > max_bytes:
+            break
+        w += 2 + lengte
+    tot = min(max_bytes, w * 2 + 2)
+    while len(data) < tot:
+        data += _lees_blok(s, len(data) // 2, 64)
+    return data[:max(tot, 0x80)]
+
+
+def _lees_blok(s, woord: int, aantal_bytes: int) -> bytes:
+    uit = b""
+    for w in range(woord, woord + (aantal_bytes + 3) // 2, 2):
+        uit += bytes(s.eeprom_read(w))[:4]
+    return uit[:aantal_bytes]
+
+
 def _gebieden(oud: bytes, nieuw: bytes) -> list[str]:
     """Welke delen van de EEPROM verschillen, in woorden ('kop 0x00-0x07: …')."""
     namen = [(0x00, 0x08, "kop (PDI, alias, checksum)"), (0x08, 0x10, "identiteit"), (0x14, 0x18, "bootstrap-mailbox"),
@@ -849,18 +877,43 @@ def _werker_eeprom(d: _Drive, o: dict, log) -> dict:
     import pysoem
     from . import sii
     s = d.slave
-    nieuw, info = sii.maak(o["esi"], int(o.get("serienummer") or 0))
-    log(f"Uit het ESI: {info['naam']} {info['vendor']}/{info['productcode']} rev {info['revisie']}, sn {info['serienummer'] or '-'}, "
-        f"PDI {info['pdi']}, mailbox {info['mailbox']}, {info['protocollen']}; {info['bytes']} van {info['eeprom']} bytes.")
-    oud = _lees_eeprom(s, len(nieuw))
+    gevraagd_sn = int(o.get("serienummer") or 0)
+    _, info = sii.maak(o["esi"], gevraagd_sn)
+    oud = _lees_sii(s, info["eeprom"])
     v, p, r, sn = sii.lees_identiteit(oud)
-    leeg = all(b == 0xFF for b in oud[0x10:0x20]) or all(b == 0 for b in oud[0x10:0x20])
-    log("EEPROM nu: " + ("leeg" if leeg else f"0x{v:08X}/0x{p:08X} rev 0x{r:08X}, sn {sn}"))
-    # het node-adres (alias, woord 4) van de print laten staan; dat zet 'Node-adressen…'
+    # Wat er al op de slave staat (ETG.2010, zie sii.py): niets overnemen van een lege of kapotte chip
+    leeg = v in (0, 0xFFFFFFFF)
+    kop_goed = oud[14] == sii.crc8(oud[0:14])
+    log("EEPROM nu: " + ("leeg" if leeg else f"0x{v:08X}/0x{p:08X} rev 0x{r:08X}, sn {sn}")
+        + ("" if kop_goed or leeg else "; checksum van de kop klopt niet"))
+    # node-adres (alias, woord 4) van de print laten staan (dat zet 'Node-adressen…'); 0xFFFF of een kop met
+    # een foute checksum = gewiste of kapotte chip, dan 0
     alias = struct.unpack_from("<H", oud, 8)[0]
-    if not leeg and alias not in (0, 0xFFFF):
-        nieuw, info = sii.maak(o["esi"], int(o.get("serienummer") or 0), alias=alias)
+    if leeg or not kop_goed or alias == 0xFFFF:
+        alias = 0
+    # serienummer: wat de app meegeeft; zonder nummer dat van de slave (behalve van een lege chip)
+    serienummer = gevraagd_sn or (sn if not leeg and sn != 0xFFFFFFFF else 0)
+    # apparaatspecifieke categorieën (type 1-9, bv. kalibratie) mogen niet overschreven worden (ETG.2010 Table 5)
+    cats = [] if leeg else sii.categorieen(oud)
+    behouden = [c for c in cats if sii.is_apparaatspecifiek(c[0])]
+    nieuw, info = sii.maak(o["esi"], serienummer, alias=alias, behouden=behouden)
+    log(f"Uit het ESI: {info['naam']} {info['vendor']}/{info['productcode']} rev {info['revisie']}, sn {info['serienummer'] or '-'}, "
+        f"PDI {info['pdi']}, mailbox {info['mailbox']}, {info['protocollen']}, flags {info['vlaggen']}; "
+        f"{info['bytes']} van {info['eeprom']} bytes.")
+    if alias:
         log(f"Node-adres (alias) {alias} blijft staan.")
+    if serienummer and not gevraagd_sn:
+        log(f"Serienummer {serienummer} van de slave blijft staan.")
+    if behouden:
+        log("Apparaatspecifieke categorie(ën) van de slave blijven staan: " + ", ".join(str(t & 0x7FFF) for t, _ in behouden))
+    nieuwe_types = {t for t, _ in sii.categorieen(nieuw)}
+    weg = sorted({t for t, _ in cats if sii.is_leverancierspecifiek(t) and t not in nieuwe_types})
+    if weg:
+        log("Let op: leverancier-/applicatiespecifieke categorie(ën) op de slave staan niet in het ESI en verdwijnen: "
+            + ", ".join(f"0x{t:04X}" for t in weg) + " (ETG.2010: kan nodig zijn voor de werking).")
+    if len(oud) < len(nieuw):
+        oud += _lees_blok(s, len(oud) // 2, len(nieuw) - len(oud))
+    oud = oud[:len(nieuw)]
     verschil = _gebieden(oud, nieuw)
     for regel in verschil:
         log("  verschilt: " + regel)
@@ -868,11 +921,10 @@ def _werker_eeprom(d: _Drive, o: dict, log) -> dict:
         log("De EEPROM is al precies zo; niets te schrijven.")
         return {"geschreven": 0, "gelijk": True, **info}
     if o.get("alleen_vergelijken"):
-        return {"geschreven": 0, "gelijk": False, "verschillen": verschil, **info}
+        return {"geschreven": 0, "gelijk": False, "verschillen": verschil, **({"weg": [f"0x{t:04X}" for t in weg]} if weg else {}), **info}
 
-    nieuw_sn = int(info["serienummer"] or 0)
     ander = not leeg and ((v, p, r) != (int(info["vendor"], 16), int(info["productcode"], 16), int(info["revisie"], 16))
-                          or (sn not in (0, 0xFFFFFFFF) and nieuw_sn and sn != nieuw_sn))
+                          or (sn not in (0, 0xFFFFFFFF) and gevraagd_sn and sn != gevraagd_sn))
     if ander and not o.get("overschrijven"):
         raise RuntimeError(f"De EEPROM bevat al een andere identiteit (0x{v:08X}/0x{p:08X} rev 0x{r:08X}, sn {sn}). "
                            "Alleen overschrijven als dat zeker de bedoeling is.")

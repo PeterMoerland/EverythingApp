@@ -1547,7 +1547,7 @@
         if (fw is null) return;
         var sn = SerienummerGetal;
         if (!overschrijven && !await Bevestig($"De EEPROM van slave {p.Positie} ({p.Naam}) vullen uit het ESI {fw.EsiBestand} (firmware {fw.Versie})" +
-                                              (sn is uint n ? $", met serienummer {n}" : ", zonder serienummer") +
+                                              (sn is uint n ? $", met serienummer {n}" : "; het serienummer dat er al in staat blijft") +
                                               "?\n\nDaarna moet de print spanning uit/aan krijgen.")) return;
         await VoerTaakUit("mde.eeprom", JsonSerializer.Serialize(EepromBody(p, false, overschrijven)), $"EEPROM vullen — slave {p.Positie} ({p.Naam})", 240, async res =>
         {
