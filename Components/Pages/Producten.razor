@@ -15,6 +15,7 @@
 @inject IConfiguration Config
 @inject WerkplekAgent Agent
 @inject ExemplaarHerkenning Herkenning
+@inject NavigationManager Nav
 @implements IDisposable
 
 <div class="page">
@@ -1744,6 +1745,9 @@
             if (had != Agent.Aanwezig) StateHasChanged();
         }
 
+        // Keuze in de adresbalk bijhouden (Terug in de browser brengt je terug naar dit type/exemplaar/tabblad)
+        if (_urlKlaar && !_urlBezig) PlanAdres();
+
         // Niet aan firstRender hangen: de eerste render komt vóór de typelijst geladen
         // is. Pas als _types gevuld is kunnen we de bewaarde keuze controleren.
         if (_typeHersteld || !Repo.Beschikbaar || _types.Count == 0) return;
@@ -1771,12 +1775,89 @@
         }
         catch { }
 
-        // Geopend vanuit een ander scherm (producten?naam=…&product=…): dat type en exemplaar tonen.
-        if (NaamQuery is not null || ProductQuery is not null)
+        // Geopend vanuit een ander scherm of met Terug (producten?naam=…&product=…&tab=…): dat type, exemplaar en tabblad tonen.
+        _urlBezig = true;
+        try
         {
-            await OpenUitUrl();
-            StateHasChanged();
+            if (NaamQuery is not null || ProductQuery is not null) await OpenUitUrl();
+            ZetTabUitUrl();
         }
+        finally { _urlBezig = false; }
+        _urlKlaar = true;
+        _adresGeschreven = Adres();
+        StateHasChanged();
+    }
+
+    // ================================================================
+    //  Adresbalk (wens gebruiker 5-11-2026): de keuze staat in de URL, zodat Terug in Edge niet een leeg scherm geeft.
+    //  Ander type of exemplaar = een stap in de geschiedenis; ander tabblad = het adres vervangen (geen extra stap).
+    //  Met een korte vertraging, zodat tussenstanden (type gekozen, exemplaar nog niet) geen eigen stap worden.
+    // ================================================================
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabQuery { get; set; }
+
+    private bool _urlKlaar, _urlBezig;
+    private string _adresGeschreven = "";
+    private int _adresTeller;
+
+    /// <summary>Het adres dat bij de huidige keuze hoort (relatief).</summary>
+    private string Adres()
+    {
+        if (_naamId is not int n) return "producten";
+        var a = $"producten?naam={n}";
+        if (_productId is int pid) a += $"&product={pid}";
+        if (_tab != "Algemeen") a += "&tab=" + Uri.EscapeDataString(_tab);
+        return a;
+    }
+
+    private static string Keuze(string adres) => System.Text.RegularExpressions.Regex.Replace(adres, @"&tab=[^&]*", "");
+
+    private void PlanAdres()
+    {
+        if (Adres() == _adresGeschreven) return;
+        var mijn = ++_adresTeller;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(350);
+            await InvokeAsync(() =>
+            {
+                if (mijn != _adresTeller || _urlBezig || !_urlKlaar) return;
+                var nieuw = Adres();
+                if (nieuw == _adresGeschreven) return;
+                var stap = Keuze(nieuw) != Keuze(_adresGeschreven);       // ander type/exemplaar: wel een stap terug
+                _adresGeschreven = nieuw;
+                try { Nav.NavigateTo(nieuw, new NavigationOptions { ReplaceHistoryEntry = !stap }); } catch { }
+            });
+        });
+    }
+
+    private void ZetTabUitUrl()
+    {
+        if (!string.IsNullOrEmpty(TabQuery) && Tabs.Contains(TabQuery)) _tab = TabQuery;
+        else if (string.IsNullOrEmpty(TabQuery) && _tab != "Algemeen" && Tabs.Contains("Algemeen")) _tab = "Algemeen";
+    }
+
+    /// <summary>Terug/Vooruit in de browser binnen dit scherm: de keuze uit het adres overnemen.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_urlKlaar) return;
+        var gevraagd = Nav.ToBaseRelativePath(Nav.Uri);
+        if (gevraagd == _adresGeschreven || gevraagd == Adres()) { _adresGeschreven = gevraagd; return; }
+        _urlBezig = true;
+        try
+        {
+            if (NaamQuery is null && ProductQuery is null)
+            {
+                if (_naamId is not null) { Leegmaken(); _boom = null; }
+            }
+            else if (NaamQuery != _naamId || ProductQuery != _productId)
+            {
+                if (ProductQuery is null && NaamQuery == _naamId) await TerugNaarType();
+                else await OpenUitUrl();
+            }
+            ZetTabUitUrl();
+        }
+        finally { _urlBezig = false; }
+        _adresGeschreven = Adres();
     }
 
     /// <summary>ProductNameID uit de URL (?naam=), bv. vanuit Productie ▸ Producten.</summary>
