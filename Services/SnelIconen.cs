@@ -122,8 +122,12 @@ public class SnelIconen
     /// <summary>Menu-iconen die geen Lucide-naam zijn, vertaald.</summary>
     private static readonly Dictionary<string, string> MenuNaarLucide = new()
     {
-        ["id-badge"] = "id-card", ["cash"] = "banknote", ["bulb"] = "lightbulb", ["volume"] = "volume-2",
+        ["id-badge"] = "id-card", ["cash"] = "banknote", ["bulb"] = "lightbulb", ["volume"] = "volume-2", ["flash"] = "zap",
     };
+
+    /// <summary>Een icoon uit Menu.cs (ook de oude namen zoals 'bulb') als &lt;svg&gt;; onbekend = null.</summary>
+    public string? MenuSvg(string? naam)
+        => Svg(naam is not null && MenuNaarLucide.TryGetValue(naam, out var vertaald) ? vertaald : naam);
 
     /// <summary>Het icoon van de module waar dit adres bij hoort (Menu.cs), anders een algemeen icoon.</summary>
     public string AutoIcoon(string url)

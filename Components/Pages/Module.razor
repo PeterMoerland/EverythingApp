@@ -1,5 +1,6 @@
 @page "/module/{Sleutel}"
 @inject HuidigeGebruiker Ik
+@inject SnelIconen Iconen
 
 @if (_module is null)
 {
@@ -39,7 +40,8 @@ else
                     @foreach (var onder in _module.Onder)
                     {
                         <a class="tegel klaar" href="@onder.Adres">
-                            <span class="tegel-label">@onder.Naam</span>
+                            <span class="tegel-icoon">@Svg(onder.Icoon)</span>
+                            <span class="tegel-tekst"><span class="tegel-label">@onder.Naam</span></span>
                         </a>
                     }
                 </div>
@@ -60,14 +62,18 @@ else
                                 @if (item.Klaar)
                                 {
                                     <a class="tegel klaar" href="@item.Url.TrimStart('/')">
-                                        <span class="tegel-label">@item.Label</span>
+                                        <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
+                                        <span class="tegel-tekst"><span class="tegel-label">@item.Label</span></span>
                                     </a>
                                 }
                                 else
                                 {
                                     <span class="tegel nog-niet" title="Nog niet gemigreerd — gebruik hiervoor voorlopig Access">
-                                        <span class="tegel-label">@item.Label</span>
-                                        <span class="tegel-status">in Access</span>
+                                        <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
+                                        <span class="tegel-tekst">
+                                            <span class="tegel-label">@item.Label</span>
+                                            <span class="tegel-status">in Access</span>
+                                        </span>
                                     </span>
                                 }
                             }
@@ -85,6 +91,9 @@ else
 }
 
 @code {
+    /// <summary>Icoon van een tegel (Lucide, Menu.cs); onbekend = niets.</summary>
+    private MarkupString Svg(string? naam) => new(Iconen.MenuSvg(naam) ?? "");
+
     [Parameter] public string? Sleutel { get; set; }
 
     private MenuModule? _module;
