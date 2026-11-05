@@ -79,6 +79,8 @@ public interface IBestelRepository
     /// </summary>
     Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId);
     Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId);
+    /// <summary>Relations.DefaultMaakdelen: opent het artikelzoekvenster bij deze leverancier eerst op Maakdelen?</summary>
+    Task<bool> DefaultMaakdelenAsync(int? leverancierId);
     /// <summary>Komt het artikel uit Inventor (@ArtikelListInventor)? Alleen dan gaan er bijlages mee.</summary>
     Task<bool> IsInventorArtikelAsync(int artikelId);
     Task ZetEanAsync(int regelId, string ean);
@@ -122,6 +124,7 @@ public class GeenBestelRepository : IBestelRepository
     public Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard) => Task.CompletedTask;
     public Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId) => Task.FromResult<PlakArtikel?>(null);
     public Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId) => Task.FromResult(PlakLeverancier.Geen);
+    public Task<bool> DefaultMaakdelenAsync(int? leverancierId) => Task.FromResult(false);
     public Task<bool> IsInventorArtikelAsync(int artikelId) => Task.FromResult(false);
     public Task ZetEanAsync(int regelId, string ean) => Task.CompletedTask;
     public Task<List<Keuze>> GetContactenAsync(int? leverancierId) => Task.FromResult(new List<Keuze>());
@@ -945,6 +948,16 @@ public class MySqlBestelRepository : IBestelRepository
         bool B(int i) => Convert.ToInt64(r.GetValue(i)) != 0;
         decimal D(int i) => Convert.ToDecimal(r.GetValue(i));
         return new PlakLeverancier(B(0), B(1), B(2), B(3), D(4), D(5), D(6), D(7));
+    }
+
+    public async Task<bool> DefaultMaakdelenAsync(int? leverancierId)
+    {
+        if (leverancierId is not int lev) return false;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT COALESCE(`DefaultMaakdelen`, 0) FROM `Relations` WHERE `id_supplier` = @l LIMIT 1", cn);
+        cmd.Parameters.AddWithValue("@l", lev);
+        var r = await cmd.ExecuteScalarAsync();
+        return r is not null and not DBNull && Convert.ToInt64(r) != 0;
     }
 
     public async Task<bool> IsInventorArtikelAsync(int artikelId)

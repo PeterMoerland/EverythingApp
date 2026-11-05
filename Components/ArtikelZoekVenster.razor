@@ -1,0 +1,161 @@
+@* Artikel zoeken vanuit een bestelregel (wens gebruiker 5-11-2026; Access: dubbelklik op Artikelcode opende
+   ArtikelZoekenInOrders of ZoekMaakdelen, met een knop om te wisselen). Standaard = gekochte artikelen, Maakdelen =
+   artikelen uit Inventor (Artikelen.Maakdeel). Welke eerst opent, bepaalt de leverancier (Relations.DefaultMaakdelen). *@
+@inject IArtikelRepository Artikelen
+@inject IJSRuntime JS
+
+@if (Open)
+{
+    <div class="cmdk-overlay" @onclick="Sluit">
+        <div class="fusion-kijker ec-venster artzoek-venster" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="fusion-kijker-kop">
+                <b>Artikel zoeken</b>
+                <div class="artzoek-soort">
+                    <button class="klein @(_maakdelen ? "" : "actief")" @onclick="() => Wissel(false)">Standaard</button>
+                    <button class="klein @(_maakdelen ? "actief" : "")" @onclick="() => Wissel(true)">Maakdelen</button>
+                </div>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <input @ref="_veld" class="artzoek-zoek" value="@_zoek" @oninput="Getypt" @onkeydown="Toets"
+                       placeholder="@(_maakdelen ? "Steekwoorden of nummer, bv. beugel 3mm rvs of 56083" : "Code, fabrikantcode, omschrijving of merk")" />
+                <div class="uitleg artzoek-status">@_status</div>
+                <div class="artzoek-lijst-omhulsel">
+                    <table class="kiezer-tabel artzoek-lijst">
+                        <thead>
+                            <tr>
+                                <th style="width:5rem">MDE-nr</th>
+                                <th style="width:12rem">Code</th>
+                                <th>Omschrijving</th>
+                                <th style="width:9rem">Merk</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < _lijst.Count; i++)
+                            {
+                                var a = _lijst[i];
+                                var nr = i;
+                                <tr @key="a.Id" class="@(nr == _index ? "actief" : "")" @onclick="() => _index = nr" @ondblclick="() => Kies(a)">
+                                    <td>@a.Id</td>
+                                    <td>@a.Code</td>
+                                    <td>@a.Omschrijving</td>
+                                    <td>@a.Merk</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="artzoek-voet">
+                <span class="uitleg">Dubbelklik of Enter = kiezen · ↑↓ = bladeren · Esc = sluiten</span>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="Sluit">Annuleren</button>
+                <button class="primair" disabled="@(_index < 0 || _index >= _lijst.Count)" @onclick="KiesGeselecteerd">Kiezen</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    /// <summary>Wat er al in de artikelcode stond: daarmee begint het zoeken.</summary>
+    [Parameter] public string Zoek { get; set; } = "";
+    /// <summary>Eerst Maakdelen tonen (Relations.DefaultMaakdelen van de leverancier).</summary>
+    [Parameter] public bool Maakdelen { get; set; }
+    [Parameter] public EventCallback<int> OpGekozen { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private bool _wasOpen, _focus;
+    private bool _maakdelen;
+    private string _zoek = "", _status = "";
+    private List<ArtikelRegel> _lijst = new();
+    private int _index = -1;
+    private int _teller;
+    private ElementReference _veld;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)
+        {
+            _zoek = (Zoek ?? "").Trim();
+            _maakdelen = Maakdelen;
+            _focus = true;
+            await Zoeken();
+        }
+        _wasOpen = Open;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focus && Open)
+        {
+            _focus = false;
+            try { await _veld.FocusAsync(); } catch { }
+        }
+    }
+
+    private async Task Wissel(bool maakdelen)
+    {
+        if (_maakdelen == maakdelen) return;
+        _maakdelen = maakdelen;
+        _focus = true;
+        await Zoeken();
+    }
+
+    /// <summary>Zoeken terwijl je typt, met een korte pauze zodat niet elke letter een query wordt.</summary>
+    private async Task Getypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        var mijn = ++_teller;
+        await Task.Delay(300);
+        if (mijn == _teller) await Zoeken();
+    }
+
+    private async Task Zoeken()
+    {
+        var mijn = ++_teller;
+        var zoek = _zoek.Trim();
+        if (zoek.Length == 0 && !_maakdelen)
+        {
+            // standaardartikelen zijn er duizenden: eerst iets typen
+            _lijst = new(); _index = -1; _status = "Typ een code, fabrikantcode, omschrijving of merk.";
+            return;
+        }
+        _status = "Zoeken…";
+        try
+        {
+            // maakdelen: laatst aangemaakt boven (wens gebruiker)
+            var lijst = await Artikelen.ZoekAsync(zoek, null, _maakdelen, 100, nieuwsteEerst: _maakdelen);
+            if (mijn != _teller) return;
+            _lijst = lijst;
+            _index = _lijst.Count > 0 ? 0 : -1;
+            _status = _lijst.Count == 0 ? $"Niets gevonden bij de {(_maakdelen ? "maakdelen" : "standaardartikelen")}."
+                    : _lijst.Count >= 100 ? "De eerste 100; typ meer om te verfijnen." : $"{_lijst.Count} gevonden.";
+        }
+        catch (Exception ex) { _lijst = new(); _index = -1; _status = "Zoeken mislukt: " + ex.Message; }
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown" when _index < _lijst.Count - 1: _index++; await InBeeld(); break;
+            case "ArrowUp" when _index > 0: _index--; await InBeeld(); break;
+            case "Enter": await KiesGeselecteerd(); break;
+            case "Escape": await Sluit(); break;
+        }
+    }
+
+    private async Task InBeeld()
+    {
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("mdeInBeeld", ".artzoek-lijst tr.actief"); } catch { }
+    }
+
+    private Task KiesGeselecteerd() => _index >= 0 && _index < _lijst.Count ? Kies(_lijst[_index]) : Task.CompletedTask;
+
+    private Task Kies(ArtikelRegel a) => OpGekozen.InvokeAsync(a.Id);
+
+    private Task Sluit() => OpGesloten.InvokeAsync();
+}

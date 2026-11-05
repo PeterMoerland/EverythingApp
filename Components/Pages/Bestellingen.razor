@@ -8,6 +8,7 @@
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
 @inject BestelregelLezer Schermlezer
+@inject IArtikelRepository Artikelen
 
 <div class="page">
     <header class="topbar">
@@ -351,7 +352,10 @@
                                                 }
                                             </select>
                                         </td>
-                                        <td><input value="@regel.Artikelcode" maxlength="100"
+                                        <td><input value="@regel.Artikelcode" maxlength="100" title="Dubbelklik of Alt+Enter: artikel zoeken"
+                                                   @oninput="e => _artikelTekst[regel.Id] = (string?)e.Value ?? string.Empty"
+                                                   @ondblclick="() => OpenArtikelZoek(regel)"
+                                                   @onkeydown="e => ArtikelcodeToets(regel, e)"
                                                    @onchange="e => Zet(regel, v => regel.Artikelcode = v, e)" /></td>
                                         <td><input value="@regel.Omschrijving" maxlength="400"
                                                    @onchange="e => Zet(regel, v => regel.Omschrijving = v, e)" /></td>
@@ -405,6 +409,8 @@
                     </div>
 
                     <BestelMailVenster OrderId="_mailOrder" OpGesloten="MailGesloten" />
+                    <ArtikelZoekVenster Open="_artZoekRegel is not null" Zoek="@_artZoekTekst" Maakdelen="_artZoekMaakdelen"
+                                        OpGekozen="ArtikelGekozen" OpGesloten="() => _artZoekRegel = null" />
                     <PlakVenster Open="_plakOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                     <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
@@ -1450,6 +1456,106 @@
 
     /// <summary>Het artikel waarvan het gegevensvenster openstaat.</summary>
     private int? _bekeken;
+
+    // ================================================================
+    //  Artikel zoeken bij de artikelcode (dubbelklik of Alt+Enter, zoals in Access; wens gebruiker 5-11-2026)
+    // ================================================================
+    private Orderregel? _artZoekRegel;
+    private string _artZoekTekst = "";
+    private bool _artZoekMaakdelen;
+    /// <summary>Wat er in het veld getypt is maar nog niet opgeslagen (onchange komt pas bij het verlaten).</summary>
+    private readonly Dictionary<int, string> _artikelTekst = new();
+
+    private async Task OpenArtikelZoek(Orderregel regel)
+    {
+        _artZoekTekst = _artikelTekst.TryGetValue(regel.Id, out var t) ? t : regel.Artikelcode;
+        try { _artZoekMaakdelen = await Repo.DefaultMaakdelenAsync(LeverancierVanOrder); } catch { _artZoekMaakdelen = false; }
+        _artZoekRegel = regel;
+    }
+
+    private async Task ArtikelcodeToets(Orderregel regel, KeyboardEventArgs e)
+    {
+        if (e.AltKey && e.Key == "Enter") await OpenArtikelZoek(regel);
+    }
+
+    /// <summary>
+    /// Het gekozen artikel in de regel zetten, zoals Access (GetArtikelData): code = bestelnummer bij deze leverancier,
+    /// anders de fabrikantcode, anders de MDE-code; omschrijving uit het artikel; MDE-nummer; prijs per stuk en korting
+    /// van deze leverancier als die bekend is; de minimale bestelhoeveelheid. Daarna de bijlages zoals bij Plakken.
+    /// </summary>
+    private async Task ArtikelGekozen(int artikelId)
+    {
+        var regel = _artZoekRegel;
+        _artZoekRegel = null;
+        if (regel is null) return;
+        _artikelTekst.Remove(regel.Id);
+        try
+        {
+            var a = await Artikelen.GetAsync(artikelId);
+            if (a is null) { Toon($"Artikel #{artikelId} niet gevonden.", true); return; }
+
+            ArtikelLeverancier? lev = null;
+            if (LeverancierVanOrder is int l)
+                try { lev = (await Artikelen.LeveranciersAsync(artikelId)).FirstOrDefault(x => x.LeverancierId == l); } catch { }
+
+            var bestel = (lev?.Artikelnummer ?? "").Trim();
+            var fabriek = (a.CodeFabrikant ?? "").Trim();
+            var code = bestel.Length > 0 ? bestel : fabriek.Length > 0 ? fabriek : a.Code;
+            var oms = a.OmschrijvingNl ?? "";
+            if (bestel.Length > 0 && fabriek.Length > 0 && fabriek != bestel) oms = fabriek + " " + oms;
+
+            regel.Artikelcode = code.Length > 100 ? code[..100] : code;
+            regel.Omschrijving = oms.Length > 400 ? oms[..400] : oms;
+            regel.MdeCode = artikelId.ToString();
+            if (lev is not null)
+            {
+                regel.Prijs = lev.StuksPerVe == 0 ? lev.PrijsPerVe : Math.Round(lev.PrijsPerVe / lev.StuksPerVe, 4);
+                regel.Korting = lev.Korting == 0 ? null : lev.Korting;
+            }
+            if (a.Bestelhoeveelheid is double min && min > 0 && regel.Aantal < min) regel.Aantal = min;
+
+            await BewaarRegel(regel);
+            var bijlagen = await BijlagenVanArtikel(regel, artikelId);
+            Toon($"Artikel {regel.Artikelcode} (#{artikelId}) in de regel gezet" +
+                 (lev is null && LeverancierVanOrder is not null ? "; geen prijs bekend bij deze leverancier" : "") +
+                 (bijlagen > 0 ? $"; {bijlagen} bijlage(s) toegevoegd" : "") + ".", false);
+        }
+        catch (Exception ex) { Toon("Artikel invullen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Bijlages zoals bij Plakken uit klembord: alleen bij een artikel uit Inventor, de bestandssoorten die de leverancier
+    /// wil (Relations.ExportPDF/DXF/STP/STL), de nieuwste per bestandsnaam en alleen als er precies één van die soort is.
+    /// </summary>
+    private async Task<int> BijlagenVanArtikel(Orderregel regel, int artikelId)
+    {
+        if (regel.Id <= 0 || !WnRepo.Beschikbaar) return 0;
+        try
+        {
+            var lev = await Repo.PlakLeverancierAsync(LeverancierVanOrder);
+            if (!lev.Extensies().Any() || !await Repo.IsInventorArtikelAsync(artikelId)) return 0;
+            var nieuwste = (await WnRepo.GetBestandenAsync(StoreTypeArtikel, artikelId))
+                .GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).ThenByDescending(d => d.FileStoreId).First())
+                .ToList();
+            var al = (await WnRepo.GetBestandenAsync(BestelVelden.StoreTypeOrderregel, regel.Id))
+                .Select(d => d.Bestandsnaam).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var n = 0;
+            foreach (var ext in lev.Extensies())
+            {
+                var treffers = nieuwste.Where(d => d.Bestandsnaam.EndsWith(ext, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (treffers.Count != 1 || al.Contains(treffers[0].Bestandsnaam)) continue;
+                var gevonden = await Store.ZoekAsync(treffers[0].FileStoreId);
+                if (gevonden is null) continue;
+                await using var bron = File.OpenRead(gevonden.Value.Pad);
+                await Store.ToevoegenAsync(bron, gevonden.Value.Naam, BestelVelden.StoreTypeOrderregel, regel.Id, Ik.WerknemerId ?? 0);
+                n++;
+            }
+            if (n > 0) await LaadRegels();
+            return n;
+        }
+        catch { return 0; }
+    }
 
 
     private async Task LaadBijlagen()

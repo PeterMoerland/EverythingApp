@@ -1140,6 +1140,17 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 /* de uitgelezen drives: groen kader bij go, rood bij no-go */
 .prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
 .prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+/* Bestellingen: artikel zoeken bij de artikelcode (Standaard / Maakdelen) */
+.fusion-kijker.artzoek-venster { width: min(60rem, 96vw); min-width: 0; height: min(40rem, 86vh); }
+.artzoek-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .3rem; padding: .6rem .8rem; }
+.artzoek-soort { display: flex; gap: .25rem; }
+.artzoek-soort button.actief { background: var(--accent); color: #fff; border-color: var(--accent); }
+.artzoek-zoek { width: 100%; box-sizing: border-box; font-size: 1.05em; padding: .35rem .5rem; }
+.artzoek-lijst-omhulsel { flex: 1; min-height: 0; overflow: auto; }
+.artzoek-lijst tbody tr { cursor: pointer; }
+.artzoek-lijst tbody tr.actief td { background: var(--accent); color: #fff; }
+.artzoek-voet { display: flex; gap: .5rem; align-items: center; padding: .5rem .8rem; border-top: 1px solid #e3e7ec; }
+html[data-thema="donker"] .artzoek-voet { border-color: var(--d3); }
 /* Detecteer: venster zolang de bus gescand wordt */
 .fusion-kijker.busscan-venster { width: min(28rem, 92vw); min-width: 0; padding: 1rem 1.2rem; }
 .busscan-regel { display: flex; gap: .9rem; align-items: center; }

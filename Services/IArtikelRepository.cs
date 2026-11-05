@@ -15,8 +15,9 @@ public interface IArtikelRepository
     /// Gekozen uit de boom: de groep zelf plus alles eronder. Het pad is als tekst
     /// niet altijd in de tabel terug te vinden, met id's klopt de selectie altijd.
     /// </param>
+    /// <param name="nieuwsteEerst">Aflopend op artikelnummer (laatst aangemaakt boven) in plaats van op code.</param>
     Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
-                                       IReadOnlyCollection<int>? groepIds = null);
+                                       IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false);
 
     Task<Artikel?> GetAsync(int artikelId);
     Task<List<ArtikelGroep>> GetGroepenAsync(int artikelId);
@@ -128,7 +129,7 @@ public class GeenArtikelRepository : IArtikelRepository
 {
     public bool Beschikbaar => false;
     public Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
-                                              IReadOnlyCollection<int>? groepIds = null)
+                                              IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false)
         => Task.FromResult(new List<ArtikelRegel>());
     public Task<Artikel?> GetAsync(int artikelId) => Task.FromResult<Artikel?>(null);
     public Task<List<ArtikelGroep>> GetGroepenAsync(int artikelId) => Task.FromResult(new List<ArtikelGroep>());
@@ -242,7 +243,7 @@ public class MySqlArtikelRepository : IArtikelRepository
     //  Zoeken
     // ============================================================
     public async Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
-                                                    IReadOnlyCollection<int>? groepIds = null)
+                                                    IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false)
     {
         // '#4528' betekent: dít artikelnummer, verder niet zoeken.
         var kort = (zoek ?? "").Trim();
@@ -317,7 +318,7 @@ public class MySqlArtikelRepository : IArtikelRepository
             "       COALESCE(a.`OmschrijvingNL`, ''), a.`BrandID` " +
             "  FROM `Artikelen` a " +
             " WHERE " + string.Join(" AND ", delen) +
-            " ORDER BY a.`ArtikelCodeMDE` " +
+            (nieuwsteEerst ? " ORDER BY a.`ArtikelID` DESC " : " ORDER BY a.`ArtikelCodeMDE` ") +
             $" LIMIT {Math.Clamp(max, 1, 500)}", cn);
 
         for (var i = 0; i < woorden.Count; i++)
