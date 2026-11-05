@@ -92,7 +92,7 @@
                     }
                 </div>
 
-                <div class="wn-namen product-namen">
+                <div class="wn-namen product-namen" data-rustig-scrollen>
                     @if (NamenGefilterd().Count == 0)
                     {
                         <div class="kiezer-info">Niets gevonden.</div>
@@ -131,6 +131,9 @@
                     <button class="klein" @onclick="NieuwType">+ Type</button>
                     <button class="klein rood" disabled="@(_naamId is null)" @onclick="WisType">✕ Type wissen</button>
                 </div>
+                @* sleepgreep: typelijst hoger/lager (wwwroot/paneelgreep.js); dubbelklik = standaard *@
+                <div class="paneelgreep" data-doel=".product-namen" data-sleutel="producten.namen"
+                     title="Slepen: typelijst hoger of lager · dubbelklik: standaardhoogte"></div>
 
                 @* "van <type>": welk type deze lijst is, ook als dat type in de typelijst weggescrold is (verbeterverzoek 36) *@
                 <h3 class="wn-kop">Exemplaren@(_naam is not null ? " van " + _naam.Naam : "") <small class="uitleg">(@_producten.Count, nieuwste boven)</small></h3>
@@ -174,7 +177,7 @@
                         </div>
                     }
                 </div>
-                <div class="wn-namen kort product-exemplaren">
+                <div class="wn-namen kort product-exemplaren" data-rustig-scrollen>
                     @if (_naamId is null)
                     {
                         <div class="kiezer-info">Kies eerst een producttype.</div>
@@ -229,7 +232,11 @@
                         <button class="klein rood" disabled="@(_productId is null)" @onclick="WisProduct">✕ Wissen</button>
                     }
                 </div>
+                <div class="paneelgreep" data-doel=".product-exemplaren" data-sleutel="producten.exemplaren"
+                     title="Slepen: exemplarenlijst hoger of lager · dubbelklik: standaardhoogte"></div>
 
+                @* selectie en groepsbewerking: eigen scrollbalk als de ruimte op is, zodat de lijst erboven niet krimpt *@
+                <div class="product-onder">
                 @if (_producten.Count > 0)
                 {
                     <div class="btngroep-rand">
@@ -293,6 +300,7 @@
                         </div>
                     </div>
                 }
+                </div>
             </aside>
 
             @* ---------- rechts: type of exemplaar ---------- *@
@@ -1631,6 +1639,7 @@
         if (firstRender && Repo.Beschikbaar)
         {
             try { await _scanVeld.FocusAsync(); } catch { }
+            try { await JS.InvokeVoidAsync("mdeGreep.herstel"); } catch { }   // eigen hoogtes van de lijsten
         }
         if (_naarType)
         {

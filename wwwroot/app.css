@@ -2033,9 +2033,18 @@ html[data-thema="donker"] .grnieuw { background: var(--d1); border-color: var(--
 .merk-kiezer input { width: 100%; }
 
 /* ---- Producten: linkerkolom zo hoog als het scherm, exemplarenlijst vult de rest ---- */
-.product-lijst { display: flex; flex-direction: column; height: calc(100vh - 8.5rem); position: sticky; top: .6rem; overflow: hidden; }
-.product-lijst .product-namen { max-height: 26vh; flex-shrink: 0; }
-.product-lijst .product-exemplaren { flex: 1 1 auto; max-height: none; min-height: 6rem; }
+.product-lijst { display: flex; flex-direction: column; height: calc(100vh - 8.5rem); position: sticky; top: .6rem; overflow: hidden auto; }   /* past het niet meer: scrollen i.p.v. afknippen */
+.product-lijst .product-namen { max-height: 26vh; flex: 0 10 auto; min-height: 3.2rem; }   /* krimpt na de exemplaren */
+.product-lijst .product-exemplaren { flex: 1 1000 auto; max-height: none; min-height: 6rem; }   /* krimpt eerst; daarna .product-onder */
+/* Sleepgrepen tussen de panelen (paneelgreep.js) en het blok voor de groepsbewerking met eigen scrollbalk */
+.product-lijst .product-onder { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.product-lijst .product-onder:has(.groepsblok) { min-height: 7.5rem; }
+.paneelgreep { flex-shrink: 0; height: 9px; margin: 0 .5rem; cursor: row-resize; touch-action: none; position: relative; }
+.paneelgreep::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2.6rem; height: 3px; margin-left: -1.3rem;
+    border-radius: 2px; background: #c3ccd6; }
+.paneelgreep:hover::after, .paneelgreep.bezig::after { background: var(--accent); width: 4rem; margin-left: -2rem; }
+html[data-thema="donker"] .paneelgreep::after { background: var(--d3); }
+html[data-thema="donker"] .paneelgreep:hover::after, html[data-thema="donker"] .paneelgreep.bezig::after { background: var(--accent); }
 /* Exemplaarregel: smal serienummer gecentreerd, status (PREPROD past), klant op één regel (…) */
 .wn-naam.exemplaar-regel { display: grid; grid-template-columns: minmax(3.2rem, max-content) 1.4rem minmax(4.9rem, max-content) minmax(0, 1fr); gap: .5rem; align-items: baseline; padding: .22rem .5rem; }
 .wn-naam.exemplaar-regel .nummer { min-width: 0; text-align: center; }
