@@ -1391,10 +1391,19 @@
         catch (Exception ex) { Toon("Regel toevoegen mislukt: " + ex.Message, true); }
     }
 
+    /// <summary>Niets ingevuld behalve wat een nieuwe regel al meekrijgt (aantal, eenheid, leverdatum).</summary>
+    private bool IsLeeg(Orderregel r)
+        => string.IsNullOrWhiteSpace(_artikelTekst.GetValueOrDefault(r.Id) ?? r.Artikelcode)
+           && string.IsNullOrWhiteSpace(r.Artikelcode) && string.IsNullOrWhiteSpace(r.Omschrijving)
+           && string.IsNullOrWhiteSpace(r.MdeCode) && string.IsNullOrWhiteSpace(r.Opmerking)
+           && r.Prijs is null or 0 && r.Schatprijs is null or 0
+           && r.Bijlagen == 0 && r.Geleverd == 0;
+
     private async Task VerwijderRegel(Orderregel regel)
     {
+        // Een lege regel (bv. per ongeluk "+ Regel") gaat zonder vraag weg (wens gebruiker 5-11-2026).
         var wat = string.IsNullOrWhiteSpace(regel.Artikelcode) ? "deze regel" : regel.Artikelcode;
-        if (!await Bevestig($"'{wat}' van deze bestelling verwijderen?")) return;
+        if (!IsLeeg(regel) && !await Bevestig($"'{wat}' van deze bestelling verwijderen?")) return;
 
         try
         {
