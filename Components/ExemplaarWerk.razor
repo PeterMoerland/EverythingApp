@@ -151,37 +151,49 @@
             }
             <button class="klein" @onclick="() => _drives = null">Sluiten</button>
         </div>
-        @* Het gelezen serienummer hoort bij een ander exemplaar: niets opgeslagen, naar het juiste gaan (wens gebruiker 5-11-2026) *@
+        @* Het gelezen serienummer hoort bij een ander exemplaar: niets opgeslagen, naar het juiste gaan (wens gebruiker 5-11-2026;
+           eerst een geel blok, op verzoek een popup). Weggeklikt = een knopje in de kop om hem terug te halen. *@
         @if (_anderRedenen.Count > 0 && !_drivesOpgeslagen)
         {
-            <div class="prod-ander">
-                @if (_anderExemplaar is { } ander)
-                {
-                    <div><b>⚠ Verkeerd exemplaar gekozen?</b> Dit lijkt <b>@ander.Code @ander.Serienummer</b> te zijn, niet @Naam.Naam @Exemplaar.Serienummer.</div>
-                }
-                else
-                {
-                    <div><b>⚠ De serienummers horen bij verschillende exemplaren.</b></div>
-                }
-                <ul>
-                    @foreach (var reden in _anderRedenen)
-                    {
-                        <li>@reden</li>
-                    }
-                </ul>
-                <div class="prod-ander-knoppen">
-                    <span class="uitleg">@(ProductModus ? "Of koppel de print op het tabblad Samenstelling als hij hier echt in zit." : "Er is niets opgeslagen.")</span>
-                    @if (_anderExemplaar is { } naar && OpAnderExemplaar.HasDelegate)
-                    {
-                        <button class="primair klein" @onclick="() => OpAnderExemplaar.InvokeAsync(naar)">→ Naar @naar.Code @naar.Serienummer</button>
-                    }
-                    @if (!ProductModus)
-                    {
-                        <button class="klein" disabled="@(!Mag || _bezig || !_drivesGo)" @onclick="TochHierOpslaan"
-                                title="De gelezen serienummers toch bij dit exemplaar opslaan">Toch bij dit exemplaar opslaan</button>
-                    }
+            @if (_anderGesloten)
+            {
+                <button class="klein prod-ander-terug" @onclick="() => _anderGesloten = false">⚠ Ander exemplaar?</button>
+            }
+            else
+            {
+                <div class="cmdk-overlay midden">
+                    <div class="fusion-kijker ec-venster prod-ander-venster" role="dialog" aria-modal="true">
+                        <div class="fusion-kijker-kop">
+                            <b>⚠ @(_anderExemplaar is null ? "Serienummers horen bij verschillende exemplaren" : "Verkeerd exemplaar gekozen?")</b>
+                        </div>
+                        <div class="fusion-kijker-inhoud">
+                            @if (_anderExemplaar is { } ander)
+                            {
+                                <p>Dit lijkt <b>@ander.Code @ander.Serienummer</b> te zijn, niet <b>@Naam.Naam @Exemplaar.Serienummer</b>.</p>
+                            }
+                            <ul>
+                                @foreach (var reden in _anderRedenen)
+                                {
+                                    <li>@reden</li>
+                                }
+                            </ul>
+                            <p class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan op het tabblad Samenstelling." : "Er is niets opgeslagen.")</p>
+                            <div class="prod-ander-knoppen">
+                                @if (_anderExemplaar is { } naar && OpAnderExemplaar.HasDelegate)
+                                {
+                                    <button class="primair" @onclick="() => OpAnderExemplaar.InvokeAsync(naar)">→ Naar @naar.Code @naar.Serienummer</button>
+                                }
+                                @if (!ProductModus)
+                                {
+                                    <button class="klein" disabled="@(!Mag || _bezig || !_drivesGo)" @onclick="TochHierOpslaan"
+                                            title="De gelezen serienummers toch bij dit exemplaar opslaan">Toch bij dit exemplaar opslaan</button>
+                                }
+                                <button class="klein" @onclick="() => _anderGesloten = true">Hier blijven</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            }
         }
         @if (_drives.Count > 0)
         {
@@ -4787,6 +4799,7 @@
     // ---------------------------------------------------------------- verkeerd exemplaar gekozen?
     private SamenstellingRegel? _anderExemplaar;
     private List<string> _anderRedenen = new();
+    private bool _anderGesloten;   // popup weggeklikt met "Hier blijven"
 
     /// <summary>
     /// Na uitlezen (los exemplaar): hoort een gelezen serienummer al bij een ander exemplaar (attribuut drive/can:n:serienummer),
@@ -4797,6 +4810,7 @@
     {
         _anderExemplaar = null;
         _anderRedenen = new();
+        _anderGesloten = false;
         if (ProductModus)
         {
             // Product (robot): zitten er prints op die niet in de samenstelling staan, dan is misschien het verkeerde
