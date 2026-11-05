@@ -1140,8 +1140,12 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 /* de uitgelezen drives: groen kader bij go, rood bij no-go */
 .prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
 .prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+/* Detecteer: venster zolang de bus gescand wordt */
+.fusion-kijker.busscan-venster { width: min(28rem, 92vw); min-width: 0; padding: 1rem 1.2rem; }
+.busscan-regel { display: flex; gap: .9rem; align-items: center; }
+.busscan-draaier { width: 1.8rem; height: 1.8rem; border-width: 3px; }
 /* Uitgelezen serienummer hoort bij een ander exemplaar: popup */
-.prod-ander-venster { width: min(34rem, 94vw); border-top: 4px solid #e8a33d; }
+.fusion-kijker.prod-ander-venster { width: min(34rem, 94vw); min-width: 0; border-top: 4px solid #e8a33d; }
 .prod-ander-venster .fusion-kijker-inhoud { padding: .6rem .9rem .8rem; }
 .prod-ander-venster p { margin: .2rem 0 .4rem; }
 .prod-ander-venster ul { margin: .2rem 0 .5rem 1.2rem; padding: 0; }

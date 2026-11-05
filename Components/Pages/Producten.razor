@@ -39,6 +39,8 @@
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="SluitMelding">@_melding</div>
         }
 
+        <BusScanMelding Zichtbaar="_detecteert" />
+
         <div class="wn-scherm">
             @* ---------- links: types en exemplaren ---------- *@
             <aside class="wn-lijst product-lijst">
@@ -3063,7 +3065,7 @@
     {
         if (_detecteert) return;
         _detecteert = true;
-        Toon("Bus uitlezen…", false);
+        SluitMelding();
         StateHasChanged();
         try
         {

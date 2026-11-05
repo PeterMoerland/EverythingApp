@@ -29,7 +29,8 @@ public class ExemplaarHerkenning
     public sealed record Uitkomst(SamenstellingRegel? Regel, string Melding, bool Zeker);
 
     /// <summary>De bus uitlezen via de werkplek-agent (/drives) en het exemplaar bepalen.</summary>
-    public async Task<Uitkomst> HerkenAsync(IJSRuntime js)
+    /// <param name="toegestaan">Alleen deze producttypen (ProductNameId) mogen de uitkomst zijn, bv. de halffabricaten op de werkplek.</param>
+    public async Task<Uitkomst> HerkenAsync(IJSRuntime js, Func<int, bool>? toegestaan = null)
     {
         var a = await _agent.VraagAsync(js, "/drives", 60);
         if (a.Status == 409) return new(null, "De agent is met een andere taak bezig; probeer het zo opnieuw.", false);
@@ -53,11 +54,11 @@ public class ExemplaarHerkenning
         catch (Exception ex) { return new(null, "Antwoord van de agent niet te lezen: " + ex.Message, false); }
 
         if (slaves.Count == 0) return new(null, "Geen EtherCAT-slaves gevonden. Adapter aangesloten en spanning aan?", false);
-        return await BepaalAsync(slaves);
+        return await BepaalAsync(slaves, toegestaan);
     }
 
     /// <summary>Het exemplaar bij deze slaves (positie, serienummer).</summary>
-    public async Task<Uitkomst> BepaalAsync(IReadOnlyList<(int Positie, string Serienummer)> slaves)
+    public async Task<Uitkomst> BepaalAsync(IReadOnlyList<(int Positie, string Serienummer)> slaves, Func<int, bool>? toegestaan = null)
     {
         var halven = new List<SamenstellingRegel>();
         foreach (var (_, ruw) in slaves)
@@ -94,11 +95,25 @@ public class ExemplaarHerkenning
             return new(null, "De serienummers horen bij exemplaren die niet in hetzelfde product zitten: " +
                              string.Join(", ", halven.Select(Naam)) + ".", false);
 
-        for (var i = samen.Count - 1; i >= 0; i--)
-            if (await AantalPosities(samen[i].ProductNameId) == slaves.Count)
-                return new(samen[i], $"Herkend: {Naam(samen[i])}" +
-                                     (samen[i].ProductId != halven[0].ProductId || halven.Count > 1
-                                         ? $" (via {string.Join(", ", halven.Select(Naam))})" : "") + ".", true);
+        // het exemplaar dat er echt aan hangt (hoogste met het juiste aantal posities), los van wat dit scherm toont
+        SamenstellingRegel? aanDeBus = null;
+        for (var i = samen.Count - 1; i >= 0 && aanDeBus is null; i--)
+            if (await AantalPosities(samen[i].ProductNameId) == slaves.Count) aanDeBus = samen[i];
+
+        if (toegestaan is not null)
+        {
+            var mag = samen.Where(c => toegestaan(c.ProductNameId)).ToList();
+            if (mag.Count == 0)
+                return new(null, $"Aan de bus hangt {Naam(aanDeBus ?? samen[^1])}; dat hoort niet op dit scherm.", false);
+            if (aanDeBus is null || !toegestaan(aanDeBus.ProductNameId))
+                return new(mag[^1], $"Herkend: {Naam(mag[^1])}" +
+                                    (aanDeBus is not null ? $" (zit in {Naam(aanDeBus)}, dat hangt aan de bus)." : "."), aanDeBus is null ? false : true);
+        }
+
+        if (aanDeBus is not null)
+            return new(aanDeBus, $"Herkend: {Naam(aanDeBus)}" +
+                                 (aanDeBus.ProductId != halven[0].ProductId || halven.Count > 1
+                                     ? $" (via {string.Join(", ", halven.Select(Naam))})" : "") + ".", true);
 
         return new(samen[0], $"Waarschijnlijk {Naam(samen[0])}: {slaves.Count} slave(s) gevonden, dat past bij geen enkel type in de samenstelling.", false);
     }

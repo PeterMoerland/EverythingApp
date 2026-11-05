@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject WerkplekAgent Agent
+@inject ExemplaarHerkenning Herkenning
 
 @* Productie ▸ Half-fabricaten (en /productie/motor): de werkplek. Kies het halffabricaat,
    scan of typ het serienummer, en het exemplaar staat op het scherm met attributen en
@@ -43,6 +44,8 @@
         {
             <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
         }
+
+        <BusScanMelding Zichtbaar="_detecteert" />
 
         @* ---------- stap 1: het halffabricaat ---------- *@
         <section class="prod-stap">
@@ -91,6 +94,13 @@
                 <button class="primair" disabled="@_bezig" @onclick="ZoekSerie">Ophalen</button>
                 <button class="klein" disabled="@(_bezig || _naam is null)" @onclick="OpenKiezer"
                         title="@KiezerTitel">🔍 Zoeken…</button>
+                @if (Agent.Aanwezig == true)
+                {
+                    <button class="klein" disabled="@(_bezig || _detecteert)" @onclick="Detecteer"
+                            title="De EtherCAT-bus uitlezen en de aangesloten print kiezen (halffabricaat en serienummer)">
+                        @(_detecteert ? "Zoeken…" : "🔌 Detecteer")
+                    </button>
+                }
                 @if (_exemplaar is not null)
                 {
                     <button class="klein" @onclick="Wis">Volgende print</button>
@@ -575,6 +585,30 @@
             p.StatusKort.Contains(w, StringComparison.OrdinalIgnoreCase) ||
             p.Klant.Contains(w, StringComparison.OrdinalIgnoreCase) ||
             p.Opmerking.Contains(w, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
+    // ---- auto-detect: welke print hangt er aan de adapter (wens gebruiker 5-11-2026, ook op de werkplek)
+    private bool _detecteert;
+
+    private async Task Detecteer()
+    {
+        if (_detecteert) return;
+        _detecteert = true;
+        _melding = null;
+        StateHasChanged();
+        try
+        {
+            // alleen wat dit scherm kent (halffabricaten, of motoren op /productie/motor), los van het zoekfilter
+            var alle = await Repo.ZoekProductnamenAsync(null, _typeId);
+            var u = await Herkenning.HerkenAsync(JS, id => alle.Any(n => n.Id == id));
+            if (u.Regel is null) { Toon(u.Melding, true); return; }
+            if (_namen.All(n => n.Id != u.Regel.ProductNameId)) { _zoek = ""; await LaadNamen(); }
+            if (_groepId is not null && alle.FirstOrDefault(n => n.Id == u.Regel.ProductNameId)?.GroepId != _groepId) _groepId = null;
+            await NaarAnderExemplaar(u.Regel);
+            if (_exemplaar is not null && _exemplaar.Id == u.Regel.ProductId) Toon(u.Melding, !u.Zeker);
+        }
+        catch (Exception ex) { Toon("Detecteren mislukt: " + ex.Message, true); }
+        finally { _detecteert = false; }
     }
 
     /// <summary>Het uitgelezen serienummer hoort bij een ander exemplaar: dat openen (zelfde type op serienummer, anders op id).</summary>

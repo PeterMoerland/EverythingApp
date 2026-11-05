@@ -1,0 +1,20 @@
+@* Venster midden in beeld zolang Detecteer de EtherCAT-bus scant (wens gebruiker 5-11-2026).
+   Gebruikt in Producten en op de werkplek (TestPcb). *@
+@if (Zichtbaar)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker ec-venster busscan-venster" role="status" aria-live="polite">
+            <div class="busscan-regel">
+                <span class="draaier busscan-draaier"></span>
+                <div>
+                    <b>🔌 EtherCAT-bus scannen…</b>
+                    <div class="uitleg">De slaves uitlezen en het exemplaar bij de serienummers zoeken. Dit duurt een paar seconden.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Zichtbaar { get; set; }
+}
