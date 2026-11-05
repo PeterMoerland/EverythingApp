@@ -1199,6 +1199,43 @@
                     }
                 }
             </section>
+
+            @* ---------- rechts: de samenstelling als boom (wens gebruiker 5-11-2026): bovenste product met alles
+                 eronder, het gekozen exemplaar gemarkeerd; klikken = naar dat exemplaar, op hetzelfde tabblad ---------- *@
+            @if ((_productId is not null || _boomBezig) && _boom is { Kinderen.Count: > 0 })
+            {
+                <aside class="product-boom">
+                    <div class="boom-kop">
+                        <span>Samenstelling</span>
+                        <button class="klein" title="Opnieuw laden" @onclick="() => LaadBoom(true)">⟳</button>
+                    </div>
+                    <div class="boom-lijst" data-rustig-scrollen>
+                        @foreach (var k in BoomZichtbaar(_boom))
+                        {
+                            var actief = k.Regel.ProductId == _productId;
+                            <div @key="k.Regel.ProductId" class="boom-knoop" style="padding-left:@(k.Diepte * 14)px">
+                                @if (k.Kinderen.Count > 0)
+                                {
+                                    <button class="boom-pijl" title="@(k.Open ? "Inklappen" : "Uitklappen")" @onclick="() => k.Open = !k.Open">@(k.Open ? "▾" : "▸")</button>
+                                }
+                                else
+                                {
+                                    <span class="boom-pijl"></span>
+                                }
+                                <button class="wn-naam @(actief ? "actief" : "") @(k.Regel.Afgekeurd ? "vervallen" : "")"
+                                        title="@BoomTip(k)" @onclick="() => BoomKies(k)">
+                                    <span class="boom-code">@k.Regel.Code</span>
+                                    <span class="boom-sn">@k.Regel.Serienummer</span>
+                                </button>
+                            </div>
+                        }
+                        @if (_boomAfgekapt)
+                        {
+                            <p class="uitleg">Niet alles getoond: de samenstelling is erg groot.</p>
+                        }
+                    </div>
+                </aside>
+            }
         </div>
     }
 
@@ -2326,17 +2363,132 @@
         catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
     }
 
-    private async Task LaadSamenstelling()
+    private async Task LaadSamenstelling(bool boomOpnieuw = false)
     {
-        if (_productId is null) { _onderdelen = new(); _gebruiktIn = null; return; }
+        if (_productId is null) { _onderdelen = new(); _gebruiktIn = null; _boom = null; return; }
         try { _onderdelen = await Repo.GetOnderdelenAsync(_productId.Value); } catch { _onderdelen = new(); }
         try { _gebruiktIn = await Repo.GetGebruiktInAsync(_productId.Value); } catch { _gebruiktIn = null; }
+        await LaadBoom(boomOpnieuw);
+    }
+
+    // ================================================================
+    //  Boom van de samenstelling (rechts): bovenste product en alles eronder
+    // ================================================================
+    private sealed class BoomKnoop
+    {
+        public required SamenstellingRegel Regel { get; init; }
+        public int Diepte { get; init; }
+        public BoomKnoop? Ouder { get; init; }
+        public List<BoomKnoop> Kinderen { get; } = new();
+        public bool Open { get; set; }
+    }
+
+    private BoomKnoop? _boom;
+    private readonly Dictionary<int, BoomKnoop> _boomKnopen = new();
+    private bool _boomAfgekapt;
+    private bool _boomBezig;
+    private int _boomVersie;
+    private const int BoomMaxKnopen = 300, BoomMaxDiepte = 8;
+
+    /// <summary>
+    /// Bouwt de boom rond het gekozen exemplaar: eerst omhoog tot het bovenste product, dan alles eronder.
+    /// Zit het exemplaar al in de geladen boom (gekozen via de boom), dan alleen de markering en het pad openzetten.
+    /// </summary>
+    private async Task LaadBoom(bool opnieuw = false)
+    {
+        if (_productId is not int pid || _product is null) { _boom = null; _boomKnopen.Clear(); return; }
+        if (!opnieuw && _boomKnopen.TryGetValue(pid, out var bekend)) { OpenPad(bekend); return; }
+
+        var versie = ++_boomVersie;
+        var gezien = new HashSet<int> { pid };
+        SamenstellingRegel? top = null;
+        var id = pid;
+        try
+        {
+            for (var i = 0; i < BoomMaxDiepte; i++)
+            {
+                var ouder = await Repo.GetGebruiktInAsync(id);
+                if (ouder is null || !gezien.Add(ouder.ProductId)) break;
+                top = ouder;
+                id = ouder.ProductId;
+            }
+
+            var wortel = new BoomKnoop
+            {
+                Regel = top ?? new SamenstellingRegel(pid, _naamId ?? 0, _naamNaam, _product.Serienummer, _naamOms, ""),
+                Open = true
+            };
+            var knopen = new Dictionary<int, BoomKnoop> { [wortel.Regel.ProductId] = wortel };
+            var afgekapt = false;
+            var rij = new Queue<BoomKnoop>();
+            rij.Enqueue(wortel);
+            while (rij.Count > 0)
+            {
+                var k = rij.Dequeue();
+                if (k.Diepte >= BoomMaxDiepte) continue;
+                foreach (var o in await Repo.GetOnderdelenAsync(k.Regel.ProductId))
+                {
+                    if (knopen.ContainsKey(o.ProductId)) continue;            // nooit twee keer (en geen lus)
+                    if (knopen.Count >= BoomMaxKnopen) { afgekapt = true; break; }
+                    var kind = new BoomKnoop { Regel = o, Diepte = k.Diepte + 1, Ouder = k };
+                    k.Kinderen.Add(kind);
+                    knopen[o.ProductId] = kind;
+                    rij.Enqueue(kind);
+                }
+            }
+            if (versie != _boomVersie) return;                                  // intussen een ander exemplaar gekozen
+
+            _boom = wortel;
+            _boomKnopen.Clear();
+            foreach (var (k, v) in knopen) _boomKnopen[k] = v;
+            _boomAfgekapt = afgekapt;
+            if (_boomKnopen.TryGetValue(pid, out var gekozen)) OpenPad(gekozen);
+        }
+        catch
+        {
+            if (versie == _boomVersie) { _boom = null; _boomKnopen.Clear(); }
+        }
+    }
+
+    /// <summary>Het gekozen exemplaar en alles erboven openklappen, zodat het in beeld staat met zijn onderdelen.</summary>
+    private static void OpenPad(BoomKnoop k)
+    {
+        for (var x = k; x is not null; x = x.Ouder) x.Open = true;
+    }
+
+    private static IEnumerable<BoomKnoop> BoomZichtbaar(BoomKnoop k)
+    {
+        yield return k;
+        if (!k.Open) yield break;
+        foreach (var kind in k.Kinderen)
+            foreach (var x in BoomZichtbaar(kind)) yield return x;
+    }
+
+    private static string BoomTip(BoomKnoop k)
+    {
+        var r = k.Regel;
+        var tip = r.Code + (r.Serienummer.Length > 0 ? " · " + r.Serienummer : "");
+        if (r.Omschrijving.Length > 0) tip += "\n" + r.Omschrijving;
+        if (r.Afgekeurd) tip += "\nAfgekeurd";
+        if (k.Kinderen.Count > 0) tip += $"\n{k.Kinderen.Count} onderde{(k.Kinderen.Count == 1 ? "el" : "len")}";
+        return tip;
+    }
+
+    /// <summary>Klik in de boom: naar dat exemplaar, op hetzelfde tabblad als het daar bestaat.</summary>
+    private async Task BoomKies(BoomKnoop k)
+    {
+        if (k.Regel.ProductId == _productId) { if (k.Kinderen.Count > 0) k.Open = !k.Open; return; }
+        var tab = _tab;
+        _boomBezig = true;                       // boom laten staan terwijl het andere exemplaar laadt (geen verspringen)
+        try { await GaNaar(k.Regel, tab); }
+        finally { _boomBezig = false; }
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
     }
 
     /// <summary>Na koppelen/ontkoppelen in de SamenstellingKiezer: onderdelen en historie verversen.</summary>
     private async Task NaSamenstellingWijziging()
     {
-        await LaadSamenstelling();
+        await LaadSamenstelling(true);
         if (_productId is int pid) { try { _historie = await Repo.GetHistorieAsync(pid); } catch { } }
     }
 
@@ -2843,7 +2995,7 @@
 
             _vrijZoek = "";
             _vrije = new();
-            await LaadSamenstelling();
+            await LaadSamenstelling(true);
             _historie = await Repo.GetHistorieAsync(_productId.Value);
             Toon($"{v.Serienummer} toegevoegd aan de samenstelling.", false);
         }
@@ -2862,7 +3014,7 @@
             await Repo.VoegHistorieToeAsync(_productId.Value,
                 $"Product {o.Serienummer} uit samenstelling gehaald",
                 ProductVelden.HistorieLevensloop, Ik.WerknemerId);
-            await LaadSamenstelling();
+            await LaadSamenstelling(true);
             _historie = await Repo.GetHistorieAsync(_productId.Value);
             Toon($"{o.Serienummer} uit de samenstelling gehaald.", false);
         }
