@@ -1196,6 +1196,12 @@ html[data-thema="donker"] .bits-crc { background: #2b4a73; color: #d6e2f0; }
 .prod-test-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
 .prod-log-kort { max-height: 12rem; overflow: auto; }
 .kiezer-tabel tr.hist-onderdeel td { font-style: italic; }
+/* Historie incl. onderdelen: kiezen van welk exemplaar */
+.hist-bronnen { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0 0 .5rem; }
+.hist-bronnen button.actief { background: var(--accent); color: #fff; border-color: var(--accent); }
+.hist-aantal { margin-left: .3rem; padding: 0 .35rem; border-radius: 99px; background: rgba(0,0,0,.08); font-size: .85em; font-variant-numeric: tabular-nums; }
+.hist-bronnen button.actief .hist-aantal { background: rgba(255,255,255,.25); }
+html[data-thema="donker"] .hist-aantal { background: rgba(255,255,255,.12); }
 .prod-dual-teach { display: flex; gap: 1.2rem; flex-wrap: wrap; width: 100%; margin: .2rem 0; }
 .prod-dual-teach > div { display: flex; align-items: center; gap: .5rem; padding: .3rem .6rem; border: 1px solid #dfe4ea; border-radius: 6px; }
 html[data-thema="donker"] .prod-dual-teach > div { border-color: #2b4a73; }

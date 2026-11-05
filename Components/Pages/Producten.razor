@@ -484,9 +484,9 @@
                                 <input type="checkbox" checked="@_histMetOnderdelen" @onchange="HistOnderdelenGewijzigd" /> incl. onderdelen
                             </label>
                             <span class="uitleg">@HistorieGefilterd.Count van @(_historie.Count + (_histMetOnderdelen ? _histOnderdelen.Count : 0))</span>
-                            @if (_histZoek.Length > 0 || _histSoortFilter.Length > 0 || _histUitkomst.Length > 0)
+                            @if (_histZoek.Length > 0 || _histSoortFilter.Length > 0 || _histUitkomst.Length > 0 || (_histMetOnderdelen && _histBronnen.Count > 0))
                             {
-                                <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; }">✕ wissen</button>
+                                <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; _histBronnen.Clear(); }">✕ wissen</button>
                             }
                             @if (MagHistorieWissen && HistGekozen.Count > 0)
                             {
@@ -494,6 +494,24 @@
                                         title="De aangevinkte regels definitief uit de historie halen (alleen Directie)">🗑 @HistGekozen.Count regel(s) wissen…</button>
                             }
                         </div>
+
+                        @* Met onderdelen: kiezen van welke exemplaren de historie te zien is (wens gebruiker 5-11-2026).
+                           Klik = alleen die; nog een klik op een andere = die erbij; Alles = weer alles. *@
+                        @if (_histMetOnderdelen && _histBronVolgorde.Count > 0)
+                        {
+                            <div class="hist-bronnen">
+                                <button class="klein @(_histBronnen.Count == 0 ? "actief" : "")" @onclick="() => _histBronnen.Clear()">Alles</button>
+                                @foreach (var b in HistBronLijst)
+                                {
+                                    var bron = b.Bron;
+                                    <button class="klein @(_histBronnen.Contains(bron) ? "actief" : "")" title="@(bron.Length == 0 ? "De historie van dit exemplaar zelf" : bron)"
+                                            @onclick="() => KiesHistBron(bron)">
+                                        @(bron.Length == 0 ? "Dit exemplaar" : bron.Split(" › ")[^1])
+                                        <span class="hist-aantal">@b.Aantal</span>
+                                    </button>
+                                }
+                            </div>
+                        }
 
                         <table class="kiezer-tabel">
                             <thead>
@@ -504,7 +522,7 @@
                                                                       title="Alle getoonde regels aanvinken (combineer met het filter 'alleen mislukt')" /></th>
                                     }
                                     <th style="width:10rem">Wanneer</th>
-                                    @if (_histMetOnderdelen) { <th style="width:12rem">Van</th> }
+                                    @if (HistToonVan) { <th style="width:12rem">Van</th> }
                                     <th style="width:10rem">Soort</th>
                                     <th>Gebeurtenis</th>
                                     <th style="width:11rem">Door</th>
@@ -520,7 +538,7 @@
                                             <td><input type="checkbox" checked="@_histGekozen.Contains(h.Id)" @onchange="e => KiesHist(h.Id, e)" /></td>
                                         }
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
-                                        @if (_histMetOnderdelen) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
+                                        @if (HistToonVan) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
                                         <td>@HistorieTekst(h.Event)</td>
                                         <td>@h.Door</td>
@@ -2706,6 +2724,8 @@
     private bool _histMetOnderdelen;
     private List<ProductGebeurtenis> _histOnderdelen = new();            // historie van de gekoppelde halffabricaten
     private readonly Dictionary<int, string> _histVan = new();           // historie-id → 'code · serienummer' van het onderdeel
+    private readonly List<string> _histBronVolgorde = new();             // onderdelen met historie, in de volgorde van de samenstelling
+    private readonly HashSet<string> _histBronnen = new();               // gekozen bronnen ("" = dit exemplaar); leeg = alles
 
     // ---- historie opschonen: regels aanvinken en wissen, alleen Directie ----
     private bool MagHistorieWissen => Ik.Mag("Directie");
@@ -2716,7 +2736,9 @@
     private readonly HashSet<int> _histGekozen = new();
     /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
     private List<ProductGebeurtenis> HistGekozen => HistorieGefilterd.Where(h => _histGekozen.Contains(h.Id)).ToList();
-    private int HistKolommen => 4 + (_histMetOnderdelen ? 1 : 0) + (MagHistorieWissen ? 1 : 0);
+    private int HistKolommen => 4 + (HistToonVan ? 1 : 0) + (MagHistorieWissen ? 1 : 0);
+    /// <summary>Kolom Van alleen als er meer dan één exemplaar te zien is.</summary>
+    private bool HistToonVan => _histMetOnderdelen && _histBronnen.Count != 1;
     private bool AlleHistGekozen
     {
         get { var z = HistorieGefilterd; return z.Count > 0 && z.All(h => _histGekozen.Contains(h.Id)); }
@@ -2772,7 +2794,7 @@
     /// <summary>Historie van alle onderdelen in de samenstelling, recursief tot 3 niveaus (onderdeel van onderdeel).</summary>
     private async Task LaadHistorieOnderdelen()
     {
-        _histOnderdelen = new(); _histVan.Clear();
+        _histOnderdelen = new(); _histVan.Clear(); _histBronVolgorde.Clear(); _histBronnen.Clear();
         if (_productId is null) return;
         var gezien = new HashSet<int> { _productId.Value };
         async Task Verzamel(int productId, string pad, int diepte)
@@ -2786,17 +2808,40 @@
                 var naam = (pad.Length > 0 ? pad + " › " : "") + $"{o.Code} {o.Serienummer}".Trim();
                 try
                 {
-                    foreach (var h in await Repo.GetHistorieAsync(o.ProductId))
+                    var regels = await Repo.GetHistorieAsync(o.ProductId);
+                    foreach (var h in regels)
                     {
                         _histOnderdelen.Add(h);
                         _histVan[h.Id] = naam;
                     }
+                    if (regels.Count > 0) _histBronVolgorde.Add(naam);
                 }
                 catch { }
                 await Verzamel(o.ProductId, naam, diepte + 1);
             }
         }
         await Verzamel(_productId.Value, "", 1);
+    }
+
+    /// <summary>Van welk exemplaar een regel is: "" = dit exemplaar, anders het pad van het onderdeel.</summary>
+    private string HistBron(ProductGebeurtenis h) => _histVan.TryGetValue(h.Id, out var v) ? v : "";
+
+    /// <summary>De knoppen boven de historie: dit exemplaar en elk onderdeel met historie (volgorde van de samenstelling).</summary>
+    private IEnumerable<(string Bron, int Aantal)> HistBronLijst
+    {
+        get
+        {
+            var tel = _historie.Concat(_histOnderdelen).GroupBy(HistBron).ToDictionary(g => g.Key, g => g.Count());
+            yield return ("", tel.GetValueOrDefault(""));
+            foreach (var b in _histBronVolgorde) yield return (b, tel.GetValueOrDefault(b));
+        }
+    }
+
+    /// <summary>Eerste klik = alleen dat exemplaar; daarna erbij of eraf. Alles gekozen of niets meer = weer alles.</summary>
+    private void KiesHistBron(string bron)
+    {
+        if (!_histBronnen.Add(bron)) _histBronnen.Remove(bron);
+        if (_histBronnen.Count == _histBronVolgorde.Count + 1) _histBronnen.Clear();
     }
 
     private List<ProductGebeurtenis> HistorieGefilterd
@@ -2806,6 +2851,7 @@
             IEnumerable<ProductGebeurtenis> q = _histMetOnderdelen
                 ? _historie.Concat(_histOnderdelen).OrderByDescending(h => h.Wanneer ?? DateTime.MinValue).ThenByDescending(h => h.Id)
                 : _historie;
+            if (_histMetOnderdelen && _histBronnen.Count > 0) q = q.Where(h => _histBronnen.Contains(HistBron(h)));
             if (_histSoortFilter.Length > 0) q = q.Where(h => h.Soort == _histSoortFilter);
             if (_histUitkomst == "ok") q = q.Where(h => h.Uitkomst == true);
             else if (_histUitkomst == "fout") q = q.Where(h => h.Uitkomst == false);
