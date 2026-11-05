@@ -1140,6 +1140,11 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 /* de uitgelezen drives: groen kader bij go, rood bij no-go */
 .prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
 .prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+/* Uitgelezen serienummer hoort bij een ander exemplaar */
+.prod-ander { border: 1px solid #e8a33d; border-left-width: 4px; border-radius: 6px; background: #fff7e8; padding: .5rem .7rem; margin: .4rem 0 .6rem; }
+.prod-ander ul { margin: .3rem 0 .4rem 1.2rem; padding: 0; }
+.prod-ander-knoppen { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+html[data-thema="donker"] .prod-ander { background: var(--d2); border-color: #c98a2e; }
 .prod-drives-kop { display: flex; align-items: center; gap: .8rem; margin-bottom: .5rem; flex-wrap: wrap; }
 .prod-drives-kop b { font-size: 1.1rem; letter-spacing: .05em; color: #2f9e44; }
 .prod-drives.nogo .prod-drives-kop b { color: #c92a2a; }

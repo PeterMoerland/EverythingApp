@@ -163,7 +163,7 @@
                 @* Uitlezen, programmeren, testen, opbouw/eindcontrole: de gedeelde component. *@
                 <ExemplaarWerk @key="_productId" Naam="_naam" Exemplaar="_exemplaar" ProductId="_productId"
                                MotorModus="MotorModus" MetNummers="true" StartNummer="4" ToonOpbouwStap="true"
-                               OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
+                               OpGewijzigd="NaWijziging" OpGereed="NaGereed" OpAnderExemplaar="NaarAnderExemplaar" />
                 </div>
 
                 @* Rechts: de historie van deze print, compact. *@
@@ -575,6 +575,13 @@
             p.StatusKort.Contains(w, StringComparison.OrdinalIgnoreCase) ||
             p.Klant.Contains(w, StringComparison.OrdinalIgnoreCase) ||
             p.Opmerking.Contains(w, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
+    /// <summary>Het uitgelezen serienummer hoort bij een ander exemplaar: dat openen (zelfde type op serienummer, anders op id).</summary>
+    private async Task NaarAnderExemplaar(SamenstellingRegel r)
+    {
+        _serie = _naam is not null && r.ProductNameId == _naam.Id ? r.Serienummer : $"PN{r.ProductId}";
+        await ZoekSerie();
     }
 
     private async Task KiesExemplaar(ProductRegel p)

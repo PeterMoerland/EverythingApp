@@ -7,6 +7,7 @@
 @inject FilestoreService Store
 @inject DuurtestService Duurtest
 @inject NavigationManager Nav
+@inject ExemplaarHerkenning Herkenning
 @using System.Text.Json
 @implements IDisposable
 
@@ -144,12 +145,44 @@
         <div class="prod-drives-kop">
             <b>@(_drivesGo ? "GO" : "NO-GO")</b>
             <span>@_drivesOordeel</span>
-            @if (_drivesGo && !_drivesOpgeslagen && !ProductModus)
+            @if (_drivesGo && !_drivesOpgeslagen && !ProductModus && _anderRedenen.Count == 0)
             {
                 <button class="primair klein" disabled="@(!Mag || _bezig)" @onclick="BewaarDrives">Alsnog opslaan</button>
             }
             <button class="klein" @onclick="() => _drives = null">Sluiten</button>
         </div>
+        @* Het gelezen serienummer hoort bij een ander exemplaar: niets opgeslagen, naar het juiste gaan (wens gebruiker 5-11-2026) *@
+        @if (_anderRedenen.Count > 0 && !_drivesOpgeslagen)
+        {
+            <div class="prod-ander">
+                @if (_anderExemplaar is { } ander)
+                {
+                    <div><b>⚠ Verkeerd exemplaar gekozen?</b> Dit lijkt <b>@ander.Code @ander.Serienummer</b> te zijn, niet @Naam.Naam @Exemplaar.Serienummer.</div>
+                }
+                else
+                {
+                    <div><b>⚠ De serienummers horen bij verschillende exemplaren.</b></div>
+                }
+                <ul>
+                    @foreach (var reden in _anderRedenen)
+                    {
+                        <li>@reden</li>
+                    }
+                </ul>
+                <div class="prod-ander-knoppen">
+                    <span class="uitleg">@(ProductModus ? "Of koppel de print op het tabblad Samenstelling als hij hier echt in zit." : "Er is niets opgeslagen.")</span>
+                    @if (_anderExemplaar is { } naar && OpAnderExemplaar.HasDelegate)
+                    {
+                        <button class="primair klein" @onclick="() => OpAnderExemplaar.InvokeAsync(naar)">→ Naar @naar.Code @naar.Serienummer</button>
+                    }
+                    @if (!ProductModus)
+                    {
+                        <button class="klein" disabled="@(!Mag || _bezig || !_drivesGo)" @onclick="TochHierOpslaan"
+                                title="De gelezen serienummers toch bij dit exemplaar opslaan">Toch bij dit exemplaar opslaan</button>
+                    }
+                </div>
+            </div>
+        }
         @if (_drives.Count > 0)
         {
             <table class="kiezer-tabel smal-tabel">
@@ -1483,6 +1516,8 @@
     [Parameter] public EventCallback OpGewijzigd { get; set; }
     /// <summary>Doorgegeven aan de afvinklijst: status op 'Gereed' gezet.</summary>
     [Parameter] public EventCallback<string> OpGereed { get; set; }
+    /// <summary>Na uitlezen blijkt het een ander exemplaar te zijn: de aanroeper schakelt daarheen.</summary>
+    [Parameter] public EventCallback<SamenstellingRegel> OpAnderExemplaar { get; set; }
 
     // ---------------------------------------------------------------- rechten
 
@@ -4296,10 +4331,11 @@
             if (ProductModus) await KoppelHalffabricaten(regels);
             await ControleerTerugval(regels);
             Beoordeel(regels);
+            await ZoekJuisteExemplaar(regels);
 
             // GO? Dan meteen opslaan (niet bij een product: daar horen de nummers bij de halffabricaten).
             // Alleen als er al een (andere) waarde in een attribuut staat, eerst vragen.
-            if (_drivesGo && !ProductModus)
+            if (_drivesGo && !ProductModus && _anderRedenen.Count == 0)
             {
                 var overschrijft = new List<string>();
                 for (var i = 0; i < regels.Count; i++)
@@ -4397,7 +4433,8 @@
             _drivesGo = redenen.Count == 0;
             _drivesOordeel = _drivesGo ? $"eRob {r.Model} · SN {r.Serienummer} (CAN-ID {r.CanId})" : string.Join(" · ", redenen);
             _driveAdapter = "";
-            if (_drivesGo)
+            await ZoekJuisteExemplaar(_drives!);
+            if (_drivesGo && _anderRedenen.Count == 0)
             {
                 var overschrijft = new List<string>();
                 foreach (var s in _sjabloon.Where(s => AttribuutBronnen.Can(s.Bron) is not null))
@@ -4747,6 +4784,74 @@
     }
 
     /// <summary>De uitgelezen waarden als attributen bij het exemplaar zetten (via Bron) plus historie.</summary>
+    // ---------------------------------------------------------------- verkeerd exemplaar gekozen?
+    private SamenstellingRegel? _anderExemplaar;
+    private List<string> _anderRedenen = new();
+
+    /// <summary>
+    /// Na uitlezen (los exemplaar): hoort een gelezen serienummer al bij een ander exemplaar (attribuut drive/can:n:serienummer),
+    /// of meldt de EEPROM van een MDE-slave het nummer van een ander exemplaar van dit type, dan is vermoedelijk het verkeerde
+    /// exemplaar gekozen. Dan niet automatisch opslaan, maar het juiste exemplaar aanbieden.
+    /// </summary>
+    private async Task ZoekJuisteExemplaar(List<DriveRegel> regels)
+    {
+        _anderExemplaar = null;
+        _anderRedenen = new();
+        if (ProductModus)
+        {
+            // Product (robot): zitten er prints op die niet in de samenstelling staan, dan is misschien het verkeerde
+            // product gekozen. Alleen voorstellen als de herkenning een ander product van hetzelfde type vindt; anders
+            // hoort de print er gewoon nog niet in (koppelen op het tabblad Samenstelling).
+            if (!regels.Any(r => r.HalfVreemd)) return;
+            try
+            {
+                var u = await Herkenning.BepaalAsync(regels.Select(r => (r.Positie, r.Serienummer)).ToList());
+                if (u.Regel is { } x && x.ProductId != ProductId && x.ProductNameId == Naam.Id)
+                {
+                    _anderExemplaar = x;
+                    _anderRedenen = regels.Where(r => r.HalfVreemd).Select(r => $"drive {r.Positie + 1}: {r.Halffabricaat}").ToList();
+                }
+            }
+            catch { }
+            return;
+        }
+        var gevonden = new List<(SamenstellingRegel Regel, string Reden)>();
+        List<ProductRegel>? zelfdeType = null;
+        for (var i = 0; i < regels.Count; i++)
+        {
+            var r = regels[i];
+            if (r.Serienummer.Length == 0) continue;
+            var welke = regels.Count > 1 ? $"drive {i + 1}" : "de slave";
+            SamenstellingRegel? h = null;
+            try { h = await Repo.ZoekOpDriveSerienummerAsync(r.Serienummer); } catch { }
+            if (h is not null)
+            {
+                if (h.ProductId != ProductId)
+                    gevonden.Add((h, $"serienummer {r.Serienummer} van {welke} staat bij {h.Code} {h.Serienummer}".TrimEnd()));
+                continue;
+            }
+            // MDE-slave: het serienummer in de EEPROM is het nummer van het exemplaar zelf
+            var p = DrivePosities.FirstOrDefault(x => x.Positie == r.Positie + 1);
+            if (p is null || !IsMde(p) || !long.TryParse(r.Serienummer, out var nr) || nr == SerienummerGetal) continue;
+            try { zelfdeType ??= await Repo.GetProductenAsync(Naam.Id, inclusiefGewist: true); } catch { zelfdeType = new(); }
+            var tref = zelfdeType.FirstOrDefault(x => x.Id != ProductId
+                && long.TryParse(new string((x.Serienummer ?? "").Where(char.IsDigit).ToArray()), out var n) && n == nr);
+            if (tref is not null)
+                gevonden.Add((new SamenstellingRegel(tref.Id, Naam.Id, Naam.Naam, tref.Serienummer ?? "", "", ""),
+                              $"de EEPROM van {welke} meldt serienummer {nr}"));
+        }
+        _anderRedenen = gevonden.Select(g => g.Reden).ToList();
+        if (gevonden.Select(g => g.Regel.ProductId).Distinct().Count() == 1) _anderExemplaar = gevonden[0].Regel;
+    }
+
+    private async Task TochHierOpslaan()
+    {
+        if (!await Bevestig($"De gelezen serienummers toch bij {Naam.Naam} {Exemplaar.Serienummer} opslaan?\n\n" +
+                            string.Join("\n", _anderRedenen.Select(r => "  • " + r)))) return;
+        await BewaarDrives();
+        if (_drivesOpgeslagen) _anderRedenen = new();
+    }
+
     private async Task BewaarDrives()
     {
         if (_drives is null || !_drivesGo || _bezig) return;

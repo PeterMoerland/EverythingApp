@@ -20,8 +20,27 @@ public class WerkplekAgent
     public string Reden { get; private set; } = "";
     public event Action? Gewijzigd;
 
+    private readonly string _token;
+
     public WerkplekAgent(IConfiguration config)
-        => Url = (config["Productie:UitleesAgent"] ?? "").Trim().TrimEnd('/');
+    {
+        Url = (config["Productie:UitleesAgent"] ?? "").Trim().TrimEnd('/');
+        _token = (config["Productie:AgentToken"] ?? "").Trim();
+    }
+
+    /// <summary>Een willekeurige aanroep van de agent (met token), bv. /drives. Status 0 = niet bereikt (Tekst zegt waarom).</summary>
+    public async Task<(int Status, string Tekst)> VraagAsync(IJSRuntime js, string pad, int seconden, string? body = null)
+    {
+        if (Url.Length == 0) return (0, "Productie:UitleesAgent is niet ingesteld.");
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(seconden + 15));
+            var r = await js.InvokeAsync<Antwoord>("mdeAgent.haal", cts.Token, Url + pad, seconden, _token, body);
+            return (r.status, r.tekst);
+        }
+        catch (OperationCanceledException) { return (0, $"time-out: de agent antwoordde niet binnen {seconden} s"); }
+        catch (JSException ex) { return (0, "aanroep van de agent mislukt: " + ex.Message); }
+    }
 
     private sealed class Antwoord
     {

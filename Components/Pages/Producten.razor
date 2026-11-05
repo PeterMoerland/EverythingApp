@@ -14,6 +14,7 @@
 @inject IJSRuntime JS
 @inject IConfiguration Config
 @inject WerkplekAgent Agent
+@inject ExemplaarHerkenning Herkenning
 @implements IDisposable
 
 <div class="page">
@@ -51,6 +52,13 @@
                            er na het springen niet in blijft staan *@
                         <input @key="_scanTeller" @ref="_scanVeld" placeholder="Serienummer of scan (PN…)"
                                value="@_scan" @onchange="ScanGewijzigd" />
+                        @if (Agent.Aanwezig == true)
+                        {
+                            <button class="klein" disabled="@_detecteert" @onclick="Detecteer"
+                                    title="De EtherCAT-bus uitlezen via de werkplek-agent en het aangesloten exemplaar openen (robot, joint of losse print)">
+                                @(_detecteert ? "Zoeken…" : "🔌 Detecteer")
+                            </button>
+                        }
                     </div>
                     <div class="zoekregel">
                         <select value="@TypeTekst" @onchange="TypeGewijzigd">
@@ -888,7 +896,8 @@
                         </p>
                         <ExemplaarWerk @key="progId" Naam="_naam" Exemplaar="_product" ProductId="progId"
                                        MetNummers="false" ToonOpbouwStap="false" ToonDuurtestStap="IsEindproduct"
-                                       OpGewijzigd="NaProgrammeerWijziging" OpGereed="NaProgrammeerGereed" />
+                                       OpGewijzigd="NaProgrammeerWijziging" OpGereed="NaProgrammeerGereed"
+                                       OpAnderExemplaar="NaarAnderExemplaar" />
                     }
 
                     @* ===== OPBOUW: de stappen (bij het type: beheren; bij een exemplaar: afvinken) ===== *@
@@ -3043,6 +3052,31 @@
 
     private Task TodoGaNaar(ProductTodo t)
         => GaNaar(new SamenstellingRegel(t.ProductId, t.ProductNameId, t.Type, t.Serienummer, "", ""), "Todo");
+
+    /// <summary>Programmeren: het uitgelezen serienummer hoort bij een ander exemplaar; daarheen, op hetzelfde tabblad.</summary>
+    private Task NaarAnderExemplaar(SamenstellingRegel r) => GaNaar(r, "Programmeren");
+
+    // ---- auto-detect: welk exemplaar hangt er aan de adapter (wens gebruiker 5-11-2026)
+    private bool _detecteert;
+
+    private async Task Detecteer()
+    {
+        if (_detecteert) return;
+        _detecteert = true;
+        Toon("Bus uitlezen…", false);
+        StateHasChanged();
+        try
+        {
+            var u = await Herkenning.HerkenAsync(JS);
+            if (u.Regel is null) { Toon(u.Melding, true); return; }
+            var tab = Tabs.Contains("Programmeren") || Agent.Aanwezig == true ? "Programmeren" : _tab;
+            await GaNaar(u.Regel, tab);
+            if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+            Toon(u.Melding, !u.Zeker);
+        }
+        catch (Exception ex) { Toon("Detecteren mislukt: " + ex.Message, true); }
+        finally { _detecteert = false; }
+    }
 
     private async Task NaarOuder()
     {
