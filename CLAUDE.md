@@ -239,6 +239,32 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Uitgaande facturen: deelbetalingen (FactuurBetalingen, 5-11-2026)
+
+Wens collega: een factuur deels betaald melden (Viscon betaalt 90%, houdt 10% in); onbetaald laten staan maakte
+Liquiditeit fout. Tabel `FactuurBetalingen` (script `FactuurBetalingen_MariaDB.sql`): per factuur regels met datum,
+bedrag (incl. btw, het deel voor die factuur), soort `bank`/`handmatig`/`afboeking`, banktransactie, opmerking.
+`Services/IFactuurBetalingRepository.cs` (Geen, MySql, Geheugen via `FactuurBetalingen__Geheugen=true`).
+- **Betaald blijft de vlag** waar alles op filtert. Toevoegen (`MaakRondAsync`) zet hem als de regels samen het
+  bedrag halen (marge `Betalingsmatcher.Marge` = 1 euro), op de datum van de laatste regel. Weghalen zet hem nooit
+  terug (kan met de hand betaald zijn); het venster zegt dan dat je het vinkje zelf weghaalt. Een betaalde factuur
+  zonder regels (alles van vóór de tabel) telt als volledig betaald.
+- **Betalingscheck**: open facturen tellen met hun restant (totaal min regels), zodat een latere betaling van de rest
+  gewoon "Zeker" wordt. "Bedrag wijkt af" met minder ontvangen krijgt een vinkje = deelbetaling (`BetalingVoorstel.
+  Deelbetaling`). Verwerken (`VerwerkAsync`) schrijft per ontvangst/factuur een bankregel (`Betalingsmatcher.Verdeel`:
+  ontvangsten op datum over de facturen, rest bij de laatste) plus de crossref, en zet Betaald waar het rond is.
+  Zonder tabel werkt alles als voorheen (`Repo.VerwerkBetalingenAsync`).
+- **Factuurvenster**: blok Betalingen onder Stand van zaken; ontvangen (handmatig) of afboeken (opmerking verplicht)
+  schrijft meteen weg en neemt daarna Betaald/DatumBetaald uit de database over (anders zette Opslaan hem terug).
+  Bankregels komen alleen via de betalingscheck; ✕ op een bankregel haalt ook de crossref weg.
+- **Lijst**: ◐ achter Bet bij deels betaald (wolkje: ontvangen/open), status in de zijkant, en het blok Betalingen
+  toont de regels (anders de gekoppelde banktransacties zoals voorheen).
+- **Liquiditeit** (`OpenstaandAsync`): restant in plaats van het hele bedrag zodra de tabel bestaat.
+- Lokaal getest tegen de live database met de geheugenversie en tijdelijk alle rechten: 90% ontvangen, 10% afboeken
+  (zonder opmerking geweigerd), weghalen, lijst/zijkant, en de betalingscheck met de echte Viscon-factuur 2026153
+  (€ 113.647,61 van € 126.275,12, open € 12.627,51). **Niet getest**: het echte wegschrijven (MySql-versie,
+  `MaakRondAsync`, crossref) en Liquiditeit; eerst het script draaien.
+
 ## Uitgaande factuur: ＋ Pakbon (4-11-2026)
 
 Melding collega: "Importeren uit pakbon bestaat niet meer". Nooit overgezet (analyse: in 2024-2026 niet gebruikt).

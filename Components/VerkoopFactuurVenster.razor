@@ -5,6 +5,7 @@
 @inject IRelatieRepository Relaties
 @inject IArtikelRepository Artikelen
 @inject IPakbonRepository Pakbonnen
+@inject IFactuurBetalingRepository Betalingen
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 
@@ -383,6 +384,55 @@
                         <p class="uitleg">
                             Aangemaakt @_f.Aangemaakt?.ToString("dd-MM-yyyy") @(_f.AangemaaktDoor.Length > 0 ? "door " + _f.AangemaaktDoor : "")
                         </p>
+
+                        @* Deelbetalingen (FactuurBetalingen, wens collega 4-11-2026): elke ontvangst of afboeking is een
+                           regel; zodra ze samen het bedrag halen gaat de factuur op betaald. Schrijft meteen weg. *@
+                        @if (_betTabel)
+                        {
+                            <h3 class="wn-kop">Betalingen</h3>
+                            @if (_betalingen.Count > 0)
+                            {
+                                <table class="kiezer-tabel fb-tabel">
+                                    <tbody>
+                                        @foreach (var b in _betalingen)
+                                        {
+                                            <tr @key="b.Id">
+                                                <td style="width:6rem">@b.Datum.ToString("dd-MM-yyyy")</td>
+                                                <td style="width:6rem">@BetalingSoort.Tekst(b.Soort)</td>
+                                                <td style="width:7rem" class="r">@Geld(b.Bedrag)</td>
+                                                <td class="omschrijving" title="@b.Opmerking">@b.Opmerking</td>
+                                                <td class="zij-extra" style="width:9rem">@b.AangemaaktDoor</td>
+                                                <td class="c" style="width:2.4rem">
+                                                    @if (MagInvoeren)
+                                                    {
+                                                        <button class="klein rood" title="@(b.Soort == BetalingSoort.Bank ? "Weghalen; de ontvangst komt weer in de betalingscheck" : "Weghalen")"
+                                                                disabled="@_betBezig" @onclick="() => VerwijderBetaling(b)">✕</button>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                            <p class="uitleg">@BetalingStand</p>
+                            @if (MagInvoeren && !_f.Betaald)
+                            {
+                                <div class="fb-invoer">
+                                    <NlDatum Waarde="_betDatum" WaardeChanged="d => _betDatum = d" />
+                                    <input class="r" style="width:7rem" placeholder="bedrag" value="@Geld2(_betBedrag)"
+                                           @onchange="e => _betBedrag = Bedragen.Lees(Tekst(e))" />
+                                    <select value="@_betSoort" @onchange="e => _betSoort = (string?)e.Value ?? BetalingSoort.Handmatig"
+                                            title="Ontvangen = geld binnen zonder banktransactie; afboeken = komt niet, maar de factuur is wel rond">
+                                        <option value="@BetalingSoort.Handmatig">ontvangen</option>
+                                        <option value="@BetalingSoort.Afboeking">afboeken</option>
+                                    </select>
+                                    <input placeholder="opmerking, bv. 10% inhouding Viscon" value="@_betOpmerking"
+                                           @onchange="e => _betOpmerking = Tekst(e)" />
+                                    <button class="klein" disabled="@_betBezig" @onclick="VoegBetalingToe">Toevoegen</button>
+                                </div>
+                                <p class="zij-extra">Ontvangsten op de bank boek je via Betalingen controleren (ook als deelbetaling).</p>
+                            }
+                        }
                     }
                 }
             </div>
@@ -463,6 +513,97 @@
     private string _artikelZoek = "";
     private List<ArtikelRegel> _artikelen = new();
 
+    // ---- betalingen (FactuurBetalingen) ----
+    private bool _betTabel, _betBezig, _betGewijzigd;
+    private List<FactuurBetaling> _betalingen = new();
+    private DateOnly? _betDatum;
+    private decimal? _betBedrag;
+    private string _betSoort = BetalingSoort.Handmatig;
+    private string _betOpmerking = "";
+
+    private decimal BetaaldSom => _betalingen.Sum(b => b.Bedrag);
+    private decimal Open => _f.BedragInclBtw - BetaaldSom;
+
+    private string BetalingStand
+    {
+        get
+        {
+            if (_betalingen.Count == 0)
+                return _f.Betaald ? "Betaald, zonder losse betalingen (met de hand of van vóór de deelbetalingen)." : "Nog niets ontvangen.";
+            var ontvangen = _betalingen.Where(b => b.Soort != BetalingSoort.Afboeking).Sum(b => b.Bedrag);
+            var af = _betalingen.Where(b => b.Soort == BetalingSoort.Afboeking).Sum(b => b.Bedrag);
+            return $"Ontvangen {Geld(ontvangen)}" + (af != 0 ? $" · afgeboekt {Geld(af)}" : "") + $" van {Geld(_f.BedragInclBtw)}"
+                   + (_f.Betaald ? " · betaald" : $" · open {Geld(Open)}");
+        }
+    }
+
+    private async Task LaadBetalingen()
+    {
+        _betalingen = new();
+        if (_nieuw || _f.Id == 0) return;
+        try
+        {
+            _betTabel = await Betalingen.TabelAsync();
+            if (_betTabel) _betalingen = await Betalingen.LijstAsync(_f.Id);
+        }
+        catch { _betTabel = false; }
+        _betDatum = DateOnly.FromDateTime(DateTime.Today);
+        _betBedrag = Open > 0 ? Math.Round(Open, 2) : null;
+        _betSoort = BetalingSoort.Handmatig;
+        _betOpmerking = "";
+    }
+
+    /// <summary>
+    /// Na een betaling: Betaald en de datum uit de database overnemen (zonder andere wijzigingen in het venster te
+    /// raken), anders zet Opslaan de vlag terug. Was er verder niets gewijzigd, dan blijft dat zo.
+    /// </summary>
+    private async Task VerversBetaald()
+    {
+        var ongewijzigd = Vingerafdruk() == _zoalsGeopend;
+        if (await Repo.GetAsync(_f.Id) is { } vers)
+        {
+            _f.Betaald = vers.Betaald;
+            _f.DatumBetaald = vers.DatumBetaald;
+        }
+        if (ongewijzigd) _zoalsGeopend = Vingerafdruk();
+        _betGewijzigd = true;
+        await LaadBetalingen();
+    }
+
+    private async Task VoegBetalingToe()
+    {
+        if (_betBedrag is not decimal bedrag || bedrag == 0) { Toon("Vul een bedrag in.", true); return; }
+        if (_betDatum is not DateOnly datum) { Toon("Vul een datum in.", true); return; }
+        if (_betSoort == BetalingSoort.Afboeking && _betOpmerking.Length == 0)
+        { Toon("Zet bij een afboeking in de opmerking waarom (bv. 10% inhouding Viscon).", true); return; }
+        if (bedrag > Open + Betalingsmatcher.Marge && !await Vraag($"Dat is meer dan er openstaat ({Geld(Open)}). Toch toevoegen?")) return;
+        _betBezig = true;
+        try
+        {
+            var rond = await Betalingen.VoegToeAsync(_f.Id, datum, bedrag, _betSoort, _betOpmerking, Ik.WerknemerId);
+            await VerversBetaald();
+            Toon(rond ? "Toegevoegd; de factuur staat nu op betaald." : $"Toegevoegd; er staat nog {Geld(Open)} open.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _betBezig = false; }
+    }
+
+    private async Task VerwijderBetaling(FactuurBetaling b)
+    {
+        if (!await Vraag($"Deze betaling weghalen?\n\n{b.Datum:dd-MM-yyyy} · {BetalingSoort.Tekst(b.Soort)} · {Geld(b.Bedrag)}")) return;
+        _betBezig = true;
+        try
+        {
+            await Betalingen.VerwijderAsync(b.Id);
+            await VerversBetaald();
+            Toon(_f.Betaald && Open > Betalingsmatcher.Marge
+                ? "Weggehaald. De factuur staat nog op betaald: haal het vinkje Betaald weg als dat niet meer klopt."
+                : "Weggehaald.", false);
+        }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+        finally { _betBezig = false; }
+    }
+
     private bool _pakbonZoekOpen;
     private string _pakbonZoek = "";
     private List<PakbonLijstRegel> _pakbonnen = new();
@@ -542,6 +683,8 @@
             }
             _wasVerstuurd = _f.Verstuurd;
             _zoalsGeopend = Vingerafdruk();
+            _betGewijzigd = false;
+            await LaadBetalingen();
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
@@ -743,7 +886,7 @@
     {
         if (Vingerafdruk() != _zoalsGeopend && !await Vraag("Wijzigingen niet opslaan?")) return;
         _geladenVoor = -1;
-        await Sluiten.InvokeAsync(false);
+        await Sluiten.InvokeAsync(_betGewijzigd);   // na een betaling de lijst wel verversen
     }
 
     private async Task OverlayGeklikt()

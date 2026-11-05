@@ -138,6 +138,12 @@ if (liveDb)
     builder.Services.AddSingleton<IOrderBatchRepository>(_ => new MySqlOrderBatchRepository(cs!));
     builder.Services.AddSingleton<IFactuurRepository>(_ => new MySqlFactuurRepository(cs!));
     builder.Services.AddSingleton<IVerkoopFactuurRepository>(_ => new MySqlVerkoopFactuurRepository(cs!));
+    // Betalingen per factuur (deelbetalingen); lokaal testen zonder te schrijven: FactuurBetalingen__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("FactuurBetalingen:Geheugen"))
+        builder.Services.AddSingleton<IFactuurBetalingRepository>(sp => new GeheugenFactuurBetalingRepository(
+            new MySqlFactuurBetalingRepository(cs!), sp.GetRequiredService<IVerkoopFactuurRepository>()));
+    else
+        builder.Services.AddSingleton<IFactuurBetalingRepository>(_ => new MySqlFactuurBetalingRepository(cs!));
     builder.Services.AddSingleton<IUrenImportRepository>(_ => new MySqlUrenImportRepository(cs!));
     builder.Services.AddSingleton<IVasteLastenRepository>(_ => new MySqlVasteLastenRepository(cs!));
     builder.Services.AddSingleton<ILiquiditeitRepository>(_ => new MySqlLiquiditeitRepository(cs!));
@@ -195,6 +201,7 @@ else
     builder.Services.AddSingleton<IOrderBatchRepository, GeenOrderBatchRepository>();
     builder.Services.AddSingleton<IFactuurRepository, GeenFactuurRepository>();
     builder.Services.AddSingleton<IVerkoopFactuurRepository, GeenVerkoopFactuurRepository>();
+    builder.Services.AddSingleton<IFactuurBetalingRepository, GeenFactuurBetalingRepository>();
     builder.Services.AddSingleton<IUrenImportRepository, GeenUrenImportRepository>();
     builder.Services.AddSingleton<IVasteLastenRepository, GeenVasteLastenRepository>();
     builder.Services.AddSingleton<ILiquiditeitRepository, GeenLiquiditeitRepository>();

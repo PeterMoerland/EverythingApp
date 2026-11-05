@@ -33,6 +33,12 @@ public class BetalingVoorstel
     public decimal Gefactureerd => Facturen.Sum(f => f.Bedrag);
     public decimal Verschil => Ontvangen - Gefactureerd;
 
-    /// <summary>Afwijkend is alleen informatie; dat koppel je in Banktransacties of met de hand.</summary>
-    public bool KanVerwerken => Soort != VoorstelSoort.Afwijkend;
+    /// <summary>
+    /// Afwijkend met minder ontvangen dan gefactureerd, en de tabel FactuurBetalingen bestaat: mag als deelbetaling
+    /// verwerkt worden (de factuur blijft open voor de rest). Zet de betalingscheck.
+    /// </summary>
+    public bool Deelbetaling { get; set; }
+
+    /// <summary>Afwijkend is anders alleen informatie; dat koppel je in Banktransacties of met de hand.</summary>
+    public bool KanVerwerken => Soort != VoorstelSoort.Afwijkend || Deelbetaling;
 }

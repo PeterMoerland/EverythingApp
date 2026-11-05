@@ -1,5 +1,6 @@
 @page "/financien/uitgaande-facturen"
 @inject IVerkoopFactuurRepository Repo
+@inject IFactuurBetalingRepository Betalingen
 @inject IWerknemerRepository WnRepo
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
@@ -180,6 +181,10 @@
                                     <input type="checkbox" checked="@f.Betaald" disabled="@(!MagInvoeren)"
                                            @onclick:stopPropagation @ondblclick:stopPropagation
                                            @onchange="e => ZetVlag(f, VerkoopFactuurVlag.Betaald, e)" />
+                                    @if (DeelsTekst(f) is { } deels)
+                                    {
+                                        <span class="fb-deels" title="@deels">◐</span>
+                                    }
                                 </td>
                                 <td class="c">
                                     <input type="checkbox" checked="@f.NaarBasecone" disabled="@(!MagInvoeren)"
@@ -257,16 +262,33 @@
                         }
                     </ZijBlok>
 
-                    <ZijBlok Titel="Betalingen" Aantal="_betalingen.Count"
-                             Leeg="@(_betalingen.Count == 0)" LeegTekst="Geen banktransactie gekoppeld.">
-                        @foreach (var b in _betalingen)
-                        {
-                            <div class="zij-regel" @key="b.BanktransactieId">
-                                <span class="zij-naam">@Dag(b.Datum) · @Bedrag(b.Bedrag)</span>
-                                <span class="zij-extra" title="@b.Omschrijving">@b.Tegenpartij</span>
-                            </div>
-                        }
-                    </ZijBlok>
+                    @* Met regels in FactuurBetalingen die tonen (ook handmatig en afgeboekt); anders de gekoppelde
+                       banktransacties, zoals voorheen (alles van vóór de deelbetalingen). *@
+                    @if (_factuurBetalingen.Count > 0)
+                    {
+                        <ZijBlok Titel="Betalingen" Aantal="_factuurBetalingen.Count">
+                            @foreach (var b in _factuurBetalingen)
+                            {
+                                <div class="zij-regel" @key="b.Id">
+                                    <span class="zij-naam">@b.Datum.ToString("dd-MM-yyyy") · @Bedrag(b.Bedrag)</span>
+                                    <span class="zij-extra" title="@b.Opmerking">@BetalingSoort.Tekst(b.Soort)@(b.Opmerking.Length > 0 ? " · " + b.Opmerking : "")</span>
+                                </div>
+                            }
+                        </ZijBlok>
+                    }
+                    else
+                    {
+                        <ZijBlok Titel="Betalingen" Aantal="_betalingen.Count"
+                                 Leeg="@(_betalingen.Count == 0)" LeegTekst="Geen banktransactie gekoppeld.">
+                            @foreach (var b in _betalingen)
+                            {
+                                <div class="zij-regel" @key="b.BanktransactieId">
+                                    <span class="zij-naam">@Dag(b.Datum) · @Bedrag(b.Bedrag)</span>
+                                    <span class="zij-extra" title="@b.Omschrijving">@b.Tegenpartij</span>
+                                </div>
+                            }
+                        </ZijBlok>
+                    }
 
                     <ZijBlok Titel="Documenten" Aantal="_documenten.Count"
                              Leeg="@(_documenten.Count == 0)" LeegTekst="Nog geen PDF bij deze factuur.">
@@ -326,6 +348,15 @@
     private VerkoopFactuurRegel? _gekozen;
     private List<VerkoopFactuurItem> _items = new();
     private List<VerkoopFactuurBetaling> _betalingen = new();
+    private List<FactuurBetaling> _factuurBetalingen = new();
+    /// <summary>Som van de betalingen per factuur in de lijst (alleen facturen met regels in FactuurBetalingen).</summary>
+    private Dictionary<int, decimal> _ontvangen = new();
+
+    /// <summary>Niet betaald maar wel iets binnen: tekst voor het wolkje; anders null.</summary>
+    private string? DeelsTekst(VerkoopFactuurRegel f)
+        => !f.Betaald && _ontvangen.TryGetValue(f.Id, out var o) && o != 0 && f.BedragInclBtw - o > 0.005m
+            ? $"Deels betaald: {Bedrag(o)} van {Bedrag(f.BedragInclBtw)}, open {Bedrag(f.BedragInclBtw - o)}"
+            : null;
     private List<Bestand> _documenten = new();
     private Bestand? _voorbeeld;
 
@@ -352,7 +383,7 @@
         return string.Join(" ", stukken);
     }
 
-    private static string Status(VerkoopFactuurRegel f)
+    private string Status(VerkoopFactuurRegel f)
     {
         var delen = new List<string>
         {
@@ -361,6 +392,7 @@
         };
         if (f.Oninbaar) delen.Add("oninbaar");
         else if (f.Betaald) delen.Add("betaald " + Dag(f.DatumBetaald));
+        else if (DeelsTekst(f) is { } deels) delen.Add(deels.Replace("Deels", "deels"));
         else if (f.Verstuurd) delen.Add(f.Overdue > 0 ? f.Overdue + " dagen te laat" : "nog " + -f.Overdue + " dagen");
         return string.Join(" · ", delen);
     }
@@ -405,6 +437,8 @@
         {
             _lijst = await Repo.ZoekAsync(_filter, _max);
             _totalen = await Repo.GetTotalenAsync(_filter);
+            try { _ontvangen = await Betalingen.OntvangenAsync(_lijst.Where(f => !f.Betaald).Select(f => f.Id).ToList()); }
+            catch { _ontvangen = new(); }
 
             // De gekozen factuur uit beeld? Dan de zijkant ook leegmaken.
             if (_gekozen is not null && _lijst.All(f => f.Id != _gekozen.Id)) await Kies(null);
@@ -422,11 +456,13 @@
         _gekozen = f;
         _items = new();
         _betalingen = new();
+        _factuurBetalingen = new();
         _documenten = new();
         if (f is null) return;
 
         try { _items = await Repo.GetItemsAsync(f.Id); } catch { }
         try { _betalingen = await Repo.GetBetalingenAsync(f.Id); } catch { }
+        try { _factuurBetalingen = await Betalingen.LijstAsync(f.Id); } catch { }
         if (WnRepo.Beschikbaar)
         {
             try { _documenten = await WnRepo.GetBestandenAsync(StoreTypeVerkoopfactuur, f.Id); }

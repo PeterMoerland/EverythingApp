@@ -90,6 +90,11 @@ html[data-thema="donker"] .melding.waarschuwing { background: #3a2c12; border-co
 .grid tr.editing td { background: #fffbe6; }
 /* Ureningave: aangevinkte regels (kopiëren); --selected heeft ook een donkere waarde */
 .grid tr.gekozen td { background: var(--selected); }
+/* Uitgaande factuur: betalingen per factuur (deelbetalingen) */
+.fb-tabel { margin-bottom: .3rem; }
+.fb-invoer { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.fb-invoer input:not(.r) { flex: 1 1 14rem; min-width: 10rem; }
+.fb-deels { color: var(--accent); font-weight: 600; margin-left: .15rem; cursor: help; }
 .grid .kies { padding-left: 0; padding-right: 0; }
 .grid .kies input { width: auto; cursor: pointer; }
 .grid td.r, .grid input.r, th.r { text-align: right; }

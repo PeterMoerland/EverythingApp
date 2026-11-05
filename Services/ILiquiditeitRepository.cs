@@ -86,16 +86,29 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
         return lijst;
     }
 
+    private bool _deelbetalingen;   // FactuurBetalingen bestaat (alleen 'ja' onthouden)
+
     public async Task<List<OpenstaandeFactuur>> OpenstaandAsync(IReadOnlyCollection<int> bvIds)
     {
         var lijst = new List<OpenstaandeFactuur>();
         await using var cn = await OpenAsync();
 
+        // Deels betaald (FactuurBetalingen, als die tabel er is): alleen het restant komt nog binnen.
+        if (!_deelbetalingen)
+        {
+            await using var t = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'FactuurBetalingen'", cn);
+            _deelbetalingen = Convert.ToInt32(await t.ExecuteScalarAsync()) == 1;
+        }
+        var bedrag = _deelbetalingen
+            ? "COALESCE(f.`Total incl`, 0) - COALESCE((SELECT SUM(fb.`Bedrag`) FROM `FactuurBetalingen` fb WHERE fb.`FactuurID` = f.`Invoice-id`), 0)"
+            : "COALESCE(f.`Total incl`, 0)";
+
         // Verkoop: onbetaald en niet oninbaar. Oude rommel van voor 2018 telt niet (zoals Access bij te laat).
         await using (var cmd = new MySqlCommand(
             "SELECT f.`Invoice-id`, COALESCE(f.`Invoicenumber`, ''), COALESCE(k.`name`, ''), f.`Werkmaatschappij`, " +
             "       COALESCE(bv.`Afkorting`, ''), DATE_ADD(f.`Date invoice`, INTERVAL COALESCE(f.`Betalingstermijn`, 0) DAY), " +
-            "       COALESCE(f.`Total incl`, 0), COALESCE(f.`SentToClient`, 0) <> 0 " +
+            $"       {bedrag}, COALESCE(f.`SentToClient`, 0) <> 0 " +
             "  FROM `Invoices` f " +
             "  LEFT JOIN `Relations` k ON k.`id_supplier` = f.`Customer-id` " +
             "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = f.`Werkmaatschappij` " +

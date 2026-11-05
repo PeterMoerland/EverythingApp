@@ -102,6 +102,46 @@ public static class Betalingsmatcher
         }
     }
 
+    /// <summary>
+    /// Welk deel van welke ontvangst hoort bij welke factuur (voor FactuurBetalingen). Ontvangsten op datum, facturen
+    /// in volgorde van het voorstel; elke factuur krijgt tot zijn openstaande bedrag. Wat er na de laatste factuur
+    /// overblijft (afronding binnen de marge, of meer ontvangen) gaat bij de laatste factuur van die ontvangst.
+    /// Bij een deelbetaling krijgen de eerste facturen alles en de laatste de rest.
+    /// </summary>
+    public static List<(int FactuurId, Ontvangst Ontvangst, decimal Bedrag)> Verdeel(BetalingVoorstel v)
+    {
+        var uit = new List<(int FactuurId, Ontvangst Ontvangst, decimal Bedrag)>();
+        if (v.Facturen.Count == 0) return uit;
+        var nodig = v.Facturen.Select(f => f.Bedrag).ToArray();
+        var i = 0;
+        foreach (var o in v.Ontvangsten.OrderBy(o => o.Datum).ThenBy(o => o.Id))
+        {
+            var over = o.Bedrag;
+            while (over > 0.005m && i < nodig.Length)
+            {
+                var neem = Math.Min(over, nodig[i]);
+                if (neem > 0.005m) Tel(v.Facturen[i].Id, o, neem);
+                nodig[i] -= neem;
+                over -= neem;
+                if (nodig[i] <= 0.005m) i++;
+            }
+            if (over > 0.005m)
+            {
+                var laatste = uit.FindLastIndex(d => d.Ontvangst.Id == o.Id);
+                if (laatste >= 0) uit[laatste] = uit[laatste] with { Bedrag = uit[laatste].Bedrag + over };
+                else Tel(v.Facturen[^1].Id, o, over);
+            }
+        }
+        return uit;
+
+        void Tel(int factuurId, Ontvangst o, decimal bedrag)
+        {
+            var j = uit.FindIndex(d => d.FactuurId == factuurId && d.Ontvangst.Id == o.Id);
+            if (j >= 0) uit[j] = uit[j] with { Bedrag = uit[j].Bedrag + bedrag };
+            else uit.Add((factuurId, o, bedrag));
+        }
+    }
+
     /// <summary>Staat het factuurnummer los in de tekst, dus niet midden in een langer getal?</summary>
     public static bool Noemt(string omschrijving, string nummer)
         => nummer.Length >= 4 && Regex.IsMatch(omschrijving, $@"(?<!\d){Regex.Escape(nummer)}(?!\d)");
