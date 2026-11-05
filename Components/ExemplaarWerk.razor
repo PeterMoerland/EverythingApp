@@ -330,8 +330,8 @@
                             @if (SnSchrijven)
                             {
                                 <div>
-                                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerGetal is null)" @onclick="() => SchrijfSerienummer(p)"
-                                            title="@(SerienummerGetal is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : "Het serienummer van dit exemplaar bevat geen getal")"><span class="ico">🔢</span><span>Serienummer schrijven</span></button>
+                                    <button class="klein" disabled="@(!Mag || _taakBezig || _agentUrl.Length == 0 || SerienummerVoor(p) is null)" @onclick="() => SchrijfSerienummer(p)"
+                                            title="@(SerienummerVoor(p) is uint sn ? $"Serienummer {sn} in de EEPROM van de slave zetten (SII 0x0E); de print meldt het daarna zelf" : ProductModus ? "Via het product alleen voor een herkend halffabricaat (eerst uitlezen); een nieuwe print direct aansluiten" : "Het serienummer van dit exemplaar bevat geen getal")"><span class="ico">🔢</span><span>Serienummer schrijven</span></button>
                                 </div>
                             }
                             @if (ObjectenAan)
@@ -1528,7 +1528,7 @@
 
     private object EepromBody(DrivePositie p, bool vergelijken, bool overschrijven) => new
     {
-        positie = p.Positie, esi = BestandUrl(EsiVoor(p)!.EsiFileId!.Value), serienummer = SerienummerGetal ?? 0,
+        positie = p.Positie, esi = BestandUrl(EsiVoor(p)!.EsiFileId!.Value), serienummer = SerienummerVoor(p) ?? 0,
         alleen_vergelijken = vergelijken, overschrijven,
     };
 
@@ -1545,7 +1545,7 @@
     {
         var fw = EsiVoor(p);
         if (fw is null) return;
-        var sn = SerienummerGetal;
+        var sn = SerienummerVoor(p);
         if (!overschrijven && !await Bevestig($"De EEPROM van slave {p.Positie} ({p.Naam}) vullen uit het ESI {fw.EsiBestand} (firmware {fw.Versie})" +
                                               (sn is uint n ? $", met serienummer {n}" : "; het serienummer dat er al in staat blijft") +
                                               "?\n\nDaarna moet de print spanning uit/aan krijgen.")) return;
@@ -1553,8 +1553,8 @@
         {
             var geschreven = res.ValueKind == JsonValueKind.Object ? Getal(res, "geschreven") : 0;
             if (geschreven == 0) return "de EEPROM was al gelijk aan het ESI";
-            if (sn is uint n) await ZetViaBron($"drive:{p.Positie}:serienummer", n.ToString());
-            await Repo.VoegHistorieToeAsync(ProductId,
+            if (sn is uint n) await ZetDriveBron(p.Positie, "serienummer", n.ToString());
+            await HistorieVoor(p.Positie,
                 $"Slave {p.Positie} ({p.Naam}): EEPROM gevuld uit ESI {fw.EsiBestand} — {Tekst(res, "productcode")}, rev {Tekst(res, "revisie")}, sn {(sn?.ToString() ?? "-")}, PDI {Tekst(res, "pdi")}" + Opm(),
                 SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
             try { await JS.InvokeVoidAsync("mdeMelding", "EEPROM geschreven. Geef de print nu spanning uit/aan: de EtherCAT-chip leest de EEPROM alleen bij het opstarten.", "✅ Spanning uit/aan nodig"); } catch { }
@@ -1578,17 +1578,29 @@
         }
     }
 
+    /// <summary>
+    /// Serienummer voor de EEPROM van een slave. Via een product (robot) dat van het halffabricaat op die positie, nooit
+    /// het nummer van het product zelf; onbekend = null (EEPROM vullen laat het nummer in de slave dan staan).
+    /// </summary>
+    private uint? SerienummerVoor(DrivePositie p)
+    {
+        if (!ProductModus) return SerienummerGetal;
+        if (_halfPerPositie is not { } kaart || !kaart.TryGetValue(p.Positie, out var d)) return null;
+        var cijfers = new string(d.Regel.Serienummer.Where(char.IsDigit).ToArray());
+        return uint.TryParse(cijfers, out var n) && n > 0 ? n : null;
+    }
+
     private async Task SchrijfSerienummer(DrivePositie p, bool overschrijven = false)
     {
-        if (SerienummerGetal is not uint sn) return;
+        if (SerienummerVoor(p) is not uint sn) return;
         if (!overschrijven && !await Bevestig($"Serienummer {sn} in de EEPROM van slave {p.Positie} ({p.Naam}) zetten?")) return;
         var body = JsonSerializer.Serialize(new { positie = p.Positie, serienummer = sn, overschrijven });
         string? bestaand = null;
         await VoerTaakUit("mde.serienummer", body, $"Serienummer {sn} → slave {p.Positie} ({p.Naam})", 90, async res =>
         {
             var coe = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("coe", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt64() : (long?)null;
-            await ZetViaBron($"drive:{p.Positie}:serienummer", sn.ToString());
-            await Repo.VoegHistorieToeAsync(ProductId, $"Slave {p.Positie} ({p.Naam}): serienummer {sn} in de EEPROM gezet" + Opm(),
+            await ZetDriveBron(p.Positie, "serienummer", sn.ToString());
+            await HistorieVoor(p.Positie, $"Slave {p.Positie} ({p.Naam}): serienummer {sn} in de EEPROM gezet" + Opm(),
                                             SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
             return $"serienummer {sn} geschreven" + (coe is long w && w != sn ? $"; 0x1018:4 meldt nog {w} (firmware leest de EEPROM pas na een herstart, of niet)" : "");
         });
@@ -1877,7 +1889,7 @@
             var hoek = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("hoek", out var h) ? h.GetDouble() : double.NaN;
             var afw = res.ValueKind == JsonValueKind.Object && res.TryGetProperty("afwijking", out var a) ? a.GetDouble() : double.NaN;
             var ok = !double.IsNaN(afw) && Math.Abs(afw) <= 0.1;
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await HistorieVoor(p.Positie,
                 $"Drive {p.Positie} ({p.Naam}): naar {graden:0.00}° gezet, gemeten {hoek:0.000}° (afwijking {afw:+0.000;-0.000}°)" + Opm(),
                 SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: ok);
             return $"gemeten {hoek:0.000}° (afwijking {afw:+0.000;-0.000}°)";
@@ -2220,14 +2232,14 @@
         try
         {
             var n = 0;
-            if (_erobInfo.Serienummer.Length > 0 && await ZetViaBron($"drive:{p.Positie}:serienummer", _erobInfo.Serienummer)) n++;
-            if (_erobInfo.Hardware.Length > 0 && await ZetViaBron($"drive:{p.Positie}:hardware", _erobInfo.Hardware)) n++;
-            if (_erobInfo.Firmware.Length > 0 && await ZetViaBron($"drive:{p.Positie}:firmware", _erobInfo.Firmware)) n++;
+            if (_erobInfo.Serienummer.Length > 0 && await ZetDriveBron(p.Positie, "serienummer", _erobInfo.Serienummer)) n++;
+            if (_erobInfo.Hardware.Length > 0 && await ZetDriveBron(p.Positie, "hardware", _erobInfo.Hardware)) n++;
+            if (_erobInfo.Firmware.Length > 0 && await ZetDriveBron(p.Positie, "firmware", _erobInfo.Firmware)) n++;
             var tekst = $"eRob-info via CAN (drive {p.Positie}): SN {_erobInfo.Serienummer}"
                         + (_erobInfo.Model.Length > 0 ? $", {_erobInfo.Model}" : "")
                         + (_erobInfo.Hardware.Length > 0 ? $", hw {_erobInfo.Hardware}" : "")
                         + (_erobInfo.Partnummer.Length > 0 ? $", PN {_erobInfo.Partnummer}" : "");
-            await Repo.VoegHistorieToeAsync(ProductId, tekst, SoortId("Test"), Ik.WerknemerId, uitkomst: true);
+            await HistorieVoor(p.Positie, tekst, SoortId("Test"), Ik.WerknemerId, uitkomst: true);
             _taakTitel = "eRob-info in attributen"; _taakFout = null; _taakRegels = new();
             _taakResultaat = n > 0 ? $"{n} attribuut/attributen bijgewerkt" : $"geen attribuut met bron drive:{p.Positie}:serienummer bij dit producttype (Producten ▸ Attributen ▸ Bron)";
             _taakKlaar = n > 0;
@@ -2279,7 +2291,7 @@
             var gelezen = Tekst(res, "gelezen"); var ruw = Tekst(res, "ruw");
             _sdoUitkomst = $"{_sdoIndex}:{_sdoSub} = {gelezen} (ruw {ruw})" + (res.ValueKind == JsonValueKind.Object && res.TryGetProperty("opgeslagen", out var og) ? (og.GetBoolean() ? " · opgeslagen" : " · NIET opgeslagen") : "");
             if (schrijven)
-                await Repo.VoegHistorieToeAsync(ProductId, $"Drive {p.Positie} ({p.Naam}): SDO {_sdoIndex}:{_sdoSub} ← {_sdoWaarde} ({_sdoType}), teruggelezen {gelezen}" + (_sdoOpslaan ? ", opgeslagen" : ""),
+                await HistorieVoor(p.Positie, $"Drive {p.Positie} ({p.Naam}): SDO {_sdoIndex}:{_sdoSub} ← {_sdoWaarde} ({_sdoType}), teruggelezen {gelezen}" + (_sdoOpslaan ? ", opgeslagen" : ""),
                     SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: gelezen == _sdoWaarde ? true : null);
             return _sdoUitkomst;
         });
@@ -2319,7 +2331,7 @@
             // De agent leest na de herstart de versie terug uit de drive (bv. 2.10.0.000); die gaat het attribuut in.
             var gelezen = Tekst(res, "versie");
             var versie = gelezen.Length > 0 ? gelezen : fw.Versie;
-            await ZetViaBron($"drive:{p.Positie}:firmware", versie);
+            await ZetDriveBron(p.Positie, "firmware", versie);
             await FirmwareBijgewerkt(p.Positie, versie);
             // MDE-slaves (agent 1.21.2+): controleherstart tegen de ESP32-rollback. Valt hij terug, dan faalt de taak al.
             var controle = Tekst(res, "controle") switch
@@ -2328,7 +2340,7 @@
                 "geen herstart" => " (controleherstart niet gezien: na spanning uit/aan opnieuw uitlezen)",
                 _ => "",
             };
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await HistorieVoor(p.Positie,
                 $"Drive {p.Positie} ({p.Naam}): firmware {fw.Versie} geladen, drive meldt {versie}{controle}" + Opm(),
                 SoortId("Firmware") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: true);
             return $"firmware {versie} geladen en teruggelezen{controle}";
@@ -2403,10 +2415,10 @@
             {
                 var afwijkingen = res.ValueKind == JsonValueKind.Object ? Getal(res, "afwijkingen") : 0;
                 var registers = res.ValueKind == JsonValueKind.Object ? Getal(res, "registers") : 0;
-                await ZetViaBron($"drive:{p.Positie}:parameters", naam);
+                await ZetDriveBron(p.Positie, "parameters", naam);
                 var fwGelezen = Tekst(res, "firmware");
-                if (fwGelezen.Length > 0) { await ZetViaBron($"drive:{p.Positie}:firmware", fwGelezen); await FirmwareBijgewerkt(p.Positie, fwGelezen); }
-                await Repo.VoegHistorieToeAsync(ProductId,
+                if (fwGelezen.Length > 0) { await ZetDriveBron(p.Positie, "firmware", fwGelezen); await FirmwareBijgewerkt(p.Positie, fwGelezen); }
+                await HistorieVoor(p.Positie,
                     $"Drive {p.Positie} ({p.Naam}): parameterset '{naam}' geladen ({registers} SDO's, {afwijkingen} afwijkingen)" + Opm(),
                     SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: afwijkingen == 0);
                 return afwijkingen == 0 ? $"{registers} SDO's geschreven, opgeslagen en gecontroleerd" : $"LET OP: {afwijkingen} afwijkingen na terugkijken";
@@ -2426,8 +2438,8 @@
         {
             var afwijkingen = res.ValueKind == JsonValueKind.Object ? Getal(res, "afwijkingen") : 0;
             var registers = res.ValueKind == JsonValueKind.Object ? Getal(res, "registers") : 0;
-            await ZetViaBron($"drive:{p.Positie}:parameters", naam);
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await ZetDriveBron(p.Positie, "parameters", naam);
+            await HistorieVoor(p.Positie,
                 $"Drive {p.Positie} ({p.Naam}): parameterset '{naam}' geladen ({registers} registers, {afwijkingen} afwijkingen)" + Opm(),
                 SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: afwijkingen == 0);
             return afwijkingen == 0 ? $"{registers} registers geschreven en gecontroleerd" : $"LET OP: {afwijkingen} registers wijken af na terugkijken";
@@ -2549,7 +2561,7 @@
                     u.Alle.Add(new PcRegel(Tekst(a, "id"), Tekst(a, "dtype"), Tekst(a, "verwacht"), Tekst(a, "gelezen"),
                                            a.TryGetProperty("gelijk", out var gl) && gl.ValueKind == JsonValueKind.True));
             _pc = u; _pcOpen = true;
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await HistorieVoor(p.Positie,
                 $"Drive {p.Positie} ({p.Naam}): parameter compare met '{naam}' — {u.Registers} registers, {u.Afwijkingen} afwijkend"
                 + (u.Afwijkingen > 0 ? ": " + string.Join(", ", u.Regels.Take(6).Select(r => r.Id)) + (u.Afwijkingen > 6 ? " …" : "") : "") + Opm(),
                 SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: u.Afwijkingen == 0);
@@ -2895,7 +2907,7 @@
             var geslaagd = res.TryGetProperty("geslaagd", out var g) && g.ValueKind == JsonValueKind.True;
             var samenvatting = Tekst(res, "samenvatting");
             _nulpuntUitslag = (wat == "offset" ? "nulpunt: " : "phasing: ") + samenvatting;
-            await Repo.VoegHistorieToeAsync(ProductId, $"Drive {p.Positie} ({p.Naam}): {(wat == "offset" ? "nulpunt gezet" : "phasing")} — {samenvatting}" + Opm(),
+            await HistorieVoor(p.Positie, $"Drive {p.Positie} ({p.Naam}): {(wat == "offset" ? "nulpunt gezet" : "phasing")} — {samenvatting}" + Opm(),
                                             SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
             if (res.TryGetProperty("herstartNodig", out var h) && h.ValueKind == JsonValueKind.True)
                 try { await JS.InvokeVoidAsync("mdeMelding", (wat == "offset" ? "Nulpunt opgeslagen. " : "Phasing opgeslagen. ") + "Nu de drive spanning uit/aan geven" + (wat == "offset" ? " en daarna Phasing uitvoeren." : "."), "✅ Spanning uit/aan nodig"); } catch { }
@@ -3225,7 +3237,7 @@
             if (res.ValueKind == JsonValueKind.Object && res.TryGetProperty("stappen", out var st) && st.ValueKind == JsonValueKind.Array)
                 foreach (var s in st.EnumerateArray())
                     _taakRegels.Add($"{(s.TryGetProperty("geslaagd", out var ok) && ok.ValueKind == JsonValueKind.True ? "✓" : "✗")} {Tekst(s, "naam")}: {Tekst(s, "tekst")}");
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await HistorieVoor(p.Positie,
                 $"{titel}: {(geslaagd ? "GESLAAGD" : "MISLUKT")}" + (samenvatting.Length > 0 ? " — " + samenvatting : "") + Opm(),
                 SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
             _testLaatste = $"{r.Naam} {(geslaagd ? "GESLAAGD" : "MISLUKT")}";
@@ -3304,6 +3316,9 @@
         try
         {
             var alles = await Repo.GetHistorieAsync(ProductId);
+            if (ProductModus && _halfPerPositie is { } kaart)
+                foreach (var d in kaart.Values.DistinctBy(d => d.Regel.ProductId))
+                    alles.AddRange((await Repo.GetHistorieAsync(d.Regel.ProductId)).Where(h => h.Event.EndsWith(ViaTekst, StringComparison.Ordinal)));
             var soort = SoortId("Test");
             _testHistorie = alles.Where(h => h.Soort.Contains("test", StringComparison.OrdinalIgnoreCase)
                                              || h.Event.Contains("GESLAAGD") || h.Event.Contains("MISLUKT") || h.Event.Contains("AFGEKEURD"))
@@ -3366,7 +3381,7 @@
             var geslaagd = res.TryGetProperty("geslaagd", out var g) && g.ValueKind == JsonValueKind.True;
             var samenvatting = verwerk(res);
             _testLaatste = $"{titel} drive {p.Positie} {(geslaagd ? "GESLAAGD" : "AFGEKEURD")}";
-            await Repo.VoegHistorieToeAsync(ProductId, $"{naam}: {(geslaagd ? "GESLAAGD" : "AFGEKEURD")} — {samenvatting}" + Opm(),
+            await HistorieVoor(p.Positie, $"{naam}: {(geslaagd ? "GESLAAGD" : "AFGEKEURD")} — {samenvatting}" + Opm(),
                                             SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
             if (!geslaagd) throw new InvalidOperationException(samenvatting);
             return samenvatting;
@@ -3731,7 +3746,7 @@
             }
             _sl = u;
             _testLaatste = $"Stroomlus drive {p.Positie} {(u.Geslaagd ? "GESLAAGD" : "AFGEKEURD")}";
-            await Repo.VoegHistorieToeAsync(ProductId,
+            await HistorieVoor(p.Positie,
                 $"Stroomlus drive {p.Positie} ({p.Naam}): {(u.Geslaagd ? "GESLAAGD" : "AFGEKEURD")} — {u.Samenvatting}" + Opm(),
                 SoortId("Test"), Ik.WerknemerId, uitkomst: u.Geslaagd);
             if (!u.Geslaagd) throw new InvalidOperationException(u.Samenvatting);
@@ -3795,6 +3810,16 @@
         _taakBezig = true; _taakKlaar = false;
         _taakTitel = titel; _taakFout = null; _taakResultaat = null; _taakProcent = 0; _taakRegels = new();
         _taakJobId = null; _taakStopGevraagd = false;
+        _taakPositie = PositieUit(body);
+        if (ProductModus && _taakPositie is not null)
+        {
+            if (_halfFout is not null) _halfPerPositie = null;              // vorige keer mislukt: opnieuw proberen
+            await ZorgVoorKoppeling();
+            if (_halfPerPositie?.GetValueOrDefault(_taakPositie.Value) is { } doel)
+                _taakRegels.Add($"Vastleggen bij {doel.Regel.Code} {doel.Regel.Serienummer}".TrimEnd());
+            else if (_heeftOnderdelen)
+                _taakRegels.Add($"Vastleggen bij {Naam.Naam} {Exemplaar.Serienummer}: {HalfReden(_taakPositie.Value)}");
+        }
         if (!taak.StartsWith("test.") && taak is not ("mde.test" or "drives.stroomlus" or "drives.encodertest" or "drives.motiontest" or "drives.phasing" or "drives.dualmotion")) _taakIsTest = false;
         _taakStop = new CancellationTokenSource(TimeSpan.FromSeconds(maxSeconden));
         try
@@ -3866,7 +3891,7 @@
                     if (CommTekst(w) is { } comm)
                     {
                         if (_taakResultaat is not null) _taakResultaat += " · " + comm;
-                        try { await Repo.VoegHistorieToeAsync(ProductId, $"{titel}: {comm}", SoortId("Test"), Ik.WerknemerId); } catch { }
+                        try { await HistorieVoor(_taakPositie, $"{titel}: {comm}", SoortId("Test"), Ik.WerknemerId); } catch { }
                     }
                     break;
                 }
@@ -3875,7 +3900,7 @@
                     _taakFout = Tekst(w, "fout");
                     var comm = CommTekst(w);
                     if (comm is not null) _taakFout += " · " + comm;
-                    await Repo.VoegHistorieToeAsync(ProductId, $"{titel}: MISLUKT — {_taakFout}", SoortId("Test"), Ik.WerknemerId, uitkomst: false);
+                    await HistorieVoor(_taakPositie, $"{titel}: MISLUKT — {_taakFout}", SoortId("Test"), Ik.WerknemerId, uitkomst: false);
                     break;
                 }
                 StateHasChanged();
@@ -4403,25 +4428,198 @@
     /// </summary>
     private async Task KoppelHalffabricaten(List<DriveRegel> regels)
     {
-        List<SamenstellingRegel> onderdelen;
-        try { onderdelen = await Repo.GetOnderdelenAsync(ProductId); } catch { onderdelen = new(); }
+        // ook onderdelen van onderdelen (een print in een WJ-1 die in de robot zit)
+        var onderdelen = await Afstammelingen();
+        _heeftOnderdelen = onderdelen.Count > 0;
+        var kaart = new Dictionary<int, HalfDoel>();
+        _halfReden.Clear();
+        _halfFout = null;
         foreach (var r in regels)
         {
+            var pos = r.Positie + 1;                                        // slave_position telt vanaf 0, DrivePositie vanaf 1
             if (r.Serienummer.Length == 0)
             {
                 r.Halffabricaat = r.ZonderElektronischSn ? "geen elektronisch serienummer" : "geen serienummer";
                 r.HalfKleur = "s-grijs";
+                _halfReden[pos] = r.Halffabricaat;
                 continue;
             }
             SamenstellingRegel? h = null;
             try { h = await Repo.ZoekOpDriveSerienummerAsync(r.Serienummer); } catch { }
-            if (h is null) { r.Halffabricaat = "onbekend serienummer"; r.HalfKleur = "s-geel"; r.HalfOnbekend = true; continue; }
+            if (h is null)
+            {
+                r.Halffabricaat = "onbekend serienummer"; r.HalfKleur = "s-geel"; r.HalfOnbekend = true;
+                _halfReden[pos] = $"serienummer {r.Serienummer} is bij geen halffabricaat bekend";
+                continue;
+            }
             var tekst = $"{h.Code} {h.Serienummer}".Trim();
             // een afgekeurd halffabricaat hoort niet in een product, ook niet als het (eerder) gekoppeld is
-            if (h.Afgekeurd) { r.Halffabricaat = tekst + " — AFGEKEURD"; r.HalfKleur = "s-rood"; r.HalfAfgekeurd = true; }
-            else if (onderdelen.Any(o => o.ProductId == h.ProductId)) { r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen"; }
-            else { r.Halffabricaat = tekst + " — niet in de samenstelling"; r.HalfKleur = "s-rood"; r.HalfVreemd = true; }
+            if (h.Afgekeurd)
+            {
+                r.Halffabricaat = tekst + " — AFGEKEURD"; r.HalfKleur = "s-rood"; r.HalfAfgekeurd = true;
+                _halfReden[pos] = tekst + " is afgekeurd";
+            }
+            else if (onderdelen.Contains(h.ProductId))
+            {
+                r.Halffabricaat = tekst + " ✓"; r.HalfKleur = "s-groen";
+                kaart[pos] = await MaakDoel(h, r.Serienummer);
+            }
+            else
+            {
+                r.Halffabricaat = tekst + " — niet in de samenstelling"; r.HalfKleur = "s-rood"; r.HalfVreemd = true;
+                _halfReden[pos] = tekst + " zit niet in de samenstelling";
+            }
         }
+        _halfPerPositie = kaart;
+    }
+
+    // ---------------------------------------------------------------- product: per slave naar het halffabricaat
+    // Wens gebruiker 5-11-2026: programmeren via het product (robot) legt wat over één slave gaat vast bij het
+    // halffabricaat op die positie (historie en attributen), net als bij een direct aangesloten print. Wat over het
+    // hele product gaat (node-adressen, dual motion, duurtest, een test over alle drives) blijft bij het product; de
+    // historie van het product toont de rest met het vinkje "incl. onderdelen".
+
+    private sealed class HalfDoel
+    {
+        public required SamenstellingRegel Regel { get; init; }
+        /// <summary>Drive-nummer op het halffabricaat zelf (bron drive:n:...); 0 = onbekend.</summary>
+        public int Nummer { get; set; }
+        public List<ProductAttribuut> Sjabloon { get; set; } = new();
+        public List<ProductAttribuut> Attributen { get; set; } = new();
+    }
+
+    /// <summary>Positie (vanaf 1, zoals DrivePositie) → halffabricaat; null = nog niet bepaald.</summary>
+    private Dictionary<int, HalfDoel>? _halfPerPositie;
+    /// <summary>Per positie waarom er geen halffabricaat bij hoort.</summary>
+    private readonly Dictionary<int, string> _halfReden = new();
+    /// <summary>Uitlezen om de halffabricaten te bepalen mislukte (dan bij de volgende taak opnieuw).</summary>
+    private string? _halfFout;
+    /// <summary>Dit exemplaar heeft onderdelen. Zonder (bv. een motor met een drivepositie maar zonder serienummer-attribuut)
+    /// blijft alles bij het exemplaar zelf, zonder uitlezen vooraf en zonder toevoeging.</summary>
+    private bool _heeftOnderdelen;
+    /// <summary>Slave-positie van de lopende taak (uit de body), voor de algemene regels MISLUKT/communicatiefouten.</summary>
+    private int? _taakPositie;
+
+    /// <summary>Achter een regel bij het halffabricaat: waar het gebeurde.</summary>
+    private string ViaTekst => $" · via {Naam.Naam} {Exemplaar.Serienummer}".TrimEnd();
+
+    private static int? PositieUit(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("positie", out var p)
+                   && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n) ? n : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Alle exemplaren onder dit product, tot 4 niveaus diep.</summary>
+    private async Task<HashSet<int>> Afstammelingen()
+    {
+        var ids = new HashSet<int>();
+        var rij = new Queue<(int Id, int Diepte)>();
+        rij.Enqueue((ProductId, 0));
+        while (rij.Count > 0)
+        {
+            var (id, diepte) = rij.Dequeue();
+            if (diepte >= 4) continue;
+            List<SamenstellingRegel> kinderen;
+            try { kinderen = await Repo.GetOnderdelenAsync(id); } catch { continue; }
+            foreach (var k in kinderen)
+                if (k.ProductId != ProductId && ids.Add(k.ProductId)) rij.Enqueue((k.ProductId, diepte + 1));
+        }
+        return ids;
+    }
+
+    /// <summary>Halffabricaat met zijn attributen, en welk drive-nummer het serienummer daar heeft.</summary>
+    private async Task<HalfDoel> MaakDoel(SamenstellingRegel h, string serienummer)
+    {
+        var d = new HalfDoel { Regel = h };
+        try
+        {
+            d.Sjabloon = await Repo.GetTypeAttributenAsync(h.ProductNameId);
+            d.Attributen = await Repo.GetAttributenAsync(h.ProductId);
+            var drives = d.Sjabloon.Select(s => (S: s, D: AttribuutBronnen.Drive(s.Bron)))
+                                   .Where(x => x.D is { Veld: "serienummer" }).ToList();
+            foreach (var x in drives)
+            {
+                var a = d.Attributen.FirstOrDefault(y => y.SjabloonId == x.S.Id)
+                        ?? d.Attributen.FirstOrDefault(y => string.Equals(y.Attribuut, x.S.Attribuut, StringComparison.OrdinalIgnoreCase));
+                if (a?.Waarde.Trim() == serienummer) { d.Nummer = x.D!.Value.Nummer; break; }
+            }
+            if (d.Nummer == 0 && drives.Select(x => x.D!.Value.Nummer).Distinct().Count() == 1) d.Nummer = drives[0].D!.Value.Nummer;
+        }
+        catch { }
+        return d;
+    }
+
+    /// <summary>Nog niet uitgelezen in deze sessie: stil uitlezen om te weten welk halffabricaat op welke positie zit.</summary>
+    private async Task ZorgVoorKoppeling()
+    {
+        if (!ProductModus || _halfPerPositie is not null) return;
+        try
+        {
+            if ((await Afstammelingen()).Count == 0) { _heeftOnderdelen = false; _halfPerPositie = new(); return; }
+            var antwoord = await Agent("/drives", 120);
+            if (antwoord.status != 200)
+            {
+                _halfPerPositie = new();
+                _halfFout = "uitlezen om het halffabricaat te bepalen lukte niet";
+                return;
+            }
+            var regels = new List<DriveRegel>();
+            using (var doc = JsonDocument.Parse(antwoord.tekst))
+                if (doc.RootElement.TryGetProperty("drives", out var drives) && drives.ValueKind == JsonValueKind.Array)
+                    foreach (var d in drives.EnumerateArray())
+                    {
+                        var sn = Tekst(d, "serial_number");
+                        regels.Add(new DriveRegel { Positie = Getal(d, "slave_position"), Serienummer = sn is "0" or "None" ? "" : sn });
+                    }
+            await KoppelHalffabricaten(regels);
+        }
+        catch (Exception ex)
+        {
+            _halfPerPositie = new();
+            _halfFout = "uitlezen om het halffabricaat te bepalen lukte niet (" + ex.Message + ")";
+        }
+    }
+
+    private string HalfReden(int positie)
+        => _halfReden.TryGetValue(positie, out var r) ? r : _halfFout ?? $"geen slave op positie {positie} bij uitlezen";
+
+    /// <summary>
+    /// Historie van een actie op één slave. Product (robot): bij het halffabricaat op die positie, met "· via ...";
+    /// lukt dat niet, dan bij het product met de reden erbij. Anders gewoon bij dit exemplaar.
+    /// </summary>
+    private async Task HistorieVoor(int? positie, string tekst, int? soortId, int? door, bool? uitkomst = null)
+    {
+        if (ProductModus && positie is int pos)
+        {
+            await ZorgVoorKoppeling();
+            if (_halfPerPositie is { } kaart && kaart.TryGetValue(pos, out var d))
+            {
+                // Event is max. 250 tekens: de tekst inkorten, niet de toevoeging (daarop wordt gezocht)
+                var via = ViaTekst;
+                if (tekst.Length + via.Length > 250) tekst = tekst[..Math.Max(0, 249 - via.Length)] + "…";
+                await Repo.VoegHistorieToeAsync(d.Regel.ProductId, tekst + via, soortId, door, uitkomst);
+                return;
+            }
+            if (_heeftOnderdelen) tekst += $" (niet bij het halffabricaat: {HalfReden(pos)})";
+        }
+        await Repo.VoegHistorieToeAsync(ProductId, tekst, soortId, door, uitkomst);
+    }
+
+    /// <summary>Attribuut drive:n:veld van een slave: bij een product dat van het halffabricaat op die positie (met zijn eigen n).</summary>
+    private async Task<bool> ZetDriveBron(int positie, string veld, string waarde)
+    {
+        if (ProductModus)
+        {
+            await ZorgVoorKoppeling();
+            if (_halfPerPositie is { } kaart && kaart.TryGetValue(positie, out var d) && d.Nummer > 0)
+                return await ZetViaBron(d.Regel.ProductId, d.Sjabloon, d.Attributen, $"drive:{d.Nummer}:{veld}", waarde);
+        }
+        return await ZetViaBron($"drive:{positie}:{veld}", waarde);
     }
 
     /// <summary>
@@ -4431,19 +4629,36 @@
     /// </summary>
     private async Task ControleerTerugval(List<DriveRegel> regels)
     {
-        List<ProductGebeurtenis> historie;
-        try { historie = await Repo.GetHistorieAsync(ProductId); }
-        catch { return; }
+        // (positie, regel): bij een product ook de historie van het halffabricaat op elke positie. Daar telt een regel
+        // "via dit product" met de productpositie, en een regel van direct aansluiten met het eigen drive-nummer.
+        var historie = new List<(string Positie, ProductGebeurtenis H)>();
         var geladen = new System.Text.RegularExpressions.Regex(@"^Drive (\d+) \(.*?\): firmware \S+ geladen, drive meldt ([^,\s]+)");
         var gelezen = new System.Text.RegularExpressions.Regex(@"^Drive (\d+) uitgelezen \(.*?firmware ([^,\s]+)");
+        try
+        {
+            foreach (var h in await Repo.GetHistorieAsync(ProductId))
+                historie.Add(("", h));
+            if (ProductModus && _halfPerPositie is { } kaart)
+                foreach (var (pos, d) in kaart)
+                    foreach (var h in await Repo.GetHistorieAsync(d.Regel.ProductId))
+                    {
+                        var m = geladen.Match(h.Event);
+                        if (!m.Success) m = gelezen.Match(h.Event);
+                        if (!m.Success) continue;
+                        var via = h.Event.EndsWith(ViaTekst, StringComparison.Ordinal);
+                        if (via ? m.Groups[1].Value == pos.ToString() : d.Nummer > 0 && m.Groups[1].Value == d.Nummer.ToString())
+                            historie.Add((pos.ToString(), h));
+                    }
+        }
+        catch { return; }
         // per positie wat de historie het laatst over de firmware zei: geladen (true) of uitgelezen (false)
         var laatst = new Dictionary<string, (DateTime Wanneer, bool Geladen, string Versie)>();
-        foreach (var h in historie.Where(h => h.Wanneer is not null).OrderBy(h => h.Wanneer))
+        foreach (var (vast, h) in historie.Where(x => x.H.Wanneer is not null).OrderBy(x => x.H.Wanneer))
         {
             var m = geladen.Match(h.Event);
             var laden = m.Success;
             if (!laden) m = gelezen.Match(h.Event);
-            if (m.Success) laatst[m.Groups[1].Value] = (h.Wanneer!.Value, laden, m.Groups[2].Value);
+            if (m.Success) laatst[vast.Length > 0 ? vast : m.Groups[1].Value] = (h.Wanneer!.Value, laden, m.Groups[2].Value);
         }
         for (var i = 0; i < regels.Count; i++)
         {
@@ -4548,21 +4763,23 @@
 
     /// <summary>Een waarde wegschrijven in het attribuut dat volgens het producttype deze bron heeft.
     /// Geen attribuut met die bron = niets doen. Geeft terug of er iets is weggeschreven.</summary>
-    private async Task<bool> ZetViaBron(string bron, string waarde)
+    private Task<bool> ZetViaBron(string bron, string waarde) => ZetViaBron(ProductId, _sjabloon, _attributen, bron, waarde);
+
+    private async Task<bool> ZetViaBron(int productId, List<ProductAttribuut> sjabloon, List<ProductAttribuut> attributen, string bron, string waarde)
     {
         var geschreven = false;
-        foreach (var s in _sjabloon.Where(s => string.Equals(s.Bron, bron, StringComparison.OrdinalIgnoreCase)))
+        foreach (var s in sjabloon.Where(s => string.Equals(s.Bron, bron, StringComparison.OrdinalIgnoreCase)))
         {
-            var a = _attributen.FirstOrDefault(x => x.SjabloonId == s.Id)
-                    ?? _attributen.FirstOrDefault(x => string.Equals(x.Attribuut, s.Attribuut, StringComparison.OrdinalIgnoreCase))
+            var a = attributen.FirstOrDefault(x => x.SjabloonId == s.Id)
+                    ?? attributen.FirstOrDefault(x => string.Equals(x.Attribuut, s.Attribuut, StringComparison.OrdinalIgnoreCase))
                     ?? new ProductAttribuut
                     {
-                        ProductId = ProductId, Attribuut = s.Attribuut, Eenheid = s.Eenheid,
+                        ProductId = productId, Attribuut = s.Attribuut, Eenheid = s.Eenheid,
                         Opmerking = s.Opmerking, Verplicht = s.Verplicht, SjabloonId = s.Id
                     };
             a.Waarde = waarde;
-            var id = await Repo.BewaarAttribuutAsync(ProductId, a, Ik.WerknemerId);
-            if (a.Id == 0) { a.Id = id; _attributen.Add(a); }
+            var id = await Repo.BewaarAttribuutAsync(productId, a, Ik.WerknemerId);
+            if (a.Id == 0) { a.Id = id; attributen.Add(a); }
             geschreven = true;
         }
         return geschreven;
