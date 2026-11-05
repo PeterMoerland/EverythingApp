@@ -3641,7 +3641,7 @@
             var samenvatting = Tekst(res, "samenvatting");
             _dm!.Bezig = false; _dm.Geslaagd = geslaagd; _dm.Samenvatting = samenvatting;
             _testLaatste = $"Dual motion {(geslaagd ? "GESLAAGD" : "AFGEKEURD")}";
-            await Repo.VoegHistorieToeAsync(ProductId, $"{titel}: {(geslaagd ? "GESLAAGD" : "AFGEKEURD")} — {samenvatting}" + Opm(), SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
+            await HistorieVoor(new[] { d.Value.A.Positie, d.Value.B.Positie }, $"{titel}: {(geslaagd ? "GESLAAGD" : "AFGEKEURD")} — {samenvatting}" + Opm(), SoortId("Test"), Ik.WerknemerId, uitkomst: geslaagd);
             if (!geslaagd) throw new InvalidOperationException(samenvatting);
             return samenvatting;
         }, DualLive);
@@ -3810,15 +3810,15 @@
         _taakBezig = true; _taakKlaar = false;
         _taakTitel = titel; _taakFout = null; _taakResultaat = null; _taakProcent = 0; _taakRegels = new();
         _taakJobId = null; _taakStopGevraagd = false;
-        _taakPositie = PositieUit(body);
-        if (ProductModus && _taakPositie is not null)
+        _taakPosities = PositiesUit(body);
+        if (ProductModus && _taakPosities.Count > 0)
         {
             if (_halfFout is not null) _halfPerPositie = null;              // vorige keer mislukt: opnieuw proberen
             await ZorgVoorKoppeling();
-            if (_halfPerPositie?.GetValueOrDefault(_taakPositie.Value) is { } doel)
+            if (GemeenschappelijkDoel(_taakPosities) is { } doel)
                 _taakRegels.Add($"Vastleggen bij {doel.Regel.Code} {doel.Regel.Serienummer}".TrimEnd());
             else if (_heeftOnderdelen)
-                _taakRegels.Add($"Vastleggen bij {Naam.Naam} {Exemplaar.Serienummer}: {HalfReden(_taakPositie.Value)}");
+                _taakRegels.Add($"Vastleggen bij {Naam.Naam} {Exemplaar.Serienummer}: {DoelReden(_taakPosities)}");
         }
         if (!taak.StartsWith("test.") && taak is not ("mde.test" or "drives.stroomlus" or "drives.encodertest" or "drives.motiontest" or "drives.phasing" or "drives.dualmotion")) _taakIsTest = false;
         _taakStop = new CancellationTokenSource(TimeSpan.FromSeconds(maxSeconden));
@@ -3891,7 +3891,7 @@
                     if (CommTekst(w) is { } comm)
                     {
                         if (_taakResultaat is not null) _taakResultaat += " · " + comm;
-                        try { await HistorieVoor(_taakPositie, $"{titel}: {comm}", SoortId("Test"), Ik.WerknemerId); } catch { }
+                        try { await HistorieVoor(_taakPosities, $"{titel}: {comm}", SoortId("Test"), Ik.WerknemerId); } catch { }
                     }
                     break;
                 }
@@ -3900,7 +3900,7 @@
                     _taakFout = Tekst(w, "fout");
                     var comm = CommTekst(w);
                     if (comm is not null) _taakFout += " · " + comm;
-                    await HistorieVoor(_taakPositie, $"{titel}: MISLUKT — {_taakFout}", SoortId("Test"), Ik.WerknemerId, uitkomst: false);
+                    await HistorieVoor(_taakPosities, $"{titel}: MISLUKT — {_taakFout}", SoortId("Test"), Ik.WerknemerId, uitkomst: false);
                     break;
                 }
                 StateHasChanged();
@@ -4497,21 +4497,52 @@
     /// <summary>Dit exemplaar heeft onderdelen. Zonder (bv. een motor met een drivepositie maar zonder serienummer-attribuut)
     /// blijft alles bij het exemplaar zelf, zonder uitlezen vooraf en zonder toevoeging.</summary>
     private bool _heeftOnderdelen;
-    /// <summary>Slave-positie van de lopende taak (uit de body), voor de algemene regels MISLUKT/communicatiefouten.</summary>
-    private int? _taakPositie;
+    /// <summary>Slave-posities van de lopende taak (uit de body), voor de algemene regels MISLUKT/communicatiefouten.</summary>
+    private List<int> _taakPosities = new();
 
     /// <summary>Achter een regel bij het halffabricaat: waar het gebeurde.</summary>
     private string ViaTekst => $" · via {Naam.Naam} {Exemplaar.Serienummer}".TrimEnd();
 
-    private static int? PositieUit(string body)
+    /// <summary>Posities in de body: "positie" bovenaan, of in een lijst (dual motion: drives[].positie).</summary>
+    private static List<int> PositiesUit(string body)
     {
+        var uit = new List<int>();
         try
         {
             using var doc = JsonDocument.Parse(body);
-            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("positie", out var p)
-                   && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n) ? n : null;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return uit;
+            static void Neem(JsonElement e, List<int> l)
+            {
+                if (e.TryGetProperty("positie", out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n) && !l.Contains(n)) l.Add(n);
+            }
+            Neem(doc.RootElement, uit);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+                if (prop.Value.ValueKind == JsonValueKind.Array)
+                    foreach (var e in prop.Value.EnumerateArray())
+                        if (e.ValueKind == JsonValueKind.Object) Neem(e, uit);
         }
-        catch { return null; }
+        catch { }
+        return uit;
+    }
+
+    /// <summary>Het halffabricaat waar alle posities bij horen (bv. drive 3 en 4 = dezelfde RZ-print); anders null.</summary>
+    private HalfDoel? GemeenschappelijkDoel(IReadOnlyCollection<int> posities)
+    {
+        if (posities.Count == 0 || _halfPerPositie is not { } kaart) return null;
+        HalfDoel? doel = null;
+        foreach (var pos in posities)
+        {
+            if (!kaart.TryGetValue(pos, out var d)) return null;
+            if (doel is not null && doel.Regel.ProductId != d.Regel.ProductId) return null;
+            doel = d;
+        }
+        return doel;
+    }
+
+    private string DoelReden(IReadOnlyCollection<int> posities)
+    {
+        var los = posities.Where(p => _halfPerPositie is null || !_halfPerPositie.ContainsKey(p)).ToList();
+        return los.Count > 0 ? HalfReden(los[0]) : "de drives horen bij verschillende halffabricaten (test van het product)";
     }
 
     /// <summary>Alle exemplaren onder dit product, tot 4 niveaus diep.</summary>
@@ -4592,12 +4623,19 @@
     /// Historie van een actie op één slave. Product (robot): bij het halffabricaat op die positie, met "· via ...";
     /// lukt dat niet, dan bij het product met de reden erbij. Anders gewoon bij dit exemplaar.
     /// </summary>
-    private async Task HistorieVoor(int? positie, string tekst, int? soortId, int? door, bool? uitkomst = null)
+    private Task HistorieVoor(int? positie, string tekst, int? soortId, int? door, bool? uitkomst = null)
+        => HistorieVoor(positie is int p ? new[] { p } : Array.Empty<int>(), tekst, soortId, door, uitkomst);
+
+    /// <summary>
+    /// Idem voor een taak over meer drives: horen ze allemaal bij hetzelfde halffabricaat (dual motion op de twee drives van
+    /// de RZ-print), dan daar; anders is het een test van het product en blijft hij bij het product, zonder toevoeging.
+    /// </summary>
+    private async Task HistorieVoor(IReadOnlyCollection<int> posities, string tekst, int? soortId, int? door, bool? uitkomst = null)
     {
-        if (ProductModus && positie is int pos)
+        if (ProductModus && posities.Count > 0)
         {
             await ZorgVoorKoppeling();
-            if (_halfPerPositie is { } kaart && kaart.TryGetValue(pos, out var d))
+            if (GemeenschappelijkDoel(posities) is { } d)
             {
                 // Event is max. 250 tekens: de tekst inkorten, niet de toevoeging (daarop wordt gezocht)
                 var via = ViaTekst;
@@ -4605,7 +4643,9 @@
                 await Repo.VoegHistorieToeAsync(d.Regel.ProductId, tekst + via, soortId, door, uitkomst);
                 return;
             }
-            if (_heeftOnderdelen) tekst += $" (niet bij het halffabricaat: {HalfReden(pos)})";
+            // Eén drive die niet te koppelen is: de reden erbij. Meer drives van verschillende halffabricaten = gewoon het product.
+            var los = posities.Where(p => _halfPerPositie is null || !_halfPerPositie.ContainsKey(p)).ToList();
+            if (_heeftOnderdelen && los.Count > 0) tekst += $" (niet bij het halffabricaat: {HalfReden(los[0])})";
         }
         await Repo.VoegHistorieToeAsync(ProductId, tekst, soortId, door, uitkomst);
     }
