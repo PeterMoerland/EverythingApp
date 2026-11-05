@@ -453,18 +453,8 @@
                     @* ===== HISTORIE (alleen bij een exemplaar) ===== *@
                     @if (_tab == "Historie")
                     {
-                        <div class="tl-balk">
-                            <input class="mail-zoek" placeholder="Wat is er gebeurd?" value="@_nieuwEvent"
-                                   @onchange="NieuwEventGewijzigd" />
-                            <select value="@HistorieSoortTekst" @onchange="HistorieSoortGewijzigd">
-                                <option value="">— soort —</option>
-                                @foreach (var s in _historieSoorten)
-                                {
-                                    <option value="@s.Id">@s.Naam</option>
-                                }
-                            </select>
-                            <button class="primair" @onclick="VoegHistorieToe">+ Toevoegen</button>
-                        </div>
+                        @* Zoeken/filteren en zelf een regel toevoegen gescheiden (wens gebruiker 5-11-2026: de invulregel
+                           boven de zoekregel was verwarrend). Toevoegen = knop rechts, dan een eigen vak. *@
                         <div class="tl-balk hist-filter">
                             <input class="mail-zoek" placeholder="🔍 Zoeken in historie (tekst, soort, door)…" value="@_histZoek"
                                    @oninput="e => _histZoek = (string?)e.Value ?? string.Empty" />
@@ -493,7 +483,31 @@
                                 <button class="klein rood" @onclick="WisHistorie"
                                         title="De aangevinkte regels definitief uit de historie halen (alleen Directie)">🗑 @HistGekozen.Count regel(s) wissen…</button>
                             }
+                            @if (!_histNieuwOpen)
+                            {
+                                <button class="primair hist-nieuw-knop" @onclick="OpenHistNieuw">+ Regel toevoegen</button>
+                            }
                         </div>
+
+                        @if (_histNieuwOpen)
+                        {
+                            <div class="hist-nieuw">
+                                <div class="hist-nieuw-kop">Nieuwe regel in de historie van <b>@Titel</b></div>
+                                <div class="hist-nieuw-regel">
+                                    <input @ref="_histNieuwVeld" placeholder="Wat is er gebeurd?" maxlength="250" value="@_nieuwEvent"
+                                           @oninput="NieuwEventGewijzigd" @onkeydown="HistNieuwToets" />
+                                    <select value="@HistorieSoortTekst" @onchange="HistorieSoortGewijzigd">
+                                        <option value="">— soort —</option>
+                                        @foreach (var s in _historieSoorten)
+                                        {
+                                            <option value="@s.Id">@s.Naam</option>
+                                        }
+                                    </select>
+                                    <button class="primair" disabled="@string.IsNullOrWhiteSpace(_nieuwEvent)" @onclick="VoegHistorieToe">Toevoegen</button>
+                                    <button class="klein" @onclick="SluitHistNieuw">Annuleren</button>
+                                </div>
+                            </div>
+                        }
 
                         @* Met onderdelen: kiezen van welke exemplaren de historie te zien is (wens gebruiker 5-11-2026).
                            Klik = alleen die; nog een klik op een andere = die erbij; Alles = weer alles. *@
@@ -1696,6 +1710,11 @@
             try { await _scanVeld.FocusAsync(); } catch { }
             try { await JS.InvokeVoidAsync("mdeGreep.herstel"); } catch { }   // eigen hoogtes van de lijsten
         }
+        if (_histNieuwFocus && _histNieuwOpen)
+        {
+            _histNieuwFocus = false;
+            try { await _histNieuwVeld.FocusAsync(); } catch { }
+        }
         if (_naarType)
         {
             _naarType = false;
@@ -2716,6 +2735,20 @@
 
     private void NieuwEventGewijzigd(ChangeEventArgs e) => _nieuwEvent = (string?)e.Value ?? "";
 
+    // Vak "Nieuwe regel" op het tabblad Historie
+    private bool _histNieuwOpen, _histNieuwFocus;
+    private ElementReference _histNieuwVeld;
+
+    private void OpenHistNieuw() { _histNieuwOpen = true; _histNieuwFocus = true; }
+    private void SluitHistNieuw() { _histNieuwOpen = false; _nieuwEvent = ""; }
+
+    /// <summary>Enter = toevoegen, Esc = annuleren.</summary>
+    private async Task HistNieuwToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_nieuwEvent)) await VoegHistorieToe();
+        else if (e.Key == "Escape") SluitHistNieuw();
+    }
+
     private void HistorieSoortGewijzigd(ChangeEventArgs e)
         => _historieSoortId = int.TryParse((string?)e.Value, out var v) ? v : null;
 
@@ -2880,6 +2913,7 @@
             await Repo.VoegHistorieToeAsync(_productId.Value, _nieuwEvent.Trim(),
                                             _historieSoortId, Ik.WerknemerId);
             _nieuwEvent = "";
+            _histNieuwOpen = false;
             _historie = await Repo.GetHistorieAsync(_productId.Value);
             Toon("Toegevoegd aan de historie.", false);
         }

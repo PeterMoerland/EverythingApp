@@ -1196,6 +1196,15 @@ html[data-thema="donker"] .bits-crc { background: #2b4a73; color: #d6e2f0; }
 .prod-test-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; overflow: auto; }
 .prod-log-kort { max-height: 12rem; overflow: auto; }
 .kiezer-tabel tr.hist-onderdeel td { font-style: italic; }
+/* Historie: zelf een regel toevoegen, los van zoeken */
+.hist-filter { flex-wrap: wrap; gap: .6rem; }
+.hist-filter .hist-nieuw-knop { margin-left: auto; }
+.hist-nieuw { border: 1px solid var(--accent); border-left-width: 4px; border-radius: 6px; background: #f3f7fc; padding: .5rem .7rem .6rem; margin: 0 0 .7rem; }
+.hist-nieuw-kop { font-size: .9em; color: #4a5563; margin-bottom: .35rem; }
+.hist-nieuw-regel { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.hist-nieuw-regel input { flex: 1; min-width: 16rem; }
+html[data-thema="donker"] .hist-nieuw { background: var(--d2); }
+html[data-thema="donker"] .hist-nieuw-kop { color: var(--dt2, #c3ccd6); }
 /* Historie incl. onderdelen: kiezen van welk exemplaar */
 .hist-bronnen { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0 0 .5rem; }
 .hist-bronnen button.actief { background: var(--accent); color: #fff; border-color: var(--accent); }
