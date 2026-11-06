@@ -23,7 +23,7 @@
 
 @if (_venster)
 {
-    <div class="bel-venster @(_groot ? "groot" : "")" role="dialog" aria-label="Videogesprek">
+    <div class="video-venster @(_groot ? "groot" : "")" role="dialog" aria-label="Videogesprek">
         <div class="bel-kop">
             <b>📹 @(_gesprek?.Ander(_wn) ?? _naarNaam)</b>
             <span class="bel-stand">@_stand</span>
