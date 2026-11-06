@@ -51,23 +51,31 @@ public class FusionAddInUitgave
         try
         {
             if (!Beschikbaar()) return null;
-            var wortel = "MdeFusionTools" + (KorteVersie() is { Length: > 0 } v ? "-" + v : "");
-            using var geheugen = new MemoryStream();
-            using (var zip = new ZipArchive(geheugen, ZipArchiveMode.Create, leaveOpen: true))
-            {
-                foreach (var bestand in Directory.EnumerateFiles(_map, "*", SearchOption.AllDirectories))
-                {
-                    var relatief = Path.GetRelativePath(_map, bestand);
-                    if (relatief.Split(Path.DirectorySeparatorChar).Contains("__pycache__")) continue;
-                    zip.CreateEntryFromFile(bestand, wortel + "/" + relatief.Replace('\\', '/'), CompressionLevel.Optimal);
-                }
-            }
-            return geheugen.ToArray();
+            return ZipVanMap(_map, "MdeFusionTools" + (KorteVersie() is { Length: > 0 } v ? "-" + v : ""));
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Fusion-add-in inpakken mislukt ({Map})", _map);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Een map als zip, alles onder één map <paramref name="wortel"/> (ook gebruikt door <see cref="InventorAddInUitgave"/>).
+    /// __pycache__ gaat niet mee.
+    /// </summary>
+    public static byte[] ZipVanMap(string map, string wortel)
+    {
+        using var geheugen = new MemoryStream();
+        using (var zip = new ZipArchive(geheugen, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var bestand in Directory.EnumerateFiles(map, "*", SearchOption.AllDirectories))
+            {
+                var relatief = Path.GetRelativePath(map, bestand);
+                if (relatief.Split(Path.DirectorySeparatorChar).Contains("__pycache__")) continue;
+                zip.CreateEntryFromFile(bestand, wortel + "/" + relatief.Replace('\\', '/'), CompressionLevel.Optimal);
+            }
+        }
+        return geheugen.ToArray();
     }
 }

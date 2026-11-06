@@ -307,6 +307,7 @@ builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
 builder.Services.AddSingleton<AgentUitgave>();
+builder.Services.AddSingleton<InventorAddInUitgave>();   // Inventor-add-in als zip uit de share (Tools > Inventor > Add-in installeren)
 builder.Services.AddSingleton<FusionAddInUitgave>();     // Fusion-add-in als zip uit de share (Tools > Fusion > Add-in installeren)          // nieuwste agentversie op de share (publiceer-z.bat)
 builder.Services.AddScoped<WerkplekAgent>();
 builder.Services.AddScoped<ExemplaarHerkenning>();   // welk exemplaar hangt er aan de EtherCAT-adapter (auto-detect)           // per browser: is er een MDE Werkplek-agent op deze pc?   // duurtestlog van de testrig-PLC ophalen (FTP)
@@ -657,6 +658,13 @@ var fusionAddin = app.MapGet("/tools/fusion-addin/download", async (FusionAddInU
         : Results.NotFound("De Fusion-add-in staat niet op de share (FusionTools, publish.ps1).");
 });
 if (loginAan) fusionAddin.RequireAuthorization();
+
+// --- de Inventor-add-in als zip (InventorAddInUitgave); geen apart recht, wel aangemeld (geen geheimen in de uitgave) ---
+var inventorAddin = app.MapGet("/tools/inventor-addin/download", (InventorAddInUitgave uitgave) =>
+    uitgave.Zip() is { } zip
+        ? Results.File(zip, "application/zip", $"MdeInventorTools-{uitgave.Uitgave()}.zip".Replace("-.zip", ".zip"))
+        : Results.NotFound("De Inventor-add-in staat niet op de share (InventorTools, publish.ps1)."));
+if (loginAan) inventorAddin.RequireAuthorization();
 
 // --- bestand tonen in de browser ---
 // PDF's en afbeeldingen gaan er rechtstreeks doorheen; Word en Excel worden eerst

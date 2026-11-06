@@ -159,7 +159,9 @@ public static class Menu
                         new MenuItem("Bewerkingen", "/beheer/tabel/inventor-bewerkingen", Icoon: "wrench"),
                         new MenuItem("BOM", Icoon: "list-tree")),
                     new MenuGroep("Weergave",
-                        new MenuItem("3D-viewer (STEP)", "/viewer", Icoon: "box"))),
+                        new MenuItem("3D-viewer (STEP)", "/viewer", Icoon: "box")),
+                    new MenuGroep("Installeren",
+                        new MenuItem("Add-in installeren", "/tools/inventor-addin", Icoon: "download"))),
 
                 new MenuModule("see-electrical", "See Electrical", "zap",
                     new MenuGroep("Onderhoud",

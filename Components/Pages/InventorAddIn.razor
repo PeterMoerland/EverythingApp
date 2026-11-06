@@ -1,0 +1,58 @@
+@page "/tools/inventor-addin"
+@inject InventorAddInUitgave Uitgave
+
+@* De Inventor-add-in (MDE InventorTools) installeren vanuit de app (wens gebruiker 6-11-2026), net als de Fusion-add-in.
+   De zip komt van /tools/inventor-addin/download (Program.cs). *@
+
+<PageTitle>Inventor-add-in — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Inventor-add-in installeren</h1>
+        @if (_uitgave.Length > 0)
+        {
+            <span class="weeklabel">uitgave @_uitgave</span>
+        }
+    </header>
+
+    @if (!_beschikbaar)
+    {
+        <section class="module-placeholder">
+            <p><b>De add-in is nu niet te downloaden.</b></p>
+            <p>De app kan de uitgave op de share niet vinden (@Uitgave.Map). Vraag degene die de add-in uitgeeft
+                (InventorTools ▸ publish.ps1) om het na te kijken.</p>
+        </section>
+    }
+    else
+    {
+        <section class="fai-kaart">
+            <p>De MDE-add-in voor Inventor 2026: partnummers, tekeningen maken (Maak DWG, Quick Drawing), formaten
+                exporteren, 3D printen, Collect Parts, Plak uit Vault en meer. Hij komt in het lint als tabblad <b>MDE</b>.</p>
+
+            <a class="fai-knop" href="tools/inventor-addin/download" download>⬇ Download MDE InventorTools @_uitgave (zip)</a>
+
+            <ol class="fai-stappen">
+                <li><b>Inventor afsluiten.</b> Zolang Inventor draait, stopt de installatie met een melding.</li>
+                <li><b>Zip uitpakken:</b> rechtermuisknop op het gedownloade bestand ▸ <i>Alles uitpakken</i>.</li>
+                <li><b>Dubbelklik op <code>Installeer.cmd</code></b> in de uitgepakte map. Vraagt Windows of je het bestand wilt
+                    uitvoeren, kies dan <i>Uitvoeren</i> (bij SmartScreen: <i>Meer informatie</i> ▸ <i>Toch uitvoeren</i>).</li>
+                <li><b>Inventor starten:</b> tabblad MDE in het lint, en bij Instellingen je eigen naam kiezen.</li>
+            </ol>
+
+            <p class="uitleg">Een nieuwe uitgave installeren gaat op dezelfde manier; je instellingen blijven bewaard. Staat de
+                add-in voor het eerst op deze pc, dan moeten de databasegegevens nog in de configuratie van de add-in
+                (appsettings.json) worden ingevuld; vraag dat aan de beheerder.</p>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _beschikbaar;
+    private string _uitgave = "";
+
+    protected override void OnInitialized()
+    {
+        _beschikbaar = Uitgave.Beschikbaar();
+        _uitgave = Uitgave.Uitgave();
+    }
+}
