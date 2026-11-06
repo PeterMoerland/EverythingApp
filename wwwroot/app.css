@@ -1985,6 +1985,18 @@ html[data-thema="donker"] .hmi-knop.aan { background: #7ccfea; }
 html[data-thema="donker"] .hmi-knop:hover { background: #a5e2f7; }
 html[data-thema="donker"] .hmi-knop.rood { background: #e8112d; color: #fff; border-color: #b00d22; }
 html[data-thema="donker"] .hmi-knop.groen { background: #10b981; color: #fff; border-color: #0b8f65; }
+/* HMI-knoppen (verlichting, zonwering): de algemene button:hover (grijs; in donker #313a45) won van de eigen kleur.
+   Op een telefoon blijft hover na een tik hangen: gekozen knop grijs met donkere tekst (melding gebruiker 6-11-2026).
+   Daarom: hover = gewone kleur, en alleen met een echte muis (hover: hover) iets lichter. */
+.hmi-knop:hover:not(:disabled), html[data-thema="donker"] .hmi-knop:hover:not(:disabled) { background: #8fd8f2; color: #123; }
+.hmi-knop.aan:hover:not(:disabled), html[data-thema="donker"] .hmi-knop.aan:hover:not(:disabled) { background: #7ccfea; }
+.hmi-knop.rood:hover:not(:disabled), html[data-thema="donker"] .hmi-knop.rood:hover:not(:disabled) { background: #e8112d; color: #fff; }
+.hmi-knop.groen:hover:not(:disabled), html[data-thema="donker"] .hmi-knop.groen:hover:not(:disabled) { background: #10b981; color: #fff; }
+@media (hover: hover) {
+    .hmi-knop:hover:not(:disabled), html[data-thema="donker"] .hmi-knop:hover:not(:disabled) { background: #a5e2f7; }
+    .hmi-knop.rood:hover:not(:disabled), html[data-thema="donker"] .hmi-knop.rood:hover:not(:disabled) { background: #f42a44; }
+    .hmi-knop.groen:hover:not(:disabled), html[data-thema="donker"] .hmi-knop.groen:hover:not(:disabled) { background: #22c993; }
+}
 
 /* ---- inkomende facturen ---- */
 html[data-thema="donker"] .factuurvenster { background: var(--d1); }
