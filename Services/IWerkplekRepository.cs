@@ -69,6 +69,38 @@ public interface IWerkplekRepository
     Task WisPincodeAsync(int werknemerId);
     /// <summary>Wie heeft er een pincode (voor Beheer).</summary>
     Task<List<Keuze>> MetPincodeAsync();
+
+    // ---- startcodes (WerknemerStartcodes_MariaDB.sql): pincode instellen zonder Google-account ----
+    /// <summary>Bestaat de tabel WerknemerStartcodes?</summary>
+    Task<bool> StartcodeTabelAsync();
+    /// <summary>Nieuwe startcode van 6 cijfers (vervangt een oude), 7 dagen geldig. De code zelf komt alleen hier terug.</summary>
+    Task<(string Code, DateTime Tot)> MaakStartcodeAsync(int werknemerId, int? door);
+    /// <summary>Hash van een nog geldige startcode, of null.</summary>
+    Task<string?> StartcodeHashAsync(int werknemerId);
+    Task WisStartcodeAsync(int werknemerId);
+    /// <summary>Openstaande (geldige) startcodes, voor Beheer.</summary>
+    Task<List<(Keuze Persoon, DateTime Tot)>> OpenStartcodesAsync();
+
+    // ---- wie staat er in "Wie ben jij?" per werkplek (WerkplekPersonen_MariaDB.sql) ----
+    Task<bool> WerkplekPersonenTabelAsync();
+    /// <summary>De gekozen mensen van deze werkplek; leeg = iedereen met Werkplek gebruiker.</summary>
+    Task<List<int>> GekozenPersonenAsync(int werkplekId);
+    Task ZetGekozenPersonenAsync(int werkplekId, IReadOnlyCollection<int> werknemerIds);
+}
+
+public static class WerkplekPersonenHulp
+{
+    /// <summary>
+    /// De keuze bij "Wie ben jij?" op deze werkplek: de gekozen mensen (Beheer ▸ Werkplekken), anders iedereen met
+    /// Werkplek gebruiker. Ook gebruikt bij het controleren van pincode en startcode.
+    /// </summary>
+    public static async Task<List<Keuze>> PersonenVoorAsync(this IWerkplekRepository repo, int? werkplekId)
+    {
+        var alle = await repo.PersonenAsync();
+        if (werkplekId is not int id || !await repo.WerkplekPersonenTabelAsync()) return alle;
+        var gekozen = (await repo.GekozenPersonenAsync(id)).ToHashSet();
+        return gekozen.Count == 0 ? alle : alle.Where(p => gekozen.Contains(p.Id)).ToList();
+    }
 }
 
 /// <summary>
@@ -116,6 +148,16 @@ public static class Pincode
     public static void Goed(int werknemerId) => _pogingen.TryRemove(werknemerId, out _);
 }
 
+/// <summary>Startcode: 6 cijfers (het cijferblok van de werkplek), eenmalig, een week geldig. Hash zoals een pincode.</summary>
+public static class Startcode
+{
+    public const int Lengte = 6;
+    public const int Dagen = 7;
+    public static string Nieuw() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+    /// <summary>Leesbaar voor op papier of in een bericht: 482 913.</summary>
+    public static string Leesbaar(string code) => code.Length == 6 ? code[..3] + " " + code[3..] : code;
+}
+
 /// <summary>Gemeenschappelijk: de koppelcode (zonder letters die op elkaar lijken).</summary>
 public static class WerkplekCode
 {
@@ -146,6 +188,14 @@ public class GeenWerkplekRepository : IWerkplekRepository
     public Task ZetPincodeAsync(int werknemerId, string pincode) => Task.CompletedTask;
     public Task WisPincodeAsync(int werknemerId) => Task.CompletedTask;
     public Task<List<Keuze>> MetPincodeAsync() => Task.FromResult(new List<Keuze>());
+    public Task<bool> StartcodeTabelAsync() => Task.FromResult(false);
+    public Task<(string Code, DateTime Tot)> MaakStartcodeAsync(int werknemerId, int? door) => Task.FromResult(("", DateTime.Now));
+    public Task<string?> StartcodeHashAsync(int werknemerId) => Task.FromResult<string?>(null);
+    public Task WisStartcodeAsync(int werknemerId) => Task.CompletedTask;
+    public Task<List<(Keuze Persoon, DateTime Tot)>> OpenStartcodesAsync() => Task.FromResult(new List<(Keuze, DateTime)>());
+    public Task<bool> WerkplekPersonenTabelAsync() => Task.FromResult(false);
+    public Task<List<int>> GekozenPersonenAsync(int werkplekId) => Task.FromResult(new List<int>());
+    public Task ZetGekozenPersonenAsync(int werkplekId, IReadOnlyCollection<int> werknemerIds) => Task.CompletedTask;
     public Task<int?> MinutenAsync(int werknemerId) => Task.FromResult<int?>(null);
 }
 
@@ -251,6 +301,39 @@ public class GeheugenWerkplekRepository : IWerkplekRepository
     public Task ZetPincodeAsync(int werknemerId, string pincode) { lock (_slot) _pincodes[werknemerId] = Pincode.Hash(pincode); return Task.CompletedTask; }
     public Task WisPincodeAsync(int werknemerId) { lock (_slot) _pincodes.Remove(werknemerId); return Task.CompletedTask; }
     public Task<List<Keuze>> MetPincodeAsync() { lock (_slot) return Task.FromResult(_personen.Where(p => _pincodes.ContainsKey(p.Id)).ToList()); }
+
+    private readonly Dictionary<int, (string Hash, DateTime Tot)> _startcodes = new();
+    public Task<bool> StartcodeTabelAsync() => Task.FromResult(true);
+    public Task<(string Code, DateTime Tot)> MaakStartcodeAsync(int werknemerId, int? door)
+    {
+        var code = Startcode.Nieuw();
+        var tot = DateTime.Now.AddDays(Startcode.Dagen);
+        lock (_slot) _startcodes[werknemerId] = (Pincode.Hash(code), tot);
+        return Task.FromResult((code, tot));
+    }
+    public Task<string?> StartcodeHashAsync(int werknemerId)
+    {
+        lock (_slot) return Task.FromResult(_startcodes.TryGetValue(werknemerId, out var s) && s.Tot > DateTime.Now ? s.Hash : null);
+    }
+    public Task WisStartcodeAsync(int werknemerId) { lock (_slot) _startcodes.Remove(werknemerId); return Task.CompletedTask; }
+
+    private readonly Dictionary<int, List<int>> _gekozen = new();
+    public Task<bool> WerkplekPersonenTabelAsync() => Task.FromResult(true);
+    public Task<List<int>> GekozenPersonenAsync(int werkplekId)
+    {
+        lock (_slot) return Task.FromResult(_gekozen.TryGetValue(werkplekId, out var l) ? l.ToList() : new List<int>());
+    }
+    public Task ZetGekozenPersonenAsync(int werkplekId, IReadOnlyCollection<int> werknemerIds)
+    {
+        lock (_slot) _gekozen[werkplekId] = werknemerIds.Distinct().ToList();
+        return Task.CompletedTask;
+    }
+    public Task<List<(Keuze Persoon, DateTime Tot)>> OpenStartcodesAsync()
+    {
+        lock (_slot)
+            return Task.FromResult(_startcodes.Where(s => s.Value.Tot > DateTime.Now)
+                .Select(s => (_personen.FirstOrDefault(p => p.Id == s.Key) ?? new Keuze(s.Key, $"#{s.Key}"), s.Value.Tot)).ToList());
+    }
     public Task<int?> MinutenAsync(int werknemerId) => Task.FromResult<int?>(null);
 }
 
@@ -540,6 +623,123 @@ public class MySqlWerkplekRepository : IWerkplekRepository
             "  FROM `WerknemerPincodes` p LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = p.`WerknemerID` ORDER BY naam", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), S(r, 1)));
+        return lijst;
+    }
+
+    private bool _startcodeTabel;
+
+    public async Task<bool> StartcodeTabelAsync()
+    {
+        if (_startcodeTabel) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'WerknemerStartcodes'", cn);
+            _startcodeTabel = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _startcodeTabel;
+    }
+
+    public async Task<(string Code, DateTime Tot)> MaakStartcodeAsync(int werknemerId, int? door)
+    {
+        var code = Startcode.Nieuw();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `WerknemerStartcodes` (`WerknemerID`, `Hash`, `GeldigTot`, `AangemaaktDoor`, `AangemaaktOp`) " +
+            "VALUES (@w, @h, NOW() + INTERVAL @d DAY, @door, NOW()) " +
+            "ON DUPLICATE KEY UPDATE `Hash` = VALUES(`Hash`), `GeldigTot` = VALUES(`GeldigTot`), " +
+            "                        `AangemaaktDoor` = VALUES(`AangemaaktDoor`), `AangemaaktOp` = NOW()", cn);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        cmd.Parameters.AddWithValue("@h", Pincode.Hash(code));
+        cmd.Parameters.AddWithValue("@d", Startcode.Dagen);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+        await using var tot = new MySqlCommand("SELECT `GeldigTot` FROM `WerknemerStartcodes` WHERE `WerknemerID` = @w", cn);
+        tot.Parameters.AddWithValue("@w", werknemerId);
+        return (code, Convert.ToDateTime(await tot.ExecuteScalarAsync()));
+    }
+
+    public async Task<string?> StartcodeHashAsync(int werknemerId)
+    {
+        if (!await StartcodeTabelAsync()) return null;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `Hash` FROM `WerknemerStartcodes` WHERE `WerknemerID` = @w AND `GeldigTot` > NOW()", cn);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        return await cmd.ExecuteScalarAsync() is string h ? h : null;
+    }
+
+    public async Task WisStartcodeAsync(int werknemerId)
+    {
+        if (!await StartcodeTabelAsync()) return;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `WerknemerStartcodes` WHERE `WerknemerID` = @w", cn);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private bool _personenTabel;
+
+    public async Task<bool> WerkplekPersonenTabelAsync()
+    {
+        if (_personenTabel) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'WerkplekPersonen'", cn);
+            _personenTabel = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _personenTabel;
+    }
+
+    public async Task<List<int>> GekozenPersonenAsync(int werkplekId)
+    {
+        var lijst = new List<int>();
+        if (!await WerkplekPersonenTabelAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `WerknemerID` FROM `WerkplekPersonen` WHERE `WerkplekID` = @w", cn);
+        cmd.Parameters.AddWithValue("@w", werkplekId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(r.GetInt32(0));
+        return lijst;
+    }
+
+    public async Task ZetGekozenPersonenAsync(int werkplekId, IReadOnlyCollection<int> werknemerIds)
+    {
+        if (!await WerkplekPersonenTabelAsync()) return;
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var weg = new MySqlCommand("DELETE FROM `WerkplekPersonen` WHERE `WerkplekID` = @w", cn, tx))
+        {
+            weg.Parameters.AddWithValue("@w", werkplekId);
+            await weg.ExecuteNonQueryAsync();
+        }
+        foreach (var id in werknemerIds.Distinct())
+        {
+            await using var erbij = new MySqlCommand("INSERT INTO `WerkplekPersonen` (`WerkplekID`, `WerknemerID`) VALUES (@w, @p)", cn, tx);
+            erbij.Parameters.AddWithValue("@w", werkplekId);
+            erbij.Parameters.AddWithValue("@p", id);
+            await erbij.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+    }
+
+    public async Task<List<(Keuze Persoon, DateTime Tot)>> OpenStartcodesAsync()
+    {
+        var lijst = new List<(Keuze, DateTime)>();
+        if (!await StartcodeTabelAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT s.`WerknemerID`, COALESCE(w.`NaamVoluit`, CONCAT_WS(' ', w.`Voornaam`, w.`Achternaam`), CONCAT('#', s.`WerknemerID`)) AS naam, " +
+            "       s.`GeldigTot` " +
+            "  FROM `WerknemerStartcodes` s LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = s.`WerknemerID` " +
+            " WHERE s.`GeldigTot` > NOW() ORDER BY naam", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add((new Keuze(r.GetInt32(0), S(r, 1)), r.GetDateTime(2)));
         return lijst;
     }
 

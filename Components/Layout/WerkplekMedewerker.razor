@@ -144,11 +144,15 @@ else if (Ik.IsWerkplek)
         else
         {
             <h3><span class="ab-av wpm-av" style="background:@ActKleur.Avatar(g.Naam)">@ActKleur.Initialen(g.Naam)</span> @g.Naam</h3>
-            <p class="uitleg">Je pincode (4 cijfers):</p>
+            <p class="uitleg">@StapTekst</p>
             <div class="wpm-stippen">
-                @for (var i = 0; i < 4; i++) { <span class="@(i < _pin.Length ? "vol" : "")"></span> }
+                @for (var i = 0; i < Lengte; i++) { <span class="@(i < _pin.Length ? "vol" : "")"></span> }
             </div>
             @if (_fout is not null) { <p class="wpm-fout">@_fout</p> }
+            @if (_stap == Stap.Startcode && !_heeftStartcode)
+            {
+                <p class="uitleg wpm-hint">Nog geen startcode? Vraag die aan de beheerder (Beheer ▸ Werkplekken).</p>
+            }
             <div class="wpm-blok">
                 @foreach (var c in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫" })
                 {
@@ -162,6 +166,10 @@ else if (Ik.IsWerkplek)
             </div>
             <div class="snel-knoppen">
                 <button type="button" class="klein" @onclick="Terug">◀ Andere naam</button>
+                @if (_stap == Stap.Pin && _heeftStartcode)
+                {
+                    <button type="button" class="klein" @onclick="NaarStartcode" title="Met de startcode van de beheerder een nieuwe pincode kiezen">Pincode vergeten?</button>
+                }
                 <span style="flex:1"></span>
                 @if (!Slot)
                 {
@@ -223,7 +231,7 @@ else if (Ik.IsWerkplek)
 
     private async Task LaadPersonen()
     {
-        try { _personen = await Repo.PersonenAsync(); } catch { _personen = new(); }
+        try { _personen = await Repo.PersonenVoorAsync(Ik.Werkplek?.Id); } catch { _personen = new(); }
     }
 
     /// <summary>Elke minuut vanuit werkplek.js.</summary>
@@ -241,18 +249,94 @@ else if (Ik.IsWerkplek)
         _focusVenster = true;
     }
 
-    private void Sluit() { _open = false; _pin = ""; _gekozen = null; }
-    private void Kies(Keuze k) { _gekozen = k; _pin = ""; _fout = null; _focusVenster = true; }
-    private void Terug() { _gekozen = null; _pin = ""; _fout = null; }
+    private void Sluit() { _open = false; _pin = ""; _gekozen = null; WisStappen(); }
+    private void Terug() { _gekozen = null; _pin = ""; _fout = null; WisStappen(); }
+
+    // ---- stappen na de naam: pincode, of (geen pincode / vergeten) startcode → nieuwe pincode → nog eens ----
+    // Wens gebruiker 6-11-2026: een inlener zonder Google-account kan zijn pincode niet zelf instellen via Mijn pincode;
+    // een beheerder geeft hem een startcode (Beheer ▸ Werkplekken) en hij kiest hier zelf zijn pincode.
+    private enum Stap { Pin, Startcode, Nieuw, Herhaal }
+    private Stap _stap = Stap.Pin;
+    private bool _heeftStartcode;
+    private string _startcode = "", _nieuwePin = "";
+
+    private int Lengte => _stap == Stap.Startcode ? Startcode.Lengte : 4;
+
+    private string StapTekst => _stap switch
+    {
+        Stap.Startcode when _zonderPincode => "Je hebt nog geen pincode. Vul de startcode in die je van de beheerder kreeg (6 cijfers):",
+        Stap.Startcode => "Startcode van de beheerder (6 cijfers):",
+        Stap.Nieuw => "Kies je eigen pincode (4 cijfers):",
+        Stap.Herhaal => "Nog een keer, ter controle:",
+        _ => "Je pincode (4 cijfers):",
+    };
+    private bool _zonderPincode;
+
+    private void WisStappen() { _stap = Stap.Pin; _startcode = ""; _nieuwePin = ""; _heeftStartcode = false; _zonderPincode = false; }
+
+    private async Task Kies(Keuze k)
+    {
+        _gekozen = k; _pin = ""; _fout = null; _focusVenster = true;
+        WisStappen();
+        try
+        {
+            _zonderPincode = !await Repo.HeeftPincodeAsync(k.Id);
+            _heeftStartcode = await Repo.StartcodeHashAsync(k.Id) is not null;
+        }
+        catch { }
+        if (_zonderPincode) _stap = Stap.Startcode;
+    }
+
+    private void NaarStartcode() { _stap = Stap.Startcode; _pin = ""; _fout = null; _focusVenster = true; }
 
     private async Task Druk(string c)
     {
         if (_bezig) return;
         _fout = null;
         if (c == "⌫") { if (_pin.Length > 0) _pin = _pin[..^1]; return; }
-        if (_pin.Length >= 4) return;
+        if (_pin.Length >= Lengte) return;
         _pin += c;
-        if (_pin.Length == 4) await Controleer();
+        if (_pin.Length < Lengte) return;
+        switch (_stap)
+        {
+            case Stap.Pin: await Controleer(); break;
+            case Stap.Startcode: await ControleerStartcode(); break;
+            case Stap.Nieuw: _nieuwePin = _pin; _pin = ""; _stap = Stap.Herhaal; break;
+            case Stap.Herhaal: await NieuwePincode(); break;
+        }
+    }
+
+    private async Task ControleerStartcode()
+    {
+        if (_gekozen is not { } g) return;
+        _bezig = true;
+        try
+        {
+            _fout = await Ik.ControleerStartcodeAsync(g.Id, _pin);
+            if (_fout is null) { _startcode = _pin; _stap = Stap.Nieuw; }
+        }
+        catch (Exception ex) { _fout = "Controleren mislukt: " + ex.Message; }
+        finally { _pin = ""; _bezig = false; }
+    }
+
+    private async Task NieuwePincode()
+    {
+        if (_gekozen is not { } g) return;
+        if (_pin != _nieuwePin)
+        {
+            _fout = "De twee pincodes zijn niet gelijk. Kies opnieuw.";
+            _pin = ""; _nieuwePin = ""; _stap = Stap.Nieuw;
+            return;
+        }
+        _bezig = true;
+        try
+        {
+            _fout = await Ik.StelPincodeInAsync(g.Id, g.Naam, _startcode, _pin);
+            if (_fout is null) { await TelAanmelding(g.Id); Sluit(); _zoek = ""; }
+            else { _stap = Stap.Startcode; _startcode = ""; _nieuwePin = ""; }
+        }
+        catch (Exception ex) { _fout = "Pincode instellen mislukt: " + ex.Message; }
+        finally { _pin = ""; _bezig = false; }
     }
 
     private async Task Controleer()

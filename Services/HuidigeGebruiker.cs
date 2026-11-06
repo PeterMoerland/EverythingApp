@@ -90,8 +90,8 @@ public class HuidigeGebruiker
         if (ApparaatId is not int a) return "Deze pc is geen gekoppelde werkplek.";
         if (Pincode.Geblokkeerd(werknemerId) is { } wacht)
             return $"Te vaak een verkeerde pincode. Probeer het over {Math.Ceiling(wacht.TotalMinutes)} minuten opnieuw.";
-        if (!(await _werkplekken.PersonenAsync()).Any(p => p.Id == werknemerId))
-            return "Je staat niet als werkplekgebruiker in Werknemers (Status).";
+        if (!(await _werkplekken.PersonenVoorAsync(Werkplek?.Id)).Any(p => p.Id == werknemerId))
+            return "Je staat niet in de lijst van deze werkplek (Beheer ▸ Werkplekken, of Werknemers ▸ Status).";
         var hash = await _werkplekken.PincodeHashAsync(werknemerId);
         if (hash is null) return "Je hebt nog geen pincode. Stel die in op je eigen pc: Werknemers ▸ Mijn pincode.";
         if (!Pincode.Klopt(pincode, hash)) { Pincode.Fout(werknemerId); return "Die pincode klopt niet."; }
@@ -103,6 +103,34 @@ public class HuidigeGebruiker
         _duur = await DuurVanAsync(werknemerId);
         MedewerkerGewijzigd?.Invoke();
         return null;
+    }
+
+    /// <summary>
+    /// Startcode van een beheerder controleren (Beheer ▸ Werkplekken): voor wie geen Google-account heeft of zijn pincode
+    /// vergat. Telt mee in dezelfde blokkade als de pincode (5 fout = 5 minuten wachten). Null = goed.
+    /// </summary>
+    public async Task<string?> ControleerStartcodeAsync(int werknemerId, string code)
+    {
+        if (ApparaatId is null) return "Deze pc is geen gekoppelde werkplek.";
+        if (Pincode.Geblokkeerd(werknemerId) is { } wacht)
+            return $"Te vaak een verkeerde code. Probeer het over {Math.Ceiling(wacht.TotalMinutes)} minuten opnieuw.";
+        if (!(await _werkplekken.PersonenVoorAsync(Werkplek?.Id)).Any(p => p.Id == werknemerId))
+            return "Je staat niet in de lijst van deze werkplek (Beheer ▸ Werkplekken, of Werknemers ▸ Status).";
+        var hash = await _werkplekken.StartcodeHashAsync(werknemerId);
+        if (hash is null) return "Er is geen geldige startcode voor jou. Vraag de beheerder om een nieuwe (Beheer ▸ Werkplekken).";
+        if (!Pincode.Klopt(code, hash)) { Pincode.Fout(werknemerId); return "Die startcode klopt niet."; }
+        Pincode.Goed(werknemerId);
+        return null;
+    }
+
+    /// <summary>Met een geldige startcode zelf een pincode kiezen; daarna is de startcode op en ben je aangemeld.</summary>
+    public async Task<string?> StelPincodeInAsync(int werknemerId, string naam, string startcode, string pincode)
+    {
+        if (await ControleerStartcodeAsync(werknemerId, startcode) is { } fout) return fout;
+        if (!Pincode.Geldig(pincode)) return "Een pincode is 4 cijfers.";
+        await _werkplekken.ZetPincodeAsync(werknemerId, pincode);
+        await _werkplekken.WisStartcodeAsync(werknemerId);
+        return await MeldAanAsync(werknemerId, naam, pincode);
     }
 
     private async Task<int> DuurVanAsync(int werknemerId)

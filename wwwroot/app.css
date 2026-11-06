@@ -1150,6 +1150,19 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 /* de uitgelezen drives: groen kader bij go, rood bij no-go */
 .prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
 .prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+/* Werkplekken: wie staat er in "Wie ben jij?" */
+.wp-wie { display: flex; flex-direction: column; gap: .2rem; }
+.wp-wie > span { font-size: .85em; color: #5b6673; }
+.wp-wie-lijst { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .1rem .8rem;
+                margin: .2rem 0 0 1.4rem; max-height: 14rem; overflow-y: auto; }
+html[data-thema="donker"] .wp-wie > span { color: var(--dt2, #c3ccd6); }
+/* Werkplekken: startcode voor wie geen Google-account heeft */
+.wp-startcode { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .3rem 0 .5rem; }
+.wp-startcode-kaart { display: inline-flex; flex-direction: column; gap: .2rem; padding: .6rem .9rem; margin: .2rem 0 .6rem;
+                      border: 1px solid var(--accent); border-left-width: 4px; border-radius: 6px; background: #f3f7fc; }
+.wp-startcode-code { font-size: 2rem; font-weight: 700; letter-spacing: .12em; font-variant-numeric: tabular-nums; color: var(--accent); }
+html[data-thema="donker"] .wp-startcode-kaart { background: var(--d2); }
+.wpm-hint { margin-top: .2rem; }
 /* Bestellingen: artikel zoeken bij de artikelcode (Standaard / Maakdelen) */
 .fusion-kijker.artzoek-venster { width: min(60rem, 96vw); min-width: 0; height: min(40rem, 86vh); }
 .artzoek-venster .fusion-kijker-inhoud { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .3rem; padding: .6rem .8rem; }

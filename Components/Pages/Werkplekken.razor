@@ -63,7 +63,7 @@
         <section class="wp-bewerk wp-pincodes">
             <h3>Pincodes</h3>
             <p class="uitleg">Met een pincode geeft iemand op een werkplek aan dat hij eraan werkt. Iedereen stelt die zelf in
-                (Werknemers ▸ Mijn pincode). Vergeten: hier wissen, dan stelt hij een nieuwe in.</p>
+                (Werknemers ▸ Mijn pincode). Vergeten, of geen Google-account (inlener, stagiair): geef hieronder een startcode.</p>
             @if (_pincodes.Count == 0)
             {
                 <p class="uitleg">Nog niemand heeft een pincode.</p>
@@ -78,6 +78,49 @@
                         <span class="wp-pin">@k.Naam <button class="klein" @onclick="() => WisPincode(kid, knaam)">Wissen</button></span>
                     }
                 </div>
+            }
+
+            <h3>Startcode</h3>
+            <p class="uitleg">Op een werkplek kiest diegene zijn naam, vult de startcode in en kiest zelf een pincode (die ken jij dus niet).
+                Eén keer te gebruiken, @Startcode.Dagen dagen geldig. Staat iemand er niet bij: zet in Werknemers ▸ Status het vinkje
+                Werkplek gebruiker aan.</p>
+            @if (_startcodeTabel == false)
+            {
+                <p class="uitleg">Voer eerst <code>WerknemerStartcodes_MariaDB.sql</code> uit.</p>
+            }
+            else
+            {
+                <div class="wp-startcode">
+                    <select value="@(_startPersoon?.ToString() ?? string.Empty)" @onchange="e => _startPersoon = int.TryParse((string?)e.Value, out var v) ? v : null">
+                        <option value="">— kies wie —</option>
+                        @foreach (var p in _werkplekPersonen)
+                        {
+                            <option value="@p.Id">@p.Naam</option>
+                        }
+                    </select>
+                    <button class="primair klein" disabled="@(_startPersoon is null)" @onclick="MaakStartcode">Startcode maken</button>
+                </div>
+                @if (_nieuweStartcode is { } s)
+                {
+                    <div class="wp-startcode-kaart">
+                        <span>Startcode voor <b>@s.Naam</b></span>
+                        <span class="wp-startcode-code">@Startcode.Leesbaar(s.Code)</span>
+                        <span class="uitleg">Geldig tot @s.Tot.ToString("ddd d MMM HH:mm", new System.Globalization.CultureInfo("nl-NL")).
+                            Alleen nu zichtbaar: geef hem direct door of schrijf hem over.</span>
+                    </div>
+                }
+                @if (_openStartcodes.Count > 0)
+                {
+                    <div class="wp-pinlijst">
+                        @foreach (var (persoon, tot) in _openStartcodes)
+                        {
+                            var sid = persoon.Id;
+                            var snaam = persoon.Naam;
+                            <span class="wp-pin" title="Geldig tot @tot.ToString("d-M HH:mm")">@persoon.Naam <small>(open)</small>
+                                <button class="klein" @onclick="() => TrekStartcodeIn(sid, snaam)">Intrekken</button></span>
+                        }
+                    </div>
+                }
             }
         </section>
 
@@ -100,6 +143,31 @@
                     </label>
                     <label class="vink"><input type="checkbox" checked="@b.Productie" @onchange="e => b.Productie = e.Value is true" /> Productie tonen
                         <small class="uitleg">(alleen als er ook een MDE Werkplek-agent op de pc staat)</small></label>
+                    <div class="wp-wie">
+                        <span>"Wie ben jij?" toont</span>
+                        @if (_personenTabel == false)
+                        {
+                            <small class="uitleg">iedereen met Werkplek gebruiker. Kiezen per werkplek: voer eerst <code>WerkplekPersonen_MariaDB.sql</code> uit.</small>
+                        }
+                        else
+                        {
+                            <label class="vink"><input type="radio" name="wp-wie" checked="@(!_alleenGekozen)" @onchange="() => _alleenGekozen = false" />
+                                Iedereen met Werkplek gebruiker <small class="uitleg">(Werknemers ▸ Status)</small></label>
+                            <label class="vink"><input type="radio" name="wp-wie" checked="@_alleenGekozen" @onchange="() => _alleenGekozen = true" />
+                                Alleen deze mensen</label>
+                            @if (_alleenGekozen)
+                            {
+                                <div class="wp-wie-lijst">
+                                    @foreach (var p in _werkplekPersonen)
+                                    {
+                                        var pid = p.Id;
+                                        <label class="vink"><input type="checkbox" checked="@_gekozen.Contains(pid)"
+                                                                   @onchange="e => { if (e.Value is true) _gekozen.Add(pid); else _gekozen.Remove(pid); }" /> @p.Naam</label>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
                     <label><span>Startpagina</span><input value="@b.Startpagina" list="wp-paginas" @oninput="e => b.Startpagina = (string?)e.Value ?? string.Empty" placeholder="bv. voorraad/dragers (leeg = Ureningave)" /></label>
                     <datalist id="wp-paginas">
                         @foreach (var (_, item) in Menu.WerkendeItems())
@@ -167,6 +235,15 @@
     private Dictionary<int, int> _aantallen = new();
     private List<Keuze> _nietPersonen = new();
     private List<Keuze> _pincodes = new();
+    private bool? _startcodeTabel;
+    private List<Keuze> _werkplekPersonen = new();
+    private int? _startPersoon;
+    private (string Naam, string Code, DateTime Tot)? _nieuweStartcode;
+    private List<(Keuze Persoon, DateTime Tot)> _openStartcodes = new();
+    // wie staat er in "Wie ben jij?" op de werkplek die bewerkt wordt
+    private bool? _personenTabel;
+    private bool _alleenGekozen;
+    private HashSet<int> _gekozen = new();
     private Werkplek? _bewerk;
     private List<WerkplekApparaat> _apparaten = new();
     private (string Code, DateTime Tot)? _code;
@@ -188,6 +265,9 @@
         {
             _nietPersonen = await Repo.NietPersonenAsync();
             _pincodes = await Repo.MetPincodeAsync();
+            _werkplekPersonen = await Repo.PersonenAsync();
+            try { _personenTabel = await Repo.WerkplekPersonenTabelAsync(); } catch { _personenTabel = false; }
+            await LaadStartcodes();
             await Laad();
         }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
@@ -205,6 +285,8 @@
         _bewerk = new Werkplek { Productie = true, Actief = true };
         _apparaten = new();
         _code = null;
+        _alleenGekozen = false;
+        _gekozen = new();
     }
 
     private async Task Kies(int id)
@@ -214,6 +296,8 @@
         _bewerk = w.Kopie();
         _code = w.KoppelCodeTot > DateTime.Now && w.KoppelCode.Length > 0 ? (w.KoppelCode, w.KoppelCodeTot!.Value) : null;
         _apparaten = await Repo.ApparatenAsync(id);
+        try { _gekozen = (await Repo.GekozenPersonenAsync(id)).ToHashSet(); } catch { _gekozen = new(); }
+        _alleenGekozen = _gekozen.Count > 0;
     }
 
     private async Task Opslaan()
@@ -226,10 +310,14 @@
         { Toon("Vul voor mailen zowel de alias als het account in (of allebei leeg).", true); return; }
         if (b.MailAfzender.Trim().Length > 0 && (!b.MailAfzender.Contains('@') || !b.MailAccount.Contains('@')))
         { Toon("Alias en account moeten e-mailadressen zijn.", true); return; }
+        if (_alleenGekozen && _gekozen.Count == 0)
+        { Toon("Kies bij \"Alleen deze mensen\" minstens één persoon, of kies Iedereen.", true); return; }
         try
         {
             var nieuw = b.Id == 0;
             b.Id = await Repo.BewaarAsync(b);
+            if (_personenTabel == true)
+                await Repo.ZetGekozenPersonenAsync(b.Id, _alleenGekozen ? _gekozen.ToList() : new List<int>());
             await Laad();
             Toon(nieuw ? $"Werkplek '{b.Naam}' aangemaakt. Maak nu een koppelcode voor de pc." : "Opgeslagen.", false);
             await Kies(b.Id);
@@ -263,6 +351,43 @@
             Toon("Pc ontkoppeld.", false);
         }
         catch (Exception ex) { Toon("Ontkoppelen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task LaadStartcodes()
+    {
+        try
+        {
+            _startcodeTabel = await Repo.StartcodeTabelAsync();
+            if (_startcodeTabel != true) return;
+            _openStartcodes = await Repo.OpenStartcodesAsync();
+        }
+        catch { _startcodeTabel = false; }
+    }
+
+    private async Task MaakStartcode()
+    {
+        if (_startPersoon is not int id) return;
+        var naam = _werkplekPersonen.FirstOrDefault(p => p.Id == id)?.Naam ?? $"#{id}";
+        try
+        {
+            var (code, tot) = await Repo.MaakStartcodeAsync(id, Ik.WerknemerId);
+            _nieuweStartcode = (naam, code, tot);
+            _openStartcodes = await Repo.OpenStartcodesAsync();
+            Toon($"Startcode voor {naam} gemaakt.", false);
+        }
+        catch (Exception ex) { Toon("Startcode maken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task TrekStartcodeIn(int werknemerId, string naam)
+    {
+        try
+        {
+            await Repo.WisStartcodeAsync(werknemerId);
+            _openStartcodes = await Repo.OpenStartcodesAsync();
+            if (_nieuweStartcode?.Naam == naam) _nieuweStartcode = null;
+            Toon($"Startcode van {naam} ingetrokken.", false);
+        }
+        catch (Exception ex) { Toon("Intrekken mislukt: " + ex.Message, true); }
     }
 
     private async Task WisPincode(int werknemerId, string naam)
