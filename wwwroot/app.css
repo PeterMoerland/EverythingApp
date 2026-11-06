@@ -3400,6 +3400,20 @@ html[data-thema="donker"] .idee-plakvak { border-color: #2b4a73; color: #9fb0c4;
 .verbeter-gedaan td { opacity: .75; }
 .verbeter-uitgelicht td { background: #fff7d6; }
 html[data-thema="donker"] .verbeter-uitgelicht td { background: #3a3215; }
+/* Verbeterverzoeken: gesprek per verzoek (wens collega 6-11-2026) */
+.verbeter-gesprek-knop { margin-top: .35rem; }
+.verbeter-gesprek-knop.heeft { font-weight: 600; }
+.verbeter-gesprek-rij > td { border-top: none; padding-top: 0; }
+.verbeter-gesprek { display: grid; gap: .45rem; max-width: 52rem; padding: .5rem .7rem; border-left: 3px solid #8fb3e0;
+                    background: #f5f8fc; border-radius: 0 4px 4px 0; }
+.verbeter-bericht { background: #fff; border: 1px solid #d9e1ea; border-radius: 6px; padding: .35rem .55rem; }
+.verbeter-bericht.eigen { background: #eef5ff; border-color: #c4d8f2; }
+.verbeter-bericht-kop { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: .15rem; }
+.verbeter-gesprek-invoer { display: flex; gap: .5rem; align-items: flex-end; }
+.verbeter-gesprek-invoer textarea { flex: 1; }
+html[data-thema="donker"] .verbeter-gesprek { background: #1b2533; border-left-color: #3d6aa3; }
+html[data-thema="donker"] .verbeter-bericht { background: #222e3e; border-color: #34465c; }
+html[data-thema="donker"] .verbeter-bericht.eigen { background: #1f3350; border-color: #3d5b82; }
 html[data-thema="donker"] .idee-knop:hover { background: #3a3215; border-color: #8a7420; }
 html[data-thema="donker"] .idee-aantal { background: #6b5510; color: #ffe9a8; }
 .bel-inhoud { padding: .4rem .9rem .9rem; overflow: auto; }

@@ -6,7 +6,8 @@
 
 @* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk, of hier
    met + Nieuw verzoek: wens gebruiker 22-10-2026; dan zonder pagina en zonder schermafdruk).
-   Iedereen ziet de lijst; Directie past tekst, status en reactie aan (besluit gebruiker 22-10-2026). *@
+   Iedereen ziet de lijst; Directie past tekst, status en reactie aan (besluit gebruiker 22-10-2026).
+   Onder elk verzoek kan een gesprek (wens collega 6-11-2026; VerbeterverzoekBerichten_MariaDB.sql), met een melding in de bel. *@
 
 <PageTitle>Verbeterverzoeken — MDE</PageTitle>
 
@@ -105,6 +106,17 @@
                                     }
                                 </div>
                             }
+                            @if (_gesprekMogelijk)
+                            {
+                                var aantal = _aantal.GetValueOrDefault(v.Id);
+                                <div>
+                                    <button class="klein verbeter-gesprek-knop @(aantal > 0 ? "heeft" : "")"
+                                            title="Verder praten over dit verzoek met collega's"
+                                            @onclick="() => WisselGesprek(v.Id)">
+                                        💬 @(_gesprekOpen.Contains(v.Id) ? "Gesprek sluiten" : aantal > 0 ? $"Gesprek ({aantal})" : "Bespreken")
+                                    </button>
+                                </div>
+                            }
                         </td>
                         <td>
                             @if (MagBeheren)
@@ -131,6 +143,48 @@
                             }
                         </td>
                     </tr>
+                    @if (_gesprekOpen.Contains(v.Id))
+                    {
+                        <tr @key="-v.Id" class="verbeter-gesprek-rij @(v.Id == VerzoekUitUrl ? "verbeter-uitgelicht" : "")">
+                            <td></td>
+                            <td colspan="4">
+                                <div class="verbeter-gesprek">
+                                    @if (!_berichten.TryGetValue(v.Id, out var berichten))
+                                    {
+                                        <small class="uitleg">Gesprek laden…</small>
+                                    }
+                                    else
+                                    {
+                                        @if (berichten.Count == 0)
+                                        {
+                                            <small class="uitleg">Nog geen berichten. Schrijf als eerste wat je van dit voorstel vindt.</small>
+                                        }
+                                        @foreach (var b in berichten)
+                                        {
+                                            <div class="verbeter-bericht @(b.DoorId is int d && d == Ik.WerknemerId ? "eigen" : "")" @key="b.Id">
+                                                <div class="verbeter-bericht-kop"><b>@Afzender(b)</b> <small class="uitleg">@b.Op.ToString("dd-MM-yyyy HH:mm")</small></div>
+                                                <div class="verbeter-tekst-lees">@b.Tekst</div>
+                                            </div>
+                                        }
+                                    }
+                                    @if (MagIndienen)
+                                    {
+                                        var id = v.Id;
+                                        <div class="verbeter-gesprek-invoer">
+                                            <textarea class="verbeter-tekst" rows="2" maxlength="2000"
+                                                      placeholder="Schrijf een bericht… (Ctrl+Enter = versturen)"
+                                                      value="@_concept.GetValueOrDefault(id, "")"
+                                                      @oninput="e => _concept[id] = (string?)e.Value ?? string.Empty"
+                                                      @onkeydown="e => Toets(e, v)"></textarea>
+                                            <button class="primair" disabled="@(_bezig || _concept.GetValueOrDefault(id, "").Trim().Length == 0)"
+                                                    @onclick="() => Versturen(v)">Versturen</button>
+                                        </div>
+                                        <small class="uitleg">De indiener, wie gereageerd heeft en wie al meepraat krijgen een bericht in de bel.</small>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
                 }
                 @if (!Zichtbaar.Any())
                 {
@@ -201,9 +255,12 @@
     /// <summary>Link uit de bel (bericht over je verzoek): dat verzoek uitlichten en alles tonen.</summary>
     [SupplyParameterFromQuery(Name = "verzoek")] public int? VerzoekUitUrl { get; set; }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        if (VerzoekUitUrl is not null) { _filter = "alles"; _zoek = ""; }
+        if (VerzoekUitUrl is not int id) return;
+        _filter = "alles"; _zoek = "";
+        // Link uit de bel: het gesprek van dat verzoek meteen open, met de nieuwste berichten.
+        if (_gesprekMogelijk && _lijst.Any(v => v.Id == id)) await OpenGesprek(id);
     }
 
     protected override async Task OnInitializedAsync()
@@ -214,8 +271,98 @@
         {
             _tabel = await Repo.TabelAanwezigAsync();
             if (_tabel) _lijst = await Repo.LijstAsync();
+            if (_tabel) _gesprekMogelijk = await Repo.GesprekMogelijkAsync();
+            if (_gesprekMogelijk) _aantal = await Repo.AantalBerichtenAsync();
         }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    // ---- Gesprek per verzoek (wens collega 6-11-2026): verder praten over een voorstel, met een melding in de bel ----
+    private bool _gesprekMogelijk;
+    private Dictionary<int, int> _aantal = new();
+    private readonly HashSet<int> _gesprekOpen = new();
+    private readonly Dictionary<int, List<VerzoekBericht>> _berichten = new();
+    private readonly Dictionary<int, string> _concept = new();
+
+    private async Task WisselGesprek(int id)
+    {
+        if (_gesprekOpen.Remove(id)) return;
+        await OpenGesprek(id);
+    }
+
+    /// <summary>Gesprek openen en altijd opnieuw laden (er kan intussen iets bij gekomen zijn).</summary>
+    private async Task OpenGesprek(int id)
+    {
+        _gesprekOpen.Add(id);
+        try
+        {
+            var lijst = await Repo.BerichtenAsync(id);
+            _berichten[id] = lijst;
+            _aantal[id] = lijst.Count;
+        }
+        catch (Exception ex) { _gesprekOpen.Remove(id); Toon("Gesprek laden mislukt: " + ex.Message, true); }
+    }
+
+    private string Afzender(VerzoekBericht b)
+    {
+        var naam = b.Door.Length > 0 ? b.Door : b.Werkplek.Length > 0 ? "" : "onbekend";
+        return b.Werkplek.Length == 0 ? naam : (naam.Length > 0 ? naam + " · " : "") + "👥 " + b.Werkplek;
+    }
+
+    private async Task Toets(KeyboardEventArgs e, Verbeterverzoek v)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || e.MetaKey)) await Versturen(v);
+    }
+
+    private async Task Versturen(Verbeterverzoek v)
+    {
+        var tekst = _concept.GetValueOrDefault(v.Id, "").Trim();
+        if (tekst.Length == 0 || _bezig || !MagIndienen) return;
+        _bezig = true;
+        try
+        {
+            await Repo.BerichtToevoegenAsync(v.Id, tekst, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            _concept.Remove(v.Id);
+            var lijst = await Repo.BerichtenAsync(v.Id);
+            _berichten[v.Id] = lijst;
+            _aantal[v.Id] = lijst.Count;
+            var aantal = await BerichtAanBetrokkenen(v, lijst, tekst);
+            var wie = aantal == 1 ? "1 collega krijgt" : aantal + " collega’s krijgen";
+            Toon("Bericht geplaatst." + (aantal > 0 ? " " + wie + " een melding." : ""), false);
+        }
+        catch (Exception ex) { Toon("Versturen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>
+    /// Melding in de bel (soort 'verbeter', OrderID = het verzoek, dus de link opent dit gesprek) voor de indiener, wie
+    /// de status of reactie het laatst wijzigde en iedereen die al in het gesprek schreef; niet voor jezelf.
+    /// </summary>
+    private async Task<int> BerichtAanBetrokkenen(Verbeterverzoek v, List<VerzoekBericht> lijst, string tekst)
+    {
+        if (!Meldingen.Beschikbaar) return 0;
+        var wie = new HashSet<int>();
+        if (v.IngediendDoorId is int i) wie.Add(i);
+        if (v.GewijzigdDoorId is int g) wie.Add(g);
+        foreach (var b in lijst) if (b.DoorId is int d) wie.Add(d);
+        if (Ik.WerknemerId is int ik) wie.Remove(ik);
+        if (wie.Count == 0) return 0;
+
+        var onderwerp = v.Tekst.Trim().ReplaceLineEndings(" ");
+        if (onderwerp.Length > 50) onderwerp = onderwerp[..47] + "…";
+        var van = Ik.Naam.Length > 0 ? Ik.Naam : Ik.Werkplek?.Naam ?? "Een collega";
+        var kort = tekst.ReplaceLineEndings(" ");
+        var bericht = $"💬 {van} over verbeterverzoek ‘{onderwerp}’: {kort}";
+        if (bericht.Length > 250) bericht = bericht[..249] + "…";      // Meldingen.Tekst is minstens VARCHAR(250)
+
+        var gelukt = 0;
+        foreach (var w in wie)
+        {
+            try { await Meldingen.MaakAsync(w, "verbeter", v.Id, bericht); gelukt++; }
+            catch { }
+        }
+        if (gelukt > 0) Signaal.Geef();
+        return gelukt;
     }
 
     private async Task Wijzig(Verbeterverzoek v, Action wijzig)
