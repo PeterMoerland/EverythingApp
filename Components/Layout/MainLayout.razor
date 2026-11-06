@@ -127,6 +127,24 @@
                     }
                 </div>
             }
+            else if (HuidigeGebruiker.IsFusionPad(Nav.ToBaseRelativePath(Nav.Uri)) && !Ik.MagFusion)
+            {
+                @* Tools ▸ Fusion: alleen met het recht Fusion (wens gebruiker 6-11-2026) *@
+                <div class="page">
+                    @if (_ikGeladen)
+                    {
+                        <header class="topbar"><h1>Fusion</h1></header>
+                        <section class="module-placeholder">
+                            <p><b>Geen toegang.</b></p>
+                            <p>De Fusion-schermen zijn voor wie het recht Fusion heeft (Werknemers ▸ Rechten). Op een werkplek telt het recht van de werkplek.</p>
+                        </section>
+                    }
+                    else
+                    {
+                        <p class="uitleg">Laden…</p>
+                    }
+                </div>
+            }
             else
             {
                 @Body
@@ -334,7 +352,7 @@
         if (!string.IsNullOrWhiteSpace(m.Url)) return true;
 
         return m.Groepen.SelectMany(g => g.Items)
-                        .Any(i => i.Recht is null || Ik.Mag(i.Recht));
+                        .Any(i => i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion));
     }
 
     // ===== Gebouwbeheer als zwevend venster =====

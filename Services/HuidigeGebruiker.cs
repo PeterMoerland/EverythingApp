@@ -296,6 +296,16 @@ public class HuidigeGebruiker
     public bool MagFinancien => Mag("Financial") || Mag("Directie");
 
     /// <summary>Hoort dit adres (binnen de app) bij Financiën, inclusief de AI?</summary>
+    /// <summary>De schermen onder Tools ▸ Fusion: alleen met het recht Fusion (Werknemers_Fusion_MariaDB.sql).</summary>
+    public static bool IsFusionPad(string pad)
+    {
+        pad = pad.Split('?', '#')[0].Trim('/');
+        return pad is "tools/fusion-cam" or "tools/ec-componenten" or "tools/jlc-componenten" or "module/fusion";
+    }
+
+    /// <summary>Mag Fusion gebruiken: het recht, of Directie; zonder gekoppelde werknemer (lokaal testen) ook.</summary>
+    public bool MagFusion => !Gekoppeld || Mag("Fusion") || Mag("Directie");
+
     public static bool IsFinancienPad(string pad)
     {
         pad = pad.Split('?', '#')[0].Trim('/');
