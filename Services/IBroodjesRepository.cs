@@ -85,8 +85,8 @@ public interface IBroodjesRepository
 
     /// <summary>De vrijdaglijst van die vrijdag; bestaat hij nog niet, dan aangemaakt (sluit om BroodjesRegels.Sluitingstijd, 10:00).</summary>
     Task<BroodjesLijst> VrijdagLijstAsync(DateOnly vrijdag, int? door);
-    /// <summary>Lijsten van de afgelopen week en later, nieuwste eerst.</summary>
-    Task<List<BroodjesLijst>> RecenteLijstenAsync();
+    /// <summary>Lijsten van de afgelopen <paramref name="dagenTerug"/> dagen en later, nieuwste eerst.</summary>
+    Task<List<BroodjesLijst>> RecenteLijstenAsync(int dagenTerug = 7);
     Task<int> NieuweLijstAsync(DateOnly datum, string omschrijving, int? door);
 
     Task<List<BroodjeBestelling>> BestellingenAsync(int lijstId);
@@ -105,7 +105,7 @@ public class GeenBroodjesRepository : IBroodjesRepository
     public Task<DateTime?> AssortimentBijgewerktAsync() => Task.FromResult<DateTime?>(null);
     public Task<(int Nieuw, int Bijgewerkt, int Weg)> BewaarAssortimentAsync(IReadOnlyList<BroodjeArtikel> vanSite) => Task.FromResult((0, 0, 0));
     public Task<BroodjesLijst> VrijdagLijstAsync(DateOnly vrijdag, int? door) => Task.FromResult(new BroodjesLijst { Datum = vrijdag });
-    public Task<List<BroodjesLijst>> RecenteLijstenAsync() => Task.FromResult(new List<BroodjesLijst>());
+    public Task<List<BroodjesLijst>> RecenteLijstenAsync(int dagenTerug = 7) => Task.FromResult(new List<BroodjesLijst>());
     public Task<int> NieuweLijstAsync(DateOnly datum, string omschrijving, int? door) => Task.FromResult(0);
     public Task<List<BroodjeBestelling>> BestellingenAsync(int lijstId) => Task.FromResult(new List<BroodjeBestelling>());
     public Task<int> VoegToeAsync(BroodjeBestelling b, int? door) => Task.FromResult(0);
@@ -163,9 +163,9 @@ public class GeheugenBroodjesRepository : IBroodjesRepository
         }
     }
 
-    public Task<List<BroodjesLijst>> RecenteLijstenAsync()
+    public Task<List<BroodjesLijst>> RecenteLijstenAsync(int dagenTerug = 7)
     {
-        var grens = DateOnly.FromDateTime(DateTime.Today.AddDays(-7));
+        var grens = DateOnly.FromDateTime(DateTime.Today.AddDays(-dagenTerug));
         lock (_slot) return Task.FromResult(_lijsten.Where(l => l.Datum >= grens).OrderByDescending(l => l.Datum).ToList());
     }
 
@@ -347,10 +347,11 @@ public class MySqlBroodjesRepository : IBroodjesRepository
         return (await LeesLijsten(opnieuw)).First();
     }
 
-    public async Task<List<BroodjesLijst>> RecenteLijstenAsync()
+    public async Task<List<BroodjesLijst>> RecenteLijstenAsync(int dagenTerug = 7)
     {
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(LijstSelect + " WHERE l.`Datum` >= CURDATE() - INTERVAL 7 DAY ORDER BY l.`Datum` DESC, l.`LijstID` DESC", cn);
+        await using var cmd = new MySqlCommand(LijstSelect + " WHERE l.`Datum` >= CURDATE() - INTERVAL @dagen DAY ORDER BY l.`Datum` DESC, l.`LijstID` DESC", cn);
+        cmd.Parameters.AddWithValue("@dagen", Math.Clamp(dagenTerug, 0, 3660));
         return await LeesLijsten(cmd);
     }
 

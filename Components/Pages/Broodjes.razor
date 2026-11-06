@@ -40,7 +40,7 @@
         }
 
         <div class="wn-tabs">
-            @foreach (var l in _lijsten)
+            @foreach (var l in Zichtbaar)
             {
                 var lijst = l;
                 <button class="@(lijst.Id == _lijst?.Id ? "actief" : "")" @onclick="() => KiesLijst(lijst)">
@@ -49,6 +49,12 @@
                 </button>
             }
             <button class="@(_nieuwOpen ? "actief" : "")" title="Een aparte lijst, bijvoorbeeld voor een klantbezoek" @onclick="() => _nieuwOpen = !_nieuwOpen">+ Losse lijst</button>
+            @if (Eerder.Count > 0)
+            {
+                <button class="klein broodjes-eerder" title="Lijsten van eerdere dagen (laatste 8 weken)" @onclick="() => _toonEerder = !_toonEerder">
+                    @(_toonEerder ? "▾" : "▸") Eerdere lijsten (@Eerder.Count)
+                </button>
+            }
         </div>
 
         @if (_nieuwOpen)
@@ -260,6 +266,13 @@
     private bool _tabellen, _bezig, _fout, _ophalen, _nieuwOpen, _alGebeld;
     private string? _melding;
     private List<BroodjesLijst> _lijsten = new();
+    // Bovenaan alleen de vrijdaglijst van deze week en lijsten van vandaag of later; oudere achter "Eerdere lijsten"
+    // (wens gebruiker 6-11-2026). De gekozen lijst blijft altijd zichtbaar.
+    private bool _toonEerder;
+    private int _vrijdagId;
+    private bool IsActueel(BroodjesLijst l) => l.Id == _vrijdagId || l.Datum >= DateOnly.FromDateTime(DateTime.Today);
+    private List<BroodjesLijst> Eerder => _lijsten.Where(l => !IsActueel(l)).ToList();
+    private IEnumerable<BroodjesLijst> Zichtbaar => _lijsten.Where(l => IsActueel(l) || _toonEerder || l.Id == _lijst?.Id);
     private BroodjesLijst? _lijst;
     private List<BroodjeBestelling> _bestellingen = new();
     private List<BroodjeArtikel> _assortiment = new();
@@ -304,7 +317,8 @@
         try
         {
             var vrijdag = await Repo.VrijdagLijstAsync(BroodjesRegels.VrijdagVan(DateOnly.FromDateTime(DateTime.Today)), Ik.WerknemerId);
-            var recent = await Repo.RecenteLijstenAsync();
+            var recent = await Repo.RecenteLijstenAsync(56);   // 8 weken; ouder dan vandaag staat achter "Eerdere lijsten"
+            _vrijdagId = vrijdag.Id;
             // de vrijdaglijst van deze week vooraan, dan de rest (nieuwste eerst)
             _lijsten = new List<BroodjesLijst> { vrijdag }.Concat(recent.Where(l => l.Id != vrijdag.Id)).ToList();
             _lijst = _lijsten.FirstOrDefault(l => l.Id == (kies ?? _lijst?.Id)) ?? vrijdag;
