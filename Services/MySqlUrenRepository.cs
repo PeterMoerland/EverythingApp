@@ -197,8 +197,10 @@ public class MySqlUrenRepository : IUrenRepository
         return list.OrderBy(w => w.Naam).ToList();
     }
 
+    /// <summary>Op id: ook een inlener (Inleen = ja), anders vindt Uren invoer een inlener niet terug (Thomas, 6-11-2026).</summary>
     public async Task<Werknemer?> GetWerknemerAsync(int id)
-        => (await GetWerknemersAsync()).FirstOrDefault(w => w.WerknemerId == id);
+        => (await WerknemersAsync(inclusiefIngeleend: true, inclusiefUitDienst: false, alleenPersonen: true, zoek: null))
+            .FirstOrDefault(w => w.WerknemerId == id);
 
     /// <summary>
     /// Koppelt een ingelogd Google-account aan een werknemer. Zoekt in Werknemers naar

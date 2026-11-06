@@ -74,11 +74,12 @@ public class HuidigeGebruiker
                     _medewerkerNaam = (await _werkplekken.PersonenAsync()).FirstOrDefault(p => p.Id == x.MedewerkerId)?.Naam
                                       ?? (await _repo.GetWerknemerAsync(x.MedewerkerId))?.Naam ?? $"#{x.MedewerkerId}";
                     _duur = await DuurVanAsync(x.MedewerkerId);
+                    _medewerkerFusion = await HeeftRechtAsync(x.MedewerkerId, "Fusion");
                 }
                 _medewerkerId = x.MedewerkerId;
                 _laatsteActiviteit = x.LaatsteActiviteit;
             }
-            else { _medewerkerId = null; _medewerkerNaam = ""; }
+            else { _medewerkerId = null; _medewerkerNaam = ""; _medewerkerFusion = false; }
         }
         catch { }
         if (oud != Medewerker?.Id) MedewerkerGewijzigd?.Invoke();
@@ -101,8 +102,18 @@ public class HuidigeGebruiker
         _medewerkerNaam = naam;
         _laatsteActiviteit = _laatstGemeld = DateTime.Now;
         _duur = await DuurVanAsync(werknemerId);
+        _medewerkerFusion = await HeeftRechtAsync(werknemerId, "Fusion");
         MedewerkerGewijzigd?.Invoke();
         return null;
+    }
+
+    /// <summary>Het Fusion-vinkje van de aangemelde medewerker zelf (zie <see cref="MagFusion"/>).</summary>
+    private bool _medewerkerFusion;
+
+    private async Task<bool> HeeftRechtAsync(int werknemerId, string recht)
+    {
+        try { return (await _repo.GetWerknemerVeldenAsync(werknemerId)).TryGetValue(recht, out var w) && IsWaar(w); }
+        catch { return false; }
     }
 
     /// <summary>
@@ -144,6 +155,7 @@ public class HuidigeGebruiker
         if (ApparaatId is int a) await _werkplekken.ZetMedewerkerAsync(a, null);
         _medewerkerId = null;
         _medewerkerNaam = "";
+        _medewerkerFusion = false;
         MedewerkerGewijzigd?.Invoke();
     }
 
@@ -256,7 +268,12 @@ public class HuidigeGebruiker
     {
         if (string.IsNullOrWhiteSpace(recht)) return false;
         if (IsWerkplek && NietOpWerkplek.Contains(recht)) return false;
-        if (!_velden.TryGetValue(recht, out var waarde) || waarde is null) return false;
+        return _velden.TryGetValue(recht, out var waarde) && IsWaar(waarde);
+    }
+
+    private static bool IsWaar(object? waarde)
+    {
+        if (waarde is null || waarde is DBNull) return false;
         if (waarde is bool b) return b;
         try { return Convert.ToInt64(waarde) != 0; }
         catch { return false; }
@@ -303,8 +320,12 @@ public class HuidigeGebruiker
         return pad is "tools/fusion-cam" or "tools/ec-componenten" or "tools/jlc-componenten" or "tools/fusion-addin" or "module/fusion";
     }
 
-    /// <summary>Mag Fusion gebruiken: het recht, of Directie; zonder gekoppelde werknemer (lokaal testen) ook.</summary>
-    public bool MagFusion => !Gekoppeld || Mag("Fusion") || Mag("Directie");
+    /// <summary>
+    /// Mag Fusion gebruiken: het recht, of Directie; zonder gekoppelde werknemer (lokaal testen) ook. Op een werkplek telt
+    /// ook het Fusion-vinkje van wie er aangemeld is ("Wie ben jij?"), want de werknemer van de werkplek is meestal een
+    /// gedeelde als "Niemand" (Thomas, inlener zonder account, 6-11-2026).
+    /// </summary>
+    public bool MagFusion => !Gekoppeld || Mag("Fusion") || Mag("Directie") || (Medewerker is not null && _medewerkerFusion);
 
     public static bool IsFinancienPad(string pad)
     {

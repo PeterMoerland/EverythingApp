@@ -273,6 +273,11 @@
         (_jaar, _week, _dagnummer) = UrenService.WeekInfo(_datum);
 
         _werknemers = await Repo.GetWerknemersAsync();
+        // Een inlener (Inleen = ja) staat niet in de standaardlijst; zichzelf moet hij wel kunnen kiezen. Anders viel de
+        // keuze stil op de eerste naam en boekte hij op iemand anders (Thomas zag Edwin Denissen, 6-11-2026).
+        await Ik.ZorgGeladenAsync();
+        if (Ik.WerknemerId is int mij && _werknemers.All(w => w.WerknemerId != mij) && await Repo.GetWerknemerAsync(mij) is { } zelf)
+            _werknemers = _werknemers.Append(zelf).OrderBy(w => w.Naam).ToList();
         _workorders = await Repo.GetOpenWorkordersAsync();
         _tariefsoorten = await Repo.GetTariefsoortenAsync();
         _activiteiten = await Repo.GetActiviteitenAsync();
