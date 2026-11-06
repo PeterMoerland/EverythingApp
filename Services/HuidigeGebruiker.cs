@@ -300,7 +300,7 @@ public class HuidigeGebruiker
     public static bool IsFusionPad(string pad)
     {
         pad = pad.Split('?', '#')[0].Trim('/');
-        return pad is "tools/fusion-cam" or "tools/ec-componenten" or "tools/jlc-componenten" or "module/fusion";
+        return pad is "tools/fusion-cam" or "tools/ec-componenten" or "tools/jlc-componenten" or "tools/fusion-addin" or "module/fusion";
     }
 
     /// <summary>Mag Fusion gebruiken: het recht, of Directie; zonder gekoppelde werknemer (lokaal testen) ook.</summary>

@@ -170,7 +170,9 @@ public static class Menu
                         new MenuItem("Converteer naar CAM", "/tools/fusion-cam", "Fusion", Icoon: "drill")),
                     new MenuGroep("Componenten",
                         new MenuItem("Eurocircuits", "/tools/ec-componenten", "Fusion", Icoon: "circuit-board"),
-                        new MenuItem("JLCPCB", "/tools/jlc-componenten", "Fusion", Icoon: "microchip"))),
+                        new MenuItem("JLCPCB", "/tools/jlc-componenten", "Fusion", Icoon: "microchip")),
+                    new MenuGroep("Installeren",
+                        new MenuItem("Add-in installeren", "/tools/fusion-addin", "Fusion", Icoon: "download"))),
             }
         },
 

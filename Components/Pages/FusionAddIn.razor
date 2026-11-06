@@ -1,0 +1,59 @@
+@page "/tools/fusion-addin"
+@inject FusionAddInUitgave Uitgave
+
+@* De Fusion-add-in (MdeFusionTools) installeren vanuit de app (wens gebruiker 6-11-2026), ook voor wie niet bij de
+   share kan. De zip komt van /tools/fusion-addin/download (Program.cs); alleen met het recht Fusion
+   (HuidigeGebruiker.IsFusionPad, en in de download zelf). *@
+
+<PageTitle>Fusion-add-in — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Fusion-add-in installeren</h1>
+        @if (_versie.Length > 0)
+        {
+            <span class="weeklabel">versie @_versie</span>
+        }
+    </header>
+
+    @if (!_beschikbaar)
+    {
+        <section class="module-placeholder">
+            <p><b>De add-in is nu niet te downloaden.</b></p>
+            <p>De app kan de uitgave op de share niet vinden (@Uitgave.Map). Vraag degene die de add-in uitgeeft
+                (FusionTools ▸ publish.ps1) om het na te kijken.</p>
+        </section>
+    }
+    else
+    {
+        <section class="fai-kaart">
+            <p>De MDE-add-in voor Fusion: PCB-uitvoer (Gerber, drill, stuklijst, pick-and-place) in één handeling, en de
+                controle op standaardcomponenten. Hij komt in het tabblad <b>Manufacturing</b>, paneel <b>MDE</b>.</p>
+
+            <a class="fai-knop" href="tools/fusion-addin/download" download>⬇ Download MdeFusionTools @_kort (zip)</a>
+
+            <ol class="fai-stappen">
+                <li><b>Fusion afsluiten.</b> Fusion moet op deze pc wel al eens gestart zijn.</li>
+                <li><b>Zip uitpakken:</b> rechtermuisknop op het gedownloade bestand ▸ <i>Alles uitpakken</i>.</li>
+                <li><b>Dubbelklik op <code>Installeer.cmd</code></b> in de uitgepakte map. Vraagt Windows of je het bestand wilt
+                    uitvoeren, kies dan <i>Uitvoeren</i> (bij SmartScreen: <i>Meer informatie</i> ▸ <i>Toch uitvoeren</i>).</li>
+                <li><b>Fusion starten</b> en een PCB openen: tabblad Manufacturing, paneel MDE.</li>
+            </ol>
+
+            <p class="uitleg">Zie je het paneel niet: in Fusion Shift+S ▸ tabblad Add-Ins ▸ MdeFusionTools ▸ Run, en vink
+                Run on Startup aan. Een nieuwe versie installeren gaat op dezelfde manier; je instellingen blijven bewaard.</p>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _beschikbaar;
+    private string _versie = "", _kort = "";
+
+    protected override void OnInitialized()
+    {
+        _beschikbaar = Uitgave.Beschikbaar();
+        _versie = Uitgave.Versie();
+        _kort = Uitgave.KorteVersie();
+    }
+}

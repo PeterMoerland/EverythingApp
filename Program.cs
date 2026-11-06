@@ -306,7 +306,8 @@ builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
-builder.Services.AddSingleton<AgentUitgave>();          // nieuwste agentversie op de share (publiceer-z.bat)
+builder.Services.AddSingleton<AgentUitgave>();
+builder.Services.AddSingleton<FusionAddInUitgave>();     // Fusion-add-in als zip uit de share (Tools > Fusion > Add-in installeren)          // nieuwste agentversie op de share (publiceer-z.bat)
 builder.Services.AddScoped<WerkplekAgent>();
 builder.Services.AddScoped<ExemplaarHerkenning>();   // welk exemplaar hangt er aan de EtherCAT-adapter (auto-detect)           // per browser: is er een MDE Werkplek-agent op deze pc?   // duurtestlog van de testrig-PLC ophalen (FTP)
 
@@ -645,6 +646,17 @@ var agentInstaller = app.MapGet("/agent/installer", (AgentUitgave uitgave) =>
         ? Results.File(pad, "application/octet-stream", Path.GetFileName(pad))
         : Results.NotFound("Geen installer van de MDE Agent gevonden op de share."));
 if (loginAan) agentInstaller.RequireAuthorization();
+
+// --- de Fusion-add-in als zip (FusionAddInUitgave), alleen met het recht Fusion; voor wie niet bij de share kan ---
+var fusionAddin = app.MapGet("/tools/fusion-addin/download", async (FusionAddInUitgave uitgave, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    if (!ik.MagFusion) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return uitgave.Zip() is { } zip
+        ? Results.File(zip, "application/zip", $"MdeFusionTools-{uitgave.KorteVersie()}.zip".Replace("-.zip", ".zip"))
+        : Results.NotFound("De Fusion-add-in staat niet op de share (FusionTools, publish.ps1).");
+});
+if (loginAan) fusionAddin.RequireAuthorization();
 
 // --- bestand tonen in de browser ---
 // PDF's en afbeeldingen gaan er rechtstreeks doorheen; Word en Excel worden eerst
