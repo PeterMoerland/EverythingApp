@@ -239,6 +239,70 @@
                         }
                     }
 
+                    @* Per leverancier (wens collega 6-11-2026): hoeveel er voor de gekozen projecten bij een leverancier besteld is.
+                       Zelfde bestellingen en bedragen als de tab Bestellingen, opgeteld per leverancier; klik = de PO's. *@
+                    @if (_tab is TLeveranciers or "Alles")
+                    {
+                        <h3 class="wn-kop">Per leverancier</h3>
+                        <div class="nc-lev-zoek niet-afdrukken">
+                            <input placeholder="zoek leverancier" value="@_levZoek" @oninput="e => _levZoek = (string?)e.Value ?? string.Empty" />
+                        </div>
+                        var levs = PerLeverancier();
+                        @if (levs.Count == 0)
+                        {
+                            <p class="kiezer-info">@(_levZoek.Trim().Length > 0 ? "Geen leverancier gevonden." : "Geen bestellingen.")</p>
+                        }
+                        else
+                        {
+                            var totaalInkoop = levs.Sum(l => l.Inkoop);
+                            <table class="kiezer-tabel nc-tabel">
+                                <thead>
+                                    <tr><th>Leverancier</th><th class="r">PO's</th><th class="r">Besteld</th><th class="r">Gefactureerd</th>
+                                        <th class="r" title="Per bestelling het gefactureerde bedrag, of zolang er geen factuur is het bestelde">Inkoop *</th>
+                                        <th class="r">Aandeel</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var l in levs)
+                                    {
+                                        var open = _levOpen.Contains(l.Naam);
+                                        <tr @key="l.Naam" class="nc-klik" @onclick="() => { if (!_levOpen.Remove(l.Naam)) _levOpen.Add(l.Naam); }">
+                                            <td>@(open ? "▾" : "▸") <b>@(l.Naam.Length > 0 ? l.Naam : "(geen leverancier)")</b></td>
+                                            <td class="r">@l.Pos.Count</td>
+                                            <td class="r">@Geld(l.Besteld)</td>
+                                            <td class="r">@Geld(l.Gefactureerd)</td>
+                                            <td class="r"><b>@Geld(l.Inkoop)</b></td>
+                                            <td class="r">@(totaalInkoop == 0 ? "" : (l.Inkoop / totaalInkoop).ToString("P0"))</td>
+                                        </tr>
+                                        @if (open)
+                                        {
+                                            @foreach (var p in l.Pos)
+                                            {
+                                                var wo = _data.Werkorders.FirstOrDefault(w => w.Id == p.WerkorderId);
+                                                <tr @key="@($"{l.Naam}|{p.OrderId}")" class="nc-lev-po @(p.Status == 7 ? "nc-geannuleerd" : "")">
+                                                    <td><a href="bestellingen?order=@p.OrderId" target="_blank" rel="noopener">PO-@p.OrderId</a>
+                                                        <span class="uitleg">· @(wo?.Nummer) · @p.StatusNaam · @p.BesteldOp?.ToString("dd-MM-yyyy") · @p.BesteldDoor</span></td>
+                                                    <td></td>
+                                                    <td class="r">@Geld(p.Besteld)</td>
+                                                    <td class="r">@Geld(p.Gefactureerd)</td>
+                                                    <td class="r">@Geld(p.Facturen > 0 ? p.Gefactureerd : p.Besteld)</td>
+                                                    <td></td>
+                                                </tr>
+                                            }
+                                        }
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr><td>Totaal @(levs.Count) leverancier@(levs.Count == 1 ? "" : "s")</td><td class="r">@levs.Sum(l => l.Pos.Count)</td>
+                                        <td class="r">@Geld(levs.Sum(l => l.Besteld))</td><td class="r">@Geld(levs.Sum(l => l.Gefactureerd))</td>
+                                        <td class="r"><b>@Geld(totaalInkoop)</b></td><td></td></tr>
+                                </tfoot>
+                            </table>
+                            <p class="uitleg nc-voetnoot">Bestellingen op de gekozen werkorders, zoals op de tab Bestellingen; geannuleerde
+                                bestellingen alleen als er toch een factuur aan hangt. * Inkoop: gefactureerd, of zolang er geen factuur is het
+                                bestelde bedrag. Bedragen exclusief btw. Klik op een leverancier voor de PO's.</p>
+                        }
+                    }
+
                     @if (_tab is TMateriaal or "Alles")
                     {
                         <h3 class="wn-kop">MDE-materiaal</h3>
@@ -368,8 +432,33 @@
     [SupplyParameterFromQuery(Name = "project")] public int? ProjectParam { get; set; }
     [SupplyParameterFromQuery(Name = "werkorder")] public int? WerkorderParam { get; set; }
 
-    private const string TBestellingen = "Bestellingen", TMateriaal = "Materiaal", TUren = "Uren";
-    private static readonly string[] Tabs = { "Totaal", TBestellingen, TMateriaal, TUren, "Alles" };
+    private const string TBestellingen = "Bestellingen", TLeveranciers = "Per leverancier", TMateriaal = "Materiaal", TUren = "Uren";
+    private static readonly string[] Tabs = { "Totaal", TBestellingen, TLeveranciers, TMateriaal, TUren, "Alles" };
+
+    // ---- Per leverancier ----
+    private string _levZoek = "";
+    private readonly HashSet<string> _levOpen = new();
+
+    private sealed record LevTotaal(string Naam, List<NacalcPo> Pos)
+    {
+        public decimal Besteld => Pos.Sum(p => p.Besteld);
+        public decimal Gefactureerd => Pos.Sum(p => p.Gefactureerd);
+        public decimal Inkoop => Pos.Sum(p => p.Facturen > 0 ? p.Gefactureerd : p.Besteld);
+    }
+
+    /// <summary>De bestellingen van de getoonde werkorders (zelfde filter als de tab Bestellingen) per leverancier, grootste eerst.</summary>
+    private List<LevTotaal> PerLeverancier()
+    {
+        var ids = Getoond.Select(w => w.Id).ToHashSet();
+        var zoek = _levZoek.Trim();
+        return _data.Pos
+            .Where(p => ids.Contains(p.WerkorderId) && (p.Status != 7 || p.Gefactureerd != 0))
+            .Where(p => zoek.Length == 0 || p.Leverancier.Contains(zoek, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(p => p.Leverancier.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new LevTotaal(g.Key, g.OrderBy(p => p.BesteldOp ?? DateTime.MaxValue).ThenBy(p => p.OrderId).ToList()))
+            .OrderByDescending(l => l.Inkoop).ThenBy(l => l.Naam)
+            .ToList();
+    }
     private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
 
     private string _tab = "Totaal";
