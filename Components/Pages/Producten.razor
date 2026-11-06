@@ -436,7 +436,7 @@
                                         @foreach (var h in _historie.Take(6))
                                         {
                                             <div class="zij-regel" @key="h.Id">
-                                                <span class="zij-naam">@HistorieTekst(h.Event)</span>
+                                                <span class="zij-naam" title="@h.Event">@HistorieTekst(HistKort(h.Event).Kort)</span>
                                                 <span class="zij-extra">
                                                     @(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")
                                                     @if (!string.IsNullOrWhiteSpace(h.Door)) { <text> · @h.Door</text> }
@@ -546,11 +546,11 @@
                                         <th style="width:2rem"><input type="checkbox" checked="@AlleHistGekozen" @onchange="KiesAlleHist"
                                                                       title="Alle getoonde regels aanvinken (combineer met het filter 'alleen mislukt')" /></th>
                                     }
-                                    <th style="width:10rem">Wanneer</th>
-                                    @if (HistToonVan) { <th style="width:12rem">Van</th> }
-                                    <th style="width:10rem">Soort</th>
+                                    <th style="width:8.5rem">Wanneer</th>
+                                    @if (HistToonVan) { <th style="width:10rem">Van</th> }
+                                    <th style="width:6.5rem">Soort</th>
                                     <th>Gebeurtenis</th>
-                                    <th style="width:11rem">Door</th>
+                                    <th style="width:7.5rem">Door</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -565,7 +565,15 @@
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
                                         @if (HistToonVan) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
-                                        <td>@HistorieTekst(h.Event)</td>
+                                        @{ var (histKort, histIngekort) = HistKort(h.Event); var histOpen = _histOpen.Contains(h.Id); }
+                                        <td title="@(histIngekort && !histOpen ? h.Event : null)">
+                                            @HistorieTekst(histOpen ? h.Event : histKort)
+                                            @if (histIngekort)
+                                            {
+                                                <button class="hist-meer" title='@(histOpen ? "Inkorten" : "Hele tekst tonen")'
+                                                        @onclick="() => { if (!_histOpen.Remove(h.Id)) _histOpen.Add(h.Id); }">@(histOpen ? "minder" : "…")</button>
+                                            }
+                                        </td>
                                         <td>@h.Door</td>
                                     </tr>
                                 }
@@ -1246,12 +1254,24 @@
 
             @* ---------- rechts: de samenstelling als boom (wens gebruiker 5-11-2026): bovenste product met alles
                  eronder, het gekozen exemplaar gemarkeerd; klikken = naar dat exemplaar, op hetzelfde tabblad ---------- *@
-            @if ((_productId is not null || _boomBezig) && _boom is { Kinderen.Count: > 0 })
+            @if ((_productId is not null || _boomBezig) && _boom is { Kinderen.Count: > 0 } && _boomVerborgen)
+            {
+                @* verborgen (wens gebruiker 6-11-2026: op een laptop te breed): alleen een smal strookje om hem terug te halen *@
+                <aside class="product-boom ingeklapt">
+                    <button class="boom-toon" title="Samenstelling tonen" @onclick="() => ZetBoomVerborgen(false)">
+                        <span>◂</span><span class="boom-toon-tekst">Samenstelling</span>
+                    </button>
+                </aside>
+            }
+            else if ((_productId is not null || _boomBezig) && _boom is { Kinderen.Count: > 0 })
             {
                 <aside class="product-boom">
                     <div class="boom-kop">
                         <span>Samenstelling</span>
-                        <button class="klein" title="Opnieuw laden" @onclick="() => LaadBoom(true)">⟳</button>
+                        <span class="boom-knoppen">
+                            <button class="klein" title="Opnieuw laden" @onclick="() => LaadBoom(true)">⟳</button>
+                            <button class="klein" title="Verbergen (wordt onthouden)" @onclick="() => ZetBoomVerborgen(true)">▸</button>
+                        </span>
                     </div>
                     <div class="boom-lijst" data-rustig-scrollen>
                         @foreach (var k in BoomZichtbaar(_boom))
@@ -1763,6 +1783,7 @@
             else
                 StatusStandaardZetten();
             _statusFilterGeladen = true;
+            _boomVerborgen = await JS.InvokeAsync<string?>("mdeOpslag.lees", BoomSleutel) == "1";
             if (_naamId is not null) { await LaadProducten(); StateHasChanged(); }
 
             var bewaard = await JS.InvokeAsync<string?>("localStorage.getItem", TypeSleutel);
@@ -1934,6 +1955,24 @@
     }
 
     /// <summary>De gebeurtenis, met elke "product #nr" als link naar dat exemplaar (type + serienummer).</summary>
+    /// <summary>
+    /// Historie compacter (wens gebruiker 6-11-2026): alleen het deel tot de streep (" — "), dus wat er gebeurde en of
+    /// het geslaagd is; de details erna staan in het wolkje en zijn uit te klappen. "· via MPR-1 78" achteraan blijft.
+    /// Ook een tweede regel valt weg.
+    /// </summary>
+    private static (string Kort, bool Ingekort) HistKort(string? tekst)
+    {
+        tekst ??= "";
+        var streep = tekst.IndexOf(" — ", StringComparison.Ordinal);
+        var regel = tekst.IndexOf('\n');
+        var tot = streep < 0 ? regel : regel < 0 ? streep : Math.Min(streep, regel);
+        if (tot < 0) return (tekst, false);
+        var via = tekst.LastIndexOf(" · via ", StringComparison.Ordinal);
+        var kort = tekst[..tot].TrimEnd() + (via > tot && tekst.IndexOf('\n', via) < 0 ? tekst[via..] : "");
+        return (kort, true);
+    }
+    private readonly HashSet<int> _histOpen = new();
+
     private RenderFragment HistorieTekst(string? tekst) => b =>
     {
         tekst ??= "";
@@ -2021,6 +2060,18 @@
     // bezig. De keuze wordt per pc onthouden.
     private const string GewistSleutel = "mde-producten-inclgewist";
     private const string StatusSleutel = "mde-producten-statussen";
+
+    // Samenstellingsboom rechts verbergen (wens gebruiker 6-11-2026: op een laptop kost hij te veel ruimte). Onthouden
+    // per gebruiker in deze browser: de sleutel bevat het werknemer-id, dus op een gedeelde werkplek heeft ieder
+    // ("Wie ben jij?") zijn eigen keuze.
+    private bool _boomVerborgen;
+    private string BoomSleutel => "mde-producten-boom-verborgen-" + (Ik.WerknemerId?.ToString() ?? "anoniem");
+
+    private async Task ZetBoomVerborgen(bool verborgen)
+    {
+        _boomVerborgen = verborgen;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", BoomSleutel, verborgen ? "1" : "0"); } catch { }
+    }
     private HashSet<int> _statusFilter = new();
     private bool _statusFilterGeladen;
     private bool _statusOpen;

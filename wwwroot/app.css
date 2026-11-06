@@ -2121,7 +2121,7 @@ html[data-thema="donker"] .grnieuw { background: var(--d1); border-color: var(--
 /* ---- Producten: linkerkolom zo hoog als het scherm, exemplarenlijst vult de rest ---- */
 .product-lijst { display: flex; flex-direction: column; height: calc(100vh - 8.5rem); position: sticky; top: .6rem; overflow: hidden auto; }   /* past het niet meer: scrollen i.p.v. afknippen */
 .product-lijst .product-namen { max-height: 26vh; flex: 0 10 auto; min-height: 3.2rem; }   /* krimpt na de exemplaren */
-.product-lijst .product-exemplaren { flex: 1 1000 auto; max-height: none; min-height: 6rem; }   /* krimpt eerst; daarna .product-onder */
+.product-lijst .product-exemplaren { flex: 0 1000 auto; max-height: none; min-height: 6rem; }   /* krimpt eerst; daarna .product-onder. Groeit niet: korte lijst = greep omhoog (6-11-2026) */
 /* Sleepgrepen tussen de panelen (paneelgreep.js) en het blok voor de groepsbewerking met eigen scrollbalk */
 .product-lijst .product-onder { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .product-lijst .product-onder:has(.groepsblok) { min-height: 7.5rem; }
@@ -2140,6 +2140,17 @@ html[data-thema="donker"] .product-boom { background: var(--d1); border-color: v
 html[data-thema="donker"] .boom-kop { border-color: var(--d3); }
 html[data-thema="donker"] .boom-pijl, html[data-thema="donker"] .boom-sn { color: #9fb0c4; }
 html[data-thema="donker"] .wn-naam.actief .boom-sn { color: #dbe6f3; }
+/* Boom verborgen: smal strookje om hem terug te halen (wens gebruiker 6-11-2026) */
+.boom-knoppen { display: flex; gap: .25rem; }
+.product-boom.ingeklapt { min-width: 0; width: auto; }
+.boom-toon { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: .5rem .3rem; border: none;
+             background: none; color: #6b7480; cursor: pointer; font: inherit; font-size: .85rem; }
+.boom-toon-tekst { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-weight: 600; }
+html[data-thema="donker"] .boom-toon { color: #9fb0c4; }
+/* Historie: ingekorte gebeurtenis, knopje om de hele tekst te tonen (wens gebruiker 6-11-2026) */
+.hist-meer { margin-left: .3rem; padding: 0 .35rem; border: 1px solid #c9d3df; border-radius: 3px; background: none;
+             color: #5b6878; font-size: .8rem; line-height: 1.3; cursor: pointer; }
+html[data-thema="donker"] .hist-meer { border-color: #34465c; color: #9fb0c4; }
 .paneelgreep { flex-shrink: 0; height: 9px; margin: 0 .5rem; cursor: row-resize; touch-action: none; position: relative; }
 .paneelgreep::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2.6rem; height: 3px; margin-left: -1.3rem;
     border-radius: 2px; background: #c3ccd6; }

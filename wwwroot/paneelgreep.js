@@ -19,16 +19,18 @@
         return ouder ? ouder.querySelector(greep.dataset.doel) : null;
     }
 
+    // De gesleepte hoogte is een maximum, geen vaste hoogte (wens gebruiker 6-11-2026): een korte lijst krimpt dan
+    // mee en de greep schuift vanzelf omhoog, ook als hij van een vorige, lange lijst nog laag stond.
     function zet(doel, hoogte) {
-        doel.style.height = hoogte + 'px';
-        doel.style.maxHeight = 'none';
-        doel.style.flex = '0 0 auto';
+        doel.style.height = '';
+        doel.style.maxHeight = hoogte + 'px';
+        doel.style.flexGrow = '0';
     }
 
     function wis(doel) {
         doel.style.height = '';
         doel.style.maxHeight = '';
-        doel.style.flex = '';
+        doel.style.flexGrow = '';
     }
 
     // Grenzen: minstens ~2 regels, en de kolom moet nog ruimte houden voor de rest.
