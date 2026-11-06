@@ -30,6 +30,9 @@ public interface IUrenRepository
 
     /// <summary>Welke kolommen bestaan er in Werknemers (voor het generieke scherm).</summary>
     Task<HashSet<string>> WerknemerKolommenAsync();
+
+    /// <summary>Nieuwe werknemer met de basisgegevens (HRM/Directie); de rest via het scherm. Geeft het Werknemer-id.</summary>
+    Task<int> NieuweWerknemerAsync(NieuweWerknemer n);
     Task<List<Workorder>> GetOpenWorkordersAsync();
     Task<Workorder?> GetWorkorderAsync(int id);
     /// <summary>Werkorders bij een lijst id's (open en gesloten), in de volgorde van de lijst; onbekende vallen weg.</summary>
@@ -70,4 +73,13 @@ public interface IUrenRepository
     Task<UrenEntry> AddAsync(UrenEntry entry);
     Task UpdateAsync(UrenEntry entry);
     Task DeleteAsync(int urenId);
+}
+
+/// <summary>Basisgegevens van een nieuwe werknemer (Werknemers ▸ + Werknemer).</summary>
+public record NieuweWerknemer(string Voornaam, string Tussenvoegsel, string Achternaam, string Email,
+                              bool Persoon, bool Ingeleend, DateOnly? InDienst)
+{
+    /// <summary>Zoals NaamVoluit in de database: voornaam, tussenvoegsel en achternaam met spaties.</summary>
+    public string NaamVoluit => string.Join(" ", new[] { Voornaam, Tussenvoegsel, Achternaam }
+                                                 .Select(d => d.Trim()).Where(d => d.Length > 0));
 }

@@ -9,7 +9,42 @@
     <header class="topbar">
         <h1>Werknemers</h1>
         <span class="weeklabel">@_lijst.Count in de lijst</span>
+        @if (MagPrive)
+        {
+            <button class="primair klein wn-nieuw-knop" @onclick="OpenNieuw" title="Een werknemer toevoegen (HRM en Directie)">+ Werknemer</button>
+        }
     </header>
+
+    @if (_nieuwOpen)
+    {
+        <div class="cmdk-overlay midden">
+            <div class="fusion-kijker ec-venster wn-nieuw-venster" role="dialog" aria-modal="true">
+                <div class="fusion-kijker-kop">
+                    <b>Nieuwe werknemer</b>
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="() => _nieuwOpen = false">✕</button>
+                </div>
+                <div class="fusion-kijker-inhoud wn-nieuw">
+                    <label><span>Voornaam</span><input value="@_nVoornaam" @oninput="e => _nVoornaam = (string?)e.Value ?? string.Empty" autofocus /></label>
+                    <label><span>Tussenvoegsel</span><input value="@_nTussen" @oninput="e => _nTussen = (string?)e.Value ?? string.Empty" /></label>
+                    <label><span>Achternaam</span><input value="@_nAchter" @oninput="e => _nAchter = (string?)e.Value ?? string.Empty" /></label>
+                    <label><span>E-mailadres</span><input value="@_nEmail" @oninput="e => _nEmail = (string?)e.Value ?? string.Empty" placeholder="naam@mde-automation.nl" />
+                        <small class="uitleg">Het Google-account waarmee hij inlogt. Leeg bij iemand zonder MDE-account (bv. een inlener):
+                            die meldt zich aan op een werkplek met een startcode (Beheer ▸ Werkplekken).</small></label>
+                    <label><span>In dienst per</span><NlDatum Waarde="_nInDienst" WaardeChanged="d => _nInDienst = d" /></label>
+                    <label class="vink"><input type="checkbox" checked="@_nPersoon" @onchange="e => _nPersoon = e.Value is true" /> Persoon
+                        <small class="uitleg">(uit = een werknemer voor een werkplek of afdeling)</small></label>
+                    <label class="vink"><input type="checkbox" checked="@_nIngeleend" @onchange="e => _nIngeleend = e.Value is true" /> Ingeleend</label>
+                    @if (_nFout.Length > 0) { <p class="wpm-fout">@_nFout</p> }
+                    <div class="btngroup">
+                        <button class="primair" disabled="@_nieuwBezig" @onclick="MaakWerknemer">Toevoegen</button>
+                        <button @onclick="() => _nieuwOpen = false">Annuleren</button>
+                    </div>
+                    <p class="uitleg">Daarna vul je de rest in de tabbladen in: functie, rechten, Werkplek gebruiker enz.</p>
+                </div>
+            </div>
+        </div>
+    }
 
     <div class="wn-scherm">
         @* ---------- linkerkolom: filters + lijst ---------- *@
@@ -669,6 +704,46 @@
     private bool _toonPrive = true;
 
     private bool MagPrive => !Ik.Gekoppeld || Ik.Mag("HRM") || Ik.Mag("Directie");
+
+    // ---- nieuwe werknemer (wens gebruiker 6-11-2026; HRM en Directie) ----
+    private bool _nieuwOpen, _nieuwBezig;
+    private string _nVoornaam = "", _nTussen = "", _nAchter = "", _nEmail = "", _nFout = "";
+    private bool _nPersoon = true, _nIngeleend;
+    private DateOnly? _nInDienst;
+
+    private void OpenNieuw()
+    {
+        _nVoornaam = _nTussen = _nAchter = _nEmail = _nFout = "";
+        _nPersoon = true; _nIngeleend = false; _nInDienst = DateOnly.FromDateTime(DateTime.Today);
+        _nieuwOpen = true;
+    }
+
+    private async Task MaakWerknemer()
+    {
+        if (!MagPrive || _nieuwBezig) return;
+        _nFout = "";
+        if (_nVoornaam.Trim().Length == 0 && _nAchter.Trim().Length == 0) { _nFout = "Vul minstens een voornaam of achternaam in."; return; }
+        var email = _nEmail.Trim();
+        if (email.Length > 0 && !email.Contains('@')) { _nFout = "Dat is geen e-mailadres."; return; }
+        _nieuwBezig = true;
+        try
+        {
+            if (email.Length > 0 && await Repo.VindWerknemerOpEmailAsync(email) is int al)
+            { _nFout = $"Dit e-mailadres hoort al bij werknemer #{al}."; return; }
+            var n = new NieuweWerknemer(_nVoornaam, _nTussen, _nAchter, email, _nPersoon, _nIngeleend, _nInDienst);
+            var id = await Repo.NieuweWerknemerAsync(n);
+            _nieuwOpen = false;
+            // zorgen dat hij in de lijst staat (een inlener of geen persoon valt anders weg door de vinkjes)
+            if (_nIngeleend) _inclIngeleend = true;
+            if (!_nPersoon) _alleenPersonen = false;
+            _zoek = "";
+            await Laad();
+            await Kies(id);
+            Toon($"{n.NaamVoluit} toegevoegd (#{id}). Vul de rest hieronder in, zoals de rechten.", false);
+        }
+        catch (Exception ex) { _nFout = "Toevoegen mislukt: " + ex.Message; }
+        finally { _nieuwBezig = false; }
+    }
 
     private async Task LaadTijdlijn()
     {

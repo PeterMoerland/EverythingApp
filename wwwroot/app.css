@@ -1150,6 +1150,13 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 /* de uitgelezen drives: groen kader bij go, rood bij no-go */
 .prod-drives { border: 2px solid #2f9e44; border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0 .8rem; background: #f3faf4; }
 .prod-drives.nogo { border-color: #c92a2a; background: #fdf3f3; }
+/* Werknemers: + Werknemer */
+.wn-nieuw-knop { margin-left: auto; }
+.fusion-kijker.wn-nieuw-venster { width: min(30rem, 94vw); min-width: 0; }
+.wn-nieuw { display: flex; flex-direction: column; gap: .55rem; padding: .8rem 1rem 1rem; }
+.wn-nieuw label:not(.vink) { display: flex; flex-direction: column; gap: .15rem; }
+.wn-nieuw label > span { font-size: .85em; color: #5b6673; }
+.wn-nieuw input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
 /* Tools > Fusion > Add-in installeren */
 .fai-kaart { max-width: 46rem; background: #fff; border: 1px solid #dfe4ea; border-radius: 8px; padding: 1rem 1.2rem; }
 .fai-knop { display: inline-block; margin: .3rem 0 .8rem; padding: .6rem 1.1rem; border-radius: 6px; background: var(--accent);

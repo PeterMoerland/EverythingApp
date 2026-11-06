@@ -263,6 +263,35 @@ public class MySqlUrenRepository : IUrenRepository
         return Task.FromResult(_schema![t].Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
+    public async Task<int> NieuweWerknemerAsync(NieuweWerknemer n)
+    {
+        var t = Tbl("Werknemers", "werknemers");
+        static object? Leeg(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        // Alleen kolommen die bestaan; namen zoals elders in deze klasse.
+        var waarden = new List<(string? Kolom, object? Waarde)>
+        {
+            (Col(t, "Voornaam", "voornaam"), Leeg(n.Voornaam)),
+            (Col(t, "Tussenvoegsel", "tussenvoegsel"), Leeg(n.Tussenvoegsel)),
+            (Col(t, "Achternaam", "achternaam"), Leeg(n.Achternaam)),
+            (Col(t, "NaamVoluit", "Naamvoluit", "naamvoluit"), Leeg(n.NaamVoluit)),
+            (Col(t, "mail", "Mail", "Email", "email", "Emailadres"), Leeg(n.Email)),
+            (Col(t, "Persoon", "persoon"), n.Persoon ? 1 : 0),
+            (Col(t, "Inleen", "inleen", "Ingeleend", "ingeleend"), n.Ingeleend ? 1 : 0),
+            (Col(t, "Uit dienst", "uit dienst", "UitDienst", "uitdienst", "uit_dienst"), 0),
+            (Col(t, "in dienst", "In dienst", "Datum in-dienst", "DatumInDienst", "datum_in_dienst"),
+                n.InDienst is DateOnly d ? d.ToDateTime(TimeOnly.MinValue) : null),
+        }.Where(w => w.Kolom is not null && w.Waarde is not null).ToList();
+        if (waarden.Count == 0) throw new InvalidOperationException("Geen naamkolommen gevonden in Werknemers.");
+
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            $"INSERT INTO `{t}` ({string.Join(", ", waarden.Select(w => $"`{w.Kolom}`"))}) " +
+            $"VALUES ({string.Join(", ", waarden.Select((_, i) => "@p" + i))}); SELECT LAST_INSERT_ID();", cn);
+        for (var i = 0; i < waarden.Count; i++) cmd.Parameters.AddWithValue("@p" + i, waarden[i].Waarde);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
     public async Task UpdateWerknemerVeldAsync(int werknemerId, string kolom, object? waarde)
     {
         var t = Tbl("Werknemers", "werknemers");

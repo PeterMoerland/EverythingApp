@@ -164,6 +164,9 @@ public class JsonDemoRepository : IUrenRepository
         return Task.FromResult(lijst.OrderBy(w => w.Naam).ToList());
     }
 
+    public Task<int> NieuweWerknemerAsync(NieuweWerknemer n)
+        => throw new InvalidOperationException("Werknemers toevoegen kan alleen met de live database.");
+
     public Task UpdateWerknemerVeldAsync(int werknemerId, string kolom, object? waarde)
     {
         // Demo-data: alleen de naam is zinvol bij te werken.
