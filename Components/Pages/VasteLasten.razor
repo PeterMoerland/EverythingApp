@@ -45,6 +45,19 @@
                     }
                 </select>
             </label>
+            @if (_bvs.Count > 0)
+            {
+                <label class="bankveld">
+                    <span>BV</span>
+                    <select value="@(_bvFilter?.ToString() ?? "")" @onchange="e => _bvFilter = int.TryParse((string?)e.Value, out var v) ? v : null">
+                        <option value="">Alle</option>
+                        @foreach (var b in _bvs)
+                        {
+                            <option value="@b.Id">@b.Naam</option>
+                        }
+                    </select>
+                </label>
+            }
             <label class="bankveld">
                 <span>Interval</span>
                 <select value="@(_interval?.ToString() ?? "")" @onchange="IntervalFilter">
@@ -73,6 +86,7 @@
                         <tr>
                             <th style="width:20rem">Omschrijving</th>
                             <th style="width:9rem">Categorie</th>
+                            @if (_bvs.Count > 0) { <th style="width:6rem">BV</th> }
                             <th style="width:7.5rem">Interval</th>
                             <th style="width:12rem">Wanneer</th>
                             <th style="width:6.5rem">Volgende</th>
@@ -87,6 +101,7 @@
                             <tr @key="v.Id" @ondblclick="() => Open(v)">
                                 <td>@v.Omschrijving</td>
                                 <td>@v.Categorie</td>
+                                @if (_bvs.Count > 0) { <td>@v.Bv</td> }
                                 <td>@VasteLast.IntervalNaam(v.Interval)</td>
                                 <td>@v.Wanneer</td>
                                 <td>@v.Volgende(_vandaag).ToString("dd-MM-yy")</td>
@@ -206,7 +221,7 @@
     }
 </div>
 
-<VasteLastVenster Last="_bewerk" Categorieen="_categorieen" Sluiten="SluitVenster" />
+<VasteLastVenster Last="_bewerk" Categorieen="_categorieen" Bvs="_bvs" Sluiten="SluitVenster" />
 
 @code {
     private const string DeLijst = "lijst";
@@ -235,7 +250,13 @@
     private IEnumerable<VasteLast> Gefilterd => _lasten
         .Where(v => _zoek.Trim().Length == 0 || v.Omschrijving.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase))
         .Where(v => _categorie is null || v.CategorieId == _categorie)
-        .Where(v => _interval is null || (int)v.Interval == _interval);
+        .Where(v => _interval is null || (int)v.Interval == _interval)
+        .Where(v => _bvFilter is null || v.BvId == _bvFilter);
+
+    // BV per vaste last (VasteLastenBv_MariaDB.sql); leeg = kolom ontbreekt nog, dan geen kolom/filter/keuze.
+    private List<Keuze> _bvs = new();
+    private int? _bvFilter;
+    private const int StandaardBv = 5254;   // MDE Automation
 
     private sealed record JaarRij(string Categorie, decimal[] PerMaand);
 
@@ -278,6 +299,7 @@
         {
             _lasten = await Repo.LijstAsync();
             _categorieen = await Repo.CategorieenAsync();
+            try { _bvs = await Repo.BvsAsync(); } catch { _bvs = new(); }
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
     }
@@ -293,10 +315,15 @@
         _zoek = "";
         _categorie = null;
         _interval = null;
+        _bvFilter = null;
     }
 
     // ---- toevoegen, aanpassen, wissen ----
-    private void Nieuw() => _bewerk = new VasteLast { CategorieId = _categorie };
+    private void Nieuw() => _bewerk = new VasteLast
+    {
+        CategorieId = _categorie,
+        BvId = _bvs.Count == 0 ? null : _bvFilter ?? (_bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : _bvs[0].Id),
+    };
 
     /// <summary>Een kopie bewerken, zodat Annuleren de lijst niet verandert.</summary>
     private void Open(VasteLast v)
@@ -305,7 +332,7 @@
         _bewerk = new VasteLast
         {
             Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,
-            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand,
+            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand, BvId = v.BvId, Bv = v.Bv,
         };
     }
 

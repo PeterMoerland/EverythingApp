@@ -262,6 +262,12 @@ Products (5646) vervallen. MDE Vastgoed, MDE Patenten en M-Pede Robotics bestond
 - **Afscherming bestanden** (`FilestoreService.MagSoortZien`, `MagBestand` in Program.cs): 300/301 HRM/Directie, 360
   Financial/Directie, 341 alleen afzender/ontvanger; geldt voor `/bestand/{id}`, `/bestand/{id}/download` en (nieuw,
   daar zat geen controle op) `/voorbeeld/{id}`. Beheer > Filestore toont die soorten alleen aan wie ze mag zien.
+- **Liquiditeit per BV** (besluiten gebruiker 9-11-2026): BV kiezen in een kleine boom van de MDE-groep (alleen BV's
+  die in de structuur hangen, niet opgeheven), met "met dochters" (standaard aan); standaard MDE Holding (5660) met
+  dochters. Telt mee: bankrekeningen, openstaande facturen en btw van die BV's, en de vaste lasten van die BV's
+  (**`VasteLastenBv_MariaDB.sql`**: `VasteLasten.BvID`, bestaande op MDE Automation; BV te kiezen in Vaste lasten).
+  Facturen tussen de gekozen BV's tellen niet mee (`OpenstaandeFactuur.RelatieId`). Zonder vastgelegde structuur de
+  oude knoppen, nu alleen MDE-groep zonder opgeheven (DE, FM, ME niet meer).
 - **Relaties**: veld Naam bovenaan tab Adres (melding gebruiker: bij een nieuwe relatie kon je geen naam ingeven; "name"
   stond bij de verborgen kolommen). Lege naam wordt geweigerd; de lijst links ververst. Datumvelden als datumkiezer.
 - **Nog niet** (volgende stappen): welke BV een inkooporder doet (Orders heeft geen BV-kolom), inkomende facturen per

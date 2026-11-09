@@ -57,8 +57,8 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
         // een opgeheven BV telt niet meer standaard mee
         await using var cmd = new MySqlCommand(
             $"SELECT `id_supplier`, COALESCE(`Afkorting`, ''), {BvOpgeheven.Naam(opg)}, COALESCE(`MDEBV`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} " +
-            "  FROM `Relations` WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 OR COALESCE(`MDEBV`, 0) <> 0 " +
-            $" ORDER BY {BvOpgeheven.Achteraan(opg)}`Afkorting`", cn);
+            $"  FROM `Relations` WHERE COALESCE(`MDEBV`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} " +
+            " ORDER BY `Afkorting`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new LiquiditeitBv(r.GetInt32(0), r.GetString(1), r.GetString(2), Convert.ToInt64(r.GetValue(3)) != 0));
@@ -110,7 +110,7 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
         await using (var cmd = new MySqlCommand(
             "SELECT f.`Invoice-id`, COALESCE(f.`Invoicenumber`, ''), COALESCE(k.`name`, ''), f.`Werkmaatschappij`, " +
             "       COALESCE(bv.`Afkorting`, ''), DATE_ADD(f.`Date invoice`, INTERVAL COALESCE(f.`Betalingstermijn`, 0) DAY), " +
-            $"       {bedrag}, COALESCE(f.`SentToClient`, 0) <> 0 " +
+            $"       {bedrag}, COALESCE(f.`SentToClient`, 0) <> 0, f.`Customer-id` " +
             "  FROM `Invoices` f " +
             "  LEFT JOIN `Relations` k ON k.`id_supplier` = f.`Customer-id` " +
             "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = f.`Werkmaatschappij` " +
@@ -122,14 +122,14 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
             while (await r.ReadAsync())
                 lijst.Add(new OpenstaandeFactuur(r.GetInt32(0), true, r.GetString(1), r.GetString(2), r.GetInt32(3),
                     r.GetString(4), DateOnly.FromDateTime(r.GetDateTime(5)), Convert.ToDecimal(r.GetValue(6)),
-                    Convert.ToInt64(r.GetValue(7)) != 0));
+                    Convert.ToInt64(r.GetValue(7)) != 0, r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8))));
         }
 
         // Inkoop: onbetaald en nog niet in een SEPA-betaalopdracht (zoals Access).
         await using (var cmd = new MySqlCommand(
             "SELECT f.`FacturenInkomend-ID`, COALESCE(f.`FactuurNummer`, ''), COALESCE(l.`name`, ''), f.`Admin`, " +
             "       COALESCE(bv.`Afkorting`, ''), DATE_ADD(f.`DatumFactuur`, INTERVAL COALESCE(f.`Betalingstermijn_dagen`, 0) DAY), " +
-            "       COALESCE(f.`BedragExBTW`, 0) + COALESCE(f.`BTW`, 0) " +
+            "       COALESCE(f.`BedragExBTW`, 0) + COALESCE(f.`BTW`, 0), f.`Bedrijf` " +
             "  FROM `FacturenInkomend` f " +
             "  LEFT JOIN `Relations` l ON l.`id_supplier` = f.`Bedrijf` " +
             "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = f.`Admin` " +
@@ -139,7 +139,8 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
                 lijst.Add(new OpenstaandeFactuur(r.GetInt32(0), false, r.GetString(1), r.GetString(2), r.GetInt32(3),
-                    r.GetString(4), DateOnly.FromDateTime(r.GetDateTime(5)), Convert.ToDecimal(r.GetValue(6)), true));
+                    r.GetString(4), DateOnly.FromDateTime(r.GetDateTime(5)), Convert.ToDecimal(r.GetValue(6)), true,
+                    r.IsDBNull(7) ? null : Convert.ToInt32(r.GetValue(7))));
         }
 
         return lijst;

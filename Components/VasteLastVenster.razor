@@ -50,6 +50,21 @@
                         }
                     </div>
 
+                    @if (Bvs.Count > 0)
+                    {
+                        <div class="wn-veld">
+                            <label>BV</label>
+                            <select value="@(Last.BvId?.ToString() ?? "")" @onchange="e => Last.BvId = int.TryParse((string?)e.Value, out var v) ? v : null"
+                                    title="De BV die deze last betaalt; Liquiditeit telt hem alleen mee bij die BV">
+                                <option value="">— geen —</option>
+                                @foreach (var b in Bvs)
+                                {
+                                    <option value="@b.Id">@b.Naam</option>
+                                }
+                            </select>
+                        </div>
+                    }
+
                     <div class="wn-veld">
                         <label>Bedrag</label>
                         <input class="r smal" value="@Last.Bedrag.ToString("0.00", Nl)" @onchange="BedragGewijzigd" />
@@ -138,6 +153,8 @@
     /// <summary>De last die bewerkt wordt (een kopie, zodat Annuleren niets verandert); null = dicht.</summary>
     [Parameter] public VasteLast? Last { get; set; }
     [Parameter] public List<VasteLastCategorie> Categorieen { get; set; } = new();
+    /// <summary>De BV's om uit te kiezen (leeg = kolom BvID bestaat nog niet; dan geen keuze).</summary>
+    [Parameter] public List<Keuze> Bvs { get; set; } = new();
     [Parameter] public EventCallback<bool> Sluiten { get; set; }
 
     /// <summary>Zelfde rechten als op de pagina Vaste lasten; het venster opent ook vanuit de liquiditeit.</summary>

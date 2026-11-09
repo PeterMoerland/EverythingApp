@@ -7,8 +7,9 @@ public record LiquiditeitBv(int Id, string Afkorting, string Naam, bool MdeBv);
 public record Banksaldo(string Rekening, string Omschrijving, int BvId, decimal Saldo, DateOnly? Datum);
 
 /// <summary>Een openstaande factuur: verkoop (geld komt binnen) of inkoop (geld gaat eruit).</summary>
+/// <param name="RelatieId">De klant of leverancier (Relations.id_supplier): om facturen tussen de gekozen eigen BV's weg te laten.</param>
 public record OpenstaandeFactuur(int Id, bool Verkoop, string Nummer, string Relatie, int BvId, string Bv,
-                                 DateOnly Vervaldatum, decimal Bedrag, bool Verstuurd);
+                                 DateOnly Vervaldatum, decimal Bedrag, bool Verstuurd, int? RelatieId = null);
 
 /// <summary>
 /// Eén verwachte geldbeweging. Bedrag positief = erbij, negatief = eraf.

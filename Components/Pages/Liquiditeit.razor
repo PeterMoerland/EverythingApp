@@ -3,9 +3,15 @@
 @inject IVasteLastenRepository VasteLasten
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IBvStructuurRepository Structuur
+@implements IAsyncDisposable
 
 @* Overgezet van Access' Report_LiquiditeitsOverzicht en de formulieren 'Liquiditeit Te laat
-   inkomend/uitgaand'. Alleen lezen. Rekenregels in Services/Liquiditeitsrekenaar.cs. *@
+   inkomend/uitgaand'. Alleen lezen. Rekenregels in Services/Liquiditeitsrekenaar.cs.
+   BV kiezen in de boom van de MDE-groep (wens gebruiker 9-11-2026, Financiën > BV-structuur): een BV, of met "met
+   dochters" ook alles eronder (standaard MDE Holding met dochters). Tellen mee: de bankrekeningen, openstaande facturen
+   en btw van die BV's, en de vaste lasten van die BV's (VasteLasten.BvID). Facturen tussen de gekozen BV's tellen niet
+   mee (geld binnen de groep). Zonder vastgelegde structuur: de oude knoppen (alleen MDE-groep, niet opgeheven). *@
 
 <div class="page">
     <header class="topbar">
@@ -28,17 +34,43 @@
         }
 
         <div class="bankfilters">
-            <div class="bankveld">
-                <span>BV's</span>
-                <div class="btngroup">
-                    @foreach (var bv in _bvs)
-                    {
-                        <button class="klein @(_gekozen.Contains(bv.Id) ? "actief" : "")" @key="bv.Id" title="@bv.Naam"
-                                @onclick="() => WisselBv(bv.Id)">@bv.Afkorting</button>
-                    }
-                    <button class="klein" title="Terug naar de MDE-BV's" @onclick="StandaardBvs">MDE-BV's</button>
+            @if (_boom.Count > 0)
+            {
+                <div class="bankveld lq-bvkeuze">
+                    <span>BV <small class="zij-extra">(klik een BV)</small></span>
+                    <div class="bvs-org lq-org" @ref="_org">
+                        @foreach (var laag in _boom)
+                        {
+                            <div class="bvs-laag">
+                                @foreach (var b in laag)
+                                {
+                                    <button class="bvs-kaart @(b.Id == _kern ? "actief" : "") @(_gekozen.Contains(b.Id) ? "mee" : "")" data-bv="@b.Id"
+                                            title="@b.Naam" @onclick="() => KiesKern(b.Id)">
+                                        <span class="bvs-naam">@b.Kort</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <label class="vink" title="Ook alle BV's onder de gekozen BV meetellen (de groep vanaf die BV)">
+                        <input type="checkbox" checked="@_metDochters" @onchange="DochtersGewijzigd" /> met dochters
+                    </label>
                 </div>
-            </div>
+            }
+            else
+            {
+                <div class="bankveld">
+                    <span>BV's</span>
+                    <div class="btngroup">
+                        @foreach (var bv in _bvs)
+                        {
+                            <button class="klein @(_gekozen.Contains(bv.Id) ? "actief" : "")" @key="bv.Id" title="@bv.Naam"
+                                    @onclick="() => WisselBv(bv.Id)">@(_gekozen.Contains(bv.Id) ? "✓ " : "")@(bv.Afkorting.Length > 0 ? bv.Afkorting : bv.Naam)</button>
+                        }
+                        <button class="klein" title="Terug naar alle BV's van de MDE-groep" @onclick="StandaardBvs">Alle</button>
+                    </div>
+                </div>
+            }
             <label class="bankveld">
                 <span>Periode</span>
                 <select value="@_dagen" @onchange="PeriodeGewijzigd">
@@ -54,6 +86,8 @@
 
         @if (_p is not null)
         {
+            <p class="uitleg lq-keuze">@KeuzeTekst()</p>
+
             @* ---------- kaarten ---------- *@
             <div class="lq-kaarten">
                 <div class="lq-kaart" title="@RekeningenTekst()">
@@ -256,7 +290,7 @@
 @* dubbelklik op een regel van de gekozen dag: de factuur of vaste last erachter *@
 <VerkoopFactuurVenster FactuurId="_verkoopId" Sluiten="VensterDicht" />
 <FactuurVenster FactuurId="_inkoopId" Sluiten="VensterDicht" />
-<VasteLastVenster Last="_vasteLast" Categorieen="_categorieen" Sluiten="VensterDicht" />
+<VasteLastVenster Last="_vasteLast" Categorieen="_categorieen" Bvs="_vlBvs" Sluiten="VensterDicht" />
 
 @code {
     private List<LiquiditeitBv> _bvs = new();
@@ -280,8 +314,109 @@
         await Ik.ZorgGeladenAsync();
         if (!Repo.Beschikbaar) return;
         try { _bvs = await Repo.BvsAsync(); } catch (Exception ex) { _melding = "BV's ophalen mislukt: " + ex.Message; }
-        StandaardBvsZonderLaden();
+        await LaadBoom();
+        if (_boom.Count > 0) ZetKeuze(); else StandaardBvsZonderLaden();
         await Laad();
+    }
+
+    // ---------- BV kiezen in de boom (Financiën > BV-structuur) ----------
+    private List<EigenBv> _eigen = new();
+    private List<BvAandeel> _randen = new();
+    private List<List<EigenBv>> _boom = new();
+    private int? _kern;
+    private bool _metDochters = true;
+    private const int StandaardKern = 5660;     // MDE Holding (besluit gebruiker: standaard Holding met dochters)
+    private ElementReference _org;
+    private bool _tekenen;
+
+    /// <summary>De MDE-groep (niet opgeheven) in lagen: wie geen aandeelhouder binnen de groep heeft bovenaan.</summary>
+    private async Task LaadBoom()
+    {
+        if (!Structuur.Beschikbaar) return;
+        try
+        {
+            _eigen = (await Structuur.BvsAsync()).Where(b => b.MdeGroep && !b.IsOpgeheven).ToList();
+            var ids = _eigen.Select(b => b.Id).ToHashSet();
+            _randen = (await Structuur.AandelenAsync()).Where(a => a.Actueel && ids.Contains(a.BvId) && ids.Contains(a.AandeelhouderId)).ToList();
+        }
+        catch { _eigen = new(); _randen = new(); }
+        if (_randen.Count == 0) { _boom = new(); return; }    // geen structuur vastgelegd: de oude knoppen
+        // alleen wat in de structuur hangt (een losse BV, bv. een die nog opgeheven moet worden, niet)
+        _eigen = _eigen.Where(b => _randen.Any(a => a.BvId == b.Id || a.AandeelhouderId == b.Id)).ToList();
+
+        var laag = new Dictionary<int, int>();
+        int Laag(int id, int diepte)
+        {
+            if (laag.TryGetValue(id, out var l)) return l;
+            if (diepte > 20) return 0;
+            var boven = _randen.Where(a => a.BvId == id).ToList();
+            l = boven.Count == 0 ? 0 : boven.Max(a => Laag(a.AandeelhouderId, diepte + 1)) + 1;
+            laag[id] = l;
+            return l;
+        }
+        foreach (var b in _eigen) Laag(b.Id, 0);
+        _boom = _eigen.GroupBy(b => laag[b.Id]).OrderBy(g => g.Key).Select(g => g.OrderBy(b => b.Naam).ToList()).ToList();
+        _kern = _eigen.Any(b => b.Id == StandaardKern) ? StandaardKern
+              : _eigen.OrderByDescending(b => Dochters(b.Id).Count).First().Id;
+        _tekenen = true;
+    }
+
+    /// <summary>Alle BV's onder deze BV (via de aandeelhouders), zonder hemzelf.</summary>
+    private HashSet<int> Dochters(int id)
+    {
+        var onder = new HashSet<int>();
+        var rij = new Queue<int>(new[] { id });
+        while (rij.Count > 0)
+        {
+            var x = rij.Dequeue();
+            foreach (var a in _randen.Where(a => a.AandeelhouderId == x))
+                if (a.BvId != id && onder.Add(a.BvId)) rij.Enqueue(a.BvId);
+        }
+        return onder;
+    }
+
+    private void ZetKeuze()
+    {
+        _gekozen.Clear();
+        if (_kern is not int k) return;
+        _gekozen.Add(k);
+        if (_metDochters) _gekozen.UnionWith(Dochters(k));
+    }
+
+    private async Task KiesKern(int id) { _kern = id; ZetKeuze(); await Laad(); }
+
+    private async Task DochtersGewijzigd(ChangeEventArgs e) { _metDochters = e.Value is true; ZetKeuze(); await Laad(); }
+
+    private string BvNaam(int id)
+    {
+        if (_eigen.FirstOrDefault(b => b.Id == id) is { } e) return e.Kort;
+        if (_bvs.FirstOrDefault(b => b.Id == id) is { } l) return l.Afkorting.Length > 0 ? l.Afkorting : l.Naam;
+        return id.ToString();
+    }
+
+    /// <summary>Wat je bekijkt, in één zin.</summary>
+    private string KeuzeTekst()
+    {
+        if (_gekozen.Count == 0) return "Geen BV gekozen.";
+        var namen = string.Join(", ", _gekozen.Select(BvNaam).OrderBy(n => n));
+        var wat = _boom.Count > 0 && _kern is int k
+            ? (_metDochters && _gekozen.Count > 1 ? $"{_eigen.FirstOrDefault(b => b.Id == k)?.Naam} met dochters ({namen})" : _eigen.FirstOrDefault(b => b.Id == k)?.Naam ?? namen)
+            : namen;
+        return $"{wat}: {_p?.Rekeningen.Count ?? 0} rekening(en), de vaste lasten en openstaande facturen van "
+             + (_gekozen.Count == 1 ? "deze BV." : "deze BV's; facturen tussen deze BV's tellen niet mee.");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eersteKeer)
+    {
+        if (!_tekenen) return;
+        _tekenen = false;
+        var randen = _randen.Select(a => new { van = a.AandeelhouderId, naar = a.BvId, pct = a.Percentage.ToString("0.###", Nl) + " %" }).ToList();
+        try { await JS.InvokeVoidAsync("mdeOrganigram.teken", _org, randen); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdeOrganigram.stop", _org); } catch { }
     }
 
     private void StandaardBvsZonderLaden()
@@ -317,9 +452,13 @@
             var start = rekeningen.Where(r => r.Datum is not null).Select(r => r.Datum!.Value).DefaultIfEmpty(DateOnly.FromDateTime(DateTime.Today)).Max();
 
             _vasteLasten = await VasteLasten.LijstAsync();
+            // facturen tussen de gekozen BV's: geld binnen de groep, telt niet mee
+            var open = (await Repo.OpenstaandAsync(bvs)).Where(f => f.RelatieId is not int r || !_gekozen.Contains(r)).ToList();
+            // vaste lasten alleen van de gekozen BV's (zonder BV = kolom ontbreekt nog: altijd mee)
+            var lasten = _vasteLasten.Where(v => v.BvId is not int b || _gekozen.Contains(b)).ToList();
             _p = Liquiditeitsrekenaar.Bereken(start, _dagen, rekeningen,
-                await Repo.OpenstaandAsync(bvs),
-                _vasteLasten,
+                open,
+                lasten,
                 await Repo.BtwPerKwartaalAsync(bvs, start.Year - 1));
             if (_dag is DateOnly d && (d <= start || d > start.AddDays(_dagen))) _dag = null;
             _melding = null;
@@ -354,14 +493,18 @@
 
         if (_categorieen.Count == 0)
             try { _categorieen = await VasteLasten.CategorieenAsync(); } catch { }
+        if (_vlBvs.Count == 0)
+            try { _vlBvs = await VasteLasten.BvsAsync(); } catch { }
 
         // Een kopie, zodat Annuleren niets verandert.
         _vasteLast = new VasteLast
         {
             Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,
-            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand,
+            CategorieId = v.CategorieId, Categorie = v.Categorie, Dag = v.Dag, Maand = v.Maand, BvId = v.BvId, Bv = v.Bv,
         };
     }
+
+    private List<Keuze> _vlBvs = new();
 
     /// <summary>Venster dicht; is er iets opgeslagen, dan de prognose opnieuw rekenen.</summary>
     private async Task VensterDicht(bool opgeslagen)

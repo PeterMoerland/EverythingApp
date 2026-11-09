@@ -24,6 +24,11 @@ public class VasteLast
     public string Categorie { get; set; } = "";
     public DateTime? Gewijzigd { get; set; }
 
+    /// <summary>De eigen BV die betaalt (VasteLasten.BvID, VasteLastenBv_MariaDB.sql); null = kolom ontbreekt nog.</summary>
+    public int? BvId { get; set; }
+    /// <summary>Afkorting (of naam) van die BV, om te tonen.</summary>
+    public string Bv { get; set; } = "";
+
     /// <summary>Weekdag (1-7) bij wekelijks, anders dag van de maand (1-31).</summary>
     public int Dag { get; set; } = 1;
 

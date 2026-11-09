@@ -20,6 +20,9 @@ public interface IVasteLastenRepository
     Task<int> BewaarAsync(VasteLast last);
 
     Task WisAsync(int id);
+
+    /// <summary>De BV's waar een vaste last bij kan horen (MDE-groep, niet opgeheven); leeg = kolom BvID ontbreekt nog.</summary>
+    Task<List<Keuze>> BvsAsync();
 }
 
 public class GeenVasteLastenRepository : IVasteLastenRepository
@@ -30,6 +33,7 @@ public class GeenVasteLastenRepository : IVasteLastenRepository
     public Task<int> CategorieToevoegenAsync(string omschrijving) => Task.FromResult(0);
     public Task<int> BewaarAsync(VasteLast last) => Task.FromResult(0);
     public Task WisAsync(int id) => Task.CompletedTask;
+    public Task<List<Keuze>> BvsAsync() => Task.FromResult(new List<Keuze>());
 }
 
 public class MySqlVasteLastenRepository : IVasteLastenRepository
@@ -47,17 +51,51 @@ public class MySqlVasteLastenRepository : IVasteLastenRepository
         return cn;
     }
 
+    private bool _bvKolom;
+
+    /// <summary>Bestaat VasteLasten.BvID al (script VasteLastenBv_MariaDB.sql)? Eenmaal gevonden blijft het zo.</summary>
+    private async Task<bool> BvKolomAsync(MySqlConnection cn)
+    {
+        if (_bvKolom) return true;
+        try
+        {
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "AND TABLE_NAME = 'VasteLasten' AND COLUMN_NAME = 'BvID'", cn);
+            _bvKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _bvKolom;
+    }
+
+    public async Task<List<Keuze>> BvsAsync()
+    {
+        var lijst = new List<Keuze>();
+        await using var cn = await OpenAsync();
+        if (!await BvKolomAsync(cn)) return lijst;
+        var opg = await BvOpgeheven.KolomAsync(cn);
+        await using var cmd = new MySqlCommand(
+            "SELECT `id_supplier`, COALESCE(NULLIF(TRIM(`Afkorting`), ''), `name`) FROM `Relations` " +
+            $" WHERE COALESCE(`MDEBV`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} ORDER BY `name`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), r.IsDBNull(1) ? "" : r.GetString(1)));
+        return lijst;
+    }
+
     public async Task<List<VasteLast>> LijstAsync()
     {
         var lijst = new List<VasteLast>();
         var jaar = DateTime.Today.Year;      // Access rekende de dag van het jaar in het lopende jaar
 
         await using var cn = await OpenAsync();
+        var bv = await BvKolomAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT v.`ID`, COALESCE(v.`Omschrijving`, ''), COALESCE(v.`Bedrag`, 0), COALESCE(v.`interval`, 2), " +
             "       v.`Incassodatum`, v.`CategorieID`, COALESCE(c.`Omschrijving`, ''), " +
-            "       COALESCE(v.`last_updated`, v.`Tijdstip`) " +
+            "       COALESCE(v.`last_updated`, v.`Tijdstip`), " +
+            (bv ? "v.`BvID`, COALESCE(NULLIF(TRIM(b.`Afkorting`), ''), b.`name`, '') " : "NULL, '' ") +
             "  FROM `VasteLasten` v LEFT JOIN `VasteLastenCategorie` c ON c.`CategorieID` = v.`CategorieID` " +
+            (bv ? "  LEFT JOIN `Relations` b ON b.`id_supplier` = v.`BvID` " : "") +
             " ORDER BY v.`Omschrijving`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
@@ -72,6 +110,8 @@ public class MySqlVasteLastenRepository : IVasteLastenRepository
                 CategorieId = r.IsDBNull(5) ? null : r.GetInt32(5),
                 Categorie = r.GetString(6),
                 Gewijzigd = r.IsDBNull(7) ? null : r.GetDateTime(7),
+                BvId = r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8)),
+                Bv = r.IsDBNull(9) ? "" : r.GetValue(9).ToString() ?? "",
             };
             last.VanIncassodatum(r.IsDBNull(4) ? null : Convert.ToInt32(r.GetValue(4)), jaar);
             lijst.Add(last);
@@ -118,13 +158,15 @@ public class MySqlVasteLastenRepository : IVasteLastenRepository
         if (omschrijving.Length > 45) omschrijving = omschrijving[..45];
 
         await using var cn = await OpenAsync();
+        var bv = await BvKolomAsync(cn);
         await using var cmd = new MySqlCommand(last.Id == 0
             ? "INSERT INTO `VasteLasten` (`Omschrijving`, `Bedrag`, `Incassodatum`, `interval`, `CategorieID`, " +
-              "       `TotaalPerJaar`, `Tijdstip`) VALUES (@oms, @bedrag, @dag, @interval, @cat, @jaar, NOW()); " +
+              $"       `TotaalPerJaar`, `Tijdstip`{(bv ? ", `BvID`" : "")}) VALUES (@oms, @bedrag, @dag, @interval, @cat, @jaar, NOW(){(bv ? ", @bv" : "")}); " +
               "SELECT LAST_INSERT_ID();"
             : "UPDATE `VasteLasten` SET `Omschrijving` = @oms, `Bedrag` = @bedrag, `Incassodatum` = @dag, " +
-              "       `interval` = @interval, `CategorieID` = @cat, `TotaalPerJaar` = @jaar, `Tijdstip` = NOW() " +
+              $"       `interval` = @interval, `CategorieID` = @cat, `TotaalPerJaar` = @jaar, `Tijdstip` = NOW(){(bv ? ", `BvID` = @bv" : "")} " +
               " WHERE `ID` = @id; SELECT @id;", cn);
+        cmd.Parameters.AddWithValue("@bv", (object?)last.BvId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@oms", omschrijving);
         cmd.Parameters.AddWithValue("@bedrag", last.Bedrag);
         cmd.Parameters.AddWithValue("@dag", last.NaarIncassodatum(DateTime.Today.Year));
