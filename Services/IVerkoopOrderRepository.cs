@@ -69,8 +69,22 @@ public class VerkoopOrderRegel
     public int? LeverancierId { get; set; }
     public string Leverancier { get; set; } = "";
 
+    /// <summary>Bestellingen bij de leverancier voor deze regel (stap 2), zonder geannuleerde of gewiste.</summary>
+    public List<VerkoopInkoop> Inkoop { get; set; } = new();
+
     public decimal Totaal => Math.Round(Aantal * (Verkoopprijs ?? 0), 2);
+    public decimal Besteld => Inkoop.Sum(i => i.Aantal);
+    /// <summary>Nog te bestellen (nooit negatief).</summary>
+    public decimal TeBestellen => Math.Max(0, Aantal - Besteld);
 }
+
+/// <summary>
+/// Een bestelregel (Orderitems) die voor een verkooporderregel besteld is, via VerkoopOrderKoppelingen (Soort "inkoop").
+/// Aantal = wat nu op de bestelregel staat (wijzigt iemand het in Bestellingen, dan telt dat), Geleverd = wat de
+/// leverancier daarvan geleverd heeft (OrderItemsDelivered).
+/// </summary>
+public record VerkoopInkoop(int KoppelingId, int RegelId, int OrderitemId, int BestellingId, int Status, string Leverancier,
+                            decimal Aantal, decimal Geleverd);
 
 /// <summary>Filter van de lijst: status "open", "afgerond", "geannuleerd" of "alles"; zoek in nummer, klant, PO en omschrijving.</summary>
 public record VerkoopOrderFilter(string Status, string Zoek, int? KlantId = null);
@@ -98,6 +112,9 @@ public interface IVerkoopOrderRepository
 
     Task ZetBevestigdAsync(int id, string aan, int? door);
 
+    /// <summary>Een bestelregel (Orderitems) aan een verkooporderregel koppelen (stap 2: bestellen bij de leverancier).</summary>
+    Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door);
+
     /// <summary>Het gewone adres van de klant voor de orderbevestiging (niet het factuuradres).</summary>
     Task<FactuurAdres> KlantAdresAsync(int klantId);
     Task<FactuurAfzender> AfzenderAsync(int bvId);
@@ -115,6 +132,7 @@ public class GeenVerkoopOrderRepository : IVerkoopOrderRepository
     public Task WisRegelAsync(int regelId) => Task.CompletedTask;
     public Task<string?> WisAsync(int id) => Task.FromResult<string?>("Er is geen database.");
     public Task ZetBevestigdAsync(int id, string aan, int? door) => Task.CompletedTask;
+    public Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door) => throw new InvalidOperationException("Er is geen database.");
     public Task<FactuurAdres> KlantAdresAsync(int klantId) => Task.FromResult(new FactuurAdres());
     public Task<FactuurAfzender> AfzenderAsync(int bvId) => Task.FromResult(new FactuurAfzender());
 }
@@ -160,6 +178,7 @@ public class GeheugenVerkoopOrderRepository : IVerkoopOrderRepository
         {
             Id = r.Id, OrderId = r.OrderId, Volgorde = r.Volgorde, ArtikelId = r.ArtikelId, Code = r.Code, Omschrijving = r.Omschrijving,
             Aantal = r.Aantal, Inkoopprijs = r.Inkoopprijs, Verkoopprijs = r.Verkoopprijs, LeverancierId = r.LeverancierId, Leverancier = r.Leverancier,
+            Inkoop = r.Inkoop.ToList(),
         }).ToList();
         return k;
     }
@@ -223,6 +242,15 @@ public class GeheugenVerkoopOrderRepository : IVerkoopOrderRepository
     public Task ZetBevestigdAsync(int id, string aan, int? door)
     {
         if (_orders.TryGetValue(id, out var o)) { o.BevestigdOp = DateTime.Now; o.BevestigdAan = aan; o.BevestigdDoor = door is null ? "" : $"werknemer {door}"; }
+        return Task.CompletedTask;
+    }
+
+    public Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door)
+    {
+        foreach (var o in _orders.Values)
+            lock (o)
+                if (o.Regels.FirstOrDefault(r => r.Id == regelId) is { } r)
+                    r.Inkoop.Add(new VerkoopInkoop(r.Inkoop.Count + 1, regelId, orderitemId, 0, 3, r.Leverancier, aantal, 0));
         return Task.CompletedTask;
     }
 
@@ -358,6 +386,34 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
                     Omschrijving = S(r, 5), Aantal = DN(r, 6) ?? 0, Inkoopprijs = DN(r, 7), Verkoopprijs = DN(r, 8),
                     LeverancierId = IN(r, 9), Leverancier = S(r, 10),
                 });
+        }
+
+        // Inkoop per regel: alleen bestelregels die nog bestaan, in een bestelling die niet geannuleerd is.
+        if (o.Regels.Count > 0)
+        {
+            try
+            {
+                await using var cmd = new MySqlCommand(
+                    "SELECT k.`KoppelingID`, k.`RegelID`, i.`Orderitem-id`, i.`Order-id`, COALESCE(b.`Status`, 0), COALESCE(l.`name`, ''), " +
+                    "       COALESCE(i.`Quantity ordered`, k.`Aantal`), " +
+                    "       COALESCE((SELECT SUM(d.`Quantity delivered`) FROM `OrderItemsDelivered` d WHERE d.`OrderItem-id` = i.`Orderitem-id`), 0) " +
+                    "  FROM `VerkoopOrderKoppelingen` k " +
+                    "  JOIN `VerkoopOrderRegels` g ON g.`RegelID` = k.`RegelID` " +
+                    "  JOIN `Orderitems` i ON i.`Orderitem-id` = k.`DoelID` AND (i.`ToBeDeleted` = 0 OR i.`ToBeDeleted` IS NULL) " +
+                    "  JOIN `Orders` b ON b.`Order-id` = i.`Order-id` " +
+                    "  LEFT JOIN `Relations` l ON l.`id_supplier` = b.`Supplier` " +
+                    " WHERE g.`VerkoopOrderID` = @id AND k.`Soort` = 'inkoop' AND COALESCE(b.`Status`, 0) <> @geannuleerd " +
+                    " ORDER BY k.`KoppelingID`", cn);
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.Parameters.AddWithValue("@geannuleerd", BestelVelden.StatusGeannuleerd);
+                var perRegel = o.Regels.ToDictionary(x => x.Id);
+                await using var r = await cmd.ExecuteReaderAsync();
+                while (await r.ReadAsync())
+                    if (perRegel.TryGetValue(r.GetInt32(1), out var regel))
+                        regel.Inkoop.Add(new VerkoopInkoop(r.GetInt32(0), regel.Id, r.GetInt32(2), r.GetInt32(3), Convert.ToInt32(r.GetValue(4)),
+                                                           S(r, 5), DN(r, 6) ?? 0, DN(r, 7) ?? 0));
+            }
+            catch (MySqlException) { /* koppeltabel ontbreekt nog: geen inkoop tonen */ }
         }
 
         if (o.ContactId is int c)
@@ -521,6 +577,19 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@aan", Kort(aan, 300));
         cmd.Parameters.AddWithValue("@id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `VerkoopOrderKoppelingen` (`RegelID`, `Soort`, `DoelID`, `Aantal`, `Op`, `Door`) " +
+            "VALUES (@regel, 'inkoop', @doel, @aantal, NOW(), @door)", cn);
+        cmd.Parameters.AddWithValue("@regel", regelId);
+        cmd.Parameters.AddWithValue("@doel", orderitemId);
+        cmd.Parameters.AddWithValue("@aantal", aantal);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
     }
 

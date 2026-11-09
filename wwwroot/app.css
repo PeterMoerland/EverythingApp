@@ -2158,13 +2158,34 @@ html[data-thema="donker"] .hist-meer { border-color: #34465c; color: #9fb0c4; }
 .nc-lev-po td:first-child { padding-left: 1.6rem; }
 html[data-thema="donker"] .nc-lev-po td { background: #1b2533; }
 /* Bestellingen > Verkooporders (wens gebruiker 9-11-2026) */
-.kiezer-tabel.regels.vo-regels { min-width: 54rem; }   /* vaste kolommen ~41rem, Omschrijving de rest */
+.kiezer-tabel.regels.vo-regels { min-width: 54rem; }   /* vaste kolommen ~46rem, Omschrijving de rest */
 .vo-regels input { width: 100%; box-sizing: border-box; }
 .vo-regels .vo-lev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 7rem; color: #5b6878; }
 .vo-verlies { color: #c92a2a; font-weight: 600; }
 .vo-bevestigd { margin: -.2rem 0 .6rem; color: #2f7d4f; }
 html[data-thema="donker"] .vo-regels .vo-lev { color: #9fb0c4; }
 html[data-thema="donker"] .vo-bevestigd { color: #6fcf97; }
+/* Verkooporders stap 2: leverancier kiezen, kolom Besteld, bestelvenster */
+.vo-levknop { all: unset; cursor: pointer; display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; border-bottom: 1px dashed transparent; }
+.vo-levknop:hover, .vo-levknop:focus-visible { border-bottom-color: currentColor; color: #274e7d; }
+.vo-besteld { line-height: 1.5; }
+.vo-po { display: inline-block; margin: 0 .25rem .15rem 0; padding: 0 .35rem; border: 1px solid; border-radius: 4px; font-size: .78rem; text-decoration: none; white-space: nowrap; }
+.vo-po.s-blauw  { background: #e4edf9; border-color: #9db8dc; color: #274e7d; }
+.vo-po.s-oranje { background: #fff3d6; border-color: #e6a817; color: #7a4f00; }
+.vo-po.s-groen  { background: #e7f3e7; border-color: #9c9;    color: #1e5c1e; }
+.vo-open { font-size: .78rem; color: #7a4f00; white-space: nowrap; }
+.vo-bestelvenster { width: min(46rem, calc(100vw - 2rem)); }
+.vo-levkop { margin: .9rem 0 .3rem; }
+.vo-bestel { width: 100%; }
+.vo-bestel input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+.vo-bestel tr.vo-uit td { opacity: .45; }
+.vo-gemaakt { margin: .4rem 0 .8rem; padding-left: 1.2rem; line-height: 1.7; }
+.vo-let { color: #7a4f00; margin-left: .3rem; }
+html[data-thema="donker"] .vo-levknop:hover { color: #9ec4f5; }
+html[data-thema="donker"] .vo-po.s-blauw  { background: #16273d; border-color: #2b4a73; color: #9ec4f5; }
+html[data-thema="donker"] .vo-po.s-oranje { background: #33290f; border-color: #7a6320; color: #ffd9a0; }
+html[data-thema="donker"] .vo-po.s-groen  { background: #1c3222; border-color: #3c7a4c; color: #a5e6b4; }
+html[data-thema="donker"] .vo-open, html[data-thema="donker"] .vo-let { color: #ffd9a0; }
 .paneelgreep { flex-shrink: 0; height: 9px; margin: 0 .5rem; cursor: row-resize; touch-action: none; position: relative; }
 .paneelgreep::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2.6rem; height: 3px; margin-left: -1.3rem;
     border-radius: 2px; background: #c3ccd6; }

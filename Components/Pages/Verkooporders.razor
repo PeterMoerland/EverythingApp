@@ -4,13 +4,15 @@
 @inject IVerkoopFactuurRepository Facturen
 @inject IArtikelRepository Artikelen
 @inject IInstellingRepository Instellingen
+@inject VerkoopBestellen Bestellen
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
 @* Verkooporders (wens gebruiker 9-11-2026): een simpele order van een klant opnemen en bevestigen. Stap 1: order met
    regels (artikel of vrije regel; verkoopprijs = inkoop + opslag uit de algemene instellingen) en de orderbevestiging
-   (PDF + mail, OrderbevestigingVenster). Bestellen bij de leverancier, pakbon en factuur volgen (stap 2 en 3).
+   (PDF + mail, OrderbevestigingVenster). Stap 2: bestellen bij de leverancier (VerkoopBestellen; per leverancier een
+   bestelling, meteen In bestelling, gekoppeld per regel; kolom Besteld). Pakbon en factuur volgen (stap 3).
    Elke order hangt aan een klant; de werkorder is -01 van het project "Verkoop <jaar>" van die klant.
    Alleen met het recht Verkoop (Werknemers ▸ Status ▸ Verkooporders) of Directie. *@
 
@@ -88,6 +90,9 @@
                         <div class="btngroup">
                             <button class="klein primair" disabled="@(vo.Regels.Count == 0)" title="@(vo.Regels.Count == 0 ? "Eerst regels toevoegen" : "PDF bekijken en mailen naar de klant")"
                                     @onclick="() => _bevestigOpen = true">📄 Orderbevestiging…</button>
+                            <button class="klein" disabled="@(!vo.Regels.Any(r => r.TeBestellen > 0) || vo.Status != VerkoopOrderStatus.Open)"
+                                    title="@(vo.Status != VerkoopOrderStatus.Open ? "Alleen bij een open order" : vo.Regels.Any(r => r.TeBestellen > 0) ? "Bestellen bij de leverancier(s)" : "Alles is al besteld")"
+                                    @onclick="OpenBestellen">🛒 Bestellen…</button>
                             <button class="klein rood" @onclick="Wis">Wissen</button>
                         </div>
                     </div>
@@ -167,14 +172,15 @@
                         <table class="kiezer-tabel regels vo-regels">
                             <thead>
                                 <tr>
-                                    <th style="width:8rem">Code</th>
+                                    <th style="width:6.5rem">Code</th>
                                     <th>Omschrijving</th>
                                     <th style="width:4rem" class="c">Aantal</th>
-                                    <th style="width:5.5rem" class="r" title="Inkoopprijs per stuk (kostprijs van het artikel)">Inkoop/st</th>
-                                    <th style="width:5.5rem" class="r" title="Verkoopprijs per stuk (voorstel: inkoop + @Getal(_toeslag) %)">Verkoop/st</th>
-                                    <th style="width:5.5rem" class="r">Totaal</th>
+                                    <th style="width:5rem" class="r" title="Inkoopprijs per stuk (kostprijs van het artikel)">Inkoop/st</th>
+                                    <th style="width:5rem" class="r" title="Verkoopprijs per stuk (voorstel: inkoop + @Getal(_toeslag) %)">Verkoop/st</th>
+                                    <th style="width:5rem" class="r">Totaal</th>
                                     <th style="width:3.5rem" class="r" title="Marge op de verkoopprijs">Marge</th>
                                     <th style="width:7rem">Leverancier</th>
+                                    <th style="width:7.5rem" title="Besteld bij de leverancier (klik: open de bestelling)">Besteld</th>
                                     <th style="width:2.4rem"></th>
                                 </tr>
                             </thead>
@@ -189,13 +195,23 @@
                                         <td><input class="r" value="@Prijs(r.Verkoopprijs)" @onchange="e => ZetRegel(r, x => x.Verkoopprijs = Bedrag(e))" /></td>
                                         <td class="r">@Geld(r.Totaal)</td>
                                         <td class="r @(Marge(r) is decimal m && m < 0 ? "vo-verlies" : "")">@(Marge(r) is decimal mm ? mm.ToString("P0") : "")</td>
-                                        <td class="vo-lev" title="@r.Leverancier">@r.Leverancier</td>
+                                        <td class="vo-lev"><button class="vo-levknop" title="@(r.Leverancier.Length > 0 ? r.Leverancier + " (klik om te wijzigen)" : "Leverancier kiezen")" @onclick="() => OpenLeverancier(r)">@(r.Leverancier.Length > 0 ? r.Leverancier : "kiezen…")</button></td>
+                                        <td class="vo-besteld">
+                                            @foreach (var i in r.Inkoop)
+                                            {
+                                                <a href="/bestellingen?order=@i.BestellingId" class="vo-po @InkoopKleur(i)" title="@InkoopTitel(i)">@Getal(i.Aantal)× PO-@i.BestellingId</a>
+                                            }
+                                            @if (r.Inkoop.Count > 0 && r.TeBestellen > 0)
+                                            {
+                                                <span class="vo-open" title="Nog niet besteld">nog @Getal(r.TeBestellen)</span>
+                                            }
+                                        </td>
                                         <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => WisRegel(r)">✕</button></td>
                                     </tr>
                                 }
                                 @if (vo.Regels.Count == 0)
                                 {
-                                    <tr><td colspan="9" class="kiezer-info">Nog geen regels. Voeg een artikel toe, of een vrije regel.</td></tr>
+                                    <tr><td colspan="10" class="kiezer-info">Nog geen regels. Voeg een artikel toe, of een vrije regel.</td></tr>
                                 }
                             </tbody>
                             @if (vo.Regels.Count > 0)
@@ -207,7 +223,7 @@
                                         <td></td>
                                         <td class="r"><b>@Geld(vo.Totaal)</b></td>
                                         <td class="r">@(vo.Totaal == 0 ? "" : ((vo.Totaal - vo.InkoopTotaal) / vo.Totaal).ToString("P0"))</td>
-                                        <td colspan="2"></td>
+                                        <td colspan="3"></td>
                                     </tr>
                                 </tfoot>
                             }
@@ -282,6 +298,132 @@
             <div class="bijlagevoet">
                 <button class="klein" @onclick="SluitNieuw">Annuleren</button>
                 <button class="primair" disabled="@(_nieuwKlant is null || _bezig)" @onclick="MaakNieuw">Order aanmaken</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- leverancier van een regel kiezen ---------- *@
+@if (_levRegel is { } lr)
+{
+    <div class="cmdk-overlay midden" @onclick="() => _levRegel = null">
+        <div class="factuurvenster pb-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Leverancier voor @(lr.Code.Length > 0 ? lr.Code : "deze regel")</h2>
+                <button class="klein" @onclick="() => _levRegel = null">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_levOpties.Count > 0)
+                {
+                    <p class="uitleg">Leveranciers van dit artikel:</p>
+                    <div class="pb-keuzelijst">
+                        @foreach (var l in _levOpties)
+                        {
+                            <button class="wn-naam @(l.LeverancierId == lr.LeverancierId ? "actief" : "")" @onclick="() => KiesArtikelLeverancier(l)">
+                                <span><b>@l.Leverancier</b>@(l.Voorkeur ? " ★" : "")</span>
+                                <small>@(l.Artikelnummer.Length > 0 ? "bestelnr " + l.Artikelnummer + " · " : "")@(l.PrijsPerStuk > 0 ? Geld(Math.Round(l.PrijsPerStuk, 2)) + " per stuk" : "geen prijs")</small>
+                            </button>
+                        }
+                    </div>
+                }
+                <p class="uitleg">@(_levOpties.Count > 0 ? "Of een andere leverancier:" : "Zoek de leverancier:")</p>
+                <input class="of-zoekveld" placeholder="Naam leverancier…" value="@_levZoek" @oninput="LeverancierGetypt" @ref="_levZoekVeld" />
+                <div class="pb-keuzelijst">
+                    @foreach (var k in _levTreffers)
+                    {
+                        <button class="wn-naam" @onclick="() => ZetLeverancier(lr, k.Id, k.Naam)">@k.Naam</button>
+                    }
+                    @if (_levZoek.Trim().Length >= 2 && _levTreffers.Count == 0)
+                    {
+                        <div class="kiezer-info">Niets gevonden.</div>
+                    }
+                </div>
+            </div>
+            <div class="bijlagevoet">
+                <button class="klein" disabled="@(lr.LeverancierId is null)" title="Bv. uit eigen voorraad: deze regel wordt dan niet besteld"
+                        @onclick="() => ZetLeverancier(lr, null, string.Empty)">Geen leverancier</button>
+                <button class="klein" @onclick="() => _levRegel = null">Sluiten</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- bestellen bij de leverancier(s) ---------- *@
+@if (_bestelOpen && _order is { } bo)
+{
+    <div class="cmdk-overlay midden" @onclick="SluitBestellen">
+        <div class="factuurvenster vo-bestelvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Bestellen voor @bo.Ordernummer</h2>
+                <button class="klein" @onclick="SluitBestellen">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_bestelUitkomst is { } gemaakt)
+                {
+                    <p>@(gemaakt.Count == 1 ? "Bestelling aangemaakt" : $"{gemaakt.Count} bestellingen aangemaakt"), op werkorder @bo.Werkorder en meteen <b>In bestelling</b>:</p>
+                    <ul class="vo-gemaakt">
+                        @foreach (var g in gemaakt)
+                        {
+                            <li>
+                                <a href="/bestellingen?order=@g.BestellingId"><b>PO-@g.BestellingId</b></a> · @g.Leverancier ·
+                                @g.Regels regel@(g.Regels == 1 ? "" : "s") · @Geld(g.Totaal)
+                                @if (g.Let is not null) { <span class="vo-let">⚠ @g.Let</span> }
+                            </li>
+                        }
+                    </ul>
+                    <p class="uitleg">Open de bestelling in Bestellingen om hem naar de leverancier te mailen, en druk daar op Volgende als hij besteld is.</p>
+                }
+                else
+                {
+                    var open = bo.Regels.Where(r => r.TeBestellen > 0).ToList();
+                    var zonder = open.Where(r => r.LeverancierId is null).ToList();
+                    @if (_bestelFout is not null)
+                    {
+                        <p class="vo-let">⚠ @_bestelFout</p>
+                    }
+                    <p class="uitleg">Per leverancier komt er een bestelling op werkorder <b>@bo.Werkorder</b>, meteen <b>In bestelling</b> (geen goedkeuring),
+                        af te leveren bij MDE. Aantal lager = deelbestelling; de rest blijft open.</p>
+                    @foreach (var groep in open.Where(r => r.LeverancierId is not null).GroupBy(r => r.LeverancierId!.Value))
+                    {
+                        <h4 class="vo-levkop">@groep.First().Leverancier</h4>
+                        <table class="kiezer-tabel vo-bestel">
+                            <tbody>
+                                @foreach (var r in groep)
+                                {
+                                    var k = _bestelKeuze[r.Id];
+                                    <tr class="@(k.Aan ? "" : "vo-uit")">
+                                        <td class="c" style="width:2rem"><input type="checkbox" checked="@k.Aan" @onchange="e => _bestelKeuze[r.Id] = k with { Aan = e.Value is true }" /></td>
+                                        <td style="width:8rem">@r.Code</td>
+                                        <td>@(r.Omschrijving.Length > 0 ? r.Omschrijving : "(geen omschrijving)")</td>
+                                        <td style="width:5rem"><input class="c" value="@Getal(k.Aantal)" @onchange="e => _bestelKeuze[r.Id] = k with { Aantal = Math.Clamp(Bedrag(e) ?? k.Aantal, 0, r.TeBestellen) }" /></td>
+                                        <td style="width:6.5rem" class="zij-extra">@(r.Besteld > 0 ? $"van {Getal(r.TeBestellen)} open" : $"van {Getal(r.Aantal)}")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    @if (zonder.Count > 0)
+                    {
+                        <h4 class="vo-levkop">Zonder leverancier</h4>
+                        <p class="uitleg">@string.Join(", ", zonder.Select(r => r.Code.Length > 0 ? r.Code : r.Omschrijving)): kies eerst in de regel een leverancier.
+                            Komt het uit eigen voorraad, dan hoeft het niet besteld te worden.</p>
+                    }
+                }
+            </div>
+            <div class="bijlagevoet">
+                @if (_bestelUitkomst is null)
+                {
+                    var keuzes = BestelKeuzes();
+                    var levs = keuzes.Select(k => k.Regel.LeverancierId).Distinct().Count();
+                    <button class="klein" @onclick="SluitBestellen">Annuleren</button>
+                    <button class="primair" disabled="@(keuzes.Count == 0 || _bezig)" @onclick="Bestel">
+                        @(_bezig ? "Bezig…" : keuzes.Count == 0 ? "Niets gekozen" : $"Bestel {keuzes.Count} regel{(keuzes.Count == 1 ? "" : "s")} bij {levs} leverancier{(levs == 1 ? "" : "s")}")
+                    </button>
+                }
+                else
+                {
+                    <button class="primair" @onclick="SluitBestellen">Sluiten</button>
+                }
             </div>
         </div>
     </div>
@@ -526,6 +668,117 @@
         catch (Exception ex) { Toon("Order aanmaken mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
     }
+
+    // ---------- leverancier per regel ----------
+    private VerkoopOrderRegel? _levRegel;
+    private ElementReference _levZoekVeld;
+    private bool _levFocus;
+    private List<ArtikelLeverancier> _levOpties = new();
+    private string _levZoek = "";
+    private List<Keuze> _levTreffers = new();
+
+    private async Task OpenLeverancier(VerkoopOrderRegel r)
+    {
+        _levRegel = r;
+        _levFocus = true;
+        _levZoek = "";
+        _levTreffers = new();
+        _levOpties = new();
+        if (r.ArtikelId is int a)
+            try { _levOpties = (await Artikelen.LeveranciersAsync(a)).OrderByDescending(l => l.Voorkeur).ThenBy(l => l.Leverancier).ToList(); }
+            catch (Exception ex) { Toon("Leveranciers van het artikel ophalen mislukt: " + ex.Message, true); }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eersteKeer)
+    {
+        if (_levFocus && _levRegel is not null)
+        {
+            _levFocus = false;
+            try { await _levZoekVeld.FocusAsync(); } catch { }
+        }
+    }
+
+    private async Task LeverancierGetypt(ChangeEventArgs e)
+    {
+        _levZoek = (string?)e.Value ?? "";
+        if (_levZoek.Trim().Length < 2) { _levTreffers = new(); return; }
+        try { _levTreffers = await Relaties.ZoekAsync(_levZoek.Trim(), false, true, 0, 15); }
+        catch (Exception ex) { Toon("Leverancier zoeken mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Leverancier van het artikel: ook de inkoopprijs (en verkoopprijs) invullen als die nog leeg was.</summary>
+    private async Task KiesArtikelLeverancier(ArtikelLeverancier l)
+    {
+        if (_levRegel is not { } r) return;
+        if (r.Inkoopprijs is null && l.PrijsPerStuk > 0)
+        {
+            r.Inkoopprijs = Math.Round(l.PrijsPerStuk, 4);
+            r.Verkoopprijs ??= Math.Round(r.Inkoopprijs.Value * (1 + _toeslag / 100m), 2);
+        }
+        await ZetLeverancier(r, l.LeverancierId, l.Leverancier);
+    }
+
+    private async Task ZetLeverancier(VerkoopOrderRegel r, int? id, string naam)
+    {
+        _levRegel = null;
+        await ZetRegel(r, x => { x.LeverancierId = id; x.Leverancier = naam; });
+    }
+
+    // ---------- bestellen (stap 2) ----------
+    private sealed record BestelKeuze(bool Aan, decimal Aantal);
+    private bool _bestelOpen;
+    private Dictionary<int, BestelKeuze> _bestelKeuze = new();
+    private List<VerkoopBestellen.Gemaakt>? _bestelUitkomst;
+    private string? _bestelFout;
+
+    private void OpenBestellen()
+    {
+        if (_order is not { } o) return;
+        _bestelKeuze = o.Regels.Where(r => r.TeBestellen > 0).ToDictionary(r => r.Id, r => new BestelKeuze(r.LeverancierId is not null, r.TeBestellen));
+        _bestelUitkomst = null;
+        _bestelFout = null;
+        _bestelOpen = true;
+    }
+
+    private void SluitBestellen() { if (!_bezig) _bestelOpen = false; }
+
+    private List<VerkoopBestellen.Keuze> BestelKeuzes()
+        => _order?.Regels.Where(r => r.LeverancierId is not null && _bestelKeuze.TryGetValue(r.Id, out var k) && k.Aan && k.Aantal > 0)
+                         .Select(r => new VerkoopBestellen.Keuze(r, _bestelKeuze[r.Id].Aantal)).ToList() ?? new();
+
+    private async Task Bestel()
+    {
+        if (_order is not { } o || _bezig) return;
+        var keuzes = BestelKeuzes();
+        if (keuzes.Count == 0) return;
+        if (keuzes.FirstOrDefault(k => k.Regel.Code.Length == 0 && k.Regel.Omschrijving.Length == 0) is not null)
+        {
+            _bestelFout = "Een regel zonder code en omschrijving kan niet besteld worden: vul die eerst in, of zet het vinkje uit.";
+            return;
+        }
+        _bestelFout = null;
+        _bezig = true;
+        try
+        {
+            _bestelUitkomst = await Bestellen.BestelAsync(o, keuzes, Ik.WerknemerId);
+        }
+        catch (Exception ex) { _bestelOpen = false; Toon("Bestellen mislukt: " + ex.Message, true); }
+        finally
+        {
+            _bezig = false;
+            await Kies(o.Id);       // ook bij een fout halverwege: laten zien wat al wel besteld is
+        }
+    }
+
+    private static bool IsBinnen(VerkoopInkoop i) => i.Aantal > 0 && i.Geleverd >= i.Aantal || i.Status == BestelFlow.Gereed;
+
+    private static string InkoopKleur(VerkoopInkoop i)
+        => IsBinnen(i) ? "s-groen" : i.Status == BestelFlow.WachtOpLevering ? "s-oranje" : "s-blauw";
+
+    private static string InkoopTitel(VerkoopInkoop i)
+        => $"PO-{i.BestellingId} bij {i.Leverancier}: " + (IsBinnen(i) ? "geleverd"
+           : i.Status == BestelFlow.WachtOpLevering ? "besteld, wacht op levering" + (i.Geleverd > 0 ? $" ({Getal(i.Geleverd)} binnen)" : "")
+           : i.Status == BestelFlow.InBestelling ? "in bestelling (nog naar de leverancier mailen)" : "nog niet besteld");
 
     // ---------- orderbevestiging ----------
     private async Task BevestigingDicht(bool verstuurd)
