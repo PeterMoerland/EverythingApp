@@ -388,12 +388,12 @@
                                             {
                                                 <tr class="nc-details">
                                                     <td colspan="6">
-                                                        <table class="kiezer-tabel smal-tabel">
-                                                            <thead><tr><th>Datum</th><th>Week</th><th class="r">Uren</th><th class="r">Km</th><th>Soort</th><th>Omschrijving</th></tr></thead>
+                                                        <table class="kiezer-tabel nc-urenregels">
+                                                            <thead><tr><th class="nc-datum">Datum</th><th class="r nc-week">Week</th><th class="r nc-uren">Uren</th><th class="r nc-km">Km</th><th class="nc-soort">Soort</th><th>Omschrijving</th></tr></thead>
                                                             <tbody>
                                                                 @foreach (var d in regels)
                                                                 {
-                                                                    <tr><td>@d.Datum?.ToString("dd-MM-yyyy")</td><td>@d.Week</td><td class="r">@Getal(d.Uren)</td>
+                                                                    <tr><td class="nc-datum">@d.Datum?.ToString("dd-MM-yyyy")</td><td class="r">@d.Week</td><td class="r">@Getal(d.Uren)</td>
                                                                         <td class="r">@(d.Km == 0 ? "" : Getal(d.Km))</td><td>@d.Tariefsoort</td><td>@d.Omschrijving</td></tr>
                                                                 }
                                                             </tbody>

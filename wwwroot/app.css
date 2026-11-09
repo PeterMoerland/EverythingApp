@@ -3690,6 +3690,16 @@ html[data-thema="donker"] .nc-subtotaal td { background: #222b37; border-top-col
 .nc-zonder { color: #9a4a00; background: #fff6e8; border-radius: 4px; padding: .3rem .5rem; margin: .2rem 0 .8rem; font-size: .92em; }
 .nc-geannuleerd td { color: #8a929c; text-decoration: line-through; }
 .nc-details > td { background: #f6f8fb; padding: .3rem .6rem .6rem 1.5rem; }
+/* Urenregels onder een werknemer (Nacalculatie > Uren): volle breedte, vaste smalle kolommen, de rest voor de omschrijving (9-11-2026) */
+.nc-urenregels { width: 100%; table-layout: fixed; }
+.nc-urenregels th, .nc-urenregels td { vertical-align: top; }
+.nc-urenregels .nc-datum { width: 6.5rem; white-space: nowrap; }
+.nc-urenregels .nc-week { width: 3.5rem; }
+.nc-urenregels .nc-uren { width: 4rem; }
+.nc-urenregels .nc-km { width: 4rem; }
+.nc-urenregels th:nth-child(5), .nc-urenregels td:nth-child(5) { padding-left: .9rem; }
+.nc-urenregels .nc-soort { width: 6rem; }
+.nc-urenregels td:last-child { white-space: normal; overflow-wrap: anywhere; }
 .nc-jaar { margin-left: .6rem; font-size: .85em; font-weight: normal; }
 .nc-voetnoot { margin-top: .2rem; }
 .nc-printkop, .nc-printkop-inline { display: none; }
