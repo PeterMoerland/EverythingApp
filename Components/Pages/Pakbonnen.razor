@@ -339,7 +339,11 @@
         if (!Repo.Beschikbaar) return;
         try { _statussen = await Repo.StatussenAsync(); } catch { }
         await Laad();
+        if (PakbonUitUrl is int id) await Kies(id);
     }
+
+    /// <summary>?pakbon=1705: die pakbon meteen openen (bv. vanuit een verkooporder).</summary>
+    [SupplyParameterFromQuery(Name = "pakbon")] public int? PakbonUitUrl { get; set; }
 
     private async Task Laad()
     {

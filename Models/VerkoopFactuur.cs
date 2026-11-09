@@ -214,6 +214,14 @@ public record FactuurVoorstel(int? BvId, int? KlantId, string Klant, string PoKl
 {
     /// <summary>Meerdere regels ineens (Tarieven berekenen: de gegroepeerde uren); dan telt Regel/Bedrag niet.</summary>
     public List<VerkoopFactuurItem>? Regels { get; init; }
+
+    /// <summary>Project op de factuur (bv. "Verkoop 2026" van de klant bij een verkooporder); Project = de tekst in het veld.</summary>
+    public int? ProjectId { get; init; }
+    public string Project { get; init; } = "";
+
+    /// <summary>Engels en btw verlegd zoals de aanroeper ze heeft (bv. op de verkooporder); null = de standaard van de klant.</summary>
+    public bool? Engels { get; init; }
+    public bool? BtwVerlegd { get; init; }
 }
 
 /// <summary>Een project om een uitgaande factuur aan te koppelen (ProjectVeld).</summary>

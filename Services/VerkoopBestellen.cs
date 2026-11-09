@@ -90,7 +90,7 @@ public class VerkoopBestellen
                 else orderregel.Schatprijs = regel.Inkoopprijs;
 
                 var itemId = await _bestel.BewaarRegelAsync(orderregel);
-                await _vo.KoppelInkoopAsync(regel.Id, itemId, aantal, door);
+                await _vo.KoppelAsync(regel.Id, VerkoopOrderStatus.SoortInkoop, itemId, aantal, door, id);
                 totaal += Orderregel.Bereken(orderregel.Aantal, orderregel.Prijs ?? orderregel.Schatprijs, orderregel.Korting);
             }
 

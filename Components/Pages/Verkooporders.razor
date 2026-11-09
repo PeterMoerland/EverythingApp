@@ -5,6 +5,7 @@
 @inject IArtikelRepository Artikelen
 @inject IInstellingRepository Instellingen
 @inject VerkoopBestellen Bestellen
+@inject VerkoopAfhandeling Afhandeling
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -12,7 +13,8 @@
 @* Verkooporders (wens gebruiker 9-11-2026): een simpele order van een klant opnemen en bevestigen. Stap 1: order met
    regels (artikel of vrije regel; verkoopprijs = inkoop + opslag uit de algemene instellingen) en de orderbevestiging
    (PDF + mail, OrderbevestigingVenster). Stap 2: bestellen bij de leverancier (VerkoopBestellen; per leverancier een
-   bestelling, meteen In bestelling, gekoppeld per regel; kolom Besteld). Pakbon en factuur volgen (stap 3).
+   bestelling, meteen In bestelling, gekoppeld per regel). Stap 3: pakbon en factuur, ook in delen (VerkoopAfhandeling;
+   de factuur via het gewone factuurvenster met een voorstel, ook voor het recht Verkoop). Kolom Voortgang per regel.
    Elke order hangt aan een klant; de werkorder is -01 van het project "Verkoop <jaar>" van die klant.
    Alleen met het recht Verkoop (Werknemers ▸ Status ▸ Verkooporders) of Directie. *@
 
@@ -93,6 +95,12 @@
                             <button class="klein" disabled="@(!vo.Regels.Any(r => r.TeBestellen > 0) || vo.Status != VerkoopOrderStatus.Open)"
                                     title="@(vo.Status != VerkoopOrderStatus.Open ? "Alleen bij een open order" : vo.Regels.Any(r => r.TeBestellen > 0) ? "Bestellen bij de leverancier(s)" : "Alles is al besteld")"
                                     @onclick="OpenBestellen">🛒 Bestellen…</button>
+                            <button class="klein" disabled="@(!vo.Regels.Any(r => r.Levert && r.TeLeveren > 0))"
+                                    title="@(vo.Regels.Any(r => r.Levert && r.TeLeveren > 0) ? "Pakbon maken voor wat nu geleverd wordt" : "Alles is al geleverd")"
+                                    @onclick="() => OpenAfhandelen(Pakbon)">📦 Pakbon…</button>
+                            <button class="klein" disabled="@(!vo.Regels.Any(r => r.TeFactureren > 0))"
+                                    title="@(vo.Regels.Any(r => r.TeFactureren > 0) ? "Factuur maken voor wat geleverd is" : "Alles is al gefactureerd")"
+                                    @onclick="() => OpenAfhandelen(Factuur)">🧾 Factuur…</button>
                             <button class="klein rood" @onclick="Wis">Wissen</button>
                         </div>
                     </div>
@@ -180,7 +188,7 @@
                                     <th style="width:5rem" class="r">Totaal</th>
                                     <th style="width:3.5rem" class="r" title="Marge op de verkoopprijs">Marge</th>
                                     <th style="width:7rem">Leverancier</th>
-                                    <th style="width:7.5rem" title="Besteld bij de leverancier (klik: open de bestelling)">Besteld</th>
+                                    <th style="width:7.5rem" title="Besteld (PO), geleverd (PS = pakbon) en gefactureerd (F); klik om te openen">Voortgang</th>
                                     <th style="width:2.4rem"></th>
                                 </tr>
                             </thead>
@@ -204,6 +212,14 @@
                                             @if (r.Inkoop.Count > 0 && r.TeBestellen > 0)
                                             {
                                                 <span class="vo-open" title="Nog niet besteld">nog @Getal(r.TeBestellen)</span>
+                                            }
+                                            @foreach (var l in r.Leveringen)
+                                            {
+                                                <a href="/bestellingen/pakbonnen?pakbon=@l.KopId" class="vo-po vo-ps" title="Geleverd met pakbon @l.Nummer (klik: openen)">@Getal(l.Aantal)× @l.Nummer</a>
+                                            }
+                                            @foreach (var f in r.Facturen)
+                                            {
+                                                <button class="vo-po vo-fa" title="Gefactureerd op factuur @f.Nummer (klik: PDF bekijken en versturen)" @onclick="() => _versturenId = f.KopId">@Getal(f.Aantal)× F @f.Nummer</button>
                                             }
                                         </td>
                                         <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => WisRegel(r)">✕</button></td>
@@ -229,6 +245,14 @@
                             }
                         </table>
                     </div>
+                    @if (vo.Regels.Any(r => r.HeeftKoppelingen))
+                    {
+                        var geleverd = vo.Regels.Where(r => r.Levert).Sum(r => Math.Min(r.Geleverd, r.Aantal));
+                        var teLeveren = vo.Regels.Where(r => r.Levert).Sum(r => r.Aantal);
+                        var gefactureerd = vo.Regels.Sum(r => Math.Round(Math.Min(r.Gefactureerd, r.Aantal) * (r.Verkoopprijs ?? 0), 2));
+                        <p class="uitleg vo-stand">Geleverd @Getal(geleverd) van @Getal(teLeveren) · gefactureerd @Geld(gefactureerd) van @Geld(vo.Totaal)
+                            @if (vo.Regels.All(r => r.Klaar)) { <b> · alles geleverd en gefactureerd</b> }</p>
+                    }
                 }
             </section>
         </div>
@@ -429,6 +453,70 @@
     </div>
 }
 
+@* ---------- pakbon of factuur: wat nu geleverd of gefactureerd wordt ---------- *@
+@if (_afhandel is { } soort && _order is { } ao)
+{
+    var isPakbon = soort == Pakbon;
+    <div class="cmdk-overlay midden" @onclick="SluitAfhandelen">
+        <div class="factuurvenster vo-bestelvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@(isPakbon ? "Pakbon" : "Factuur") voor @ao.Ordernummer</h2>
+                <button class="klein" @onclick="SluitAfhandelen">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_pakbonGemaakt is int ps)
+                {
+                    <p>Pakbon <a href="/bestellingen/pakbonnen?pakbon=@ps"><b>PS-@ps</b></a> is aangemaakt.</p>
+                    <p class="uitleg">Open de pakbon in Pakbonnen om hem af te drukken (met of zonder afbeeldingen) of een verzendlabel te maken.</p>
+                }
+                else
+                {
+                    @if (_afFout is not null)
+                    {
+                        <p class="vo-let">⚠ @_afFout</p>
+                    }
+                    <p class="uitleg">@(isPakbon
+                        ? "Wat gaat er nu naar de klant? Aantal lager = deellevering; de rest blijft open. Regels zonder artikel (bv. verzendkosten) staan standaard uit."
+                        : "Wat wordt er nu gefactureerd? Standaard wat geleverd is en nog niet gefactureerd; regels zonder artikel volledig. Daarna opent het factuurvenster met deze regels.")</p>
+                    <table class="kiezer-tabel vo-bestel">
+                        <tbody>
+                            @foreach (var r in ao.Regels.Where(r => _afKeuze.ContainsKey(r.Id)))
+                            {
+                                var k = _afKeuze[r.Id];
+                                var max = isPakbon ? r.TeLeveren : r.TeFactureren;
+                                <tr class="@(k.Aan ? "" : "vo-uit")">
+                                    <td class="c" style="width:2rem"><input type="checkbox" checked="@k.Aan" @onchange="e => _afKeuze[r.Id] = k with { Aan = e.Value is true }" /></td>
+                                    <td style="width:7rem">@r.Code</td>
+                                    <td>@(r.Omschrijving.Length > 0 ? r.Omschrijving : "(geen omschrijving)")</td>
+                                    <td style="width:4.5rem"><input class="c" value="@Getal(k.Aantal)" @onchange="e => _afKeuze[r.Id] = k with { Aantal = Math.Clamp(Bedrag(e) ?? k.Aantal, 0, max) }" /></td>
+                                    <td style="width:9rem" class="zij-extra">@AfhandelInfo(r, isPakbon)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="bijlagevoet">
+                @if (_pakbonGemaakt is null)
+                {
+                    var n = AfhandelKeuzes().Count;
+                    <button class="klein" @onclick="SluitAfhandelen">Annuleren</button>
+                    <button class="primair" disabled="@(n == 0 || _bezig)" @onclick="Afhandelen">
+                        @(_bezig ? "Bezig…" : n == 0 ? "Niets gekozen" : isPakbon ? $"Pakbon maken ({n} regel{(n == 1 ? "" : "s")})" : $"Factuur opstellen ({n} regel{(n == 1 ? "" : "s")})…")
+                    </button>
+                }
+                else
+                {
+                    <button class="primair" @onclick="SluitAfhandelen">Sluiten</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<VerkoopFactuurVenster FactuurId="_factuurId" Voorstel="_factuurVoorstel" ExtraRecht="Ik.MagVerkoop" Bewaard="FactuurBewaard" Sluiten="FactuurDicht" />
+<FactuurVersturenVenster FactuurId="_versturenId" ExtraRecht="Ik.MagVerkoop" Sluiten="VersturenDicht" />
+
 <ArtikelZoekVenster Open="_artZoekOpen" Zoek="" Maakdelen="false" OpGekozen="ArtikelGekozen" OpGesloten="() => _artZoekOpen = false" />
 <OrderbevestigingVenster Order="@(_bevestigOpen ? _order : null)" ContactNaam="@ContactNaam" ContactMail="@ContactMail" OpGesloten="BevestigingDicht" />
 
@@ -602,6 +690,7 @@
     private async Task WisRegel(VerkoopOrderRegel r)
     {
         if (_order is not { } o) return;
+        if (r.HeeftKoppelingen) { Toon("Deze regel is al besteld, geleverd of gefactureerd; zet het aantal goed in plaats van hem te wissen.", true); return; }
         try { await Repo.WisRegelAsync(r.Id); o.Regels.Remove(r); VerversLijstregel(); }
         catch (Exception ex) { Toon("Regel verwijderen mislukt: " + ex.Message, true); }
     }
@@ -779,6 +868,143 @@
         => $"PO-{i.BestellingId} bij {i.Leverancier}: " + (IsBinnen(i) ? "geleverd"
            : i.Status == BestelFlow.WachtOpLevering ? "besteld, wacht op levering" + (i.Geleverd > 0 ? $" ({Getal(i.Geleverd)} binnen)" : "")
            : i.Status == BestelFlow.InBestelling ? "in bestelling (nog naar de leverancier mailen)" : "nog niet besteld");
+
+    // ---------- pakbon en factuur (stap 3) ----------
+    private const string Pakbon = "pakbon", Factuur = "factuur";
+    private string? _afhandel;
+    private Dictionary<int, BestelKeuze> _afKeuze = new();
+    private string? _afFout;
+    private int? _pakbonGemaakt;
+    private int? _factuurId, _versturenId, _nieuweFactuur;
+    private FactuurVoorstel? _factuurVoorstel;
+    private List<VerkoopAfhandeling.FactuurRegel>? _factuurRegels;
+
+    /// <summary>
+    /// Pakbon: regels met nog te leveren; standaard wat binnen is (besteld) of alles (eigen voorraad); regels zonder artikel
+    /// uit. Factuur: regels met nog te factureren; standaard wat geleverd en nog niet gefactureerd is, regels zonder artikel
+    /// volledig.
+    /// </summary>
+    private void OpenAfhandelen(string soort)
+    {
+        if (_order is not { } o) return;
+        _afKeuze = new();
+        foreach (var r in o.Regels)
+        {
+            decimal standaard, max;
+            bool aan;
+            if (soort == Pakbon)
+            {
+                if (r.TeLeveren <= 0) continue;
+                max = r.TeLeveren;
+                standaard = r.Inkoop.Count > 0 ? Math.Min(max, Math.Max(0, r.Binnen - r.Geleverd)) : max;
+                aan = r.Levert && standaard > 0;
+            }
+            else
+            {
+                if (r.TeFactureren <= 0) continue;
+                max = r.TeFactureren;
+                standaard = r.Levert ? Math.Min(max, Math.Max(0, r.Geleverd - r.Gefactureerd)) : max;
+                aan = standaard > 0;
+            }
+            _afKeuze[r.Id] = new BestelKeuze(aan, standaard > 0 ? standaard : max);
+        }
+        _afFout = null;
+        _pakbonGemaakt = null;
+        _afhandel = soort;
+    }
+
+    private void SluitAfhandelen() { if (!_bezig) _afhandel = null; }
+
+    private string AfhandelInfo(VerkoopOrderRegel r, bool pakbon)
+        => pakbon
+            ? (r.Inkoop.Count > 0 ? $"binnen {Getal(r.Binnen)} van {Getal(r.Besteld)}" : r.Levert ? "uit voorraad" : "geen artikel")
+              + (r.Geleverd > 0 ? $", al {Getal(r.Geleverd)} geleverd" : "")
+            : (r.Levert ? $"geleverd {Getal(r.Geleverd)} van {Getal(r.Aantal)}" : "")
+              + (r.Gefactureerd > 0 ? $", al {Getal(r.Gefactureerd)} gefact." : "");
+
+    private List<VerkoopAfhandeling.Keuze> AfhandelKeuzes()
+        => _order?.Regels.Where(r => _afKeuze.TryGetValue(r.Id, out var k) && k.Aan && k.Aantal > 0)
+                         .Select(r => new VerkoopAfhandeling.Keuze(r, _afKeuze[r.Id].Aantal)).ToList() ?? new();
+
+    private async Task Afhandelen()
+    {
+        if (_order is not { } o || _bezig || _afhandel is null) return;
+        var keuzes = AfhandelKeuzes();
+        if (keuzes.Count == 0) return;
+        if (keuzes.Any(k => k.Regel.Code.Length == 0 && k.Regel.Omschrijving.Length == 0))
+        {
+            _afFout = "Een regel zonder code en omschrijving kan niet mee: vul die eerst in, of zet het vinkje uit.";
+            return;
+        }
+        _afFout = null;
+
+        if (_afhandel == Factuur)
+        {
+            // Voorstel voor het gewone factuurvenster; koppelen gebeurt na opslaan (FactuurBewaard).
+            _factuurRegels = keuzes.Select(k => new VerkoopAfhandeling.FactuurRegel(k.Regel, VerkoopAfhandeling.FactuurTekst(k.Regel))).ToList();
+            var regels = keuzes.Select((k, i) => new VerkoopFactuurItem
+            {
+                Volgorde = i + 1, Omschrijving = _factuurRegels[i].Tekst, Aantal = k.Aantal, Stuksprijs = k.Regel.Verkoopprijs ?? 0, Korting = 0,
+                Totaal = Math.Round(k.Aantal * (k.Regel.Verkoopprijs ?? 0), 2),
+            }).ToList();
+            _factuurVoorstel = new FactuurVoorstel(o.BvId, o.KlantId, o.Klant, o.PoKlant,
+                                                   o.Omschrijving.Length > 0 ? o.Omschrijving : $"Verkooporder {o.Ordernummer}", "", 0)
+            { Regels = regels, ProjectId = o.ProjectId, Project = o.Project, Engels = o.Engels, BtwVerlegd = o.BtwVerlegd };
+            _afhandel = null;
+            _factuurId = 0;
+            return;
+        }
+
+        _bezig = true;
+        try
+        {
+            _pakbonGemaakt = await Afhandeling.MaakPakbonAsync(o, keuzes, Ik.WerknemerId);
+        }
+        catch (Exception ex) { _afhandel = null; Toon("Pakbon maken mislukt: " + ex.Message, true); }
+        finally
+        {
+            _bezig = false;
+            await Kies(o.Id);
+            await MisschienAfgerond();
+        }
+    }
+
+    private async Task FactuurBewaard(int factuurId)
+    {
+        if (_order is not { } o || _factuurRegels is null) return;     // alleen een nieuwe factuur vanuit deze order
+        try
+        {
+            var (n, let) = await Afhandeling.KoppelFactuurAsync(factuurId, _factuurRegels, Ik.WerknemerId);
+            Toon($"Factuur gemaakt; {n} regel{(n == 1 ? "" : "s")} gekoppeld aan {o.Ordernummer}." + (let is null ? "" : " " + let), let is not null);
+            _nieuweFactuur = factuurId;
+        }
+        catch (Exception ex) { Toon("De factuur is opgeslagen, maar koppelen aan de order mislukte: " + ex.Message, true); }
+        finally { _factuurRegels = null; }
+    }
+
+    private async Task FactuurDicht(bool _)
+    {
+        _factuurId = null;
+        _factuurVoorstel = null;
+        _factuurRegels = null;
+        if (_order is { } o) await Kies(o.Id);
+        if (_nieuweFactuur is int f) { _nieuweFactuur = null; _versturenId = f; }      // meteen door naar bekijken en versturen
+        await MisschienAfgerond();
+    }
+
+    private async Task VersturenDicht(bool _)
+    {
+        _versturenId = null;
+        if (_order is { } o) await Kies(o.Id);
+    }
+
+    /// <summary>Alles geleverd en gefactureerd: de order op afgerond zetten (alleen vanuit open).</summary>
+    private async Task MisschienAfgerond()
+    {
+        if (_order is not { } o || o.Status != VerkoopOrderStatus.Open || o.Regels.Count == 0 || !o.Regels.All(r => r.Klaar)) return;
+        await ZetKop(x => x.Status = VerkoopOrderStatus.Afgerond);
+        Toon($"{o.Ordernummer} is helemaal geleverd en gefactureerd en staat nu op afgerond.", false);
+    }
 
     // ---------- orderbevestiging ----------
     private async Task BevestigingDicht(bool verstuurd)

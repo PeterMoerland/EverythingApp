@@ -2186,6 +2186,12 @@ html[data-thema="donker"] .vo-po.s-blauw  { background: #16273d; border-color: #
 html[data-thema="donker"] .vo-po.s-oranje { background: #33290f; border-color: #7a6320; color: #ffd9a0; }
 html[data-thema="donker"] .vo-po.s-groen  { background: #1c3222; border-color: #3c7a4c; color: #a5e6b4; }
 html[data-thema="donker"] .vo-open, html[data-thema="donker"] .vo-let { color: #ffd9a0; }
+/* Verkooporders stap 3: pakbon (PS) en factuur (F) in de kolom Voortgang */
+.vo-po.vo-ps { background: #f1ecfa; border-color: #b9a6dd; color: #4b2f80; }
+button.vo-po.vo-fa { background: #eef1f4; border-color: #a9b4c2; color: #2f3b4a; cursor: pointer; font: inherit; font-size: .78rem; line-height: inherit; }
+.vo-stand { margin: .5rem 0 0; }
+html[data-thema="donker"] .vo-po.vo-ps { background: #2a2140; border-color: #5b4a86; color: #d4c6f5; }
+html[data-thema="donker"] button.vo-po.vo-fa { background: #26303c; border-color: #4a5869; color: #d6e2f0; }
 .paneelgreep { flex-shrink: 0; height: 9px; margin: 0 .5rem; cursor: row-resize; touch-action: none; position: relative; }
 .paneelgreep::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2.6rem; height: 3px; margin-left: -1.3rem;
     border-radius: 2px; background: #c3ccd6; }

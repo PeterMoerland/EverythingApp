@@ -269,6 +269,7 @@ if (builder.Configuration.GetValue<bool>("Verkoop:Geheugen"))
         string.IsNullOrWhiteSpace(cs) ? null : new MySqlVerkoopOrderRepository(cs, sp.GetRequiredService<IProjectRepository>())));
 builder.Services.AddSingleton<OrderbevestigingPdfService>();
 builder.Services.AddSingleton<VerkoopBestellen>();
+builder.Services.AddSingleton<VerkoopAfhandeling>();
 // Broodjes (Kaeswienkeltje, /broodjes) lokaal testen zonder de tabellen: Broodjes__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Broodjes:Geheugen"))
     builder.Services.AddSingleton<IBroodjesRepository, GeheugenBroodjesRepository>();

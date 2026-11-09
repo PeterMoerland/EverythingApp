@@ -154,6 +154,9 @@
     /// <summary>True als de factuur verstuurd of opgeslagen is, zodat de lijst ververst.</summary>
     [Parameter] public EventCallback<bool> Sluiten { get; set; }
 
+    /// <summary>Mag versturen ook zonder Financial/Directie (alleen vanuit een verkooporder, recht Verkoop).</summary>
+    [Parameter] public bool ExtraRecht { get; set; }
+
     private const int StoreTypeVerkoopfactuur = 5;     // zoals in Access
 
     private sealed record Pdfbestand(string Naam, byte[] Inhoud);
@@ -184,7 +187,7 @@
     private string? _melding;
     private bool _meldingFout;
 
-    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+    private bool MagInvoeren => ExtraRecht || Ik.Mag("Financial") || Ik.Mag("Directie");
     private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
 
     protected override async Task OnParametersSetAsync()

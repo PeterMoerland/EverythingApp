@@ -19,6 +19,9 @@ public static class VerkoopOrderStatus
 
     /// <summary>FileStore.StoreType van de verstuurde orderbevestiging (MasterID = VerkoopOrderID).</summary>
     public const int StoreTypeBevestiging = 350;
+
+    /// <summary>VerkoopOrderKoppelingen.Soort: bestelregel (Orderitems), pakbonregel (PakbonItem), factuurregel (InvoiceHours).</summary>
+    public const string SoortInkoop = "inkoop", SoortPakbon = "pakbon", SoortFactuur = "factuur";
 }
 
 public class VerkoopOrder
@@ -33,6 +36,10 @@ public class VerkoopOrder
     public int? WerkorderId { get; set; }
     /// <summary>Bv. 226041-01, met de omschrijving van het project.</summary>
     public string Werkorder { get; set; } = "";
+    /// <summary>Het project van de werkorder ("Verkoop jjjj" van de klant), voor de factuur.</summary>
+    public int? ProjectId { get; set; }
+    /// <summary>"226095 · Verkoop 2026", zoals het projectveld op de factuur.</summary>
+    public string Project { get; set; } = "";
     public string PoKlant { get; set; } = "";
     public string Omschrijving { get; set; } = "";
     public DateOnly? Leverdatum { get; set; }
@@ -71,12 +78,34 @@ public class VerkoopOrderRegel
 
     /// <summary>Bestellingen bij de leverancier voor deze regel (stap 2), zonder geannuleerde of gewiste.</summary>
     public List<VerkoopInkoop> Inkoop { get; set; } = new();
+    /// <summary>Pakbonregels voor deze regel (stap 3), zonder gewiste pakbonnen.</summary>
+    public List<VerkoopKoppeling> Leveringen { get; set; } = new();
+    /// <summary>Factuurregels voor deze regel (stap 3), zolang de factuur bestaat.</summary>
+    public List<VerkoopKoppeling> Facturen { get; set; } = new();
 
     public decimal Totaal => Math.Round(Aantal * (Verkoopprijs ?? 0), 2);
     public decimal Besteld => Inkoop.Sum(i => i.Aantal);
     /// <summary>Nog te bestellen (nooit negatief).</summary>
     public decimal TeBestellen => Math.Max(0, Aantal - Besteld);
+    /// <summary>Wat de leverancier(s) al bij MDE geleverd hebben.</summary>
+    public decimal Binnen => Inkoop.Sum(i => Math.Min(i.Geleverd, i.Aantal));
+    public decimal Geleverd => Leveringen.Sum(l => l.Aantal);
+    public decimal TeLeveren => Math.Max(0, Aantal - Geleverd);
+    public decimal Gefactureerd => Facturen.Sum(f => f.Aantal);
+    /// <summary>Wat nog gefactureerd kan worden (tot het orderaantal).</summary>
+    public decimal TeFactureren => Math.Max(0, Aantal - Gefactureerd);
+    /// <summary>Een regel zonder artikel (bv. verzendkosten) gaat niet over een pakbon.</summary>
+    public bool Levert => ArtikelId is not null;
+    public bool HeeftKoppelingen => Inkoop.Count + Leveringen.Count + Facturen.Count > 0;
+    /// <summary>Alles geleverd (of niets te leveren) en alles gefactureerd.</summary>
+    public bool Klaar => (!Levert || Geleverd >= Aantal) && Gefactureerd >= Aantal;
 }
+
+/// <summary>
+/// Een pakbonregel of factuurregel bij een verkooporderregel (VerkoopOrderKoppelingen, Soort "pakbon" of "factuur").
+/// KopId = PakbonID of Invoice-id, Nummer = "PS-1705" of het factuurnummer; Aantal = wat nu op die regel staat.
+/// </summary>
+public record VerkoopKoppeling(int KoppelingId, int RegelId, string Soort, int DoelId, int KopId, string Nummer, decimal Aantal);
 
 /// <summary>
 /// Een bestelregel (Orderitems) die voor een verkooporderregel besteld is, via VerkoopOrderKoppelingen (Soort "inkoop").
@@ -112,8 +141,11 @@ public interface IVerkoopOrderRepository
 
     Task ZetBevestigdAsync(int id, string aan, int? door);
 
-    /// <summary>Een bestelregel (Orderitems) aan een verkooporderregel koppelen (stap 2: bestellen bij de leverancier).</summary>
-    Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door);
+    /// <summary>
+    /// Een bestelregel, pakbonregel of factuurregel aan een verkooporderregel koppelen (VerkoopOrderStatus.Soort*).
+    /// <paramref name="kopId"/> en <paramref name="nummer"/> gebruikt alleen de geheugenversie (de database zoekt ze op).
+    /// </summary>
+    Task KoppelAsync(int regelId, string soort, int doelId, decimal aantal, int? door, int kopId = 0, string nummer = "");
 
     /// <summary>Het gewone adres van de klant voor de orderbevestiging (niet het factuuradres).</summary>
     Task<FactuurAdres> KlantAdresAsync(int klantId);
@@ -132,7 +164,8 @@ public class GeenVerkoopOrderRepository : IVerkoopOrderRepository
     public Task WisRegelAsync(int regelId) => Task.CompletedTask;
     public Task<string?> WisAsync(int id) => Task.FromResult<string?>("Er is geen database.");
     public Task ZetBevestigdAsync(int id, string aan, int? door) => Task.CompletedTask;
-    public Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door) => throw new InvalidOperationException("Er is geen database.");
+    public Task KoppelAsync(int regelId, string soort, int doelId, decimal aantal, int? door, int kopId = 0, string nummer = "")
+        => throw new InvalidOperationException("Er is geen database.");
     public Task<FactuurAdres> KlantAdresAsync(int klantId) => Task.FromResult(new FactuurAdres());
     public Task<FactuurAfzender> AfzenderAsync(int bvId) => Task.FromResult(new FactuurAfzender());
 }
@@ -172,13 +205,13 @@ public class GeheugenVerkoopOrderRepository : IVerkoopOrderRepository
             BvId = o.BvId, WerkorderId = o.WerkorderId, Werkorder = o.Werkorder, PoKlant = o.PoKlant, Omschrijving = o.Omschrijving,
             Leverdatum = o.Leverdatum, Engels = o.Engels, BtwVerlegd = o.BtwVerlegd, Status = o.Status, Opmerking = o.Opmerking,
             AangemaaktOp = o.AangemaaktOp, AangemaaktDoor = o.AangemaaktDoor, BevestigdOp = o.BevestigdOp,
-            BevestigdDoor = o.BevestigdDoor, BevestigdAan = o.BevestigdAan,
+            BevestigdDoor = o.BevestigdDoor, BevestigdAan = o.BevestigdAan, ProjectId = o.ProjectId, Project = o.Project,
         };
         k.Regels = o.Regels.OrderBy(r => r.Volgorde).ThenBy(r => r.Id).Select(r => new VerkoopOrderRegel
         {
             Id = r.Id, OrderId = r.OrderId, Volgorde = r.Volgorde, ArtikelId = r.ArtikelId, Code = r.Code, Omschrijving = r.Omschrijving,
             Aantal = r.Aantal, Inkoopprijs = r.Inkoopprijs, Verkoopprijs = r.Verkoopprijs, LeverancierId = r.LeverancierId, Leverancier = r.Leverancier,
-            Inkoop = r.Inkoop.ToList(),
+            Inkoop = r.Inkoop.ToList(), Leveringen = r.Leveringen.ToList(), Facturen = r.Facturen.ToList(),
         }).ToList();
         return k;
     }
@@ -245,12 +278,18 @@ public class GeheugenVerkoopOrderRepository : IVerkoopOrderRepository
         return Task.CompletedTask;
     }
 
-    public Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door)
+    public Task KoppelAsync(int regelId, string soort, int doelId, decimal aantal, int? door, int kopId = 0, string nummer = "")
     {
         foreach (var o in _orders.Values)
             lock (o)
                 if (o.Regels.FirstOrDefault(r => r.Id == regelId) is { } r)
-                    r.Inkoop.Add(new VerkoopInkoop(r.Inkoop.Count + 1, regelId, orderitemId, 0, 3, r.Leverancier, aantal, 0));
+                {
+                    var k = new VerkoopKoppeling(r.Inkoop.Count + r.Leveringen.Count + r.Facturen.Count + 1, regelId, soort, doelId, kopId, nummer, aantal);
+                    if (soort == VerkoopOrderStatus.SoortInkoop)
+                        r.Inkoop.Add(new VerkoopInkoop(k.KoppelingId, regelId, doelId, kopId, 3, r.Leverancier, aantal, 0));
+                    else if (soort == VerkoopOrderStatus.SoortPakbon) r.Leveringen.Add(k);
+                    else r.Facturen.Add(k);
+                }
         return Task.CompletedTask;
     }
 
@@ -309,7 +348,8 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
         "       CASE WHEN w.`Werkbon-id` IS NULL THEN '' ELSE CONCAT(COALESCE(p.`Projectnumber`, ''), '-', LPAD(COALESCE(w.`Werkbonnummer`, 0), 2, '0')) END, " +
         "       COALESCE(o.`PoKlant`, ''), COALESCE(o.`Omschrijving`, ''), o.`Leverdatum`, o.`Engels`, o.`BtwVerlegd`, o.`Status`, " +
         "       COALESCE(o.`Opmerking`, ''), o.`AangemaaktOp`, COALESCE(a.`NaamVoluit`, ''), o.`BevestigdOp`, COALESCE(b.`NaamVoluit`, ''), " +
-        "       COALESCE(o.`BevestigdAan`, '') " +
+        "       COALESCE(o.`BevestigdAan`, ''), p.`Project-Id`, " +
+        "       CONCAT_WS(' · ', NULLIF(TRIM(p.`Projectnumber`), ''), NULLIF(TRIM(p.`Projectdescription`), '')) " +
         "  FROM `VerkoopOrders` o " +
         "  LEFT JOIN `Relations` k ON k.`id_supplier` = o.`KlantID` " +
         "  LEFT JOIN `Workorders` w ON w.`Werkbon-id` = o.`WerkorderID` " +
@@ -324,6 +364,7 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
         Leverdatum = r.IsDBNull(10) ? null : DateOnly.FromDateTime(r.GetDateTime(10)), Engels = B(r, 11), BtwVerlegd = B(r, 12),
         Status = S(r, 13), Opmerking = S(r, 14), AangemaaktOp = r.GetDateTime(15), AangemaaktDoor = S(r, 16),
         BevestigdOp = r.IsDBNull(17) ? null : r.GetDateTime(17), BevestigdDoor = S(r, 18), BevestigdAan = S(r, 19),
+        ProjectId = IN(r, 20), Project = S(r, 21),
     };
 
     public async Task<List<VerkoopOrder>> LijstAsync(VerkoopOrderFilter filter, int max = 300)
@@ -414,6 +455,36 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
                                                            S(r, 5), DN(r, 6) ?? 0, DN(r, 7) ?? 0));
             }
             catch (MySqlException) { /* koppeltabel ontbreekt nog: geen inkoop tonen */ }
+
+            // Leveringen (pakbonregels, pakbon niet gewist) en facturen (factuurregels die nog bestaan).
+            try
+            {
+                await using var cmd = new MySqlCommand(
+                    "SELECT k.`KoppelingID`, k.`RegelID`, k.`Soort`, k.`DoelID`, pi.`PakbonID`, CONCAT('PS-', pi.`PakbonID`), COALESCE(pi.`Aantal`, 0) " +
+                    "  FROM `VerkoopOrderKoppelingen` k " +
+                    "  JOIN `VerkoopOrderRegels` g ON g.`RegelID` = k.`RegelID` " +
+                    "  JOIN `PakbonItem` pi ON pi.`PakbonItemID` = k.`DoelID` " +
+                    "  JOIN `Pakbonnen` pb ON pb.`PakbonID` = pi.`PakbonID` AND COALESCE(pb.`Deleted`, 0) = 0 " +
+                    " WHERE g.`VerkoopOrderID` = @id AND k.`Soort` = 'pakbon' " +
+                    "UNION ALL " +
+                    "SELECT k.`KoppelingID`, k.`RegelID`, k.`Soort`, k.`DoelID`, h.`InvoiceID`, COALESCE(f.`Invoicenumber`, ''), COALESCE(h.`Quantity`, 0) " +
+                    "  FROM `VerkoopOrderKoppelingen` k " +
+                    "  JOIN `VerkoopOrderRegels` g ON g.`RegelID` = k.`RegelID` " +
+                    "  JOIN `InvoiceHours` h ON h.`InvoiceHoursID` = k.`DoelID` " +
+                    "  JOIN `Invoices` f ON f.`Invoice-id` = h.`InvoiceID` " +
+                    " WHERE g.`VerkoopOrderID` = @id AND k.`Soort` = 'factuur' " +
+                    "ORDER BY 1", cn);
+                cmd.Parameters.AddWithValue("@id", id);
+                var perRegel = o.Regels.ToDictionary(x => x.Id);
+                await using var r = await cmd.ExecuteReaderAsync();
+                while (await r.ReadAsync())
+                {
+                    if (!perRegel.TryGetValue(r.GetInt32(1), out var regel)) continue;
+                    var k = new VerkoopKoppeling(r.GetInt32(0), regel.Id, S(r, 2), r.GetInt32(3), r.GetInt32(4), S(r, 5), DN(r, 6) ?? 0);
+                    (k.Soort == VerkoopOrderStatus.SoortPakbon ? regel.Leveringen : regel.Facturen).Add(k);
+                }
+            }
+            catch (MySqlException) { }
         }
 
         if (o.ContactId is int c)
@@ -580,14 +651,15 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task KoppelInkoopAsync(int regelId, int orderitemId, decimal aantal, int? door)
+    public async Task KoppelAsync(int regelId, string soort, int doelId, decimal aantal, int? door, int kopId = 0, string nummer = "")
     {
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "INSERT INTO `VerkoopOrderKoppelingen` (`RegelID`, `Soort`, `DoelID`, `Aantal`, `Op`, `Door`) " +
-            "VALUES (@regel, 'inkoop', @doel, @aantal, NOW(), @door)", cn);
+            "VALUES (@regel, @soort, @doel, @aantal, NOW(), @door)", cn);
         cmd.Parameters.AddWithValue("@regel", regelId);
-        cmd.Parameters.AddWithValue("@doel", orderitemId);
+        cmd.Parameters.AddWithValue("@soort", soort);
+        cmd.Parameters.AddWithValue("@doel", doelId);
         cmd.Parameters.AddWithValue("@aantal", aantal);
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();

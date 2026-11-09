@@ -480,6 +480,12 @@
     /// <summary>Na opslaan: het id van de factuur (vóór Sluiten), zodat de aanroeper hem kan koppelen.</summary>
     [Parameter] public EventCallback<int> Bewaard { get; set; }
 
+    /// <summary>
+    /// Mag invoeren ook zonder Financial/Directie. Alleen vanuit een verkooporder (recht Verkoop, besluit gebruiker
+    /// 9-11-2026): de factuur bij die order maken en aanpassen; de rest van Uitgaande facturen blijft afgeschermd.
+    /// </summary>
+    [Parameter] public bool ExtraRecht { get; set; }
+
     /// <summary>Access stond op AUTO als je niets anders koos; dat blijft de standaard.</summary>
     private const int StandaardBv = 5254;
 
@@ -497,7 +503,7 @@
     private bool Vast => _wasVerstuurd && _f.Verstuurd;
 
     /// <summary>Zelfde rechten als in de lijst; zonder mag je kijken maar niet opslaan.</summary>
-    private bool MagInvoeren => Ik.Mag("Financial") || Ik.Mag("Directie");
+    private bool MagInvoeren => ExtraRecht || Ik.Mag("Financial") || Ik.Mag("Directie");
 
     private string _zoalsGeopend = "";
 
@@ -666,6 +672,7 @@
                     if (v.BvId is int vbv && _administraties.Any(a => a.Id == vbv)) _f.AdministratieId = vbv;
                     _f.PoKlant = v.PoKlant;
                     _f.Omschrijving = v.Omschrijving;
+                    if (v.ProjectId is not null) { _f.ProjectId = v.ProjectId; _f.Project = v.Project; }
                     if (v.Regels is { Count: > 0 } vr) _f.Regels.AddRange(vr);
                     else if (v.Regel.Length > 0 || v.Bedrag != 0)
                         _f.Regels.Add(new VerkoopFactuurItem
@@ -676,6 +683,8 @@
                 if (_f.AdministratieId is int bv) _f.Factuurnummer = await Repo.VolgendNummerAsync(bv);
                 _klantZoekOpen = true;
                 if (Voorstel is { KlantId: int vk } vs) await KiesKlant(new Keuze(vk, vs.Klant));
+                if (Voorstel?.Engels is bool en) _f.Engels = en;
+                if (Voorstel?.BtwVerlegd is bool verlegd) _f.BtwVerlegd = verlegd;
             }
             else
             {
