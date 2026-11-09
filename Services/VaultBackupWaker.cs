@@ -27,6 +27,10 @@ public sealed record VaultBackupStand(
 ///   Bewaren  — hoeveel backups er blijven staan (standaard 2).
 ///   KlaarOm  — hoe laat de backup van vandaag er uiterlijk moet zijn
 ///              (standaard 07:00); vóór die tijd wordt er niet gemopperd.
+///   Dagen    — op welke avonden de backup start (de taakplanner op de server),
+///              standaard "ma,di,wo,do,vr": geen backup in de nacht van zaterdag en
+///              zondag, dus op maandag geen melding als die van vrijdagnacht er is
+///              (wens gebruiker 9-11-2026). Ook Engels kan (mon,tue,...).
 /// </summary>
 public sealed class VaultBackupWaker : BackgroundService
 {
@@ -52,6 +56,49 @@ public sealed class VaultBackupWaker : BackgroundService
         ? t : new TimeSpan(7, 0, 0);
 
     public bool Beschikbaar => Pad.Length > 0;
+
+    /// <summary>De avonden waarop de backup start (VaultBackup:Dagen); leeg of onleesbaar = maandag t/m vrijdag.</summary>
+    private HashSet<DayOfWeek> Dagen
+    {
+        get
+        {
+            var dagen = new HashSet<DayOfWeek>();
+            foreach (var deel in (_config["VaultBackup:Dagen"] ?? "").Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var d = deel.Trim().ToLowerInvariant();
+                DayOfWeek? dag = d.Length < 2 ? null : d[..2] switch
+                {
+                    "ma" or "mo" => DayOfWeek.Monday,
+                    "di" or "tu" => DayOfWeek.Tuesday,
+                    "wo" or "we" => DayOfWeek.Wednesday,
+                    "do" or "th" => DayOfWeek.Thursday,
+                    "vr" or "fr" => DayOfWeek.Friday,
+                    "za" or "sa" => DayOfWeek.Saturday,
+                    "zo" or "su" => DayOfWeek.Sunday,
+                    _ => null,
+                };
+                if (dag is DayOfWeek x) dagen.Add(x);
+            }
+            return dagen.Count > 0 ? dagen
+                : new HashSet<DayOfWeek> { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
+        }
+    }
+
+    /// <summary>
+    /// De avond van de laatste backup die er nu al moet zijn: de meest recente backupavond waarvan de volgende ochtend
+    /// KlaarOm al voorbij is. Op maandagochtend is dat vrijdag (de nacht van vrijdag op zaterdag).
+    /// </summary>
+    public static DateTime VerwachteAvond(DateTime nu, IReadOnlySet<DayOfWeek> dagen, TimeSpan klaarOm)
+    {
+        for (var i = 0; i < 8; i++)
+        {
+            var avond = nu.Date.AddDays(-i);
+            if (dagen.Contains(avond.DayOfWeek) && avond.AddDays(1).Add(klaarOm) <= nu) return avond;
+        }
+        return nu.Date.AddDays(-7);
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
@@ -120,12 +167,12 @@ public sealed class VaultBackupWaker : BackgroundService
             var grootGenoeg = backups.Count < 2
                 || nieuwste.GrootteB >= backups[1].GrootteB * 0.5;
 
-            var oud = DateTime.Now - nieuwste.Moment > TimeSpan.FromHours(26);
-            var naDeadline = DateTime.Now.TimeOfDay > KlaarOm;
-
-            if (oud && naDeadline)
+            // Ontbreekt de backup van de laatste backupavond? De backup start rond middernacht; alles van na het middaguur
+            // van die avond telt (een backup die iets eerder of later start, valt er ook onder).
+            var avond = VerwachteAvond(DateTime.Now, Dagen, KlaarOm);
+            if (nieuwste.Moment < avond.AddHours(12))
                 probleem = $"De nieuwste Vault-backup is van {nieuwste.Moment:dd-MM HH:mm} — "
-                         + "vannacht is er dus géén gemaakt.";
+                         + $"die van {avond.ToString("dddd d-M", Nl)} (de nacht naar {avond.AddDays(1).ToString("dddd", Nl)}) is er dus niet.";
             else if (inRust && !grootGenoeg)
                 probleem = $"De nieuwste Vault-backup ({nieuwste.Moment:dd-MM HH:mm}) is "
                          + $"opvallend klein ({Gb(nieuwste.GrootteB):0.0} GB tegen "
