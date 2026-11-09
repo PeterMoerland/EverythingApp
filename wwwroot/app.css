@@ -2186,6 +2186,34 @@ html[data-thema="donker"] .vo-po.s-blauw  { background: #16273d; border-color: #
 html[data-thema="donker"] .vo-po.s-oranje { background: #33290f; border-color: #7a6320; color: #ffd9a0; }
 html[data-thema="donker"] .vo-po.s-groen  { background: #1c3222; border-color: #3c7a4c; color: #a5e6b4; }
 html[data-thema="donker"] .vo-open, html[data-thema="donker"] .vo-let { color: #ffd9a0; }
+/* BV-structuur (Financiën): boom in lagen, kaart per BV */
+.bvs-boom { display: flex; flex-direction: column; gap: .9rem; margin-bottom: 1rem; }
+.bvs-laag { display: flex; flex-wrap: wrap; justify-content: center; gap: .8rem; position: relative; }
+.bvs-laag + .bvs-laag::before { content: "↓"; position: absolute; top: -.95rem; left: 50%; color: #8a96a6; font-size: .8rem; }
+.bvs-laag.los { justify-content: flex-start; }
+.bvs-kaart { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; min-width: 12rem; max-width: 18rem; padding: .5rem .7rem;
+             border: 1px solid #c9d3df; border-radius: 6px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.bvs-kaart.mde { border-left: 4px solid #1f5fa8; }
+.bvs-kaart.actief { outline: 2px solid #1f5fa8; outline-offset: 1px; }
+.bvs-kaart.opgeheven { opacity: .6; border-style: dashed; }
+.bvs-naam { font-weight: 600; }
+.bvs-sub { font-size: .78rem; color: #5b6878; }
+.bvs-houder { font-size: .78rem; color: #274e7d; }
+.bvs-detail { border-top: 1px solid #dde3ea; padding-top: .8rem; }
+.bvs-feiten { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; margin: .3rem 0 .6rem; font-size: .9rem; }
+.bvs-feiten b { color: #5b6878; font-weight: 500; margin-right: .25rem; }
+.bvs-opgeheven { max-width: 22rem; }
+.bvs-tabel { width: 100%; max-width: 60rem; }
+.bvs-tabel input, .bvs-tabel select { width: 100%; box-sizing: border-box; }
+.bvs-nieuw { display: flex; gap: .4rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+.bvs-deel { margin: .3rem 0; padding-left: 1.2rem; line-height: 1.7; }
+.bvs-link { all: unset; cursor: pointer; color: #1f5fa8; text-decoration: underline; }
+html[data-thema="donker"] .bvs-kaart { background: #1d2a3a; border-color: #34465c; }
+html[data-thema="donker"] .bvs-kaart.mde { border-left-color: #6aa7ef; }
+html[data-thema="donker"] .bvs-kaart.actief { outline-color: #6aa7ef; }
+html[data-thema="donker"] .bvs-sub, html[data-thema="donker"] .bvs-feiten b { color: #9fb0c4; }
+html[data-thema="donker"] .bvs-houder, html[data-thema="donker"] .bvs-link { color: #9ec4f5; }
+html[data-thema="donker"] .bvs-detail { border-top-color: #34465c; }
 /* Verkooporders stap 3: pakbon (PS) en factuur (F) in de kolom Voortgang */
 .vo-po.vo-ps { background: #f1ecfa; border-color: #b9a6dd; color: #4b2f80; }
 button.vo-po.vo-fa { background: #eef1f4; border-color: #a9b4c2; color: #2f3b4a; cursor: pointer; font: inherit; font-size: .78rem; line-height: inherit; }

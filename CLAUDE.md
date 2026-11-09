@@ -239,6 +239,29 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## BV-structuur en meerdere BV's (9-11-2026)
+
+Aanleiding: M-Pede Robotics wordt een aparte BV naast MDE Automation; uren en materialen worden over en weer gefactureerd.
+Eerst de structuur (script **`BvStructuur_MariaDB.sql`, zelf draaien**): `Relations.Opgeheven` (datum) en tabel
+`BvAandeelhouders` (BV, aandeelhouder, percentage, vanaf/tot). Gewenste structuur volgens de gebruiker: Moerland
+Engineering en Denissen Engineering elk 50 % in MDE Vastgoed; MDE Vastgoed 90 % en F.M. Moerland Holding 10 % in MDE
+Holding; MDE Holding in MDE Patenten; MDE Patenten in MDE Automation en M-Pede Robotics. MDE Robotics (5645) en MDE
+Products (5646) vervallen. MDE Vastgoed, MDE Patenten en M-Pede Robotics bestonden op 9-11-2026 nog niet als relatie.
+- **Vinkjes** (kolommen ongewijzigd, nu in Relaties > tab BV): `Werkmaatschappij` = eigen BV die factureert (BV-keuzes bij
+  facturen, projecten, PO klant, bankrekeningen); `MDEBV` = hoort bij de MDE-groep (Liquiditeit, Betalingen klaarzetten;
+  samen met Werkmaatschappij = "intern" bij Vragen aan AI).
+- **Opgeheven**: de BV blijft bij oude facturen/projecten staan; in de keuzelijsten "(opgeheven)" achteraan
+  (`BvOpgeheven` in `Services/IBvStructuurRepository.cs`, werkt ook zonder de kolom), niet bij "facturerende BV's" voor
+  een nieuwe factuur, en telt niet meer standaard mee in Liquiditeit.
+- **Financiën > BV-structuur** (`Components/Pages/BvStructuur.razor`, Financial/Directie): boom in lagen met percentages,
+  per BV KvK, btw, werknemers (WerkzaamBij), rekeningen, facturen; aandeelhouders toevoegen/wijzigen (geen kring:
+  niet zichzelf of iets wat hij bezit), opgeheven per, en documenten (filestore StoreType 311 = dezelfde als
+  Relaties > Documenten: toevoegen, bekijken, downloaden, verwijderen). Lokaal: `BvStructuur__Geheugen=true`.
+- **Relaties**: veld Naam bovenaan tab Adres (melding gebruiker: bij een nieuwe relatie kon je geen naam ingeven; "name"
+  stond bij de verborgen kolommen). Lege naam wordt geweigerd; de lijst links ververst. Datumvelden als datumkiezer.
+- **Nog niet** (volgende stappen): welke BV een inkooporder doet (Orders heeft geen BV-kolom), inkomende facturen per
+  eigen BV, en het doorfactureren van uren en materialen tussen BV's.
+
 ## Uitgaande facturen: deelbetalingen (FactuurBetalingen, 5-11-2026)
 
 Wens collega: een factuur deels betaald melden (Viscon betaalt 90%, houdt 10% in); onbetaald laten staan maakte

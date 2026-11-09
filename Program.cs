@@ -127,6 +127,11 @@ if (liveDb)
     builder.Services.AddSingleton<IProductRepository>(_ => new MySqlProductRepository(cs!,
         builder.Configuration.GetValue<int?>("Productie:StandaardKlantId")));
     builder.Services.AddSingleton<IBestelRepository>(_ => new MySqlBestelRepository(cs!));
+    // BV-structuur (Financiën > BV-structuur); lokaal testen zonder het script: BvStructuur__Geheugen=true (leest de BV's echt)
+    if (builder.Configuration.GetValue<bool>("BvStructuur:Geheugen"))
+        builder.Services.AddSingleton<IBvStructuurRepository>(_ => new GeheugenBvStructuurRepository(new MySqlBvStructuurRepository(cs!)));
+    else
+        builder.Services.AddSingleton<IBvStructuurRepository>(_ => new MySqlBvStructuurRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
@@ -191,6 +196,7 @@ else
     builder.Services.AddSingleton<INdaRepository, GeenNdaRepository>();
     builder.Services.AddSingleton<IProductRepository, GeenProductRepository>();
     builder.Services.AddSingleton<IBestelRepository, GeenBestelRepository>();
+    builder.Services.AddSingleton<IBvStructuurRepository, GeenBvStructuurRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();

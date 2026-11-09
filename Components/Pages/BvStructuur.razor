@@ -1,0 +1,427 @@
+@page "/financien/bv-structuur"
+@inject IBvStructuurRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject IRelatieRepository Relaties
+@inject FilestoreService Store
+
+@* BV-structuur (wens gebruiker 9-11-2026): de eigen BV's met hun aandeelhouders, als boom in lagen (bovenaan wie
+   geen aandeelhouders heeft, daaronder wat ze bezitten). Klik een BV voor de gegevens, de aandeelhouders (toevoegen,
+   percentage, vanaf/tot), "opgeheven per" en documenten (statuten, KvK-uittreksel...: filestore StoreType 311, dezelfde
+   als Relaties > Documenten). De vinkjes zelf staan in Relaties > tab BV.
+   Tabellen: Relations (Werkmaatschappij, MDEBV, Opgeheven) en BvAandeelhouders (BvStructuur_MariaDB.sql). *@
+
+<PageTitle>BV-structuur — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>BV-structuur</h1>
+        <span class="weeklabel">@_bvs.Count(b => !b.IsOpgeheven) BV's@(_bvs.Any(b => b.IsOpgeheven) ? $" · {_bvs.Count(b => b.IsOpgeheven)} opgeheven" : "")</span>
+    </header>
+
+    @if (!(Ik.Mag("Financial") || Ik.Mag("Directie")))
+    {
+        <section class="module-placeholder"><p>Dit overzicht is voor Financial en Directie.</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!_laden && !_tabel)
+        {
+            <div class="melding fout">De tabel voor aandeelhouders ontbreekt nog: voer BvStructuur_MariaDB.sql uit. Tot dan alleen de BV's zelf.</div>
+        }
+
+        <div class="bvs-boom">
+            @if (_laden)
+            {
+                <div class="kiezer-info">Laden…</div>
+            }
+            @foreach (var laag in _lagen)
+            {
+                <div class="bvs-laag">
+                    @foreach (var b in laag)
+                    {
+                        <button class="bvs-kaart @(b.Id == _gekozen?.Id ? "actief" : "") @(b.MdeGroep ? "mde" : "")" @onclick="() => Kies(b)">
+                            <span class="bvs-naam">@b.Naam</span>
+                            <span class="bvs-sub">@b.Kort@(b.Werkmaatschappij ? " · factureert" : "")@(b.MdeGroep ? " · MDE-groep" : "")</span>
+                            @foreach (var a in Houders(b.Id))
+                            {
+                                <span class="bvs-houder">↑ @Pct(a.Percentage) @Naam(a.AandeelhouderId)</span>
+                            }
+                        </button>
+                    }
+                </div>
+            }
+            @if (_los.Count > 0)
+            {
+                <h3 class="wn-kop">Zonder aandeelhouders of deelnemingen</h3>
+                <div class="bvs-laag los">
+                    @foreach (var b in _los)
+                    {
+                        <button class="bvs-kaart @(b.Id == _gekozen?.Id ? "actief" : "")" @onclick="() => Kies(b)">
+                            <span class="bvs-naam">@b.Naam</span>
+                            <span class="bvs-sub">@b.Kort@(b.Werkmaatschappij ? " · factureert" : "")@(b.MdeGroep ? " · MDE-groep" : "")</span>
+                        </button>
+                    }
+                </div>
+            }
+            @if (_bvs.Any(b => b.IsOpgeheven))
+            {
+                <h3 class="wn-kop">Opgeheven</h3>
+                <div class="bvs-laag los">
+                    @foreach (var b in _bvs.Where(b => b.IsOpgeheven))
+                    {
+                        <button class="bvs-kaart opgeheven @(b.Id == _gekozen?.Id ? "actief" : "")" @onclick="() => Kies(b)">
+                            <span class="bvs-naam">@b.Naam</span>
+                            <span class="bvs-sub">@b.Kort · opgeheven per @b.Opgeheven?.ToString("dd-MM-yyyy")</span>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_gekozen is { } g)
+        {
+            <section class="bvs-detail">
+                <div class="pb-titel">
+                    <h2>@g.Naam</h2>
+                    <span class="pb-vulling"></span>
+                    <a href="/relaties?id=@g.Id">Openen in Relaties ↗</a>
+                </div>
+                <div class="bvs-feiten">
+                    <span><b>Afkorting</b> @(g.Afkorting.Length > 0 ? g.Afkorting : "—")</span>
+                    <span><b>KvK</b> @(g.KvK.Length > 0 ? g.KvK : "—")</span>
+                    <span><b>Btw</b> @(g.Btw.Length > 0 ? g.Btw : "—")</span>
+                    <span><b>Eigen BV</b> @(g.Werkmaatschappij ? "ja" : "nee")</span>
+                    <span><b>MDE-groep</b> @(g.MdeGroep ? "ja" : "nee")</span>
+                    <span><b>Werknemers</b> @g.Werknemers</span>
+                    <span><b>Bankrekeningen</b> @g.Rekeningen</span>
+                    <span><b>Facturen</b> @g.Facturen@(g.LaatsteFactuur is DateTime lf ? $" (laatste {lf:dd-MM-yyyy})" : "")</span>
+                </div>
+                <div class="wn-velden bvs-opgeheven">
+                    <div class="wn-veld">
+                        <label>Opgeheven per</label>
+                        <input type="date" value="@(g.Opgeheven?.ToString("yyyy-MM-dd") ?? "")" disabled="@(!_tabel || !MagBeheren)"
+                               @onchange="e => ZetOpgeheven(g, DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" />
+                    </div>
+                </div>
+
+                <h3 class="wn-kop">Aandeelhouders</h3>
+                @{ var houders = _aandelen.Where(a => a.BvId == g.Id).ToList(); var som = houders.Where(a => a.Actueel).Sum(a => a.Percentage); }
+                <table class="kiezer-tabel bvs-tabel">
+                    <thead>
+                        <tr>
+                            <th>Aandeelhouder</th>
+                            <th style="width:6rem" class="r">%</th>
+                            <th style="width:9rem">Vanaf</th>
+                            <th style="width:9rem">Tot</th>
+                            <th>Opmerking</th>
+                            <th style="width:2.4rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in houders)
+                        {
+                            <tr @key="a.Id" class="@(a.Actueel ? "" : "vo-uit")">
+                                <td>
+                                    <select value="@a.AandeelhouderId" disabled="@(!MagBeheren)" @onchange="e => ZetAandeel(a, x => x.AandeelhouderId = int.TryParse((string?)e.Value, out var v) ? v : x.AandeelhouderId)">
+                                        @foreach (var b in KeuzeHouders(g.Id, a.AandeelhouderId))
+                                        {
+                                            <option value="@b.Id">@b.Naam</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td><input class="r" value="@a.Percentage.ToString("0.###", Nl)" disabled="@(!MagBeheren)" @onchange="e => ZetAandeel(a, x => x.Percentage = Getal(e) ?? x.Percentage)" /></td>
+                                <td><input type="date" value="@(a.Vanaf?.ToString("yyyy-MM-dd") ?? "")" disabled="@(!MagBeheren)" @onchange="e => ZetAandeel(a, x => x.Vanaf = DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" /></td>
+                                <td><input type="date" value="@(a.Tot?.ToString("yyyy-MM-dd") ?? "")" disabled="@(!MagBeheren)" @onchange="e => ZetAandeel(a, x => x.Tot = DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" /></td>
+                                <td><input value="@a.Opmerking" maxlength="300" disabled="@(!MagBeheren)" @onchange="e => ZetAandeel(a, x => x.Opmerking = ((string?)e.Value ?? string.Empty).Trim())" /></td>
+                                <td class="c">
+                                    @if (MagBeheren)
+                                    {
+                                        <button class="klein rood" title="Regel wissen (een tikfout); bij een verkoop liever een Tot-datum invullen" @onclick="() => WisAandeel(a)">✕</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (houders.Count == 0)
+                        {
+                            <tr><td colspan="6" class="kiezer-info">Geen aandeelhouders vastgelegd@(g.Werkmaatschappij && !g.MdeGroep ? " (een holding van een aandeelhouder staat bovenaan)" : "").</td></tr>
+                        }
+                    </tbody>
+                </table>
+                @if (houders.Any(a => a.Actueel) && som != 100)
+                {
+                    <p class="vo-let">⚠ De aandeelhouders hebben samen @Pct(som), niet 100 %.</p>
+                }
+                @if (MagBeheren && _tabel)
+                {
+                    <div class="bvs-nieuw">
+                        <select value="@(_nieuwHouder?.ToString() ?? "")" @onchange="e => _nieuwHouder = int.TryParse((string?)e.Value, out var v) ? v : null">
+                            <option value="">Aandeelhouder kiezen…</option>
+                            @foreach (var b in KeuzeHouders(g.Id, null))
+                            {
+                                <option value="@b.Id">@b.Naam</option>
+                            }
+                        </select>
+                        <input class="r" style="width:6rem" placeholder="%" value="@(_nieuwPct?.ToString("0.###") ?? "")" @onchange="e => _nieuwPct = Getal(e)" />
+                        <button class="klein" disabled="@(_nieuwHouder is null || _nieuwPct is not > 0 || _bezig)" @onclick="VoegToe">+ Toevoegen</button>
+                    </div>
+                    <p class="uitleg">De keuze toont de eigen BV's (Relaties ▸ tab BV: eigen BV of MDE-groep). Staat een BV er niet tussen, maak hem dan
+                        eerst aan in Relaties en zet daar een van die vinkjes aan. Een BV kan geen aandeelhouder zijn van zichzelf of van een BV
+                        die hij zelf (indirect) bezit.</p>
+                }
+
+                <h3 class="wn-kop">Documenten <small class="zij-extra">(statuten, KvK-uittreksel, aandeelhoudersregister…; ook in Relaties ▸ Documenten)</small></h3>
+                <table class="kiezer-tabel bvs-tabel">
+                    <tbody>
+                        @foreach (var d in _documenten)
+                        {
+                            <tr @key="d.FileStoreId">
+                                <td><button class="bestandnaam" title="Bekijken" @onclick="() => { _voorbeeldId = d.FileStoreId; _voorbeeldNaam = d.Bestandsnaam; }">@d.Bestandsnaam</button></td>
+                                <td style="width:9rem">@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                <td style="width:11rem">@d.ToegevoegdDoor</td>
+                                <td class="c" style="width:5rem">
+                                    <a class="knopje" href="bestand/@d.FileStoreId/download" title="Downloaden">⭳</a>
+                                    @if (MagBeheren)
+                                    {
+                                        <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderDocument(d)">✕</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (_documenten.Count == 0)
+                        {
+                            <tr><td colspan="4" class="kiezer-info">@(_docsLaden ? "Laden…" : "Nog geen documenten bij deze BV.")</td></tr>
+                        }
+                    </tbody>
+                </table>
+                @if (MagBeheren)
+                {
+                    <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                         @ondragenter="() => _sleepActief = true"
+                         @ondragleave="() => _sleepActief = false"
+                         @ondragover:preventDefault="true">
+                        <span>Sleep hier een bestand, of klik om te kiezen</span>
+                        <InputFile OnChange="DocumentenGekozen" multiple />
+                    </div>
+                }
+
+                @{ var deel = _aandelen.Where(a => a.AandeelhouderId == g.Id && a.Actueel).ToList(); }
+                @if (deel.Count > 0)
+                {
+                    <h3 class="wn-kop">Deelnemingen</h3>
+                    <ul class="bvs-deel">
+                        @foreach (var a in deel)
+                        {
+                            <li><button class="bvs-link" @onclick="() => KiesId(a.BvId)">@Naam(a.BvId)</button> · @Pct(a.Percentage)</li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+    }
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="() => _voorbeeldId = null" />
+
+@code {
+    private bool _laden = true, _tabel, _bezig;
+    private List<EigenBv> _bvs = new();
+    private List<BvAandeel> _aandelen = new();
+    private List<List<EigenBv>> _lagen = new();
+    private List<EigenBv> _los = new();
+    private EigenBv? _gekozen;
+    private int? _nieuwHouder;
+    private decimal? _nieuwPct;
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBeheren => Ik.Mag("Financial") || Ik.Mag("Directie");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!(Ik.Mag("Financial") || Ik.Mag("Directie")) || !Repo.Beschikbaar) { _laden = false; return; }
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            await Laad();
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        finally { _laden = false; }
+    }
+
+    private async Task Laad()
+    {
+        _bvs = await Repo.BvsAsync();
+        _aandelen = await Repo.AandelenAsync();
+        Indelen();
+        if (_gekozen is { } g) _gekozen = _bvs.FirstOrDefault(b => b.Id == g.Id);
+    }
+
+    /// <summary>
+    /// Lagen: wie geen (actuele) aandeelhouder heeft staat bovenaan, een BV staat een laag onder zijn laagste aandeelhouder.
+    /// Opgeheven BV's en BV's zonder aandeelhouders én zonder deelnemingen staan apart.
+    /// </summary>
+    private void Indelen()
+    {
+        var actueel = _aandelen.Where(a => a.Actueel).ToList();
+        var inBoom = _bvs.Where(b => !b.IsOpgeheven && actueel.Any(a => a.BvId == b.Id || a.AandeelhouderId == b.Id)).ToList();
+        var laag = new Dictionary<int, int>();
+        int Laag(int id, int diepte)
+        {
+            if (laag.TryGetValue(id, out var l)) return l;
+            if (diepte > 20) return 0;      // kring: niet verder
+            var boven = actueel.Where(a => a.BvId == id && inBoom.Any(b => b.Id == a.AandeelhouderId)).ToList();
+            l = boven.Count == 0 ? 0 : boven.Max(a => Laag(a.AandeelhouderId, diepte + 1)) + 1;
+            laag[id] = l;
+            return l;
+        }
+        foreach (var b in inBoom) Laag(b.Id, 0);
+        _lagen = inBoom.GroupBy(b => laag[b.Id]).OrderBy(gr => gr.Key)
+                       .Select(gr => gr.OrderBy(b => b.MdeGroep).ThenBy(b => b.Naam).ToList()).ToList();
+        _los = _bvs.Where(b => !b.IsOpgeheven && !inBoom.Contains(b)).OrderBy(b => b.Naam).ToList();
+    }
+
+    private IEnumerable<BvAandeel> Houders(int bvId) => _aandelen.Where(a => a.BvId == bvId && a.Actueel).OrderByDescending(a => a.Percentage);
+
+    private string Naam(int id) => _bvs.FirstOrDefault(b => b.Id == id) is { } b ? b.Naam : $"relatie {id}";
+
+    /// <summary>Mogelijke aandeelhouders van deze BV: niet zichzelf en niet iets wat hij (indirect) bezit. De huidige blijft erin.</summary>
+    private List<EigenBv> KeuzeHouders(int bvId, int? huidig)
+    {
+        var onder = new HashSet<int> { bvId };
+        var rij = new Queue<int>(new[] { bvId });
+        while (rij.Count > 0)
+        {
+            var id = rij.Dequeue();
+            foreach (var a in _aandelen.Where(a => a.AandeelhouderId == id && a.Actueel))
+                if (onder.Add(a.BvId)) rij.Enqueue(a.BvId);
+        }
+        return _bvs.Where(b => b.Id == huidig || (!onder.Contains(b.Id) && !b.IsOpgeheven)).OrderBy(b => b.Naam).ToList();
+    }
+
+    private async Task Kies(EigenBv b)
+    {
+        _gekozen = b;
+        _nieuwHouder = null;
+        _nieuwPct = null;
+        await LaadDocumenten();
+    }
+
+    // ---------- documenten (filestore, StoreType 311 = bij de relatie) ----------
+    private List<RelatieDocument> _documenten = new();
+    private bool _docsLaden, _sleepActief;
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private async Task LaadDocumenten()
+    {
+        if (_gekozen is not { } g) { _documenten = new(); return; }
+        _docsLaden = true;
+        try
+        {
+            _documenten = (await Relaties.GetDocumentenAsync(g.Id))
+                .Where(d => d.StoreType == FilestoreService.StoreTypeRelatie)
+                .OrderByDescending(d => d.Toegevoegd).ToList();
+        }
+        catch (Exception ex) { _documenten = new(); Toon("Documenten ophalen mislukt: " + ex.Message, true); }
+        finally { _docsLaden = false; }
+    }
+
+    private async Task DocumentenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepActief = false;
+        if (_gekozen is not { } g) return;
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true); return; }
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, FilestoreService.StoreTypeRelatie, g.Id, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"{bestand.Name} toevoegen mislukt: {ex.Message}", true); }
+        }
+        await LaadDocumenten();
+        if (gelukt > 0) Toon($"{gelukt} bestand(en) toegevoegd bij {g.Naam}.", false);
+    }
+
+    private async Task VerwijderDocument(RelatieDocument d)
+    {
+        if (!await Vraag($"{d.Bestandsnaam} verwijderen? Het bestand gaat ook van schijf af.")) return;
+        try { await Store.VerwijderAsync(d.FileStoreId); await LaadDocumenten(); Toon("Document verwijderd.", false); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KiesId(int id) { if (_bvs.FirstOrDefault(b => b.Id == id) is { } b) await Kies(b); }
+
+    private async Task ZetOpgeheven(EigenBv b, DateOnly? d)
+    {
+        try
+        {
+            await Repo.ZetOpgehevenAsync(b.Id, d);
+            await Laad();
+            Toon(d is null ? $"{b.Naam} is niet meer opgeheven." : $"{b.Naam} staat op opgeheven per {d:dd-MM-yyyy}.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VoegToe()
+    {
+        if (_gekozen is not { } g || _nieuwHouder is not int h || _nieuwPct is not decimal p || p <= 0 || _bezig) return;
+        if (p > 100) { Toon("Een percentage kan niet meer dan 100 zijn.", true); return; }
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAandeelAsync(new BvAandeel { BvId = g.Id, AandeelhouderId = h, Percentage = p }, Ik.WerknemerId);
+            _nieuwHouder = null;
+            _nieuwPct = null;
+            await Laad();
+            Toon("Aandeelhouder toegevoegd.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task ZetAandeel(BvAandeel a, Action<BvAandeel> wijzig)
+    {
+        wijzig(a);
+        if (a.Percentage <= 0 || a.Percentage > 100) { Toon("Het percentage moet tussen 0 en 100 liggen.", true); await Laad(); return; }
+        try { await Repo.BewaarAandeelAsync(a, Ik.WerknemerId); await Laad(); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisAandeel(BvAandeel a)
+    {
+        if (!await Vraag($"{Naam(a.AandeelhouderId)} als aandeelhouder van {Naam(a.BvId)} wissen? Bij een verkoop liever een Tot-datum invullen.")) return;
+        try { await Repo.WisAandeelAsync(a.Id); await Laad(); }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Pct(decimal p) => p.ToString("0.###", Nl) + " %";
+
+    private static decimal? Getal(ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Trim().Replace("%", "").Replace(" ", "").Replace(',', '.');
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

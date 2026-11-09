@@ -299,9 +299,10 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
     {
         var lijst = new List<Administratie>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
         await using var cmd = new MySqlCommand(
-            "SELECT `id_supplier`, COALESCE(`Afkorting`, ''), COALESCE(`name`, '') " +
-            "  FROM `Relations` WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY `Afkorting`", cn);
+            $"SELECT `id_supplier`, COALESCE(`Afkorting`, ''), {BvOpgeheven.Naam(opg)} " +
+            $"  FROM `Relations` WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY {BvOpgeheven.Achteraan(opg)}`Afkorting`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new Administratie(r.GetInt32(0), r.GetString(1), r.GetString(2)));
@@ -312,10 +313,11 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
     {
         var lijst = new List<Administratie>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT a.`id_supplier`, COALESCE(a.`Afkorting`, ''), COALESCE(a.`name`, '') " +
             "  FROM `Relations` a " +
-            " WHERE COALESCE(a.`Werkmaatschappij`, 0) <> 0 " +
+            $" WHERE COALESCE(a.`Werkmaatschappij`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg, "a.")} " +
             "   AND EXISTS (SELECT 1 FROM `Invoices` f WHERE f.`Werkmaatschappij` = a.`id_supplier` " +
             "                  AND f.`Date invoice` >= CURDATE() - INTERVAL 1 YEAR) " +
             " ORDER BY a.`Afkorting`", cn);

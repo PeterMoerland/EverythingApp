@@ -10,6 +10,7 @@ public static class RelatieVelden
     public static readonly VeldTab[] Tabs =
     {
         new("Adres", null,
+            new Veld("Naam", VeldType.Tekst, new[] { "name" }),
             new Veld("Alias", VeldType.Tekst, new[] { "Alias" }),
             new Veld("Adres", VeldType.Tekst, new[] { "address" }),
             new Veld("Postcode", VeldType.Tekst, new[] { "PO_box" }),
@@ -47,12 +48,18 @@ public static class RelatieVelden
             new Veld("Website", VeldType.Meerregelig, new[] { "internet" }),
             new Veld("IBAN", VeldType.Tekst, new[] { "IBAN" }),
             new Veld("BIC", VeldType.Tekst, new[] { "BIC" }),
-            new Veld("Werkmaatschappij", VeldType.JaNee, new[] { "Werkmaatschappij" }),
-            new Veld("Afkorting", VeldType.Tekst, new[] { "Afkorting" }),
-            new Veld("MDE B.V.", VeldType.JaNee, new[] { "MDEBV" }),
             new Veld("E-mail Basecone", VeldType.Tekst, new[] { "BaseconeEmailAdres" }),
             new Veld("Automatisch facturen inlezen", VeldType.JaNee, new[] { "AutomatischeFacturen" }),
             new Veld("Genereer automatisch inkoopopdracht", VeldType.JaNee, new[] { "GenereerOfficieleOrder" }))
+            { EenKolom = true },
+
+        // Eigen BV's (wens gebruiker 9-11-2026): de vinkjes met een duidelijke naam, en vervallen BV's. Aandeelhouders
+        // en de hele boom staan in Financiën > BV-structuur.
+        new("BV", null,
+            new Veld("Eigen BV (factureert, eigen administratie)", VeldType.JaNee, new[] { "Werkmaatschappij" }),
+            new Veld("Hoort bij de MDE-groep (telt mee in Liquiditeit)", VeldType.JaNee, new[] { "MDEBV" }),
+            new Veld("Afkorting", VeldType.Tekst, new[] { "Afkorting" }),
+            new Veld("Opgeheven per", VeldType.Datum, new[] { "Opgeheven" }))
             { EenKolom = true },
 
         new("Inkoop", null,
@@ -108,7 +115,7 @@ public static class RelatieVelden
     /// </summary>
     public static readonly string[] Verbergen =
     {
-        "id_supplier", "name",
+        "id_supplier",
         "Changed", "last_updated",
         "contactperson1", "contactperson2", "contactperson3",
     };

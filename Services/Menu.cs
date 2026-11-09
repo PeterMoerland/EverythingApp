@@ -202,7 +202,10 @@ public static class Menu
             // Analyse: overzichten en hulpmiddelen om mee te rekenen; hier komen ook de tools van een collega bij
             new MenuGroep("Analyse",
                 new MenuItem("Liquiditeitsoverzicht", "/financien/liquiditeit", "Financial", Icoon: "trending-up"),
-                new MenuItem("Vragen aan AI", "/financien/analyse", "Financial", Icoon: "sparkles"))),
+                new MenuItem("Vragen aan AI", "/financien/analyse", "Financial", Icoon: "sparkles")),
+            // Eigen BV's en hun aandeelhouders (9-11-2026, voorbereiding op meerdere BV's)
+            new MenuGroep("Organisatie",
+                new MenuItem("BV-structuur", "/financien/bv-structuur", "Financial", Icoon: "network"))),
 
         // Gebouwbeheer praat met de PLC: licht, zonwering, compressor en verbruik.
         new("gebouw", "Gebouwbeheer", "building")

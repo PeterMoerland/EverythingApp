@@ -729,9 +729,10 @@ public class MySqlBankRepository : IBankRepository
     {
         var lijst = new List<(int, string)>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
         await using var cmd = new MySqlCommand(
-            "SELECT `id_supplier`, COALESCE(`name`, '') FROM `Relations` " +
-            " WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY `name`", cn);
+            $"SELECT `id_supplier`, {BvOpgeheven.Naam(opg)} FROM `Relations` " +
+            $" WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY {BvOpgeheven.Achteraan(opg)}`name`", cn);
         await using var rd = await cmd.ExecuteReaderAsync();
         while (await rd.ReadAsync()) lijst.Add((rd.GetInt32(0), rd.GetString(1)));
         return lijst;

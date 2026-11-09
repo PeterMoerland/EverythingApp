@@ -53,10 +53,12 @@ public class MySqlLiquiditeitRepository : ILiquiditeitRepository
     {
         var lijst = new List<LiquiditeitBv>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
+        // een opgeheven BV telt niet meer standaard mee
         await using var cmd = new MySqlCommand(
-            "SELECT `id_supplier`, COALESCE(`Afkorting`, ''), COALESCE(`name`, ''), COALESCE(`MDEBV`, 0) <> 0 " +
+            $"SELECT `id_supplier`, COALESCE(`Afkorting`, ''), {BvOpgeheven.Naam(opg)}, COALESCE(`MDEBV`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} " +
             "  FROM `Relations` WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 OR COALESCE(`MDEBV`, 0) <> 0 " +
-            " ORDER BY `Afkorting`", cn);
+            $" ORDER BY {BvOpgeheven.Achteraan(opg)}`Afkorting`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new LiquiditeitBv(r.GetInt32(0), r.GetString(1), r.GetString(2), Convert.ToInt64(r.GetValue(3)) != 0));

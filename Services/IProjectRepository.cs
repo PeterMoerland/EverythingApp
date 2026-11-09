@@ -562,9 +562,10 @@ public class MySqlProjectRepository : IProjectRepository
     {
         var lijst = new List<Keuze>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
         await using var cmd = new MySqlCommand(
-            "SELECT `id_supplier`, `name` FROM `Relations` " +
-            "WHERE `werkmaatschappij` <> 0 ORDER BY `name`", cn);
+            $"SELECT `id_supplier`, {BvOpgeheven.Naam(opg)} FROM `Relations` " +
+            $"WHERE `werkmaatschappij` <> 0 ORDER BY {BvOpgeheven.Achteraan(opg)}`name`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new Keuze(r.GetInt32(0), r.IsDBNull(1) ? "(geen naam)" : r.GetString(1)));

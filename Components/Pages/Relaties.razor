@@ -415,6 +415,11 @@
                                                 }
                                             </select>
                                         }
+                                        else if (veld.Type == VeldType.Datum)
+                                        {
+                                            <input type="date" value="@DatumWaarde(kolom)"
+                                                   @onchange="e => Bewaar(kolom, DateTime.TryParse((string?)e.Value, out var d) ? d : (object?)null)" />
+                                        }
                                         else
                                         {
                                             <input value="@Tekst(kolom)"
@@ -425,6 +430,20 @@
                                 }
                             }
                         </div>
+                        @if (huidig.Naam == "BV")
+                        {
+                            <p class="uitleg">
+                                <b>Eigen BV</b>: kan factureren, heeft bankrekeningen en staat in de BV-keuzes (facturen, projecten, PO klant).
+                                <b>MDE-groep</b>: telt standaard mee in Liquiditeit en Betalingen klaarzetten.
+                                <b>Opgeheven per</b>: de BV blijft bij oude facturen en projecten staan, maar staat in de keuzelijsten
+                                met "(opgeheven)" achteraan.
+                                Aandeelhouders en de hele boom: <a href="/financien/bv-structuur">Financiën ▸ BV-structuur</a>.
+                            </p>
+                            @if (Kolom(huidig.Velden[^1]) is null)
+                            {
+                                <p class="uitleg">"Opgeheven per" verschijnt zodra BvStructuur_MariaDB.sql gedraaid is.</p>
+                            }
+                        }
                         </Hoofd>
 
                         @* Naast het formulier: waar je bij een relatie meestal naar zoekt. *@
@@ -1011,8 +1030,11 @@
         {
             var id = await Repo.NieuweRelatieAsync(naam);
             await Laad();
+            _tab = "Adres";
             await Kies(new Keuze(id, naam));
-            Toon($"'{naam}' aangemaakt. Vul de gegevens aan.", false);
+            Toon(string.IsNullOrWhiteSpace(_zoek)
+                ? "Nieuwe relatie aangemaakt. Vul bovenaan de naam in, en daarna de gegevens."
+                : $"'{naam}' aangemaakt. Pas zo nodig de naam aan en vul de gegevens aan.", false);
         }
         catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
     }
@@ -1026,6 +1048,9 @@
         if (v is byte[]) return "(bestand)";
         return v.ToString() ?? "";
     }
+
+    private string DatumWaarde(string kolom)
+        => _velden.TryGetValue(kolom, out var v) && v is DateTime dt ? dt.ToString("yyyy-MM-dd") : "";
 
     private bool Waar(string kolom)
     {
@@ -1052,11 +1077,22 @@
     {
         if (_gekozenId is null) return;
         var vanId = _gekozenId.Value;
+        var isNaam = string.Equals(kolom, "name", StringComparison.OrdinalIgnoreCase);
+        if (isNaam && (waarde as string ?? "").Trim().Length == 0)
+        {
+            Toon("De naam mag niet leeg zijn.", true);
+            return;
+        }
         try
         {
-            var opslaan = waarde is string s && string.IsNullOrWhiteSpace(s) ? null : waarde;
+            var opslaan = waarde is string s ? (string.IsNullOrWhiteSpace(s) ? null : isNaam ? s.Trim() : s) : waarde;
             await Repo.UpdateVeldAsync(vanId, kolom, opslaan);
             if (_gekozenId == vanId) _velden[kolom] = opslaan;
+            if (isNaam && _gekozenId == vanId)
+            {
+                _gekozenNaam = (string?)opslaan;
+                await Laad();       // de lijst links met de nieuwe naam
+            }
             Toon("Opgeslagen.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }

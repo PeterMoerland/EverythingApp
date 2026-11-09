@@ -453,9 +453,10 @@ public class MySqlPOKlantRepository : IPOKlantRepository
     {
         var lijst = new List<Administratie>();
         await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
         await using var cmd = new MySqlCommand(
-            "SELECT `id_supplier`, COALESCE(`Afkorting`, ''), COALESCE(`name`, '') FROM `Relations` " +
-            " WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY `Afkorting`", cn);
+            $"SELECT `id_supplier`, COALESCE(`Afkorting`, ''), {BvOpgeheven.Naam(opg)} FROM `Relations` " +
+            $" WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 ORDER BY {BvOpgeheven.Achteraan(opg)}`Afkorting`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(new Administratie(r.GetInt32(0), S(r, 1), S(r, 2)));
         return lijst;
