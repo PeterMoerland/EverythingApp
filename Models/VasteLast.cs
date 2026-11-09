@@ -29,6 +29,15 @@ public class VasteLast
     /// <summary>Afkorting (of naam) van die BV, om te tonen.</summary>
     public string Bv { get; set; } = "";
 
+    /// <summary>Na deze dag geen betalingen meer (VasteLasten.Einddatum; bv. een opgezegde verzekering). Null = loopt door.</summary>
+    public DateOnly? Einddatum { get; set; }
+
+    /// <summary>
+    /// Deze vaste last hoort bij een verzekering (Verzekeringen.VasteLastID): de verzekering is de bron, de vaste last wordt
+    /// daaruit bijgewerkt (VerzekeringBron) en is niet los aan te passen.
+    /// </summary>
+    public int? VerzekeringId { get; set; }
+
     /// <summary>Weekdag (1-7) bij wekelijks, anders dag van de maand (1-31).</summary>
     public int Dag { get; set; } = 1;
 
@@ -108,8 +117,11 @@ public class VasteLast
     //  Wanneer gaat hij af
     // ============================================================
 
-    /// <summary>Alle betaaldagen in een jaar. Een dag die niet bestaat (31 april) wordt de laatste van de maand.</summary>
+    /// <summary>Alle betaaldagen in een jaar, tot en met de einddatum. Een dag die niet bestaat (31 april) wordt de laatste van de maand.</summary>
     public IEnumerable<DateOnly> Betaaldagen(int jaar)
+        => AlleBetaaldagen(jaar).Where(d => Einddatum is not DateOnly e || d <= e);
+
+    private IEnumerable<DateOnly> AlleBetaaldagen(int jaar)
     {
         switch (Interval)
         {
@@ -131,9 +143,9 @@ public class VasteLast
         }
     }
 
-    /// <summary>De eerstvolgende betaaldag vanaf vandaag (of de gegeven dag).</summary>
-    public DateOnly Volgende(DateOnly vanaf)
-        => Betaaldagen(vanaf.Year).Concat(Betaaldagen(vanaf.Year + 1)).First(d => d >= vanaf);
+    /// <summary>De eerstvolgende betaaldag vanaf vandaag (of de gegeven dag); null als hij voor die tijd al afloopt.</summary>
+    public DateOnly? Volgende(DateOnly vanaf)
+        => Betaaldagen(vanaf.Year).Concat(Betaaldagen(vanaf.Year + 1)).Where(d => d >= vanaf).Select(d => (DateOnly?)d).FirstOrDefault();
 
     private static DateOnly Datum(int jaar, int maand, int dag)
         => new(jaar, maand, Math.Clamp(dag, 1, DateTime.DaysInMonth(jaar, maand)));

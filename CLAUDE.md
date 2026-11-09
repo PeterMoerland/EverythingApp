@@ -252,6 +252,13 @@ ingangs- en contractvervaldatum, stilzwijgend verlengd (termijn in maanden), opz
 - **Overnemen uit Vaste lasten**: elke vaste last in een categorie met "verzeker" die nog niet gekoppeld is wordt een
   verzekering (soort geraden met `VerzekeringSoort.Raad`), gekoppeld aan die vaste last.
 - **Documenten**: StoreType 361, afgeschermd zoals de BV-documenten (`FilestoreService.MagSoortZien`).
+- **Eén bron** (besluit gebruiker 9-11-2026; script **`VerzekeringenBron_MariaDB.sql`**: `Verzekeringen.PremieDag/
+  PremieMaand`, `VasteLasten.Einddatum`): de verzekering bevat premie, termijn en betaaldag; `Services/VerzekeringBron.cs`
+  maakt/werkt bij elk opslaan de vaste last bij (categorie Verzekeringen, omschrijving max 45, BV, einddatum = dag vóór de
+  vervaldatum bij opgezegd/beëindigd; geen premie = vaste last weg; wissen neemt hem mee). Na het script neemt het scherm
+  bij het openen eenmalig de premie over van de al gekoppelde vaste lasten. In Vaste lasten 🛡️, Aanpassen opent de
+  verzekering, geen ✕; Liquiditeit opent bij dubbelklik ook de verzekering. `VasteLast.Betaaldagen` stopt na `Einddatum`
+  (`Volgende` is nu nullable). Lokaal ook `VasteLasten__Geheugen=true` (leest echt, schrijft in het geheugen).
 - Lokaal: `Verzekeringen__Geheugen=true` (de waker draait dan ook; vul in tests geen beheerder in, die krijgt anders een
   echte melding).
 

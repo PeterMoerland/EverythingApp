@@ -2,6 +2,7 @@
 @inject IVasteLastenRepository Repo
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
 
 @* Overgezet van het Access-formulier VasteLasten (met VasteLastenInvoer/-Edit). Het jaaroverzicht
    vervangt de rapporten VasteLasten/VasteLastenTotaal en de knoppen die in Access nooit af waren. *@
@@ -99,19 +100,22 @@
                         @foreach (var v in Gefilterd)
                         {
                             <tr @key="v.Id" @ondblclick="() => Open(v)">
-                                <td>@v.Omschrijving</td>
+                                <td title="@(v.VerzekeringId is not null ? "Hoort bij een verzekering: aanpassen in Financiën ▸ Verzekeringen" : null)">@(v.VerzekeringId is not null ? "🛡️ " : "")@v.Omschrijving</td>
                                 <td>@v.Categorie</td>
                                 @if (_bvs.Count > 0) { <td>@v.Bv</td> }
                                 <td>@VasteLast.IntervalNaam(v.Interval)</td>
-                                <td>@v.Wanneer</td>
-                                <td>@v.Volgende(_vandaag).ToString("dd-MM-yy")</td>
+                                <td>@v.Wanneer@(v.Einddatum is DateOnly ed ? $" (tot {ed:dd-MM-yy})" : "")</td>
+                                <td>@(v.Volgende(_vandaag)?.ToString("dd-MM-yy") ?? "—")</td>
                                 <td class="r">@Geld(v.Bedrag)</td>
                                 <td class="r">@Geld(v.TotaalPerJaar)</td>
                                 <td class="c vl-acties">
                                     @if (MagInvoeren)
                                     {
-                                        <button class="klein" @onclick="() => Open(v)">Aanpassen</button>
-                                        <button class="klein rood" title="Wissen" @onclick="() => Wis(v)">✕</button>
+                                        <button class="klein" title="@(v.VerzekeringId is not null ? "Hoort bij een verzekering: daar aanpassen" : null)" @onclick="() => Open(v)">Aanpassen</button>
+                                        @if (v.VerzekeringId is null)
+                                        {
+                                            <button class="klein rood" title="Wissen" @onclick="() => Wis(v)">✕</button>
+                                        }
                                     }
                                 </td>
                             </tr>
@@ -329,6 +333,8 @@
     private void Open(VasteLast v)
     {
         if (!MagInvoeren) return;
+        // de verzekering is de bron (besluit gebruiker 9-11-2026): daar aanpassen
+        if (v.VerzekeringId is int vz) { Nav.NavigateTo($"/financien/verzekeringen?verzekering={vz}"); return; }
         _bewerk = new VasteLast
         {
             Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,

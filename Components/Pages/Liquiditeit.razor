@@ -4,6 +4,7 @@
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject IBvStructuurRepository Structuur
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 
 @* Overgezet van Access' Report_LiquiditeitsOverzicht en de formulieren 'Liquiditeit Te laat
@@ -490,6 +491,8 @@
     {
         if (p.FactuurId is int id) { if (p.Verkoop) _verkoopId = id; else _inkoopId = id; return; }
         if (p.VasteLastId is not int vlId || _vasteLasten.FirstOrDefault(v => v.Id == vlId) is not { } v) return;
+        // een premie van een verzekering: daar aanpassen (de verzekering is de bron)
+        if (v.VerzekeringId is int vz) { Nav.NavigateTo($"/financien/verzekeringen?verzekering={vz}"); return; }
 
         if (_categorieen.Count == 0)
             try { _categorieen = await VasteLasten.CategorieenAsync(); } catch { }

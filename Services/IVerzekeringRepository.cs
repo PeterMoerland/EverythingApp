@@ -64,6 +64,10 @@ public class Verzekering
     public decimal? EigenRisico { get; set; }
     public decimal? Premie { get; set; }
     public VasteLastInterval? PremieInterval { get; set; }
+    /// <summary>Betaaldag zoals bij een vaste last: weekdag (1-7) bij wekelijks, anders dag van de maand.</summary>
+    public int PremieDag { get; set; } = 1;
+    /// <summary>Maand 1-12 bij jaarlijks, 1-3 (welke maand van het kwartaal) bij kwartaal.</summary>
+    public int PremieMaand { get; set; } = 1;
     public int? VasteLastId { get; set; }
     /// <summary>De gekoppelde vaste last (alleen lezen): omschrijving, bedrag per termijn, interval.</summary>
     public string VasteLast { get; set; } = "";
@@ -111,12 +115,12 @@ public class Verzekering
         return vandaag >= o.AddDays(-HerinneringDagen) ? "oranje" : "";
     }
 
-    /// <summary>Premie per jaar: uit de vaste last als die er is, anders premie × termijnen.</summary>
+    /// <summary>Premie per jaar: premie × termijnen (zolang de premie nog niet is overgenomen: die van de vaste last).</summary>
     public decimal? PremiePerJaar
     {
         get
         {
-            var (bedrag, interval) = VasteLastId is not null ? (VasteLastBedrag, VasteLastTermijn) : (Premie, PremieInterval);
+            var (bedrag, interval) = Premie is null && VasteLastId is not null ? (VasteLastBedrag, VasteLastTermijn) : (Premie, PremieInterval);
             if (bedrag is not decimal b || interval is not VasteLastInterval i) return null;
             return b * i switch { VasteLastInterval.Wekelijks => 52, VasteLastInterval.Maandelijks => 12, VasteLastInterval.Kwartaal => 4, _ => 1 };
         }
@@ -141,6 +145,8 @@ public interface IVerzekeringRepository
     /// <summary>Directieleden in dienst (krijgen de herinnering).</summary>
     Task<List<int>> DirectieAsync();
     Task ZetGemeldAsync(int id, DateOnly vervaldatum);
+    /// <summary>Bestaan PremieDag/PremieMaand (VerzekeringenBron_MariaDB.sql)? Pas dan is de verzekering de bron van de premie.</summary>
+    Task<bool> BronKolommenAsync();
 }
 
 public class GeenVerzekeringRepository : IVerzekeringRepository
@@ -154,6 +160,7 @@ public class GeenVerzekeringRepository : IVerzekeringRepository
     public Task<List<Keuze>> WerknemersAsync() => Task.FromResult(new List<Keuze>());
     public Task<List<int>> DirectieAsync() => Task.FromResult(new List<int>());
     public Task ZetGemeldAsync(int id, DateOnly vervaldatum) => Task.CompletedTask;
+    public Task<bool> BronKolommenAsync() => Task.FromResult(false);
 }
 
 /// <summary>Lokaal testen zonder de tabel: Verzekeringen__Geheugen=true. Leest vaste lasten en werknemers echt; schrijft in het geheugen.</summary>
@@ -190,6 +197,7 @@ public class GeheugenVerzekeringRepository : IVerzekeringRepository
     public Task<List<Keuze>> WerknemersAsync() => _lezen?.WerknemersAsync() ?? Task.FromResult(new List<Keuze>());
     public Task<List<int>> DirectieAsync() => Task.FromResult(new List<int>());
     public Task ZetGemeldAsync(int id, DateOnly vervaldatum) { if (_v.TryGetValue(id, out var v)) v.GemeldVoor = vervaldatum; return Task.CompletedTask; }
+    public Task<bool> BronKolommenAsync() => Task.FromResult(true);
 }
 
 public class MySqlVerzekeringRepository : IVerzekeringRepository
@@ -218,6 +226,24 @@ public class MySqlVerzekeringRepository : IVerzekeringRepository
     private static object Datum(DateOnly? d) => d is DateOnly x ? x.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
     private static string Kort(string? s, int max) => (s ?? "").Trim() is var t && t.Length > max ? t[..max] : (s ?? "").Trim();
 
+    private bool _bron;
+
+    public async Task<bool> BronKolommenAsync()
+    {
+        if (_bron) return true;
+        if (!await TabelAanwezigAsync()) return false;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Verzekeringen' " +
+                "AND COLUMN_NAME IN ('PremieDag', 'PremieMaand')", cn);
+            _bron = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 2;
+        }
+        catch { }
+        return _bron;
+    }
+
     public async Task<bool> TabelAanwezigAsync()
     {
         if (_tabel) return true;
@@ -236,6 +262,7 @@ public class MySqlVerzekeringRepository : IVerzekeringRepository
     {
         var lijst = new List<Verzekering>();
         if (!await TabelAanwezigAsync()) return lijst;
+        var bron = await BronKolommenAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT v.`VerzekeringID`, v.`BvID`, COALESCE(NULLIF(TRIM(b.`Afkorting`), ''), b.`name`, ''), v.`Soort`, v.`Omschrijving`, " +
@@ -244,7 +271,8 @@ public class MySqlVerzekeringRepository : IVerzekeringRepository
             "       vl.`Bedrag`, vl.`interval`, v.`Ingangsdatum`, v.`Contractvervaldatum`, v.`StilzwijgendVerlengd`, v.`VerlengingMaanden`, " +
             "       v.`OpzegtermijnMaanden`, v.`Status`, v.`BeheerderID`, COALESCE(w.`NaamVoluit`, ''), COALESCE(v.`Dekking`, ''), " +
             "       COALESCE(v.`Opmerking`, ''), v.`GemeldVoor`, " +
-            "       (SELECT COUNT(*) FROM `FileStore` f WHERE f.`StoreType` = @st AND f.`MasterID` = v.`VerzekeringID`) " +
+            "       (SELECT COUNT(*) FROM `FileStore` f WHERE f.`StoreType` = @st AND f.`MasterID` = v.`VerzekeringID`), " +
+            (bron ? "v.`PremieDag`, v.`PremieMaand` " : "NULL, NULL ") +
             "  FROM `Verzekeringen` v " +
             "  LEFT JOIN `Relations` b ON b.`id_supplier` = v.`BvID` " +
             "  LEFT JOIN `Relations` vz ON vz.`id_supplier` = v.`VerzekeraarID` " +
@@ -264,6 +292,7 @@ public class MySqlVerzekeringRepository : IVerzekeringRepository
                 Ingangsdatum = D(r, 18), Contractvervaldatum = D(r, 19), StilzwijgendVerlengd = !r.IsDBNull(20) && Convert.ToInt64(r.GetValue(20)) != 0,
                 VerlengingMaanden = IN(r, 21) ?? 12, OpzegtermijnMaanden = IN(r, 22), Status = S(r, 23), BeheerderId = IN(r, 24), Beheerder = S(r, 25),
                 Dekking = S(r, 26), Opmerking = S(r, 27), GemeldVoor = D(r, 28), Documenten = Convert.ToInt32(r.GetValue(29)),
+                PremieDag = IN(r, 30) ?? 1, PremieMaand = IN(r, 31) ?? 1,
             });
         return lijst;
     }
@@ -275,10 +304,13 @@ public class MySqlVerzekeringRepository : IVerzekeringRepository
             "`VerzekerdBedrag` = @vb, `EigenRisico` = @er, `Premie` = @premie, `PremieInterval` = @pi, `VasteLastID` = @vl, " +
             "`Ingangsdatum` = @in, `Contractvervaldatum` = @cv, `StilzwijgendVerlengd` = @stil, `VerlengingMaanden` = @verl, " +
             "`OpzegtermijnMaanden` = @opz, `Status` = @status, `BeheerderID` = @beh, `Dekking` = @dekking, `Opmerking` = @opm";
+        var alles = velden + (await BronKolommenAsync() ? ", `PremieDag` = @pdag, `PremieMaand` = @pmaand" : "");
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(v.Id <= 0
-            ? $"INSERT INTO `Verzekeringen` SET {velden}, `AangemaaktOp` = NOW(), `AangemaaktDoor` = @door; SELECT LAST_INSERT_ID();"
-            : $"UPDATE `Verzekeringen` SET {velden}, `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door WHERE `VerzekeringID` = @id; SELECT @id;", cn);
+            ? $"INSERT INTO `Verzekeringen` SET {alles}, `AangemaaktOp` = NOW(), `AangemaaktDoor` = @door; SELECT LAST_INSERT_ID();"
+            : $"UPDATE `Verzekeringen` SET {alles}, `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door WHERE `VerzekeringID` = @id; SELECT @id;", cn);
+        cmd.Parameters.AddWithValue("@pdag", v.PremieDag);
+        cmd.Parameters.AddWithValue("@pmaand", v.PremieMaand);
         cmd.Parameters.AddWithValue("@bv", Of(v.BvId));
         cmd.Parameters.AddWithValue("@soort", VerzekeringSoort.Alle.Any(s => s.Code == v.Soort) ? v.Soort : "overig");
         cmd.Parameters.AddWithValue("@oms", Kort(v.Omschrijving.Length > 0 ? v.Omschrijving : "Verzekering", 200));

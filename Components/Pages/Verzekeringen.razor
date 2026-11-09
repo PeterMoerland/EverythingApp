@@ -1,5 +1,6 @@
 @page "/financien/verzekeringen"
 @inject IVerzekeringRepository Repo
+@inject VerzekeringBron Bron
 @inject IBvStructuurRepository Structuur
 @inject IRelatieRepository Relaties
 @inject FilestoreService Store
@@ -8,7 +9,8 @@
 
 @* Verzekeringen (wens gebruiker 9-11-2026): alle verzekeringen met de polissen, alleen Financial en Directie.
    Links de lijst (zoeken, BV, status; kleur = opzegdatum nadert of voorbij), rechts de gegevens (opslaan per veld) en de
-   documenten (filestore StoreType 361). De premie kan aan een vaste last hangen (dan in Liquiditeit, niet dubbel).
+   documenten (filestore StoreType 361). De verzekering is de bron van de premie (VerzekeringBron): opslaan werkt de vaste
+   last bij (categorie Verzekeringen), die Liquiditeit meeneemt.
    "Overnemen uit Vaste lasten" maakt van elke vaste last in de categorie Verzekeringen een verzekering.
    Herinnering in de bel: VerzekeringWaker. Tabel: Verzekeringen_MariaDB.sql. *@
 
@@ -157,7 +159,59 @@
                         </div>
                         <div class="wn-veld breed">
                             <label>Premie</label>
-                            @if (g.VasteLastId is not null)
+                            @if (_bron)
+                            {
+                                <span class="vz-premie">
+                                    <input class="r" value="@Bedrag2(g.Premie)" @onchange="e => Zet(x => x.Premie = Lees(e))" />
+                                    <select value="@(g.PremieInterval is VasteLastInterval pi2 ? ((int)pi2).ToString() : string.Empty)"
+                                            @onchange="e => Zet(x => x.PremieInterval = int.TryParse((string?)e.Value, out var i) ? (VasteLastInterval)i : null)">
+                                        <option value="">per …</option>
+                                        @foreach (var i in Enum.GetValues<VasteLastInterval>()) { <option value="@((int)i)">per @Termijn(i)</option> }
+                                    </select>
+                                    @if (g.PremieInterval is VasteLastInterval iv)
+                                    {
+                                        <span>betaald op</span>
+                                        @if (iv == VasteLastInterval.Wekelijks)
+                                        {
+                                            <select value="@g.PremieDag" @onchange="e => Zet(x => x.PremieDag = int.TryParse((string?)e.Value, out var d) ? d : 1)">
+                                                @for (var d = 1; d <= 7; d++) { <option value="@d">@VasteLast.WeekdagNaam(d)</option> }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input class="r smal" value="@g.PremieDag" title="Dag van de maand"
+                                                   @onchange="e => Zet(x => x.PremieDag = int.TryParse((string?)e.Value, out var d) ? Math.Clamp(d, 1, 31) : 1)" />
+                                            @if (iv == VasteLastInterval.Kwartaal)
+                                            {
+                                                <select value="@g.PremieMaand" @onchange="e => Zet(x => x.PremieMaand = int.TryParse((string?)e.Value, out var m) ? m : 1)">
+                                                    @for (var m = 1; m <= 3; m++) { <option value="@m">@VasteLast.KwartaalNaam(m)</option> }
+                                                </select>
+                                            }
+                                            else if (iv == VasteLastInterval.Jaarlijks)
+                                            {
+                                                <select value="@g.PremieMaand" @onchange="e => Zet(x => x.PremieMaand = int.TryParse((string?)e.Value, out var m) ? m : 1)">
+                                                    @for (var m = 1; m <= 12; m++) { <option value="@m">@VasteLast.MaandNaam(m)</option> }
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <span>van de maand</span>
+                                            }
+                                        }
+                                    }
+                                    <small class="zij-extra">
+                                        @if (g.VasteLastId is not null)
+                                        {
+                                            <span>@Geld(g.PremiePerJaar ?? 0) per jaar; telt als vaste last mee in Liquiditeit@(g.Status != VerzekeringStatus.Actief && VerzekeringBron.Einddatum(g) is DateOnly ed ? $" tot {ed:dd-MM-yyyy}" : "").</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Vul bedrag en termijn in: dan komt de premie vanzelf in Vaste lasten en Liquiditeit.</span>
+                                        }
+                                    </small>
+                                </span>
+                            }
+                            else if (g.VasteLastId is not null)
                             {
                                 <span class="alleen-lezen">
                                     @Bedrag2(g.VasteLastBedrag) per @Termijn(g.VasteLastTermijn) (@Geld(g.PremiePerJaar ?? 0) per jaar) — uit vaste last
@@ -254,7 +308,7 @@
 @code {
     [SupplyParameterFromQuery(Name = "verzekering")] public int? UitUrl { get; set; }
 
-    private bool _tabel, _laden = true, _bezig;
+    private bool _tabel, _laden = true, _bezig, _bron;
     private List<Verzekering> _lijst = new();
     private Verzekering? _gekozen;
     private List<Keuze> _bvs = new(), _werknemers = new();
@@ -288,6 +342,10 @@
             }
             catch { }
             try { _werknemers = await Repo.WerknemersAsync(); } catch { }
+            _bron = await Bron.ActiefAsync();
+            // eenmalig na VerzekeringenBron_MariaDB.sql: premie, termijn en betaaldag van de gekoppelde vaste lasten overnemen
+            if (_bron && await Bron.NeemPremieOverAsync(Ik.WerknemerId) is int over && over > 0)
+                Toon($"De premie van {over} verzekering(en) is overgenomen uit Vaste lasten; vanaf nu is de verzekering de bron.", false);
             await Laad();
             if (UitUrl is int id && _lijst.FirstOrDefault(v => v.Id == id) is { } v) { _statusFilter = "alles"; await Kies(v); }
         }
@@ -314,7 +372,7 @@
         var v = new Verzekering { Omschrijving = "Nieuwe verzekering", BvId = _bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : _bvs.FirstOrDefault()?.Id };
         try
         {
-            await Repo.BewaarAsync(v, Ik.WerknemerId);
+            await Bron.BewaarAsync(v, Ik.WerknemerId);
             _statusFilter = VerzekeringStatus.Actief;
             await Laad();
             if (_lijst.FirstOrDefault(x => x.Id == v.Id) is { } nieuw) await Kies(nieuw);
@@ -328,7 +386,7 @@
     {
         if (_gekozen is not { } g) return;
         wijzig(g);
-        try { await Repo.BewaarAsync(g, Ik.WerknemerId); await Laad(); }
+        try { await Bron.BewaarAsync(g, Ik.WerknemerId); await Laad(); }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
     }
 
@@ -338,7 +396,7 @@
         if (!await Vraag($"Verzekering {g.Omschrijving} wissen? Liever de status op beëindigd zetten, dan blijft hij te vinden.")) return;
         try
         {
-            if (await Repo.WisAsync(g.Id) is { } reden) { Toon(reden, true); return; }
+            if (await Bron.WisAsync(g) is { } reden) { Toon(reden, true); return; }
             _gekozen = null;
             await Laad();
             Toon("Verzekering gewist.", false);
@@ -350,20 +408,13 @@
     private async Task Overnemen()
     {
         if (_bezig || _nietGekoppeld.Count == 0) return;
-        if (!await Vraag($"{_nietGekoppeld.Count} vaste last(en) uit de categorie Verzekeringen overnemen als verzekering? De premie blijft bij de vaste last.")) return;
+        if (!await Vraag($"{_nietGekoppeld.Count} vaste last(en) uit de categorie Verzekeringen overnemen als verzekering? " +
+                         "Premie, termijn en betaaldag gaan mee; daarna is de verzekering de bron en volgt de vaste last.")) return;
         _bezig = true;
         var n = 0;
         try
         {
-            foreach (var vl in _nietGekoppeld)
-            {
-                await Repo.BewaarAsync(new Verzekering
-                {
-                    Omschrijving = vl.Omschrijving, Soort = VerzekeringSoort.Raad(vl.Omschrijving), VasteLastId = vl.VasteLastId,
-                    BvId = vl.BvId ?? (_bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : null),
-                }, Ik.WerknemerId);
-                n++;
-            }
+            n = await Bron.OvernemenAsync(_bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : null, Ik.WerknemerId);
             await Laad();
             Toon($"{n} verzekering(en) overgenomen. Vul per verzekering de verzekeraar, het polisnummer, de vervaldatum en de opzegtermijn aan, en sleep de polis erin.", false);
         }

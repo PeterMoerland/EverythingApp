@@ -129,7 +129,7 @@
 
                 <p class="uitleg">
                     @Last.Wanneer · @Geld(Last.TotaalPerJaar) per jaar ·
-                    volgende keer @Last.Volgende(DateOnly.FromDateTime(DateTime.Today)).ToString("dd-MM-yyyy")
+                    @(Last.Volgende(DateOnly.FromDateTime(DateTime.Today)) is DateOnly vk ? "volgende keer " + vk.ToString("dd-MM-yyyy") : "loopt niet meer")
                 </p>
             </div>
 

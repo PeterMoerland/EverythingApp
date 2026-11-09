@@ -155,7 +155,11 @@ if (liveDb)
     else
         builder.Services.AddSingleton<IFactuurBetalingRepository>(_ => new MySqlFactuurBetalingRepository(cs!));
     builder.Services.AddSingleton<IUrenImportRepository>(_ => new MySqlUrenImportRepository(cs!));
-    builder.Services.AddSingleton<IVasteLastenRepository>(_ => new MySqlVasteLastenRepository(cs!));
+    // lokaal testen zonder in VasteLasten te schrijven: VasteLasten__Geheugen=true (leest echt)
+    if (builder.Configuration.GetValue<bool>("VasteLasten:Geheugen"))
+        builder.Services.AddSingleton<IVasteLastenRepository>(_ => new GeheugenVasteLastenRepository(new MySqlVasteLastenRepository(cs!)));
+    else
+        builder.Services.AddSingleton<IVasteLastenRepository>(_ => new MySqlVasteLastenRepository(cs!));
     builder.Services.AddSingleton<ILiquiditeitRepository>(_ => new MySqlLiquiditeitRepository(cs!));
     builder.Services.AddSingleton<IBetalingRepository>(_ => new MySqlBetalingRepository(cs!));
     builder.Services.AddSingleton<IPOKlantRepository>(_ => new MySqlPOKlantRepository(cs!));
@@ -298,6 +302,7 @@ builder.Services.AddSingleton<OnderhoudMelding>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 // herinnering in de bel vóór de opzegdatum van een verzekering (Financiën > Verzekeringen)
 builder.Services.AddHostedService<VerzekeringWaker>();
+builder.Services.AddSingleton<VerzekeringBron>();
 builder.Services.AddSingleton<FactuurLezer>();
 
 // Vragen aan AI (Financiën): Amazon Bedrock (sectie "Bedrock" in appsettings.json), opvragingen in
