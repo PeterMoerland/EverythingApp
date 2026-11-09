@@ -42,11 +42,8 @@ public static class ProjectVelden
             new Veld("Opmerking", VeldType.Meerregelig, new[] { "Remark" }))
             { EenKolom = true },
 
-        new("Inventor", null,
-            new Veld("Inventor-project", VeldType.JaNee, new[] { "InventorProject" }),
-            new Veld("Exportmap", VeldType.Tekst, new[] { "InventorExportFolder" }),
-            new Veld("DWG-pad", VeldType.Tekst, new[] { "InventorDWGpath" }))
-            { EenKolom = true },
+        // Tab Inventor (InventorProject, InventorExportFolder, InventorDWGpath) weggehaald op verzoek van de gebruiker
+        // (9-11-2026: de data is niet meer relevant). De kolommen in Projects blijven staan; alleen niet meer getoond.
     };
 
     // ---- werkorder ----
