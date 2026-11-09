@@ -32,3 +32,7 @@ CREATE TABLE IF NOT EXISTS `BvAandeelhouders` (
 
 -- De vervallen BV's (kan ook in de app: Relaties > tab BV > Opgeheven per):
 -- UPDATE `Relations` SET `Opgeheven` = CURDATE() WHERE `id_supplier` IN (5645, 5646);   -- MDE Robotics, MDE Products
+
+-- Documenten van een eigen BV (Financiën > BV-structuur), alleen voor Financial en Directie (toegevoegd 9-11-2026;
+-- dit script mag daarvoor nog een keer gedraaid worden).
+INSERT IGNORE INTO `FileStoreType` (`FilestoreTypeID`, `FileStoreTypeDescription`) VALUES (360, 'BV-document');

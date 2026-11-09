@@ -199,6 +199,10 @@
         try
         {
             (_regels, _totaal) = await Store.ZoekRegelsAsync(_storeType, _doorId, _extensie, _zoek, _masterId);
+            // vertrouwelijke soorten (werknemersdossier, BV-documenten) alleen voor wie ze mag zien
+            var voor = _regels.Count;
+            _regels = _regels.Where(r => FilestoreService.MagSoortZien(r.StoreType, Ik)).ToList();
+            _totaal -= voor - _regels.Count;
             if (_gekozen is not null && _regels.All(r => r.Id != _gekozen.Id)) _gekozen = null;
         }
         catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }

@@ -257,8 +257,11 @@ Products (5646) vervallen. MDE Vastgoed, MDE Patenten en M-Pede Robotics bestond
   per laag met barycentra, zodat lijnen niet kruisen; haakse lijnen met percentage via `wwwroot/organigram.js`, SVG achter
   de kaarten, opnieuw getekend bij elke maatverandering),
   per BV KvK, btw, werknemers (WerkzaamBij), rekeningen, facturen; aandeelhouders toevoegen/wijzigen (geen kring:
-  niet zichzelf of iets wat hij bezit), opgeheven per, en documenten (filestore StoreType 311 = dezelfde als
-  Relaties > Documenten: toevoegen, bekijken, downloaden, verwijderen). Lokaal: `BvStructuur__Geheugen=true`.
+  niet zichzelf of iets wat hij bezit), opgeheven per, en documenten (filestore StoreType 360 `BV-document`, alleen
+  Financial/Directie; niet bij Relaties > Documenten). Lokaal: `BvStructuur__Geheugen=true`.
+- **Afscherming bestanden** (`FilestoreService.MagSoortZien`, `MagBestand` in Program.cs): 300/301 HRM/Directie, 360
+  Financial/Directie, 341 alleen afzender/ontvanger; geldt voor `/bestand/{id}`, `/bestand/{id}/download` en (nieuw,
+  daar zat geen controle op) `/voorbeeld/{id}`. Beheer > Filestore toont die soorten alleen aan wie ze mag zien.
 - **Relaties**: veld Naam bovenaan tab Adres (melding gebruiker: bij een nieuwe relatie kon je geen naam ingeven; "name"
   stond bij de verborgen kolommen). Lege naam wordt geweigerd; de lijst links ververst. Datumvelden als datumkiezer.
 - **Nog niet** (volgende stappen): welke BV een inkooporder doet (Orders heeft geen BV-kolom), inkomende facturen per

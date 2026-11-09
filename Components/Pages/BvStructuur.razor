@@ -2,14 +2,13 @@
 @inject IBvStructuurRepository Repo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
-@inject IRelatieRepository Relaties
 @inject FilestoreService Store
 @implements IAsyncDisposable
 
 @* BV-structuur (wens gebruiker 9-11-2026): de eigen BV's met hun aandeelhouders, als boom in lagen (bovenaan wie
    geen aandeelhouders heeft, daaronder wat ze bezitten). Klik een BV voor de gegevens, de aandeelhouders (toevoegen,
-   percentage, vanaf/tot), "opgeheven per" en documenten (statuten, KvK-uittreksel...: filestore StoreType 311, dezelfde
-   als Relaties > Documenten). De vinkjes zelf staan in Relaties > tab BV.
+   percentage, vanaf/tot), "opgeheven per" en documenten (statuten, KvK-uittreksel...: filestore StoreType 360
+   BV-document, alleen Financial/Directie, niet bij Relaties > Documenten). De vinkjes zelf staan in Relaties > tab BV.
    Tabellen: Relations (Werkmaatschappij, MDEBV, Opgeheven) en BvAandeelhouders (BvStructuur_MariaDB.sql). *@
 
 <PageTitle>BV-structuur — MDE</PageTitle>
@@ -179,7 +178,7 @@
                         die hij zelf (indirect) bezit.</p>
                 }
 
-                <h3 class="wn-kop">Documenten <small class="zij-extra">(statuten, KvK-uittreksel, aandeelhoudersregister…; ook in Relaties ▸ Documenten)</small></h3>
+                <h3 class="wn-kop">Documenten <small class="zij-extra">(statuten, KvK-uittreksel, aandeelhoudersregister…; alleen zichtbaar voor Financial en Directie)</small></h3>
                 <table class="kiezer-tabel bvs-tabel">
                     <tbody>
                         @foreach (var d in _documenten)
@@ -361,7 +360,7 @@
         await LaadDocumenten();
     }
 
-    // ---------- documenten (filestore, StoreType 311 = bij de relatie) ----------
+    // ---------- documenten (filestore, StoreType 360 = BV-document, alleen Financial/Directie) ----------
     private List<RelatieDocument> _documenten = new();
     private bool _docsLaden, _sleepActief;
     private int? _voorbeeldId;
@@ -373,9 +372,10 @@
         _docsLaden = true;
         try
         {
-            _documenten = (await Relaties.GetDocumentenAsync(g.Id))
-                .Where(d => d.StoreType == FilestoreService.StoreTypeRelatie)
-                .OrderByDescending(d => d.Toegevoegd).ToList();
+            var (regels, _) = await Store.ZoekRegelsAsync(FilestoreService.StoreTypeBvDocument, null, null, null, g.Id);
+            _documenten = regels.Select(r => new RelatieDocument(r.Id, r.StoreType, "BV-document",
+                                                                 r.OrigineleNaam.Length > 0 ? r.OrigineleNaam : r.OpslagNaam, r.Toegevoegd, r.Door))
+                                .OrderByDescending(d => d.Toegevoegd).ToList();
         }
         catch (Exception ex) { _documenten = new(); Toon("Documenten ophalen mislukt: " + ex.Message, true); }
         finally { _docsLaden = false; }
@@ -392,7 +392,7 @@
             try
             {
                 await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
-                await Store.ToevoegenAsync(stroom, bestand.Name, FilestoreService.StoreTypeRelatie, g.Id, Ik.WerknemerId ?? 0);
+                await Store.ToevoegenAsync(stroom, bestand.Name, FilestoreService.StoreTypeBvDocument, g.Id, Ik.WerknemerId ?? 0);
                 gelukt++;
             }
             catch (Exception ex) { Toon($"{bestand.Name} toevoegen mislukt: {ex.Message}", true); }

@@ -619,7 +619,24 @@ app.MapPost("/werkplek/koppelen", async (HttpContext ctx, IWerkplekRepository re
 // --- bestand uit de filestore ophalen ---
 // /bestand/12          -> in de browser bekijken (pdf's, afbeeldingen)
 // /bestand/12/download -> opslaan
-// Vertrouwelijke soorten (personeelsdossier) alleen voor HRM/Directie.
+// Vertrouwelijke soorten (personeelsdossier: HRM/Directie; BV-documenten: Financial/Directie) en bijlagen van berichten.
+// Geldt ook voor /voorbeeld/{id} (daar zat tot 9-11-2026 geen controle op).
+async Task<bool> MagBestand(int id, int storeType, HuidigeGebruiker ik, IMeldingRepository meldingen)
+{
+    if (storeType is 300 or 301 or FilestoreService.StoreTypeBvDocument)
+    {
+        await ik.ZorgGeladenAsync();
+        if (!FilestoreService.MagSoortZien(storeType, ik)) return false;
+    }
+    // plaatje bij een bericht aan een collega: alleen voor de ontvanger en de afzender (berichten zijn privé)
+    if (storeType == BerichtBijlage.StoreType)
+    {
+        await ik.ZorgGeladenAsync();
+        if (ik.WerknemerId is not int wn || !await meldingen.MagBijlageZienAsync(id, wn)) return false;
+    }
+    return true;
+}
+
 async Task<IResult> BestandUitgeven(int id, bool alsDownload,
                                     FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen)
 {
@@ -627,21 +644,7 @@ async Task<IResult> BestandUitgeven(int id, bool alsDownload,
     if (gevonden is null) return Results.NotFound("Bestand niet gevonden.");
 
     var (pad, naam, storeType) = gevonden.Value;
-
-    // 300/301 = werknemersdossier
-    if (storeType is 300 or 301)
-    {
-        await ik.ZorgGeladenAsync();
-        var mag = !ik.Gekoppeld || ik.Mag("HRM") || ik.Mag("Directie");
-        if (!mag) return Results.Forbid();
-    }
-
-    // plaatje bij een bericht aan een collega: alleen voor de ontvanger en de afzender (berichten zijn privé)
-    if (storeType == BerichtBijlage.StoreType)
-    {
-        await ik.ZorgGeladenAsync();
-        if (ik.WerknemerId is not int wn || !await meldingen.MagBijlageZienAsync(id, wn)) return Results.Forbid();
-    }
+    if (!await MagBestand(id, storeType, ik, meldingen)) return Results.Forbid();
 
     var mime = FilestoreService.MimeVoor(naam);
     return alsDownload
@@ -684,8 +687,10 @@ if (loginAan) inventorAddin.RequireAuthorization();
 // --- bestand tonen in de browser ---
 // PDF's en afbeeldingen gaan er rechtstreeks doorheen; Word en Excel worden eerst
 // met LibreOffice naar PDF omgezet en daarna bewaard, zodat de tweede keer snel is.
-app.MapGet("/voorbeeld/{id:int}", async (int id, VoorbeeldService voorbeeld) =>
+app.MapGet("/voorbeeld/{id:int}", async (int id, VoorbeeldService voorbeeld, FilestoreService store, HuidigeGebruiker ik,
+                                         IMeldingRepository meldingen) =>
 {
+    if (await store.ZoekAsync(id) is { } bron && !await MagBestand(id, bron.StoreType, ik, meldingen)) return Results.Forbid();
     var gevonden = await voorbeeld.VoorbeeldAsync(id);
     return gevonden is null
         ? Results.NotFound("Dit bestand kan niet worden getoond.")

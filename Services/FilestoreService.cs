@@ -20,6 +20,23 @@ public class FilestoreService
     /// <summary>StoreType voor bestanden die rechtstreeks bij een relatie horen.</summary>
     public const int StoreTypeRelatie = 311;
 
+    /// <summary>
+    /// Documenten van een eigen BV (statuten, KvK, aandeelhoudersregister; Financiën > BV-structuur), MasterID = de BV.
+    /// Alleen Financial en Directie (wens gebruiker 9-11-2026); staan dus niet bij Relaties > Documenten.
+    /// </summary>
+    public const int StoreTypeBvDocument = 360;
+
+    /// <summary>
+    /// Mag deze gebruiker bestanden van deze soort zien? Werknemersdossier (300/301) alleen HRM/Directie, BV-documenten
+    /// alleen Financial/Directie; de rest iedereen. Bijlagen van berichten (341) hebben een eigen controle per bestand.
+    /// </summary>
+    public static bool MagSoortZien(int storeType, HuidigeGebruiker ik) => storeType switch
+    {
+        300 or 301 => !ik.Gekoppeld || ik.Mag("HRM") || ik.Mag("Directie"),
+        StoreTypeBvDocument => ik.Mag("Financial") || ik.Mag("Directie"),
+        _ => true,
+    };
+
     private readonly string? _hoofdmap;
     private readonly string? _fotomap;
     private readonly string? _cs;
