@@ -253,7 +253,9 @@ Products (5646) vervallen. MDE Vastgoed, MDE Patenten en M-Pede Robotics bestond
 - **Opgeheven**: de BV blijft bij oude facturen/projecten staan; in de keuzelijsten "(opgeheven)" achteraan
   (`BvOpgeheven` in `Services/IBvStructuurRepository.cs`, werkt ook zonder de kolom), niet bij "facturerende BV's" voor
   een nieuwe factuur, en telt niet meer standaard mee in Liquiditeit.
-- **Financiën > BV-structuur** (`Components/Pages/BvStructuur.razor`, Financial/Directie): boom in lagen met percentages,
+- **Financiën > BV-structuur** (`Components/Pages/BvStructuur.razor`, Financial/Directie): organigram in lagen (volgorde
+  per laag met barycentra, zodat lijnen niet kruisen; haakse lijnen met percentage via `wwwroot/organigram.js`, SVG achter
+  de kaarten, opnieuw getekend bij elke maatverandering),
   per BV KvK, btw, werknemers (WerkzaamBij), rekeningen, facturen; aandeelhouders toevoegen/wijzigen (geen kring:
   niet zichzelf of iets wat hij bezit), opgeheven per, en documenten (filestore StoreType 311 = dezelfde als
   Relaties > Documenten: toevoegen, bekijken, downloaden, verwijderen). Lokaal: `BvStructuur__Geheugen=true`.

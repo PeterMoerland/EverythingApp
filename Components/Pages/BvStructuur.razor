@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject IRelatieRepository Relaties
 @inject FilestoreService Store
+@implements IAsyncDisposable
 
 @* BV-structuur (wens gebruiker 9-11-2026): de eigen BV's met hun aandeelhouders, als boom in lagen (bovenaan wie
    geen aandeelhouders heeft, daaronder wat ze bezitten). Klik een BV voor de gegevens, de aandeelhouders (toevoegen,
@@ -43,22 +44,22 @@
             {
                 <div class="kiezer-info">Laden…</div>
             }
-            @foreach (var laag in _lagen)
-            {
-                <div class="bvs-laag">
-                    @foreach (var b in laag)
-                    {
-                        <button class="bvs-kaart @(b.Id == _gekozen?.Id ? "actief" : "") @(b.MdeGroep ? "mde" : "")" @onclick="() => Kies(b)">
-                            <span class="bvs-naam">@b.Naam</span>
-                            <span class="bvs-sub">@b.Kort@(b.Werkmaatschappij ? " · factureert" : "")@(b.MdeGroep ? " · MDE-groep" : "")</span>
-                            @foreach (var a in Houders(b.Id))
-                            {
-                                <span class="bvs-houder">↑ @Pct(a.Percentage) @Naam(a.AandeelhouderId)</span>
-                            }
-                        </button>
-                    }
-                </div>
-            }
+            @* Organigram: kaarten in lagen, de lijnen met percentages tekent organigram.js erachter. *@
+            <div class="bvs-org" @ref="_org">
+                @foreach (var laag in _lagen)
+                {
+                    <div class="bvs-laag">
+                        @foreach (var b in laag)
+                        {
+                            <button class="bvs-kaart @(b.Id == _gekozen?.Id ? "actief" : "") @(b.MdeGroep ? "mde" : "")" data-bv="@b.Id"
+                                    title="@HoudersTekst(b.Id)" @onclick="() => Kies(b)">
+                                <span class="bvs-naam">@b.Naam</span>
+                                <span class="bvs-sub">@(string.Join(" · ", new[] { b.Afkorting, b.Werkmaatschappij ? "factureert" : "", b.MdeGroep ? "MDE-groep" : "" }.Where(t => t.Length > 0)))</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
             @if (_los.Count > 0)
             {
                 <h3 class="wn-kop">Zonder aandeelhouders of deelnemingen</h3>
@@ -67,7 +68,7 @@
                     {
                         <button class="bvs-kaart @(b.Id == _gekozen?.Id ? "actief" : "")" @onclick="() => Kies(b)">
                             <span class="bvs-naam">@b.Naam</span>
-                            <span class="bvs-sub">@b.Kort@(b.Werkmaatschappij ? " · factureert" : "")@(b.MdeGroep ? " · MDE-groep" : "")</span>
+                            <span class="bvs-sub">@(string.Join(" · ", new[] { b.Afkorting, b.Werkmaatschappij ? "factureert" : "", b.MdeGroep ? "MDE-groep" : "" }.Where(t => t.Length > 0)))</span>
                         </button>
                     }
                 </div>
@@ -287,12 +288,56 @@
         foreach (var b in inBoom) Laag(b.Id, 0);
         _lagen = inBoom.GroupBy(b => laag[b.Id]).OrderBy(gr => gr.Key)
                        .Select(gr => gr.OrderBy(b => b.MdeGroep).ThenBy(b => b.Naam).ToList()).ToList();
+
+        // Volgorde binnen een laag zoals in een organigram: een BV onder het midden van zijn aandeelhouders, een
+        // aandeelhouder boven het midden van wat hij bezit (een paar rondes heen en weer). Bij gelijke stand gaat wie verder
+        // naar beneden reikt (bv. F.M. Moerland Holding direct in MDE Holding) naar buiten, zodat zijn lijn langs de
+        // tussenlaag loopt in plaats van erdoorheen.
+        var randen = actueel.Where(a => laag.ContainsKey(a.BvId) && laag.ContainsKey(a.AandeelhouderId)).ToList();
+        double X(int id)
+        {
+            var l = _lagen[laag[id]];
+            return (l.FindIndex(b => b.Id == id) + 0.5) / l.Count;
+        }
+        for (var ronde = 0; ronde < 4; ronde++)
+        {
+            for (var i = 1; i < _lagen.Count; i++)
+                _lagen[i] = _lagen[i].OrderBy(b => randen.Where(a => a.BvId == b.Id).Select(a => X(a.AandeelhouderId)).DefaultIfEmpty(X(b.Id)).Average())
+                                     .ThenBy(b => b.Naam).ToList();
+            for (var i = _lagen.Count - 2; i >= 0; i--)
+                _lagen[i] = _lagen[i].OrderBy(b => Math.Round(randen.Where(a => a.AandeelhouderId == b.Id).Select(a => X(a.BvId)).DefaultIfEmpty(X(b.Id)).Average(), 3))
+                                     .ThenBy(b => randen.Where(a => a.AandeelhouderId == b.Id).Select(a => laag[a.BvId] - laag[b.Id]).DefaultIfEmpty(1).Max())
+                                     .ThenBy(b => b.Naam).ToList();
+        }
+        _tekenen = true;
         _los = _bvs.Where(b => !b.IsOpgeheven && !inBoom.Contains(b)).OrderBy(b => b.Naam).ToList();
     }
 
     private IEnumerable<BvAandeel> Houders(int bvId) => _aandelen.Where(a => a.BvId == bvId && a.Actueel).OrderByDescending(a => a.Percentage);
 
     private string Naam(int id) => _bvs.FirstOrDefault(b => b.Id == id) is { } b ? b.Naam : $"relatie {id}";
+
+    private string HoudersTekst(int bvId)
+        => string.Join("\n", Houders(bvId).Select(a => $"{Pct(a.Percentage)} {Naam(a.AandeelhouderId)}"));
+
+    // ---------- organigram (lijnen via organigram.js) ----------
+    private ElementReference _org;
+    private bool _tekenen;
+
+    protected override async Task OnAfterRenderAsync(bool eersteKeer)
+    {
+        if (!_tekenen) return;
+        _tekenen = false;
+        var ids = _lagen.SelectMany(l => l).Select(b => b.Id).ToHashSet();
+        var randen = _aandelen.Where(a => a.Actueel && ids.Contains(a.BvId) && ids.Contains(a.AandeelhouderId))
+                              .Select(a => new { van = a.AandeelhouderId, naar = a.BvId, pct = Pct(a.Percentage) }).ToList();
+        try { await JS.InvokeVoidAsync("mdeOrganigram.teken", _org, randen); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("mdeOrganigram.stop", _org); } catch { }
+    }
 
     /// <summary>Mogelijke aandeelhouders van deze BV: niet zichzelf en niet iets wat hij (indirect) bezit. De huidige blijft erin.</summary>
     private List<EigenBv> KeuzeHouders(int bvId, int? huidig)

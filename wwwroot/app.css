@@ -2189,7 +2189,16 @@ html[data-thema="donker"] .vo-open, html[data-thema="donker"] .vo-let { color: #
 /* BV-structuur (Financiën): boom in lagen, kaart per BV */
 .bvs-boom { display: flex; flex-direction: column; gap: .9rem; margin-bottom: 1rem; }
 .bvs-laag { display: flex; flex-wrap: wrap; justify-content: center; gap: .8rem; position: relative; }
-.bvs-laag + .bvs-laag::before { content: "↓"; position: absolute; top: -.95rem; left: 50%; color: #8a96a6; font-size: .8rem; }
+.bvs-org { position: relative; display: flex; flex-direction: column; gap: 3rem; padding: .5rem 0 .3rem; }
+.bvs-org > .bvs-laag { gap: 1.6rem; z-index: 1; }
+.bvs-org .bvs-kaart { align-items: center; text-align: center; }
+.org-lijnen { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; overflow: visible; }
+.org-lijn { fill: none; stroke: #8fa3ba; stroke-width: 1.5; }
+.org-pct-vak { fill: #fff; stroke: #b9c7d8; stroke-width: 1; }
+.org-pct { font-size: 11px; font-weight: 600; fill: #274e7d; }
+html[data-thema="donker"] .org-lijn { stroke: #4f6681; }
+html[data-thema="donker"] .org-pct-vak { fill: #16273d; stroke: #34465c; }
+html[data-thema="donker"] .org-pct { fill: #9ec4f5; }
 .bvs-laag.los { justify-content: flex-start; }
 .bvs-kaart { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; min-width: 12rem; max-width: 18rem; padding: .5rem .7rem;
              border: 1px solid #c9d3df; border-radius: 6px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; }
