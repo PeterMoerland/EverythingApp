@@ -2157,6 +2157,14 @@ html[data-thema="donker"] .hist-meer { border-color: #34465c; color: #9fb0c4; }
 .nc-lev-po td { font-size: .9em; background: #f7f9fb; }
 .nc-lev-po td:first-child { padding-left: 1.6rem; }
 html[data-thema="donker"] .nc-lev-po td { background: #1b2533; }
+/* Bestellingen > Verkooporders (wens gebruiker 9-11-2026) */
+.kiezer-tabel.regels.vo-regels { min-width: 54rem; }   /* vaste kolommen ~41rem, Omschrijving de rest */
+.vo-regels input { width: 100%; box-sizing: border-box; }
+.vo-regels .vo-lev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 7rem; color: #5b6878; }
+.vo-verlies { color: #c92a2a; font-weight: 600; }
+.vo-bevestigd { margin: -.2rem 0 .6rem; color: #2f7d4f; }
+html[data-thema="donker"] .vo-regels .vo-lev { color: #9fb0c4; }
+html[data-thema="donker"] .vo-bevestigd { color: #6fcf97; }
 .paneelgreep { flex-shrink: 0; height: 9px; margin: 0 .5rem; cursor: row-resize; touch-action: none; position: relative; }
 .paneelgreep::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2.6rem; height: 3px; margin-left: -1.3rem;
     border-radius: 2px; background: #c3ccd6; }

@@ -1,0 +1,561 @@
+@page "/bestellingen/verkooporders"
+@inject IVerkoopOrderRepository Repo
+@inject IRelatieRepository Relaties
+@inject IVerkoopFactuurRepository Facturen
+@inject IArtikelRepository Artikelen
+@inject IInstellingRepository Instellingen
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Verkooporders (wens gebruiker 9-11-2026): een simpele order van een klant opnemen en bevestigen. Stap 1: order met
+   regels (artikel of vrije regel; verkoopprijs = inkoop + opslag uit de algemene instellingen) en de orderbevestiging
+   (PDF + mail, OrderbevestigingVenster). Bestellen bij de leverancier, pakbon en factuur volgen (stap 2 en 3).
+   Elke order hangt aan een klant; de werkorder is -01 van het project "Verkoop <jaar>" van die klant.
+   Alleen met het recht Verkoop (Werknemers ▸ Status ▸ Verkooporders) of Directie. *@
+
+<PageTitle>Verkooporders — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Verkooporders</h1>
+        <span class="weeklabel">@_lijst.Count order@(_lijst.Count == 1 ? "" : "s") · @Geld(_lijst.Sum(o => o.Totaal)) excl. btw</span>
+    </header>
+
+    @if (!Ik.MagVerkoop)
+    {
+        <section class="module-placeholder"><p>Verkooporders zijn voor wie het recht Verkooporders heeft (Werknemers ▸ Status), en voor Directie.</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>@(_laden ? "Laden…" : "De tabellen voor verkooporders ontbreken nog: voer VerkoopOrders_MariaDB.sql uit.")</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Klant, VO-nummer, PO of omschrijving…" value="@_zoek" @oninput="ZoekGetypt" data-zoeklijst />
+                        <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                    </div>
+                    <div class="btngroup">
+                        <select value="@_status" @onchange="StatusFilter">
+                            <option value="open">Open</option>
+                            <option value="afgerond">Afgerond</option>
+                            <option value="geannuleerd">Geannuleerd</option>
+                            <option value="alles">Alles</option>
+                        </select>
+                        <button class="klein" @onclick="OpenNieuw">+ Nieuwe order</button>
+                    </div>
+                </div>
+                <div class="wn-namen">
+                    @if (_lijst.Count == 0)
+                    {
+                        <div class="kiezer-info">@(_laden ? "Laden…" : "Geen orders gevonden.")</div>
+                    }
+                    @foreach (var o in _lijst)
+                    {
+                        <button class="wn-naam pb-naam @(o.Id == _order?.Id ? "actief" : "")" @onclick="() => Kies(o.Id)">
+                            <span><b>@o.Ordernummer</b> @o.Klant</span>
+                            <small>@o.AangemaaktOp.ToString("dd-MM-yy") · @o.LijstRegels regel@(o.LijstRegels == 1 ? "" : "s") · @Geld(o.LijstTotaal)@(o.BevestigdOp is not null ? " · bevestigd" : "")@(o.PoKlant.Length > 0 ? " · " + o.PoKlant : "")</small>
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_order is not { } vo)
+                {
+                    <div class="kiezer-info">Kies links een order, of maak een nieuwe.</div>
+                }
+                else
+                {
+                    <div class="pb-titel">
+                        <h2>@vo.Ordernummer</h2>
+                        <span class="stand-chip @VerkoopOrderStatus.Kleur(vo.Status)">@vo.Status</span>
+                        <span class="zij-extra">aangemaakt @vo.AangemaaktOp.ToString("dd-MM-yyyy HH:mm") @(vo.AangemaaktDoor.Length > 0 ? "door " + vo.AangemaaktDoor : "")</span>
+                        <span class="pb-vulling"></span>
+                        <div class="btngroup">
+                            <button class="klein primair" disabled="@(vo.Regels.Count == 0)" title="@(vo.Regels.Count == 0 ? "Eerst regels toevoegen" : "PDF bekijken en mailen naar de klant")"
+                                    @onclick="() => _bevestigOpen = true">📄 Orderbevestiging…</button>
+                            <button class="klein rood" @onclick="Wis">Wissen</button>
+                        </div>
+                    </div>
+                    @if (vo.BevestigdOp is DateTime b)
+                    {
+                        <p class="uitleg vo-bevestigd">✓ Orderbevestiging verstuurd op @b.ToString("dd-MM-yyyy HH:mm")@(vo.BevestigdAan.Length > 0 ? " aan " + vo.BevestigdAan : "")@(vo.BevestigdDoor.Length > 0 ? " door " + vo.BevestigdDoor : "").</p>
+                    }
+
+                    <div class="wn-velden pb-velden">
+                        <div class="wn-veld">
+                            <label>Klant</label>
+                            <span class="alleen-lezen"><b>@vo.Klant</b></span>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Contactpersoon</label>
+                            <select value="@(vo.ContactId?.ToString() ?? "")" @onchange="ContactGewijzigd">
+                                <option value="">—</option>
+                                @foreach (var c in _contacten)
+                                {
+                                    <option value="@c.Id">@c.Naam@(c.Mail.Length > 0 ? " · " + c.Mail : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>BV</label>
+                            <select value="@vo.BvId" @onchange="e => ZetKop(o => o.BvId = int.TryParse((string?)e.Value, out var v) ? v : o.BvId)">
+                                @foreach (var bv in _bvs)
+                                {
+                                    <option value="@bv.Id">@bv.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Uw ordernummer <small class="zij-extra">(PO klant)</small></label>
+                            <input value="@vo.PoKlant" maxlength="100" @onchange="e => ZetKop(o => o.PoKlant = Tekst(e))" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Verwachte levering</label>
+                            <input type="date" value="@(vo.Leverdatum?.ToString("yyyy-MM-dd") ?? "")"
+                                   @onchange="e => ZetKop(o => o.Leverdatum = DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Status</label>
+                            <select value="@vo.Status" @onchange="e => ZetKop(o => o.Status = (string?)e.Value ?? o.Status)">
+                                @foreach (var s in VerkoopOrderStatus.Alle) { <option value="@s">@s</option> }
+                            </select>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Omschrijving <small class="zij-extra">(op de bevestiging)</small></label>
+                            <input value="@vo.Omschrijving" maxlength="300" @onchange="e => ZetKop(o => o.Omschrijving = Tekst(e))" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Werkorder</label>
+                            <span class="alleen-lezen" title="Project Verkoop @vo.AangemaaktOp.Year van deze klant; hierop komt de inkoop">@(vo.Werkorder.Length > 0 ? vo.Werkorder : "—")</span>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Opties</label>
+                            <span>
+                                <label class="vink"><input type="checkbox" checked="@vo.Engels" @onchange="e => ZetKop(o => o.Engels = e.Value is true)" /> Engels</label>
+                                <label class="vink"><input type="checkbox" checked="@vo.BtwVerlegd" @onchange="e => ZetKop(o => o.BtwVerlegd = e.Value is true)" /> Btw verlegd</label>
+                            </span>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Opmerking <small class="zij-extra">(intern, niet op de bevestiging)</small></label>
+                            <textarea rows="2" maxlength="2000" value="@vo.Opmerking" @onchange="e => ZetKop(o => o.Opmerking = Tekst(e))"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="regels-balk">
+                        <h3 class="wn-kop">Regels</h3>
+                        <div class="btngroup">
+                            <button class="klein" @onclick="() => _artZoekOpen = true" title="Een artikel of maakdeel zoeken">+ Artikel…</button>
+                            <button class="klein" @onclick="VrijeRegel" title="Een regel zonder artikel, bv. verzendkosten">+ Vrije regel</button>
+                        </div>
+                    </div>
+                    <div class="regels-omhulsel">
+                        <table class="kiezer-tabel regels vo-regels">
+                            <thead>
+                                <tr>
+                                    <th style="width:8rem">Code</th>
+                                    <th>Omschrijving</th>
+                                    <th style="width:4rem" class="c">Aantal</th>
+                                    <th style="width:5.5rem" class="r" title="Inkoopprijs per stuk (kostprijs van het artikel)">Inkoop/st</th>
+                                    <th style="width:5.5rem" class="r" title="Verkoopprijs per stuk (voorstel: inkoop + @Getal(_toeslag) %)">Verkoop/st</th>
+                                    <th style="width:5.5rem" class="r">Totaal</th>
+                                    <th style="width:3.5rem" class="r" title="Marge op de verkoopprijs">Marge</th>
+                                    <th style="width:7rem">Leverancier</th>
+                                    <th style="width:2.4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in vo.Regels)
+                                {
+                                    <tr @key="r.Id">
+                                        <td><input value="@r.Code" maxlength="100" @onchange="e => ZetRegel(r, x => x.Code = Tekst(e))" /></td>
+                                        <td><input value="@r.Omschrijving" maxlength="400" @onchange="e => ZetRegel(r, x => x.Omschrijving = Tekst(e))" /></td>
+                                        <td><input class="c" value="@Getal(r.Aantal)" @onchange="e => ZetRegel(r, x => x.Aantal = Bedrag(e) ?? x.Aantal)" /></td>
+                                        <td><input class="r" value="@Prijs(r.Inkoopprijs)" @onchange="e => ZetRegel(r, x => x.Inkoopprijs = Bedrag(e))" /></td>
+                                        <td><input class="r" value="@Prijs(r.Verkoopprijs)" @onchange="e => ZetRegel(r, x => x.Verkoopprijs = Bedrag(e))" /></td>
+                                        <td class="r">@Geld(r.Totaal)</td>
+                                        <td class="r @(Marge(r) is decimal m && m < 0 ? "vo-verlies" : "")">@(Marge(r) is decimal mm ? mm.ToString("P0") : "")</td>
+                                        <td class="vo-lev" title="@r.Leverancier">@r.Leverancier</td>
+                                        <td class="c"><button class="klein rood" title="Regel verwijderen" @onclick="() => WisRegel(r)">✕</button></td>
+                                    </tr>
+                                }
+                                @if (vo.Regels.Count == 0)
+                                {
+                                    <tr><td colspan="9" class="kiezer-info">Nog geen regels. Voeg een artikel toe, of een vrije regel.</td></tr>
+                                }
+                            </tbody>
+                            @if (vo.Regels.Count > 0)
+                            {
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="3" class="r"><b>Totaal excl. btw</b></td>
+                                        <td class="r">@Geld(vo.InkoopTotaal)</td>
+                                        <td></td>
+                                        <td class="r"><b>@Geld(vo.Totaal)</b></td>
+                                        <td class="r">@(vo.Totaal == 0 ? "" : ((vo.Totaal - vo.InkoopTotaal) / vo.Totaal).ToString("P0"))</td>
+                                        <td colspan="2"></td>
+                                    </tr>
+                                </tfoot>
+                            }
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@* ---------- nieuwe order: klant zoeken, dan contactpersoon, BV en PO ---------- *@
+@if (_nieuwOpen)
+{
+    <div class="cmdk-overlay midden" @onclick="SluitNieuw">
+        <div class="factuurvenster pb-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Nieuwe verkooporder</h2>
+                <button class="klein" @onclick="SluitNieuw">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_nieuwKlant is null)
+                {
+                    <input class="of-zoekveld" placeholder="Zoek de klant…" value="@_klantZoek" @oninput="KlantGetypt" autofocus />
+                    <div class="pb-keuzelijst">
+                        @foreach (var k in _klanten)
+                        {
+                            <button class="wn-naam" @onclick="() => KiesKlant(k)">@k.Naam</button>
+                        }
+                        @if (_klantZoek.Trim().Length >= 2 && _klanten.Count == 0)
+                        {
+                            <div class="kiezer-info">Niets gevonden.</div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p><b>@_nieuwKlant.Naam</b> <button class="klein" @onclick="() => _nieuwKlant = null">Andere klant…</button></p>
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld breed">
+                            <label>Contactpersoon</label>
+                            <select value="@(_nieuw.ContactId?.ToString() ?? "")" @onchange="e => _nieuw.ContactId = int.TryParse((string?)e.Value, out var v) ? v : null">
+                                <option value="">—</option>
+                                @foreach (var c in _nieuwContacten)
+                                {
+                                    <option value="@c.Id">@c.Naam@(c.Mail.Length > 0 ? " · " + c.Mail : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>BV</label>
+                            <select value="@_nieuw.BvId" @onchange="e => _nieuw.BvId = int.TryParse((string?)e.Value, out var v) ? v : _nieuw.BvId">
+                                @foreach (var bv in _bvs)
+                                {
+                                    <option value="@bv.Id">@bv.Naam</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Uw ordernummer (PO klant)</label>
+                            <input value="@_nieuw.PoKlant" maxlength="100" @onchange="e => _nieuw.PoKlant = Tekst(e)" />
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Omschrijving</label>
+                            <input value="@_nieuw.Omschrijving" maxlength="300" @onchange="e => _nieuw.Omschrijving = Tekst(e)" placeholder="optioneel" />
+                        </div>
+                    </div>
+                    <p class="uitleg">De inkoop komt op werkorder -01 van het project <b>Verkoop @DateTime.Today.Year</b> van deze klant;
+                        bestaat dat nog niet, dan wordt het nu aangemaakt.</p>
+                }
+            </div>
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="SluitNieuw">Annuleren</button>
+                <button class="primair" disabled="@(_nieuwKlant is null || _bezig)" @onclick="MaakNieuw">Order aanmaken</button>
+            </div>
+        </div>
+    </div>
+}
+
+<ArtikelZoekVenster Open="_artZoekOpen" Zoek="" Maakdelen="false" OpGekozen="ArtikelGekozen" OpGesloten="() => _artZoekOpen = false" />
+<OrderbevestigingVenster Order="@(_bevestigOpen ? _order : null)" ContactNaam="@ContactNaam" ContactMail="@ContactMail" OpGesloten="BevestigingDicht" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "order")] public int? OrderUitUrl { get; set; }
+
+    private bool _tabel, _laden = true, _bezig;
+    private List<VerkoopOrder> _lijst = new();
+    private VerkoopOrder? _order;
+    private List<Contactpersoon> _contacten = new();
+    private List<Administratie> _bvs = new();
+    private decimal _toeslag;
+    private string _zoek = "", _status = "open";
+    private string? _melding;
+    private bool _fout;
+    private bool _artZoekOpen, _bevestigOpen;
+    private CancellationTokenSource? _zoekStop;
+
+    private const int StandaardBv = 5254;
+
+    private string ContactNaam => _contacten.FirstOrDefault(c => c.Id == _order?.ContactId)?.Naam ?? "";
+    private string ContactMail => _contacten.FirstOrDefault(c => c.Id == _order?.ContactId)?.Mail.Trim() ?? "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Ik.MagVerkoop || !Repo.Beschikbaar) { _laden = false; return; }
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            if (!_tabel) return;
+            try { _bvs = await Facturen.GetFacturerendeBvsAsync(); } catch { }
+            if (_bvs.Count == 0) try { _bvs = await Facturen.GetAdministratiesAsync(); } catch { }
+            try { _toeslag = await Instellingen.ToeslagAsync(); } catch { }
+            await LaadLijst();
+            if (OrderUitUrl is int id) await Kies(id);
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        finally { _laden = false; }
+    }
+
+    private async Task LaadLijst()
+    {
+        try { _lijst = await Repo.LijstAsync(new VerkoopOrderFilter(_status, _zoek)); }
+        catch (Exception ex) { Toon("Lijst laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZoekGetypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _zoekStop?.Cancel();
+        var stop = _zoekStop = new CancellationTokenSource();
+        try { await Task.Delay(250, stop.Token); } catch { return; }
+        await LaadLijst();
+    }
+
+    private async Task WisZoek() { _zoek = ""; await LaadLijst(); }
+
+    private async Task StatusFilter(ChangeEventArgs e) { _status = (string?)e.Value ?? "open"; await LaadLijst(); }
+
+    private async Task Kies(int id)
+    {
+        try
+        {
+            _order = await Repo.GetAsync(id);
+            _contacten = _order is null ? new() : await Relaties.GetContactpersonenAsync(_order.KlantId, false);
+            if (_order is not null && _bvs.All(b => b.Id != _order.BvId))
+                _bvs.Add(new Administratie(_order.BvId, "", $"BV {_order.BvId}"));
+        }
+        catch (Exception ex) { Toon("Order laden mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Lijstregel bijwerken na een wijziging (totaal, aantal regels), zonder de hele lijst te laden.</summary>
+    private void VerversLijstregel()
+    {
+        if (_order is not { } o) return;
+        var i = _lijst.FindIndex(x => x.Id == o.Id);
+        if (i < 0) return;
+        var l = _lijst[i];
+        l.LijstTotaal = o.Regels.Sum(r => r.Totaal);
+        l.LijstRegels = o.Regels.Count;
+        l.PoKlant = o.PoKlant;
+        l.Status = o.Status;
+        l.BevestigdOp = o.BevestigdOp;
+    }
+
+    // ---------- kop ----------
+    private async Task ZetKop(Action<VerkoopOrder> wijzig)
+    {
+        if (_order is not { } o) return;
+        wijzig(o);
+        try { await Repo.BewaarKopAsync(o); VerversLijstregel(); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ContactGewijzigd(ChangeEventArgs e)
+        => await ZetKop(o => o.ContactId = int.TryParse((string?)e.Value, out var v) ? v : null);
+
+    private async Task Wis()
+    {
+        if (_order is not { } o) return;
+        if (!await Vraag($"Order {o.Ordernummer} van {o.Klant} wissen?")) return;
+        try
+        {
+            if (await Repo.WisAsync(o.Id) is { } reden) { Toon(reden, true); return; }
+            Toon($"{o.Ordernummer} gewist.", false);
+            _order = null;
+            await LaadLijst();
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    // ---------- regels ----------
+    private async Task ZetRegel(VerkoopOrderRegel r, Action<VerkoopOrderRegel> wijzig)
+    {
+        wijzig(r);
+        try { await Repo.BewaarRegelAsync(r); VerversLijstregel(); }
+        catch (Exception ex) { Toon("Regel opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private int VolgendeVolgorde => (_order?.Regels.Select(r => r.Volgorde).DefaultIfEmpty(0).Max() ?? 0) + 1;
+
+    private async Task VrijeRegel()
+    {
+        if (_order is not { } o) return;
+        var r = new VerkoopOrderRegel { OrderId = o.Id, Volgorde = VolgendeVolgorde, Aantal = 1 };
+        try { await Repo.BewaarRegelAsync(r); o.Regels.Add(r); VerversLijstregel(); }
+        catch (Exception ex) { Toon("Regel toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// Artikel gekozen: code (fabrikantcode, anders de MDE-code), omschrijving, inkoopprijs = kostprijs van het artikel (anders
+    /// de prijs bij de voorkeursleverancier, anders de geschatte kostprijs), verkoopprijs = inkoop + opslag, en de voorkeursleverancier voor het bestellen.
+    /// </summary>
+    private async Task ArtikelGekozen(int artikelId)
+    {
+        _artZoekOpen = false;
+        if (_order is not { } o) return;
+        try
+        {
+            var a = await Artikelen.GetAsync(artikelId);
+            if (a is null) { Toon($"Artikel #{artikelId} niet gevonden.", true); return; }
+            ArtikelLeverancier? lev = null;
+            try
+            {
+                var levs = await Artikelen.LeveranciersAsync(artikelId);
+                lev = levs.FirstOrDefault(l => l.Voorkeur) ?? levs.FirstOrDefault();
+            }
+            catch { }
+            var inkoop = a.Kostprijs is > 0 ? a.Kostprijs
+                       : lev?.PrijsPerStuk is > 0 ? Math.Round(lev.PrijsPerStuk, 4)
+                       : a.Schattingsprijs is > 0 ? a.Schattingsprijs : null;
+            var fabriek = (a.CodeFabrikant ?? "").Trim();
+            var r = new VerkoopOrderRegel
+            {
+                OrderId = o.Id, Volgorde = VolgendeVolgorde, ArtikelId = artikelId, Aantal = 1,
+                Code = fabriek.Length > 0 ? fabriek : a.Code,
+                Omschrijving = a.OmschrijvingNl ?? "",
+                Inkoopprijs = inkoop,
+                Verkoopprijs = inkoop is decimal i ? Math.Round(i * (1 + _toeslag / 100m), 2) : null,
+                LeverancierId = lev?.LeverancierId, Leverancier = lev?.Leverancier ?? "",
+            };
+            await Repo.BewaarRegelAsync(r);
+            o.Regels.Add(r);
+            VerversLijstregel();
+            Toon($"{r.Code} toegevoegd" + (inkoop is null ? "; geen kostprijs bekend, vul de prijzen zelf in." : "."), inkoop is null);
+        }
+        catch (Exception ex) { Toon("Artikel toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task WisRegel(VerkoopOrderRegel r)
+    {
+        if (_order is not { } o) return;
+        try { await Repo.WisRegelAsync(r.Id); o.Regels.Remove(r); VerversLijstregel(); }
+        catch (Exception ex) { Toon("Regel verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    private static decimal? Marge(VerkoopOrderRegel r)
+        => r.Verkoopprijs is decimal v && v != 0 && r.Inkoopprijs is decimal i ? (v - i) / v : null;
+
+    // ---------- nieuwe order ----------
+    private bool _nieuwOpen;
+    private string _klantZoek = "";
+    private List<Keuze> _klanten = new();
+    private Keuze? _nieuwKlant;
+    private List<Contactpersoon> _nieuwContacten = new();
+    private VerkoopOrder _nieuw = new();
+
+    private void OpenNieuw()
+    {
+        _nieuwOpen = true;
+        _nieuwKlant = null;
+        _klantZoek = "";
+        _klanten = new();
+        _nieuw = new VerkoopOrder { BvId = _bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : _bvs.FirstOrDefault()?.Id ?? StandaardBv };
+    }
+
+    private void SluitNieuw() => _nieuwOpen = false;
+
+    private async Task KlantGetypt(ChangeEventArgs e)
+    {
+        _klantZoek = (string?)e.Value ?? "";
+        if (_klantZoek.Trim().Length < 2) { _klanten = new(); return; }
+        try { _klanten = await Relaties.ZoekAsync(_klantZoek.Trim(), true, false, 0, 15); }
+        catch (Exception ex) { Toon("Klant zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task KiesKlant(Keuze k)
+    {
+        _nieuwKlant = k;
+        _nieuw.KlantId = k.Id;
+        _nieuw.Klant = k.Naam;
+        try
+        {
+            _nieuwContacten = await Relaties.GetContactpersonenAsync(k.Id, false);
+            _nieuw.ContactId = _nieuwContacten.Count == 1 ? _nieuwContacten[0].Id : null;
+            var standaard = await Facturen.KlantStandaardAsync(k.Id);
+            _nieuw.Engels = standaard.Engels;
+            _nieuw.BtwVerlegd = standaard.BtwVerlegd;
+        }
+        catch (Exception ex) { Toon("Klantgegevens ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task MaakNieuw()
+    {
+        if (_nieuwKlant is null || _bezig) return;
+        _bezig = true;
+        try
+        {
+            var id = await Repo.NieuwAsync(_nieuw, Ik.WerknemerId);
+            _nieuwOpen = false;
+            if (_status is "afgerond" or "geannuleerd") _status = "open";
+            await LaadLijst();
+            await Kies(id);
+            Toon($"{_order?.Ordernummer} aangemaakt" + (_order?.Werkorder is { Length: > 0 } wo ? $" (werkorder {wo})." : "."), false);
+        }
+        catch (Exception ex) { Toon("Order aanmaken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---------- orderbevestiging ----------
+    private async Task BevestigingDicht(bool verstuurd)
+    {
+        _bevestigOpen = false;
+        if (verstuurd && _order is { } o) await Kies(o.Id);
+        VerversLijstregel();
+    }
+
+    // ---------- hulp ----------
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C2", Nl);
+    private static string Getal(decimal w) => w.ToString("0.###", Nl);
+    private static string Prijs(decimal? w) => w is decimal p ? p.ToString("0.00##", Nl) : "";
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    /// <summary>Getal met komma of punt; leeg = null.</summary>
+    private static decimal? Bedrag(ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Trim().Replace("€", "").Replace(" ", "");
+        if (t.Length == 0) return null;
+        if (t.Contains(',')) t = t.Replace(".", "").Replace(',', '.');
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

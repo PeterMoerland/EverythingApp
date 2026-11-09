@@ -111,7 +111,8 @@ else
     private bool Zichtbaar(MenuItem item)
         => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
            || (item.Recht == "Budgetverantwoordelijke" && Ik.Mag("Directie"))    // welkomstscherm: ook Directie
-           || (item.Recht == "Fusion" && Ik.MagFusion);                          // Fusion: ook Directie
+           || (item.Recht == "Fusion" && Ik.MagFusion)
+           || (item.Recht == "Verkoop" && Ik.MagVerkoop);                        // Verkooporders: ook Directie                          // Fusion: ook Directie
 
     private int Totaal => _module?.Groepen.SelectMany(g => g.Items).Count(Zichtbaar) ?? 0;
     private int Gemigreerd => _module?.Groepen.SelectMany(g => g.Items).Count(i => Zichtbaar(i) && i.Klaar) ?? 0;

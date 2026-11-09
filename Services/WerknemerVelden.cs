@@ -109,7 +109,9 @@ public static class WerknemerVelden
             // firmwareversies toevoegen en wijzigen (Controllertypen ▸ Firmware); kolom uit Werknemers_MagFirmware_MariaDB.sql
             new Veld("Mag firmware beheren", VeldType.JaNee, new[] { "MagFirmware" }),
             // Tools ▸ Fusion (CAM, Eurocircuits, JLCPCB); kolom uit Werknemers_Fusion_MariaDB.sql
-            new Veld("Fusion", VeldType.JaNee, new[] { "Fusion" })),
+            new Veld("Fusion", VeldType.JaNee, new[] { "Fusion" }),
+            // Bestellingen ▸ Verkooporders invoeren en bevestigen; kolom uit VerkoopOrders_MariaDB.sql
+            new Veld("Verkooporders", VeldType.JaNee, new[] { "Verkoop" })),
 
         new("Financieel", "HRM",
             new Veld("IBAN", VeldType.Tekst, new[] { "IBAN", "iban", "Bankrekening" }),

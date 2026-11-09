@@ -1,0 +1,247 @@
+@* Orderbevestiging van een verkooporder (wens gebruiker 9-11-2026): PDF maken en bekijken -> mail nakijken -> versturen
+   via de eigen Gmail (zelfde opzet als FactuurVersturenVenster). Daarna de PDF in de filestore (StoreType 350,
+   MasterID = de order) en de order op bevestigd. Order: de order (met regels), null = dicht. *@
+@inject OrderbevestigingPdfService Pdf
+@inject IVerkoopOrderRepository Repo
+@inject FilestoreService Filestore
+@inject MailService Post
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+@inject ILogger<OrderbevestigingVenster> Log
+@implements IAsyncDisposable
+
+@if (Order is not null)
+{
+    <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
+        <div class="factuurvenster" @onclick:stopPropagation @onmousedown:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Orderbevestiging @Order.Ordernummer</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+
+            <div class="factuurvenster-inhoud">
+                @if (_melding is not null)
+                {
+                    <div class="melding @(_meldingFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+                }
+                @if (_bezig.Length > 0)
+                {
+                    <div class="factuur-lezen"><span class="draaier"></span><span class="factuur-lezen-tekst">@_bezig</span></div>
+                }
+
+                <div class="factuur-tweeluik">
+                    <div class="factuur-linkerkant">
+                        @if (Order.BevestigdOp is DateTime al)
+                        {
+                            <p class="factuur-waarschuwing">Al verstuurd op @al.ToString("dd-MM-yyyy HH:mm")@(Order.BevestigdAan.Length > 0 ? " aan " + Order.BevestigdAan : "").
+                                Opnieuw versturen kan, bijvoorbeeld na een wijziging.</p>
+                        }
+                        <h3 class="wn-kop">Mail</h3>
+                        <div class="wn-velden een-kolom">
+                            <div class="wn-veld breed">
+                                <label>Aan</label>
+                                <input value="@_aan" @onchange="e => _aan = Tekst(e)" placeholder="inkoop@klant.nl" />
+                            </div>
+                            @if (_aan.Length == 0)
+                            {
+                                <div class="wn-veld breed">
+                                    <label></label>
+                                    <span class="factuur-waarschuwing">Van deze contactpersoon is geen e-mailadres bekend (Relaties). Vul het hier in.</span>
+                                </div>
+                            }
+                            <div class="wn-veld breed">
+                                <label>CC</label>
+                                <input value="@_cc" @onchange="e => _cc = Tekst(e)" />
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Onderwerp</label>
+                                <input value="@_onderwerp" @onchange="e => _onderwerp = Tekst(e)" />
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Tekst</label>
+                                <textarea rows="9" value="@_tekst" @onchange="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Handtekening</label>
+                                @if (_handtekening is null)
+                                {
+                                    <span class="alleen-lezen zij-extra">ophalen uit je Gmail…</span>
+                                }
+                                else if (_handtekening.Length == 0)
+                                {
+                                    <span class="alleen-lezen zij-extra">Geen handtekening gevonden in je Gmail.</span>
+                                }
+                                else
+                                {
+                                    <div class="factuur-handtekening">
+                                        <label class="vink"><input type="checkbox" checked="@_metHandtekening"
+                                               @onchange="e => _metHandtekening = e.Value is true" /> Mijn Gmail-handtekening eronder</label>
+                                        @if (_metHandtekening) { <div class="factuur-handtekening-voorbeeld">@((MarkupString)_handtekening)</div> }
+                                    </div>
+                                }
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Bijlage</label>
+                                <span class="alleen-lezen">@(_pdf is null ? "—" : $"📄 {_naam} ({_pdf.Length / 1024} kB)")</span>
+                            </div>
+                            <div class="wn-veld breed">
+                                <label>Van</label>
+                                <span class="alleen-lezen">@(Ik.Email.Length > 0 ? Ik.Email : "—") <span class="zij-extra">(je eigen Gmail; de mail komt in je map Verzonden)</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="factuur-rechterkant">
+                        <div class="factuur-kijker">
+                            @if (_url.Length > 0)
+                            {
+                                <iframe src="@_url" title="@_naam"></iframe>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bijlagevoet">
+                <button class="klein" @onclick="Sluit">Annuleren</button>
+                <button class="primair" disabled="@(_bezig.Length > 0 || _pdf is null || _klaar)" @onclick="Versturen">✉ Versturen</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public VerkoopOrder? Order { get; set; }
+    [Parameter] public string ContactNaam { get; set; } = "";
+    [Parameter] public string ContactMail { get; set; } = "";
+    /// <summary>Dicht; true = verstuurd.</summary>
+    [Parameter] public EventCallback<bool> OpGesloten { get; set; }
+
+    private int _geladenVoor = -1;
+    private byte[]? _pdf;
+    private string _naam = "", _url = "";
+    private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
+    private string? _handtekening;
+    private bool _metHandtekening = true, _overlayDruk, _klaar;
+    private string _bezig = "";
+    private string? _melding;
+    private bool _meldingFout;
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var id = Order?.Id ?? -1;
+        if (id == _geladenVoor) return;
+        _geladenVoor = id;
+        _pdf = null; _melding = null; _klaar = false;
+        await WisUrl();
+        if (Order is not { } o) return;
+
+        try
+        {
+            _bezig = "PDF maken…";
+            StateHasChanged();
+            var (pdf, afzender) = await Pdf.MaakAsync(o, ContactNaam);
+            _pdf = pdf;
+            _naam = OrderbevestigingPdfService.Bestandsnaam(o);
+            _aan = ContactMail;
+            _cc = "";
+            _onderwerp = OrderbevestigingPdfService.Onderwerp(o, afzender.Naam);
+            _tekst = OrderbevestigingPdfService.MailTekst(o, ContactNaam);
+            try { _url = await JS.InvokeAsync<string>("mdeBlob.maak", pdf, "application/pdf"); } catch { _url = ""; }
+            _bezig = "";
+            StateHasChanged();
+            if (Ik.Email.Length > 0)
+                try { _handtekening = await Post.HandtekeningAsync(MailService.Eigen(Ik.Email)); } catch { _handtekening = ""; }
+            else _handtekening = "";
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _bezig = ""; }
+    }
+
+    private async Task Versturen()
+    {
+        if (Order is not { } o || _pdf is null) return;
+        if (Ik.Email.Length == 0) { Toon("Versturen kan alleen als je met je eigen Google-account bent aangemeld.", true); return; }
+        if (!_aan.Contains('@')) { Toon("Vul een geldig e-mailadres in bij Aan.", true); return; }
+        if (!await Vraag($"Orderbevestiging {o.Ordernummer} nu mailen naar {_aan}?")) return;
+
+        try
+        {
+            _bezig = "Mail versturen…";
+            StateHasChanged();
+            var metHt = _metHandtekening && _handtekening is { Length: > 0 };
+            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
+                                     metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst,
+                                     new[] { (_naam, _pdf) }, _cc.Length > 0 ? _cc : null, html: metHt);
+        }
+        catch (Exception ex)
+        {
+            _bezig = "";
+            Toon("Mail versturen mislukt; er is niets opgeslagen of veranderd. " + ex.Message, true);
+            return;
+        }
+
+        // De mail is weg: vanaf hier niet meer afbreken, wel melden wat misging.
+        var fouten = new List<string>();
+        _bezig = "PDF bewaren…";
+        StateHasChanged();
+        try
+        {
+            using var stroom = new MemoryStream(_pdf);
+            await Filestore.ToevoegenAsync(stroom, _naam, VerkoopOrderStatus.StoreTypeBevestiging, o.Id, Ik.WerknemerId ?? 0);
+        }
+        catch (Exception ex) { fouten.Add("PDF niet in de filestore: " + ex.Message); }
+        try { await Repo.ZetBevestigdAsync(o.Id, _aan, Ik.WerknemerId); }
+        catch (Exception ex) { fouten.Add("Op bevestigd zetten mislukt: " + ex.Message); }
+        _bezig = "";
+        _klaar = true;
+
+        if (fouten.Count == 0)
+        {
+            Toon($"Verstuurd naar {_aan}.", false);
+            await Task.Delay(700);
+            await Sluit();
+        }
+        else
+        {
+            Log.LogWarning("Orderbevestiging {Nr} afronden: {Fouten}", o.Ordernummer, string.Join(" | ", fouten));
+            Toon($"Verstuurd naar {_aan}. Maar: " + string.Join(" ", fouten), true);
+        }
+    }
+
+    private async Task Sluit()
+    {
+        _geladenVoor = -1;
+        await WisUrl();
+        await OpGesloten.InvokeAsync(_klaar);
+    }
+
+    private async Task OverlayGeklikt()
+    {
+        if (!_overlayDruk) return;
+        _overlayDruk = false;
+        await Sluit();
+    }
+
+    private async Task WisUrl()
+    {
+        if (_url.Length == 0) return;
+        var url = _url;
+        _url = "";
+        try { await JS.InvokeVoidAsync("mdeBlob.weg", url); } catch { }
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await WisUrl(); } catch { }
+    }
+}

@@ -122,6 +122,8 @@ public static class Menu
             new MenuGroep("Ontvangst",
                 new MenuItem("Materiaal inboeken", "/bestellingen/ontvangst", Icoon: "package-check"),
                 new MenuItem("Scan bestelling", Icoon: "scan-line")),
+            new MenuGroep("Verkoop",
+                new MenuItem("Verkooporders", "/bestellingen/verkooporders", "Verkoop", Icoon: "receipt-text")),
             new MenuGroep("Verzenden",
                 new MenuItem("Pakbonnen", "/bestellingen/pakbonnen", Icoon: "truck")),
             new MenuGroep("Rapporten",

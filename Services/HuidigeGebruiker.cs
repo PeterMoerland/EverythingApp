@@ -327,6 +327,9 @@ public class HuidigeGebruiker
     /// </summary>
     public bool MagFusion => !Gekoppeld || Mag("Fusion") || Mag("Directie") || (Medewerker is not null && _medewerkerFusion);
 
+    /// <summary>Verkooporders invoeren (Bestellingen ▸ Verkooporders): het recht Verkoop, of Directie (VerkoopOrders_MariaDB.sql).</summary>
+    public bool MagVerkoop => Mag("Verkoop") || Mag("Directie");
+
     public static bool IsFinancienPad(string pad)
     {
         pad = pad.Split('?', '#')[0].Trim('/');

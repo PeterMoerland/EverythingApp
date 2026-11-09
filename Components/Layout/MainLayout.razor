@@ -352,7 +352,7 @@
         if (!string.IsNullOrWhiteSpace(m.Url)) return true;
 
         return m.Groepen.SelectMany(g => g.Items)
-                        .Any(i => i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion));
+                        .Any(i => i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop));
     }
 
     // ===== Gebouwbeheer als zwevend venster =====

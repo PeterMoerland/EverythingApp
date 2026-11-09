@@ -168,6 +168,7 @@ if (liveDb)
     builder.Services.AddSingleton<IFactuurInboxRepository>(_ => new MySqlFactuurInboxRepository(cs!));
     builder.Services.AddSingleton<IWelkomRepository>(_ => new MySqlWelkomRepository(cs!));
     builder.Services.AddSingleton<IVerbeterRepository>(_ => new MySqlVerbeterRepository(cs!));
+    builder.Services.AddSingleton<IVerkoopOrderRepository>(sp => new MySqlVerkoopOrderRepository(cs!, sp.GetRequiredService<IProjectRepository>()));
     builder.Services.AddSingleton<IBroodjesRepository>(_ => new MySqlBroodjesRepository(cs!));
     builder.Services.AddSingleton<IProjectBudgetRepository>(_ => new MySqlProjectBudgetRepository(cs!));
     // Projectteam; lokaal testen zonder in ProjectTeam te schrijven: ProjectTeam__Geheugen=true (rollen en namen wel echt)
@@ -214,6 +215,7 @@ else
     builder.Services.AddSingleton<IFactuurInboxRepository, GeenFactuurInboxRepository>();
     builder.Services.AddSingleton<IWelkomRepository, GeenWelkomRepository>();
     builder.Services.AddSingleton<IVerbeterRepository, GeenVerbeterRepository>();
+    builder.Services.AddSingleton<IVerkoopOrderRepository, GeenVerkoopOrderRepository>();
     builder.Services.AddSingleton<IBroodjesRepository, GeenBroodjesRepository>();
     builder.Services.AddSingleton<IProjectBudgetRepository, GeenProjectBudgetRepository>();
     builder.Services.AddSingleton<IProjectTeamRepository, GeenProjectTeamRepository>();
@@ -261,6 +263,11 @@ builder.Services.AddSingleton<WelkomSchermService>();
 // Verbeterverzoeken (lampje in de bovenbalk) lokaal testen zonder de tabel: Verbeter__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Verbeter:Geheugen"))
     builder.Services.AddSingleton<IVerbeterRepository, GeheugenVerbeterRepository>();
+// Verkooporders lokaal testen zonder de tabellen: Verkoop__Geheugen=true (geen project/werkorder; adres en BV wel gelezen)
+if (builder.Configuration.GetValue<bool>("Verkoop:Geheugen"))
+    builder.Services.AddSingleton<IVerkoopOrderRepository>(sp => new GeheugenVerkoopOrderRepository(
+        string.IsNullOrWhiteSpace(cs) ? null : new MySqlVerkoopOrderRepository(cs, sp.GetRequiredService<IProjectRepository>())));
+builder.Services.AddSingleton<OrderbevestigingPdfService>();
 // Broodjes (Kaeswienkeltje, /broodjes) lokaal testen zonder de tabellen: Broodjes__Geheugen=true
 if (builder.Configuration.GetValue<bool>("Broodjes:Geheugen"))
     builder.Services.AddSingleton<IBroodjesRepository, GeheugenBroodjesRepository>();
