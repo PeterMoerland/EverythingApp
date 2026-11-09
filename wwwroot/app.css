@@ -2223,6 +2223,26 @@ html[data-thema="donker"] .bvs-kaart.actief { outline-color: #6aa7ef; }
 html[data-thema="donker"] .bvs-sub, html[data-thema="donker"] .bvs-feiten b { color: #9fb0c4; }
 html[data-thema="donker"] .bvs-houder, html[data-thema="donker"] .bvs-link { color: #9ec4f5; }
 html[data-thema="donker"] .bvs-detail { border-top-color: #34465c; }
+/* Verzekeringen */
+.vz-overnemen { margin-top: .4rem; width: 100%; }
+.vz-stand { display: inline-block; margin-left: .35rem; padding: 0 .35rem; border-radius: 4px; font-size: .72rem; border: 1px solid; }
+.vz-stand.oranje { background: #fff3d6; border-color: #e6a817; color: #7a4f00; }
+.vz-stand.rood { background: #fde8e8; border-color: #e08b8b; color: #9b1c1c; }
+.vz-stand.grijs { background: #eef1f4; border-color: #c2ccd7; color: #5b6878; }
+.vz-uitleg.oranje { color: #7a4f00; }
+.vz-uitleg.rood { color: #9b1c1c; }
+.vz-premie { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.vz-premie input.r { width: 8rem; }
+.vz-premie input.smal { width: 4rem; }
+.vz-kiezer { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; position: relative; }
+.vz-kiezer input { flex: 1 1 10rem; }
+.vz-treffers { display: flex; flex-direction: column; width: 100%; max-height: 14rem; overflow: auto; border: 1px solid #c9d3df; border-radius: 4px; }
+html[data-thema="donker"] .vz-stand.oranje { background: #33290f; border-color: #7a6320; color: #ffd9a0; }
+html[data-thema="donker"] .vz-stand.rood { background: #3a1c1c; border-color: #7a3434; color: #f3b0b0; }
+html[data-thema="donker"] .vz-stand.grijs { background: #26303c; border-color: #4a5869; color: #c4d0de; }
+html[data-thema="donker"] .vz-uitleg.oranje { color: #ffd9a0; }
+html[data-thema="donker"] .vz-uitleg.rood { color: #f3b0b0; }
+html[data-thema="donker"] .vz-treffers { border-color: #34465c; }
 /* Liquiditeit: BV kiezen in een kleine boom */
 .lq-bvkeuze { flex: 1 1 26rem; }
 .lq-org { gap: 1.5rem; padding: .2rem 0; }

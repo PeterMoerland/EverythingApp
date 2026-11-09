@@ -26,14 +26,17 @@ public class FilestoreService
     /// </summary>
     public const int StoreTypeBvDocument = 360;
 
+    /// <summary>Polis, voorwaarden, aanhangsels van een verzekering (Financiën > Verzekeringen), MasterID = VerzekeringID. Financial/Directie.</summary>
+    public const int StoreTypeVerzekering = 361;
+
     /// <summary>
     /// Mag deze gebruiker bestanden van deze soort zien? Werknemersdossier (300/301) alleen HRM/Directie, BV-documenten
-    /// alleen Financial/Directie; de rest iedereen. Bijlagen van berichten (341) hebben een eigen controle per bestand.
+    /// en verzekeringspolissen alleen Financial/Directie; de rest iedereen. Bijlagen van berichten (341) hebben een eigen controle per bestand.
     /// </summary>
     public static bool MagSoortZien(int storeType, HuidigeGebruiker ik) => storeType switch
     {
         300 or 301 => !ik.Gekoppeld || ik.Mag("HRM") || ik.Mag("Directie"),
-        StoreTypeBvDocument => ik.Mag("Financial") || ik.Mag("Directie"),
+        StoreTypeBvDocument or StoreTypeVerzekering => ik.Mag("Financial") || ik.Mag("Directie"),
         _ => true,
     };
 

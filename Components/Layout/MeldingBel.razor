@@ -148,8 +148,8 @@
                         <div class="bel-bericht @(ongelezen ? "ongelezen" : "")" @key="m.Id">
                             @if (Link(m) is { } link)
                             {
-                                <a class="bel-regel" href="@link" target='@(m.Soort == "verbeter" ? null : "_blank")' rel="noopener"
-                                   @onclick='async () => { await ZetGelezen(m, true); if (m.Soort == "verbeter") _open = false; }'>
+                                <a class="bel-regel" href="@link" target='@(m.Soort is "verbeter" or "verzekering" ? null : "_blank")' rel="noopener"
+                                   @onclick='async () => { await ZetGelezen(m, true); if (m.Soort is "verbeter" or "verzekering") _open = false; }'>
                                     <span class="bel-po">@Icoon(m)</span>
                                     <span class="bel-tekst">@m.Tekst<small>@Onder(m)</small></span>
                                 </a>
@@ -376,12 +376,13 @@
     {
         "analyse" => $"ai?vraag={oid}",           // OrderId = de vraag (Vragen aan AI)
         "verbeter" => $"verbeterverzoeken?verzoek={oid}",
+        "verzekering" => $"financien/verzekeringen?verzekering={oid}",
         _ => $"bestellingen?order={oid}",
     };
 
     private static string Icoon(Melding m) => m.Soort switch
     {
-        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "goedgekeurd" => "✅", _ => "•",
+        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "verzekering" => "🛡️", "goedgekeurd" => "✅", _ => "•",
     };
 
     private static string Onder(Melding m)

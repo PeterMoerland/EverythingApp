@@ -239,6 +239,22 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Verzekeringen (9-11-2026)
+
+Financiën > Organisatie > **Verzekeringen** (`Components/Pages/Verzekeringen.razor`, `Services/IVerzekeringRepository.cs`),
+alleen Financial/Directie. Script **`Verzekeringen_MariaDB.sql`** (tabel `Verzekeringen`, FileStoreType 361
+`Verzekeringspolis`). Per verzekering: BV (verzekeringnemer), soort, verzekeraar en tussenpersoon (relaties), polisnummer,
+verzekerd bedrag, eigen risico, premie (of gekoppeld aan een vaste last: dan alleen lezen en al in Liquiditeit),
+ingangs- en contractvervaldatum, stilzwijgend verlengd (termijn in maanden), opzegtermijn, status, beheerder, dekking.
+- **Herinnering** (`Services/VerzekeringWaker.cs`, elke 6 uur): vanaf 30 dagen vóór de uiterste opzegdatum (volgende
+  vervaldatum min opzegtermijn) een melding (soort `verzekering`, 🛡️, link `financien/verzekeringen?verzekering=`) aan
+  de Directie en de beheerder; één keer per vervaldatum (`GemeldVoor`). In de lijst oranje/rood.
+- **Overnemen uit Vaste lasten**: elke vaste last in een categorie met "verzeker" die nog niet gekoppeld is wordt een
+  verzekering (soort geraden met `VerzekeringSoort.Raad`), gekoppeld aan die vaste last.
+- **Documenten**: StoreType 361, afgeschermd zoals de BV-documenten (`FilestoreService.MagSoortZien`).
+- Lokaal: `Verzekeringen__Geheugen=true` (de waker draait dan ook; vul in tests geen beheerder in, die krijgt anders een
+  echte melding).
+
 ## BV-structuur en meerdere BV's (9-11-2026)
 
 Aanleiding: M-Pede Robotics wordt een aparte BV naast MDE Automation; uren en materialen worden over en weer gefactureerd.

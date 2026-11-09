@@ -132,6 +132,11 @@ if (liveDb)
         builder.Services.AddSingleton<IBvStructuurRepository>(_ => new GeheugenBvStructuurRepository(new MySqlBvStructuurRepository(cs!)));
     else
         builder.Services.AddSingleton<IBvStructuurRepository>(_ => new MySqlBvStructuurRepository(cs!));
+    // Verzekeringen (Financiën > Verzekeringen); lokaal testen zonder de tabel: Verzekeringen__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("Verzekeringen:Geheugen"))
+        builder.Services.AddSingleton<IVerzekeringRepository>(_ => new GeheugenVerzekeringRepository(new MySqlVerzekeringRepository(cs!)));
+    else
+        builder.Services.AddSingleton<IVerzekeringRepository>(_ => new MySqlVerzekeringRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
@@ -197,6 +202,7 @@ else
     builder.Services.AddSingleton<IProductRepository, GeenProductRepository>();
     builder.Services.AddSingleton<IBestelRepository, GeenBestelRepository>();
     builder.Services.AddSingleton<IBvStructuurRepository, GeenBvStructuurRepository>();
+    builder.Services.AddSingleton<IVerzekeringRepository, GeenVerzekeringRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
@@ -290,6 +296,8 @@ builder.Services.AddSingleton<VaultBackupWaker>();
 // Nieuwe versie aankondigen: balk met aftelklok bij iedereen (service-herstarten.bat of Beheer ▸ Nieuwe versie aankondigen)
 builder.Services.AddSingleton<OnderhoudMelding>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
+// herinnering in de bel vóór de opzegdatum van een verzekering (Financiën > Verzekeringen)
+builder.Services.AddHostedService<VerzekeringWaker>();
 builder.Services.AddSingleton<FactuurLezer>();
 
 // Vragen aan AI (Financiën): Amazon Bedrock (sectie "Bedrock" in appsettings.json), opvragingen in
@@ -623,7 +631,7 @@ app.MapPost("/werkplek/koppelen", async (HttpContext ctx, IWerkplekRepository re
 // Geldt ook voor /voorbeeld/{id} (daar zat tot 9-11-2026 geen controle op).
 async Task<bool> MagBestand(int id, int storeType, HuidigeGebruiker ik, IMeldingRepository meldingen)
 {
-    if (storeType is 300 or 301 or FilestoreService.StoreTypeBvDocument)
+    if (storeType is 300 or 301 or FilestoreService.StoreTypeBvDocument or FilestoreService.StoreTypeVerzekering)
     {
         await ik.ZorgGeladenAsync();
         if (!FilestoreService.MagSoortZien(storeType, ik)) return false;

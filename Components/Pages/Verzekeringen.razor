@@ -1,0 +1,504 @@
+@page "/financien/verzekeringen"
+@inject IVerzekeringRepository Repo
+@inject IBvStructuurRepository Structuur
+@inject IRelatieRepository Relaties
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Verzekeringen (wens gebruiker 9-11-2026): alle verzekeringen met de polissen, alleen Financial en Directie.
+   Links de lijst (zoeken, BV, status; kleur = opzegdatum nadert of voorbij), rechts de gegevens (opslaan per veld) en de
+   documenten (filestore StoreType 361). De premie kan aan een vaste last hangen (dan in Liquiditeit, niet dubbel).
+   "Overnemen uit Vaste lasten" maakt van elke vaste last in de categorie Verzekeringen een verzekering.
+   Herinnering in de bel: VerzekeringWaker. Tabel: Verzekeringen_MariaDB.sql. *@
+
+<PageTitle>Verzekeringen — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Verzekeringen</h1>
+        <span class="weeklabel">@Zichtbaar.Count() verzekering(en) · premie @Geld(Zichtbaar.Sum(v => v.PremiePerJaar ?? 0)) per jaar</span>
+    </header>
+
+    @if (!Ik.MagFinancien)
+    {
+        <section class="module-placeholder"><p>Verzekeringen zijn alleen voor Financial en Directie.</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>@(_laden ? "Laden…" : "De tabel voor verzekeringen ontbreekt nog: voer Verzekeringen_MariaDB.sql uit.")</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Omschrijving, polis, verzekeraar…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" data-zoeklijst />
+                        <button class="klein" title="Zoekveld wissen" disabled="@(_zoek.Length == 0)" @onclick="() => _zoek = string.Empty">✕</button>
+                    </div>
+                    <div class="btngroup">
+                        <select value="@_statusFilter" @onchange="e => _statusFilter = (string?)e.Value ?? VerzekeringStatus.Actief">
+                            <option value="actief">Actief</option>
+                            <option value="opgezegd">Opgezegd</option>
+                            <option value="beeindigd">Beëindigd</option>
+                            <option value="alles">Alles</option>
+                        </select>
+                        <select value="@(_bvFilter?.ToString() ?? string.Empty)" @onchange="e => _bvFilter = int.TryParse((string?)e.Value, out var b) ? b : null">
+                            <option value="">Alle BV's</option>
+                            @foreach (var b in _bvs) { <option value="@b.Id">@b.Naam</option> }
+                        </select>
+                        <button class="klein" @onclick="Nieuw">+ Nieuw</button>
+                    </div>
+                    @if (_nietGekoppeld.Count > 0)
+                    {
+                        <button class="klein vz-overnemen" disabled="@_bezig" title="@string.Join(", ", _nietGekoppeld.Select(n => n.Omschrijving))" @onclick="Overnemen">
+                            Overnemen uit Vaste lasten (@_nietGekoppeld.Count)
+                        </button>
+                    }
+                </div>
+                <div class="wn-namen">
+                    @if (!Zichtbaar.Any())
+                    {
+                        <div class="kiezer-info">@(_laden ? "Laden…" : "Geen verzekeringen gevonden.")</div>
+                    }
+                    @foreach (var v in Zichtbaar)
+                    {
+                        var stand = v.Stand(_vandaag);
+                        <button class="wn-naam pb-naam @(v.Id == _gekozen?.Id ? "actief" : "")" @onclick="() => Kies(v)">
+                            <span><b>@v.Omschrijving</b>@(v.Bv.Length > 0 ? " · " + v.Bv : string.Empty)</span>
+                            <small>
+                                @VerzekeringSoort.Naam(v.Soort)@(v.Verzekeraar.Length > 0 ? " · " + v.Verzekeraar : string.Empty)@(v.PremiePerJaar is decimal pj ? " · " + Geld(pj) + "/jr" : string.Empty)
+                                @if (stand.Length > 0 && v.UitersteOpzegdatum(_vandaag) is DateOnly od)
+                                {
+                                    <span class="vz-stand @stand">@(stand == "rood" ? "opzegdatum voorbij" : $"opzeggen vóór {od:dd-MM-yy}")</span>
+                                }
+                                @if (v.Status != VerzekeringStatus.Actief) { <span class="vz-stand grijs">@VerzekeringStatus.Naam(v.Status)</span> }
+                            </small>
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_gekozen is not { } g)
+                {
+                    <div class="kiezer-info">Kies links een verzekering, of maak een nieuwe.</div>
+                }
+                else
+                {
+                    <div class="pb-titel">
+                        <h2>@(g.Omschrijving.Length > 0 ? g.Omschrijving : "Nieuwe verzekering")</h2>
+                        <span class="stand-chip @(g.Status == VerzekeringStatus.Actief ? "s-groen" : "s-grijs")">@VerzekeringStatus.Naam(g.Status)</span>
+                        <span class="pb-vulling"></span>
+                        <button class="klein rood" @onclick="Wis">Wissen</button>
+                    </div>
+                    @if (g.VolgendeVervaldatum(_vandaag) is DateOnly verval)
+                    {
+                        var stand = g.Stand(_vandaag);
+                        <p class="uitleg vz-uitleg @stand">
+                            @(g.StilzwijgendVerlengd ? "Verlengt" : "Loopt af") op <b>@verval.ToString("dd-MM-yyyy")</b>@(g.OpzegtermijnMaanden is int om && om > 0 ? $"; opzeggen uiterlijk {g.UitersteOpzegdatum(_vandaag):dd-MM-yyyy} ({om} mnd opzegtermijn)" : string.Empty).
+                            @if (g.Status == VerzekeringStatus.Actief) { <span>Herinnering in de bel vanaf @g.HerinneringVanaf(_vandaag)?.ToString("dd-MM-yyyy").</span> }
+                        </p>
+                    }
+
+                    <div class="wn-velden pb-velden">
+                        <div class="wn-veld breed">
+                            <label>Omschrijving</label>
+                            <input value="@g.Omschrijving" maxlength="200" @onchange="e => Zet(x => x.Omschrijving = Tekst(e))" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Soort</label>
+                            <select value="@g.Soort" @onchange="e => Zet(x => x.Soort = (string?)e.Value ?? x.Soort)">
+                                @foreach (var s in VerzekeringSoort.Alle) { <option value="@s.Code">@s.Naam</option> }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Verzekeringnemer (BV)</label>
+                            <select value="@(g.BvId?.ToString() ?? string.Empty)" @onchange="e => Zet(x => x.BvId = int.TryParse((string?)e.Value, out var b) ? b : null)">
+                                <option value="">—</option>
+                                @foreach (var b in _bvs) { <option value="@b.Id">@b.Naam</option> }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Verzekeraar</label>
+                            @RelatieKiezer("verzekeraar", g.VerzekeraarId, g.Verzekeraar)
+                        </div>
+                        <div class="wn-veld">
+                            <label>Tussenpersoon</label>
+                            @RelatieKiezer("tussenpersoon", g.TussenpersoonId, g.Tussenpersoon)
+                        </div>
+                        <div class="wn-veld">
+                            <label>Polisnummer</label>
+                            <input value="@g.Polisnummer" maxlength="60" @onchange="e => Zet(x => x.Polisnummer = Tekst(e))" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Status</label>
+                            <select value="@g.Status" @onchange="e => Zet(x => x.Status = (string?)e.Value ?? x.Status)">
+                                @foreach (var s in VerzekeringStatus.Alle) { <option value="@s">@VerzekeringStatus.Naam(s)</option> }
+                            </select>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Verzekerd bedrag</label>
+                            <input class="r" value="@Bedrag2(g.VerzekerdBedrag)" @onchange="e => Zet(x => x.VerzekerdBedrag = Lees(e))" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Eigen risico</label>
+                            <input class="r" value="@Bedrag2(g.EigenRisico)" @onchange="e => Zet(x => x.EigenRisico = Lees(e))" />
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Premie</label>
+                            @if (g.VasteLastId is not null)
+                            {
+                                <span class="alleen-lezen">
+                                    @Bedrag2(g.VasteLastBedrag) per @Termijn(g.VasteLastTermijn) (@Geld(g.PremiePerJaar ?? 0) per jaar) — uit vaste last
+                                    <a href="/financien/vaste-lasten">@g.VasteLast</a>, telt zo al mee in Liquiditeit.
+                                    <button class="klein" title="De premie hier zelf invullen; de vaste last blijft bestaan" @onclick="() => Zet(x => { x.Premie = x.VasteLastBedrag; x.PremieInterval = x.VasteLastTermijn; x.VasteLastId = null; })">ontkoppelen</button>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="vz-premie">
+                                    <input class="r" value="@Bedrag2(g.Premie)" @onchange="e => Zet(x => x.Premie = Lees(e))" />
+                                    <select value="@(g.PremieInterval is VasteLastInterval pi ? ((int)pi).ToString() : string.Empty)"
+                                            @onchange="e => Zet(x => x.PremieInterval = int.TryParse((string?)e.Value, out var i) ? (VasteLastInterval)i : null)">
+                                        <option value="">per …</option>
+                                        @foreach (var i in Enum.GetValues<VasteLastInterval>()) { <option value="@((int)i)">per @Termijn(i)</option> }
+                                    </select>
+                                    <small class="zij-extra">Niet als vaste last vastgelegd, dus niet in Liquiditeit.</small>
+                                </span>
+                            }
+                        </div>
+                        <div class="wn-veld">
+                            <label>Ingangsdatum</label>
+                            <input type="date" value="@(g.Ingangsdatum?.ToString("yyyy-MM-dd") ?? string.Empty)" @onchange="e => Zet(x => x.Ingangsdatum = DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Contractvervaldatum</label>
+                            <input type="date" value="@(g.Contractvervaldatum?.ToString("yyyy-MM-dd") ?? string.Empty)" @onchange="e => Zet(x => x.Contractvervaldatum = DateOnly.TryParse((string?)e.Value, out var d) ? d : null)" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Verlenging</label>
+                            <span class="vz-premie">
+                                <label class="vink"><input type="checkbox" checked="@g.StilzwijgendVerlengd" @onchange="e => Zet(x => x.StilzwijgendVerlengd = e.Value is true)" /> stilzwijgend, steeds</label>
+                                <input class="r smal" value="@g.VerlengingMaanden" @onchange="e => Zet(x => x.VerlengingMaanden = int.TryParse((string?)e.Value, out var m) && m > 0 ? m : 12)" /><span>mnd</span>
+                            </span>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Opzegtermijn (maanden)</label>
+                            <input class="r smal" value="@(g.OpzegtermijnMaanden?.ToString() ?? string.Empty)" @onchange="e => Zet(x => x.OpzegtermijnMaanden = int.TryParse((string?)e.Value, out var m) && m >= 0 ? m : null)" />
+                        </div>
+                        <div class="wn-veld">
+                            <label>Beheerder <small class="zij-extra">(krijgt ook de herinnering)</small></label>
+                            <select value="@(g.BeheerderId?.ToString() ?? string.Empty)" @onchange="e => Zet(x => x.BeheerderId = int.TryParse((string?)e.Value, out var w) ? w : null)">
+                                <option value="">— (alleen Directie)</option>
+                                @foreach (var w in _werknemers) { <option value="@w.Id">@w.Naam</option> }
+                            </select>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Dekking</label>
+                            <textarea rows="3" maxlength="2000" value="@g.Dekking" @onchange="e => Zet(x => x.Dekking = Tekst(e))"></textarea>
+                        </div>
+                        <div class="wn-veld breed">
+                            <label>Opmerking</label>
+                            <textarea rows="2" maxlength="2000" value="@g.Opmerking" @onchange="e => Zet(x => x.Opmerking = Tekst(e))"></textarea>
+                        </div>
+                    </div>
+
+                    <h3 class="wn-kop">Polis en documenten <small class="zij-extra">(polis, voorwaarden, aanhangsels, schademeldingen; alleen Financial en Directie)</small></h3>
+                    <table class="kiezer-tabel bvs-tabel">
+                        <tbody>
+                            @foreach (var d in _documenten)
+                            {
+                                <tr @key="d.Id">
+                                    <td><button class="bestandnaam" title="Bekijken" @onclick="() => { _voorbeeldId = d.Id; _voorbeeldNaam = Naam(d); }">@Naam(d)</button></td>
+                                    <td style="width:9rem">@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? string.Empty)</td>
+                                    <td style="width:11rem">@d.Door</td>
+                                    <td class="c" style="width:5rem">
+                                        <a class="knopje" href="bestand/@d.Id/download" title="Downloaden">⭳</a>
+                                        <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderDocument(d)">✕</button>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_documenten.Count == 0)
+                            {
+                                <tr><td colspan="4" class="kiezer-info">Nog geen documenten bij deze verzekering.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (g.Id > 0)
+                    {
+                        <div class="sleepzone @(_sleepActief ? "actief" : string.Empty)"
+                             @ondragenter="() => _sleepActief = true" @ondragleave="() => _sleepActief = false" @ondragover:preventDefault="true">
+                            <span>Sleep hier de polis of een ander document, of klik om te kiezen</span>
+                            <InputFile OnChange="DocumentenGekozen" multiple />
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="_voorbeeldNaam" Sluiten="() => _voorbeeldId = null" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "verzekering")] public int? UitUrl { get; set; }
+
+    private bool _tabel, _laden = true, _bezig;
+    private List<Verzekering> _lijst = new();
+    private Verzekering? _gekozen;
+    private List<Keuze> _bvs = new(), _werknemers = new();
+    private List<VerzekeringUitVasteLast> _nietGekoppeld = new();
+    private string _zoek = "", _statusFilter = VerzekeringStatus.Actief;
+    private int? _bvFilter;
+    private string? _melding;
+    private bool _fout;
+    private readonly DateOnly _vandaag = DateOnly.FromDateTime(DateTime.Today);
+    private const int StandaardBv = 5254;   // MDE Automation
+
+    private IEnumerable<Verzekering> Zichtbaar => _lijst
+        .Where(v => _statusFilter == "alles" || v.Status == _statusFilter)
+        .Where(v => _bvFilter is null || v.BvId == _bvFilter)
+        .Where(v => _zoek.Trim().Length == 0 || _zoek.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).All(w =>
+            $"{v.Omschrijving} {v.Polisnummer} {v.Verzekeraar} {v.Tussenpersoon} {v.Bv} {VerzekeringSoort.Naam(v.Soort)}".Contains(w, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(v => v.Stand(_vandaag) switch { "rood" => 0, "oranje" => 1, _ => 2 }).ThenBy(v => v.Omschrijving);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Ik.MagFinancien || !Repo.Beschikbaar) { _laden = false; return; }
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            if (!_tabel) return;
+            try
+            {
+                _bvs = (await Structuur.BvsAsync()).Where(b => (b.MdeGroep || b.Werkmaatschappij) && !b.IsOpgeheven)
+                                                     .OrderByDescending(b => b.MdeGroep).ThenBy(b => b.Naam).Select(b => new Keuze(b.Id, b.Kort)).ToList();
+            }
+            catch { }
+            try { _werknemers = await Repo.WerknemersAsync(); } catch { }
+            await Laad();
+            if (UitUrl is int id && _lijst.FirstOrDefault(v => v.Id == id) is { } v) { _statusFilter = "alles"; await Kies(v); }
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        finally { _laden = false; }
+    }
+
+    private async Task Laad()
+    {
+        _lijst = await Repo.LijstAsync();
+        try { _nietGekoppeld = await Repo.NietGekoppeldAsync(); } catch { _nietGekoppeld = new(); }
+        if (_gekozen is { Id: > 0 } g) _gekozen = _lijst.FirstOrDefault(v => v.Id == g.Id);
+    }
+
+    private async Task Kies(Verzekering v)
+    {
+        _gekozen = v;
+        _relatieZoekVoor = null;
+        await LaadDocumenten();
+    }
+
+    private async Task Nieuw()
+    {
+        var v = new Verzekering { Omschrijving = "Nieuwe verzekering", BvId = _bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : _bvs.FirstOrDefault()?.Id };
+        try
+        {
+            await Repo.BewaarAsync(v, Ik.WerknemerId);
+            _statusFilter = VerzekeringStatus.Actief;
+            await Laad();
+            if (_lijst.FirstOrDefault(x => x.Id == v.Id) is { } nieuw) await Kies(nieuw);
+            Toon("Nieuwe verzekering aangemaakt; vul de gegevens in.", false);
+        }
+        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Elk veld slaat meteen op.</summary>
+    private async Task Zet(Action<Verzekering> wijzig)
+    {
+        if (_gekozen is not { } g) return;
+        wijzig(g);
+        try { await Repo.BewaarAsync(g, Ik.WerknemerId); await Laad(); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis()
+    {
+        if (_gekozen is not { } g) return;
+        if (!await Vraag($"Verzekering {g.Omschrijving} wissen? Liever de status op beëindigd zetten, dan blijft hij te vinden.")) return;
+        try
+        {
+            if (await Repo.WisAsync(g.Id) is { } reden) { Toon(reden, true); return; }
+            _gekozen = null;
+            await Laad();
+            Toon("Verzekering gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>Van elke vaste last in de categorie Verzekeringen (nog niet gekoppeld) een verzekering maken.</summary>
+    private async Task Overnemen()
+    {
+        if (_bezig || _nietGekoppeld.Count == 0) return;
+        if (!await Vraag($"{_nietGekoppeld.Count} vaste last(en) uit de categorie Verzekeringen overnemen als verzekering? De premie blijft bij de vaste last.")) return;
+        _bezig = true;
+        var n = 0;
+        try
+        {
+            foreach (var vl in _nietGekoppeld)
+            {
+                await Repo.BewaarAsync(new Verzekering
+                {
+                    Omschrijving = vl.Omschrijving, Soort = VerzekeringSoort.Raad(vl.Omschrijving), VasteLastId = vl.VasteLastId,
+                    BvId = vl.BvId ?? (_bvs.Any(b => b.Id == StandaardBv) ? StandaardBv : null),
+                }, Ik.WerknemerId);
+                n++;
+            }
+            await Laad();
+            Toon($"{n} verzekering(en) overgenomen. Vul per verzekering de verzekeraar, het polisnummer, de vervaldatum en de opzegtermijn aan, en sleep de polis erin.", false);
+        }
+        catch (Exception ex) { Toon($"Overnemen mislukt na {n}: " + ex.Message, true); await Laad(); }
+        finally { _bezig = false; }
+    }
+
+    // ---------- verzekeraar en tussenpersoon kiezen (relatie zoeken) ----------
+    private string? _relatieZoekVoor;
+    private string _relatieZoek = "";
+    private List<Keuze> _relatieTreffers = new();
+
+    private RenderFragment RelatieKiezer(string rol, int? id, string naam) => __builder =>
+    {
+        if (_relatieZoekVoor == rol)
+        {
+            <span class="vz-kiezer">
+                <input placeholder="Zoek de relatie…" value="@_relatieZoek" @oninput="RelatieGetypt" />
+                <button class="klein" @onclick="() => _relatieZoekVoor = null">✕</button>
+                @if (_relatieTreffers.Count > 0)
+                {
+                    <span class="vz-treffers">
+                        @foreach (var k in _relatieTreffers)
+                        {
+                            <button class="wn-naam" @onclick="() => ZetRelatie(rol, k)">@k.Naam</button>
+                        }
+                    </span>
+                }
+            </span>
+        }
+        else
+        {
+            <span class="vz-kiezer">
+                @if (id is int rid)
+                {
+                    <a href="/relaties?id=@rid">@naam</a>
+                }
+                else
+                {
+                    <span class="zij-extra">—</span>
+                }
+                <button class="klein" @onclick="() => { _relatieZoekVoor = rol; _relatieZoek = string.Empty; _relatieTreffers = new(); }">@(id is null ? "kiezen…" : "wijzigen")</button>
+                @if (id is not null)
+                {
+                    <button class="klein" title="Leegmaken" @onclick="() => ZetRelatie(rol, null)">✕</button>
+                }
+            </span>
+        }
+    };
+
+    private async Task RelatieGetypt(ChangeEventArgs e)
+    {
+        _relatieZoek = (string?)e.Value ?? "";
+        if (_relatieZoek.Trim().Length < 2) { _relatieTreffers = new(); return; }
+        try { _relatieTreffers = await Relaties.ZoekAsync(_relatieZoek.Trim(), false, false, 0, 10); }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetRelatie(string rol, Keuze? k)
+    {
+        _relatieZoekVoor = null;
+        await Zet(x =>
+        {
+            if (rol == "verzekeraar") { x.VerzekeraarId = k?.Id; x.Verzekeraar = k?.Naam ?? ""; }
+            else { x.TussenpersoonId = k?.Id; x.Tussenpersoon = k?.Naam ?? ""; }
+        });
+    }
+
+    // ---------- documenten (filestore StoreType 361) ----------
+    private List<FilestoreService.Regel> _documenten = new();
+    private bool _sleepActief;
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+
+    private static string Naam(FilestoreService.Regel d) => d.OrigineleNaam.Length > 0 ? d.OrigineleNaam : d.OpslagNaam;
+
+    private async Task LaadDocumenten()
+    {
+        if (_gekozen is not { Id: > 0 } g) { _documenten = new(); return; }
+        try { (_documenten, _) = await Store.ZoekRegelsAsync(FilestoreService.StoreTypeVerzekering, null, null, null, g.Id); }
+        catch (Exception ex) { _documenten = new(); Toon("Documenten ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task DocumentenGekozen(InputFileChangeEventArgs e)
+    {
+        _sleepActief = false;
+        if (_gekozen is not { Id: > 0 } g) return;
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true); return; }
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, FilestoreService.StoreTypeVerzekering, g.Id, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { Toon($"{bestand.Name} toevoegen mislukt: {ex.Message}", true); }
+        }
+        await LaadDocumenten();
+        await Laad();
+        if (gelukt > 0) Toon($"{gelukt} document(en) toegevoegd.", false);
+    }
+
+    private async Task VerwijderDocument(FilestoreService.Regel d)
+    {
+        if (!await Vraag($"{Naam(d)} verwijderen? Het bestand gaat ook van schijf af.")) return;
+        try { await Store.VerwijderAsync(d.Id); await LaadDocumenten(); await Laad(); Toon("Document verwijderd.", false); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+
+    // ---------- hulp ----------
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Geld(decimal w) => w.ToString("C0", Nl);
+    private static string Bedrag2(decimal? w) => w is decimal b ? b.ToString("#,0.00", Nl) : "";
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+    private static string Termijn(VasteLastInterval? i) => i switch
+    {
+        VasteLastInterval.Wekelijks => "week", VasteLastInterval.Maandelijks => "maand", VasteLastInterval.Kwartaal => "kwartaal",
+        VasteLastInterval.Jaarlijks => "jaar", _ => "?",
+    };
+
+    private static decimal? Lees(ChangeEventArgs e)
+    {
+        var t = ((string?)e.Value ?? "").Trim().Replace("€", "").Replace(" ", "");
+        if (t.Length == 0) return null;
+        if (t.Contains(',')) t = t.Replace(".", "").Replace(',', '.');
+        return decimal.TryParse(t, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+    }
+
+    private async Task<bool> Vraag(string tekst)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", tekst); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}
