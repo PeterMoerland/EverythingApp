@@ -44,7 +44,7 @@ public class VerkoopBestellen
                                     .GroupBy(k => k.Regel.LeverancierId!.Value))
         {
             var lev = groep.Key;
-            var id = await _bestel.NieuweBestellingAsync(lev, wo, door);
+            var id = await _bestel.NieuweBestellingAsync(lev, wo, door);     // BV = die van het project van de werkorder
             if (id <= 0) throw new InvalidOperationException("De bestelling kon niet aangemaakt worden.");
 
             var standaard = await _bestel.LeverancierStandaardAsync(lev);

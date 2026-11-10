@@ -15,6 +15,9 @@ public static class BestelVelden
             new Veld("Taal", VeldType.Keuze, new[] { "Language" }, Lijst: "Taal"),
             // zoekbaar: honderden werkorders; typen zoekt op nummer, project en omschrijving (wens gebruiker 19-10-2026)
             new Veld("Werkorder", VeldType.Keuze, new[] { "Workorder-id" }, Lijst: "Werkorder") { Zoekbaar = true },
+            // de BV die bestelt (Orders.BvID, BestellingBv_MariaDB.sql): altijd die van het project van de werkorder,
+            // niet met de hand te kiezen (besluit gebruiker 10-11-2026)
+            new Veld("BV (volgt het project)", VeldType.Keuze, new[] { "BvID" }, AlleenLezen: true, Lijst: "BV"),
             new Veld("Omschrijving", VeldType.Tekst, new[] { "Description" }),
             new Veld("Interne opmerking", VeldType.Meerregelig, new[] { "Remark" }),
             new Veld("Melding op orderformulier", VeldType.Meerregelig, new[] { "Purchasenote" }))

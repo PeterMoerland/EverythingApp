@@ -499,7 +499,7 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
     public async Task<int> NieuwAsync(VerkoopOrder kop, int? door)
     {
         var jaar = DateTime.Today.Year;
-        var werkorder = await VerkoopWerkorderAsync(kop.KlantId, jaar, door);
+        var werkorder = await VerkoopWerkorderAsync(kop.KlantId, jaar, kop.BvId, door);
 
         await using var cn = await OpenAsync();
         // Ordernummer: hoogste van dit jaar + 1; bij een botsing (twee tegelijk) nog een keer.
@@ -542,24 +542,52 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
     /// De werkorder voor verkooporders van deze klant in dit jaar: project "Verkoop jjjj" met deze klant, werkorder -01
     /// (de laagste). Ontbreekt het project of de werkorder, dan worden ze aangemaakt (zoals Projecten ▸ Nieuw).
     /// </summary>
-    private async Task<int?> VerkoopWerkorderAsync(int klantId, int jaar, int? door)
+    /// <summary>
+    /// Per klant én per BV een project (besluit gebruiker 10-11-2026: de BV van een bestelling volgt het project): voor
+    /// MDE Automation "Verkoop jjjj", voor een andere BV "Verkoop jjjj AFK" (bv. MPR), met Werkmaatschappij = die BV.
+    /// Een bestaand project zonder Werkmaatschappij telt als MDE Automation (zo zijn de eerste aangemaakt).
+    /// </summary>
+    private async Task<int?> VerkoopWerkorderAsync(int klantId, int jaar, int bvId, int? door)
     {
+        const int Standaard = 5254;     // MDE Automation
         var naam = $"Verkoop {jaar}";
         int? projectId = null, werkorderId = null;
         await using (var cn = await OpenAsync())
-        await using (var cmd = new MySqlCommand(
-            "SELECT p.`Project-Id`, (SELECT w.`Werkbon-id` FROM `Workorders` w WHERE w.`Project-id` = p.`Project-Id` " +
-            "                         ORDER BY w.`Werkbonnummer`, w.`Werkbon-id` LIMIT 1) " +
-            "  FROM `Projects` p WHERE p.`Customer-id` = @k AND p.`Projectdescription` = @naam " +
-            " ORDER BY p.`Project-Id` LIMIT 1", cn))
         {
+            if (bvId != Standaard)
+            {
+                await using var afk = new MySqlCommand(
+                    "SELECT COALESCE(NULLIF(TRIM(`Afkorting`), ''), `name`) FROM `Relations` WHERE `id_supplier` = @bv", cn);
+                afk.Parameters.AddWithValue("@bv", bvId);
+                if (await afk.ExecuteScalarAsync() is string a && a.Trim().Length > 0) naam += " " + a.Trim();
+            }
+            await using var cmd = new MySqlCommand(
+                "SELECT p.`Project-Id`, (SELECT w.`Werkbon-id` FROM `Workorders` w WHERE w.`Project-id` = p.`Project-Id` " +
+                "                         ORDER BY w.`Werkbonnummer`, w.`Werkbon-id` LIMIT 1) " +
+                "  FROM `Projects` p WHERE p.`Customer-id` = @k AND p.`Projectdescription` = @naam " +
+                "   AND COALESCE(NULLIF(p.`Werkmaatschappij`, 0), @std) = @bv " +
+                " ORDER BY p.`Project-Id` LIMIT 1", cn);
             cmd.Parameters.AddWithValue("@k", klantId);
             cmd.Parameters.AddWithValue("@naam", naam);
+            cmd.Parameters.AddWithValue("@std", Standaard);
+            cmd.Parameters.AddWithValue("@bv", bvId);
             await using var r = await cmd.ExecuteReaderAsync();
             if (await r.ReadAsync()) { projectId = r.GetInt32(0); werkorderId = IN(r, 1); }
         }
         if (werkorderId is not null) return werkorderId;
-        projectId ??= await _projecten.NieuwProjectAsync(await _projecten.VolgendProjectnummerAsync(), naam, klantId, door);
+        if (projectId is null)
+        {
+            projectId = await _projecten.NieuwProjectAsync(await _projecten.VolgendProjectnummerAsync(), naam, klantId, door);
+            if (projectId is int nieuw && nieuw > 0)
+            {
+                // het nieuwe project hoort bij de BV van de verkooporder
+                await using var cn = await OpenAsync();
+                await using var cmd = new MySqlCommand("UPDATE `Projects` SET `Werkmaatschappij` = @bv WHERE `Project-Id` = @p", cn);
+                cmd.Parameters.AddWithValue("@bv", bvId);
+                cmd.Parameters.AddWithValue("@p", nieuw);
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
         if (projectId is not int pid || pid <= 0) return null;
         var wo = await _projecten.NieuweWerkorderAsync(pid, naam, door);
         return wo > 0 ? wo : null;

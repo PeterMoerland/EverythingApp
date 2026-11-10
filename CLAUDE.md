@@ -242,6 +242,37 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## BV op inkooporders (10-11-2026)
+
+Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het project van de werkorder, anders 5254).
+- **De BV volgt altijd het project** (besluit gebruiker 10-11-2026: een MPR-project = MPR, een MDE-project = AUTO; niet met
+  de hand te kiezen). Opgeslagen in Orders.BvID voor de lijst/het filter en de historie. Nieuwe bestelling:
+  `ProjectBvAsync(werkorder)` (Projects.Werkmaatschappij), anders MDE Automation.
+- **Formulier**: veld "BV (volgt het project)" alleen-lezen (`VeldRaster` toont bij een alleen-lezen keuzeveld nu de naam
+  uit de lijst); andere werkorder = BV van dat project. Zonder kolom verborgen.
+- **Verkooporders**: het project "Verkoop jjjj" wordt per klant **en per BV** aangemaakt (andere BV: "Verkoop jjjj AFK"),
+  met Werkmaatschappij = de BV van de VO; een bestaand project zonder Werkmaatschappij telt als AUTO. Zo volgt de BV van
+  de inkoop vanzelf.
+- **Lijst**: filter "Alle BV's", chip met de afkorting als het niet AUTO is.
+- **Mag bestellen** (script **`BvMagBestellen_MariaDB.sql`**, `Relations.MagBestellen`, Relaties > tab BV): een werkorder
+  van een project van een BV zonder dat vinkje wordt geweigerd (`Bestellingen.BvMagNiet`), net als een nieuwe bestelling
+  (`NieuweBestellingAsync` gooit) en bestellen vanuit een verkooporder. Bij het aanmaken van de kolom: AUTO en MPR.
+  Het BV-filter in de lijst toont alleen BV's met het vinkje (`BestelBvsAsync`, lijst "BestelBV"; alleen als het er meer
+  dan één zijn), en de werkorders (formulier en Nieuwe bestelling) laten werkorders van projecten van andere BV's weg
+  (`WerkordersZonderBestelrechtAsync`). Lijst "BV" blijft alle eigen BV's bevatten voor de naam van oude bestellingen.
+- **Nieuwe bestelling** (`NieuweBestellingVenster`, parameters `Bvs`/`WerkorderBv`): bovenaan een BV-keuze (alleen BV's
+  met Mag bestellen; bij één BV geen keuze), standaard de BV van je laatst gebruikte werkorder, anders AUTO. De werkorders
+  tonen alleen projecten van die BV (`WerkorderBvsAsync`: open werkorders → BV van het project). Zonder werkorder krijgt
+  de bestelling de gekozen BV; met werkorder volgt hij het project. Lokaal bekeken (AUTO: MDE-werkorders, MPR: nog leeg).
+  BestellingBv_MariaDB.sql was op 10-11-2026 al gedraaid (AUTO 17.322, HOLD 380, ROB 139 bestellingen).
+- **Mail aan de leverancier** (`BestelMailAsync`, `BestelMail.Html`): adresregel en naam onder de ondertekening van de
+  BV van de bestelling; is het niet de standaard-BV (`Bestellingen:EigenRelatieId`, 5254) dan een blok "Graag de factuur
+  richten aan" met naam, adres, btw-nummer uit Relations. Getoetst met een los programma (MPR wel, AUTO niet).
+- **Inkomende factuur**: PO koppelen vult een lege administratie met de BV van de PO, of waarschuwt als ze verschillen
+  (`IFactuurRepository.PoBvAsync`, `FactuurVenster.BvVanPo`).
+- Ontvangst boekt nog steeds op de werkorder (projectmateriaal). Inkopen voor de eigen voorraad is een volgende stap.
+- Niet in de browser getest met de kolom (script nog niet gedraaid); zonder kolom laadt Bestellingen zoals voorheen.
+
 ## Banktransacties: gekoppelde facturen (10-11-2026)
 
 Wens gebruiker: geen vergrootglas meer, maar **dubbelklik** op een regel voor de details; in de details de **gekoppelde

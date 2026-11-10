@@ -20,6 +20,22 @@
                 <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
             </div>
 
+            @* BV die bestelt (wens gebruiker 10-11-2026): de werkorders tonen alleen projecten van deze BV; "zonder werkorder"
+               krijgt deze BV. Alleen BV's met "Mag bestellen"; met maar één BV is er niets te kiezen. *@
+            @if (Bvs.Count > 1)
+            {
+                <div class="nb-bv">
+                    <span>BV</span>
+                    <div class="btngroup">
+                        @foreach (var b in Bvs)
+                        {
+                            <button type="button" class="klein @(b.Id == _bv ? "actief primair" : "")" title="@b.Naam" @onclick="() => KiesBv(b.Id)">@Afk(b)</button>
+                        }
+                    </div>
+                    <small class="zij-extra">werkorders van projecten van deze BV; zonder werkorder bestelt deze BV</small>
+                </div>
+            }
+
             <div class="nb-kolommen">
                 <section class="nb-kolom">
                     <h4>1. Leverancier</h4>
@@ -69,11 +85,11 @@
                         <div class="nb-gekozen">
                             @if (_wo is { } w)
                             {
-                                <span><b>@w.Weergave</b> @w.Omschrijving<small>@WoExtra(w)</small></span>
+                                <span><b>@w.Weergave</b> @w.Omschrijving<small>@WoExtra(w)</small>@if (BvVan(w) is { } wb && Bvs.Count > 1) {<span class="av-bv">@wb</span>}</span>
                             }
                             else
                             {
-                                <span class="nb-geen">Zonder werkorder</span>
+                                <span class="nb-geen">Zonder werkorder@(Bvs.Count > 1 && Bvs.FirstOrDefault(b => b.Id == _bv) is { } zb ? " · " + Afk(zb) : "")</span>
                             }
                             <button class="klein" @onclick="AndereWerkorder" title="Een andere werkorder kiezen">Wijzig</button>
                         </div>
@@ -126,11 +142,45 @@
     /// <summary>De open werkorders (om in te zoeken); alleen die met InkoopToegestaan doen mee.</summary>
     [Parameter] public List<Workorder> Werkorders { get; set; } = new();
 
-    private IEnumerable<Workorder> Toegestaan => Werkorders.Where(w => w.InkoopToegestaan);
+    private IEnumerable<Workorder> Toegestaan => Werkorders.Where(w => w.InkoopToegestaan && VanBv(w));
     [Parameter] public int? WerknemerId { get; set; }
     /// <summary>Aanmaken met leverancier en (eventueel) werkorder; het venster sluit de pagina zelf.</summary>
     /// <summary>Leverancier, werkorder, en of er bij het standaard afleveradres van de leverancier afgeleverd wordt.</summary>
-    [Parameter] public EventCallback<(int Leverancier, int? Werkorder, bool AfleverenBijStandaard)> OpAanmaken { get; set; }
+    [Parameter] public EventCallback<(int Leverancier, int? Werkorder, bool AfleverenBijStandaard, int? Bv)> OpAanmaken { get; set; }
+
+    /// <summary>BV's die mogen bestellen (Relaties > tab BV > Mag bestellen); leeg of één = geen keuze.</summary>
+    [Parameter] public List<Keuze> Bvs { get; set; } = new();
+    /// <summary>Per werkorder de BV van zijn project; leeg = niet filteren.</summary>
+    [Parameter] public Dictionary<int, int> WerkorderBv { get; set; } = new();
+
+    private int? _bv;
+
+    /// <summary>"AUTO — MDE Automation B.V." wordt "AUTO".</summary>
+    private static string Afk(Keuze b) => b.Naam.Split(" — ")[0];
+
+    private string? BvVan(Workorder w)
+        => WerkorderBv.TryGetValue(w.WerkbonId, out var id) && Bvs.FirstOrDefault(b => b.Id == id) is { } k ? Afk(k) : null;
+
+    /// <summary>Hoort deze werkorder bij de gekozen BV? Zonder BV-gegevens: ja.</summary>
+    private bool VanBv(Workorder w) => _bv is not int bv || WerkorderBv.Count == 0 || !WerkorderBv.TryGetValue(w.WerkbonId, out var b) || b == bv;
+
+    private void KiesBv(int id)
+    {
+        _bv = id;
+        if (_woGekozen && _wo is { } w && !VanBv(w)) { _wo = null; _woGekozen = false; }   // werkorder van de andere BV: opnieuw kiezen
+        _woZoek = "";
+        VulWo();
+        if (!_woGekozen) _focus = "wo";
+    }
+
+    /// <summary>Standaard de BV van je laatst gebruikte werkorder, anders MDE Automation, anders de eerste.</summary>
+    private int? StandaardBv()
+    {
+        if (Bvs.Count == 0) return null;
+        foreach (var wo in _recentWo)
+            if (WerkorderBv.TryGetValue(wo, out var b) && Bvs.Any(x => x.Id == b)) return b;
+        return Bvs.Any(x => x.Id == 5254) ? 5254 : Bvs[0].Id;
+    }
 
     private LeverancierStandaard? _standaard;
     private bool? _aflever;                         // antwoord op "Afleveren bij … ?"; null = nog niet gevraagd/beantwoord
@@ -166,6 +216,7 @@
                 try { (_recentLev, _recentWo) = await Repo.RecentGebruiktAsync(w, 12); }
                 catch { _recentLev = new(); _recentWo = new(); }
             }
+            _bv = StandaardBv();
             VulLev(); VulWo();
             _focus = "lev";
         }
@@ -289,7 +340,7 @@
     {
         if (_lev is not { } l || !KanAanmaken) return;
         _bezig = true;
-        try { await OpAanmaken.InvokeAsync((l.Id, _wo?.WerkbonId, _aflever == true)); }
+        try { await OpAanmaken.InvokeAsync((l.Id, _wo?.WerkbonId, _aflever == true, _bv)); }
         finally { _bezig = false; }
     }
 

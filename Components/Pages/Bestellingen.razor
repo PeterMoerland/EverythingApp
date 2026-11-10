@@ -54,6 +54,18 @@
                             }
                         </select>
                     </div>
+                    @if (Lijst("BestelBV").Count > 1)
+                    {
+                        <div class="zoekregel">
+                            <select value="@(_bvFilter?.ToString() ?? string.Empty)" @onchange="BvFilterGewijzigd">
+                                <option value="">Alle BV's</option>
+                                @foreach (var bv in Lijst("BestelBV"))
+                                {
+                                    <option value="@bv.Id">@bv.Naam</option>
+                                }
+                            </select>
+                        </div>
+                    }
                     <div class="zoekregel">
                         <select value="@BesteldDoorTekst" @onchange="BesteldDoorGewijzigd">
                             <option value="">Besteld door iedereen</option>
@@ -75,7 +87,8 @@
                     </div>
                 </div>
 
-                <NieuweBestellingVenster Open="_nieuwOpen" Leveranciers="_leveranciers" Werkorders="_openWerkorders"
+                <NieuweBestellingVenster Open="_nieuwOpen" Leveranciers="_leveranciers" Werkorders="NieuwWerkorders"
+                                         Bvs="BestelBvs" WerkorderBv="_werkorderBv"
                                          WerknemerId="Ik.WerknemerId" OpAanmaken="MaakBestelling" OpGesloten="SluitNieuw" />
                 <BestelZoekVenster Open="_zoekRegelsOpen" OpGekozen="ZoekRegelGekozen" OpGesloten="SluitZoekRegels" />
 
@@ -94,7 +107,7 @@
                             <button class="wn-naam @(b.Id == _orderId ? "actief" : "")"
                                     @key="b.Id" @onclick="() => Kies(b)">
                                 <span class="nda-regel">
-                                    <span class="nda-naam">@b.Nummer · @b.Leverancier</span>
+                                    <span class="nda-naam">@b.Nummer · @b.Leverancier@if (b.Bv.Length > 0 && b.Bv != "AUTO") {<span class="av-bv">@b.Bv</span>}</span>
                                     <span class="nda-onder @StatusKleur(b.StatusNaam)">
                                         @b.StatusNaam
                                         @if (b.Totaal > 0)
@@ -561,6 +574,13 @@
     private string _zoek = "";
     private int? _statusFilter;
     private int? _besteldDoor;
+    private int? _bvFilter;
+
+    private async Task BvFilterGewijzigd(ChangeEventArgs e)
+    {
+        _bvFilter = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad();
+    }
 
     private int? _orderId;
     private BestelRegel? _bestelling;
@@ -577,6 +597,12 @@
     private List<Keuze> _leveranciers = new();
     private List<Keuze> _werkorders = new();
     private List<Workorder> _openWerkorders = new();
+    /// <summary>Werkorders van projecten van BV's die niet mogen bestellen (Relaties > tab BV > Mag bestellen).</summary>
+    private HashSet<int> _zonderBestelrecht = new();
+    /// <summary>Per open werkorder de BV van zijn project (voor de BV-keuze in Nieuwe bestelling).</summary>
+    private Dictionary<int, int> _werkorderBv = new();
+    private List<Keuze> BestelBvs => Lijst("BestelBV");
+    private List<Workorder> NieuwWerkorders => _openWerkorders.Where(w => !_zonderBestelrecht.Contains(w.WerkbonId)).ToList();
 
     private List<Bestand> _documenten = new();
     private bool _sleepActief;
@@ -663,6 +689,17 @@
             }
             catch { _lijsten["Werknemer"] = new List<Keuze>(); }
             _lijsten["Contact"] = new List<Keuze>();
+            try { _lijsten["BV"] = await Repo.EigenBvsAsync(); } catch { _lijsten["BV"] = new List<Keuze>(); }
+            // alleen BV's met "Mag bestellen" (Relaties > tab BV) in het filter en bij de werkorders
+            try { _lijsten["BestelBV"] = await Repo.BestelBvsAsync(); } catch { _lijsten["BestelBV"] = new List<Keuze>(); }
+            try
+            {
+                _zonderBestelrecht = await Repo.WerkordersZonderBestelrechtAsync();
+                if (Lijst("BestelBV").Count > 1) _werkorderBv = await Repo.WerkorderBvsAsync();
+                _werkorders = _werkorders.Where(w => !_zonderBestelrecht.Contains(w.Id)).ToList();
+                _lijsten["Werkorder"] = _werkorders;
+            }
+            catch { }
 
             await Laad();
             if (OrderParam is int teOpenen) await OpenOrder(teOpenen);
@@ -681,7 +718,7 @@
 
     private async Task Laad(bool kiesBijEen = false)
     {
-        try { _lijst = await Repo.ZoekAsync(_zoek, _statusFilter, null, _besteldDoor, 100, _metGeannuleerd); }
+        try { _lijst = await Repo.ZoekAsync(_zoek, _statusFilter, null, _besteldDoor, 100, _metGeannuleerd, _bvFilter); }
         catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); return; }
 
         if (kiesBijEen && _lijst.Count == 1) { await Kies(_lijst[0]); return; }
@@ -837,6 +874,22 @@
     /// <summary>De werkorder van de gekozen bestelling, voor het blok Werkorder rechts (project en klant).</summary>
     private Workorder? _werkorder;
 
+    private string BvNaam(int id) => Lijst("BV").FirstOrDefault(b => b.Id == id)?.Naam ?? $"BV {id}";
+
+    /// <summary>Mag de BV van het project van deze werkorder bestellen (Relaties > tab BV > Mag bestellen)? Null = ja.</summary>
+    private async Task<string?> BvMagNiet(object? werkorder)
+    {
+        if (werkorder is null || !_kolommen.Contains("BvID")) return null;
+        try
+        {
+            if (await Repo.ProjectBvAsync(Convert.ToInt32(werkorder)) is int bv && !await Repo.MagBestellenAsync(bv))
+                return $"Op deze werkorder kan niet besteld worden: het project is van {BvNaam(bv)}, en die BV mag niet bestellen " +
+                       "(Relaties > tab BV > Mag bestellen).";
+        }
+        catch { }
+        return null;
+    }
+
     private async Task LaadWerkorder()
     {
         _werkorder = null;
@@ -985,7 +1038,7 @@
         {
             var opslaan = wijziging.Waarde is string s && string.IsNullOrWhiteSpace(s) ? null : wijziging.Waarde;
             if (wijziging.Kolom.Equals("Workorder-id", StringComparison.OrdinalIgnoreCase)
-                && await WerkorderNiet(opslaan is null ? null : Convert.ToInt32(opslaan)) is { } niet)
+                && (await WerkorderNiet(opslaan is null ? null : Convert.ToInt32(opslaan)) ?? await BvMagNiet(opslaan)) is { } niet)
             {
                 Toon(niet, true);
                 return;
@@ -1019,7 +1072,20 @@
                 await LaadContacten();
             }
             else if (wijziging.Kolom.Equals("Workorder-id", StringComparison.OrdinalIgnoreCase))
+            {
                 await LaadWerkorder();
+                // de BV die bestelt volgt het project van de werkorder (wens gebruiker 10-11-2026)
+                if (_kolommen.Contains("BvID") && opslaan is not null
+                    && await Repo.ProjectBvAsync(Convert.ToInt32(opslaan)) is int pbv && Nummer("BvID") != pbv)
+                {
+                    await Repo.UpdateVeldAsync(vanId, "BvID", pbv);
+                    if (_orderId == vanId) _velden["BvID"] = pbv;
+                    await Laad();
+                    Toon($"Opgeslagen. De BV is nu {BvNaam(pbv)} (die van het project).", false);
+                    return;
+                }
+            }
+
             else if (wijziging.Kolom.Equals("Description", StringComparison.OrdinalIgnoreCase))
                 await Laad();
 
@@ -1271,12 +1337,13 @@
         await OpenOrder(orderId);
     }
 
-    private async Task MaakBestelling((int Leverancier, int? Werkorder, bool AfleverenBijStandaard) keuze)
+    private async Task MaakBestelling((int Leverancier, int? Werkorder, bool AfleverenBijStandaard, int? Bv) keuze)
     {
         try
         {
             if (await WerkorderNiet(keuze.Werkorder) is { } niet) { Toon(niet, true); return; }
-            var id = await Repo.NieuweBestellingAsync(keuze.Leverancier, keuze.Werkorder, Ik.WerknemerId);
+            // met werkorder volgt de BV het project; zonder werkorder de gekozen BV
+            var id = await Repo.NieuweBestellingAsync(keuze.Leverancier, keuze.Werkorder, Ik.WerknemerId, keuze.Werkorder is null ? keuze.Bv : null);
             // standaardwaarden van de leverancier, zoals FillInDefaults_Order in Access
             if (await Repo.LeverancierStandaardAsync(keuze.Leverancier) is { } st)
                 await Repo.VulStandaardAsync(id, st, keuze.AfleverenBijStandaard);

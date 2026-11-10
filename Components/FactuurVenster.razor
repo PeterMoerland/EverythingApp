@@ -778,8 +778,26 @@
                    + "is aangevinkt — vergeet niet op te slaan.", false);
             }
             else Toon("Gekoppeld.", false);
+            if (await BvVanPo(uit.OrderId) is { } bvMelding) Toon(bvMelding, true);
         }
         catch (Exception ex) { Toon("Koppelen mislukt: " + ex.Message, true); }
+    }
+
+    /// <summary>
+    /// De BV van de bestelling tegen de administratie van de factuur (wens gebruiker 10-11-2026): leeg = invullen met de
+    /// BV van de PO; anders een waarschuwing als ze verschillen. Geeft de waarschuwing, of null.
+    /// </summary>
+    private async Task<string?> BvVanPo(int orderId)
+    {
+        if (await Repo.PoBvAsync(orderId) is not { } bv) return null;
+        if (_factuur.AdministratieId is null)
+        {
+            _factuur.AdministratieId = bv.Id;
+            return null;
+        }
+        return _factuur.AdministratieId == bv.Id ? null
+            : $"Gekoppeld. Let op: PO-{orderId} is besteld door {bv.Naam}, maar deze factuur staat op een andere administratie. " +
+              "Klopt de administratie (of moet de leverancier de factuur aan de andere BV richten)?";
     }
 
     private async Task WerkorderGekozen(PoKoppelen.WerkorderUit uit)

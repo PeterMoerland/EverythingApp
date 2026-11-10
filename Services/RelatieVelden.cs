@@ -57,6 +57,7 @@ public static class RelatieVelden
         // en de hele boom staan in Financiën > BV-structuur.
         new("BV", null,
             new Veld("Eigen BV (factureert, eigen administratie)", VeldType.JaNee, new[] { "Werkmaatschappij" }),
+            new Veld("Mag bestellen (inkoop)", VeldType.JaNee, new[] { "MagBestellen" }),
             new Veld("Hoort bij de MDE-groep (telt mee in Liquiditeit)", VeldType.JaNee, new[] { "MDEBV" }),
             new Veld("Afkorting", VeldType.Tekst, new[] { "Afkorting" }),
             new Veld("Opgeheven per", VeldType.Datum, new[] { "Opgeheven" }))

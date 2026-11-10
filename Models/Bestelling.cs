@@ -1,8 +1,9 @@
 ﻿namespace EverythingApp.Models;
 
 /// <summary>Eén bestelling in de lijst links.</summary>
+/// <param name="Bv">Afkorting van de BV die bestelt (Orders.BvID, BestellingBv_MariaDB.sql); leeg = kolom ontbreekt.</param>
 public record BestelRegel(int Id, string Nummer, string Leverancier, string Omschrijving,
-                          int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal);
+                          int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal, string Bv = "");
 
 /// <summary>Eén treffer bij het zoeken door de bestelregels (Bestellingen ▸ Zoeken in regels).</summary>
 public record BestelregelTreffer(int OrderId, string Leverancier, string OrderOmschrijving, int Status, string StatusNaam,
@@ -152,4 +153,7 @@ public record BestelMailGegevens(
     int? LeverancierId, string Leverancier, bool OcCodes, int? OfferteContactId, int? OrderContactId, bool Cc, string CcAdres,
     string Opmerking,
     int? AfleverId, string AfleverNaam, string AfleverAdres, string AfleverPostcode, string AfleverPlaats, string AfleverTav,
-    List<BestelMailRegel> Regels, List<BestelMailBijlage> Bijlagen, BestelMailAfzender Afzender, string Bedrijfsregel);
+    List<BestelMailRegel> Regels, List<BestelMailBijlage> Bijlagen, BestelMailAfzender Afzender, string Bedrijfsregel,
+    // BV die bestelt (wens gebruiker 10-11-2026): naam onder de ondertekening; Factuuradres alleen als het niet de
+    // standaard-BV (MDE Automation) is, zodat de leverancier aan de juiste BV factureert.
+    string BvNaam = "MDE Automation B.V.", string Factuuradres = "");

@@ -115,6 +115,9 @@ public interface IFactuurRepository
     /// om in de factuurinbox te zien wat al (bv. in Access) is ingevoerd.
     /// </summary>
     Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers);
+
+    /// <summary>De BV die de bestelling deed (Orders.BvID); null = onbekend of kolom ontbreekt.</summary>
+    Task<(int Id, string Naam)?> PoBvAsync(int orderId);
 }
 
 /// <summary>Een inkomende factuur gevonden op factuurnummer (voor de factuurinbox).</summary>
@@ -210,6 +213,7 @@ public class GeenFactuurRepository : IFactuurRepository
     public Task OntkoppelAsync(int linkId, bool ookAutoPo) => Task.CompletedTask;
     public Task ZetKoppelBedragAsync(int linkId, decimal b, int? d) => Task.CompletedTask;
     public Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers) => Task.FromResult(new List<FactuurOpNummer>());
+    public Task<(int Id, string Naam)?> PoBvAsync(int orderId) => Task.FromResult<(int, string)?>(null);
 }
 
 /// <summary>
@@ -234,6 +238,22 @@ public class MySqlFactuurRepository : IFactuurRepository
     public MySqlFactuurRepository(string connectionString) => _cs = connectionString;
 
     public bool Beschikbaar => true;
+
+    public async Task<(int Id, string Naam)?> PoBvAsync(int orderId)
+    {
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT o.`BvID`, COALESCE(NULLIF(TRIM(r.`Afkorting`), ''), r.`name`, '') FROM `Orders` o " +
+                "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`BvID` WHERE o.`Order-id` = @o", cn);
+            cmd.Parameters.AddWithValue("@o", orderId);
+            await using var r2 = await cmd.ExecuteReaderAsync();
+            if (await r2.ReadAsync() && !r2.IsDBNull(0)) return (Convert.ToInt32(r2.GetValue(0)), r2.GetString(1));
+        }
+        catch (MySqlException) { /* kolom BvID ontbreekt nog */ }
+        return null;
+    }
 
     public async Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers)
     {

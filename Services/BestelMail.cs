@@ -118,6 +118,14 @@ public static class BestelMail
             h.Append($"<div style=\"{blok}background:#fff8e1;border-left:4px solid #e0a800;\">")
              .Append(E(g.Opmerking.Trim()).Replace("\r\n", "<br>").Replace("\n", "<br>").Replace("\r", "<br>"))
              .Append("</div>");
+        // factuuradres als een andere BV dan MDE Automation bestelt (bv. M-Pede Robotics)
+        if (g.Factuuradres.Length > 0)
+        {
+            h.Append($"<div style=\"{blok}background:#eef4fb;border-left:4px solid {blauw};\">")
+             .Append($"<div style=\"font-weight:700;color:{blauw};margin-bottom:4px;\">{(en ? "Please send the invoice to" : "Graag de factuur richten aan")}</div>")
+             .Append(E(g.Factuuradres).Replace("\n", "<br>"))
+             .Append("</div>");
+        }
         if (g.AfleverId is not null)
         {
             h.Append($"<div style=\"{blok}background:#eef4fb;border-left:4px solid {blauw};\">")
@@ -139,7 +147,7 @@ public static class BestelMail
         }
         h.Append("<p style=\"margin:0 0 14px;\">");
         if (g.Afzender.Naam.Length > 0) h.Append($"<b>{E(g.Afzender.Naam)}</b><br>");
-        h.Append("MDE Automation B.V.<br>");
+        h.Append(E(g.BvNaam)).Append("<br>");
         if (g.Afzender.Mobiel.Length > 0) h.Append(E(g.Afzender.Mobiel)).Append("<br>");
         if (g.Afzender.Mail.Length > 0) h.Append($"<a href=\"mailto:{E(g.Afzender.Mail)}\" style=\"color:{blauw};\">{E(g.Afzender.Mail)}</a>");
         h.Append("</p>");

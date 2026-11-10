@@ -12,7 +12,7 @@ public interface IBestelRepository
     /// <summary>Bestellingen zoeken op nummer, leverancier, omschrijving of besteller.</summary>
     /// <param name="metGeannuleerd">false = geannuleerde bestellingen (Cancel) weglaten, tenzij op die status gefilterd wordt.</param>
     Task<List<BestelRegel>> ZoekAsync(string? zoek, int? status, int? leverancierId,
-                                      int? besteldDoor, int max, bool metGeannuleerd = true);
+                                      int? besteldDoor, int max, bool metGeannuleerd = true, int? bvId = null);
 
     /// <summary>
     /// Zoeken door de bestelregels van alle bestellingen (artikelnummer, omschrijving, MDE-nummer, opmerking,
@@ -23,7 +23,22 @@ public interface IBestelRepository
     Task<Dictionary<string, object?>> GetVeldenAsync(int orderId);
     Task UpdateVeldAsync(int orderId, string kolom, object? waarde);
 
-    Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door);
+    /// <param name="bvId">De BV die bestelt; leeg = de BV van het project van de werkorder (anders MDE Automation).</param>
+    Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door, int? bvId = null);
+
+    // ---- BV die bestelt (Orders.BvID, BestellingBv_MariaDB.sql) ----
+    /// <summary>De BV van het project van deze werkorder (Projects.Werkmaatschappij); null = onbekend.</summary>
+    Task<int?> ProjectBvAsync(int werkorderId);
+    /// <summary>De eigen BV's (Werkmaatschappij, niet opgeheven), voor de naam en het filter; leeg = kolom BvID ontbreekt nog.</summary>
+    Task<List<Keuze>> EigenBvsAsync();
+    /// <summary>Mag deze BV bestellen (Relations.MagBestellen, BvMagBestellen_MariaDB.sql)? Zonder de kolom: ja.</summary>
+    Task<bool> MagBestellenAsync(int bvId);
+    /// <summary>De BV's die mogen bestellen (voor het filter); zonder de kolom alle eigen BV's.</summary>
+    Task<List<Keuze>> BestelBvsAsync();
+    /// <summary>Werkorders waarvan het project bij een BV hoort die niet mag bestellen (niet aanbieden bij bestellen).</summary>
+    Task<HashSet<int>> WerkordersZonderBestelrechtAsync();
+    /// <summary>Per open werkorder de BV van zijn project (zonder Werkmaatschappij: MDE Automation).</summary>
+    Task<Dictionary<int, int>> WerkorderBvsAsync();
 
     /// <summary>
     /// Status verzetten. Bij een stap vooruit wordt het datum/wie-veld van de stap
@@ -94,15 +109,21 @@ public class GeenBestelRepository : IBestelRepository
 {
     public bool Beschikbaar => false;
     public Task<HashSet<string>> KolommenAsync() => Task.FromResult(new HashSet<string>());
+    public Task<int?> ProjectBvAsync(int werkorderId) => Task.FromResult<int?>(null);
+    public Task<List<Keuze>> EigenBvsAsync() => Task.FromResult(new List<Keuze>());
+    public Task<bool> MagBestellenAsync(int bvId) => Task.FromResult(true);
+    public Task<List<Keuze>> BestelBvsAsync() => Task.FromResult(new List<Keuze>());
+    public Task<HashSet<int>> WerkordersZonderBestelrechtAsync() => Task.FromResult(new HashSet<int>());
+    public Task<Dictionary<int, int>> WerkorderBvsAsync() => Task.FromResult(new Dictionary<int, int>());
     public Task<List<BestelRegel>> ZoekAsync(string? zoek, int? status, int? leverancierId,
-                                             int? besteldDoor, int max, bool metGeannuleerd = true)
+                                             int? besteldDoor, int max, bool metGeannuleerd = true, int? bvId = null)
         => Task.FromResult(new List<BestelRegel>());
     public Task<List<BestelregelTreffer>> ZoekRegelsAsync(string zoek, int max, bool metGeannuleerd = false)
         => Task.FromResult(new List<BestelregelTreffer>());
     public Task<Dictionary<string, object?>> GetVeldenAsync(int orderId)
         => Task.FromResult(new Dictionary<string, object?>());
     public Task UpdateVeldAsync(int orderId, string kolom, object? waarde) => Task.CompletedTask;
-    public Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door) => Task.FromResult(0);
+    public Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door, int? bvId = null) => Task.FromResult(0);
     public Task ZetStatusAsync(int orderId, int vanStatus, int naarStatus, int? door) => Task.CompletedTask;
     public Task<List<Bestelstatus>> GetStatussenAsync() => Task.FromResult(new List<Bestelstatus>());
     public Task<BestelFlowInfo?> FlowInfoAsync(int orderId) => Task.FromResult<BestelFlowInfo?>(null);
@@ -168,10 +189,93 @@ public class MySqlBestelRepository : IBestelRepository
     // ============================================================
     //  Zoeken
     // ============================================================
+    public async Task<int?> ProjectBvAsync(int werkorderId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT NULLIF(p.`Werkmaatschappij`, 0) FROM `Workorders` w JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+            " WHERE w.`Werkbon-id` = @w", cn);
+        cmd.Parameters.AddWithValue("@w", werkorderId);
+        var r = await cmd.ExecuteScalarAsync();
+        return r is null or DBNull ? null : Convert.ToInt32(r);
+    }
+
+    private async Task<bool> MagBestellenKolomAsync(MySqlConnection cn)
+    {
+        await using var k = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Relations' AND COLUMN_NAME = 'MagBestellen'", cn);
+        return Convert.ToInt32(await k.ExecuteScalarAsync()) > 0;
+    }
+
+    public async Task<List<Keuze>> BestelBvsAsync()
+    {
+        var alle = await EigenBvsAsync();
+        if (alle.Count == 0) return alle;
+        await using var cn = await OpenAsync();
+        if (!await MagBestellenKolomAsync(cn)) return alle;
+        var mag = new HashSet<int>();
+        await using var cmd = new MySqlCommand("SELECT `id_supplier` FROM `Relations` WHERE COALESCE(`MagBestellen`, 0) <> 0", cn);
+        await using (var r = await cmd.ExecuteReaderAsync())
+            while (await r.ReadAsync()) mag.Add(r.GetInt32(0));
+        return alle.Where(b => mag.Contains(b.Id)).ToList();
+    }
+
+    public async Task<HashSet<int>> WerkordersZonderBestelrechtAsync()
+    {
+        var ids = new HashSet<int>();
+        await using var cn = await OpenAsync();
+        if (!await MagBestellenKolomAsync(cn)) return ids;
+        // een project zonder Werkmaatschappij telt als MDE Automation (5254), zoals bij een nieuwe bestelling
+        await using var cmd = new MySqlCommand(
+            "SELECT w.`Werkbon-id` FROM `Workorders` w JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = COALESCE(NULLIF(p.`Werkmaatschappij`, 0), 5254) " +
+            " WHERE COALESCE(r.`MagBestellen`, 0) = 0", cn);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync()) ids.Add(rd.GetInt32(0));
+        return ids;
+    }
+
+    public async Task<Dictionary<int, int>> WerkorderBvsAsync()
+    {
+        var map = new Dictionary<int, int>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT w.`Werkbon-id`, COALESCE(NULLIF(p.`Werkmaatschappij`, 0), 5254) FROM `Workorders` w " +
+            "  JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` WHERE COALESCE(w.`WorkOrderStatus`, 0) <> 0", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) map[r.GetInt32(0)] = Convert.ToInt32(r.GetValue(1));
+        return map;
+    }
+
+    public async Task<bool> MagBestellenAsync(int bvId)
+    {
+        await using var cn = await OpenAsync();
+        if (!await MagBestellenKolomAsync(cn)) return true;
+        await using var cmd = new MySqlCommand("SELECT COALESCE(`MagBestellen`, 0) FROM `Relations` WHERE `id_supplier` = @bv", cn);
+        cmd.Parameters.AddWithValue("@bv", bvId);
+        return await cmd.ExecuteScalarAsync() is { } v and not DBNull && Convert.ToInt64(v) != 0;
+    }
+
+    public async Task<List<Keuze>> EigenBvsAsync()
+    {
+        var lijst = new List<Keuze>();
+        if (!(await KolommenAsync()).Contains("BvID")) return lijst;
+        await using var cn = await OpenAsync();
+        var opg = await BvOpgeheven.KolomAsync(cn);
+        await using var cmd = new MySqlCommand(
+            "SELECT `id_supplier`, CONCAT(COALESCE(NULLIF(TRIM(`Afkorting`), ''), `name`), ' — ', COALESCE(`name`, '')) FROM `Relations` " +
+            $" WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} ORDER BY `Afkorting`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), r.IsDBNull(1) ? "" : r.GetString(1)));
+        return lijst;
+    }
+
     public async Task<List<BestelRegel>> ZoekAsync(string? zoek, int? status, int? leverancierId,
-                                                   int? besteldDoor, int max, bool metGeannuleerd = true)
+                                                   int? besteldDoor, int max, bool metGeannuleerd = true, int? bvId = null)
     {
         var delen = new List<string>();
+        var bvKolom = (await KolommenAsync()).Contains("BvID");
+        if (bvId is not null && bvKolom) delen.Add("o.`BvID` = @bv");
 
         if (!string.IsNullOrWhiteSpace(zoek))
         {
@@ -194,10 +298,12 @@ public class MySqlBestelRepository : IBestelRepository
             "SELECT o.`Order-id`, COALESCE(r.`name`, ''), COALESCE(o.`Description`, ''), " +
             "       COALESCE(o.`Status`, 0), COALESCE(st.`Omschrijving`, ''), o.`Creation date`, " +
             "       COALESCE((SELECT SUM(i.`Totalprice`) FROM `Orderitems` i " +
-            "                  WHERE i.`Order-id` = o.`Order-id`), 0) " +
+            "                  WHERE i.`Order-id` = o.`Order-id`), 0), " +
+            (bvKolom ? "COALESCE(NULLIF(TRIM(bv.`Afkorting`), ''), bv.`name`, '') " : "'' ") +
             "  FROM `Orders` o " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
             "  LEFT JOIN `OrderState` st ON st.`Id` = o.`Status` " +
+            (bvKolom ? "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = o.`BvID` " : "") +
             $" {where} " +
             $" ORDER BY o.`Order-id` DESC LIMIT {Math.Clamp(max, 1, 500)}", cn);
 
@@ -210,6 +316,7 @@ public class MySqlBestelRepository : IBestelRepository
         if (status is not null) cmd.Parameters.AddWithValue("@s", status.Value);
         if (leverancierId is not null) cmd.Parameters.AddWithValue("@lev", leverancierId.Value);
         if (besteldDoor is not null) cmd.Parameters.AddWithValue("@door", besteldDoor.Value);
+        if (bvId is not null) cmd.Parameters.AddWithValue("@bv", bvId.Value);
 
         await using var rd = await cmd.ExecuteReaderAsync();
         while (await rd.ReadAsync())
@@ -223,7 +330,8 @@ public class MySqlBestelRepository : IBestelRepository
                 rd.IsDBNull(3) ? 0 : Convert.ToInt32(rd.GetValue(3)),
                 rd.IsDBNull(4) ? "" : rd.GetString(4),
                 rd.IsDBNull(5) ? null : Convert.ToDateTime(rd.GetValue(5)),
-                rd.IsDBNull(6) ? 0 : Convert.ToDecimal(rd.GetValue(6))));
+                rd.IsDBNull(6) ? 0 : Convert.ToDecimal(rd.GetValue(6)),
+                rd.IsDBNull(7) ? "" : rd.GetValue(7).ToString() ?? ""));
         }
         return lijst;
     }
@@ -255,10 +363,19 @@ public class MySqlBestelRepository : IBestelRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door)
+    public async Task<int> NieuweBestellingAsync(int? leverancierId, int? werkorderId, int? door, int? bvId = null)
     {
         var kolommen = await KolommenAsync();
         var sets = new List<string> { "`GUID` = @guid", "`Status` = 0" };
+        // de BV die bestelt: meegegeven, anders die van het project van de werkorder, anders MDE Automation
+        int? bv = null;
+        if (kolommen.Contains("BvID"))
+        {
+            bv = bvId ?? (werkorderId is int wid ? await ProjectBvAsync(wid) : null) ?? 5254;
+            if (!await MagBestellenAsync(bv.Value))
+                throw new InvalidOperationException("Op een project van deze BV mag niet besteld worden (Relaties > tab BV > Mag bestellen).");
+            sets.Add("`BvID` = @bv");
+        }
 
         if (leverancierId is not null) sets.Add("`Supplier` = @lev");
         if (werkorderId is not null) sets.Add("`Workorder-id` = @wo");
@@ -274,6 +391,7 @@ public class MySqlBestelRepository : IBestelRepository
         if (leverancierId is not null) cmd.Parameters.AddWithValue("@lev", leverancierId.Value);
         if (werkorderId is not null) cmd.Parameters.AddWithValue("@wo", werkorderId.Value);
         if (kolommen.Contains("Created by")) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        if (bv is not null) cmd.Parameters.AddWithValue("@bv", bv.Value);
 
         await cmd.ExecuteNonQueryAsync();
         return (int)cmd.LastInsertedId;
@@ -495,21 +613,38 @@ public class MySqlBestelRepository : IBestelRepository
             break;
         }
 
-        // adresregel van MDE zelf onder de mail
+        // de BV die bestelt (Orders.BvID); zonder kolom of leeg de vaste eigen BV (instelling, standaard MDE Automation)
+        var bvId = eigenRelatieId;
+        if ((await KolommenAsync()).Contains("BvID"))
+            await using (var cmd = new MySqlCommand("SELECT `BvID` FROM `Orders` WHERE `Order-id` = @id", cn))
+            {
+                cmd.Parameters.AddWithValue("@id", orderId);
+                if (await cmd.ExecuteScalarAsync() is { } v and not DBNull) bvId = Convert.ToInt32(v);
+            }
+
+        // adresregel van die BV onder de mail, en bij een andere BV dan de standaard het factuuradres
         var bedrijf = "MDE Automation B.V.";
+        var bvNaam = "MDE Automation B.V.";
+        var factuuradres = "";
         await using (var cmd = new MySqlCommand(
             "SELECT COALESCE(`name`, ''), COALESCE(`address`, ''), COALESCE(`PO_box`, ''), COALESCE(`town`, ''), " +
-            "       COALESCE(`telephone`, ''), COALESCE(`email`, '') FROM `Relations` WHERE `id_supplier` = @id", cn))
+            "       COALESCE(`telephone`, ''), COALESCE(`email`, ''), COALESCE(`VAT number`, '') FROM `Relations` WHERE `id_supplier` = @id", cn))
         {
-            cmd.Parameters.AddWithValue("@id", eigenRelatieId);
+            cmd.Parameters.AddWithValue("@id", bvId);
             await using var r = await cmd.ExecuteReaderAsync();
             if (await r.ReadAsync())
+            {
                 bedrijf = string.Join(" · ", new[] { S(r, 0), S(r, 1), (S(r, 2) + " " + S(r, 3)).Trim(), S(r, 4), S(r, 5) }.Where(x => x.Length > 0));
+                if (S(r, 0).Length > 0) bvNaam = S(r, 0);
+                if (bvId != eigenRelatieId)
+                    factuuradres = string.Join("\n", new[] { S(r, 0), S(r, 1), (S(r, 2) + " " + S(r, 3)).Trim(), S(r, 6).Length > 0 ? "Btw " + S(r, 6) : "" }
+                        .Where(x => x.Length > 0));
+            }
         }
 
         return new BestelMailGegevens(orderId, status, taal != 0, contactId, contactNaam, contactMail, aanhef,
             levId, leverancier, oc, offerteContact, orderContact, cc, ccAdres, opmerking,
-            afleverId, aflNaam, aflAdres, aflPostcode, aflPlaats, aflTav, regels, bijlagen, afzender, bedrijf);
+            afleverId, aflNaam, aflAdres, aflPostcode, aflPlaats, aflTav, regels, bijlagen, afzender, bedrijf, bvNaam, factuuradres);
     }
 
     public async Task ZetAanhefAsync(int contactId, string aanhef)

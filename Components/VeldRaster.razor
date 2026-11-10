@@ -12,7 +12,7 @@
                 <label>@veld.Label</label>
                 @if (veld.AlleenLezen)
                 {
-                    <span class="alleen-lezen">@Tekst(kolom)</span>
+                    <span class="alleen-lezen">@LeesTekst(veld, kolom)</span>
                 }
                 else if (veld.Type == VeldType.JaNee)
                 {
@@ -78,6 +78,16 @@
         => veld.Lijst is not null && Lijsten.TryGetValue(veld.Lijst, out var l) ? l : GeenOpties;
 
     private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
+
+    /// <summary>Alleen-lezen: bij een keuzeveld de naam uit de lijst, anders de waarde zelf.</summary>
+    private string LeesTekst(Veld veld, string kolom)
+    {
+        if (veld.Lijst is { } lijst && Lijsten.TryGetValue(lijst, out var keuzes)
+            && Velden.TryGetValue(kolom, out var v) && v is not null && int.TryParse(v.ToString(), out var id)
+            && keuzes.FirstOrDefault(k => k.Id == id) is { } k)
+            return k.Naam;
+        return Tekst(kolom);
+    }
 
     private string Tekst(string kolom)
     {
