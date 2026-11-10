@@ -712,12 +712,17 @@ calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository r
     var c = o is null ? null : await repo.GetAsync(offerteId);
     if (o is null || c is null) return Results.Json(new { fout = "Deze offerte heeft (nog) geen calculatie." }, statusCode: 404);
     var act = (await repo.TarievenAsync()).Select(t => new { id = t.ActiviteitId, naam = t.Naam, tarief = t.Kostprijs ?? 0m });
+    var woTabel = await repo.WerkorderTabelAanwezigAsync();
+    var werkorders = woTabel ? await repo.WerkordersAsync(offerteId) : new List<CalculatieWerkorder>();
     var wanneer = c.Bevroren && c.BevrorenOp is DateTime b
         ? $"Bevroren {b:dd-MM-yyyy HH:mm}{(c.BevrorenDoor.Length > 0 ? " door " + c.BevrorenDoor : "")}"
         : c.GewijzigdOp is DateTime g ? $"Opgeslagen {g:dd-MM-yyyy HH:mm}{(c.GewijzigdDoor.Length > 0 ? " door " + c.GewijzigdDoor : "")}" : "";
     return Results.Json(new
     {
-        info = new { offertenr = o.OfferteNr, offerte = o.Omschrijving, project = $"{o.Projectnummer} · {o.Project}", projectnr = o.Projectnummer, klant = o.Klant, bv = o.Bv },
+        info = new { offertenr = o.OfferteNr, offerte = o.Omschrijving, project = $"{o.Projectnummer} · {o.Project}", projectnr = o.Projectnummer, klant = o.Klant, bv = o.Bv,
+                     projectId = o.ProjectId, volgendWerkbon = await repo.VolgendWerkbonnummerAsync(o.ProjectId), werkorderTabel = woTabel },
+        werkorders = werkorders.Select(w => new { groep = w.GroepId, werkbonId = w.WerkbonId, nummer = w.Nummer, omschrijving = w.Omschrijving,
+                                                   budget = w.Budget, op = w.AangemaaktOp?.ToString("dd-MM-yyyy HH:mm") ?? "", door = w.AangemaaktDoor }),
         act,
         data = System.Text.Json.Nodes.JsonNode.Parse(c.Data),
         versie = c.Versie,
@@ -752,6 +757,64 @@ calcApi.MapPut("/{offerteId:int}", async (int offerteId, HttpRequest req, ICalcu
     }
     catch (CalculatieConflictException ex) { return Results.Json(new { fout = ex.Message }, statusCode: 409); }
 });
+// Werkorders aanmaken bij klant akkoord (calculaties stap 2): het plan komt uit de boom (werkorderPlan), de app
+// controleert het (bevroren, versie, opbouw, budget = verkoop van de calculatie) en maakt alles in één transactie.
+calcApi.MapPost("/{offerteId:int}/werkorders", async (int offerteId, HttpRequest req, ICalculatieRepository repo, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    if (!MagCalculatie(ik)) return Results.Json(new { fout = "Je mag voor deze calculatie geen werkorders aanmaken." }, statusCode: 403);
+    var c = await repo.GetAsync(offerteId);
+    if (c is null) return Results.Json(new { fout = "Deze calculatie bestaat niet (meer)." }, statusCode: 404);
+    if (!c.Bevroren) return Results.Json(new { fout = "Werkorders aanmaken kan pas als de calculatie bevroren is (klant akkoord)." }, statusCode: 423);
+    if (!await repo.WerkorderTabelAanwezigAsync())
+        return Results.Json(new { fout = "Draai eerst CalculatieWerkorders_MariaDB.sql op de database." }, statusCode: 503);
+
+    var plan = new List<WerkorderPlanRij>();
+    int versie;
+    try
+    {
+        var body = await System.Text.Json.Nodes.JsonNode.ParseAsync(req.Body) ?? throw new FormatException();
+        versie = body["versie"]!.GetValue<int>();
+        static decimal G(System.Text.Json.Nodes.JsonNode? n) => n is null ? 0 : Math.Round(n.GetValue<decimal>(), 4);
+        foreach (var r in body["rijen"]!.AsArray())
+        {
+            var delen = (r!["delen"]?.AsArray() ?? new System.Text.Json.Nodes.JsonArray())
+                .Select(d => new WerkorderPlanDeel((d!["naam"]?.GetValue<string>() ?? "").Trim(), G(d["uren"]), G(d["kosten"]),
+                                                   d["act"] is { } a ? a.GetValue<int>() : null))
+                .ToList();
+            plan.Add(new WerkorderPlanRij(r["groep"]!.GetValue<int>(), r["ouder"] is { } o ? o.GetValue<int>() : null,
+                (r["naam"]?.GetValue<string>() ?? "").Trim(), G(r["budget"]), G(r["kostUur"]), G(r["kostMat"]), G(r["uren"]), delen));
+        }
+    }
+    catch { return Results.Json(new { fout = "Geen geldig werkorderplan ontvangen." }, statusCode: 400); }
+
+    // het plan moet kloppen: ouders vóór kinderen, namen ingevuld, delen uniek, en samen precies de verkoop van de calculatie
+    if (plan.Count == 0) return Results.Json(new { fout = "Er is geen groep met een werkorder." }, statusCode: 400);
+    if (plan.Count > 300) return Results.Json(new { fout = "Meer dan 300 werkorders: dat lijkt niet te kloppen." }, statusCode: 400);
+    var gezien = new HashSet<int>();
+    foreach (var r in plan)
+    {
+        if (r.Naam.Length == 0) return Results.Json(new { fout = "Een groep met een werkorder heeft geen naam." }, statusCode: 400);
+        if (r.Ouder is int og && !gezien.Contains(og)) return Results.Json(new { fout = "De opbouw van de werkorders klopt niet (ouder na kind)." }, statusCode: 400);
+        if (!gezien.Add(r.Groep)) return Results.Json(new { fout = "Een groep staat twee keer in het plan." }, statusCode: 400);
+        if (r.Delen.Any(d => d.Naam.Length == 0) || r.Delen.GroupBy(d => d.Naam.ToLowerInvariant()).Any(g => g.Count() > 1))
+            return Results.Json(new { fout = $"Werkorder {r.Naam}: een deel zonder naam of twee keer dezelfde naam." }, statusCode: 400);
+    }
+    var som = plan.Sum(r => r.Budget);
+    if (Math.Abs(som - c.Verkoop) > 1m)
+        return Results.Json(new { fout = $"De budgetten ({som:N2}) zijn samen niet de verkoopprijs van de calculatie ({c.Verkoop:N2}). Vernieuw de pagina en probeer opnieuw." }, statusCode: 409);
+
+    try
+    {
+        var gemaakt = await repo.MaakWerkordersAsync(offerteId, versie, plan, ik.WerknemerId);
+        return Results.Json(new
+        {
+            werkorders = gemaakt.Select(w => new { groep = w.GroepId, werkbonId = w.WerkbonId, nummer = w.Nummer, omschrijving = w.Omschrijving,
+                                                   budget = w.Budget, op = w.AangemaaktOp?.ToString("dd-MM-yyyy HH:mm") ?? "", door = w.AangemaaktDoor }),
+        });
+    }
+    catch (InvalidOperationException ex) { return Results.Json(new { fout = ex.Message }, statusCode: 409); }
+});
 calcApi.MapPost("/{offerteId:int}/{actie}", async (int offerteId, string actie, ICalculatieRepository repo, HuidigeGebruiker ik) =>
 {
     await ik.ZorgGeladenAsync();
@@ -766,6 +829,9 @@ calcApi.MapPost("/{offerteId:int}/{actie}", async (int offerteId, string actie, 
     else if (actie == "ontdooi")
     {
         if (!ik.Mag("Directie")) return Results.Json(new { fout = "Alleen Directie kan een bevroren calculatie weer bewerkbaar maken." }, statusCode: 403);
+        // besluit gebruiker 10-11-2026: na het aanmaken van de werkorders ligt de calculatie vast (wijzigen = meerwerk)
+        if ((await repo.WerkordersAsync(offerteId)).Count > 0)
+            return Results.Json(new { fout = "De werkorders zijn al gemaakt: de calculatie kan niet meer ontdooid worden. Een wijziging gaat via meerwerk (een nieuwe offerte)." }, statusCode: 423);
         nieuw = CalculatieStatus.Concept;
     }
     else return Results.Json(new { fout = "Onbekende actie." }, statusCode: 404);

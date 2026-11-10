@@ -334,6 +334,8 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   let s, volgId = 1, tab = 'boom', paneel = null, kortingKeuze = 'verdeel', flitsId = null;
   let gekozen = null;   // { t: 'g' | 'r', id } — waar je staat
   let INFO = {}, MAG = false, MAG_ONTDOOIEN = false, GEBRUIKER = '', versie = 0, status = 0;
+  /** De werkorders die deze calculatie al gemaakt heeft: { groep, werkbonId, nummer, omschrijving, budget, op, door }. */
+  let WERKORDERS = [];
   let wacht = null, bezig = false, nogEens = false, vuil = false, gestopt = false;
   /** Alleen lezen: bevroren, of geen recht om te wijzigen. */
   const RO = () => !s || s.bevroren || !MAG;
@@ -346,6 +348,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     const o = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(o.fout || `De app antwoordde ${r.status}.`);
     INFO = o.info || {}; ACT = o.act || []; MAG = !!o.mag; MAG_ONTDOOIEN = !!o.magOntdooien; GEBRUIKER = o.gebruiker || '';
+    WERKORDERS = o.werkorders || [];
     versie = o.versie; status = o.status;
     s = o.data && Array.isArray(o.data.groepen) && Array.isArray(o.data.regels) ? o.data : LEEG();
     s.inst = { ...LEEG().inst, ...(s.inst || {}) };
@@ -638,7 +641,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     $('status').textContent = s.bevroren ? 'Bevroren · klant akkoord' : MAG ? 'Concept' : 'Concept · alleen lezen';
     $('status').classList.toggle('bevroren', s.bevroren);
     $('knopBevries').textContent = s.bevroren ? 'Ontdooien' : 'Klant akkoord · bevriezen';
-    $('knopBevries').hidden = s.bevroren ? !MAG_ONTDOOIEN : !MAG;
+    $('knopBevries').hidden = s.bevroren ? (!MAG_ONTDOOIEN || WERKORDERS.length > 0) : !MAG;
     for (const k of ['ohUur', 'ohMat', 'mUur', 'mMat']) { $(k).value = getalFmt.format(s.inst[k]); $(k).disabled = RO(); }
     $('doel').value = s.inst.doel ? euro2.format(s.inst.doel) : '';
     for (const id of ['doel', 'knopDoel', 'knopPlak']) $(id).disabled = RO();
@@ -810,24 +813,26 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
 
   function renderWerkorders() {
     const p = werkorderPlan();
-    const nummer = n => `${esc(INFO.projectnr ?? 'project')}-${String(n).padStart(2, '0')}`;
-    const nrVan = id => { const r = p.rijen.find(x => x.g.id === id); return r ? nummer(r.nr) : ''; };
+    const nummer = r => WERKORDERS.find(w => w.groep === r.g.id)?.nummer
+      ?? `${esc(INFO.projectnr ?? 'project')}-${String((INFO.volgendWerkbon || 1) + r.nr - 1).padStart(2, '0')}`;
+    const nrVan = id => { const r = p.rijen.find(x => x.g.id === id); return r ? nummer(r) : ''; };
+    const gemaakt = WERKORDERS.length > 0;
     const som = k => p.rijen.reduce((a, r) => a + r[k], 0);
     const chips = delen => delen.map(x => `<span class="act" title="${esc(x.naam)}: begroot ${uurFmt.format(x.uren)} uur, ${euro.format(x.kost)} kosten${x.act ? ' · activiteit ' + esc(actVan(x.act)?.naam) : ''}"><b>${esc(x.naam)}</b> ${uurFmt.format(x.uren)} u</span>`).join('');
     laatstePlan = p;
     const pool = p.pool.namen.size > 0, verdeel = pool && kortingKeuze === 'verdeel';
     $('wo').innerHTML = `
-      <h2>Wat er bij klant akkoord wordt aangemaakt</h2>
+      <h2>${gemaakt ? `Werkorders gemaakt op ${esc(WERKORDERS[0].op)}${WERKORDERS[0].door ? ' door ' + esc(WERKORDERS[0].door) : ''}` : 'Wat er bij klant akkoord wordt aangemaakt'}</h2>
+      ${gemaakt ? `<p class="melding">${WERKORDERS.length} werkorder${WERKORDERS.length === 1 ? '' : 's'} in project ${esc(INFO.project || '')}: ${WERKORDERS.map(w => esc(w.nummer)).join(', ')}.
+        <a href="projecten?project=${INFO.projectId}" target="_top">Project openen</a></p>` : ''}
       <p class="uitleg">Per groep met "werkorder" een werkorder; een subgroep wordt een subwerkorder onder de werkorder erboven. Budget = de verkoopprijs van de eigen regels; kostenbegroting = de kosten van uren en materiaal. Elke urenregel wordt een <b>deel</b> van de werkorder met begrote uren: daarop wordt geboekt, en de nacalculatie laat per werkorder en per deel begroot tegen geboekt zien. Een subgroep zonder werkorder telt mee bij de werkorder erboven (de delen krijgen de subgroepnaam ervoor).</p>
       ${p.problemen.length ? `<p class="melding let">${p.problemen.length} urenregel${p.problemen.length === 1 ? '' : 's'} zonder of met een dubbele deelnaam (${[...new Set(p.problemen.map(r => groepVan(r.groep)?.naam + ': ' + (schoon(r.oms) || 'leeg')))].slice(0, 4).map(esc).join(', ')}${p.problemen.length > 4 ? ', …' : ''}). Pas die eerst aan.</p>` : ''}
-      ${pool ? `<div class="keuze"><span>Groepen zonder werkorder (${[...p.pool.namen].map(esc).join(', ')}, samen ${euro.format(p.pool.verkoop)}):</span>
-        <label><input type="radio" name="kk" value="verdeel" ${kortingKeuze === 'verdeel' ? 'checked' : ''}> naar rato verdelen over de werkorderbudgetten</label>
-        <label><input type="radio" name="kk" value="apart" ${kortingKeuze === 'apart' ? 'checked' : ''}> als aparte regel op het projectbudget</label></div>` : ''}
+      ${pool ? `<p class="uitleg">Groepen zonder werkorder (${[...p.pool.namen].map(esc).join(', ')}, samen ${euro.format(p.pool.verkoop)}) worden naar rato van hun verkoop over de werkorderbudgetten verdeeld; samen zijn de budgetten precies de verkoopprijs.</p>` : ''}
       <div class="tabelvak"><table>
         <thead><tr><th>Werkorder</th><th>Omschrijving</th><th>Delen (hierop wordt geboekt)</th><th class="r">Uren</th><th class="r">Kosten uren</th>
           <th class="r">Kosten materiaal</th><th class="r">Verkoop</th>${verdeel ? '<th class="r">Aandeel korting</th>' : ''}<th class="r">Budget</th></tr></thead>
         <tbody>${p.rijen.map(r => `<tr>
-          <td class="wonr" style="padding-left:${8 + r.d * 20}px">${r.d ? '↳ ' : ''}${nummer(r.nr)}</td>
+          <td class="wonr" style="padding-left:${8 + r.d * 20}px">${r.d ? '↳ ' : ''}${nummer(r)}</td>
           <td>${esc(r.g.naam)}${(r.g.aantal ?? 1) !== 1 ? ` <b>× ${getalFmt.format(r.g.aantal)}</b>` : ''}${r.ouder ? ` <small style="color:var(--zacht)">sub van ${nrVan(r.ouder)}</small>` : ''}</td>
           <td><div class="acts">${chips(r.delen) || '<span style="color:var(--zacht)">—</span>'}</div></td>
           <td class="getal">${uurFmt.format(r.uren)}</td><td class="getal">${euro.format(r.kostUur)}</td><td class="getal">${euro.format(r.kostMat)}</td>
@@ -842,17 +847,48 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
           <td class="getal">${euro.format(som('budget') + (kortingKeuze === 'apart' ? p.pool.verkoop : 0))}</td></tr></tfoot>
       </table></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="knop primair" type="button" id="knopMaak" disabled>Werkorders aanmaken</button>
-        <small style="color:var(--zacht)">Volgt in een volgende stap van de app: dan maakt deze knop na klant akkoord de werkorders met budget, kostenbegroting en de delen met begrote uren.</small>
+        ${gemaakt ? '' : `<button class="knop primair" type="button" id="knopMaak" ${kanMaken(p) ? '' : 'disabled'}>Werkorders aanmaken</button>`}
+        <small style="color:var(--zacht)">${maakUitleg(p)}</small>
       </div>
-      <h2>Uren boeken (voorbeeld)</h2>
+      <h2>Uren boeken (volgt)</h2>
       <p class="uitleg">In de urenregistratie kies je eerst de werkorder, daarna het deel. Heeft een werkorder delen, dan is het deel verplicht. De activiteit blijft zoals nu (standaard de hoofdactiviteit van de medewerker).</p>
       <div class="boek">
-        <label>Werkorder <select id="boekWo">${p.rijen.map(r => `<option value="${r.g.id}">${'· '.repeat(r.d)}${nummer(r.nr)} ${esc(r.g.naam)}</option>`).join('')}</select></label>
+        <label>Werkorder <select id="boekWo">${p.rijen.map(r => `<option value="${r.g.id}">${'· '.repeat(r.d)}${nummer(r)} ${esc(r.g.naam)}</option>`).join('')}</select></label>
         <label>Deel <select id="boekDeel"></select></label>
         <span id="boekInfo" class="boekinfo"></span>
       </div>`;
     vulBoekDelen();
+  }
+
+  /** Werkorders aanmaken kan: bevroren, recht, nog niet gedaan, script gedraaid, geen fouten in de delen, iets te maken. */
+  const kanMaken = p => s.bevroren && MAG && !WERKORDERS.length && INFO.werkorderTabel && !p.problemen.length && p.rijen.length > 0;
+  function maakUitleg(p) {
+    if (WERKORDERS.length) return 'De calculatie ligt nu vast; een wijziging gaat via meerwerk (een nieuwe offerte met calculatie).';
+    if (!s.bevroren) return 'Kan pas als de calculatie bevroren is (klant akkoord).';
+    if (!MAG) return 'Werkorders aanmaken kan alleen een medewerker met een gekoppeld account.';
+    if (!INFO.werkorderTabel) return 'Eerst moet CalculatieWerkorders_MariaDB.sql op de database gedraaid worden.';
+    if (!p.rijen.length) return 'Er is geen groep met een werkorder.';
+    if (p.problemen.length) return 'Eerst de urenregels zonder of met een dubbele deelnaam aanpassen.';
+    return `Maakt in project ${esc(INFO.project || '')} de werkorders met budget, de kostenbegroting (uren en materiaal per werkorder) en de delen met begrote uren. Daarna kan de calculatie niet meer ontdooid worden.`;
+  }
+  async function maakWerkorders() {
+    const p = werkorderPlan();
+    if (!kanMaken(p)) return;
+    if (!confirm(`${p.rijen.length} werkorder${p.rijen.length === 1 ? '' : 's'} aanmaken in project ${INFO.project || ''}?\n\nDaarna ligt de calculatie vast (niet meer te ontdooien).`)) return;
+    if (!await alles()) { meld('Eerst moet alles opgeslagen zijn; dat lukte niet.', true); render(); return; }
+    const knop = document.getElementById('knopMaak'); if (knop) { knop.disabled = true; knop.textContent = 'Bezig…'; }
+    const rijen = p.rijen.map(r => ({
+      groep: r.g.id, ouder: r.ouder, naam: schoon(r.g.naam), budget: r.budget, kostUur: r.kostUur, kostMat: r.kostMat, uren: r.uren,
+      delen: r.delen.map(x => ({ naam: schoon(x.naam), uren: x.uren, kosten: x.kost, act: x.act ?? null })),
+    }));
+    try {
+      const r = await fetch(`${API}/werkorders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versie, rijen }) });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok) { meld(o.fout || `Werkorders aanmaken mislukt (${r.status}).`, true); render(); return; }
+      WERKORDERS = o.werkorders || [];
+      meld(`${WERKORDERS.length} werkorder${WERKORDERS.length === 1 ? '' : 's'} gemaakt: ${WERKORDERS.map(w => w.nummer).join(', ')}.`);
+      render(); scrollTo({ top: 0 });
+    } catch (e) { meld('Werkorders aanmaken mislukt: geen verbinding met de app.', true); render(); }
   }
 
   let laatstePlan = null;
@@ -1375,15 +1411,11 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   $('tabBoom').addEventListener('click', () => { tab = 'boom'; render(); });
   $('tabWo').addEventListener('click', () => { tab = 'wo'; render(); });
   $('wo').addEventListener('change', e => {
-    if (e.target.name === 'kk') { kortingKeuze = e.target.value; renderWerkorders(); }
     if (e.target.id === 'boekWo') vulBoekDelen();
     if (e.target.id === 'boekDeel') toonBoekInfo();
   });
   $('wo').addEventListener('click', e => {
-    if (e.target.id !== 'knopMaak') return;
-    const p = werkorderPlan();
-    meld(`Voorbeeld: in de app worden nu ${p.rijen.length} werkorders gemaakt (waarvan ${p.rijen.filter(r => r.ouder).length} subwerkorders), met per werkorder de begrote uren per activiteit.`);
-    render(); scrollTo({ top: 0 });
+    if (e.target.id === 'knopMaak') maakWerkorders();
   });
 
   (async () => {

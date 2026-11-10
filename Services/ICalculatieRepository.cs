@@ -18,6 +18,20 @@ public record CalculatieRegel(int OfferteId, int ProjectId, string OfferteNr, st
 /// <summary>Kostprijs per uur van een activiteit (UrenActiviteit), standaard voor nieuwe urenregels.</summary>
 public record CalculatieTarief(int ActiviteitId, string Naam, decimal? Kostprijs);
 
+/// <summary>Een deel van een werkorder uit het plan (een urenregel, samengevoegd op naam).</summary>
+public record WerkorderPlanDeel(string Naam, decimal Uren, decimal Kosten, int? ActiviteitId);
+
+/// <summary>
+/// Een werkorder uit het plan van de boom (werkorderPlan in calculatieboom.html): de groep, de groep van de werkorder
+/// erboven (subwerkorder), naam, budget (verkoop incl. aandeel korting), begrote kosten en uren, en de delen.
+/// </summary>
+public record WerkorderPlanRij(int Groep, int? Ouder, string Naam, decimal Budget, decimal KostUur, decimal KostMat, decimal Uren,
+                               List<WerkorderPlanDeel> Delen);
+
+/// <summary>Een werkorder die een calculatie heeft gemaakt (CalculatieWerkorders, CalculatieWerkorders_MariaDB.sql).</summary>
+public record CalculatieWerkorder(int GroepId, int WerkbonId, string Nummer, string Omschrijving, decimal Budget,
+                                  DateTime? AangemaaktOp, string AangemaaktDoor);
+
 public static class CalculatieStatus
 {
     public const int Concept = 0, Bevroren = 1;
@@ -103,6 +117,18 @@ public interface ICalculatieRepository
     Task<int> BewaarAsync(int offerteId, int versie, string data, decimal kostprijs, decimal verkoop, decimal uren, int? door);
     /// <summary>Concept of bevroren zetten; geeft de nieuwe versie.</summary>
     Task<int> ZetStatusAsync(int offerteId, int status, int? door);
+    /// <summary>Is CalculatieWerkorders_MariaDB.sql gedraaid?</summary>
+    Task<bool> WerkorderTabelAanwezigAsync();
+    /// <summary>De werkorders die deze calculatie heeft gemaakt (leeg = nog niet).</summary>
+    Task<List<CalculatieWerkorder>> WerkordersAsync(int offerteId);
+    /// <summary>Het nummer dat de volgende werkorder in dit project krijgt (Werkbonnummer).</summary>
+    Task<int> VolgendWerkbonnummerAsync(int projectId);
+    /// <summary>
+    /// Maakt in één transactie de werkorders uit het plan (met budget en subwerkorders), de delen, de kostenbegroting
+    /// van het project (uren en materiaal per werkorder) en de koppeling met de calculatie. Alleen als de calculatie
+    /// bevroren is, de versie klopt en er nog geen werkorders zijn; anders <see cref="InvalidOperationException"/>.
+    /// </summary>
+    Task<List<CalculatieWerkorder>> MaakWerkordersAsync(int offerteId, int versie, IReadOnlyList<WerkorderPlanRij> plan, int? door);
     /// <summary>Alle werkorder-activiteiten met hun kostprijstarief (null = nog geen tarief).</summary>
     Task<List<CalculatieTarief>> TarievenAsync();
     Task BewaarTariefAsync(int activiteitId, decimal? kostprijs, int? door);
@@ -119,6 +145,11 @@ public class GeenCalculatieRepository : ICalculatieRepository
     public Task<int> MaakAsync(int offerteId, string data, int? door) => Task.FromResult(0);
     public Task<int> BewaarAsync(int offerteId, int versie, string data, decimal kostprijs, decimal verkoop, decimal uren, int? door) => Task.FromResult(versie);
     public Task<int> ZetStatusAsync(int offerteId, int status, int? door) => Task.FromResult(0);
+    public Task<bool> WerkorderTabelAanwezigAsync() => Task.FromResult(false);
+    public Task<List<CalculatieWerkorder>> WerkordersAsync(int offerteId) => Task.FromResult(new List<CalculatieWerkorder>());
+    public Task<int> VolgendWerkbonnummerAsync(int projectId) => Task.FromResult(1);
+    public Task<List<CalculatieWerkorder>> MaakWerkordersAsync(int offerteId, int versie, IReadOnlyList<WerkorderPlanRij> plan, int? door)
+        => Task.FromResult(new List<CalculatieWerkorder>());
     public Task<List<CalculatieTarief>> TarievenAsync() => Task.FromResult(new List<CalculatieTarief>());
     public Task BewaarTariefAsync(int activiteitId, decimal? kostprijs, int? door) => Task.CompletedTask;
 }
@@ -266,6 +297,169 @@ public class MySqlCalculatieRepository : ICalculatieRepository
         return Convert.ToInt32(await v.ExecuteScalarAsync());
     }
 
+    private bool _woTabel;
+
+    public async Task<bool> WerkorderTabelAanwezigAsync()
+    {
+        if (_woTabel) return true;
+        await using var cn = await OpenAsync();
+        return _woTabel = await BestaatAsync(cn, "CalculatieWerkorders") && await BestaatAsync(cn, "WerkorderDelen");
+    }
+
+    public async Task<List<CalculatieWerkorder>> WerkordersAsync(int offerteId)
+    {
+        var lijst = new List<CalculatieWerkorder>();
+        if (!await WerkorderTabelAanwezigAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        await LeesWerkordersAsync(cn, null, offerteId, lijst);
+        return lijst;
+    }
+
+    private static async Task LeesWerkordersAsync(MySqlConnection cn, MySqlTransaction? tx, int offerteId, List<CalculatieWerkorder> lijst)
+    {
+        await using var cmd = new MySqlCommand(
+            "SELECT cw.`GroepID`, cw.`WerkbonID`, p.`Projectnumber`, w.`Werkbonnummer`, COALESCE(w.`Werkbonomschrijving`, ''), " +
+            "       cw.`Budget`, cw.`AangemaaktOp`, COALESCE(wn.`NaamVoluit`, '') " +
+            "  FROM `CalculatieWerkorders` cw JOIN `Calculaties` c ON c.`CalculatieID` = cw.`CalculatieID` " +
+            "  JOIN `Workorders` w ON w.`Werkbon-id` = cw.`WerkbonID` " +
+            "  LEFT JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+            "  LEFT JOIN `Werknemers` wn ON wn.`Werknemer-id` = cw.`AangemaaktDoor` " +
+            " WHERE c.`OfferteID` = @o ORDER BY cw.`ID`", cn, tx);
+        cmd.Parameters.AddWithValue("@o", offerteId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new CalculatieWerkorder(r.GetInt32(0), r.GetInt32(1), WerkbonNummer(I(r, 2), I(r, 3)), S(r, 4), M(r, 5), D(r, 6), S(r, 7)));
+    }
+
+    /// <summary>Zoals de app een werkorder toont: projectnummer-volgnummer (224112-05).</summary>
+    public static string WerkbonNummer(int? project, int? nummer) => $"{project}-{(nummer ?? 0):00}";
+
+    public async Task<int> VolgendWerkbonnummerAsync(int projectId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT MAX(`Werkbonnummer`) FROM `Workorders` WHERE `Project-id` = @p", cn);
+        cmd.Parameters.AddWithValue("@p", projectId);
+        var res = await cmd.ExecuteScalarAsync();
+        return res is null or DBNull ? 1 : Convert.ToInt32(res) + 1;
+    }
+
+    public async Task<List<CalculatieWerkorder>> MaakWerkordersAsync(int offerteId, int versie, IReadOnlyList<WerkorderPlanRij> plan, int? door)
+    {
+        if (!await WerkorderTabelAanwezigAsync())
+            throw new InvalidOperationException("Draai eerst CalculatieWerkorders_MariaDB.sql op de database.");
+        await using var cn = await OpenAsync();
+        var metBegroting = await BestaatAsync(cn, "ProjectKostenbegroting");
+        await using var tx = await cn.BeginTransactionAsync();
+
+        // de calculatie vastzetten (twee keer tegelijk op de knop drukken maakt geen dubbele werkorders)
+        int calcId, status, huidig, projectId; int? projectnr; string offerteNr;
+        await using (var c = new MySqlCommand(
+            "SELECT c.`CalculatieID`, c.`Status`, c.`Versie`, o.`ProjectID`, p.`Projectnumber`, o.`OfferteNummer` " +
+            "  FROM `Calculaties` c JOIN `Offertes` o ON o.`OfferteID` = c.`OfferteID` " +
+            "  JOIN `Projects` p ON p.`Project-Id` = o.`ProjectID` WHERE c.`OfferteID` = @o FOR UPDATE", cn, tx))
+        {
+            c.Parameters.AddWithValue("@o", offerteId);
+            await using var r = await c.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) throw new InvalidOperationException("Deze calculatie bestaat niet (meer).");
+            calcId = r.GetInt32(0); status = Convert.ToInt32(r.GetValue(1)); huidig = Convert.ToInt32(r.GetValue(2));
+            projectId = r.GetInt32(3); projectnr = I(r, 4); offerteNr = Offertes.Nummer(projectnr, Convert.ToInt32(r.GetValue(5)));
+        }
+        if (status != CalculatieStatus.Bevroren) throw new InvalidOperationException("Werkorders aanmaken kan pas als de calculatie bevroren is (klant akkoord).");
+        if (huidig != versie) throw new InvalidOperationException("De calculatie is intussen gewijzigd; vernieuw de pagina en probeer opnieuw.");
+        await using (var c = new MySqlCommand("SELECT COUNT(*) FROM `CalculatieWerkorders` WHERE `CalculatieID` = @c", cn, tx))
+        {
+            c.Parameters.AddWithValue("@c", calcId);
+            if (Convert.ToInt32(await c.ExecuteScalarAsync()) > 0) throw new InvalidOperationException("Deze calculatie heeft de werkorders al gemaakt.");
+        }
+
+        // volgend nummer in het project (de werkorders van het project even vast, tegen dubbele nummers)
+        int nr;
+        await using (var c = new MySqlCommand("SELECT MAX(`Werkbonnummer`) FROM `Workorders` WHERE `Project-id` = @p FOR UPDATE", cn, tx))
+        {
+            c.Parameters.AddWithValue("@p", projectId);
+            var res = await c.ExecuteScalarAsync();
+            nr = res is null or DBNull ? 0 : Convert.ToInt32(res);
+        }
+
+        var perGroep = new Dictionary<int, int>();
+        foreach (var rij in plan)
+        {
+            nr++;
+            int? ouder = rij.Ouder is int og && perGroep.TryGetValue(og, out var ow) ? ow : null;
+            int werkbon;
+            await using (var w = new MySqlCommand(
+                "INSERT INTO `Workorders` (`Project-id`, `Werkbonnummer`, `Werkbonomschrijving`, `WorkOrderStatus`, `Aangemaakt`, " +
+                "       `Aangemaakt_door`, `Doorbelast deel`, `InkoopToegestaan`, `Budget`, `ParentWerkbonID`) " +
+                "VALUES (@p, @nr, @oms, @st, NOW(), @door, 100, 1, @b, @ouder)", cn, tx))
+            {
+                w.Parameters.AddWithValue("@p", projectId);
+                w.Parameters.AddWithValue("@nr", nr);
+                w.Parameters.AddWithValue("@oms", Kort(rij.Naam, 100));
+                w.Parameters.AddWithValue("@st", ProjectVelden.WerkorderStatussen[0].Id);   // Open
+                w.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+                w.Parameters.AddWithValue("@b", (double)Math.Round(rij.Budget, 2));
+                w.Parameters.AddWithValue("@ouder", (object?)ouder ?? DBNull.Value);
+                await w.ExecuteNonQueryAsync();
+                werkbon = (int)w.LastInsertedId;
+            }
+            perGroep[rij.Groep] = werkbon;
+
+            await using (var k = new MySqlCommand(
+                "INSERT INTO `CalculatieWerkorders` (`CalculatieID`, `GroepID`, `WerkbonID`, `Budget`, `KostenUren`, `KostenMateriaal`, " +
+                "       `Uren`, `AangemaaktOp`, `AangemaaktDoor`) VALUES (@c, @g, @w, @b, @ku, @km, @u, NOW(), @door)", cn, tx))
+            {
+                k.Parameters.AddWithValue("@c", calcId);
+                k.Parameters.AddWithValue("@g", rij.Groep);
+                k.Parameters.AddWithValue("@w", werkbon);
+                k.Parameters.AddWithValue("@b", Math.Round(rij.Budget, 2));
+                k.Parameters.AddWithValue("@ku", Math.Round(rij.KostUur, 2));
+                k.Parameters.AddWithValue("@km", Math.Round(rij.KostMat, 2));
+                k.Parameters.AddWithValue("@u", Math.Round(rij.Uren, 2));
+                k.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+                await k.ExecuteNonQueryAsync();
+            }
+
+            var volg = 0;
+            foreach (var deel in rij.Delen)
+            {
+                await using var d = new MySqlCommand(
+                    "INSERT INTO `WerkorderDelen` (`WerkbonID`, `Naam`, `BegroteUren`, `BegroteKosten`, `UrenActiviteitID`, `Volgorde`, " +
+                    "       `CalculatieID`, `Actief`, `AangemaaktOp`, `AangemaaktDoor`) VALUES (@w, @n, @u, @k, @a, @v, @c, 1, NOW(), @door)", cn, tx);
+                d.Parameters.AddWithValue("@w", werkbon);
+                d.Parameters.AddWithValue("@n", Kort(deel.Naam, 200));
+                d.Parameters.AddWithValue("@u", Math.Round(deel.Uren, 2));
+                d.Parameters.AddWithValue("@k", Math.Round(deel.Kosten, 2));
+                d.Parameters.AddWithValue("@a", (object?)deel.ActiviteitId ?? DBNull.Value);
+                d.Parameters.AddWithValue("@v", ++volg);
+                d.Parameters.AddWithValue("@c", calcId);
+                d.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+                await d.ExecuteNonQueryAsync();
+            }
+
+            if (metBegroting)
+                foreach (var (soort, bedrag) in new[] { ("uren", rij.KostUur), ("materiaal", rij.KostMat) })
+                {
+                    if (Math.Round(bedrag, 2) == 0) continue;
+                    await using var b = new MySqlCommand(
+                        "INSERT INTO `ProjectKostenbegroting` (`ProjectID`, `Soort`, `Omschrijving`, `Bedrag`, `AangemaaktOp`, `AangemaaktDoor`) " +
+                        "VALUES (@p, @s, @o, @b, NOW(), @door)", cn, tx);
+                    b.Parameters.AddWithValue("@p", projectId);
+                    b.Parameters.AddWithValue("@s", soort);
+                    b.Parameters.AddWithValue("@o", Kort($"{WerkbonNummer(projectnr, nr)} {rij.Naam} (calculatie {offerteNr})", 150));
+                    b.Parameters.AddWithValue("@b", Math.Round(bedrag, 2));
+                    b.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+                    await b.ExecuteNonQueryAsync();
+                }
+        }
+
+        var lijst = new List<CalculatieWerkorder>();
+        await LeesWerkordersAsync(cn, tx, offerteId, lijst);
+        await tx.CommitAsync();
+        return lijst;
+    }
+
+    private static string Kort(string t, int max) { t = (t ?? "").Trim(); return t.Length <= max ? t : t[..max]; }
+
     public async Task<List<CalculatieTarief>> TarievenAsync()
     {
         var lijst = new List<CalculatieTarief>();
@@ -370,6 +564,36 @@ public class GeheugenCalculatieRepository : ICalculatieRepository
             var c = _calc[offerteId];
             _calc[offerteId] = c with { Status = status, Versie = c.Versie + 1, BevrorenOp = status == 1 ? DateTime.Now : null };
             return Task.FromResult(c.Versie + 1);
+        }
+    }
+
+    private readonly Dictionary<int, List<CalculatieWerkorder>> _wo = new();
+    private int _volgendWerkbon = 9_000_000;
+
+    public Task<bool> WerkorderTabelAanwezigAsync() => Task.FromResult(true);
+
+    public Task<List<CalculatieWerkorder>> WerkordersAsync(int offerteId)
+    {
+        lock (_slot) return Task.FromResult(_wo.TryGetValue(offerteId, out var l) ? l.ToList() : new List<CalculatieWerkorder>());
+    }
+
+    public Task<int> VolgendWerkbonnummerAsync(int projectId) => _echt.VolgendWerkbonnummerAsync(projectId);
+
+    /// <summary>Maakt niets in de database: alleen nummers en ids in het geheugen (om het scherm te kunnen testen).</summary>
+    public async Task<List<CalculatieWerkorder>> MaakWerkordersAsync(int offerteId, int versie, IReadOnlyList<WerkorderPlanRij> plan, int? door)
+    {
+        var o = await _offertes.GetAsync(offerteId) ?? throw new InvalidOperationException("Offerte niet gevonden.");
+        var nr = await _echt.VolgendWerkbonnummerAsync(o.ProjectId) - 1;
+        lock (_slot)
+        {
+            var c = _calc[offerteId];
+            if (c.Status != CalculatieStatus.Bevroren) throw new InvalidOperationException("Werkorders aanmaken kan pas als de calculatie bevroren is (klant akkoord).");
+            if (c.Versie != versie) throw new InvalidOperationException("De calculatie is intussen gewijzigd; vernieuw de pagina en probeer opnieuw.");
+            if (_wo.ContainsKey(offerteId)) throw new InvalidOperationException("Deze calculatie heeft de werkorders al gemaakt.");
+            var lijst = plan.Select(r => new CalculatieWerkorder(r.Groep, _volgendWerkbon++, MySqlCalculatieRepository.WerkbonNummer(o.Projectnummer, ++nr),
+                r.Naam, Math.Round(r.Budget, 2), DateTime.Now, "geheugen")).ToList();
+            _wo[offerteId] = lijst;
+            return lijst;
         }
     }
 

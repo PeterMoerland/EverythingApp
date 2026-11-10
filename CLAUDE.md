@@ -316,6 +316,28 @@ bevriezen**; werkorders aanmaken (budget, kostenbegroting, delen met begrote ure
   nagerekend), opslaan met versie, 409 bij een oude versie, 423 bij een getal na bevriezen, notitie na bevriezen wel,
   ontdooien, werkordernummers 224112-01/-02, donker thema. Niet getest: echte database, twee echte gebruikers tegelijk.
 
+## Calculaties, stap 2: werkorders aanmaken bij klant akkoord (10-11-2026)
+
+Besluiten gebruiker: groepen zonder werkorder (korting, afronding) **naar rato** over de werkorderbudgetten (de
+keuze "apart" is uit de boom gehaald); **kostenbegroting** per werkorder (uren en materiaal); **delen nu al vastleggen**;
+na het aanmaken **niet meer ontdooien** (ook Directie niet; wijzigen = meerwerk).
+- Script **`CalculatieWerkorders_MariaDB.sql`** (na Calculaties_MariaDB.sql): `CalculatieWerkorders` (calculatie, groep-id
+  uit de JSON, werkbon, budget, kosten, uren) en `WerkorderDelen` (werkbon, naam, begrote uren/kosten, activiteit;
+  uniek per werkbon+naam; nog nergens zichtbaar, voor boeken op delen).
+- Boom: tabblad Werkorders toont de volgende vrije nummers (`info.volgendWerkbon`) of na het aanmaken de echte
+  (`WERKORDERS`, met link Project openen); knop **Werkorders aanmaken** (`maakWerkorders`: eerst alles opslaan, dan het
+  plan uit `werkorderPlan()` naar POST `/calculaties/api/{offerte}/werkorders`).
+- App controleert het plan (bevroren, versie, ouders vóór kinderen, namen, delen uniek, som budgetten = Calculaties.Verkoop
+  ± € 1) en `MySqlCalculatieRepository.MaakWerkordersAsync` maakt in **één transactie** (calculatie en de werkorders van
+  het project `FOR UPDATE`): Workorders (volgend Werkbonnummer, omschrijving = groepnaam, Open, Doorbelast deel 100,
+  InkoopToegestaan, Budget, ParentWerkbonID), CalculatieWerkorders, WerkorderDelen, en ProjectKostenbegroting
+  ("224112-05 Counter (calculatie Q224112-01)", soort uren/materiaal; alleen als die tabel bestaat). Ontdooien na het
+  aanmaken = 423.
+- Getest met Geheugen (rechten tijdelijk open, teruggezet): Counter + Buffer (sub) + Korting zonder werkorder →
+  224112-07 en ↳ -08, budgetten 35.937 / 13.304 (nagerekend, samen de verkoop 49.241), tweede keer 409, ontdooien 423.
+  **De SQL van MaakWerkordersAsync is niet tegen de echte database getest** (zou schrijven): eerste echte keer
+  nakijken in Projecten (werkorders, Budget verdeling, Kostenbegroting).
+
 ## Banktransacties: gekoppelde facturen (10-11-2026)
 
 Wens gebruiker: geen vergrootglas meer, maar **dubbelklik** op een regel voor de details; in de details de **gekoppelde
