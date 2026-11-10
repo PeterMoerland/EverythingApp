@@ -111,7 +111,7 @@ public static class Menu
             new MenuGroep("Lokaties",
                 new MenuItem("Dragers", "/voorraad/dragers", Icoon: "container"),
                 new MenuItem("Lokatiestructuur", "/voorraad/lokatiestructuur", Icoon: "network"),
-                new MenuItem("Lokaties", Icoon: "map-pin"))),
+                new MenuItem("Lokaties", "/voorraad/lokaties", Icoon: "map-pin"))),
             // Voorraadstand staat in Financiën ▸ Rapporten (kostprijzen); de grijze tegel hier is weg (19-10-2026).
 
         new("bestellingen", "Bestellingen", "shopping-cart",

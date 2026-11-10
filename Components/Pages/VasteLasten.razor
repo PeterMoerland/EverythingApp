@@ -334,7 +334,7 @@
     {
         if (!MagInvoeren) return;
         // de verzekering is de bron (besluit gebruiker 9-11-2026): daar aanpassen
-        if (v.VerzekeringId is int vz) { Nav.NavigateTo($"/financien/verzekeringen?verzekering={vz}"); return; }
+        if (v.VerzekeringId is int vz) { Nav.NavigateTo($"financien/verzekeringen?verzekering={vz}"); return; }
         _bewerk = new VasteLast
         {
             Id = v.Id, Omschrijving = v.Omschrijving, Bedrag = v.Bedrag, Interval = v.Interval,

@@ -215,7 +215,7 @@
                             {
                                 <span class="alleen-lezen">
                                     @Bedrag2(g.VasteLastBedrag) per @Termijn(g.VasteLastTermijn) (@Geld(g.PremiePerJaar ?? 0) per jaar) — uit vaste last
-                                    <a href="/financien/vaste-lasten">@g.VasteLast</a>, telt zo al mee in Liquiditeit.
+                                    <a href="financien/vaste-lasten">@g.VasteLast</a>, telt zo al mee in Liquiditeit.
                                     <button class="klein" title="De premie hier zelf invullen; de vaste last blijft bestaan" @onclick="() => Zet(x => { x.Premie = x.VasteLastBedrag; x.PremieInterval = x.VasteLastTermijn; x.VasteLastId = null; })">ontkoppelen</button>
                                 </span>
                             }
@@ -450,7 +450,7 @@
             <span class="vz-kiezer">
                 @if (id is int rid)
                 {
-                    <a href="/relaties?id=@rid">@naam</a>
+                    <a href="relaties?id=@rid">@naam</a>
                 }
                 else
                 {

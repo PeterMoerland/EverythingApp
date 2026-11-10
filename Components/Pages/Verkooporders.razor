@@ -207,7 +207,7 @@
                                         <td class="vo-besteld">
                                             @foreach (var i in r.Inkoop)
                                             {
-                                                <a href="/bestellingen?order=@i.BestellingId" class="vo-po @InkoopKleur(i)" title="@InkoopTitel(i)">@Getal(i.Aantal)× PO-@i.BestellingId</a>
+                                                <a href="bestellingen?order=@i.BestellingId" class="vo-po @InkoopKleur(i)" title="@InkoopTitel(i)">@Getal(i.Aantal)× PO-@i.BestellingId</a>
                                             }
                                             @if (r.Inkoop.Count > 0 && r.TeBestellen > 0)
                                             {
@@ -215,7 +215,7 @@
                                             }
                                             @foreach (var l in r.Leveringen)
                                             {
-                                                <a href="/bestellingen/pakbonnen?pakbon=@l.KopId" class="vo-po vo-ps" title="Geleverd met pakbon @l.Nummer (klik: openen)">@Getal(l.Aantal)× @l.Nummer</a>
+                                                <a href="bestellingen/pakbonnen?pakbon=@l.KopId" class="vo-po vo-ps" title="Geleverd met pakbon @l.Nummer (klik: openen)">@Getal(l.Aantal)× @l.Nummer</a>
                                             }
                                             @foreach (var f in r.Facturen)
                                             {
@@ -389,7 +389,7 @@
                         @foreach (var g in gemaakt)
                         {
                             <li>
-                                <a href="/bestellingen?order=@g.BestellingId"><b>PO-@g.BestellingId</b></a> · @g.Leverancier ·
+                                <a href="bestellingen?order=@g.BestellingId"><b>PO-@g.BestellingId</b></a> · @g.Leverancier ·
                                 @g.Regels regel@(g.Regels == 1 ? "" : "s") · @Geld(g.Totaal)
                                 @if (g.Let is not null) { <span class="vo-let">⚠ @g.Let</span> }
                             </li>
@@ -466,7 +466,7 @@
             <div class="factuurvenster-inhoud">
                 @if (_pakbonGemaakt is int ps)
                 {
-                    <p>Pakbon <a href="/bestellingen/pakbonnen?pakbon=@ps"><b>PS-@ps</b></a> is aangemaakt.</p>
+                    <p>Pakbon <a href="bestellingen/pakbonnen?pakbon=@ps"><b>PS-@ps</b></a> is aangemaakt.</p>
                     <p class="uitleg">Open de pakbon in Pakbonnen om hem af te drukken (met of zonder afbeeldingen) of een verzendlabel te maken.</p>
                 }
                 else

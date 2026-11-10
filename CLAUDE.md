@@ -39,6 +39,9 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Bestanden zijn UTF-8 zonder BOM. **Niet** `Get-Content`/`Set-Content` van PowerShell 5.1 gebruiken
   voor scripted edits: die leest zonder BOM als ANSI en verminkt dan alle tekens als ⚠ en é. Gebruik
   `[IO.File]::ReadAllText/WriteAllText` met `UTF8Encoding($false)`, of de Edit-tool.
+- **Links nooit met `/` laten beginnen**: de app draait in productie onder `/mde/` (base href). `href="/relaties?id=1"`
+  of `Nav.NavigateTo("/financien/...")` gaat naar de hoofdmap van de server (niemandsland). Altijd relatief:
+  `href="relaties?id=1"`, `Nav.NavigateTo("financien/...")` (melding gebruiker 10-11-2026; 10 plekken hersteld).
 - JS-interop en SignalR: lange taken niet synchroon; `MaximumReceiveMessageSize` is 8 MB; interop met
   CancellationToken.
 
@@ -238,6 +241,28 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   bij hardwarestappen altijd: motoren uit in `finally`, registers terugzetten, STO-check vooraf.
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
+
+## Voorraad per BV, stap 1 (10-11-2026)
+
+MDE Automation en M-Pede Robotics (MPR) krijgen elk een eigen voorraad. Ontwerp (voorstel, stap 1 gebouwd): één
+artikelbestand en één lokatieboom; de voorraad hoort bij de BV van de bovenste lokatie (type Bedrijf, 17) waar hij onder
+ligt. Script **`VoorraadPerBv_MariaDB.sql`**: `Locations.BvID` (alleen op de bovenste lokatie); MDE (1) en Wees (10)
+→ MDE Automation (5254); nieuwe bovenste lokatie "M-Pede Robotics" (MPR) voor de BV met afkorting MPR.
+`LokatieBoom.Bv(id)` erft de BV van boven (`HeeftBvs` = script gedraaid). Artikelen > Voorraad/Bestellen: actuele
+voorraad = som van de posities (zoals Artikelvoorraad) met per BV een regel (elke BV, ook 0; "niet ingedeeld" als er
+voorraad zonder BV is). Voorraad > Artikelvoorraad: per BV in de totaalregel en een BV-label per plek.
+**Lokaties beheren** (gebouwd 10-11-2026, Voorraad > Lokaties, `Components/Pages/Lokaties.razor`, vervangt Access
+LocationTreeview/LocationToevoegen): boom van de vaste plekken (dragers optioneel, aantal artikelen hier en eronder),
+zoeken/scannen `@L…`; details wijzigen (omschrijving, afkorting, type binnen Lokatiestructuur, "voorraad mag hier",
+opmerking; systeemlokaties niet); BV kiezen op een bovenste lokatie van type Bedrijf; toevoegen onder de gekozen plek
+(types volgens Lokatiestructuur, vinkje voor andere; dragers niet, die blijven bij Dragers), ook als reeks (aantal n:
+"Vak 1..n", afkorting doorgenummerd na de hoogste Index van dat type onder de ouder); verplaatsen (`LokatieKiezer`);
+wissen alleen zonder lokaties eronder, zonder voorraadmutaties en zonder inhoud; labels (Dymo, één of alles eronder).
+Repository: `NieuweLokatieAsync`, `BewaarLokatieAsync`, `WisLokatieAsync`, `ZetBvAsync`. Lokaal: `Lokaties__Geheugen=true`
+(leest echt, schrijft in het geheugen). Getest in het geheugen: gebouw/ruimte/3 stellingen onder MPR (label
+MPR-S48-MAG-1), wissen, weigeren met plekken eronder. Niet getest: echt opslaan en printen.
+**Volgende stappen** (nog niet gebouwd): BV op inkooporders (`Orders` heeft geen BV) en bij
+ontvangst boeken op een plek van die BV, Voorraadstand per BV, verplaatsen tussen BV's = interne verkoop.
 
 ## Factuurinbox: al ingevoerde facturen weghalen (10-11-2026)
 

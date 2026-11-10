@@ -166,7 +166,11 @@ if (liveDb)
     builder.Services.AddSingleton<IBezoekRepository>(_ => new MySqlBezoekRepository(cs!));
     builder.Services.AddSingleton<IOfferteRepository>(_ => new MySqlOfferteRepository(cs!));
     builder.Services.AddSingleton<ISamenstellingRepository>(_ => new MySqlSamenstellingRepository(cs!));
-    builder.Services.AddSingleton<ILokatieRepository>(_ => new MySqlLokatieRepository(cs!));
+    // lokaal testen zonder in Locations te schrijven: Lokaties__Geheugen=true (leest echt)
+    if (builder.Configuration.GetValue<bool>("Lokaties:Geheugen"))
+        builder.Services.AddSingleton<ILokatieRepository>(_ => new GeheugenLokatieRepository(new MySqlLokatieRepository(cs!)));
+    else
+        builder.Services.AddSingleton<ILokatieRepository>(_ => new MySqlLokatieRepository(cs!));
     builder.Services.AddSingleton<IVoorraadRepository>(_ => new MySqlVoorraadRepository(cs!));
     builder.Services.AddSingleton<IInstellingRepository>(_ => new MySqlInstellingRepository(cs!));
     builder.Services.AddSingleton<IPlanningRepository>(_ => new MySqlPlanningRepository(cs!));

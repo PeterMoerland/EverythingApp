@@ -1,0 +1,450 @@
+@page "/voorraad/lokaties"
+@inject ILokatieRepository Repo
+@inject IBvStructuurRepository Structuur
+@inject HuidigeGebruiker Ik
+@inject LabelService Labels
+@inject IJSRuntime JS
+
+@* Lokaties beheren (wens gebruiker 10-11-2026, vervangt Access LocationTreeview / LocationToevoegen): de vaste plekken
+   (bedrijf, gebouw, ruimte, stelling, kast, niveau, vak, ...) als boom. Aanmaken onder een plek (welk type mag staat in
+   Lokatiestructuur), ook in reeksen (Vak 1..10), wijzigen, verplaatsen, wissen (alleen leeg en zonder historie), labels.
+   Dragers (krat, pallet) maak je bij Dragers; hier kun je ze tonen. Bovenste lokatie (type Bedrijf) = een BV: alles
+   eronder is voorraad van die BV (VoorraadPerBv_MariaDB.sql). Wijzigen: Voorraadbeheer of Directie. *@
+
+<PageTitle>Lokaties — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Lokaties</h1>
+        <span class="weeklabel">@_boom.PerId.Values.Count(l => !l.Verplaatsbaar) vaste plekken · @_boom.PerId.Values.Count(l => l.Verplaatsbaar) dragers</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!MagBewerken)
+        {
+            <div class="melding fout">Alleen bekijken: lokaties wijzigen mag met het recht Voorraadbeheer of Directie.</div>
+        }
+
+        <div class="wn-scherm">
+            <aside class="wn-lijst lk-lijst">
+                <div class="wn-filters">
+                    <div class="zoekregel">
+                        <input placeholder="Zoek of scan (@@L…)" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
+                        <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="() => _zoek = string.Empty">✕</button>
+                    </div>
+                    <label class="vink"><input type="checkbox" checked="@_dragers" @onchange="e => _dragers = e.Value is true" /> ook dragers tonen</label>
+                </div>
+                <div class="wn-namen lk-boom">
+                    @if (_zoek.Trim().Length > 0)
+                    {
+                        @foreach (var l in Treffers())
+                        {
+                            <div class="lk-tak @(l.Id == _gekozen?.Id ? "actief" : "")" @onclick="() => Kies(l.Id)">
+                                <span>@l.Omschrijving</span> <small>@_boom.Leesbaar(l.Id, false)</small>
+                            </div>
+                        }
+                        @if (!Treffers().Any()) { <div class="kiezer-info">Niets gevonden.</div> }
+                    }
+                    else
+                    {
+                        @foreach (var w in _boom.Wortels.OrderBy(w => w.Systeemlokatie).ThenBy(w => w.Omschrijving))
+                        {
+                            @Tak(w, 0)
+                        }
+                    }
+                </div>
+            </aside>
+
+            <section class="wn-detail">
+                @if (_gekozen is not { } g)
+                {
+                    <div class="kiezer-info">Kies links een lokatie. Bovenaan staan de bedrijven (BV's); daaronder gebouwen, ruimtes, stellingen en vakken.</div>
+                }
+                else
+                {
+                    var bv = _boom.Bv(g.Id);
+                    var tel = Totaal(g.Id);
+                    <div class="pb-titel">
+                        <h2>@g.Omschrijving</h2>
+                        <span class="ls-label">@TypeNaam(g.TypeId)</span>
+                        @if (bv.Id is not null) { <span class="av-bv">@bv.Naam</span> }
+                        @if (g.Systeemlokatie) { <span class="ls-label">systeem</span> }
+                        @if (g.Verplaatsbaar) { <span class="ls-label drager">drager</span> }
+                        <span class="pb-vulling"></span>
+                        <div class="btngroup">
+                            <button class="klein" disabled="@_printBezig" title="Label met barcode @g.Barcode" @onclick="() => Print(new[] { g.Id })">🏷 Label</button>
+                            @if (_boom.KinderenVan(g.Id).Any(k => !k.Verplaatsbaar))
+                            {
+                                <button class="klein" disabled="@_printBezig" @onclick="() => Print(Onder(g.Id).ToArray())">🏷 Labels van alles eronder</button>
+                            }
+                            @if (MagBewerken && !g.Systeemlokatie && g.OuderId is not null)
+                            {
+                                <button class="klein" @onclick="() => _kiezerOpen = true">Verplaatsen…</button>
+                                <button class="klein rood" @onclick="Wis">Wissen</button>
+                            }
+                        </div>
+                    </div>
+                    <p class="uitleg">
+                        @(_boom.Leesbaar(g.Id)) · label <b>@_boom.Naam(g.Id)</b> · @g.Barcode
+                        @if (tel.Items > 0)
+                        {
+                            <span> · <a href="@($"voorraad/artikelen?lokatie={g.Id}")">@tel.Items artikel(en), @tel.Stuks.ToString("0.###") stuks</a>@(Telling(g.Id).Items < tel.Items ? " (hier en eronder)" : "")</span>
+                        }
+                    </p>
+
+                    @if (g.Verplaatsbaar)
+                    {
+                        <p class="uitleg">Dit is een drager; die beheer je bij <a href="@($"voorraad/dragers/{g.Id}")">Dragers</a>.</p>
+                    }
+                    else
+                    {
+                        var vast = !MagBewerken || g.Systeemlokatie;
+                        <div class="wn-velden pb-velden">
+                            <div class="wn-veld">
+                                <label>Omschrijving</label>
+                                <input value="@g.Omschrijving" maxlength="50" disabled="@vast" @onchange="e => Zet(x => x.Omschrijving = Tekst(e))" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Afkorting <small class="zij-extra">(in de labelnaam)</small></label>
+                                <input value="@g.Afkorting" maxlength="10" disabled="@vast" @onchange="e => Zet(x => x.Afkorting = Tekst(e))" />
+                            </div>
+                            <div class="wn-veld">
+                                <label>Type</label>
+                                <select value="@(g.TypeId?.ToString() ?? string.Empty)" disabled="@vast" @onchange="e => Zet(x => x.TypeId = int.TryParse((string?)e.Value, out var t) ? t : x.TypeId)">
+                                    @foreach (var t in TypesVoorWijzigen(g)) { <option value="@t.Id">@t.Omschrijving</option> }
+                                </select>
+                            </div>
+                            <div class="wn-veld">
+                                <label>Voorraad</label>
+                                <label class="vink"><input type="checkbox" checked="@g.Voorraad" disabled="@vast" @onchange="e => Zet(x => x.Voorraad = e.Value is true)" /> hier mag voorraad liggen</label>
+                            </div>
+                            @if (g.OuderId is null && g.TypeId == BedrijfType)
+                            {
+                                <div class="wn-veld">
+                                    <label>BV <small class="zij-extra">(alles eronder is voorraad van deze BV)</small></label>
+                                    <select value="@(g.BvId?.ToString() ?? string.Empty)" disabled="@(!MagBewerken)" @onchange="ZetBv">
+                                        <option value="">—</option>
+                                        @foreach (var b in _bvs) { <option value="@b.Id">@b.Naam</option> }
+                                    </select>
+                                </div>
+                            }
+                            <div class="wn-veld breed">
+                                <label>Opmerking</label>
+                                <input value="@g.Opmerking" maxlength="100" disabled="@vast" @onchange="e => Zet(x => x.Opmerking = Tekst(e))" />
+                            </div>
+                        </div>
+
+                        @if (MagBewerken && !g.Systeemlokatie)
+                        {
+                            var kindTypes = KindTypes(g);
+                            <h3 class="wn-kop">Lokatie toevoegen onder @g.Omschrijving</h3>
+                            <div class="lk-nieuw">
+                                <select value="@(_nieuwType?.ToString() ?? string.Empty)" @onchange="e => _nieuwType = int.TryParse((string?)e.Value, out var t) ? t : null">
+                                    <option value="">Type…</option>
+                                    @foreach (var t in kindTypes) { <option value="@t.Id">@t.Omschrijving</option> }
+                                </select>
+                                <input placeholder="Omschrijving (bv. Stelling A, Vak)" maxlength="45" value="@_nieuwNaam" @onchange="e => _nieuwNaam = Tekst(e)" />
+                                <input class="lk-afk" placeholder="Afk." maxlength="8" value="@_nieuwAfk" @onchange="e => _nieuwAfk = Tekst(e)" />
+                                <label>aantal <input class="r lk-aantal" value="@_nieuwAantal" @onchange="e => _nieuwAantal = int.TryParse((string?)e.Value, out var n) ? Math.Clamp(n, 1, 50) : 1" /></label>
+                                <button class="klein primair" disabled="@(_nieuwType is null || _nieuwNaam.Length == 0 || _bezig)" @onclick="VoegToe">Toevoegen</button>
+                            </div>
+                            <label class="vink lk-alle"><input type="checkbox" checked="@_alleTypes" @onchange="e => _alleTypes = e.Value is true" /> ook types die volgens Lokatiestructuur hier niet horen</label>
+                            <p class="uitleg">
+                                @if (kindTypes.Count == 0 && !_alleTypes) { <span>Onder een @TypeNaam(g.TypeId) mag volgens <a href="voorraad/lokatiestructuur">Lokatiestructuur</a> nog niets; zet het vinkje aan of pas de structuur aan. </span> }
+                                Met een aantal groter dan 1 komt er een reeks: "@(_nieuwNaam.Length > 0 ? _nieuwNaam : "Vak") 1", "… 2", enzovoort, met de afkorting
+                                @(_nieuwAfk.Length > 0 ? _nieuwAfk + "1, " + _nieuwAfk + "2" : "1, 2") (doorgenummerd na wat er al staat).
+                                Kratten en pallets maak je bij <a href="voorraad/dragers">Dragers</a> en verplaats je daarna hierheen.
+                            </p>
+                        }
+
+                        var kinderen = _boom.KinderenVan(g.Id).Where(k => _dragers || !k.Verplaatsbaar).ToList();
+                        @if (kinderen.Count > 0)
+                        {
+                            <h3 class="wn-kop">Hieronder (@kinderen.Count)</h3>
+                            <div class="ls-chips">
+                                @foreach (var k in kinderen)
+                                {
+                                    <span class="ls-chip" @key="k.Id"><button class="ls-chiplink" @onclick="() => Kies(k.Id)">@k.Omschrijving@(k.Afkorting.Length > 0 ? " (" + k.Afkorting + ")" : "")</button></span>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+<LokatieKiezer Open="_kiezerOpen" Titel="@($"{_gekozen?.Omschrijving} verplaatsen naar…")" Boom="_boom" Regels="_regels"
+               VerplaatsId="_gekozen?.Id ?? 0" OpGekozen="Verplaats" OpSluiten="() => _kiezerOpen = false" />
+
+@code {
+    private const int BedrijfType = 17;
+    private LokatieBoom _boom = new(Array.Empty<Lokatie>());
+    private List<LokatieType> _types = new();
+    private List<LokatieTypeRegel> _regels = new();
+    private Dictionary<int, (int Items, decimal Stuks)> _tellingen = new();
+    private List<Keuze> _bvs = new();
+    private Lokatie? _gekozen;
+    private readonly HashSet<int> _open = new();
+    private string _zoek = "";
+    private bool _dragers, _kiezerOpen, _bezig, _printBezig, _alleTypes;
+    private int? _nieuwType;
+    private string _nieuwNaam = "", _nieuwAfk = "";
+    private int _nieuwAantal = 1;
+    private string? _melding;
+    private bool _fout;
+
+    private bool MagBewerken => !Ik.Gekoppeld || Ik.MagEenVan("Voorraadbeheer", "Directie");
+
+    [SupplyParameterFromQuery(Name = "lokatie")] public int? UitUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _types = await Repo.TypesAsync();
+            _regels = await Repo.TypeRegelsAsync();
+            try
+            {
+                _bvs = (await Structuur.BvsAsync()).Where(b => (b.MdeGroep || b.Werkmaatschappij) && !b.IsOpgeheven)
+                    .Select(b => new Keuze(b.Id, b.Naam)).ToList();
+            }
+            catch { }
+            await Laad();
+            foreach (var w in _boom.Wortels.Where(w => !w.Systeemlokatie)) _open.Add(w.Id);
+            if (UitUrl is int id) Kies(id);
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Laad()
+    {
+        _boom = await Repo.BoomAsync();
+        try { _tellingen = await Repo.TellingenAsync(); } catch { _tellingen = new(); }
+        _totaal.Clear();
+        if (_gekozen is { } g) _gekozen = _boom.PerId.GetValueOrDefault(g.Id);
+    }
+
+    // ---------- boom ----------
+    private RenderFragment Tak(Lokatie l, int diepte) => __builder =>
+    {
+        var kinderen = _boom.KinderenVan(l.Id).Where(k => _dragers || !k.Verplaatsbaar).ToList();
+        var open = _open.Contains(l.Id);
+        var tel = Totaal(l.Id);
+        <div class="lk-tak @(l.Id == _gekozen?.Id ? "actief" : "") @(l.Verplaatsbaar ? "drager" : "") @(l.Systeemlokatie ? "systeem" : "")" style="padding-left:@(diepte * 1.1 + .3)rem" @key="l.Id">
+            @if (kinderen.Count > 0)
+            {
+                <button class="lk-pijl" @onclick="() => Wissel(l.Id)">@(open ? "▾" : "▸")</button>
+            }
+            else
+            {
+                <span class="lk-pijl"></span>
+            }
+            <span class="lk-naam" @onclick="() => Kies(l.Id)">
+                @l.Omschrijving
+                @if (l.Afkorting.Length > 0) { <small>@l.Afkorting</small> }
+                @if (l.BvId is not null) { <span class="av-bv">@l.BvNaam</span> }
+                @if (tel.Items > 0) { <small class="lk-tel" title="Artikelen met voorraad, hier en eronder">@tel.Items</small> }
+            </span>
+        </div>
+        @if (open)
+        {
+            foreach (var k in kinderen) { @Tak(k, diepte + 1) }
+        }
+    };
+
+    private void Wissel(int id) { if (!_open.Remove(id)) _open.Add(id); }
+
+    private void Kies(int id)
+    {
+        if (!_boom.PerId.TryGetValue(id, out var l)) return;
+        _gekozen = l;
+        foreach (var k in _boom.Keten(id).SkipLast(1)) _open.Add(k.Id);   // ouders open, zodat hij in de boom te zien is
+        _nieuwType = KindTypes(l).FirstOrDefault()?.Id;
+        _nieuwNaam = ""; _nieuwAfk = ""; _nieuwAantal = 1;
+    }
+
+    private IEnumerable<Lokatie> Treffers()
+    {
+        var z = _zoek.Trim();
+        if (z.StartsWith("@L", StringComparison.OrdinalIgnoreCase) && int.TryParse(z[2..], out var id) && _boom.PerId.TryGetValue(id, out var l))
+            return new[] { l };
+        return _boom.PerId.Values.Where(x => (_dragers || !x.Verplaatsbaar)
+                && ($"{x.Omschrijving} {x.Afkorting} {_boom.Naam(x.Id)}").Contains(z, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => _boom.Leesbaar(x.Id)).Take(200);
+    }
+
+    private void ZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var t = Treffers().ToList();
+        if (t.Count == 1) { Kies(t[0].Id); _zoek = ""; }
+    }
+
+    // ---------- tellingen ----------
+    private readonly Dictionary<int, (int Items, decimal Stuks)> _totaal = new();
+    private (int Items, decimal Stuks) Telling(int id) => _tellingen.GetValueOrDefault(id);
+
+    /// <summary>Artikelen en stuks hier en op alles eronder (artikelen worden per plek geteld, dus kan dubbel tellen).</summary>
+    private (int Items, decimal Stuks) Totaal(int id)
+    {
+        if (_totaal.TryGetValue(id, out var t)) return t;
+        var eigen = Telling(id);
+        foreach (var k in _boom.KinderenVan(id)) { var kt = Totaal(k.Id); eigen = (eigen.Items + kt.Items, eigen.Stuks + kt.Stuks); }
+        return _totaal[id] = eigen;
+    }
+
+    private IEnumerable<int> Onder(int id)
+    {
+        foreach (var k in _boom.KinderenVan(id).Where(k => !k.Verplaatsbaar))
+        {
+            yield return k.Id;
+            foreach (var x in Onder(k.Id)) yield return x;
+        }
+    }
+
+    // ---------- types ----------
+    private string TypeNaam(int? id) => _types.FirstOrDefault(t => t.Id == id)?.Omschrijving ?? "?";
+
+    /// <summary>Wat er onder deze lokatie mag (Lokatiestructuur), zonder dragers en systeemtypes; met het vinkje alles.</summary>
+    private List<LokatieType> KindTypes(Lokatie ouder)
+    {
+        var mag = _regels.Where(r => r.OuderTypeId == ouder.TypeId).Select(r => r.KindTypeId).ToHashSet();
+        return _types.Where(t => !t.Verplaatsbaar && !t.Systeem && (_alleTypes || mag.Contains(t.Id))).OrderBy(t => t.Omschrijving).ToList();
+    }
+
+    /// <summary>Types waar deze lokatie naartoe mag wijzigen: wat onder zijn ouder mag, plus het huidige.</summary>
+    private List<LokatieType> TypesVoorWijzigen(Lokatie l)
+    {
+        var ouder = l.OuderId is int o ? _boom.PerId.GetValueOrDefault(o) : null;
+        var mag = ouder is null ? _types.Select(t => t.Id).ToHashSet() : _regels.Where(r => r.OuderTypeId == ouder.TypeId).Select(r => r.KindTypeId).ToHashSet();
+        return _types.Where(t => t.Id == l.TypeId || (!t.Verplaatsbaar && !t.Systeem && mag.Contains(t.Id))).OrderBy(t => t.Omschrijving).ToList();
+    }
+
+    // ---------- wijzigen ----------
+    private async Task Zet(Action<Lokatie> wijzig)
+    {
+        if (_gekozen is not { } g || !MagBewerken || g.Systeemlokatie) return;
+        wijzig(g);
+        try { await Repo.BewaarLokatieAsync(g); var id = g.Id; await Laad(); Kies(id); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetBv(ChangeEventArgs e)
+    {
+        if (_gekozen is not { } g || !MagBewerken) return;
+        var bv = int.TryParse((string?)e.Value, out var b) ? b : (int?)null;
+        try
+        {
+            await Repo.ZetBvAsync(g.Id, bv);
+            await Laad();
+            Toon(bv is null ? $"{g.Omschrijving} hoort niet meer bij een BV." : $"Alle voorraad onder {g.Omschrijving} hoort nu bij {_bvs.FirstOrDefault(x => x.Id == bv)?.Naam}.", false);
+        }
+        catch (Exception ex) { Toon(ex.Message, true); }
+    }
+
+    private async Task VoegToe()
+    {
+        if (_gekozen is not { } ouder || _nieuwType is not int type || _nieuwNaam.Length == 0 || _bezig) return;
+        _bezig = true;
+        try
+        {
+            int? laatste = null;
+            if (_nieuwAantal == 1)
+                laatste = await Repo.NieuweLokatieAsync(ouder.Id, type, _nieuwNaam, _nieuwAfk, null, Ik.WerknemerId);
+            else
+            {
+                // doornummeren na de hoogste index van dit type onder deze ouder
+                var start = _boom.KinderenVan(ouder.Id).Where(k => k.TypeId == type).Select(k => k.Index ?? 0).DefaultIfEmpty(0).Max() + 1;
+                for (var i = 0; i < _nieuwAantal; i++)
+                {
+                    var n = start + i;
+                    laatste = await Repo.NieuweLokatieAsync(ouder.Id, type, $"{_nieuwNaam} {n}", _nieuwAfk + n, n, Ik.WerknemerId);
+                }
+            }
+            var aantal = _nieuwAantal;
+            _open.Add(ouder.Id);
+            await Laad();
+            Kies(ouder.Id);
+            Toon(aantal == 1 ? $"Lokatie toegevoegd onder {ouder.Omschrijving}." : $"{aantal} lokaties toegevoegd onder {ouder.Omschrijving}.", false);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); await Laad(); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verplaats(int nieuweOuder)
+    {
+        _kiezerOpen = false;
+        if (_gekozen is not { } g) return;
+        try
+        {
+            await Repo.VerplaatsAsync(g.Id, nieuweOuder);
+            await Laad();
+            Kies(g.Id);
+            Toon($"{g.Omschrijving} staat nu onder {_boom.Leesbaar(nieuweOuder)}.", false);
+        }
+        catch (Exception ex) { Toon("Verplaatsen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wis()
+    {
+        if (_gekozen is not { } g) return;
+        if (!await Bevestig($"{_boom.Leesbaar(g.Id)} wissen?")) return;
+        try
+        {
+            if (await Repo.WisLokatieAsync(g.Id) is { } reden) { Toon(reden, true); return; }
+            var ouder = g.OuderId;
+            _gekozen = null;
+            await Laad();
+            if (ouder is int o) Kies(o);
+            Toon($"{g.Omschrijving} gewist.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
+    }
+
+    // ---------- labels (zoals Dragers) ----------
+    private async Task Print(int[] ids)
+    {
+        var lijst = ids.Where(_boom.PerId.ContainsKey).ToList();
+        if (lijst.Count == 0) return;
+        if (lijst.Count > 5 && !await Bevestig($"{lijst.Count} labels printen?")) return;
+        _printBezig = true;
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeDymo.beschikbaar")) { Toon("DYMO Connect is niet gevonden op deze pc (gebruik Chrome of Edge).", true); return; }
+            var printers = (await JS.InvokeAsync<string[]>("mdeDymo.printers")).ToList();
+            if (printers.Count == 0) { Toon("Geen DYMO-printer gevonden.", true); return; }
+            var inst = await DymoLabel.LeesAsync(JS);
+            var printer = printers.Contains(inst.Printer) ? inst.Printer : printers[0];
+            var rol = printer.Contains("Twin Turbo", StringComparison.OrdinalIgnoreCase) ? inst.RolVoor(DymoLabel.Klein) : "Auto";
+            foreach (var id in lijst)
+                await JS.InvokeVoidAsync("mdeDymo.print", printer, Labels.LokatieLabelXml(_boom.PerId[id].Barcode, _boom.Naam(id)), 1, rol);
+            await Repo.ZetGeprintAsync(lijst);
+            Toon($"{lijst.Count} label(s) naar {printer}.", false);
+        }
+        catch (Exception ex) { Toon("Printen mislukt: " + ex.Message, true); }
+        finally { _printBezig = false; }
+    }
+
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+
+    private async Task<bool> Bevestig(string vraag)
+    {
+        try { return await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { return false; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

@@ -35,6 +35,16 @@ public interface ILokatieRepository
     Task VerplaatsAsync(int lokatieId, int nieuweOuderId);
     Task ZetGeprintAsync(IEnumerable<int> lokatieIds);
 
+    // ---- vaste lokaties beheren (Access LocationTreeview / LocationToevoegen; Voorraad > Lokaties) ----
+    /// <summary>Nieuwe vaste lokatie (gebouw, ruimte, stelling, vak, ...) onder een ouder; geeft het id.</summary>
+    Task<int> NieuweLokatieAsync(int ouderId, int typeId, string omschrijving, string afkorting, int? index, int? door);
+    /// <summary>Omschrijving, afkorting, opmerking, type en "voorraad mag hier" van een vaste lokatie.</summary>
+    Task BewaarLokatieAsync(Lokatie lokatie);
+    /// <summary>Wist een lokatie; geeft de reden als het niet mag (lokaties eronder, voorraadmutaties, inhoud, systeem).</summary>
+    Task<string?> WisLokatieAsync(int lokatieId);
+    /// <summary>De BV van een bovenste lokatie (type Bedrijf); null = geen. Vraagt VoorraadPerBv_MariaDB.sql.</summary>
+    Task ZetBvAsync(int lokatieId, int? bvId);
+
     // ---- globale inhoud van een drager (LocationContents) ----
     Task<List<LokatieInhoud>> InhoudAsync(int lokatieId);
     Task VoegInhoudToeAsync(int lokatieId, string omschrijving, int? werknemerId);
@@ -44,6 +54,11 @@ public interface ILokatieRepository
 
 public class GeenLokatieRepository : ILokatieRepository
 {
+    public Task<int> NieuweLokatieAsync(int ouderId, int typeId, string omschrijving, string afkorting, int? index, int? door)
+        => throw new InvalidOperationException("Er is geen database.");
+    public Task BewaarLokatieAsync(Lokatie lokatie) => Task.CompletedTask;
+    public Task<string?> WisLokatieAsync(int lokatieId) => Task.FromResult<string?>("Er is geen database.");
+    public Task ZetBvAsync(int lokatieId, int? bvId) => Task.CompletedTask;
     public bool Beschikbaar => false;
     public Task<List<LokatieType>> TypesAsync() => Task.FromResult(new List<LokatieType>());
     public Task<List<LokatieTypeRegel>> TypeRegelsAsync() => Task.FromResult(new List<LokatieTypeRegel>());
@@ -190,17 +205,29 @@ public class MySqlLokatieRepository : ILokatieRepository
 
     // ================= lokaties =================
 
+    private static bool _bvKolom;
+
     public async Task<LokatieBoom> BoomAsync()
     {
         var lijst = new List<Lokatie>();
         await using var cn = await OpenAsync();
+        if (!_bvKolom)
+            try
+            {
+                await using var k = new MySqlCommand(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Locations' AND COLUMN_NAME = 'BvID'", cn);
+                _bvKolom = Convert.ToInt32(await k.ExecuteScalarAsync()) > 0;
+            }
+            catch { }
         await using var cmd = new MySqlCommand(
             "SELECT l.`LocationID`, l.`ParentLocationID`, l.`LocationTypeID`, COALESCE(l.`Omschrijving`, ''), COALESCE(l.`Afkorting`, ''), " +
             "       COALESCE(l.`Opmerking`, ''), l.`Index`, l.`Voorraad`, l.`Systeemlocatie`, l.`LocationContentsTypeID`, l.`WerkorderID`, " +
             "       CASE WHEN w.`Werkbon-id` IS NULL THEN '' ELSE CONCAT(COALESCE(p.`Projectnumber`, '?'), '-', " +
             "            RIGHT(CONCAT('00', COALESCE(w.`Werkbonnummer`, 0)), 2), ' ', COALESCE(w.`Werkbonomschrijving`, '')) END, " +
-            "       COALESCE(m.`NaamVoluit`, ''), l.`AangemaaktOp`, l.`PrintedAt`, COALESCE(t.`Moveable`, 0) " +
+            "       COALESCE(m.`NaamVoluit`, ''), l.`AangemaaktOp`, l.`PrintedAt`, COALESCE(t.`Moveable`, 0), " +
+            (_bvKolom ? "l.`BvID`, COALESCE(NULLIF(TRIM(bv.`Afkorting`), ''), bv.`name`, '') " : "NULL, '' ") +
             "  FROM `Locations` l " +
+            (_bvKolom ? "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = l.`BvID` " : "") +
             "  LEFT JOIN `LocationTypes` t ON t.`LocationTypeID` = l.`LocationTypeID` " +
             "  LEFT JOIN `Workorders` w ON w.`Werkbon-id` = l.`WerkorderID` " +
             "  LEFT JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
@@ -212,7 +239,7 @@ public class MySqlLokatieRepository : ILokatieRepository
                 Id = r.GetInt32(0), OuderId = I(r, 1), TypeId = I(r, 2), Omschrijving = S(r, 3).Trim(), Afkorting = S(r, 4),
                 Opmerking = S(r, 5), Index = I(r, 6), Voorraad = B(r, 7), Systeemlokatie = B(r, 8), InhoudSoortId = I(r, 9),
                 WerkorderId = I(r, 10), Werkorder = S(r, 11).Trim(), AangemaaktDoor = S(r, 12), AangemaaktOp = D(r, 13),
-                GeprintOp = D(r, 14), Verplaatsbaar = B(r, 15),
+                GeprintOp = D(r, 14), Verplaatsbaar = B(r, 15), BvId = I(r, 16), BvNaam = S(r, 17),
             });
         return new LokatieBoom(lijst);
     }
@@ -322,6 +349,62 @@ public class MySqlLokatieRepository : ILokatieRepository
         await UitvoerAsync(cn, "UPDATE `Locations` SET `ParentLocationID` = @o WHERE `LocationID` = @id", ("@o", nieuweOuderId), ("@id", lokatieId));
     }
 
+    public async Task<int> NieuweLokatieAsync(int ouderId, int typeId, string omschrijving, string afkorting, int? index, int? door)
+    {
+        if (omschrijving.Trim().Length == 0) throw new InvalidOperationException("Geef de lokatie een omschrijving.");
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `Locations` (`ParentLocationID`, `LocationTypeID`, `Omschrijving`, `Afkorting`, `Index`, `Voorraad`, `Systeemlocatie`, " +
+            "  `AangemaaktDoor`, `AangemaaktOp`) VALUES (@ouder, @t, @o, @a, @i, 1, 0, @door, NOW()); SELECT LAST_INSERT_ID();", cn);
+        cmd.Parameters.AddWithValue("@ouder", ouderId);
+        cmd.Parameters.AddWithValue("@t", typeId);
+        cmd.Parameters.AddWithValue("@o", Kort(omschrijving, 50));
+        cmd.Parameters.AddWithValue("@a", afkorting.Trim().Length == 0 ? DBNull.Value : Kort(afkorting, 10));
+        cmd.Parameters.AddWithValue("@i", (object?)index ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task BewaarLokatieAsync(Lokatie l)
+    {
+        await using var cn = await OpenAsync();
+        await UitvoerAsync(cn,
+            "UPDATE `Locations` SET `Omschrijving` = @o, `Afkorting` = @a, `Opmerking` = @op, `LocationTypeID` = @t, `Voorraad` = @v " +
+            " WHERE `LocationID` = @id AND COALESCE(`Systeemlocatie`, 0) = 0",
+            ("@o", Kort(l.Omschrijving, 50)), ("@a", l.Afkorting.Trim().Length == 0 ? null : Kort(l.Afkorting, 10)),
+            ("@op", Kort(l.Opmerking, 100)), ("@t", l.TypeId), ("@v", l.Voorraad ? 1 : 0), ("@id", l.Id));
+    }
+
+    public async Task<string?> WisLokatieAsync(int lokatieId)
+    {
+        await using var cn = await OpenAsync();
+        await using (var cmd = new MySqlCommand(
+            "SELECT COALESCE(l.`Systeemlocatie`, 0) + 0, " +
+            "       (SELECT COUNT(*) FROM `Locations` k WHERE k.`ParentLocationID` = l.`LocationID`), " +
+            "       (SELECT COUNT(*) FROM `VoorraadMutaties` m WHERE m.`LocationID` = l.`LocationID`), " +
+            "       (SELECT COUNT(*) FROM `LocationContents` c WHERE c.`LocationID` = l.`LocationID`) " +
+            "  FROM `Locations` l WHERE l.`LocationID` = @id", cn))
+        {
+            cmd.Parameters.AddWithValue("@id", lokatieId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return null;
+            if (Convert.ToInt64(r.GetValue(0)) != 0) return "Een systeemlokatie kan niet gewist worden.";
+            if (Convert.ToInt32(r.GetValue(1)) > 0) return "Er staan nog lokaties of dragers onder; verplaats of wis die eerst.";
+            if (Convert.ToInt32(r.GetValue(2)) > 0)
+                return "Er zijn voorraadmutaties op deze lokatie geweest (de historie wijst ernaar); zet liever \"voorraad mag hier\" uit.";
+            if (Convert.ToInt32(r.GetValue(3)) > 0) return "Er staat nog inhoud op deze lokatie.";
+        }
+        await UitvoerAsync(cn, "DELETE FROM `Locations` WHERE `LocationID` = @id", ("@id", lokatieId));
+        return null;
+    }
+
+    public async Task ZetBvAsync(int lokatieId, int? bvId)
+    {
+        if (!_bvKolom) throw new InvalidOperationException("Voer eerst VoorraadPerBv_MariaDB.sql uit (kolom Locations.BvID).");
+        await using var cn = await OpenAsync();
+        await UitvoerAsync(cn, "UPDATE `Locations` SET `BvID` = @b WHERE `LocationID` = @id", ("@b", bvId), ("@id", lokatieId));
+    }
+
     public async Task ZetGeprintAsync(IEnumerable<int> lokatieIds)
     {
         var ids = lokatieIds.Distinct().ToList();
@@ -373,4 +456,96 @@ public class MySqlLokatieRepository : ILokatieRepository
         var t = (s ?? "").Trim();
         return t.Length <= max ? t : t[..max];
     }
+}
+
+/// <summary>
+/// Alleen om lokaal te testen (Lokaties__Geheugen=true): leest de echte lokaties één keer; daarna gebeurt aanmaken,
+/// wijzigen, verplaatsen, wissen en de BV in het geheugen. Types, regels, tellingen en inhoud worden echt gelezen.
+/// </summary>
+public class GeheugenLokatieRepository : ILokatieRepository
+{
+    private readonly ILokatieRepository _echt;
+    private Dictionary<int, Lokatie>? _lok;
+    private int _volgende = 900000;
+
+    public GeheugenLokatieRepository(ILokatieRepository echt) => _echt = echt;
+    public bool Beschikbaar => true;
+
+    private static Lokatie Kopie(Lokatie l) => (Lokatie)typeof(Lokatie).GetMethod("MemberwiseClone",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(l, null)!;
+
+    private async Task<Dictionary<int, Lokatie>> Lok()
+        => _lok ??= (await _echt.BoomAsync()).PerId.Values.Select(Kopie).ToDictionary(l => l.Id);
+
+    public async Task<LokatieBoom> BoomAsync() => new((await Lok()).Values.Select(Kopie));
+
+    public Task<List<LokatieType>> TypesAsync() => _echt.TypesAsync();
+    public Task<List<LokatieTypeRegel>> TypeRegelsAsync() => _echt.TypeRegelsAsync();
+    public Task BewaarTypeAsync(LokatieType type) => Task.CompletedTask;
+    public Task<int?> NieuwTypeAsync(string omschrijving) => Task.FromResult<int?>(null);
+    public Task<string?> WisTypeAsync(int typeId) => Task.FromResult<string?>("Niet in de testversie.");
+    public Task VoegSubtypeToeAsync(int ouderTypeId, int kindTypeId) => Task.CompletedTask;
+    public Task WisSubtypeAsync(int regelId) => Task.CompletedTask;
+    public Task<List<InhoudSoort>> InhoudSoortenAsync() => _echt.InhoudSoortenAsync();
+    public Task<Dictionary<int, (int Items, decimal Stuks)>> TellingenAsync() => _echt.TellingenAsync();
+    public Task<List<LokatieArtikel>> ArtikelenOpAsync(int lokatieId) => _echt.ArtikelenOpAsync(lokatieId);
+
+    public async Task BewaarDragerAsync(Lokatie drager)
+    {
+        if ((await Lok()).TryGetValue(drager.Id, out var l)) { l.Omschrijving = drager.Omschrijving; l.Opmerking = drager.Opmerking; l.InhoudSoortId = drager.InhoudSoortId; l.WerkorderId = drager.WerkorderId; }
+    }
+
+    public async Task<List<int>> MaakDragersAsync(int typeId, int aantal, int? werknemerId)
+    {
+        var lok = await Lok();
+        var ids = new List<int>();
+        for (var i = 0; i < Math.Clamp(aantal, 1, 100); i++)
+        {
+            var id = Interlocked.Increment(ref _volgende);
+            lok[id] = new Lokatie { Id = id, OuderId = 10, TypeId = typeId, Omschrijving = $"Drager {id}", Verplaatsbaar = true, Voorraad = true };
+            ids.Add(id);
+        }
+        return ids;
+    }
+
+    public async Task VerplaatsAsync(int lokatieId, int nieuweOuderId)
+    {
+        var boom = await BoomAsync();
+        if (boom.IsOnder(nieuweOuderId, lokatieId)) throw new InvalidOperationException("Een lokatie kan niet onder zichzelf geplaatst worden.");
+        if ((await Lok()).TryGetValue(lokatieId, out var l)) l.OuderId = nieuweOuderId;
+    }
+
+    public Task ZetGeprintAsync(IEnumerable<int> lokatieIds) => Task.CompletedTask;
+
+    public async Task<int> NieuweLokatieAsync(int ouderId, int typeId, string omschrijving, string afkorting, int? index, int? door)
+    {
+        var id = Interlocked.Increment(ref _volgende);
+        (await Lok())[id] = new Lokatie { Id = id, OuderId = ouderId, TypeId = typeId, Omschrijving = omschrijving.Trim(), Afkorting = afkorting.Trim(), Index = index, Voorraad = true, AangemaaktOp = DateTime.Now };
+        return id;
+    }
+
+    public async Task BewaarLokatieAsync(Lokatie n)
+    {
+        if ((await Lok()).TryGetValue(n.Id, out var l) && !l.Systeemlokatie)
+        { l.Omschrijving = n.Omschrijving; l.Afkorting = n.Afkorting; l.Opmerking = n.Opmerking; l.TypeId = n.TypeId; l.Voorraad = n.Voorraad; }
+    }
+
+    public async Task<string?> WisLokatieAsync(int lokatieId)
+    {
+        var lok = await Lok();
+        if (lok.Values.Any(l => l.OuderId == lokatieId)) return "Er staan nog lokaties of dragers onder; verplaats of wis die eerst.";
+        if (lokatieId < 900000) return "In de testversie kunnen alleen hier aangemaakte lokaties gewist worden.";
+        lok.Remove(lokatieId);
+        return null;
+    }
+
+    public async Task ZetBvAsync(int lokatieId, int? bvId)
+    {
+        if ((await Lok()).TryGetValue(lokatieId, out var l)) { l.BvId = bvId; l.BvNaam = bvId is null ? "" : $"BV {bvId}"; }
+    }
+
+    public Task<List<LokatieInhoud>> InhoudAsync(int lokatieId) => _echt.InhoudAsync(lokatieId);
+    public Task VoegInhoudToeAsync(int lokatieId, string omschrijving, int? werknemerId) => Task.CompletedTask;
+    public Task BewaarInhoudAsync(int inhoudId, string omschrijving) => Task.CompletedTask;
+    public Task WisInhoudAsync(int inhoudId) => Task.CompletedTask;
 }

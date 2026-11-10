@@ -618,6 +618,13 @@
                             <span>Actuele voorraad</span>
                             <b>@AlGetal(_actueel) @_artikel.Eenheid</b>
                             <button class="klein" @onclick="WisselMutaties">@(_mutaties is null ? "▸ Overzicht" : "▾ Overzicht")</button>
+                            @* voorraad per BV (wens gebruiker 10-11-2026): de BV van de bovenste lokatie waar hij ligt *@
+                            @foreach (var bv in _perBv)
+                            {
+                                <span class="vb-bv">@bv.Naam</span>
+                                <span class="vb-bvaantal">@AlGetal(bv.Aantal) @_artikel.Eenheid</span>
+                                <a class="klein knopje" href="@($"voorraad/artikelen/{_artikel.Id}")" title="Waar ligt het, in- of uitboeken">plekken ↗</a>
+                            }
 
                             <span>Besteld tot nu toe</span>
                             <b>@AlGetal(_besteld) @_artikel.Eenheid</b>
@@ -1101,11 +1108,34 @@
     private LokatieBoom _boom = new(Array.Empty<Lokatie>());
     private bool _boomGeladen;
 
+    /// <summary>Voorraad per BV (alleen als de lokaties een BV hebben, VoorraadPerBv_MariaDB.sql).</summary>
+    private sealed record BvVoorraad(string Naam, decimal Aantal);
+    private List<BvVoorraad> _perBv = new();
+
     private async Task LaadVoorraadBesteld(int artikelId)
     {
         _mutaties = null;
         _bestellingen = null;
+        _perBv = new();
         try { (_actueel, _besteld) = await Repo.VoorraadEnBesteldAsync(artikelId); } catch { _actueel = _besteld = 0; }
+        try
+        {
+            if (!_boomGeladen) { _boom = await Lokaties.BoomAsync(); _boomGeladen = true; }
+            if (!_boom.HeeftBvs) return;
+            var posities = await VoorraadRepo.PositiesAsync(artikelId);
+            // dezelfde stand als Voorraad > Artikelvoorraad (alle mutaties met een plek), zodat het totaal en de BV's kloppen
+            _actueel = posities.Sum(p => p.Aantal);
+            _perBv = posities.GroupBy(p => _boom.Bv(p.LokatieId))
+                .Select(g => new BvVoorraad(g.Key.Id is null ? "niet ingedeeld" : g.Key.Naam, g.Sum(p => p.Aantal)))
+                .Where(b => b.Aantal != 0)
+                .OrderBy(b => b.Naam == "niet ingedeeld").ThenBy(b => b.Naam)
+                .ToList();
+            // elke BV tonen, ook met 0, zodat duidelijk is dat er twee voorraden zijn
+            foreach (var naam in _boom.Wortels.Where(w => w.BvId is not null).Select(w => w.BvNaam.Length > 0 ? w.BvNaam : w.Omschrijving))
+                if (_perBv.All(b => b.Naam != naam)) _perBv.Add(new BvVoorraad(naam, 0));
+            _perBv = _perBv.OrderBy(b => b.Naam == "niet ingedeeld").ThenBy(b => b.Naam).ToList();
+        }
+        catch { _perBv = new(); }
     }
 
     private async Task WisselMutaties()

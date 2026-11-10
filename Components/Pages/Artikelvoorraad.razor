@@ -87,7 +87,15 @@
                     <div class="av-kop">
                         <img class="av-foto" src="@($"artikelfoto/{a.ArtikelId}")" alt="" onerror="this.style.display='none'" />
                         <div>
-                            <div class="av-totaal">@_posities.Sum(p => p.Aantal).ToString("0.###") <span class="uitleg">op voorraad, @_posities.Count plek(ken)</span></div>
+                            <div class="av-totaal">@_posities.Sum(p => p.Aantal).ToString("0.###") <span class="uitleg">op voorraad, @_posities.Count plek(ken)</span>
+                                @if (_boom.HeeftBvs)
+                                {
+                                    @foreach (var g in _posities.GroupBy(p => _boom.Bv(p.LokatieId)).OrderBy(g => g.Key.Id is null).ThenBy(g => g.Key.Naam))
+                                    {
+                                        <span class="av-bv" title="Voorraad van deze BV">@(g.Key.Id is null ? "niet ingedeeld" : g.Key.Naam): <b>@g.Sum(p => p.Aantal).ToString("0.###")</b></span>
+                                    }
+                                }
+                            </div>
                             <button class="klein primair" @onclick="() => OpenBoeking(Soort.In, null)">＋ Inboeken…</button>
                         </div>
                     </div>
@@ -108,7 +116,7 @@
                                         {
                                             <b>@(_boom.Naam(p.LokatieId) is { Length: > 0 } n ? n : $"lokatie {p.LokatieId}")</b>
                                         }
-                                        <small class="av-pad">@_boom.Leesbaar(p.LokatieId)</small>
+                                        <small class="av-pad">@if (_boom.HeeftBvs) { <span class="av-bv">@(_boom.Bv(p.LokatieId).Id is null ? "niet ingedeeld" : _boom.Bv(p.LokatieId).Naam)</span> }@_boom.Leesbaar(p.LokatieId)</small>
                                     </td>
                                     <td>@p.Status</td>
                                     <td class="r"><b>@p.Aantal.ToString("0.###")</b></td>

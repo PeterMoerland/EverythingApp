@@ -37,6 +37,12 @@ public class Lokatie
     public string AangemaaktDoor { get; set; } = "";
     public DateTime? AangemaaktOp { get; set; }
     public DateTime? GeprintOp { get; set; }
+    /// <summary>
+    /// Locations.BvID (VoorraadPerBv_MariaDB.sql): alleen op de bovenste lokatie (type Bedrijf) ingevuld; de lokaties
+    /// eronder erven hem (<see cref="LokatieBoom.Bv"/>). BvNaam = afkorting (of naam) van die BV.
+    /// </summary>
+    public int? BvId { get; set; }
+    public string BvNaam { get; set; } = "";
 
     public bool Verplaatsbaar { get; set; }         // uit het type
 
@@ -128,6 +134,21 @@ public class LokatieBoom
 
     private static string Afkortingen(IEnumerable<Lokatie> keten)
         => string.Join("-", keten.Select(k => k.Afkorting.Trim()).Where(a => a.Length > 0));
+
+    /// <summary>
+    /// De BV waar de voorraad op deze lokatie bij hoort: de eerste BV van onderen naar boven (wens gebruiker 10-11-2026:
+    /// voorraad per BV). Geen BV boven zich (Wees, losse dragers) = null.
+    /// </summary>
+    public (int? Id, string Naam) Bv(int id)
+    {
+        var keten = Keten(id);
+        for (var i = keten.Count - 1; i >= 0; i--)
+            if (keten[i].BvId is int b) return (b, keten[i].BvNaam.Length > 0 ? keten[i].BvNaam : keten[i].Omschrijving);
+        return (null, "");
+    }
+
+    /// <summary>Is er al een lokatie met een BV (script gedraaid)? Anders niets per BV tonen.</summary>
+    public bool HeeftBvs => PerId.Values.Any(l => l.BvId is not null);
 
     /// <summary>Ligt <paramref name="kandidaat"/> onder <paramref name="id"/> (of is het dezelfde)?</summary>
     public bool IsOnder(int kandidaat, int id) => Keten(kandidaat).Any(k => k.Id == id);
