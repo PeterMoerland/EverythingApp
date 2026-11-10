@@ -242,6 +242,17 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Banktransacties: gekoppelde facturen (10-11-2026)
+
+Wens gebruiker: geen vergrootglas meer, maar **dubbelklik** op een regel voor de details; in de details de **gekoppelde
+facturen** (`banktransacties_facturen_crossref`: `Factureninkomend-id` → FacturenInkomend, `Facturenuitgaand-id` →
+Invoices; ~16.000 koppelingen, vooral inkomend) met een klik naar de factuur (`FactuurVenster` / `VerkoopFactuurVenster`,
+na het detailvenster in de markup zodat ze erboven liggen). In de lijst een kolom **Facturen** (🔗 n, klik = details);
+het aantal komt uit een afgeleide tabel die de koppeltabel één keer telt, niet per regel.
+`IBankRepository.GekoppeldeFacturenAsync`, `Banktransactie.Facturen`. Lokaal alleen lezend getest (203 van 388 transacties
+gekoppeld; factuur 597324 Drabbe BV geopend). Lokaal zie je geen transacties zonder ingelogde werknemer
+(BankRekeningRechten).
+
 ## Voorraad per BV, stap 1 (10-11-2026)
 
 MDE Automation en M-Pede Robotics (MPR) krijgen elk een eigen voorraad. Ontwerp (voorstel, stap 1 gebouwd): één

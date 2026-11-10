@@ -12,6 +12,12 @@ public record BankImportResultaat(int Verwerkt, int Toegevoegd, int AlAanwezig, 
     public bool Gelukt => Fouten.Count == 0;
 }
 
+/// <summary>
+/// Een factuur die aan een banktransactie gekoppeld is (banktransacties_facturen_crossref): inkomend (FacturenInkomend)
+/// of uitgaand (Invoices). Bedrag incl. btw.
+/// </summary>
+public record GekoppeldeFactuur(bool Verkoop, int FactuurId, string Nummer, string Relatie, DateOnly? Datum, decimal Bedrag, bool Betaald);
+
 public interface IBankRepository
 {
     bool Beschikbaar { get; }
@@ -29,6 +35,8 @@ public interface IBankRepository
                                       DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer);
 
     Task<BanktransactieDetail?> GetDetailAsync(int id);
+    /// <summary>De facturen die aan deze transactie gekoppeld zijn (inkomend en uitgaand).</summary>
+    Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId);
     Task ZetOpmerkingAsync(int id, string? opmerking);
 
     /// <summary>Paskaartnummers die in de transacties voorkomen, voor het filter.</summary>
@@ -81,6 +89,7 @@ public class GeenBankRepository : IBankRepository
                                              DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer)
         => Task.FromResult(new BankTotalen(0, 0, null, null, null));
     public Task<BanktransactieDetail?> GetDetailAsync(int id) => Task.FromResult<BanktransactieDetail?>(null);
+    public Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId) => Task.FromResult(new List<GekoppeldeFactuur>());
     public Task ZetOpmerkingAsync(int id, string? opmerking) => Task.CompletedTask;
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
     public Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId)
@@ -190,8 +199,12 @@ public class MySqlBankRepository : IBankRepository
         await using var cmd = new MySqlCommand(
             "SELECT t.`BankTransacties_ID`, t.`Rekening`, t.`Datum`, t.`Bedrag`, " +
             "       COALESCE(t.`Tegenrekening`, ''), COALESCE(t.`Tenaamstelling`, ''), " +
-            "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer` " +
+            "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer`, COALESCE(xc.`n`, 0) " +
             "  FROM `banktransacties` t " +
+            // aantal gekoppelde facturen: één keer tellen (de koppeltabel heeft ~16.000 regels), niet per transactie
+            "  LEFT JOIN (SELECT `Banktransacties-id` AS `b`, COUNT(*) AS `n` FROM `banktransacties_facturen_crossref` " +
+            "              WHERE `Factureninkomend-id` IS NOT NULL OR `Facturenuitgaand-id` IS NOT NULL GROUP BY `Banktransacties-id`) xc " +
+            "         ON xc.`b` = t.`BankTransacties_ID` " +
             $" {Voorwaarden(toegestaan, zoek, bijAf, pasnummer)} " +
             $" ORDER BY t.`Datum` DESC, t.`BankTransacties_ID` DESC LIMIT {Math.Clamp(max, 1, 2000)}", cn);
         Vul(cmd, toegestaan, van, tot, zoek, pasnummer);
@@ -211,6 +224,7 @@ public class MySqlBankRepository : IBankRepository
                 Omschrijving = S(6),
                 Opmerking = S(7),
                 Pasnummer = r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8)),
+                Facturen = r.IsDBNull(9) ? 0 : Convert.ToInt32(r.GetValue(9)),
             });
         }
         return lijst;
@@ -307,6 +321,34 @@ public class MySqlBankRepository : IBankRepository
     // ============================================================
     //  Detail
     // ============================================================
+    public async Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId)
+    {
+        var lijst = new List<GekoppeldeFactuur>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT 0, f.`FacturenInkomend-ID`, COALESCE(f.`FactuurNummer`, ''), COALESCE(r.`name`, ''), f.`DatumFactuur`, " +
+            "       COALESCE(f.`BedragExBTW`, 0) + COALESCE(f.`BTW`, 0), COALESCE(f.`Betaald`, 0) <> 0 " +
+            "  FROM `banktransacties_facturen_crossref` x " +
+            "  JOIN `FacturenInkomend` f ON f.`FacturenInkomend-ID` = x.`Factureninkomend-id` " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Bedrijf` " +
+            " WHERE x.`Banktransacties-id` = @id " +
+            "UNION ALL " +
+            "SELECT 1, i.`Invoice-id`, COALESCE(i.`Invoicenumber`, ''), COALESCE(k.`name`, ''), i.`Date invoice`, " +
+            "       COALESCE(i.`Total incl`, 0), COALESCE(i.`Betaald`, 0) <> 0 " +
+            "  FROM `banktransacties_facturen_crossref` x " +
+            "  JOIN `Invoices` i ON i.`Invoice-id` = x.`Facturenuitgaand-id` " +
+            "  LEFT JOIN `Relations` k ON k.`id_supplier` = i.`Customer-id` " +
+            " WHERE x.`Banktransacties-id` = @id " +
+            "ORDER BY 5, 3", cn);
+        cmd.Parameters.AddWithValue("@id", transactieId);
+        await using var r2 = await cmd.ExecuteReaderAsync();
+        while (await r2.ReadAsync())
+            lijst.Add(new GekoppeldeFactuur(Convert.ToInt32(r2.GetValue(0)) == 1, r2.GetInt32(1), r2.GetString(2), r2.GetString(3),
+                r2.IsDBNull(4) ? null : DateOnly.FromDateTime(Convert.ToDateTime(r2.GetValue(4))),
+                Convert.ToDecimal(r2.GetValue(5)), Convert.ToInt64(r2.GetValue(6)) != 0));
+        return lijst;
+    }
+
     public async Task<BanktransactieDetail?> GetDetailAsync(int id)
     {
         await using var cn = await OpenAsync();

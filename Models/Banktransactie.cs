@@ -12,6 +12,8 @@ public class Banktransactie
     public string Omschrijving { get; set; } = "";
     public string Opmerking { get; set; } = "";
     public int? Pasnummer { get; set; }
+    /// <summary>Aantal gekoppelde facturen (banktransacties_facturen_crossref), inkomend en uitgaand.</summary>
+    public int Facturen { get; set; }
 
     public bool Bij => Bedrag > 0;
 }

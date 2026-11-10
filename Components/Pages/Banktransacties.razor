@@ -178,13 +178,14 @@
                         <th style="width:15rem">Tenaamstelling</th>
                         <th>Omschrijving</th>
                         <th style="width:14rem">Opmerking</th>
-                        <th style="width:3rem"></th>
+                        <th style="width:4.5rem" class="c" title="Gekoppelde facturen">Facturen</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var t in _lijst)
                     {
-                        <tr @key="t.Id" class="@(t.Id == _detail?.Id ? "gekozen-rij" : "")">
+                        <tr @key="t.Id" class="bt-rij @(t.Id == _detail?.Id ? "gekozen-rij" : "")" title="Dubbelklik voor alle gegevens en de gekoppelde facturen"
+                            @ondblclick="() => OpenDetail(t)">
                             <td>@(t.Datum?.ToString("dd-MM-yyyy") ?? "")</td>
                             <td class="r @(t.Bij ? "bedrag-bij" : "")">@Bedrag(t.Bedrag)</td>
                             <td class="iban">@t.Tegenrekening</td>
@@ -195,8 +196,10 @@
                                        @onchange="e => ZetOpmerking(t, e)" />
                             </td>
                             <td class="c">
-                                <button class="klein" title="Alle gegevens van deze transactie"
-                                        @onclick="() => OpenDetail(t)">🔍</button>
+                                @if (t.Facturen > 0)
+                                {
+                                    <button class="bt-gekoppeld" title="@t.Facturen gekoppelde factu(u)r(en): klik voor de details" @onclick="() => OpenDetail(t)">🔗 @t.Facturen</button>
+                                }
                             </td>
                         </tr>
                     }
@@ -226,8 +229,7 @@
     }
 
     <footer class="voet">
-        Het koppelen van transacties aan facturen volgt zodra de facturenmodule
-        is omgezet; daarvoor gebruik je voorlopig Access.
+        Dubbelklik op een transactie voor alle gegevens en de gekoppelde facturen.
     </footer>
 </div>
 
@@ -334,13 +336,45 @@
                     </div>
                 </div>
 
-                <p class="uitleg">
-                    De gekoppelde facturen komen erbij zodra de facturenmodule is omgezet.
-                </p>
+                @* gekoppelde facturen (banktransacties_facturen_crossref), klik = de factuur openen (wens gebruiker 10-11-2026) *@
+                <h3 class="wn-kop">Gekoppelde facturen</h3>
+                @if (_facturen is null)
+                {
+                    <p class="uitleg">Laden…</p>
+                }
+                else if (_facturen.Count == 0)
+                {
+                    <p class="uitleg">Er zijn geen facturen aan deze transactie gekoppeld.</p>
+                }
+                else
+                {
+                    <table class="kiezer-tabel bt-facturen">
+                        <thead>
+                            <tr><th style="width:6rem">Soort</th><th style="width:9rem">Factuur</th><th>Relatie</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Bedrag</th><th style="width:5rem">Betaald</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var f in _facturen)
+                            {
+                                <tr @key="(f.Verkoop, f.FactuurId)">
+                                    <td>@(f.Verkoop ? "uitgaand" : "inkomend")</td>
+                                    <td><button class="lq-factuur" title="Factuur openen" @onclick="() => OpenFactuur(f)">@FactuurTekst(f)</button></td>
+                                    <td>@f.Relatie</td>
+                                    <td>@(f.Datum?.ToString("dd-MM-yyyy") ?? "")</td>
+                                    <td class="r">@Bedrag(f.Bedrag)</td>
+                                    <td>@(f.Betaald ? "✓" : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
             </div>
         </div>
     </div>
 }
+
+@* gekoppelde factuur openen vanuit het detailvenster (na het detailvenster, zodat hij erboven ligt) *@
+<FactuurVenster FactuurId="_inkoopId" Sluiten="FactuurDicht" />
+<VerkoopFactuurVenster FactuurId="_verkoopId" Sluiten="FactuurDicht" />
 
 @code {
     private List<Bankrekening> _rekeningen = new();
@@ -574,9 +608,25 @@
 
     private async Task OpenDetail(Banktransactie t)
     {
+        _facturen = null;
         try { _detail = await Repo.GetDetailAsync(t.Id); }
-        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
+        catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); return; }
+        try { _facturen = await Repo.GekoppeldeFacturenAsync(t.Id); }
+        catch (Exception ex) { _facturen = new(); Toon("Gekoppelde facturen ophalen mislukt: " + ex.Message, true); }
     }
+
+    // ---- gekoppelde facturen: openen in het factuurvenster (inkomend of uitgaand) ----
+    private List<GekoppeldeFactuur>? _facturen;
+    private int? _inkoopId, _verkoopId;
+
+    private static string FactuurTekst(GekoppeldeFactuur f) => f.Nummer.Length > 0 ? f.Nummer : "#" + f.FactuurId;
+
+    private void OpenFactuur(GekoppeldeFactuur f)
+    {
+        if (f.Verkoop) _verkoopId = f.FactuurId; else _inkoopId = f.FactuurId;
+    }
+
+    private void FactuurDicht(bool _) { _inkoopId = null; _verkoopId = null; }
 
     private void SluitDetail() => _detail = null;
 
