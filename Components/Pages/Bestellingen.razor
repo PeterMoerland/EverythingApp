@@ -304,6 +304,21 @@
                                         </span>
                                     </div>
                                 </ZijBlok>
+
+                                @* wie de bestelling aanmaakte (Orders.Created by), en wie hem bij de leverancier bestelde als dat iemand anders was *@
+                                <ZijBlok Titel="Besteller" Leeg="@(VeldId("Created by") is null)" LeegTekst="Onbekend.">
+                                    <div class="zij-regel">
+                                        <span class="zij-naam">@WerknemerNaam(VeldId("Created by"))</span>
+                                        @if (Datum("Creation date") is DateTime aangemaakt)
+                                        {
+                                            <span class="zij-extra">Aangemaakt @aangemaakt.ToString("dd-MM-yyyy")</span>
+                                        }
+                                        @if (VeldId("Ordered by") is int besteld && besteld != VeldId("Created by"))
+                                        {
+                                            <span class="zij-extra">Besteld door @WerknemerNaam(besteld)@(Datum("Ordered date") is DateTime op ? " op " + op.ToString("dd-MM-yyyy") : "")</span>
+                                        }
+                                    </div>
+                                </ZijBlok>
                             </Zij>
                         </DetailMetZij>
                     }
@@ -965,6 +980,10 @@
 
     private DateTime? Datum(string kolom)
         => _velden.TryGetValue(kolom, out var v) && v is not null && DateTime.TryParse(v.ToString(), out var d) ? d : null;
+
+    /// <summary>Een id-veld van de bestelling (Created by, Ordered by); 0 of leeg = geen.</summary>
+    private int? VeldId(string kolom)
+        => _velden.TryGetValue(kolom, out var v) && v is not null && int.TryParse(v.ToString(), out var i) && i != 0 ? i : null;
 
     private string WerknemerNaam(int? id)
         => id is int i ? Lijst("Werknemer").FirstOrDefault(w => w.Id == i)?.Naam ?? $"#{i}" : "";
