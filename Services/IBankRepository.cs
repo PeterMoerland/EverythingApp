@@ -130,9 +130,10 @@ public class MySqlBankRepository : IBankRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT b.`Bankrekeningen_id`, b.`Rekeningnummer`, " +
-            "       COALESCE(b.`OmschrijvingRekening`, ''), b.`BVid` " +
+            "       COALESCE(b.`OmschrijvingRekening`, ''), b.`BVid`, COALESCE(NULLIF(bv.`Afkorting`, ''), bv.`name`, '') " +
             "  FROM `Bankrekeningen` b " +
             "  JOIN `BankRekeningRechten` r ON r.`BankrekeningID` = b.`Bankrekeningen_id` " +
+            "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = b.`BVid` " +
             " WHERE r.`WerknemerID` = @wn " +
             " ORDER BY b.`OmschrijvingRekening`, b.`Rekeningnummer`", cn);
         cmd.Parameters.AddWithValue("@wn", werknemerId.Value);
@@ -143,7 +144,8 @@ public class MySqlBankRepository : IBankRepository
                 r2.GetInt32(0),
                 r2.IsDBNull(1) ? "" : r2.GetString(1),
                 r2.IsDBNull(2) ? "" : r2.GetString(2),
-                r2.IsDBNull(3) ? null : r2.GetInt32(3)));
+                r2.IsDBNull(3) ? null : r2.GetInt32(3),
+                r2.IsDBNull(4) ? "" : r2.GetString(4)));
 
         return lijst;
     }

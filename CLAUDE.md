@@ -333,6 +333,15 @@ verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu t
 (soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
 zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
 
+## Banktransacties: eerst de BV, dan de rekening (10-11-2026)
+
+Wens gebruiker. Keuzelijst **BV** vóór Rekening (alleen als je rekeningen van meer dan één BV mag zien); de rekeninglijst
+toont dan alleen die BV, "Alle rekeningen van AUTO" telt alle rekeningen van die BV (`RekeningenVanBv`, `Gekozen()`).
+`Bankrekening` heeft `Bv` (afkorting, anders naam, uit Relations via `Bankrekeningen.BVid`); een rekening zonder BV valt
+onder "zonder BV" (nu geen). "Saldo alle rekeningen" blijft alle rekeningen waar je bij mag; het andere saldo heet nu
+naar de keuze (rekening / BV / gekozen rekeningen). Lokaal niet in beeld te krijgen (zonder ingelogde werknemer geen
+rekeningen); de query is lezend gecontroleerd: AUTO, HOLD, ME, PROD, ROB.
+
 ## Calculaties, stap 3: uren boeken op de delen van een werkorder (10-11-2026)
 
 Wens gebruiker: per deel zien of het uitloopt. Zoals het ontwerp in de boom al zei: heeft een werkorder delen, dan is

@@ -132,11 +132,26 @@
                 </span>
             </label>
 
+            @* eerst de BV, dan de rekeningen van die BV (wens gebruiker 10-11-2026); één BV = geen keuze nodig *@
+            @if (Bvs.Count > 1)
+            {
+                <label class="bankveld">
+                    <span>BV</span>
+                    <select value="@(_bv?.ToString() ?? "")" @onchange="BvGewijzigd">
+                        <option value="">Alle BV's</option>
+                        @foreach (var (id, naam) in Bvs)
+                        {
+                            <option value="@id">@naam</option>
+                        }
+                    </select>
+                </label>
+            }
+
             <label class="bankveld">
                 <span>Rekening</span>
                 <select value="@RekeningTekst" @onchange="RekeningGewijzigd">
-                    <option value="">Alle rekeningen</option>
-                    @foreach (var r in _rekeningen)
+                    <option value="">@(_bv is null ? "Alle rekeningen" : $"Alle rekeningen van {BvNaam(_bv.Value)}")</option>
+                    @foreach (var r in RekeningenVanBv)
                     {
                         <option value="@r.Nummer">@r.Volledig</option>
                     }
@@ -215,7 +230,7 @@
         <div class="banktotalen">
             <span><b>Totaal</b> @Bedrag(_totalen.Totaal)</span>
             <span><b>Aantal</b> @_totalen.Aantal</span>
-            <span><b>Saldo gekozen rekening</b> @Saldo(_totalen.SaldoRekening)</span>
+            <span><b>@SaldoKop</b> @Saldo(_totalen.SaldoRekening)</span>
             <span><b>Saldo alle rekeningen</b> @Saldo(_totalen.SaldoAlle)</span>
             <span>
                 <b>Laatste transactie</b>
@@ -385,7 +400,8 @@
     private DateOnly _van = DateOnly.FromDateTime(DateTime.Today.AddMonths(-1));
     private DateOnly _tot = DateOnly.FromDateTime(DateTime.Today);
     private string _zoek = "";
-    private string _rekening = "";       // leeg = alle rekeningen waar ik bij mag
+    private string _rekening = "";       // leeg = alle rekeningen waar ik bij mag (van de gekozen BV)
+    private int? _bv;                    // null = alle BV's; 0 = rekeningen zonder BV
     private int? _pas;
     private BijAf _bijAf = BijAf.Beide;
 
@@ -401,11 +417,41 @@
 
     private static string Saldo(decimal? waarde) => waarde is null ? "—" : Bedrag(waarde.Value);
 
-    /// <summary>De rekeningnummers waar deze gebruiker bij mag, of alleen de gekozene.</summary>
+    /// <summary>De rekeningnummers waar deze gebruiker bij mag (van de gekozen BV), of alleen de gekozene.</summary>
     private List<string> Gekozen()
         => string.IsNullOrWhiteSpace(_rekening)
-            ? _rekeningen.Select(r => r.Nummer).ToList()
+            ? RekeningenVanBv.Select(r => r.Nummer).ToList()
             : new List<string> { _rekening };
+
+    // ---- BV ----
+    private static int BvVan(Bankrekening r) => r.BvId ?? 0;
+
+    /// <summary>De BV's van de rekeningen waar ik bij mag, op naam; "zonder BV" achteraan.</summary>
+    private List<(int Id, string Naam)> Bvs
+        => _rekeningen.GroupBy(BvVan)
+                      .Select(g => (g.Key, Naam: BvNaam(g.Key)))
+                      .OrderBy(b => b.Key == 0).ThenBy(b => b.Naam, StringComparer.CurrentCultureIgnoreCase)
+                      .ToList();
+
+    private string BvNaam(int id)
+        => id == 0 ? "zonder BV"
+         : _rekeningen.FirstOrDefault(r => BvVan(r) == id && r.Bv.Length > 0)?.Bv ?? $"BV {id}";
+
+    private List<Bankrekening> RekeningenVanBv
+        => _bv is int bv ? _rekeningen.Where(r => BvVan(r) == bv).ToList() : _rekeningen;
+
+    private string SaldoKop
+        => _rekening.Length > 0 ? "Saldo gekozen rekening"
+         : _bv is int bv ? $"Saldo {BvNaam(bv)}"
+         : "Saldo gekozen rekeningen";
+
+    private async Task BvGewijzigd(ChangeEventArgs e)
+    {
+        _bv = int.TryParse((string?)e.Value, out var v) ? v : null;
+        // een rekening van een andere BV past niet meer
+        if (_rekening.Length > 0 && RekeningenVanBv.All(r => r.Nummer != _rekening)) _rekening = "";
+        await Laad();
+    }
 
     private List<string> Alle() => _rekeningen.Select(r => r.Nummer).ToList();
 

@@ -76,7 +76,8 @@ public class BankrekeningBeheer
     public bool Wisbaar => Transacties == 0 && Passen == 0 && Negeren == 0;
 }
 
-public record Bankrekening(int Id, string Nummer, string Omschrijving, int? BvId)
+/// <summary>Een rekening waar iemand bij mag; Bv = afkorting (of naam) van de BV (Bankrekeningen.BVid), leeg = geen BV.</summary>
+public record Bankrekening(int Id, string Nummer, string Omschrijving, int? BvId, string Bv = "")
 {
     public string Volledig => string.IsNullOrWhiteSpace(Omschrijving) ? Nummer : $"{Omschrijving} · {Nummer}";
 }
