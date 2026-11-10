@@ -274,7 +274,7 @@ Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het proj
 - Niet in de browser getest met de kolom (script nog niet gedraaid); zonder kolom laadt Bestellingen zoals voorheen.
 - **Projecten** (wens gebruiker 10-11-2026): filter "Alle BV's" (alle eigen BV's, opgeheven achteraan; leeg
   Werkmaatschappij telt als AUTO) via `TelProjectenAsync`/`ZoekProjectenAsync(..., bv)`; ✕ wist het mee. Nieuw project:
-  keuze BV (alleen niet opgeheven), standaard de BV van het filter, anders AUTO; `NieuwProjectAsync(..., bvId)` zet
+  keuze BV (alleen BV's met "Mag bestellen", `BestelBvsAsync`; zonder die kolom alle niet opgeheven), standaard de BV van het filter, anders AUTO; `NieuwProjectAsync(..., bvId)` zet
   Werkmaatschappij meteen (ook gebruikt door het verkoopproject van een VO; de losse UPDATE is weg). Lokaal bekeken:
   AUTO 1502 van 1506 open projecten, MPR nog 0; niet aangemaakt.
 

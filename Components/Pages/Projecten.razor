@@ -1,6 +1,7 @@
 @page "/projecten"
 @inject IProjectRepository Repo
 @inject IPOKlantRepository PoRepo
+@inject IBestelRepository BestelRepo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -406,8 +407,11 @@
     private string BvFilterTekst => _bvFilter is null ? "" : _bvFilter.Value.ToString();
     private string NieuwBvTekst => _nieuwBv is null ? "" : _nieuwBv.Value.ToString();
 
-    /// <summary>Eigen BV's die niet opgeheven zijn: daar kan een nieuw project bij horen.</summary>
-    private List<Keuze> ActieveBvs => Lijst("BV").Where(b => !b.Naam.EndsWith("(opgeheven)")).ToList();
+    /// <summary>BV's met "Mag bestellen" (Relaties > tab BV; besluit gebruiker 10-11-2026): daar kan een nieuw project bij
+    /// horen. Zonder dat vinkje in de database: alle eigen BV's die niet opgeheven zijn.</summary>
+    private HashSet<int>? _bestelBvs;
+    private List<Keuze> ActieveBvs => Lijst("BV")
+        .Where(b => _bestelBvs is { Count: > 0 } mag ? mag.Contains(b.Id) : !b.Naam.EndsWith("(opgeheven)")).ToList();
 
     // ---- koppeling met het verhang-slepen (mdeBoom in App.razor) ----
     private DotNetObjectReference<Projecten>? _zelf;
@@ -442,6 +446,7 @@
 
             // lijsten uit de database; elk apart, zodat één missende tabel de rest niet meesleept
             await Vul("BV", Repo.GetWerkmaatschappijenAsync);
+            try { _bestelBvs = (await BestelRepo.BestelBvsAsync()).Select(b => b.Id).ToHashSet(); } catch { _bestelBvs = null; }
             await Vul("Klant", Repo.GetKlantenAsync);
             await Vul("Werknemer", Repo.GetWerknemersAsync);
             await Vul("ProjectType", Repo.GetProjectsoortenAsync);
