@@ -287,6 +287,35 @@ Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het proj
   Werkmaatschappij meteen (ook gebruikt door het verkoopproject van een VO; de losse UPDATE is weg). Lokaal bekeken:
   AUTO 1502 van 1506 open projecten, MPR nog 0; niet aangemaakt.
 
+## Calculaties, stap 1 (10-11-2026)
+
+Het voorbeeld "Calculatieboom FIT Clean" (claude.ai-artifact, goed ontvangen door collega's) in de app. Besluiten gebruiker:
+**per offerte één calculatie**, **de bestaande boom overnemen** (zelfde bediening), eerste stap = **calculeren en
+bevriezen**; werkorders aanmaken (budget, kostenbegroting, delen met begrote uren) en boeken op delen volgen later.
+- Script **`Calculaties_MariaDB.sql`** (zelf draaien): `Calculaties` (OfferteID uniek, Status 0 concept / 1 bevroren,
+  Versie, Data = de boom als JSON, totalen voor de lijst) en `CalculatieTarieven` (kostprijs per uur per UrenActiviteit,
+  beginwaarden blad Uurtarief). Zonder script: uitleg op de pagina.
+- **Boom** = `wwwroot/calculatieboom.html`: gemaakt uit het artifact met scratchpad `calcboom.py`; **wijzig voortaan dit
+  bestand**. Draait in een iframe (eigen opmaak, botst niet met app.css); thema volgt `html[data-thema]` van de app.
+  Laadt/bewaart via **`/calculaties/api/{offerte}`** (Program.cs): GET (info, activiteiten met tarief, data, versie,
+  rechten), PUT (debounce 0,7 s, met versie: verouderd = 409 en stoppen; bevroren mag alleen wat
+  `CalculatieData.Kern` weglaat veranderen: notities, in-/uitklappen), POST `bevries` / `ontdooi`. `RO()` in de boom =
+  bevroren of geen recht. Werkordernummers in de vooruitblik = projectnummer-01…; knop Werkorders aanmaken staat uit.
+- **Rechten**: lezen = aangemeld; wijzigen/bevriezen = gekoppelde werknemer (zoals offertes) of Directie; ontdooien =
+  Directie; tarieven = Financial/Directie. Bron bij een notitie: alleen de bestandsnaam (filestore later).
+- **Pagina** `Components/Pages/Calculaties.razor` (`/projecten/calculaties`, `/{offerteId}`): recente calculaties of
+  offertes zoeken (`IOfferteRepository.ZoekAsync` + `VoorOffertesAsync`), maken (leeg of kopie van een andere in het
+  project), tarieven. **Overzicht** (wens gebruiker): standaard een **boom Klant ▸ Project ▸ Offerte** (de laatste 500
+  offertes of de zoekresultaten, met hun calculatie), op klant- en projectregel chipjes per offertestatus, aantal
+  calculaties/bevroren, offertebedrag, uren en verkoop van de calculaties; filterknoppen offertestatus (meer tegelijk) en
+  calculatie (nog geen / concept / bevroren) met aantallen; klanten dicht tenzij je zoekt of filtert; weergave Lijst =
+  dezelfde regels plat. Menu Projecten: groep **Offertes en calculaties**, tegel Calculaties; knop 🧮 Calculatie bij een
+  offerte. Repository `Services/ICalculatieRepository.cs`; lokaal `Calculaties__Geheugen=true` (offertes echt,
+  calculaties en tarieven in het geheugen, ook zonder script).
+- Getest met Geheugen en rechten tijdelijk open (teruggezet): maken, plakken uit Excel (5 regels, verkoop € 335.664 =
+  nagerekend), opslaan met versie, 409 bij een oude versie, 423 bij een getal na bevriezen, notitie na bevriezen wel,
+  ontdooien, werkordernummers 224112-01/-02, donker thema. Niet getest: echte database, twee echte gebruikers tegelijk.
+
 ## Banktransacties: gekoppelde facturen (10-11-2026)
 
 Wens gebruiker: geen vergrootglas meer, maar **dubbelklik** op een regel voor de details; in de details de **gekoppelde

@@ -1,0 +1,560 @@
+﻿@page "/projecten/calculaties"
+@page "/projecten/calculaties/{OfferteId:int}"
+@inject ICalculatieRepository Repo
+@inject IOfferteRepository Offertes
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+
+@* Calculaties (wens gebruiker 10-11-2026): de calculatieboom uit het voorbeeld "Calculatieboom FIT Clean" in de app, per
+   offerte één (Calculaties_MariaDB.sql). Deze pagina: de lijst (recent of zoeken op offerte/project/klant), een
+   calculatie maken (leeg of als kopie), de kostprijstarieven per activiteit, en de boom zelf in een iframe
+   (wwwroot/calculatieboom.html, die via calculaties/api/<offerte> laadt en opslaat; Program.cs).
+   Wijzigen: gekoppelde werknemer (zoals offertes) of Directie; tarieven: Financial of Directie. *@
+
+<PageTitle>Calculaties — MDE</PageTitle>
+
+<div class="page">
+    @if (OfferteId is null)
+    {
+        <header class="topbar">
+            <h1>Calculaties</h1>
+            <span class="weeklabel">per offerte · klant akkoord = bevriezen</span>
+        </header>
+    }
+    else
+    {
+        <header class="topbar">
+            <h1>Calculatie</h1>
+            @if (_offerte is not null)
+            {
+                <span class="weeklabel">@_offerte.OfferteNr · @_offerte.Omschrijving · @_offerte.Klant</span>
+            }
+            <span class="groei"></span>
+            <a class="calc-link" href="projecten/calculaties">← Alle calculaties</a>
+            @if (_offerte is not null)
+            {
+                <a class="calc-link" href="@OfferteLink">Offerte openen</a>
+            }
+        </header>
+    }
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (_tabel == false)
+    {
+        <section class="module-placeholder">
+            <p><b>De tabellen voor calculaties ontbreken nog.</b></p>
+            <p>Draai eerst <code>Calculaties_MariaDB.sql</code> op de MDE-database.</p>
+        </section>
+    }
+    else if (_tabel is null)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (OfferteId is null)
+    {
+        @* ---------------- overzicht: boom (klant ▸ project ▸ offerte) of lijst, met filters (wens gebruiker 10-11-2026) ---------------- *@
+        <div class="bankfilters">
+            <label class="bankveld groei">
+                <span>Zoeken (offerte, project of klant)</span>
+                <span class="zoekregel">
+                    <input placeholder="bv. Q226012, FIT Clean of de klant… (Enter)" value="@_zoek" @onchange="Zoek" />
+                    <button class="klein" disabled="@(_zoek.Length == 0)" @onclick="WisZoek">✕</button>
+                </span>
+            </label>
+            <div class="bankveld">
+                <span>Weergave</span>
+                <div class="btngroup">
+                    <button class="klein @(_alsBoom ? "actief primair" : "")" @onclick="() => _alsBoom = true">Boom</button>
+                    <button class="klein @(_alsBoom ? "" : "actief primair")" @onclick="() => _alsBoom = false">Lijst</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="calc-filters @(_offerteFilter.Count > 0 ? "of-gefilterd" : "") @(_calcFilter.Length > 0 ? "ca-gefilterd" : "")">
+            <span class="calc-filterlabel">Offerte</span>
+            @foreach (var st in OfferteStatussen)
+            {
+                <button type="button" class="stand-chip calc-filter of @OfferteStatus.Kleur(st) @(_offerteFilter.Contains(st) ? "aan" : "")"
+                        title="Alleen offertes met deze status (klik nog eens = weer alle)" @onclick="() => WisselOfferte(st)">
+                    @OfferteStatus.Naam(st) <small>@TelOfferte(st)</small>
+                </button>
+            }
+            <span class="calc-filterlabel">Calculatie</span>
+            @foreach (var (sleutel, naam) in CalcFilters)
+            {
+                <button type="button" class="stand-chip calc-filter ca @(sleutel == "bevroren" ? "s-groen" : "s-grijs") @(_calcFilter == sleutel ? "aan" : "")"
+                        @onclick="() => WisselCalc(sleutel)">
+                    @naam <small>@TelCalc(sleutel)</small>
+                </button>
+            }
+            @if (FilterAan)
+            {
+                <button type="button" class="klein" @onclick="WisFilters">Filters wissen</button>
+            }
+            @if (_alsBoom)
+            {
+                <span class="groei"></span>
+                <button type="button" class="klein" @onclick="() => AllesOpen(true)">Alles open</button>
+                <button type="button" class="klein" @onclick="() => AllesOpen(false)">Alleen klanten</button>
+            }
+        </div>
+
+        @if (_bezig)
+        {
+            <p class="uitleg">Zoeken…</p>
+        }
+        else if (_regels.Count == 0)
+        {
+            <section class="module-placeholder">
+                <p>@(_zoek.Length == 0 ? "Geen offertes gevonden." : "Geen offertes gevonden voor deze zoekterm.")</p>
+            </section>
+        }
+        else if (!Zichtbaar.Any())
+        {
+            <section class="module-placeholder"><p>Geen offertes met deze filters.</p></section>
+        }
+        else if (_alsBoom)
+        {
+            <p class="uitleg">@Zichtbaar.Count() offertes@(_regels.Count >= Max ? $" (de laatste {Max}; zoek om oudere te vinden)" : "") · klik op een klant of project om open of dicht te klappen, op een offerte om de calculatie te openen of te maken.</p>
+            <table class="kiezer-tabel calc-lijst calc-boom">
+                <thead>
+                    <tr>
+                        <th>Klant / project / offerte</th>
+                        <th style="width:15rem">Offerte</th>
+                        <th style="width:10rem">Calculatie</th>
+                        <th class="r" style="width:8rem">Offertebedrag</th>
+                        <th class="r" style="width:6rem">Uren</th>
+                        <th class="r" style="width:8rem">Verkoop calc.</th>
+                        <th style="width:11rem">Gewijzigd</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var (klant, projecten) in Boom)
+                    {
+                        var kOpen = IsOpen(klant.Sleutel);
+                        <tr @key="klant.Sleutel" class="calc-klant klikbaar" @onclick="() => Wissel(klant.Sleutel)">
+                            <td><span class="calc-pijl">@(kOpen ? "▾" : "▸")</span><b>@klant.Naam</b>
+                                <small class="calc-aantal">@projecten.Count @(projecten.Count == 1 ? "project" : "projecten") · @klant.Rijen.Count @(klant.Rijen.Count == 1 ? "offerte" : "offertes")</small></td>
+                            <td>@Samenvatting(klant.Rijen)</td>
+                            <td><small>@CalcSamenvatting(klant.Rijen)</small></td>
+                            <td class="r">@Geld(klant.Rijen.Sum(r => r.OfferteTotaal))</td>
+                            <td class="r">@Uren(klant.Rijen)</td>
+                            <td class="r">@Verkoop(klant.Rijen)</td>
+                            <td></td>
+                        </tr>
+                        @if (kOpen)
+                        {
+                            @foreach (var project in projecten)
+                            {
+                                var pOpen = IsOpen(project.Sleutel);
+                                <tr @key="project.Sleutel" class="calc-project klikbaar" @onclick="() => Wissel(project.Sleutel)">
+                                    <td><span class="calc-pijl">@(pOpen ? "▾" : "▸")</span>@project.Naam
+                                        <small class="calc-aantal">@project.Rijen.Count @(project.Rijen.Count == 1 ? "offerte" : "offertes")</small></td>
+                                    <td>@Samenvatting(project.Rijen)</td>
+                                    <td><small>@CalcSamenvatting(project.Rijen)</small></td>
+                                    <td class="r">@Geld(project.Rijen.Sum(r => r.OfferteTotaal))</td>
+                                    <td class="r">@Uren(project.Rijen)</td>
+                                    <td class="r">@Verkoop(project.Rijen)</td>
+                                    <td></td>
+                                </tr>
+                                @if (pOpen)
+                                {
+                                    @foreach (var r in project.Rijen)
+                                    {
+                                        <tr @key="r.OfferteId" class="calc-offerte klikbaar" @onclick="() => Open(r.OfferteId)">
+                                            <td><b>@r.OfferteNr</b> @r.Offerte</td>
+                                            <td><span class="stand-chip @OfferteStatus.Kleur(r.OfferteStatus)">@OfferteStatus.Naam(r.OfferteStatus)</span></td>
+                                            <td>@CalcChip(r)</td>
+                                            <td class="r">@Geld(r.OfferteTotaal)</td>
+                                            <td class="r">@(r.Status is null ? "" : r.Uren.ToString("#,0.#", Nl))</td>
+                                            <td class="r">@(r.Status is null ? "" : Geld(r.Verkoop))</td>
+                                            <td><small>@Wanneer(r)</small></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        }
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="uitleg">@Zichtbaar.Count() offertes@(_regels.Count >= Max ? $" (de laatste {Max}; zoek om oudere te vinden)" : "") · klik om de calculatie te openen of te maken.</p>
+            <table class="kiezer-tabel calc-lijst">
+                <thead>
+                    <tr>
+                        <th style="width:8rem">Offerte</th>
+                        <th>Omschrijving</th>
+                        <th>Project</th>
+                        <th>Klant</th>
+                        <th style="width:7rem">Offerte</th>
+                        <th style="width:8rem">Calculatie</th>
+                        <th class="r" style="width:8rem">Offertebedrag</th>
+                        <th class="r" style="width:6rem">Uren</th>
+                        <th class="r" style="width:8rem">Verkoop calc.</th>
+                        <th style="width:11rem">Gewijzigd</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Zichtbaar)
+                    {
+                        <tr @key="r.OfferteId" class="klikbaar" @onclick="() => Open(r.OfferteId)">
+                            <td><b>@r.OfferteNr</b></td>
+                            <td>@r.Offerte</td>
+                            <td>@r.Project</td>
+                            <td>@r.Klant</td>
+                            <td><span class="stand-chip @OfferteStatus.Kleur(r.OfferteStatus)">@OfferteStatus.Naam(r.OfferteStatus)</span></td>
+                            <td>@CalcChip(r)</td>
+                            <td class="r">@Geld(r.OfferteTotaal)</td>
+                            <td class="r">@(r.Status is null ? "" : r.Uren.ToString("#,0.#", Nl))</td>
+                            <td class="r">@(r.Status is null ? "" : Geld(r.Verkoop))</td>
+                            <td><small>@Wanneer(r)</small></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @* ---------------- kostprijstarieven ---------------- *@
+        <details class="calc-tarieven">
+            <summary>Kostprijstarieven per activiteit</summary>
+            <p class="uitleg">De kostprijs per uur die een nieuwe urenregel krijgt als je de activiteit kiest. Een calculatie
+                houdt zijn eigen kostprijs per regel: een ander tarief verandert bestaande calculaties niet (een stip in de boom
+                laat zien dat een regel afwijkt). @(MagTarieven ? "" : "Wijzigen kan met het recht Financial of Directie.")</p>
+            @if (_tarieven is null)
+            {
+                <p class="uitleg">Laden…</p>
+            }
+            else
+            {
+                <table class="kiezer-tabel calc-tarieftabel">
+                    <thead><tr><th>Activiteit</th><th class="r" style="width:9rem">Kostprijs per uur</th></tr></thead>
+                    <tbody>
+                        @foreach (var t in _tarieven)
+                        {
+                            <tr @key="t.ActiviteitId">
+                                <td>@t.Naam</td>
+                                <td class="r">
+                                    @if (MagTarieven)
+                                    {
+                                        <input class="r calc-tarief" value="@TariefTekst(t)" inputmode="decimal" placeholder="—"
+                                               @onchange="e => BewaarTarief(t, e)" />
+                                    }
+                                    else
+                                    {
+                                        @TariefTekst(t)
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </details>
+    }
+    else if (_offerte is null)
+    {
+        <section class="module-placeholder"><p>@(_geladen ? "Deze offerte bestaat niet (meer)." : "Laden…")</p></section>
+    }
+    else if (_calc is null)
+    {
+        @* ---------------- nog geen calculatie ---------------- *@
+        <section class="fai-kaart">
+            <h3>Nog geen calculatie voor @_offerte.OfferteNr</h3>
+            <p>@_offerte.Omschrijving · project @_offerte.Projectnummer @_offerte.Project · @_offerte.Klant</p>
+            @if (!MagMaken)
+            {
+                <p class="uitleg">Een calculatie maken kan alleen een medewerker met een gekoppeld account.</p>
+            }
+            else
+            {
+                <div class="btngroup">
+                    <button class="primair" disabled="@_bezig" @onclick="() => Maak(null)">Lege calculatie maken</button>
+                </div>
+                @if (_inProject.Count > 0)
+                {
+                    <p class="uitleg" style="margin-top:.8rem">Of begin met een kopie van een andere calculatie in dit project:</p>
+                    <div class="btngroup">
+                        <select @bind="_kopieVan">
+                            @foreach (var c in _inProject)
+                            {
+                                <option value="@c.OfferteId">@c.OfferteNr · @c.Offerte (@c.Verkoop.ToString("C0", Nl))</option>
+                            }
+                        </select>
+                        <button class="klein" disabled="@_bezig" @onclick="() => Maak(_kopieVan)">Kopie maken</button>
+                    </div>
+                }
+            }
+        </section>
+    }
+    else
+    {
+        @* ---------------- de boom ---------------- *@
+        <iframe class="calc-kader" src="@BoomAdres" title="Calculatie @_offerte.OfferteNr"></iframe>
+    }
+</div>
+
+@code {
+    [Parameter] public int? OfferteId { get; set; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    /// <summary>Een regel in de lijst; Status null = de offerte heeft nog geen calculatie.</summary>
+    private sealed record Rij(int OfferteId, int ProjectId, string OfferteNr, string Offerte, string Project, string Klant,
+                              int OfferteStatus, decimal OfferteTotaal, int? Status, decimal Verkoop, decimal Uren,
+                              DateTime? GewijzigdOp, string GewijzigdDoor);
+
+    /// <summary>Een klant of project in de boom: sleutel (k:naam / p:id), naam en zijn offertes.</summary>
+    private sealed record Groep(string Sleutel, string Naam, List<Rij> Rijen);
+
+    /// <summary>Zoveel offertes worden hoogstens opgehaald (IOfferteRepository.ZoekAsync); daarboven: zoeken.</summary>
+    private const int Max = 500;
+    private static readonly int[] OfferteStatussen = { OfferteStatus.Aanmaken, OfferteStatus.Aangeboden, OfferteStatus.Opdracht, OfferteStatus.Afgewezen };
+    private static readonly (string Sleutel, string Naam)[] CalcFilters =
+        { ("zonder", "Nog geen"), ("concept", "Concept"), ("bevroren", "Bevroren") };
+
+    private bool _alsBoom = true;
+    private readonly HashSet<int> _offerteFilter = new();
+    private string _calcFilter = "";
+    /// <summary>Open of dicht per klant/project, als de gebruiker erop klikte; anders <see cref="IsOpen"/>.</summary>
+    private readonly Dictionary<string, bool> _klap = new();
+
+    private bool? _tabel;
+    private string _zoek = "";
+    private bool _bezig, _geladen;
+    private List<Rij> _regels = new();
+    private List<CalculatieTarief>? _tarieven;
+    private Offerte? _offerte;
+    private Calculatie? _calc;
+    private List<CalculatieRegel> _inProject = new();
+    private int _kopieVan;
+    private string? _melding;
+    private bool _fout;
+    private int _boomVersie;
+
+    private bool MagMaken => Ik.Gekoppeld || Ik.Mag("Directie");
+    private bool MagTarieven => Ik.MagFinancien;
+    private string OfferteLink => $"projecten/offertes/{OfferteId}";
+    // ?v= = versie van de boompagina (cache), &n= = opnieuw laden na maken
+    private string BoomAdres => $"calculatieboom.html?offerte={OfferteId}&v=1&n={_boomVersie}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _tabel = await Repo.TabelAanwezigAsync(); }
+        catch (Exception ex) { _tabel = false; Toon("Calculaties lezen mislukt: " + ex.Message, true); return; }
+        if (_tabel != true) return;
+
+        if (OfferteId is int id) await LaadOfferte(id);
+        else { await LaadLijst(); await TarievenOpen(); }
+    }
+
+    private async Task LaadOfferte(int id)
+    {
+        _geladen = false;
+        try
+        {
+            _offerte = await Offertes.GetAsync(id);
+            _calc = _offerte is null ? null : await Repo.GetAsync(id);
+            _inProject = _offerte is null || _calc is not null ? new() : await Repo.InProjectAsync(_offerte.ProjectId);
+            _kopieVan = _inProject.FirstOrDefault()?.OfferteId ?? 0;
+        }
+        catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }
+        _geladen = true;
+    }
+
+    private async Task LaadLijst()
+    {
+        _bezig = true;
+        try
+        {
+            var z = _zoek.Trim();
+            var offertes = await Offertes.ZoekAsync(z.Length == 0 ? null : z, null, null, Max);
+            var calc = await Repo.VoorOffertesAsync(offertes.Select(o => o.Id).ToList());
+            _regels = offertes.Select(o => calc.TryGetValue(o.Id, out var c)
+                    ? new Rij(o.Id, o.ProjectId, o.OfferteNr, o.Omschrijving, o.Project, o.Klant, o.Status, o.Totaal, c.Status, c.Verkoop, c.Uren, c.GewijzigdOp, c.GewijzigdDoor)
+                    : new Rij(o.Id, o.ProjectId, o.OfferteNr, o.Omschrijving, o.Project, o.Klant, o.Status, o.Totaal, null, 0, 0, null, ""))
+                .ToList();
+            _klap.Clear();
+        }
+        catch (Exception ex) { _regels = new(); Toon("Zoeken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Zoek(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        await LaadLijst();
+    }
+
+    private async Task WisZoek()
+    {
+        _zoek = "";
+        await LaadLijst();
+    }
+
+    // ---- filters en boom ----
+    private bool FilterAan => _offerteFilter.Count > 0 || _calcFilter.Length > 0;
+
+    private bool PastOfferte(Rij r) => _offerteFilter.Count == 0 || _offerteFilter.Contains(r.OfferteStatus);
+
+    private static bool PastCalc(Rij r, string filter) => filter switch
+    {
+        "zonder" => r.Status is null,
+        "concept" => r.Status == CalculatieStatus.Concept,
+        "bevroren" => r.Status == CalculatieStatus.Bevroren,
+        _ => true,
+    };
+
+    private IEnumerable<Rij> Zichtbaar => _regels.Where(r => PastOfferte(r) && PastCalc(r, _calcFilter));
+
+    /// <summary>Aantal bij een filterknop: met het andere filter wel toegepast, zodat je ziet wat je krijgt.</summary>
+    private int TelOfferte(int status) => _regels.Count(r => r.OfferteStatus == status && PastCalc(r, _calcFilter));
+    private int TelCalc(string filter) => _regels.Count(r => PastOfferte(r) && PastCalc(r, filter));
+
+    private void WisselOfferte(int status) { if (!_offerteFilter.Remove(status)) _offerteFilter.Add(status); }
+    private void WisselCalc(string filter) => _calcFilter = _calcFilter == filter ? "" : filter;
+    private void WisFilters() { _offerteFilter.Clear(); _calcFilter = ""; }
+
+    /// <summary>Klant ▸ project ▸ offertes: klanten op naam, projecten en offertes nieuwste nummer eerst.</summary>
+    private List<(Groep Klant, List<Groep> Projecten)> Boom => Zichtbaar
+        .GroupBy(r => r.Klant.Length > 0 ? r.Klant : "(geen klant)")
+        .OrderBy(k => k.Key, StringComparer.CurrentCultureIgnoreCase)
+        .Select(k => (new Groep("k:" + k.Key, k.Key, k.ToList()),
+                      k.GroupBy(r => r.ProjectId)
+                       .Select(p => new Groep("p:" + p.Key, p.First().Project, p.OrderByDescending(r => r.OfferteNr, StringComparer.Ordinal).ToList()))
+                       .OrderByDescending(p => p.Naam, StringComparer.Ordinal).ToList()))
+        .ToList();
+
+    /// <summary>Klanten dicht, tenzij je zoekt of filtert (dan alles open); projecten standaard open.</summary>
+    private bool IsOpen(string sleutel)
+        => _klap.TryGetValue(sleutel, out var open) ? open : sleutel.StartsWith("p:") || _zoek.Length > 0 || FilterAan;
+
+    private void Wissel(string sleutel) => _klap[sleutel] = !IsOpen(sleutel);
+
+    private void AllesOpen(bool open)
+    {
+        _klap.Clear();
+        foreach (var (klant, projecten) in Boom)
+        {
+            _klap[klant.Sleutel] = open;
+            foreach (var p in projecten) _klap[p.Sleutel] = true;
+        }
+    }
+
+    private static string Geld(decimal w) => w == 0 ? "" : w.ToString("C0", Nl);
+
+    private static string Uren(List<Rij> rijen)
+    {
+        var u = rijen.Where(r => r.Status is not null).Sum(r => r.Uren);
+        return u == 0 ? "" : u.ToString("#,0.#", Nl);
+    }
+
+    private static string Verkoop(List<Rij> rijen) => Geld(rijen.Where(r => r.Status is not null).Sum(r => r.Verkoop));
+
+    private static string CalcSamenvatting(List<Rij> rijen)
+    {
+        var met = rijen.Count(r => r.Status is not null);
+        if (met == 0) return "geen calculaties";
+        var bevroren = rijen.Count(r => r.Status == CalculatieStatus.Bevroren);
+        return $"{met} calculatie{(met == 1 ? "" : "s")}" + (bevroren > 0 ? $", {bevroren} bevroren" : "");
+    }
+
+    /// <summary>Per offertestatus een chipje met het aantal (alleen wat voorkomt).</summary>
+    private RenderFragment Samenvatting(List<Rij> rijen) => __builder =>
+    {
+        foreach (var st in OfferteStatussen)
+        {
+            var n = rijen.Count(r => r.OfferteStatus == st);
+            if (n == 0) continue;
+            __builder.OpenElement(0, "span");
+            __builder.AddAttribute(1, "class", "stand-chip calc-mini " + OfferteStatus.Kleur(st));
+            __builder.AddAttribute(2, "title", OfferteStatus.Naam(st));
+            __builder.AddContent(3, $"{n} {OfferteStatus.Naam(st)}");
+            __builder.CloseElement();
+        }
+    };
+
+    private RenderFragment CalcChip(Rij r) => __builder =>
+    {
+        __builder.OpenElement(0, "span");
+        if (r.Status is int st)
+        {
+            __builder.AddAttribute(1, "class", "stand-chip " + (st == CalculatieStatus.Bevroren ? "s-groen" : "s-grijs"));
+            __builder.AddContent(2, CalculatieStatus.Naam(st));
+        }
+        else
+        {
+            __builder.AddAttribute(1, "class", "uitleg");
+            __builder.AddContent(2, "nog geen");
+        }
+        __builder.CloseElement();
+    };
+
+    private static string Wanneer(Rij r)
+        => r.GewijzigdOp is DateTime d ? $"{d:dd-MM-yyyy HH:mm}{(r.GewijzigdDoor.Length > 0 ? " · " + r.GewijzigdDoor : "")}" : "";
+
+    private void Open(int offerteId) => Nav.NavigateTo($"projecten/calculaties/{offerteId}");
+
+    private async Task Maak(int? kopieVan)
+    {
+        if (OfferteId is not int id || !MagMaken) return;
+        _bezig = true;
+        try
+        {
+            var data = CalculatieData.Leeg;
+            if (kopieVan is int bron && await Repo.GetAsync(bron) is { } c) data = CalculatieData.Kopie(c.Data);
+            await Repo.MaakAsync(id, data, Ik.WerknemerId);
+            _boomVersie++;
+            await LaadOfferte(id);
+            Toon(kopieVan is null ? "Lege calculatie gemaakt." : "Calculatie gemaakt als kopie.", false);
+        }
+        catch (Exception ex) { Toon("Maken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- tarieven ----
+    private async Task TarievenOpen()
+    {
+        if (_tarieven is not null) return;
+        try { _tarieven = await Repo.TarievenAsync(); }
+        catch (Exception ex) { _tarieven = new(); Toon("Tarieven lezen mislukt: " + ex.Message, true); }
+    }
+
+    private static string TariefTekst(CalculatieTarief t) => t.Kostprijs is decimal k ? k.ToString("0.00", Nl) : "";
+
+    private async Task BewaarTarief(CalculatieTarief t, ChangeEventArgs e)
+    {
+        if (!MagTarieven || _tarieven is null) return;
+        var tekst = ((string?)e.Value ?? "").Trim().Replace("€", "").Trim();
+        decimal? waarde = null;
+        if (tekst.Length > 0)
+        {
+            if (!decimal.TryParse(tekst, System.Globalization.NumberStyles.Number, Nl, out var w) || w < 0)
+            {
+                Toon($"'{tekst}' is geen geldig tarief.", true);
+                return;
+            }
+            waarde = Math.Round(w, 2);
+        }
+        try
+        {
+            await Repo.BewaarTariefAsync(t.ActiviteitId, waarde, Ik.WerknemerId);
+            _tarieven = _tarieven.Select(x => x.ActiviteitId == t.ActiviteitId ? x with { Kostprijs = waarde } : x).ToList();
+            Toon($"Tarief {t.Naam} opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+}

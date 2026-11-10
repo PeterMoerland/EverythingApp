@@ -141,6 +141,7 @@
                             <button class="klein" title="Kopie van deze offerte maken, eventueel in een ander project" @onclick="OpenKopie">Kopiëren…</button>
                             <button class="klein" title="De offerte als PDF bekijken en als Gmail-concept klaarzetten" @onclick="OpenVersturen">📄 PDF en versturen…</button>
                         }
+                        <button class="klein" title="De calculatie (kostprijs, uren en verkoop) van deze offerte openen of maken" @onclick="OpenCalculatie">🧮 Calculatie</button>
                         <button class="primair" disabled="@(!Gewijzigd || _bezig)" @onclick="Bewaar">Opslaan</button>
                     </div>
 
@@ -699,6 +700,12 @@
             if (plek >= 0) _offertes[plek] = _offertes[plek] with { Totaal = vers.Totalen.Totaal };
         }
         catch { }
+    }
+
+    /// <summary>Projecten ▸ Calculaties voor deze offerte (Components/Pages/Calculaties.razor).</summary>
+    private void OpenCalculatie()
+    {
+        if (_o is not null) Nav.NavigateTo($"projecten/calculaties/{_o.Id}");
     }
 
     // ---- PDF en versturen (fase 4) ----

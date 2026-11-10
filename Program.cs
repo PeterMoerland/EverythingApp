@@ -165,6 +165,12 @@ if (liveDb)
     builder.Services.AddSingleton<IPOKlantRepository>(_ => new MySqlPOKlantRepository(cs!));
     builder.Services.AddSingleton<IBezoekRepository>(_ => new MySqlBezoekRepository(cs!));
     builder.Services.AddSingleton<IOfferteRepository>(_ => new MySqlOfferteRepository(cs!));
+    // lokaal testen zonder in Calculaties te schrijven: Calculaties__Geheugen=true (offertes en activiteiten echt)
+    if (builder.Configuration.GetValue<bool>("Calculaties:Geheugen"))
+        builder.Services.AddSingleton<ICalculatieRepository>(sp => new GeheugenCalculatieRepository(
+            new MySqlCalculatieRepository(cs!), sp.GetRequiredService<IOfferteRepository>()));
+    else
+        builder.Services.AddSingleton<ICalculatieRepository>(_ => new MySqlCalculatieRepository(cs!));
     builder.Services.AddSingleton<ISamenstellingRepository>(_ => new MySqlSamenstellingRepository(cs!));
     // lokaal testen zonder in Locations te schrijven: Lokaties__Geheugen=true (leest echt)
     if (builder.Configuration.GetValue<bool>("Lokaties:Geheugen"))
@@ -241,6 +247,7 @@ else
     builder.Services.AddSingleton<IProjectTeamRepository, GeenProjectTeamRepository>();
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
+    builder.Services.AddSingleton<ICalculatieRepository, GeenCalculatieRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
     builder.Services.AddSingleton<IVoorraadRepository, GeenVoorraadRepository>();
@@ -690,6 +697,82 @@ var agentZip = app.MapGet("/tools/mde-agent/download", async (AgentUitgave uitga
         ? Results.File(pad, "application/zip", Path.GetFileName(pad))
         : Results.NotFound("De MDE Agent staat niet (volledig) op de share (MdeAgent\\publiceer-z.bat)."));
 if (loginAan) agentZip.RequireAuthorization();
+
+// --- Calculaties (Projecten ▸ Offertes en calculaties): de boompagina wwwroot/calculatieboom.html haalt en bewaart hier
+// zijn gegevens. Lezen: aangemeld; wijzigen en bevriezen: een gekoppelde werknemer (zoals bij offertes) of Directie;
+// ontdooien: alleen Directie. Bevroren mogen alleen de notities nog veranderen (CalculatieData.Kern). ---
+static bool MagCalculatie(HuidigeGebruiker ik) => ik.Gekoppeld || ik.Mag("Directie");
+var calcJson = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+var calcApi = app.MapGroup("/calculaties/api");
+if (loginAan) calcApi.RequireAuthorization();
+calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository repo, IOfferteRepository offertes, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    var o = await offertes.GetAsync(offerteId);
+    var c = o is null ? null : await repo.GetAsync(offerteId);
+    if (o is null || c is null) return Results.Json(new { fout = "Deze offerte heeft (nog) geen calculatie." }, statusCode: 404);
+    var act = (await repo.TarievenAsync()).Select(t => new { id = t.ActiviteitId, naam = t.Naam, tarief = t.Kostprijs ?? 0m });
+    var wanneer = c.Bevroren && c.BevrorenOp is DateTime b
+        ? $"Bevroren {b:dd-MM-yyyy HH:mm}{(c.BevrorenDoor.Length > 0 ? " door " + c.BevrorenDoor : "")}"
+        : c.GewijzigdOp is DateTime g ? $"Opgeslagen {g:dd-MM-yyyy HH:mm}{(c.GewijzigdDoor.Length > 0 ? " door " + c.GewijzigdDoor : "")}" : "";
+    return Results.Json(new
+    {
+        info = new { offertenr = o.OfferteNr, offerte = o.Omschrijving, project = $"{o.Projectnummer} · {o.Project}", projectnr = o.Projectnummer, klant = o.Klant, bv = o.Bv },
+        act,
+        data = System.Text.Json.Nodes.JsonNode.Parse(c.Data),
+        versie = c.Versie,
+        status = c.Status,
+        mag = MagCalculatie(ik),
+        magOntdooien = ik.Mag("Directie"),
+        gebruiker = ik.Naam,
+        gewijzigd = wanneer,
+    });
+});
+calcApi.MapPut("/{offerteId:int}", async (int offerteId, HttpRequest req, ICalculatieRepository repo, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    if (!MagCalculatie(ik)) return Results.Json(new { fout = "Je mag deze calculatie niet wijzigen." }, statusCode: 403);
+    System.Text.Json.Nodes.JsonNode? body;
+    try { body = await System.Text.Json.Nodes.JsonNode.ParseAsync(req.Body); } catch { body = null; }
+    if (body?["data"] is not System.Text.Json.Nodes.JsonObject data || body["versie"] is null)
+        return Results.Json(new { fout = "Geen geldige calculatie ontvangen." }, statusCode: 400);
+    var tekst = data.ToJsonString(calcJson);
+    if (CalculatieData.Controleer(tekst) is { } reden) return Results.Json(new { fout = reden }, statusCode: 400);
+    var c = await repo.GetAsync(offerteId);
+    if (c is null) return Results.Json(new { fout = "Deze calculatie bestaat niet (meer)." }, statusCode: 404);
+    if (c.Bevroren && CalculatieData.Kern(tekst) != CalculatieData.Kern(c.Data))
+        return Results.Json(new { fout = "De calculatie is bevroren (klant akkoord): alleen notities kunnen nog veranderen. Vernieuw de pagina." }, statusCode: 423);
+    decimal Getal(string k) { try { return body["totalen"]?[k]?.GetValue<decimal>() ?? 0; } catch { return 0; } }
+    int versie;
+    try { versie = body["versie"]!.GetValue<int>(); } catch { return Results.Json(new { fout = "Geen geldige versie ontvangen." }, statusCode: 400); }
+    try
+    {
+        var nieuw = await repo.BewaarAsync(offerteId, versie, tekst, Getal("kost"), Getal("verkoop"), Getal("uren"), ik.WerknemerId);
+        return Results.Json(new { versie = nieuw });
+    }
+    catch (CalculatieConflictException ex) { return Results.Json(new { fout = ex.Message }, statusCode: 409); }
+});
+calcApi.MapPost("/{offerteId:int}/{actie}", async (int offerteId, string actie, ICalculatieRepository repo, HuidigeGebruiker ik) =>
+{
+    await ik.ZorgGeladenAsync();
+    var c = await repo.GetAsync(offerteId);
+    if (c is null) return Results.Json(new { fout = "Deze calculatie bestaat niet (meer)." }, statusCode: 404);
+    int nieuw;
+    if (actie == "bevries")
+    {
+        if (!MagCalculatie(ik)) return Results.Json(new { fout = "Je mag deze calculatie niet bevriezen." }, statusCode: 403);
+        nieuw = CalculatieStatus.Bevroren;
+    }
+    else if (actie == "ontdooi")
+    {
+        if (!ik.Mag("Directie")) return Results.Json(new { fout = "Alleen Directie kan een bevroren calculatie weer bewerkbaar maken." }, statusCode: 403);
+        nieuw = CalculatieStatus.Concept;
+    }
+    else return Results.Json(new { fout = "Onbekende actie." }, statusCode: 404);
+    if (c.Status == nieuw) return Results.Json(new { status = nieuw, versie = c.Versie });
+    var versie = await repo.ZetStatusAsync(offerteId, nieuw, ik.WerknemerId);
+    return Results.Json(new { status = nieuw, versie });
+});
 
 // --- de Fusion-add-in als zip (FusionAddInUitgave), alleen met het recht Fusion; voor wie niet bij de share kan ---
 var fusionAddin = app.MapGet("/tools/fusion-addin/download", async (FusionAddInUitgave uitgave, HuidigeGebruiker ik) =>

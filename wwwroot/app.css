@@ -1164,6 +1164,36 @@ html[data-thema="donker"] .prod-hist-kop { color: #9fb0c5; }
 .fai-knop:hover { filter: brightness(.92); }
 .fai-stappen { margin: .2rem 0 .8rem 1.2rem; padding: 0; line-height: 1.6; }
 html[data-thema="donker"] .fai-kaart { background: var(--d1); border-color: var(--d3); }
+/* Projecten ▸ Calculaties: de boom (wwwroot/calculatieboom.html) in een kader dat de rest van het scherm vult */
+.calc-kader { display: block; width: 100%; height: calc(100dvh - 7.5rem); min-height: 30rem; border: 1px solid #dfe4ea; border-radius: 8px; background: #f4f6f9; }
+.calc-link { font-size: .85rem; text-decoration: none; padding: .2rem .6rem; border: 1px solid #c9d3df; border-radius: 5px; color: inherit; margin-left: .4rem; white-space: nowrap; }
+.calc-link:hover { border-color: var(--accent); }
+.calc-lijst td { vertical-align: top; }
+.calc-lijst tr.klikbaar:hover td { background: #eef3fa; }
+.calc-tarieven { margin-top: 1.4rem; max-width: 34rem; }
+.calc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .45rem; margin: .5rem 0 .6rem; }
+.calc-filterlabel { font-size: .8rem; color: #55606d; font-weight: 600; margin-left: .4rem; }
+.calc-filterlabel:first-child { margin-left: 0; }
+.calc-filter { cursor: pointer; font: inherit; font-size: .85rem; border: 1px solid transparent; }
+.calc-filter small { opacity: .7; margin-left: .2rem; }
+.calc-filter.aan { outline: 2px solid var(--accent); outline-offset: 1px; font-weight: 600; }
+.calc-filters.of-gefilterd .calc-filter.of:not(.aan), .calc-filters.ca-gefilterd .calc-filter.ca:not(.aan) { opacity: .45; }
+.calc-boom td:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36rem; }
+.calc-boom td:nth-child(2), .calc-lijst th { white-space: nowrap; }
+.calc-boom tr.calc-klant td { background: #eef2f7; border-top: 1px solid #d6dde7; }
+.calc-boom tr.calc-project td:first-child { padding-left: 1.6rem; }
+.calc-boom tr.calc-offerte td:first-child { padding-left: 3.4rem; }
+.calc-pijl { display: inline-block; width: 1.1rem; color: #667; }
+.calc-aantal { color: #667; margin-left: .5rem; }
+.calc-mini { font-size: .75rem; margin-right: .2rem; padding: 0 .45rem; }
+html[data-thema="donker"] .calc-boom tr.calc-klant td { background: #1d2a3a; border-top-color: #34465c; }
+html[data-thema="donker"] .calc-pijl, html[data-thema="donker"] .calc-aantal, html[data-thema="donker"] .calc-filterlabel { color: #9aa8bb; }
+.calc-tarieven summary { cursor: pointer; font-weight: 600; }
+.calc-tarief { width: 6.5rem; text-align: right; }
+html[data-thema="donker"] .calc-kader { border-color: #334051; background: #12171e; }
+html[data-thema="donker"] .calc-link { border-color: #2b4a73; }
+html[data-thema="donker"] .calc-lijst tr.klikbaar:hover td { background: #16273d; }
+
 /* Tools ▸ MDE Agent: stand van deze pc */
 .fai-kaart h3 { margin: 0 0 .5rem; font-size: 1.05rem; }
 .ag-stand { margin-bottom: 1rem; }

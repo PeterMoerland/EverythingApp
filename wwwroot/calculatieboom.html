@@ -1,0 +1,1398 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculatie</title>
+<!--
+  Calculatieboom (Projecten ▸ Offertes en calculaties ▸ Calculaties), overgenomen uit het voorbeeld "Calculatieboom FIT Clean"
+  (wens gebruiker 10-11-2026). Draait in een iframe van Components/Pages/Calculaties.razor; gegevens, rechten en opslaan via
+  calculaties/api/<offerte> (Program.cs). Gemaakt met scratchpad calcboom.py uit het voorbeeld; wijzig voortaan dit bestand.
+-->
+<style>
+html, body { margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+/* Eén boom: project > groep (werkorder) > subgroep (subwerkorder) > regels. Slepen aan de greep, één knop Toevoegen
+   die kijkt waar je staat, promoveren/degraderen in de werkbalk, de rest onder ⋯. */
+:root {
+  --bg: #f4f6f9; --vlak: #ffffff; --vlak-2: #eef2f7; --vlak-3: #e4eaf2; --lijn: #d6dde7; --tekst: #17202b; --zacht: #5d6b7c;
+  --accent: #1a5fb4; --accent-zacht: #e3ecf8; --merk: #c8102e;
+  --goed: #1e7a3c; --goed-zacht: #e4f3e8; --let: #8a5a00; --let-zacht: #fff1d6; --fout: #b3261e; --fout-zacht: #fde8e6;
+  --schaduw: 0 8px 28px rgba(15, 30, 50, .18);
+  --f-kop: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --f-tekst: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-getal: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171e; --vlak: #1a212b; --vlak-2: #222b37; --vlak-3: #2a3442; --lijn: #334051; --tekst: #e6ebf2; --zacht: #9aa8b8;
+    --accent: #6ea8f0; --accent-zacht: #1f3350; --merk: #ff5d6c;
+    --goed: #6cc58a; --goed-zacht: #1d3426; --let: #f0c46a; --let-zacht: #3a2f17; --fout: #ff8a80; --fout-zacht: #3d1f1d;
+    --schaduw: 0 8px 28px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171e; --vlak: #1a212b; --vlak-2: #222b37; --vlak-3: #2a3442; --lijn: #334051; --tekst: #e6ebf2; --zacht: #9aa8b8;
+  --accent: #6ea8f0; --accent-zacht: #1f3350; --merk: #ff5d6c;
+  --goed: #6cc58a; --goed-zacht: #1d3426; --let: #f0c46a; --let-zacht: #3a2f17; --fout: #ff8a80; --fout-zacht: #3d1f1d;
+  --schaduw: 0 8px 28px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--tekst); font-family: var(--f-tekst); font-size: 14px; line-height: 1.45; }
+body.slepen, body.slepen * { cursor: grabbing !important; user-select: none; }
+.pagina { max-width: none; margin: 0 auto; padding-block: 14px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 14px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:is(button, input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.kop { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+.kop .titel { display: grid; gap: 2px; min-width: 0; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--zacht); font-weight: 600; }
+.eyebrow b { color: var(--merk); }
+h1 { margin: 0; font-family: var(--f-kop); font-weight: 800; font-size: clamp(22px, 3vw, 30px); letter-spacing: -.01em; text-wrap: balance; }
+.sub { color: var(--zacht); font-size: 13px; max-width: 80ch; }
+.acties { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.knop { border: 1px solid var(--lijn); background: var(--vlak); border-radius: 6px; padding: 6px 12px; font-weight: 500; }
+.knop:hover:not(:disabled) { border-color: var(--accent); }
+.knop.primair { background: var(--accent); border-color: var(--accent); color: var(--vlak); }
+.knop.klein { padding: 3px 9px; font-size: 13px; }
+.knop.gevaar:hover:not(:disabled) { background: var(--fout); border-color: var(--fout); color: var(--vlak); }
+.knop:disabled { opacity: .45; cursor: not-allowed; }
+.status { padding: 3px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 600; background: var(--let-zacht); color: var(--let); }
+.status.bevroren { background: var(--goed-zacht); color: var(--goed); }
+.opslag { font-size: 12.5px; color: var(--zacht); }
+.opslag.ok { color: var(--goed); }
+.opslag.fout { color: var(--fout); font-weight: 600; }
+
+.balk { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--lijn); border: 1px solid var(--lijn); border-radius: 8px; overflow: hidden; }
+.balk > div { background: var(--vlak); padding: 10px 14px; display: grid; gap: 2px; min-width: 0; }
+.lab { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--zacht); font-weight: 600; }
+.waarde { font-family: var(--f-getal); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 500; }
+.balk .verkoop .waarde { color: var(--accent); font-size: 20px; }
+.doel .rij { display: flex; gap: 6px; align-items: center; }
+.doel input { width: 100%; min-width: 0; border: 1px solid var(--lijn); border-radius: 5px; padding: 3px 6px; background: var(--vlak); font-family: var(--f-getal); }
+.instellingen { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; color: var(--zacht); }
+.instellingen label { display: inline-flex; gap: 6px; align-items: center; }
+.instellingen input { width: 4.2rem; border: 1px solid var(--lijn); border-radius: 5px; padding: 2px 6px; background: var(--vlak); text-align: right; font-family: var(--f-getal); }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--lijn); flex-wrap: wrap; align-items: flex-end; }
+.tabs button[role="tab"] { border: 1px solid transparent; border-bottom: none; background: none; padding: 7px 14px; border-radius: 6px 6px 0 0; color: var(--zacht); font-weight: 600; }
+.tabs button[aria-selected="true"] { background: var(--vlak); border-color: var(--lijn); color: var(--tekst); margin-bottom: -1px; }
+
+/* werkbalk boven de boom */
+.werkbalk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.splits { display: inline-flex; }
+.splits .knop:first-child { border-radius: 6px 0 0 6px; }
+.splits .knop:last-child { border-radius: 0 6px 6px 0; border-left: 1px solid color-mix(in srgb, var(--vlak) 35%, transparent); padding-inline: 8px; }
+.waar { font-size: 12.5px; color: var(--zacht); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+.waar b { color: var(--tekst); font-weight: 600; }
+.niveau { display: inline-flex; border: 1px solid var(--lijn); border-radius: 6px; overflow: hidden; background: var(--vlak); }
+.niveau button { border: none; background: none; padding: 3px 10px; font-size: 13px; }
+.niveau button + button { border-left: 1px solid var(--lijn); }
+.niveau button:hover:not(:disabled) { background: var(--accent-zacht); }
+.niveau button:disabled { opacity: .35; cursor: not-allowed; }
+.duw { flex: 1; }
+
+.paneel { background: var(--vlak); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
+.paneel.gevaar { border-color: var(--fout); background: var(--fout-zacht); }
+.paneel p { margin: 0; }
+.paneel textarea { width: 100%; min-height: 120px; border: 1px solid var(--lijn); border-radius: 6px; padding: 8px; font-family: var(--f-getal); font-size: 12.5px; background: var(--vlak); }
+.paneel .rij { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.melding { border-radius: 6px; padding: 8px 12px; background: var(--goed-zacht); color: var(--goed); margin: 0; }
+.melding.let { background: var(--let-zacht); color: var(--let); }
+
+/* ---------- de boom ---------- */
+.boomvak { background: var(--vlak); border: 1px solid var(--lijn); border-radius: 8px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 1000px; }
+th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--zacht); font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--lijn); white-space: nowrap; }
+td { padding: 2px 4px; border-bottom: 1px solid var(--vlak-2); vertical-align: middle; }
+th.r, td.r { text-align: right; }
+td.getal { font-family: var(--f-getal); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; padding-right: 8px; }
+td.eenh { color: var(--zacht); font-size: 12.5px; }
+td.greepcel { width: 22px; padding: 0 0 0 4px; }
+.cel { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; background: none; min-width: 0; }
+.cel:hover:not(:disabled) { border-color: var(--lijn); }
+.cel:focus { border-color: var(--accent); background: var(--vlak); }
+.cel.r { text-align: right; font-family: var(--f-getal); font-variant-numeric: tabular-nums; }
+.cel:disabled { cursor: default; }
+select.cel:not(:focus):not(:hover) { appearance: none; background: none; }
+.naamcel { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.klap { border: none; background: none; color: var(--zacht); width: 20px; flex: 0 0 20px; padding: 0; font-size: 12px; }
+.greep { border: none; background: none; color: var(--zacht); cursor: grab; padding: 2px 3px; border-radius: 4px; font-size: 14px; line-height: 1; opacity: 0; touch-action: none; }
+tr:hover .greep, tr.gekozen .greep, .greep:focus-visible { opacity: .75; }
+.greep:hover { background: var(--vlak-3); opacity: 1; }
+@media (hover: none) { .greep { opacity: .5; } }
+.meer { border: none; background: none; color: var(--zacht); padding: 2px 8px; border-radius: 4px; opacity: 0; font-size: 15px; line-height: 1; }
+tr:hover .meer, tr.gekozen .meer, .meer:focus-visible, .meer[aria-expanded="true"] { opacity: 1; }
+.meer:hover { background: var(--vlak-3); }
+@media (hover: none) { .meer { opacity: .6; } }
+
+tr.project td { background: var(--vlak-3); font-weight: 600; }
+tr.project .pnaam { font-family: var(--f-kop); font-weight: 800; font-size: 15px; padding: 6px 4px; }
+tr.groep td { background: var(--vlak-2); border-bottom-color: var(--lijn); }
+tr.groep.d0 td { border-top: 1px solid var(--lijn); }
+tr.groep .cel.gnaam { font-family: var(--f-kop); font-weight: 700; font-size: 14.5px; }
+tr.groep.d1 .cel.gnaam, tr.groep.d2 .cel.gnaam { font-size: 13.5px; }
+tr.groep td.getal { font-weight: 600; }
+.wochip { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; white-space: nowrap; border: 1px solid transparent; background: var(--accent-zacht); color: var(--accent); }
+.wochip.niet { background: var(--let-zacht); color: var(--let); }
+button.wochip:hover:not(:disabled) { border-color: currentColor; }
+tr.regel.zonderact td { background: var(--let-zacht); }
+tr.regel.auto td { background: var(--let-zacht); }
+tr.gekozen td { box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+tr.gekozen td:first-child { box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+tr.gesleept td { opacity: .35; }
+tr.doelin td { background: var(--accent-zacht) !important; }
+.afw { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--let); margin-left: 3px; vertical-align: middle; }
+tr.flits td { animation: flits 1.4s ease-out; }
+@keyframes flits { from { background: var(--accent-zacht); } }
+@media (prefers-reduced-motion: reduce) { tr.flits td { animation: none; } }
+.hint { font-size: 12.5px; color: var(--zacht); margin: 6px 2px 0; }
+.hint kbd { font-family: var(--f-getal); font-size: 11.5px; border: 1px solid var(--lijn); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--vlak); }
+
+/* sleep-aanwijzer en menu's */
+#sleeplijn { position: fixed; height: 3px; background: var(--accent); border-radius: 2px; pointer-events: none; z-index: 30; display: none; }
+#sleeplijn::before { content: ""; position: absolute; left: -5px; top: -4px; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); }
+#sleeplabel { position: fixed; pointer-events: none; z-index: 31; display: none; background: var(--tekst); color: var(--bg); font-size: 12px; padding: 3px 8px; border-radius: 5px; white-space: nowrap; }
+.menu { position: fixed; z-index: 40; background: var(--vlak); border: 1px solid var(--lijn); border-radius: 8px; box-shadow: var(--schaduw); padding: 4px; min-width: 15rem; display: grid; }
+.menu button { border: none; background: none; text-align: left; padding: 6px 10px; border-radius: 5px; display: flex; justify-content: space-between; gap: 16px; }
+.menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--accent-zacht); outline: none; }
+.menu button:disabled { opacity: .4; cursor: default; }
+.menu button.weg:hover { background: var(--fout-zacht); color: var(--fout); }
+.menu small { color: var(--zacht); font-family: var(--f-getal); font-size: 11.5px; }
+.menu hr { border: none; border-top: 1px solid var(--lijn); margin: 4px 2px; }
+.menu .kopje { font-size: 11.5px; color: var(--zacht); padding: 4px 10px 2px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+
+/* notities, rekensommen en uitsplitsingen */
+td.notitie { position: relative; }
+td.notitie::after { content: ""; position: absolute; top: 2px; right: 2px; border-style: solid; border-width: 0 8px 8px 0;
+  border-color: transparent var(--merk) transparent transparent; pointer-events: none; }
+.cel.formule:not(:focus) { text-decoration: underline dotted var(--zacht); text-underline-offset: 3px; }
+.cel.som { color: var(--accent); font-weight: 600; }
+.cel.som:disabled { cursor: default; opacity: 1; }
+.sigma { border: 1px solid var(--accent); background: var(--accent-zacht); color: var(--accent); font-weight: 700; padding: 0 5px; border-radius: 4px; font-size: 12px; line-height: 1.4; margin-right: 2px; }
+tr.detail td { background: var(--vlak); border-bottom-color: var(--vlak-2); font-size: 13px; }
+tr.detail .cel { padding: 2px 6px; font-size: 13px; }
+tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercase; letter-spacing: .04em; padding-top: 4px; }
+.notekaart { position: fixed; z-index: 45; width: 23rem; max-width: calc(100vw - 24px); background: var(--vlak); border: 1px solid var(--lijn);
+  border-radius: 8px; box-shadow: var(--schaduw); padding: 12px; display: grid; gap: 8px; }
+.notekaart textarea { width: 100%; min-height: 84px; border: 1px solid var(--lijn); border-radius: 6px; padding: 6px 8px; background: var(--vlak); resize: vertical; }
+.notekaart textarea[readonly] { background: var(--vlak-2); }
+.notekaart .wie { font-size: 12px; color: var(--zacht); }
+.notekaart .rij { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.notelijst { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.notelijst button { border: none; background: none; color: var(--accent); padding: 0; font-weight: 600; text-align: left; }
+.notelijst small { color: var(--zacht); }
+.teller { display: inline-block; min-width: 1.4em; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--merk); color: var(--vlak); font-size: 11px; font-weight: 700; text-align: center; }
+
+/* ---------- werkorders ---------- */
+.wo { background: var(--vlak); border: 1px solid var(--lijn); border-radius: 8px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.wo h2 { margin: 0; font-family: var(--f-kop); font-size: 16px; }
+.wo .uitleg { color: var(--zacht); margin: 0; max-width: 85ch; }
+.wo .keuze { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+.wo .keuze label { display: inline-flex; gap: 6px; align-items: center; }
+.wo table { min-width: 1000px; }
+.wo td, .wo th { padding: 7px 8px; }
+.wo tfoot td { font-weight: 600; border-top: 2px solid var(--lijn); border-bottom: none; }
+.wonr { font-family: var(--f-getal); font-weight: 500; white-space: nowrap; }
+.acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.act { font-size: 11.5px; border: 1px solid var(--lijn); border-radius: 4px; padding: 0 5px; white-space: nowrap; font-family: var(--f-getal); }
+.act b { font-family: var(--f-tekst); font-weight: 600; }
+.wo .tabelvak { overflow-x: auto; }
+.boek { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 12px; border: 1px dashed var(--lijn); border-radius: 8px; background: var(--vlak-2); }
+.boek label { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; font-size: 13px; }
+.boek select { border: 1px solid var(--lijn); border-radius: 5px; padding: 4px 6px; background: var(--vlak); max-width: 22rem; font-weight: 400; }
+.boekinfo { font-size: 13px; color: var(--zacht); }
+</style>
+</head>
+<body>
+<div class="pagina">
+  <header class="kop">
+    <div class="titel">
+      <span class="eyebrow" id="kopBoven"><b>MDE</b> · calculatie</span>
+      <h1 id="kopTitel">Calculatie</h1>
+      <span class="sub">Groepen en subgroepen worden werkorders en subwerkorders. Elke urenregel heeft een verplichte <b>deelnaam</b>: daarop wordt straks geboekt (eerst de werkorder, dan het deel). De activiteit bepaalt alleen het tarief in de calculatie.</span>
+    </div>
+    <div class="acties">
+      <span id="opslag" class="opslag"></span>
+      <span id="status" class="status">Concept</span>
+      <button class="knop primair" id="knopBevries" type="button">Klant akkoord · bevriezen</button>
+    </div>
+  </header>
+
+  <section class="balk" aria-label="Totalen van deze calculatie">
+    <div><span class="lab">Kostprijs</span><span class="waarde" data-bind="t:kost"></span></div>
+    <div><span class="lab">Overhead</span><span class="waarde" data-bind="t:oh"></span></div>
+    <div><span class="lab">Marge</span><span class="waarde" data-bind="t:marge"></span></div>
+    <div><span class="lab">Uren</span><span class="waarde" data-bind="t:uren"></span></div>
+    <div class="verkoop"><span class="lab">Verkoopprijs</span><span class="waarde" data-bind="t:verkoop"></span></div>
+    <div class="doel"><span class="lab">Doelprijs</span>
+      <div class="rij"><input id="doel" inputmode="decimal" aria-label="Doelprijs">
+        <button class="knop klein" id="knopDoel" type="button" title="Past de regel 'Afronding naar doelprijs' aan, zodat het totaal precies de doelprijs wordt">Maak kloppend</button></div></div>
+  </section>
+
+  <div class="instellingen">
+    <span>Opslag op de kostprijs:</span>
+    <label>Overhead uren <input id="ohUur" inputmode="decimal"> %</label>
+    <label>Overhead materiaal <input id="ohMat" inputmode="decimal"> %</label>
+    <label>Marge uren <input id="mUur" inputmode="decimal"> %</label>
+    <label>Marge materiaal <input id="mMat" inputmode="decimal"> %</label>
+  </div>
+
+  <div id="paneelplek"></div>
+
+  <nav class="tabs">
+    <button role="tab" id="tabBoom" aria-selected="true" type="button">Calculatie</button>
+    <button role="tab" id="tabWo" aria-selected="false" type="button">Werkorders (vooruitblik)</button>
+  </nav>
+
+  <div id="boom">
+    <div class="werkbalk" id="werkbalk">
+      <span class="splits">
+        <button class="knop primair klein" type="button" id="knopToevoegen" title="Ctrl+Enter"></button>
+        <button class="knop primair klein" type="button" id="knopToevoegenMeer" aria-haspopup="menu" aria-expanded="false" title="Meer manieren van toevoegen">▾</button>
+      </span>
+      <span class="niveau" role="group" aria-label="Niveau">
+        <button type="button" id="knopPromoveer" title="Promoveren: een niveau omhoog (Alt+Shift+←)">⇤ Promoveren</button>
+        <button type="button" id="knopDegradeer" title="Degraderen: onder de groep erboven (Alt+Shift+→)">Degraderen ⇥</button>
+      </span>
+      <span class="waar" id="waar"></span>
+      <span class="duw"></span>
+      <button class="knop klein" type="button" id="knopNotities" title="Alle notities in deze calculatie">Notities<span class="teller" id="aantalNotities">0</span></button>
+      <button class="knop klein" type="button" id="knopInklappen" title="Alleen de groepen tonen">Alleen groepen</button>
+      <button class="knop klein" type="button" id="knopAlles" title="Alles uitklappen">Alles open</button>
+      <button class="knop klein" type="button" id="knopPlak">Plakken uit Excel…</button>
+    </div>
+    <div class="boomvak" id="boomvak" style="margin-top:8px"><table>
+      <thead><tr>
+        <th style="width:24px"></th><th style="width:30%">Groep / deel</th><th style="width:15rem" title="Bepaalt het tarief (kostprijs per uur) in de calculatie">Activiteit (tarief) of materiaal</th>
+        <th class="r" style="width:6.5rem">Aantal</th><th style="width:2rem"></th>
+        <th class="r" style="width:4.5rem" title="Hoe vaak deze regel meetelt. Grijs = het aantal van de groep (en de groepen erboven); typ een eigen getal, bv. 1 voor eenmalige engineering">× Keer</th>
+        <th class="r" style="width:7.5rem">Kostprijs</th>
+        <th class="r" style="width:5.5rem" title="Vervangt overhead en marge voor deze regel (Excel: alt. marge)">Eigen opslag</th>
+        <th class="r" style="width:6rem">Uren</th><th class="r" style="width:7.5rem">Kosten</th><th class="r" style="width:8rem">Verkoop</th><th style="width:2.5rem"></th>
+      </tr></thead>
+      <tbody id="boomBody"></tbody>
+    </table></div>
+    <p class="hint">Sleep aan <b>⠿</b> om te verplaatsen; laat los <b>op</b> een groep om erin te zetten, <b>tussen</b> twee regels om ertussen te zetten.
+      <b>Aantal op een groep</b> (bv. 5× bouwen) gaat mee naar de regels; <b>× Keer</b> grijs = van de groep, typ 1 voor eenmalig ·
+      <b>Rechtermuisknop</b> = menu voor de plek waar je klikt (met <kbd>Shift</kbd> het gewone browsermenu) ·
+      <kbd>Ctrl</kbd>+<kbd>Enter</kbd> toevoegen waar je staat · <kbd>Shift</kbd>+<kbd>F2</kbd> notitie bij het veld waar je staat (rood hoekje = notitie) ·
+      in een getalvak mag een som, bv. <kbd>4000+175984,40</kbd> (gestippeld = som) · <b>Σ</b> = optelling van een uitsplitsing · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> promoveren/degraderen ·
+      <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> omhoog/omlaag · <kbd>Enter</kbd> volgende regel · <span class="afw"></span> kostprijs wijkt af van het tarief · oranje = urenregel zonder deelnaam, of een naam die in de groep al bestaat</p>
+  </div>
+
+  <section class="wo" id="wo" hidden></section>
+</div>
+<div id="sleeplijn"></div><div id="sleeplabel"></div>
+<div id="menuplek"></div>
+
+
+<script>
+(() => {
+  // ---------------------------------------------------------------- vaste gegevens
+  // Activiteiten = tabel UrenActiviteit (daarop wordt al geboekt); kostprijs = blad Uurtarief uit de Excel.
+  let ACT = [];   // van de app: { id, naam, tarief } (UrenActiviteit + CalculatieTarieven)
+  const actVan = id => ACT.find(a => a.id === id);
+
+  /** Rekensom zoals in Excel: + - * / ( ), komma als decimaal (1.000 = duizend), mag met '=' beginnen. null = leeg, NaN = ongeldig. */
+  function reken(tekst) {
+    const t = String(tekst ?? '').trim().replace(/^=/, '').replace(/[€\s]/g, '');
+    if (t === '') return null;
+    const getal = g => g.includes(',') ? Number(g.replace(/\./g, '').replace(',', '.'))
+      : /^\d{1,3}(\.\d{3})+$/.test(g) ? Number(g.replace(/\./g, '')) : Number(g);
+    const tk = t.match(/\d[\d.,]*|[-+*/()]|./g) || [];
+    let i = 0;
+    const expr = () => { let v = term(); while (tk[i] === '+' || tk[i] === '-') { const op = tk[i++], w = term(); v = op === '+' ? v + w : v - w; } return v; };
+    const term = () => { let v = factor(); while (tk[i] === '*' || tk[i] === '/') { const op = tk[i++], w = factor(); v = op === '*' ? v * w : v / w; } return v; };
+    const factor = () => {
+      const x = tk[i++];
+      if (x === '-') return -factor();
+      if (x === '+') return factor();
+      if (x === '(') { const v = expr(); return tk[i++] === ')' ? v : NaN; }
+      return x && /^\d/.test(x) ? getal(x) : NaN;
+    };
+    const v = expr();
+    return i === tk.length && Number.isFinite(v) ? v : NaN;
+  }
+  /** Staat er een echte som in (niet alleen een negatief getal)? */
+  const heeftSom = t => /[-+*/()]/.test(String(t ?? '').trim().replace(/^=?\s*-?/, ''));
+  const HERKEN = [[/mechanical eng|mech\.? eng/i, 1], [/electrical eng|elektro eng|electro eng/i, 2], [/management/i, 3],
+    [/assembly electrical|paneelbouw|bekabel|bedraden/i, 5], [/assembly mechanical|opbouw|werkvoorbereiding|montage/i, 6],
+    [/install/i, 7], [/software/i, 8], [/test|fat\b|sat\b/i, 9], [/transport/i, 10], [/document/i, 11], [/meeting|overleg/i, 12],
+    [/travel|reis/i, 13], [/purchase|inkoop/i, 14]];
+
+  // ---------------------------------------------------------------- de app (EverythingApp)
+  // De app geeft de calculatie, de activiteiten met hun kostprijstarief en de rechten (calculaties/api/<offerte>).
+  // Opslaan gaat met het versienummer, zodat twee mensen elkaars werk niet ongemerkt overschrijven.
+  const OFFERTE = Number(new URLSearchParams(location.search).get('offerte'));
+  const API = `calculaties/api/${OFFERTE}`;
+  const LEEG = () => ({ inst: { ohUur: 22, ohMat: 22, mUur: 30, mMat: 30, doel: null }, groepen: [], regels: [] });
+  let s, volgId = 1, tab = 'boom', paneel = null, kortingKeuze = 'verdeel', flitsId = null;
+  let gekozen = null;   // { t: 'g' | 'r', id } — waar je staat
+  let INFO = {}, MAG = false, MAG_ONTDOOIEN = false, GEBRUIKER = '', versie = 0, status = 0;
+  let wacht = null, bezig = false, nogEens = false, vuil = false, gestopt = false;
+  /** Alleen lezen: bevroren, of geen recht om te wijzigen. */
+  const RO = () => !s || s.bevroren || !MAG;
+
+  function opslagStand(tekst, soort) { const el = document.getElementById('opslag'); if (el) { el.textContent = tekst; el.className = 'opslag ' + (soort || ''); } }
+
+  async function laad() {
+    if (!OFFERTE) throw new Error('Geen offerte opgegeven.');
+    const r = await fetch(API, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(o.fout || `De app antwoordde ${r.status}.`);
+    INFO = o.info || {}; ACT = o.act || []; MAG = !!o.mag; MAG_ONTDOOIEN = !!o.magOntdooien; GEBRUIKER = o.gebruiker || '';
+    versie = o.versie; status = o.status;
+    s = o.data && Array.isArray(o.data.groepen) && Array.isArray(o.data.regels) ? o.data : LEEG();
+    s.inst = { ...LEEG().inst, ...(s.inst || {}) };
+    s.bevroren = status === 1;
+    volgId = Math.max(0, ...s.groepen.map(g => g.id), ...s.regels.map(r => r.id)) + 1;
+    opslagStand(o.gewijzigd || '');
+  }
+
+  /**
+   * Wijziging onthouden en kort daarna opslaan. Bevroren mag alleen nog een notitie (de app controleert dat de rest
+   * gelijk bleef); zonder recht wordt niets opgeslagen (in- en uitklappen blijft dan alleen in beeld).
+   */
+  function bewaar() {
+    if (!MAG || gestopt) return;
+    vuil = true; opslagStand('Niet opgeslagen…');
+    clearTimeout(wacht); wacht = setTimeout(stuur, 700);
+  }
+  function lading() {
+    const t = bereken().t;
+    return JSON.stringify({ versie, data: s, totalen: { kost: t.kost, verkoop: t.verkoop, uren: t.uren } });
+  }
+  async function stuur() {
+    clearTimeout(wacht);
+    if (!vuil || gestopt) return;
+    if (bezig) { nogEens = true; return; }
+    bezig = true; vuil = false; opslagStand('Opslaan…');
+    try {
+      const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: lading() });
+      const o = await r.json().catch(() => ({}));
+      if (r.ok) { versie = o.versie; opslagStand('Opgeslagen ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }), 'ok'); }
+      else {
+        if ([403, 404, 409, 423].includes(r.status)) gestopt = true; else vuil = true;
+        opslagStand('Niet opgeslagen', 'fout');
+        meld(o.fout || `Opslaan mislukt (${r.status}).`, true); render();
+      }
+    } catch (e) {
+      vuil = true; opslagStand('Niet opgeslagen: geen verbinding, opnieuw over 5 s', 'fout');
+      setTimeout(stuur, 5000);
+    } finally {
+      bezig = false;
+      if (nogEens) { nogEens = false; vuil = true; stuur(); }
+    }
+  }
+  /** Wacht tot alles opgeslagen is (vóór bevriezen). */
+  async function alles() {
+    for (let i = 0; i < 100 && !gestopt && (vuil || bezig); i++) {
+      if (vuil && !bezig) await stuur(); else await new Promise(k => setTimeout(k, 100));
+    }
+    return !gestopt && !vuil;
+  }
+  async function zetStatus(actie) {
+    if (!await alles()) { meld('Eerst moet alles opgeslagen zijn; dat lukte niet.', true); render(); return; }
+    const r = await fetch(`${API}/${actie}`, { method: 'POST' });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok) { meld(o.fout || `Mislukt (${r.status}).`, true); render(); return; }
+    status = o.status; versie = o.versie ?? versie; s.bevroren = status === 1;
+    meld(s.bevroren ? 'Bevroren (klant akkoord): de calculatie is niet meer te wijzigen; notities aanvullen kan nog.'
+      : 'Weer bewerkbaar.');
+    render();
+  }
+  // De pagina wordt verlaten: wat nog openstaat meteen versturen (keepalive kan tot 64 kB).
+  addEventListener('pagehide', () => {
+    if (!vuil || gestopt || bezig) return;
+    try { fetch(API, { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: lading() }); } catch (e) { }
+  });
+
+  /** Licht of donker zoals de app (html[data-thema] van het venster eromheen). */
+  function thema() {
+    const zet = () => {
+      let donker;
+      try { donker = parent.document.documentElement.getAttribute('data-thema') === 'donker'; }
+      catch (e) { donker = matchMedia('(prefers-color-scheme: dark)').matches; }
+      document.documentElement.dataset.theme = donker ? 'dark' : 'light';
+    };
+    zet();
+    try { new MutationObserver(zet).observe(parent.document.documentElement, { attributes: true, attributeFilter: ['data-thema'] }); } catch (e) { }
+  }
+  function vulKop() {
+    document.getElementById('kopBoven').innerHTML = `<b>MDE</b> · calculatie${INFO.klant ? ' · ' + esc(INFO.klant) : ''}${INFO.bv ? ' · ' + esc(INFO.bv) : ''}`;
+    document.getElementById('kopTitel').textContent = `${INFO.offertenr || ''} · ${INFO.offerte || 'calculatie'}`;
+    document.title = `Calculatie ${INFO.offertenr || ''}`;
+  }
+
+  // ---------------------------------------------------------------- rekenen
+  const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  const euro2 = new Intl.NumberFormat('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const uurFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 });
+  const getalFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 4 });
+  const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const schoon = n => String(n ?? '').replace(/\s+/g, ' ').trim();
+  function leesGetal(t) {
+    if (t === null || t === undefined) return null;
+    let x = String(t).trim().replace(/\s|€/g, '');
+    if (x === '') return null;
+    if (x.includes(',')) x = x.replace(/\./g, '').replace(',', '.');
+    const n = Number(x);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  // Een uitsplitsing levert bij uren het aantal, bij materiaal de kostprijs.
+  const detailSom = r => (r.detail ?? []).reduce((a, x) => a + (x.aantal ?? 0) * (x.waarde ?? 0), 0);
+  const A = r => r.detail && r.soort === 'uur' ? detailSom(r) : r.aantal;
+  const K = r => r.detail && r.soort !== 'uur' ? detailSom(r) : r.kost;
+  /** Aantal van de groep maal dat van de groepen erboven (Lijn 2 × 2 met Unloader × 5 = 10). */
+  const groepFactor = id => { let f = 1; for (let g = groepVan(id), n = 0; g && n < 20; g = groepVan(g.ouder), n++) f *= (g.aantal ?? 1); return f; };
+  /** Hoe vaak de regel meetelt: eigen getal (bv. 1 = eenmalig), anders dat van de groep. */
+  const F = r => r.keer ?? groepFactor(r.groep);
+  function waarden(r) {
+    const kost = (A(r) ?? 0) * (K(r) ?? 0) * F(r), uur = r.soort === 'uur';
+    if (r.eigen !== null && r.eigen !== undefined) { const v = kost * (1 + r.eigen / 100); return { kost, oh: 0, marge: v - kost, verkoop: v, uren: uur ? (A(r) ?? 0) * F(r) : 0 }; }
+    const oh = kost * (uur ? s.inst.ohUur : s.inst.ohMat) / 100;
+    const v = (kost + oh) * (1 + (uur ? s.inst.mUur : s.inst.mMat) / 100);
+    return { kost, oh, marge: v - kost - oh, verkoop: v, uren: uur ? (A(r) ?? 0) * F(r) : 0 };
+  }
+  const leeg = () => ({ kost: 0, oh: 0, marge: 0, verkoop: 0, uren: 0, kostUur: 0, kostMat: 0, perAct: {} });
+  function tel(doel, r, w) {
+    for (const k of ['kost', 'oh', 'marge', 'verkoop', 'uren']) doel[k] += w[k];
+    if (r.soort === 'uur') { doel.kostUur += w.kost; const a = r.act ?? 0; doel.perAct[a] = (doel.perAct[a] ?? 0) + (A(r) ?? 0) * F(r); }
+    else doel.kostMat += w.kost;
+  }
+  function bereken() {
+    const regel = {}, tot = {}, t = leeg();
+    s.groepen.forEach(g => { tot[g.id] = leeg(); });
+    for (const r of s.regels) {
+      const w = waarden(r); regel[r.id] = w;
+      if (!tot[r.groep]) continue;
+      tel(t, r, w);
+      for (let g = groepVan(r.groep), n = 0; g && n < 20; g = groepVan(g.ouder), n++) tel(tot[g.id], r, w);
+    }
+    return { regel, tot, t };
+  }
+
+  /** Wat er mis is met een regel (null = in orde): een urenregel moet een deelnaam hebben, uniek binnen de groep. */
+  function probleem(r) {
+    if (r.soort !== 'uur') return null;
+    const naam = schoon(r.oms).toLowerCase();
+    if (!naam) return 'Urenregel zonder deelnaam: vul hem in (hierop wordt straks geboekt).';
+    if (s.regels.some(x => x !== r && x.groep === r.groep && x.soort === 'uur' && schoon(x.oms).toLowerCase() === naam))
+      return 'Deze deelnaam staat al in deze groep; geef elk deel een eigen naam (of tel de uren samen).';
+    return null;
+  }
+
+  // ---------------------------------------------------------------- boom
+  const groepVan = id => s.groepen.find(g => g.id === id);
+  const regelVan = id => s.regels.find(r => r.id === id);
+  const kinderen = id => s.groepen.filter(g => g.ouder === id && g.id !== id);
+  const wortels = () => { const ids = new Set(s.groepen.map(g => g.id)); return s.groepen.filter(g => g.ouder === null || !ids.has(g.ouder)); };
+  const broersVan = g => s.groepen.filter(x => x.ouder === g.ouder);
+  function nakomelingen(id) { return kinderen(id).flatMap(k => [k.id, ...nakomelingen(k.id)]); }
+  function boomVolgorde() {
+    const uit = [], gezien = new Set();
+    const voeg = (g, d) => { if (gezien.has(g.id)) return; gezien.add(g.id); uit.push({ g, d }); kinderen(g.id).forEach(k => voeg(k, d + 1)); };
+    wortels().forEach(g => voeg(g, 0)); s.groepen.forEach(g => voeg(g, 0));
+    return uit;
+  }
+  function naamFout(naam, behalve) {
+    const n = schoon(naam);
+    if (!n) return 'Geef de groep een naam.';
+    if (s.groepen.some(g => g.id !== behalve && g.naam.toLowerCase() === n.toLowerCase())) return `Er is al een groep "${n}".`;
+    return null;
+  }
+  function volgendeNaam(naam) {
+    const m = naam.match(/^(.*?)(\s*)(\d+)$/);
+    let i = m ? Number(m[3]) + 1 : 2;
+    const maak = () => m ? `${m[1]}${m[2] || ' '}${i}` : `${naam} ${i}`;
+    let k = maak(); while (naamFout(k)) { i++; k = maak(); }
+    return k;
+  }
+  /** Groep in de array direct na 'naId' zetten (alleen de volgorde tussen broers telt). */
+  function zetNa(g, naId) {
+    const i = s.groepen.indexOf(g); if (i >= 0) s.groepen.splice(i, 1);
+    if (naId == null) { s.groepen.push(g); return; }
+    s.groepen.splice(s.groepen.findIndex(x => x.id === naId) + 1, 0, g);
+  }
+  function zetVoor(g, voorId) {
+    const i = s.groepen.indexOf(g); if (i >= 0) s.groepen.splice(i, 1);
+    s.groepen.splice(s.groepen.findIndex(x => x.id === voorId), 0, g);
+  }
+  function nieuweGroepNaam() { let naam = 'Nieuwe groep', i = 2; while (naamFout(naam)) naam = `Nieuwe groep ${i++}`; return naam; }
+  function nieuweGroep(ouder, naId) {
+    const g = { id: volgId++, naam: nieuweGroepNaam(), ouder: ouder ?? null, wo: true, open: true };
+    zetNa(g, naId ?? null);
+    if (ouder) groepVan(ouder).open = true;
+    return g;
+  }
+  function kopieer(id) {
+    const bron = groepVan(id);
+    const kopie = (src, ouder, naId) => {
+      const g = { id: volgId++, naam: volgendeNaam(src.naam), ouder, wo: src.wo, open: true, aantal: src.aantal };
+      zetNa(g, naId);
+      s.regels.filter(r => r.groep === src.id && !r.auto).forEach(r => s.regels.push({ ...structuredClone(r), id: volgId++, groep: g.id }));
+      let laatste = g.id;
+      kinderen(src.id).filter(k => k.id !== g.id).forEach(k => { const n = kopie(k, g.id, laatste); laatste = n.id; });
+      return g;
+    };
+    return kopie(bron, bron.ouder, bron.id);
+  }
+  function nieuweRegel(groepId, naRegelId) {
+    const r = { id: volgId++, groep: groepId, soort: 'uur', act: null, oms: '', aantal: null, kost: null, eigen: null, auto: false };
+    let plek;
+    if (naRegelId) plek = s.regels.findIndex(x => x.id === naRegelId) + 1;
+    else { plek = -1; s.regels.forEach((x, i) => { if (x.groep === groepId && !x.auto) plek = i; }); plek = plek >= 0 ? plek + 1 : s.regels.length; }
+    s.regels.splice(plek, 0, r);
+    groepVan(groepId).open = true;
+    return r;
+  }
+  function zetRegel(r, groepId, voorId, naId) {
+    s.regels.splice(s.regels.indexOf(r), 1);
+    r.groep = groepId;
+    let plek;
+    if (voorId) plek = s.regels.findIndex(x => x.id === voorId);
+    else if (naId) plek = s.regels.findIndex(x => x.id === naId) + 1;
+    else { plek = -1; s.regels.forEach((x, i) => { if (x.groep === groepId && !x.auto) plek = i; }); plek = plek >= 0 ? plek + 1 : s.regels.length; }
+    s.regels.splice(plek, 0, r);
+    groepVan(groepId).open = true;
+  }
+
+  // ---- promoveren / degraderen / omhoog / omlaag (op wat gekozen is)
+  function kanPromoveren(k = gekozen) {
+    if (!k) return false;
+    if (k.t === 'g') return !!groepVan(k.id)?.ouder;
+    const r = regelVan(k.id); return !!(r && groepVan(r.groep)?.ouder);
+  }
+  function kanDegraderen(k = gekozen) {
+    if (!k) return false;
+    if (k.t === 'g') { const g = groepVan(k.id); return !!g && broersVan(g).indexOf(g) > 0; }
+    const r = regelVan(k.id); if (!r) return false;
+    return kinderen(r.groep).length > 0;   // regel naar de eerste subgroep
+  }
+  function promoveer() {
+    if (RO() || !kanPromoveren()) return;
+    if (gekozen.t === 'g') { const g = groepVan(gekozen.id), ouder = groepVan(g.ouder); g.ouder = ouder.ouder; zetNa(g, ouder.id); flitsId = 'g' + g.id; }
+    else { const r = regelVan(gekozen.id), ouder = groepVan(groepVan(r.groep).ouder); zetRegel(r, ouder.id); flitsId = 'r' + r.id; }
+    bewaar(); render();
+  }
+  function degradeer() {
+    if (RO() || !kanDegraderen()) return;
+    if (gekozen.t === 'g') {
+      const g = groepVan(gekozen.id), br = broersVan(g), vorige = br[br.indexOf(g) - 1];
+      g.ouder = vorige.id; vorige.open = true; const laatste = kinderen(vorige.id).filter(k => k.id !== g.id).pop();
+      zetNa(g, laatste?.id ?? vorige.id); flitsId = 'g' + g.id;
+    } else { const r = regelVan(gekozen.id); zetRegel(r, kinderen(r.groep)[0].id); flitsId = 'r' + r.id; }
+    bewaar(); render();
+  }
+  function schuif(richting) {
+    if (RO() || !gekozen) return;
+    if (gekozen.t === 'g') {
+      const g = groepVan(gekozen.id), br = broersVan(g), j = br.indexOf(g) + richting;
+      if (j < 0 || j >= br.length) return;
+      if (richting < 0) zetVoor(g, br[j].id); else zetNa(g, br[j].id);
+      flitsId = 'g' + g.id;
+    } else {
+      const r = regelVan(gekozen.id), zus = s.regels.filter(x => x.groep === r.groep), j = zus.indexOf(r) + richting;
+      if (j < 0 || j >= zus.length) return;
+      if (richting < 0) zetRegel(r, r.groep, zus[j].id); else zetRegel(r, r.groep, null, zus[j].id);
+      flitsId = 'r' + r.id;
+    }
+    bewaar(); render();
+  }
+
+  // ---- toevoegen, afhankelijk van waar je staat
+  function standaardToevoegen() {
+    if (!gekozen) return { tekst: '+ Groep', uitleg: 'nieuwe groep onderaan', doe: () => voegToe('groep') };
+    if (gekozen.t === 'r') { const g = groepVan(regelVan(gekozen.id)?.groep); return { tekst: '+ Regel', uitleg: `onder deze regel in <b>${esc(g?.naam)}</b>`, doe: () => voegToe('regelNa') }; }
+    const g = groepVan(gekozen.id);
+    return { tekst: '+ Regel', uitleg: `in <b>${esc(g?.naam)}</b>`, doe: () => voegToe('regelIn') };
+  }
+  function voegToe(soort) {
+    if (RO()) return;
+    const g = gekozen?.t === 'g' ? groepVan(gekozen.id) : gekozen?.t === 'r' ? groepVan(regelVan(gekozen.id)?.groep) : null;
+    let focus = null;
+    switch (soort) {
+      case 'regelNa': { const r = nieuweRegel(regelVan(gekozen.id).groep, gekozen.id); gekozen = { t: 'r', id: r.id }; focus = `tr[data-r="${r.id}"] [data-veld="act"]`; break; }
+      case 'regelIn': { const r = nieuweRegel(g.id); gekozen = { t: 'r', id: r.id }; focus = `tr[data-r="${r.id}"] [data-veld="act"]`; break; }
+      case 'sub': { const n = nieuweGroep(g.id, (kinderen(g.id).pop()?.id) ?? g.id); gekozen = { t: 'g', id: n.id }; focus = `[data-gnaam="${n.id}"]`; break; }
+      case 'naast': { const n = nieuweGroep(g?.ouder ?? null, g?.id ?? null); gekozen = { t: 'g', id: n.id }; focus = `[data-gnaam="${n.id}"]`; break; }
+      case 'groep': default: { const n = nieuweGroep(null, null); gekozen = { t: 'g', id: n.id }; focus = `[data-gnaam="${n.id}"]`; break; }
+    }
+    flitsId = gekozen.t + gekozen.id;
+    bewaar(); render();
+    const el = document.querySelector(focus); if (el) { el.focus(); if (el.select) el.select(); }
+  }
+
+  // ---------------------------------------------------------------- tekenen
+  const $ = id => document.getElementById(id);
+  const actOpties = r => `<optgroup label="Uren (activiteit)">${ACT.map(a => `<option value="${a.id}" ${r.soort === 'uur' && r.act === a.id ? 'selected' : ''}>${esc(a.naam)}</option>`).join('')}</optgroup>
+    <option value="uur" ${r.soort === 'uur' && r.act === null ? 'selected' : ''}>Uren · zonder activiteit (eigen tarief)</option>
+    <option value="mat" ${r.soort === 'mat' ? 'selected' : ''}>Materiaal / overig</option>`;
+
+  function render() {
+    $('status').textContent = s.bevroren ? 'Bevroren · klant akkoord' : MAG ? 'Concept' : 'Concept · alleen lezen';
+    $('status').classList.toggle('bevroren', s.bevroren);
+    $('knopBevries').textContent = s.bevroren ? 'Ontdooien' : 'Klant akkoord · bevriezen';
+    $('knopBevries').hidden = s.bevroren ? !MAG_ONTDOOIEN : !MAG;
+    for (const k of ['ohUur', 'ohMat', 'mUur', 'mMat']) { $(k).value = getalFmt.format(s.inst[k]); $(k).disabled = RO(); }
+    $('doel').value = s.inst.doel ? euro2.format(s.inst.doel) : '';
+    for (const id of ['doel', 'knopDoel', 'knopPlak']) $(id).disabled = RO();
+    $('tabBoom').setAttribute('aria-selected', tab === 'boom'); $('tabWo').setAttribute('aria-selected', tab === 'wo');
+    $('boom').hidden = tab !== 'boom'; $('wo').hidden = tab !== 'wo';
+    if (gekozen && (gekozen.t === 'g' ? !groepVan(gekozen.id) : !regelVan(gekozen.id))) gekozen = null;
+    renderPaneel();
+    if (tab === 'boom') { renderBoom(); werkbalkBij(); } else renderWerkorders();
+    werkGetallenBij();
+    if (flitsId) { const tr = document.querySelector(`[data-rij="${flitsId}"]`); if (tr) { tr.classList.add('flits'); tr.scrollIntoView({ block: 'nearest' }); } flitsId = null; }
+  }
+
+  function werkbalkBij() {
+    const st = standaardToevoegen();
+    $('knopToevoegen').textContent = st.tekst;
+    $('knopToevoegen').disabled = $('knopToevoegenMeer').disabled = RO();
+    $('waar').innerHTML = RO() ? 'Bevroren: niets te wijzigen' : st.uitleg;
+    $('knopPromoveer').disabled = RO() || !kanPromoveren();
+    $('knopDegradeer').disabled = RO() || !kanDegraderen();
+    document.querySelectorAll('tr.gekozen').forEach(tr => tr.classList.remove('gekozen'));
+    if (gekozen) document.querySelector(`[data-rij="${gekozen.t}${gekozen.id}"]`)?.classList.add('gekozen');
+  }
+
+  const VELDNAAM = { oms: 'deel / omschrijving', aantal: 'aantal', keer: '× keer', kost: 'kostprijs', eigen: 'eigen opslag', groep: 'groep' };
+  const noteTitel = n => n ? `Notitie${n.door ? ` (${n.door}${n.op ? ', ' + n.op : ''})` : ''}: ${n.tekst}${n.bron ? `\nBron: ${n.bron}` : ''}` : '';
+  function veldCel(r, veld, dis) {
+    const n = r.notes?.[veld], f = r.formules?.[veld];
+    const isSom = !!r.detail && ((veld === 'aantal' && r.soort === 'uur') || (veld === 'kost' && r.soort !== 'uur'));
+    const waarde = isSom ? detailSom(r) : r[veld];
+    const titel = [isSom ? 'Optelling van de uitsplitsing (Σ)' : f ? `Rekensom: =${f}` : '', noteTitel(n)].filter(Boolean).join('\n');
+    const uit = dis || (veld === 'kost' && r.auto) || isSom;
+    return `<td class="${n ? 'notitie' : ''}"><input class="cel r${f && !isSom ? ' formule' : ''}${isSom ? ' som' : ''}" data-veld="${veld}"
+      value="${waarde === null || waarde === undefined ? '' : (veld === 'kost' ? euro2 : getalFmt).format(waarde)}" ${veld === 'eigen' ? 'placeholder="—"' : veld === 'keer' ? `placeholder="${getalFmt.format(groepFactor(r.groep))}"` : ''}
+      inputmode="decimal" ${titel ? `title="${esc(titel)}"` : ''} ${uit ? 'disabled' : ''}></td>`;
+  }
+  function detailRijen(r, d, dis) {
+    const uur = r.soort === 'uur', pad = `padding-left:${d * 22 + 44}px`;
+    const rijen = [`<tr class="detail detailkop"><td></td><td colspan="2"><div style="${pad}">Uitsplitsing → ${uur ? 'aantal uren' : 'kostprijs'} van de regel</div></td>
+      <td class="r">Aantal</td><td></td><td></td><td class="r">${uur ? 'Uren per stuk' : 'Prijs per stuk'}</td><td></td><td></td><td class="r">Subtotaal</td><td></td><td></td></tr>`];
+    r.detail.forEach((x, i) => rijen.push(`<tr class="detail" data-dr="${r.id}:${i}">
+      <td></td><td colspan="2"><div style="${pad}"><input class="cel" data-dveld="oms" value="${esc(x.oms)}" placeholder="omschrijving" ${dis}></div></td>
+      <td><input class="cel r" data-dveld="aantal" value="${x.aantal == null ? '' : getalFmt.format(x.aantal)}" inputmode="decimal" ${dis}></td><td class="eenh">×</td><td></td>
+      <td><input class="cel r" data-dveld="waarde" value="${x.waarde == null ? '' : (uur ? getalFmt : euro2).format(x.waarde)}" inputmode="decimal" ${dis}></td>
+      <td></td><td></td><td class="getal" data-dsom="${r.id}:${i}"></td><td></td>
+      <td><button class="meer" style="opacity:.6" type="button" data-actie="detailweg" data-r="${r.id}" data-i="${i}" title="Detailregel verwijderen" ${dis}>✕</button></td></tr>`));
+    rijen.push(`<tr class="detail"><td></td><td colspan="11"><div style="${pad};display:flex;gap:8px;padding-block:3px">
+      <button class="knop klein" type="button" data-actie="detailnieuw" data-r="${r.id}" ${dis}>+ detailregel</button>
+      <button class="knop klein" type="button" data-actie="detailop" data-r="${r.id}" ${dis} title="De optelling wordt weer een vast getal">Uitsplitsing opheffen</button></div></td></tr>`);
+    return rijen.join('');
+  }
+  function hefOp(r) {
+    const doel = r.soort === 'uur' ? 'aantal' : 'kost';
+    r[doel] = Math.round(detailSom(r) * 10000) / 10000; delete r.detail; delete r.detailOpen; bewaar(); render();
+  }
+  function splits(r) {
+    const doel = r.soort === 'uur' ? 'aantal' : 'kost';
+    r.detail = [{ oms: r.soort === 'uur' ? 'onderdeel 1' : (r.oms || 'onderdeel 1'), aantal: 1, waarde: r[doel] }];
+    r.detailOpen = true;
+    if (r.formules) delete r.formules[doel];
+  }
+
+  function renderBoom() {
+    const dis = RO() ? 'disabled' : '';
+    const greep = (t, id) => RO() ? '' : `<button class="greep" type="button" data-greep="${t}${id}" aria-label="Verslepen" title="Slepen om te verplaatsen">⠿</button>`;
+    const rijen = [`<tr class="project" data-rij="p"><td></td><td><div class="naamcel"><span class="pnaam">${esc(INFO.project || 'Project')}</span></div></td><td></td><td></td><td></td><td></td><td></td><td></td>
+      <td class="getal" data-bind="t:uren"></td><td class="getal" data-bind="t:kost"></td><td class="getal" data-bind="t:verkoop"></td><td></td></tr>`];
+    const tekenGroep = (g, d) => {
+      rijen.push(`<tr class="groep d${Math.min(d, 2)}" data-rij="g${g.id}" data-g="${g.id}" data-d="${d}">
+        <td class="greepcel">${greep('g', g.id)}</td>
+        <td class="${g.notes?.groep ? 'notitie' : ''}"><div class="naamcel" style="padding-left:${d * 22}px">
+          <button class="klap" type="button" data-actie="klap" data-g="${g.id}" aria-expanded="${g.open}" title="${g.open ? 'Inklappen' : 'Uitklappen'}">${g.open ? '▾' : '▸'}</button>
+          <input class="cel gnaam" data-gnaam="${g.id}" value="${esc(g.naam)}" aria-label="Naam van de groep" ${g.notes?.groep ? `title="${esc(noteTitel(g.notes.groep))}"` : ''} ${dis}></div></td>
+        <td><button class="wochip ${g.wo ? '' : 'niet'}" type="button" data-actie="wo" data-g="${g.id}" ${dis} title="Klik om te wisselen">${g.wo ? (d > 0 ? 'subwerkorder' : 'werkorder') : 'geen werkorder'}</button></td>
+        <td><input class="cel r" data-gaantal="${g.id}" value="${(g.aantal ?? 1) !== 1 ? getalFmt.format(g.aantal) : ''}" placeholder="1" inputmode="decimal"
+            title="Aantal van deze groep, bv. 5 keer bouwen. De regels nemen het over (kolom × Keer), behalve waar je zelf iets invult." aria-label="Aantal van de groep" ${dis}></td>
+        <td class="eenh">×</td><td></td><td></td><td></td>
+        <td class="getal" data-bind="g:${g.id}:uren"></td><td class="getal" data-bind="g:${g.id}:kost"></td><td class="getal" data-bind="g:${g.id}:verkoop"></td>
+        <td><button class="meer" type="button" data-menu="g${g.id}" aria-haspopup="menu" aria-expanded="false" aria-label="Meer acties" ${dis}>⋯</button></td></tr>`);
+      if (!g.open) return;
+      for (const r of s.regels.filter(r => r.groep === g.id)) {
+        const fout = probleem(r);
+        rijen.push(`<tr class="regel ${fout ? 'zonderact' : ''} ${r.auto ? 'auto' : ''}" data-r="${r.id}" data-rij="r${r.id}" data-d="${d + 1}"
+            ${fout ? `title="${esc(fout)}"` : r.auto ? 'title="Wordt berekend met Maak kloppend"' : ''}>
+          <td class="greepcel">${greep('r', r.id)}</td>
+          <td class="${r.notes?.oms ? 'notitie' : ''}"><div class="naamcel" style="padding-left:${(d + 1) * 22 + (r.detail ? 0 : 20)}px">${r.detail
+              ? `<button class="sigma" type="button" data-actie="detailklap" data-r="${r.id}" aria-expanded="${!!r.detailOpen}" title="${r.detailOpen ? 'Uitsplitsing verbergen' : 'Uitsplitsing tonen'}">Σ</button>` : ''}<input class="cel" data-veld="oms" value="${esc(r.oms)}"
+              placeholder="${r.soort === 'uur' ? 'deel (verplicht, hierop wordt geboekt)' : 'omschrijving'}" ${r.notes?.oms ? `title="${esc(noteTitel(r.notes.oms))}"` : ''} ${dis}></div></td>
+          <td><select class="cel" data-veld="act" ${dis}>${actOpties(r)}</select></td>
+          ${veldCel(r, 'aantal', dis)}
+          <td class="eenh">${r.soort === 'uur' ? 'uur' : 'st'}</td>
+          ${veldCel(r, 'keer', dis)}
+          ${veldCel(r, 'kost', dis)}
+          ${veldCel(r, 'eigen', dis)}
+          <td class="getal" data-bind="r:${r.id}:uren"></td><td class="getal" data-bind="r:${r.id}:kost"></td><td class="getal" data-bind="r:${r.id}:verkoop"></td>
+          <td><button class="meer" type="button" data-menu="r${r.id}" aria-haspopup="menu" aria-expanded="false" aria-label="Meer acties" ${dis}>⋯</button></td></tr>`);
+        if (r.detail && r.detailOpen) rijen.push(detailRijen(r, d + 1, dis));
+      }
+      kinderen(g.id).forEach(k => tekenGroep(k, d + 1));
+    };
+    wortels().forEach(g => tekenGroep(g, 0));
+    $('boomBody').innerHTML = rijen.join('');
+  }
+
+  function werkGetallenBij() {
+    const c = bereken();
+    document.querySelectorAll('[data-bind]').forEach(el => {
+      const [soort, id, veld] = el.dataset.bind.split(':');
+      const v = soort === 't' ? c.t[id] : soort === 'g' ? c.tot[id]?.[veld] : c.regel[id]?.[veld];
+      const uren = (soort === 't' ? id : veld) === 'uren';
+      el.textContent = v === undefined ? '' : uren ? (soort === 'r' && v === 0 ? '' : uurFmt.format(v)) : euro.format(v);
+    });
+    document.querySelectorAll('tr.regel').forEach(tr => {
+      const r = regelVan(Number(tr.dataset.r)); if (!r) return;
+      const cel = tr.querySelector('[data-veld="kost"]'); if (!cel) return;
+      const a = r.soort === 'uur' ? actVan(r.act) : null;
+      const afw = a && r.kost !== null && Math.abs(a.tarief - r.kost) > .005;
+      let stip = cel.parentElement.querySelector('.afw');
+      if (afw && !stip) { stip = document.createElement('span'); stip.className = 'afw'; cel.style.width = 'calc(100% - 12px)'; cel.after(stip); }
+      if (!afw && stip) { stip.remove(); cel.style.width = ''; }
+      if (stip) stip.title = `Tarief ${a.naam}: € ${euro2.format(a.tarief)} per uur`;
+      const fout = probleem(r);
+      tr.classList.toggle('zonderact', !!fout);
+      if (fout) tr.title = fout; else if (!r.auto) tr.removeAttribute('title');
+    });
+    document.querySelectorAll('tr.detail[data-dr]').forEach(tr => {
+      const [rid, i] = tr.dataset.dr.split(':').map(Number), r = regelVan(rid), x = r?.detail?.[i]; if (!x) return;
+      const v = (x.aantal ?? 0) * (x.waarde ?? 0), cel = tr.querySelector('[data-dsom]');
+      if (cel) cel.textContent = r.soort === 'uur' ? uurFmt.format(v) + ' u' : euro.format(v);
+    });
+    document.querySelectorAll('input.som').forEach(el => {
+      const r = regelVan(Number(el.closest('tr').dataset.r));
+      if (r?.detail) el.value = (el.dataset.veld === 'kost' ? euro2 : getalFmt).format(detailSom(r));
+    });
+    document.querySelectorAll('tr.regel [data-veld="keer"]').forEach(el => {
+      const r = regelVan(Number(el.closest('tr').dataset.r)); if (r) el.placeholder = getalFmt.format(groepFactor(r.groep));
+    });
+    const nNotities = telNotities(), badge = $('aantalNotities'); if (badge) { badge.textContent = nNotities; badge.hidden = nNotities === 0; }
+  }
+
+  function werkorderPlan() {
+    const c = bereken();
+    const doelVan = g => { for (let x = g, n = 0; x && n < 20; x = groepVan(x.ouder), n++) if (x.wo) return x.id; return null; };
+    const per = {}, delen = {}, pool = { verkoop: 0, namen: new Set() };
+    for (const r of s.regels) {
+      const g = groepVan(r.groep); if (!g) continue;
+      const d = doelVan(g), w = c.regel[r.id];
+      if (d === null) { pool.verkoop += w.verkoop; pool.namen.add(g.naam); continue; }
+      per[d] ??= leeg(); tel(per[d], r, w);
+      if (r.soort === 'uur') {
+        // een deel uit een subgroep zonder eigen werkorder krijgt de naam van die subgroep ervoor
+        const naam = (g.id === d ? '' : g.naam + ' · ') + (schoon(r.oms) || '(zonder naam)');
+        const lijst = (delen[d] ??= []);
+        const bestaand = lijst.find(x => x.naam.toLowerCase() === naam.toLowerCase());
+        if (bestaand) { bestaand.uren += (A(r) ?? 0) * F(r); bestaand.kost += w.kost; }
+        else lijst.push({ naam, uren: (A(r) ?? 0) * F(r), kost: w.kost, act: r.act });
+      }
+    }
+    const wo = boomVolgorde().filter(x => x.g.wo);
+    const basis = wo.reduce((a, x) => a + (per[x.g.id]?.verkoop ?? 0), 0);
+    let nr = 0;
+    const rijen = wo.map(x => {
+      const w = per[x.g.id] ?? leeg();
+      let ouder = null; for (let y = groepVan(x.g.ouder); y; y = groepVan(y.ouder)) if (y.wo) { ouder = y.id; break; }
+      const aandeel = kortingKeuze === 'verdeel' && basis ? pool.verkoop * w.verkoop / basis : 0;
+      return { g: x.g, d: x.d, nr: ++nr, ouder, ...w, delen: delen[x.g.id] ?? [], aandeel, budget: w.verkoop + aandeel };
+    });
+    return { rijen, pool, problemen: s.regels.filter(probleem), t: c.t };
+  }
+
+  function renderWerkorders() {
+    const p = werkorderPlan();
+    const nummer = n => `${esc(INFO.projectnr ?? 'project')}-${String(n).padStart(2, '0')}`;
+    const nrVan = id => { const r = p.rijen.find(x => x.g.id === id); return r ? nummer(r.nr) : ''; };
+    const som = k => p.rijen.reduce((a, r) => a + r[k], 0);
+    const chips = delen => delen.map(x => `<span class="act" title="${esc(x.naam)}: begroot ${uurFmt.format(x.uren)} uur, ${euro.format(x.kost)} kosten${x.act ? ' · activiteit ' + esc(actVan(x.act)?.naam) : ''}"><b>${esc(x.naam)}</b> ${uurFmt.format(x.uren)} u</span>`).join('');
+    laatstePlan = p;
+    const pool = p.pool.namen.size > 0, verdeel = pool && kortingKeuze === 'verdeel';
+    $('wo').innerHTML = `
+      <h2>Wat er bij klant akkoord wordt aangemaakt</h2>
+      <p class="uitleg">Per groep met "werkorder" een werkorder; een subgroep wordt een subwerkorder onder de werkorder erboven. Budget = de verkoopprijs van de eigen regels; kostenbegroting = de kosten van uren en materiaal. Elke urenregel wordt een <b>deel</b> van de werkorder met begrote uren: daarop wordt geboekt, en de nacalculatie laat per werkorder en per deel begroot tegen geboekt zien. Een subgroep zonder werkorder telt mee bij de werkorder erboven (de delen krijgen de subgroepnaam ervoor).</p>
+      ${p.problemen.length ? `<p class="melding let">${p.problemen.length} urenregel${p.problemen.length === 1 ? '' : 's'} zonder of met een dubbele deelnaam (${[...new Set(p.problemen.map(r => groepVan(r.groep)?.naam + ': ' + (schoon(r.oms) || 'leeg')))].slice(0, 4).map(esc).join(', ')}${p.problemen.length > 4 ? ', …' : ''}). Pas die eerst aan.</p>` : ''}
+      ${pool ? `<div class="keuze"><span>Groepen zonder werkorder (${[...p.pool.namen].map(esc).join(', ')}, samen ${euro.format(p.pool.verkoop)}):</span>
+        <label><input type="radio" name="kk" value="verdeel" ${kortingKeuze === 'verdeel' ? 'checked' : ''}> naar rato verdelen over de werkorderbudgetten</label>
+        <label><input type="radio" name="kk" value="apart" ${kortingKeuze === 'apart' ? 'checked' : ''}> als aparte regel op het projectbudget</label></div>` : ''}
+      <div class="tabelvak"><table>
+        <thead><tr><th>Werkorder</th><th>Omschrijving</th><th>Delen (hierop wordt geboekt)</th><th class="r">Uren</th><th class="r">Kosten uren</th>
+          <th class="r">Kosten materiaal</th><th class="r">Verkoop</th>${verdeel ? '<th class="r">Aandeel korting</th>' : ''}<th class="r">Budget</th></tr></thead>
+        <tbody>${p.rijen.map(r => `<tr>
+          <td class="wonr" style="padding-left:${8 + r.d * 20}px">${r.d ? '↳ ' : ''}${nummer(r.nr)}</td>
+          <td>${esc(r.g.naam)}${(r.g.aantal ?? 1) !== 1 ? ` <b>× ${getalFmt.format(r.g.aantal)}</b>` : ''}${r.ouder ? ` <small style="color:var(--zacht)">sub van ${nrVan(r.ouder)}</small>` : ''}</td>
+          <td><div class="acts">${chips(r.delen) || '<span style="color:var(--zacht)">—</span>'}</div></td>
+          <td class="getal">${uurFmt.format(r.uren)}</td><td class="getal">${euro.format(r.kostUur)}</td><td class="getal">${euro.format(r.kostMat)}</td>
+          <td class="getal">${euro.format(r.verkoop)}</td>${verdeel ? `<td class="getal">${euro.format(r.aandeel)}</td>` : ''}
+          <td class="getal"><b>${euro.format(r.budget)}</b></td></tr>`).join('')}
+          ${pool && kortingKeuze === 'apart' ? `<tr><td>—</td><td>Korting op het projectbudget (geen werkorder)</td><td></td><td></td><td></td><td></td>
+            <td class="getal">${euro.format(p.pool.verkoop)}</td><td class="getal">${euro.format(p.pool.verkoop)}</td></tr>` : ''}
+        </tbody>
+        <tfoot><tr><td colspan="3">Totaal = verkoopprijs offerte</td><td class="getal">${uurFmt.format(som('uren'))}</td>
+          <td class="getal">${euro.format(som('kostUur'))}</td><td class="getal">${euro.format(som('kostMat'))}</td>
+          <td class="getal">${euro.format(som('verkoop') + (kortingKeuze === 'apart' ? p.pool.verkoop : 0))}</td>${verdeel ? `<td class="getal">${euro.format(som('aandeel'))}</td>` : ''}
+          <td class="getal">${euro.format(som('budget') + (kortingKeuze === 'apart' ? p.pool.verkoop : 0))}</td></tr></tfoot>
+      </table></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="knop primair" type="button" id="knopMaak" disabled>Werkorders aanmaken</button>
+        <small style="color:var(--zacht)">Volgt in een volgende stap van de app: dan maakt deze knop na klant akkoord de werkorders met budget, kostenbegroting en de delen met begrote uren.</small>
+      </div>
+      <h2>Uren boeken (voorbeeld)</h2>
+      <p class="uitleg">In de urenregistratie kies je eerst de werkorder, daarna het deel. Heeft een werkorder delen, dan is het deel verplicht. De activiteit blijft zoals nu (standaard de hoofdactiviteit van de medewerker).</p>
+      <div class="boek">
+        <label>Werkorder <select id="boekWo">${p.rijen.map(r => `<option value="${r.g.id}">${'· '.repeat(r.d)}${nummer(r.nr)} ${esc(r.g.naam)}</option>`).join('')}</select></label>
+        <label>Deel <select id="boekDeel"></select></label>
+        <span id="boekInfo" class="boekinfo"></span>
+      </div>`;
+    vulBoekDelen();
+  }
+
+  let laatstePlan = null;
+  function vulBoekDelen() {
+    const wo = document.getElementById('boekWo'), deel = document.getElementById('boekDeel');
+    if (!wo || !deel || !laatstePlan) return;
+    const rij = laatstePlan.rijen.find(r => String(r.g.id) === wo.value);
+    const delen = rij?.delen ?? [];
+    deel.innerHTML = delen.length ? '<option value="">— kies het deel —</option>' + delen.map((x, i) => `<option value="${i}">${esc(x.naam)}</option>`).join('')
+      : '<option value="">(geen delen: boeken op de werkorder)</option>';
+    toonBoekInfo();
+  }
+  function toonBoekInfo() {
+    const wo = document.getElementById('boekWo'), deel = document.getElementById('boekDeel'), info = document.getElementById('boekInfo');
+    if (!wo || !deel || !info || !laatstePlan) return;
+    const x = laatstePlan.rijen.find(r => String(r.g.id) === wo.value)?.delen?.[Number(deel.value)];
+    info.innerHTML = deel.value === '' ? (deel.options.length > 1 ? 'Kies een deel om te kunnen opslaan.' : '')
+      : `Begroot <b>${uurFmt.format(x.uren)} uur</b> (${euro.format(x.kost)} kosten)${x.act ? ` · tarief ${esc(actVan(x.act)?.naam)}` : ''}. Na het boeken zie je hier ook hoeveel er al op staat.`;
+  }
+
+  function renderPaneel() {
+    const plek = $('paneelplek');
+    if (!paneel) { plek.innerHTML = ''; return; }
+    if (paneel.soort === 'plak') {
+      plek.innerHTML = `<div class="paneel">
+        <p><b>Plakken uit Excel.</b> Kopieer de kolommen <b>Locatie/ref · Aantal · Type · Beschrijving · Kostprijs · alt. marge</b>. Een Locatie/ref die nog niet bestaat, wordt een nieuwe groep. De beschrijving van een urenregel wordt de deelnaam; de app zoekt er ook een activiteit (tarief) bij (Opbouw → Assembly Mechanical, Bekabelen → Assembly Electrical, FAT → Testing …).</p>
+        <textarea id="plakTekst" placeholder="Unloader 3&#9;40&#9;Uur&#9;Mechanical Engineering&#9;62"></textarea>
+        <div class="rij"><span style="flex:1"></span><button class="knop" type="button" data-actie="sluit">Annuleren</button>
+          <button class="knop primair" type="button" data-actie="plakToe">Regels toevoegen</button></div></div>`;
+    } else if (paneel.soort === 'notities') {
+      const lijst = alleNotities();
+      plek.innerHTML = `<div class="paneel"><div class="rij"><b>Alle notities (${lijst.length})</b><span style="flex:1"></span><button class="knop klein" type="button" data-actie="sluit">Sluiten</button></div>
+        ${lijst.length ? `<ul class="notelijst">${lijst.map((x, i) => `<li><button type="button" data-gaanaar="${i}">${esc(plekNaam(x.tg))}</button> — ${esc(x.n.tekst).replace(/\n/g, '<br>')}
+          <small>${esc(x.n.door ?? '')}${x.n.op ? ' · ' + esc(x.n.op) : ''}${x.n.bron ? ' · 📎 ' + esc(x.n.bron) : ''}</small></li>`).join('')}</ul>` : '<p>Nog geen notities. Zet er een met Shift+F2 in een veld, of via ⋯.</p>'}</div>`;
+      plek.querySelectorAll('[data-gaanaar]').forEach(b => b.addEventListener('click', () => {
+        const x = lijst[Number(b.dataset.gaanaar)];
+        maakZichtbaar(x.tg); gekozen = { t: x.tg.t, id: x.tg.id }; flitsId = x.tg.t + x.tg.id; render(); veldEl(x.tg)?.focus();
+      }));
+    } else if (paneel.soort === 'wis') {
+      const sub = nakomelingen(paneel.g), g = groepVan(paneel.g);
+      const n = s.regels.filter(r => r.groep === paneel.g || sub.includes(r.groep)).length;
+      plek.innerHTML = `<div class="paneel gevaar"><p><b>Groep "${esc(g?.naam)}" verwijderen?</b> ${sub.length ? `Met ${sub.length} subgroep${sub.length === 1 ? '' : 'en'} en` : 'Met'} ${n} regel${n === 1 ? '' : 's'}.</p>
+        <div class="rij"><button class="knop" type="button" data-actie="sluit" id="wisNee">Annuleren</button><button class="knop gevaar" type="button" data-actie="wisJa">Verwijderen</button></div></div>`;
+    } else {
+      plek.innerHTML = `<p class="melding ${paneel.let ? 'let' : ''}" role="status">${esc(paneel.tekst)} <button class="knop klein" type="button" data-actie="sluit">OK</button></p>`;
+    }
+  }
+  const meld = (tekst, letop) => { paneel = { soort: 'melding', tekst, let: !!letop }; };
+
+  // ---------------------------------------------------------------- notities
+  function alleNotities() {
+    const uit = [];
+    for (const { g } of boomVolgorde()) {
+      Object.entries(g.notes ?? {}).forEach(([veld, n]) => uit.push({ tg: { t: 'g', id: g.id, veld }, n }));
+      s.regels.filter(r => r.groep === g.id).forEach(r => Object.entries(r.notes ?? {}).forEach(([veld, n]) => uit.push({ tg: { t: 'r', id: r.id, veld }, n })));
+    }
+    return uit;
+  }
+  const telNotities = () => alleNotities().length;
+  const bronVan = tg => tg.t === 'g' ? groepVan(tg.id) : regelVan(tg.id);
+  function plekNaam(tg) {
+    if (tg.t === 'g') return groepVan(tg.id)?.naam ?? '';
+    const r = regelVan(tg.id); if (!r) return '';
+    return `${groepVan(r.groep)?.naam} › ${schoon(r.oms) || actVan(r.act)?.naam || 'regel'} › ${VELDNAAM[tg.veld] ?? tg.veld}`;
+  }
+  const veldEl = tg => tg.t === 'g' ? document.querySelector(`[data-gnaam="${tg.id}"]`) : document.querySelector(`tr[data-r="${tg.id}"] [data-veld="${tg.veld}"]`);
+  function maakZichtbaar(tg) {
+    const o = bronVan(tg); if (!o) return;
+    for (let x = groepVan(tg.t === 'g' ? o.ouder : o.groep); x; x = groepVan(x.ouder)) x.open = true;
+    if (tab !== 'boom') tab = 'boom';
+  }
+  function openNotitie(tg) {
+    sluitMenu();
+    const o = bronVan(tg); if (!o) return;
+    let el = veldEl(tg);
+    if (!el) { maakZichtbaar(tg); render(); el = veldEl(tg); }
+    const n = o.notes?.[tg.veld], vast = RO() && (!!n || !MAG);
+    const kaart = document.createElement('div');
+    kaart.className = 'notekaart'; kaart.setAttribute('role', 'dialog'); kaart.setAttribute('aria-label', 'Notitie');
+    kaart.innerHTML = `<b>Notitie · ${esc(plekNaam(tg))}</b>
+      ${n?.door ? `<span class="wie">${esc(n.door)}${n.op ? ' · ' + esc(n.op) : ''}</span>` : ''}
+      <textarea id="noteTekst" ${vast ? 'readonly' : ''} placeholder="bv. obv offerte Apex MDEAS23070 d.d. 13-02-2023">${esc(n?.tekst ?? '')}</textarea>
+      ${vast && MAG && n ? '<textarea id="noteAanvul" placeholder="Aanvulling na bevriezen (de notitie zelf blijft staan)"></textarea>' : ''}
+      ${n?.bron ? `<span class="wie">📎 ${esc(n.bron)}</span>` : ''}
+      ${MAG ? '<label class="wie">Bron koppelen (offerte, mail…) <input type="file" id="noteBestand"></label>' : ''}
+      <div class="rij">${n && !RO() ? '<button class="knop klein gevaar" type="button" data-noot="weg">Verwijderen</button>' : ''}<span style="flex:1"></span>
+        <button class="knop klein" type="button" data-noot="sluit">Annuleren</button>${MAG ? '<button class="knop primair klein" type="button" data-noot="bewaar">Opslaan</button>' : ''}</div>
+      <small class="wie">Intern: niet op de offerte voor de klant. Van een bron wordt nu alleen de bestandsnaam onthouden.</small>`;
+    $('menuplek').appendChild(kaart);
+    const rect = (el ?? document.body).getBoundingClientRect();
+    kaart.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - kaart.offsetHeight - 8))}px`;
+    kaart.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - kaart.offsetWidth - 8))}px`;
+    (kaart.querySelector('#noteAanvul') ?? kaart.querySelector('#noteTekst')).focus();
+    const opslaan = () => {
+      if (!MAG) return;
+      const tekst = kaart.querySelector('#noteTekst').value.trim(), bestand = kaart.querySelector('#noteBestand')?.files?.[0]?.name;
+      const nu = new Date().toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' });
+      if (vast) {
+        const aanvul = kaart.querySelector('#noteAanvul')?.value.trim();
+        if (aanvul) n.tekst += `\n[${nu}] ${aanvul}`;
+        if (bestand) n.bron = bestand;
+      } else if (!tekst && !bestand) { if (o.notes) delete o.notes[tg.veld]; }
+      else (o.notes ??= {})[tg.veld] = { tekst, door: GEBRUIKER || 'onbekend', op: nu, bron: bestand ?? n?.bron };
+      sluitMenu(); flitsId = (tg.t === 'g' ? 'g' : 'r') + tg.id; bewaar(); render(); veldEl(tg)?.focus();
+    };
+    kaart.addEventListener('click', ev => {
+      const k = ev.target.closest('[data-noot]'); if (!k) return;
+      if (k.dataset.noot === 'bewaar') opslaan();
+      else if (k.dataset.noot === 'weg') { delete o.notes[tg.veld]; sluitMenu(); bewaar(); render(); }
+      else { sluitMenu(); el?.focus(); }
+    });
+    kaart.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.ctrlKey) { ev.preventDefault(); ev.stopPropagation(); opslaan(); } });
+  }
+  // Shift+F2 = notitie bij het veld waar je staat (zoals een opmerking in Excel); werkt ook als de calculatie bevroren is
+  document.addEventListener('keydown', e => {
+    if (!(e.shiftKey && e.key === 'F2') || tab !== 'boom') return;
+    e.preventDefault();
+    const el = document.activeElement, tr = el?.closest?.('tr[data-r]');
+    if (tr && el.dataset.veld && el.dataset.veld !== 'act') openNotitie({ t: 'r', id: Number(tr.dataset.r), veld: el.dataset.veld });
+    else if (el?.dataset?.gnaam) openNotitie({ t: 'g', id: Number(el.dataset.gnaam), veld: 'groep' });
+    else if (gekozen) openNotitie(gekozen.t === 'g' ? { t: 'g', id: gekozen.id, veld: 'groep' } : { t: 'r', id: gekozen.id, veld: 'oms' });
+  });
+
+  // ---------------------------------------------------------------- menu's (⋯ en Toevoegen ▾)
+  let menuKnop = null;
+  function sluitMenu() { $('menuplek').innerHTML = ''; if (menuKnop) { menuKnop.setAttribute('aria-expanded', 'false'); menuKnop = null; } }
+  function openMenu(knop, items, plek) {
+    sluitMenu();
+    menuKnop = knop; knop?.setAttribute('aria-expanded', 'true');
+    $('menuplek').innerHTML = `<div class="menu" role="menu">${items.map((it, i) => it === '-' ? '<hr>' : it.kopje ? `<div class="kopje">${esc(it.kopje)}</div>`
+      : `<button type="button" role="menuitem" data-i="${i}" class="${it.weg ? 'weg' : ''}" ${it.uit ? 'disabled' : ''}><span>${it.tekst}</span>${it.toets ? `<small>${it.toets}</small>` : ''}</button>`).join('')}</div>`;
+    const m = $('menuplek').firstElementChild;
+    if (plek) {   // rechtermuisknop: het menu opent bij de muis
+      m.style.top = `${Math.max(8, Math.min(plek.y, innerHeight - m.offsetHeight - 8))}px`;
+      m.style.left = `${Math.max(8, Math.min(plek.x, innerWidth - m.offsetWidth - 8))}px`;
+    } else {
+      const k = knop.getBoundingClientRect();
+      m.style.top = `${Math.min(k.bottom + 4, innerHeight - m.offsetHeight - 8)}px`;
+      m.style.left = `${Math.max(8, Math.min(k.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
+    }
+    m.addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (!b) return; const it = items[Number(b.dataset.i)]; sluitMenu(); it.doe(); });
+    m.querySelector('button:not(:disabled)')?.focus();
+  }
+  function menuVoor(sleutel) {
+    const t = sleutel[0], id = Number(sleutel.slice(1));
+    gekozen = { t, id }; werkbalkBij();
+    if (t === 'g') {
+      const g = groepVan(id);
+      return [
+        { tekst: '+ Regel in deze groep', toets: 'Ctrl+Enter', doe: () => voegToe('regelIn') },
+        { tekst: '+ Subgroep', doe: () => voegToe('sub') },
+        { tekst: '+ Groep op hetzelfde niveau', doe: () => voegToe('naast') },
+        '-',
+        { tekst: '⇤ Promoveren (niveau omhoog)', toets: 'Alt+Shift+←', uit: !kanPromoveren(), doe: promoveer },
+        { tekst: '⇥ Degraderen (onder de groep erboven)', toets: 'Alt+Shift+→', uit: !kanDegraderen(), doe: degradeer },
+        '-',
+        { tekst: g.wo ? 'Geen werkorder maken' : 'Wel een werkorder maken', doe: () => { g.wo = !g.wo; bewaar(); render(); } },
+        { tekst: 'Kopiëren, met subgroepen en regels', doe: () => { const n = kopieer(id); gekozen = { t: 'g', id: n.id }; flitsId = 'g' + n.id; bewaar(); render(); } },
+        { tekst: `Notitie bij de groep${g.notes?.groep ? ' ✎' : ''}`, toets: 'Shift+F2', doe: () => openNotitie({ t: 'g', id, veld: 'groep' }) },
+        { tekst: 'Verwijderen…', weg: true, doe: () => { paneel = { soort: 'wis', g: id }; render(); $('wisNee')?.focus(); } },
+      ];
+    }
+    const r = regelVan(id);
+    return [
+      { tekst: '+ Regel eronder', toets: 'Ctrl+Enter', doe: () => voegToe('regelNa') },
+      { tekst: 'Dupliceren', doe: () => { const n = { ...structuredClone(r), id: volgId++, auto: false }; s.regels.splice(s.regels.indexOf(r) + 1, 0, n); gekozen = { t: 'r', id: n.id }; flitsId = 'r' + n.id; bewaar(); render(); } },
+      '-',
+      { tekst: '⇤ Naar de groep erboven', toets: 'Alt+Shift+←', uit: !kanPromoveren(), doe: promoveer },
+      { tekst: '⇥ Naar de eerste subgroep', toets: 'Alt+Shift+→', uit: !kanDegraderen(), doe: degradeer },
+      '-',
+      { tekst: r.detail ? (r.detailOpen ? 'Uitsplitsing verbergen' : 'Uitsplitsing tonen') : `Uitsplitsen (${r.soort === 'uur' ? 'uren' : 'kostprijs'} als optelling)`,
+        doe: () => { if (r.detail) r.detailOpen = !r.detailOpen; else splits(r); bewaar(); render(); } },
+      { tekst: r.keer == null ? 'Eenmalig (× 1, gaat niet mee met het groepsaantal)' : `Volgt de groep weer (× ${getalFmt.format(groepFactor(r.groep))})`,
+        doe: () => { r.keer = r.keer == null ? 1 : null; if (r.formules) delete r.formules.keer; bewaar(); render(); } },
+      { kopje: 'Notitie bij' },
+      ...['oms', 'aantal', 'kost', 'eigen'].map(v => ({ tekst: `${VELDNAAM[v]}${r.notes?.[v] ? ' ✎' : ''}`, toets: v === 'oms' ? 'Shift+F2' : '', doe: () => openNotitie({ t: 'r', id, veld: v }) })),
+      '-',
+      { tekst: 'Verwijderen', weg: true, doe: () => { s.regels = s.regels.filter(x => x.id !== id); gekozen = null; bewaar(); render(); } },
+    ];
+  }
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('.menu, .notekaart') && !e.target.closest('[data-menu]') && e.target.id !== 'knopToevoegenMeer') sluitMenu(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { sluitMenu(); if (sleep) stopSlepen(false); } });
+
+  // ---------------------------------------------------------------- slepen (pointer events: muis, pen en touch)
+  let sleep = null;   // { t, id, doel, auto }
+  function startSlepen(e, sleutel) {
+    if (RO()) return;
+    e.preventDefault();
+    sluitMenu();
+    sleep = { t: sleutel[0], id: Number(sleutel.slice(1)), doel: null };
+    gekozen = { t: sleep.t, id: sleep.id }; werkbalkBij();
+    document.body.classList.add('slepen');
+    document.querySelector(`[data-rij="${sleutel}"]`)?.classList.add('gesleept');
+    if (sleep.t === 'g') { const tr = document.querySelector(`[data-rij="${sleutel}"]`); /* subgroepen en regels slepen mee */
+      nakomelingen(sleep.id).forEach(k => document.querySelector(`[data-rij="g${k}"]`)?.classList.add('gesleept'));
+      document.querySelectorAll('tr.regel').forEach(r => { const rg = regelVan(Number(r.dataset.r)); if (rg && (rg.groep === sleep.id || nakomelingen(sleep.id).includes(rg.groep))) r.classList.add('gesleept'); }); }
+    beweeg(e);
+  }
+  function geldig(doel) {
+    if (!doel) return false;
+    if (sleep.t === 'g' && doel.g) { const verboden = new Set([sleep.id, ...nakomelingen(sleep.id)]); if (verboden.has(doel.g.id) || (doel.binnen && verboden.has(doel.binnen))) return false; }
+    if (sleep.t === 'g' && doel.binnen) { const verboden = new Set([sleep.id, ...nakomelingen(sleep.id)]); if (verboden.has(doel.binnen)) return false; }
+    if (sleep.t === 'r' && doel.r && doel.r.id === sleep.id) return false;
+    return true;
+  }
+  /** Waar komt het terecht als je hier loslaat? */
+  function bepaalDoel(x, y) {
+    const tr = document.elementFromPoint(x, y)?.closest('#boomBody tr'); if (!tr) return null;
+    const rect = tr.getBoundingClientRect(), rel = (y - rect.top) / rect.height;
+    const d = Number(tr.dataset.d ?? 0);
+    if (tr.dataset.rij === 'p') return sleep.t === 'g' ? { soort: 'binnen', binnen: null, tr, d: 0, label: 'bovenaan het project' } : null;
+    if (tr.dataset.g) {
+      const g = groepVan(Number(tr.dataset.g));
+      if (sleep.t === 'r') return { soort: 'binnen', binnen: g.id, tr, d: d + 1, label: `in ${g.naam}` };
+      if (rel < .3) return { soort: 'voor', g, tr, d, label: `boven ${g.naam}` };
+      if (rel > .7 && !(g.open && (kinderen(g.id).length || s.regels.some(r => r.groep === g.id)))) return { soort: 'na', g, tr, d, label: `onder ${g.naam}` };
+      return { soort: 'binnen', binnen: g.id, g, tr, d: d + 1, label: `in ${g.naam} (subgroep)` };
+    }
+    const r = regelVan(Number(tr.dataset.r)); if (!r) return null;
+    const g = groepVan(r.groep);
+    if (sleep.t === 'r') return { soort: rel < .5 ? 'voor' : 'na', r, tr, d, label: `${rel < .5 ? 'boven' : 'onder'} deze regel in ${g.naam}` };
+    return { soort: 'binnen', binnen: g.id, tr, d, label: `in ${g.naam} (subgroep)` };
+  }
+  function beweeg(e) {
+    if (!sleep) return;
+    const lijn = $('sleeplijn'), label = $('sleeplabel');
+    document.querySelectorAll('tr.doelin').forEach(t => t.classList.remove('doelin'));
+    const doel = bepaalDoel(e.clientX, e.clientY);
+    sleep.doel = geldig(doel) ? doel : null;
+    lijn.style.display = 'none';
+    if (sleep.doel) {
+      const tr = sleep.doel.tr, rect = tr.getBoundingClientRect(), tabel = $('boomvak').getBoundingClientRect();
+      if (sleep.doel.soort === 'binnen') tr.classList.add('doelin');
+      else {
+        const links = tabel.left + 30 + sleep.doel.d * 22;
+        lijn.style.display = 'block';
+        lijn.style.top = `${(sleep.doel.soort === 'voor' ? rect.top : rect.bottom) - 1}px`;
+        lijn.style.left = `${links}px`; lijn.style.width = `${Math.max(80, tabel.right - links - 12)}px`;
+      }
+    }
+    const naam = sleep.t === 'g' ? groepVan(sleep.id)?.naam : (actVan(regelVan(sleep.id)?.act)?.naam || regelVan(sleep.id)?.oms || 'regel');
+    label.style.display = 'block';
+    label.textContent = sleep.doel ? `${naam} → ${sleep.doel.label}` : `${naam}: hier kan het niet`;
+    label.style.left = `${Math.min(e.clientX + 14, innerWidth - label.offsetWidth - 8)}px`; label.style.top = `${e.clientY + 16}px`;
+    // automatisch scrollen bij de rand
+    if (e.clientY < 70) scrollBy(0, -14); else if (e.clientY > innerHeight - 70) scrollBy(0, 14);
+  }
+  function stopSlepen(toepassen) {
+    const d = sleep?.doel, t = sleep?.t, id = sleep?.id;
+    sleep = null;
+    document.body.classList.remove('slepen');
+    $('sleeplijn').style.display = 'none'; $('sleeplabel').style.display = 'none';
+    document.querySelectorAll('tr.gesleept, tr.doelin').forEach(x => x.classList.remove('gesleept', 'doelin'));
+    if (!toepassen || !d) return;
+    if (t === 'r') {
+      const r = regelVan(id);
+      if (d.soort === 'binnen') zetRegel(r, d.binnen);
+      else zetRegel(r, d.r.groep, d.soort === 'voor' ? d.r.id : null, d.soort === 'na' ? d.r.id : null);
+    } else {
+      const g = groepVan(id);
+      if (d.soort === 'binnen') {
+        g.ouder = d.binnen;
+        const laatste = d.binnen === null ? null : kinderen(d.binnen).filter(k => k.id !== g.id).pop();
+        if (d.binnen === null) { g.ouder = null; const eerste = wortels().find(x => x.id !== g.id); if (eerste) zetVoor(g, eerste.id); }
+        else { zetNa(g, laatste?.id ?? d.binnen); groepVan(d.binnen).open = true; }
+      } else { g.ouder = d.g.ouder; if (d.soort === 'voor') zetVoor(g, d.g.id); else zetNa(g, d.g.id); }
+    }
+    flitsId = t + id; gekozen = { t, id };
+    bewaar(); render();
+  }
+  document.addEventListener('pointermove', e => { if (sleep) beweeg(e); });
+  document.addEventListener('pointerup', () => { if (sleep) stopSlepen(true); });
+  document.addEventListener('pointercancel', () => { if (sleep) stopSlepen(false); });
+
+  // ---------------------------------------------------------------- invoer in de boom
+  const body = $('boomBody');
+  body.addEventListener('pointerdown', e => { const h = e.target.closest('[data-greep]'); if (h) startSlepen(e, h.dataset.greep); });
+  body.addEventListener('focusin', e => {
+    const tr = e.target.closest('tr[data-rij]'); if (!tr || tr.dataset.rij === 'p') return;
+    gekozen = { t: tr.dataset.rij[0], id: Number(tr.dataset.rij.slice(1)) }; werkbalkBij();
+  });
+  body.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-rij]');
+    if (tr && tr.dataset.rij !== 'p' && !e.target.closest('input, select, button')) { gekozen = { t: tr.dataset.rij[0], id: Number(tr.dataset.rij.slice(1)) }; werkbalkBij(); }
+    const m = e.target.closest('[data-menu]');
+    if (m) { if (m.getAttribute('aria-expanded') === 'true') sluitMenu(); else openMenu(m, menuVoor(m.dataset.menu)); return; }
+    const b = e.target.closest('[data-actie]'); if (!b) return;
+    const g = groepVan(Number(b.dataset.g));
+    if (b.dataset.actie === 'klap') { g.open = !g.open; bewaar(); render(); }
+    if (b.dataset.actie === 'wo') { g.wo = !g.wo; bewaar(); render(); }
+    const rid = Number(b.dataset.r), rr = regelVan(rid);
+    if (!rr) return;
+    if (b.dataset.actie === 'detailklap') { rr.detailOpen = !rr.detailOpen; bewaar(); render(); }
+    if (b.dataset.actie === 'detailnieuw') {
+      rr.detail.push({ oms: '', aantal: 1, waarde: null }); rr.detailOpen = true; bewaar(); render();
+      document.querySelector(`tr[data-dr="${rid}:${rr.detail.length - 1}"] [data-dveld="oms"]`)?.focus();
+    }
+    if (b.dataset.actie === 'detailweg') { rr.detail.splice(Number(b.dataset.i), 1); if (!rr.detail.length) { delete rr.detail; delete rr.detailOpen; } bewaar(); render(); }
+    if (b.dataset.actie === 'detailop') hefOp(rr);
+  });
+  body.addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset.gaantal) {
+      const g = groepVan(Number(el.dataset.gaantal)), n = reken(el.value);
+      el.setAttribute('aria-invalid', Number.isNaN(n));
+      if (!Number.isNaN(n)) g.aantal = n ?? 1;
+      bewaar(); werkGetallenBij(); return;
+    }
+    if (el.dataset.dveld) {   // regel in een uitsplitsing
+      const [rid, i] = el.closest('tr').dataset.dr.split(':').map(Number), x = regelVan(rid).detail[i];
+      if (el.dataset.dveld === 'oms') x.oms = el.value;
+      else { const n = reken(el.value); el.setAttribute('aria-invalid', Number.isNaN(n)); if (!Number.isNaN(n)) x[el.dataset.dveld] = n; }
+      bewaar(); werkGetallenBij(); return;
+    }
+    const tr = el.closest('tr[data-r]');
+    if (!tr || !el.dataset.veld || el.tagName === 'SELECT') return;
+    const r = regelVan(Number(tr.dataset.r)), v = el.dataset.veld;
+    if (v === 'oms') r.oms = el.value;
+    else {
+      const n = reken(el.value); el.setAttribute('aria-invalid', Number.isNaN(n));
+      if (!Number.isNaN(n)) {
+        r[v] = n;
+        if (heeftSom(el.value)) (r.formules ??= {})[v] = el.value.trim().replace(/^=\s*/, ''); else if (r.formules) delete r.formules[v];
+      }
+    }
+    bewaar(); werkGetallenBij();
+  });
+  // Rechtermuisknop: menu voor de plek waar je klikt (veld, regel, groep, uitsplitsing). Shift + rechts = het gewone browsermenu.
+  body.addEventListener('contextmenu', e => {
+    if (e.shiftKey) return;
+    const tr = e.target.closest('tr'); if (!tr) return;
+    let items = null;
+    if (tr.dataset.dr) {
+      if (RO()) return;
+      const [rid, i] = tr.dataset.dr.split(':').map(Number), rr = regelVan(rid);
+      items = [
+        { kopje: 'Uitsplitsing' },
+        { tekst: '+ Detailregel eronder', doe: () => { rr.detail.splice(i + 1, 0, { oms: '', aantal: 1, waarde: null }); bewaar(); render(); document.querySelector(`tr[data-dr="${rid}:${i + 1}"] [data-dveld="oms"]`)?.focus(); } },
+        { tekst: 'Detailregel verwijderen', weg: true, doe: () => { rr.detail.splice(i, 1); if (!rr.detail.length) { delete rr.detail; delete rr.detailOpen; } bewaar(); render(); } },
+        '-',
+        { tekst: 'Uitsplitsing opheffen (de som wordt een vast getal)', doe: () => hefOp(rr) },
+      ];
+    } else if (tr.dataset.rij === 'p') {
+      if (RO()) return;
+      items = [{ tekst: '+ Groep onderaan het project', doe: () => { gekozen = null; voegToe('groep'); } }];
+    } else if (tr.dataset.rij) {
+      const sleutel = tr.dataset.rij, soort = sleutel[0], id = Number(sleutel.slice(1));
+      const veld = e.target.closest('[data-veld]')?.dataset.veld;
+      const noot = soort === 'g' ? { t: 'g', id, veld: 'groep' } : { t: 'r', id, veld: veld && veld !== 'act' ? veld : 'oms' };
+      const heeft = !!bronVan(noot)?.notes?.[noot.veld];
+      const eerst = { tekst: `${heeft ? 'Notitie bekijken / wijzigen' : 'Notitie toevoegen'} · ${soort === 'g' ? 'groep' : VELDNAAM[noot.veld]}`, toets: 'Shift+F2', doe: () => openNotitie(noot) };
+      const basis = menuVoor(sleutel);   // zet ook 'waar je staat'
+      items = RO() ? [eerst] : [eerst, '-', ...basis];
+    }
+    if (!items) return;
+    e.preventDefault();
+    openMenu(null, items, { x: e.clientX, y: e.clientY });
+  });
+
+  // rekensom zichtbaar zolang je in het vak staat
+  body.addEventListener('focusin', e => {
+    const el = e.target; if (!['aantal', 'keer', 'kost', 'eigen'].includes(el.dataset?.veld) || el.classList.contains('som')) return;
+    const f = regelVan(Number(el.closest('tr')?.dataset.r))?.formules?.[el.dataset.veld];
+    if (f) el.value = '=' + f;
+  });
+  body.addEventListener('focusout', e => {
+    const el = e.target; if (!['aantal', 'keer', 'kost', 'eigen'].includes(el.dataset?.veld) || el.classList.contains('som')) return;
+    const r = regelVan(Number(el.closest('tr')?.dataset.r)), v = r?.[el.dataset.veld];
+    if (r && v !== null && v !== undefined && !Number.isNaN(reken(el.value))) el.value = (el.dataset.veld === 'kost' ? euro2 : getalFmt).format(v);
+  });
+  body.addEventListener('change', e => {
+    const el = e.target;
+    if (el.dataset.gaantal) { const g = groepVan(Number(el.dataset.gaantal)); el.value = (g.aantal ?? 1) !== 1 ? getalFmt.format(g.aantal) : ''; return; }
+    if (el.dataset.dveld) {
+      if (el.dataset.dveld !== 'oms') {
+        const [rid, i] = el.closest('tr').dataset.dr.split(':').map(Number), r = regelVan(rid), x = r.detail[i], f = el.dataset.dveld;
+        if (el.value.trim() === '') x[f] = null;
+        else if (x[f] != null) el.value = (f === 'waarde' && r.soort !== 'uur' ? euro2 : getalFmt).format(x[f]);
+      }
+      bewaar(); werkGetallenBij(); return;
+    }
+    if (el.dataset.gnaam) {
+      const g = groepVan(Number(el.dataset.gnaam)), fout = naamFout(el.value, g.id);
+      if (fout) { el.value = g.naam; meld(fout, true); renderPaneel(); return; }
+      g.naam = schoon(el.value); bewaar(); werkbalkBij(); return;
+    }
+    const tr = el.closest('tr[data-r]'); if (!tr) return;
+    const r = regelVan(Number(tr.dataset.r));
+    if (el.dataset.veld === 'act') {
+      if (el.value === 'mat') { r.soort = 'mat'; r.act = null; }
+      else if (el.value === 'uur') { r.soort = 'uur'; r.act = null; }
+      else { r.soort = 'uur'; r.act = Number(el.value); const a = actVan(r.act); if (a && (r.kost === null || r.kost === 0)) r.kost = a.tarief; }
+      bewaar(); render(); document.querySelector(`tr[data-r="${r.id}"] [data-veld="aantal"]`)?.focus(); return;
+    }
+    if (['aantal', 'keer', 'kost', 'eigen'].includes(el.dataset.veld)) {
+      const v = el.dataset.veld;
+      if (el.value.trim() === '') { r[v] = null; if (r.formules) delete r.formules[v]; }
+      const f = r.formules?.[v];
+      el.classList.toggle('formule', !!f);
+      el.title = [f ? `Rekensom: =${f}` : '', noteTitel(r.notes?.[v])].filter(Boolean).join('\n');
+      bewaar(); werkGetallenBij();
+    }
+  });
+  body.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.ctrlKey || !e.target.classList.contains('cel') || e.target.tagName === 'SELECT') return;
+    e.preventDefault();
+    if (e.target.dataset.gnaam) { e.target.blur(); return; }
+    const dtr = e.target.closest('tr.detail[data-dr]');
+    if (dtr) {
+      const f = e.target.dataset.dveld;
+      e.target.dispatchEvent(new Event('change', { bubbles: true }));
+      const volg = dtr.nextElementSibling;
+      if (volg?.matches('tr.detail[data-dr]')) { volg.querySelector(`[data-dveld="${f}"]`)?.focus(); return; }
+      const rid = Number(dtr.dataset.dr.split(':')[0]), rr = regelVan(rid);
+      rr.detail.push({ oms: '', aantal: 1, waarde: null }); bewaar(); render();
+      document.querySelector(`tr[data-dr="${rid}:${rr.detail.length - 1}"] [data-dveld="oms"]`)?.focus();
+      return;
+    }
+    const tr = e.target.closest('tr[data-r]'); if (!tr) return;
+    const veld = e.target.dataset.veld;
+    e.target.dispatchEvent(new Event('change', { bubbles: true }));
+    const volg = tr.nextElementSibling;
+    if (volg?.matches('tr[data-r]')) { volg.querySelector(`[data-veld="${veld}"]`)?.focus(); return; }
+    gekozen = { t: 'r', id: Number(tr.dataset.r) }; voegToe('regelNa');
+  });
+  // sneltoetsen: toevoegen, promoveren/degraderen, omhoog/omlaag
+  document.addEventListener('keydown', e => {
+    if (tab !== 'boom' || RO()) return;
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); document.activeElement?.dispatchEvent(new Event('change', { bubbles: true })); standaardToevoegen().doe(); return; }
+    if (e.altKey && e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); promoveer(); return; }
+    if (e.altKey && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); degradeer(); return; }
+    if (e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); schuif(e.key === 'ArrowUp' ? -1 : 1); }
+  });
+
+  // ---------------------------------------------------------------- overige knoppen
+  function maakKloppend() {
+    const doel = leesGetal($('doel').value);
+    if (doel === null || Number.isNaN(doel)) { meld('Vul een doelprijs in, bijvoorbeeld 1.500.000.', true); render(); return; }
+    s.inst.doel = doel;
+    let auto = s.regels.find(r => r.auto);
+    if (!auto) {
+      let g = s.groepen.find(x => x.naam.toLowerCase() === 'korting');
+      if (!g) { g = { id: volgId++, naam: 'Korting', ouder: null, wo: false, open: true }; s.groepen.push(g); }
+      auto = { id: volgId++, groep: g.id, soort: 'mat', act: null, oms: 'Afronding naar doelprijs', aantal: 1, kost: 0, eigen: 0, auto: true };
+      s.regels.push(auto);
+    }
+    Object.assign(auto, { aantal: 1, keer: 1, eigen: 0, kost: 0 });
+    auto.kost = Math.round((doel - bereken().t.verkoop) * 100) / 100;
+    meld(`Afronding naar doelprijs is nu ${euro.format(auto.kost)}; het totaal is ${euro.format(doel)}.`);
+    bewaar(); render();
+  }
+  function plakToe() {
+    const nieuw = [], zonder = []; let n = 0;
+    for (const lijn of $('plakTekst').value.split(/\r?\n/)) {
+      if (!lijn.trim()) continue;
+      const c = lijn.split('\t'); while (c.length < 6) c.push('');
+      const [loc, a, type, oms, kost, eigen] = c.map(x => x.trim());
+      const aantal = leesGetal(a), k = leesGetal(kost);
+      if ((aantal === null || Number.isNaN(aantal)) && (k === null || Number.isNaN(k))) continue;
+      let g = s.groepen.find(x => x.naam.toLowerCase() === schoon(loc || 'Geplakt').toLowerCase());
+      if (!g) { g = { id: volgId++, naam: schoon(loc || 'Geplakt'), ouder: null, wo: true, open: true }; s.groepen.push(g); nieuw.push(g.naam); }
+      let e = leesGetal(eigen); if (e !== null && !Number.isNaN(e) && Math.abs(e) <= 1) e *= 100;
+      const uur = /^\s*uur/i.test(type);
+      const act = uur ? (HERKEN.find(([re]) => re.test(oms))?.[1] ?? null) : null;
+      if (uur && !schoon(oms)) zonder.push('(leeg)');
+      const toelichting = schoon(oms);
+      s.regels.push({ id: volgId++, groep: g.id, soort: uur ? 'uur' : 'mat', act, oms: toelichting,
+        aantal: Number.isNaN(aantal) ? null : aantal, kost: Number.isNaN(k) ? null : k, eigen: Number.isNaN(e) ? null : e, auto: false });
+      n++;
+    }
+    meld(`${n} regel${n === 1 ? '' : 's'} toegevoegd` + (nieuw.length ? `, nieuwe groep${nieuw.length === 1 ? '' : 'en'}: ${nieuw.join(', ')}` : '')
+      + (zonder.length ? `. ${zonder.length} urenregel${zonder.length === 1 ? '' : 's'} zonder deelnaam (oranje)` : '') + '.', zonder.length > 0);
+    bewaar(); render();
+  }
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-actie]'); if (!b || b.closest('#boomBody')) return;
+    switch (b.dataset.actie) {
+      case 'sluit': paneel = null; break;
+      case 'plakToe': plakToe(); return;
+      case 'wisJa': { const weg = new Set([paneel.g, ...nakomelingen(paneel.g)]); s.regels = s.regels.filter(x => !weg.has(x.groep)); s.groepen = s.groepen.filter(x => !weg.has(x.id)); paneel = null; gekozen = null; break; }
+      default: return;
+    }
+    bewaar(); render();
+  });
+  $('knopToevoegen').addEventListener('click', () => standaardToevoegen().doe());
+  $('knopToevoegenMeer').addEventListener('click', e => {
+    const knop = e.currentTarget;
+    if (knop.getAttribute('aria-expanded') === 'true') { sluitMenu(); return; }
+    const g = gekozen?.t === 'g' ? groepVan(gekozen.id) : gekozen?.t === 'r' ? groepVan(regelVan(gekozen.id)?.groep) : null;
+    openMenu(knop, [
+      ...(g ? [{ kopje: `Waar je staat: ${g.naam}` },
+        ...(gekozen.t === 'r' ? [{ tekst: '+ Regel onder deze regel', toets: 'Ctrl+Enter', doe: () => voegToe('regelNa') }] : []),
+        { tekst: `+ Regel in ${esc(g.naam)}`, toets: gekozen.t === 'g' ? 'Ctrl+Enter' : '', doe: () => { gekozen = { t: 'g', id: g.id }; voegToe('regelIn'); } },
+        { tekst: `+ Subgroep in ${esc(g.naam)}`, doe: () => { gekozen = { t: 'g', id: g.id }; voegToe('sub'); } },
+        { tekst: `+ Groep naast ${esc(g.naam)}`, doe: () => { gekozen = { t: 'g', id: g.id }; voegToe('naast'); } }, '-'] : []),
+      { tekst: '+ Groep onderaan het project', toets: g ? '' : 'Ctrl+Enter', doe: () => { gekozen = null; voegToe('groep'); } },
+    ]);
+  });
+  $('knopPromoveer').addEventListener('click', promoveer);
+  $('knopNotities').addEventListener('click', () => { paneel = paneel?.soort === 'notities' ? null : { soort: 'notities' }; render(); });
+  $('knopDegradeer').addEventListener('click', degradeer);
+  for (const k of ['ohUur', 'ohMat', 'mUur', 'mMat'])
+    $(k).addEventListener('input', () => { const n = leesGetal($(k).value); if (n !== null && !Number.isNaN(n)) { s.inst[k] = n; bewaar(); werkGetallenBij(); } });
+  $('knopDoel').addEventListener('click', maakKloppend);
+  $('doel').addEventListener('keydown', e => { if (e.key === 'Enter') maakKloppend(); });
+  $('knopInklappen').addEventListener('click', () => { s.groepen.forEach(g => g.open = kinderen(g.id).length > 0); bewaar(); render(); });
+  $('knopAlles').addEventListener('click', () => { s.groepen.forEach(g => g.open = true); bewaar(); render(); });
+  $('knopPlak').addEventListener('click', () => { paneel = { soort: 'plak' }; render(); $('plakTekst')?.focus(); });
+  $('knopBevries').addEventListener('click', async () => {
+    if (s.bevroren) {
+      if (confirm('De calculatie weer bewerkbaar maken (ontdooien)?')) await zetStatus('ontdooi');
+      return;
+    }
+    const fout = s.regels.filter(probleem);
+    if (fout.length) { meld(`Bevriezen kan nog niet: ${fout.length} urenregel${fout.length === 1 ? '' : 's'} zonder of met een dubbele deelnaam (oranje).`, true); render(); return; }
+    if (!confirm('Klant akkoord: de calculatie bevriezen? Daarna is hij niet meer te wijzigen; alleen Directie kan hem weer ontdooien.')) return;
+    await zetStatus('bevries');
+  });
+  $('tabBoom').addEventListener('click', () => { tab = 'boom'; render(); });
+  $('tabWo').addEventListener('click', () => { tab = 'wo'; render(); });
+  $('wo').addEventListener('change', e => {
+    if (e.target.name === 'kk') { kortingKeuze = e.target.value; renderWerkorders(); }
+    if (e.target.id === 'boekWo') vulBoekDelen();
+    if (e.target.id === 'boekDeel') toonBoekInfo();
+  });
+  $('wo').addEventListener('click', e => {
+    if (e.target.id !== 'knopMaak') return;
+    const p = werkorderPlan();
+    meld(`Voorbeeld: in de app worden nu ${p.rijen.length} werkorders gemaakt (waarvan ${p.rijen.filter(r => r.ouder).length} subwerkorders), met per werkorder de begrote uren per activiteit.`);
+    render(); scrollTo({ top: 0 });
+  });
+
+  (async () => {
+    thema();
+    try { await laad(); }
+    catch (e) { document.querySelector('.pagina').innerHTML = `<p class="melding let">Calculatie laden mislukt: ${esc(e.message)}</p>`; return; }
+    vulKop(); render();
+  })();
+})();
+</script>
+</body>
+</html>
