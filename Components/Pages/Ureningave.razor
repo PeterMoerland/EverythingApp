@@ -3,6 +3,7 @@
 @inject UrenService Service
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject IWerkorderDelenRepository Delen
 
 @* Nieuwe regel nog niet opgeslagen (wel iets ingevuld)? Dan eerst vragen bij weggaan: naar een andere pagina
    (OnBeforeInternalNavigation), tabblad sluiten of herladen (browser-vraag), en binnen de pagina bij een andere
@@ -160,6 +161,7 @@
                 </span>
                 <button class="klein" title="Werkorder zoeken" @onclick="() => ZoekVoor(e)">🔍</button>
             </div>
+            @DeelKeuze(e)
         </td>
         <td><input @bind="e.Omschrijving" placeholder="omschrijving" /></td>
         @* Tekstveld i.p.v. type=time: altijd 24-uurs (uu:mm), ongeacht de browsertaal.
@@ -206,6 +208,7 @@
                 <span class="wo-tekst" title="@WerkorderTekst(e.Werkorder)">@WerkorderTekst(e.Werkorder)</span>
                 <button class="klein" title="Werkorder zoeken" @onclick="() => ZoekVoor(e)">🔍</button>
             </div>
+            @DeelKeuze(e)
         </td>
         <td><input value="@e.Omschrijving" placeholder="omschrijving" @onchange="ev => ZetOmschrijving(e, ev)" /></td>
         <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
@@ -238,6 +241,29 @@
         </td>;
     };
 
+    /// <summary>
+    /// Het deel van de werkorder (wens gebruiker 10-11-2026): alleen als de werkorder delen heeft (uit een calculatie).
+    /// Dan is het verplicht (UrenService.ValideerAsync); een bestaande regel slaat zich op bij het kiezen.
+    /// </summary>
+    private RenderFragment DeelKeuze(UrenEntry e) => __builder =>
+    {
+        var delen = DelenVan(e.Werkorder);
+        if (delen.Count == 0) return;
+        <select class="wo-deel @(e.WerkorderDeelId is null ? "leeg" : "")" value="@(e.WerkorderDeelId?.ToString() ?? "")"
+                title="@DeelTitel(delen, e.WerkorderDeelId)" @onchange="ev => ZetDeel(e, ev)">
+            <option value="">— kies het deel —</option>
+            @foreach (var d in delen)
+            {
+                <option value="@d.DeelId">@d.Naam</option>
+            }
+        </select>
+    };
+
+    private static string DeelTitel(List<WerkorderDeel> delen, int? gekozen)
+        => delen.FirstOrDefault(d => d.DeelId == gekozen) is { } d
+            ? $"Deel van de werkorder (uit de calculatie): {d.Naam}, begroot {d.BegroteUren:0.##} uur"
+            : "Deze werkorder heeft delen uit de calculatie: kies waaraan je gewerkt hebt";
+
     private readonly string[] _dagNamen = { "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag" };
 
     private List<Werknemer> _werknemers = new();
@@ -266,6 +292,41 @@
     private readonly HashSet<int> _gekozen = new();
     private int _specialOrderId;
 
+    // ---- delen van werkorders (boeken op delen) ----
+    private bool _delenAan;
+    private readonly Dictionary<int, List<WerkorderDeel>> _delen = new();
+
+    private List<WerkorderDeel> DelenVan(int? werkorder)
+        => werkorder is int w && _delen.TryGetValue(w, out var l) ? l : new();
+
+    /// <summary>Haalt de delen op van werkorders die nog niet bekend zijn (een werkorder zonder delen krijgt een lege lijst).</summary>
+    private async Task LaadDelen(IEnumerable<int?> werkorders)
+    {
+        if (!_delenAan) return;
+        var nieuw = werkorders.OfType<int>().Distinct().Where(w => !_delen.ContainsKey(w)).ToList();
+        if (nieuw.Count == 0) return;
+        try
+        {
+            var gevonden = await Delen.DelenAsync(nieuw);
+            foreach (var w in nieuw) _delen[w] = gevonden.GetValueOrDefault(w) ?? new();
+        }
+        catch (Exception ex) { Toon("De delen van de werkorder ophalen lukte niet: " + ex.Message, fout: true); }
+    }
+
+    /// <summary>Na een andere werkorder: een deel van de vorige werkorder past niet meer; is er maar één deel, dan dat.</summary>
+    private void PasDeelAan(UrenEntry e)
+    {
+        var delen = DelenVan(e.Werkorder);
+        if (delen.Any(d => d.DeelId == e.WerkorderDeelId)) return;
+        e.WerkorderDeelId = delen.Count == 1 ? delen[0].DeelId : null;
+    }
+
+    private async Task ZetDeel(UrenEntry e, ChangeEventArgs ev)
+    {
+        e.WerkorderDeelId = int.TryParse((string?)ev.Value, out var v) ? v : null;
+        await BewaarRegel(e);
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Eerst (synchroon) week/jaar vullen: bij een echte database tekent Blazor de
@@ -282,6 +343,7 @@
         _tariefsoorten = await Repo.GetTariefsoortenAsync();
         _activiteiten = await Repo.GetActiviteitenAsync();
         _specialOrders = await Repo.GetSpecialOrdersAsync();
+        try { _delenAan = await Delen.BeschikbaarAsync(); } catch { _delenAan = false; }
 
         // Werknemerkeuze: eerste bestaande werknemer i.p.v. hard 1
         if (_werknemers.Count > 0 && _werknemers.All(w => w.WerknemerId != _werknemerId))
@@ -304,6 +366,7 @@
         _dagEntries = (await Repo.GetUrenVanDagAsync(_werknemerId, _datum))
             .Where(u => !u.GeneratedByRule)
             .ToList();
+        await LaadDelen(_dagEntries.Select(u => u.Werkorder));
         _bewerkt = null;
         _gekozen.Clear();
     }
@@ -485,8 +548,9 @@
     }
 
     // === Grid bewerken (Access continuous subform) ===
-    private void NieuweRegel()
+    private async Task NieuweRegel()
     {
+        await LaadDelen(new[] { _laatsteWerkorder });
         _bewerkt = new UrenEntry
         {
             StartDatum = _datum,
@@ -497,6 +561,7 @@
             UrenActiviteitId = _huidigeWerknemer?.Hoofdactiviteit, // VBA: defaultActiviteit
             FixedTypeId = 0
         };
+        PasDeelAan(_bewerkt);
         _nieuwBegin = System.Text.Json.JsonSerializer.Serialize(_bewerkt);
     }
 
@@ -573,6 +638,8 @@
         if (_kiezerVoor is null) return;
 
         _kiezerVoor.Werkorder = w.WerkbonId;
+        await LaadDelen(new int?[] { w.WerkbonId });
+        PasDeelAan(_kiezerVoor);
 
         // Gekozen werkorder ook in de lijst zetten, zodat de tekst direct klopt
         if (_workorders.All(x => x.WerkbonId != w.WerkbonId)) _workorders.Add(w);

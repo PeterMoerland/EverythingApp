@@ -19,6 +19,8 @@ public class UrenEntry
     public int FixedTypeId { get; set; }             // [FixedType-ID]
     public bool Invoiced { get; set; }
     public int? UrenActiviteitId { get; set; }
+    /// <summary>Uren.WerkorderDeelID: het deel van de werkorder (WerkorderDelen); leeg = op de werkorder zelf.</summary>
+    public int? WerkorderDeelId { get; set; }
     public int? SourceUrenId { get; set; }
     public bool GeneratedByRule { get; set; }
 }

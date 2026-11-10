@@ -71,6 +71,9 @@ public interface IUrenRepository
     Task<List<UrenEntry>> GetUrenAsync(int werknemerId, DateOnly van, DateOnly tot);
     Task<List<UrenEntry>> GetUrenVanDagAsync(int werknemerId, DateOnly dag);
     Task<UrenEntry> AddAsync(UrenEntry entry);
+
+    /// <summary>Heeft Uren de kolom WerkorderDeelID (UrenDelen_MariaDB.sql)? Zo niet, dan wordt een deel niet bewaard.</summary>
+    bool KentWerkorderDeel => false;
     Task UpdateAsync(UrenEntry entry);
     Task DeleteAsync(int urenId);
 }

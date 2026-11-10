@@ -202,10 +202,9 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
 .act { font-size: 11.5px; border: 1px solid var(--lijn); border-radius: 4px; padding: 0 5px; white-space: nowrap; font-family: var(--f-getal); }
 .act b { font-family: var(--f-tekst); font-weight: 600; }
 .wo .tabelvak { overflow-x: auto; }
-.boek { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 12px; border: 1px dashed var(--lijn); border-radius: 8px; background: var(--vlak-2); }
-.boek label { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; font-size: 13px; }
-.boek select { border: 1px solid var(--lijn); border-radius: 5px; padding: 4px 6px; background: var(--vlak); max-width: 22rem; font-weight: 400; }
-.boekinfo { font-size: 13px; color: var(--zacht); }
+.act.over { background: var(--fout-zacht); color: var(--fout); border-color: var(--fout); }
+.act.zonder { background: var(--let-zacht); color: var(--let); border-style: dashed; }
+.getal.over { color: var(--fout); }
 </style>
 </head>
 <body>
@@ -246,7 +245,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
 
   <nav class="tabs">
     <button role="tab" id="tabBoom" aria-selected="true" type="button">Calculatie</button>
-    <button role="tab" id="tabWo" aria-selected="false" type="button">Werkorders (vooruitblik)</button>
+    <button role="tab" id="tabWo" aria-selected="false" type="button">Werkorders</button>
   </nav>
 
   <div id="boom">
@@ -336,6 +335,8 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   let INFO = {}, MAG = false, MAG_ONTDOOIEN = false, GEBRUIKER = '', versie = 0, status = 0;
   /** De werkorders die deze calculatie al gemaakt heeft: { groep, werkbonId, nummer, omschrijving, budget, op, door }. */
   let WERKORDERS = [];
+  /** Begroot tegen geboekt per deel van de gemaakte werkorders: { werkbonId, deel (null = zonder deel), naam, begroot, geboekt }. */
+  let STAND = [];
   let wacht = null, bezig = false, nogEens = false, vuil = false, gestopt = false;
   /** Alleen lezen: bevroren, of geen recht om te wijzigen. */
   const RO = () => !s || s.bevroren || !MAG;
@@ -349,6 +350,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     if (!r.ok) throw new Error(o.fout || `De app antwoordde ${r.status}.`);
     INFO = o.info || {}; ACT = o.act || []; MAG = !!o.mag; MAG_ONTDOOIEN = !!o.magOntdooien; GEBRUIKER = o.gebruiker || '';
     WERKORDERS = o.werkorders || [];
+    STAND = o.stand || [];
     versie = o.versie; status = o.status;
     s = o.data && Array.isArray(o.data.groepen) && Array.isArray(o.data.regels) ? o.data : LEEG();
     s.inst = { ...LEEG().inst, ...(s.inst || {}) };
@@ -436,6 +438,8 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, minimumFractionDigits: 0 });
   const euro2 = new Intl.NumberFormat('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const uurFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 });
+  /** Geboekte uren staan op kwartieren: twee decimalen. */
+  const geboektFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 2 });
   const getalFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 4 });
   const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const schoon = n => String(n ?? '').replace(/\s+/g, ' ').trim();
@@ -819,6 +823,15 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     const gemaakt = WERKORDERS.length > 0;
     const som = k => p.rijen.reduce((a, r) => a + r[k], 0);
     const chips = delen => delen.map(x => `<span class="act" title="${esc(x.naam)}: begroot ${uurFmt.format(x.uren)} uur, ${euro.format(x.kost)} kosten${x.act ? ' · activiteit ' + esc(actVan(x.act)?.naam) : ''}"><b>${esc(x.naam)}</b> ${uurFmt.format(x.uren)} u</span>`).join('');
+    // na het aanmaken: de delen zoals ze in de app staan, met wat er al op geboekt is (Ureningave)
+    const wbVan = r => WERKORDERS.find(w => w.groep === r.g.id)?.werkbonId;
+    const standVan = r => STAND.filter(x => x.werkbonId === wbVan(r));
+    const metStand = gemaakt && INFO.boekenOpDelen;
+    const geboekt = r => standVan(r).reduce((a, x) => a + x.geboekt, 0);
+    const chipsStand = lijst => lijst.map(x => x.deel == null
+      ? `<span class="act zonder" title="Uren op de werkorder zelf, zonder deel (geboekt vóór de keuze er was, of met de hand)"><b>zonder deel</b> ${geboektFmt.format(x.geboekt)} u</span>`
+      : `<span class="act${x.begroot > 0 && x.geboekt > x.begroot ? ' over' : ''}" title="${esc(x.naam)}: ${geboektFmt.format(x.geboekt)} van ${uurFmt.format(x.begroot)} begrote uren geboekt${x.begroot > 0 ? ` (${Math.round(100 * x.geboekt / x.begroot)}%)` : ''}"><b>${esc(x.naam)}</b> ${geboektFmt.format(x.geboekt)} / ${uurFmt.format(x.begroot)} u</span>`).join('');
+    const delenCel = r => metStand && standVan(r).length ? chipsStand(standVan(r)) : chips(r.delen);
     laatstePlan = p;
     const pool = p.pool.namen.size > 0, verdeel = pool && kortingKeuze === 'verdeel';
     $('wo').innerHTML = `
@@ -829,19 +842,19 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
       ${p.problemen.length ? `<p class="melding let">${p.problemen.length} urenregel${p.problemen.length === 1 ? '' : 's'} zonder of met een dubbele deelnaam (${[...new Set(p.problemen.map(r => groepVan(r.groep)?.naam + ': ' + (schoon(r.oms) || 'leeg')))].slice(0, 4).map(esc).join(', ')}${p.problemen.length > 4 ? ', …' : ''}). Pas die eerst aan.</p>` : ''}
       ${pool ? `<p class="uitleg">Groepen zonder werkorder (${[...p.pool.namen].map(esc).join(', ')}, samen ${euro.format(p.pool.verkoop)}) worden naar rato van hun verkoop over de werkorderbudgetten verdeeld; samen zijn de budgetten precies de verkoopprijs.</p>` : ''}
       <div class="tabelvak"><table>
-        <thead><tr><th>Werkorder</th><th>Omschrijving</th><th>Delen (hierop wordt geboekt)</th><th class="r">Uren</th><th class="r">Kosten uren</th>
+        <thead><tr><th>Werkorder</th><th>Omschrijving</th><th>${metStand ? 'Delen: geboekt / begroot' : 'Delen (hierop wordt geboekt)'}</th><th class="r">Uren</th>${metStand ? '<th class="r">Geboekt</th>' : ''}<th class="r">Kosten uren</th>
           <th class="r">Kosten materiaal</th><th class="r">Verkoop</th>${verdeel ? '<th class="r">Aandeel korting</th>' : ''}<th class="r">Budget</th></tr></thead>
         <tbody>${p.rijen.map(r => `<tr>
           <td class="wonr" style="padding-left:${8 + r.d * 20}px">${r.d ? '↳ ' : ''}${nummer(r)}</td>
           <td>${esc(r.g.naam)}${(r.g.aantal ?? 1) !== 1 ? ` <b>× ${getalFmt.format(r.g.aantal)}</b>` : ''}${r.ouder ? ` <small style="color:var(--zacht)">sub van ${nrVan(r.ouder)}</small>` : ''}</td>
-          <td><div class="acts">${chips(r.delen) || '<span style="color:var(--zacht)">—</span>'}</div></td>
-          <td class="getal">${uurFmt.format(r.uren)}</td><td class="getal">${euro.format(r.kostUur)}</td><td class="getal">${euro.format(r.kostMat)}</td>
+          <td><div class="acts">${delenCel(r) || '<span style="color:var(--zacht)">—</span>'}</div></td>
+          <td class="getal">${uurFmt.format(r.uren)}</td>${metStand ? `<td class="getal${geboekt(r) > r.uren ? ' over' : ''}">${geboektFmt.format(geboekt(r))}</td>` : ''}<td class="getal">${euro.format(r.kostUur)}</td><td class="getal">${euro.format(r.kostMat)}</td>
           <td class="getal">${euro.format(r.verkoop)}</td>${verdeel ? `<td class="getal">${euro.format(r.aandeel)}</td>` : ''}
           <td class="getal"><b>${euro.format(r.budget)}</b></td></tr>`).join('')}
           ${pool && kortingKeuze === 'apart' ? `<tr><td>—</td><td>Korting op het projectbudget (geen werkorder)</td><td></td><td></td><td></td><td></td>
             <td class="getal">${euro.format(p.pool.verkoop)}</td><td class="getal">${euro.format(p.pool.verkoop)}</td></tr>` : ''}
         </tbody>
-        <tfoot><tr><td colspan="3">Totaal = verkoopprijs offerte</td><td class="getal">${uurFmt.format(som('uren'))}</td>
+        <tfoot><tr><td colspan="3">Totaal = verkoopprijs offerte</td><td class="getal">${uurFmt.format(som('uren'))}</td>${metStand ? `<td class="getal">${geboektFmt.format(p.rijen.reduce((a, r) => a + geboekt(r), 0))}</td>` : ''}
           <td class="getal">${euro.format(som('kostUur'))}</td><td class="getal">${euro.format(som('kostMat'))}</td>
           <td class="getal">${euro.format(som('verkoop') + (kortingKeuze === 'apart' ? p.pool.verkoop : 0))}</td>${verdeel ? `<td class="getal">${euro.format(som('aandeel'))}</td>` : ''}
           <td class="getal">${euro.format(som('budget') + (kortingKeuze === 'apart' ? p.pool.verkoop : 0))}</td></tr></tfoot>
@@ -850,14 +863,9 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
         ${gemaakt ? '' : `<button class="knop primair" type="button" id="knopMaak" ${kanMaken(p) ? '' : 'disabled'}>Werkorders aanmaken</button>`}
         <small style="color:var(--zacht)">${maakUitleg(p)}</small>
       </div>
-      <h2>Uren boeken (volgt)</h2>
-      <p class="uitleg">In de urenregistratie kies je eerst de werkorder, daarna het deel. Heeft een werkorder delen, dan is het deel verplicht. De activiteit blijft zoals nu (standaard de hoofdactiviteit van de medewerker).</p>
-      <div class="boek">
-        <label>Werkorder <select id="boekWo">${p.rijen.map(r => `<option value="${r.g.id}">${'· '.repeat(r.d)}${nummer(r)} ${esc(r.g.naam)}</option>`).join('')}</select></label>
-        <label>Deel <select id="boekDeel"></select></label>
-        <span id="boekInfo" class="boekinfo"></span>
-      </div>`;
-    vulBoekDelen();
+      <h2>Uren boeken</h2>
+      <p class="uitleg">In Ureningave kies je eerst de werkorder, daarna onder de werkorder het deel. Heeft een werkorder delen, dan is het deel verplicht. De activiteit blijft zoals nu (standaard de hoofdactiviteit van de medewerker).${metStand ? ' Hierboven per deel de geboekte tegen de begrote uren (rood = meer geboekt dan begroot); de nacalculatie toont hetzelfde per werkorder.' : ''}</p>
+      ${gemaakt && !INFO.boekenOpDelen ? '<p class="melding let">Boeken op delen staat nog niet aan: eerst moet UrenDelen_MariaDB.sql op de database gedraaid worden (daarna de app herstarten).</p>' : ''}`;
   }
 
   /** Werkorders aanmaken kan: bevroren, recht, nog niet gedaan, script gedraaid, geen fouten in de delen, iets te maken. */
@@ -892,22 +900,6 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   }
 
   let laatstePlan = null;
-  function vulBoekDelen() {
-    const wo = document.getElementById('boekWo'), deel = document.getElementById('boekDeel');
-    if (!wo || !deel || !laatstePlan) return;
-    const rij = laatstePlan.rijen.find(r => String(r.g.id) === wo.value);
-    const delen = rij?.delen ?? [];
-    deel.innerHTML = delen.length ? '<option value="">— kies het deel —</option>' + delen.map((x, i) => `<option value="${i}">${esc(x.naam)}</option>`).join('')
-      : '<option value="">(geen delen: boeken op de werkorder)</option>';
-    toonBoekInfo();
-  }
-  function toonBoekInfo() {
-    const wo = document.getElementById('boekWo'), deel = document.getElementById('boekDeel'), info = document.getElementById('boekInfo');
-    if (!wo || !deel || !info || !laatstePlan) return;
-    const x = laatstePlan.rijen.find(r => String(r.g.id) === wo.value)?.delen?.[Number(deel.value)];
-    info.innerHTML = deel.value === '' ? (deel.options.length > 1 ? 'Kies een deel om te kunnen opslaan.' : '')
-      : `Begroot <b>${uurFmt.format(x.uren)} uur</b> (${euro.format(x.kost)} kosten)${x.act ? ` · tarief ${esc(actVan(x.act)?.naam)}` : ''}. Na het boeken zie je hier ook hoeveel er al op staat.`;
-  }
 
   function renderPaneel() {
     const plek = $('paneelplek');
@@ -1410,10 +1402,6 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
   });
   $('tabBoom').addEventListener('click', () => { tab = 'boom'; render(); });
   $('tabWo').addEventListener('click', () => { tab = 'wo'; render(); });
-  $('wo').addEventListener('change', e => {
-    if (e.target.id === 'boekWo') vulBoekDelen();
-    if (e.target.id === 'boekDeel') toonBoekInfo();
-  });
   $('wo').addEventListener('click', e => {
     if (e.target.id === 'knopMaak') maakWerkorders();
   });

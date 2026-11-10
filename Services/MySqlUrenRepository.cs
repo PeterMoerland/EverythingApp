@@ -628,6 +628,7 @@ public class MySqlUrenRepository : IUrenRepository
         string? ft = Col(t, "FixedType-ID", "fixedtype_id", "fixedtypeid");
         string? inv = Col(t, "Invoiced", "invoiced");
         string? act = Col(t, "UrenActiviteitID", "urenactiviteitid", "uren_activiteit_id");
+        string? deel = Col(t, "WerkorderDeelID", "werkorderdeelid");
         string? src = Col(t, "SourceUrenID", "sourceurenid", "source_uren_id");
         string? gbr = Col(t, "GeneratedByRule", "generatedbyrule", "generated_by_rule");
 
@@ -637,7 +638,7 @@ public class MySqlUrenRepository : IUrenRepository
             $"`{uid}` AS uid", $"`{sd}` AS sd", F(st,"st","NULL"), F(ed,"ed","NULL"), F(et,"et","NULL"),
             $"`{wn}` AS wn", F(uren,"uren","0"), F(wo,"wo","NULL"), F(km,"km","0"), F(pkm,"pkm","0"),
             F(oms,"oms","NULL"), F(ts,"ts","0"), F(fa,"fa","0"), F(ft,"ft","0"), F(inv,"inv","0"),
-            F(act,"act","NULL"), F(src,"src","NULL"), F(gbr,"gbr","0")
+            F(act,"act","NULL"), F(deel,"deel","NULL"), F(src,"src","NULL"), F(gbr,"gbr","0")
         });
         return (cols, t, wn, sd);
     }
@@ -660,6 +661,7 @@ public class MySqlUrenRepository : IUrenRepository
         FixedTypeId = I(r["ft"]),
         Invoiced = B(r["inv"]),
         UrenActiviteitId = IN(r["act"]),
+        WerkorderDeelId = IN(r["deel"]),
         SourceUrenId = IN(r["src"]),
         GeneratedByRule = B(r["gbr"])
     };
@@ -717,6 +719,7 @@ public class MySqlUrenRepository : IUrenRepository
             (new[]{"Fixed_Amount","fixed_amount","fixedamount"}, e.FixedAmount),
             (new[]{"FixedType-ID","fixedtype_id","fixedtypeid"}, e.FixedTypeId),
             (new[]{"UrenActiviteitID","urenactiviteitid","uren_activiteit_id"}, (object?)e.UrenActiviteitId),
+            (new[]{"WerkorderDeelID","werkorderdeelid"}, (object?)e.WerkorderDeelId),
             (new[]{"GeneratedByRule","generatedbyrule","generated_by_rule"}, e.GeneratedByRule),
         };
         var list = new List<(string, object?)>();
@@ -726,6 +729,16 @@ public class MySqlUrenRepository : IUrenRepository
             if (c != null) list.Add((c, d.val));
         }
         return list;
+    }
+
+    /// <summary>Uren.WerkorderDeelID bestaat (UrenDelen_MariaDB.sql); gelezen bij het eerste gebruik, dus na het script herstarten.</summary>
+    public bool KentWerkorderDeel
+    {
+        get
+        {
+            try { return Col(Tbl("Uren", "uren"), "WerkorderDeelID", "werkorderdeelid") != null; }
+            catch { return false; }
+        }
     }
 
     public async Task<UrenEntry> AddAsync(UrenEntry e)

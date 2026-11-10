@@ -1,5 +1,6 @@
 @page "/financien/nacalculatie"
 @inject INacalculatieRepository Repo
+@inject IWerkorderDelenRepository Delen
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
@@ -363,7 +364,8 @@
                         {
                             var uren = UrenRegels(w.Id);
                             var zonder = _data.ZonderTarief.Where(z => z.WerkorderId == w.Id && (_jaar is null || z.Jaar == _jaar)).ToList();
-                            @if (uren.Count == 0 && zonder.Count == 0) { continue; }
+                            var delen = _stand.Where(s => s.WerkbonId == w.Id).ToList();
+                            @if (uren.Count == 0 && zonder.Count == 0 && delen.Count == 0) { continue; }
                             <div class="nc-groep">@w.Nummer · @w.Omschrijving</div>
                             @if (uren.Count > 0)
                             {
@@ -406,6 +408,34 @@
                                     <tfoot>
                                         <tr><td colspan="2">Totaal @w.Nummer</td><td class="r">@Getal(uren.Sum(u => u.Uren))</td>
                                             <td class="r">@Getal(uren.Sum(u => u.Km))</td><td></td><td class="r">@Geld(uren.Sum(u => u.Totaal))</td></tr>
+                                    </tfoot>
+                                </table>
+                            }
+                            @if (delen.Count > 0)
+                            {
+                                @* boeken op delen (10-11-2026): de delen uit de calculatie, altijd over alle jaren *@
+                                <table class="kiezer-tabel nc-tabel nc-delen">
+                                    <thead>
+                                        <tr><th>Deel (uit de calculatie, alle jaren)</th><th class="r">Begroot</th><th class="r">Geboekt</th>
+                                            <th class="r">Verschil</th><th class="r">%</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var d in delen)
+                                        {
+                                            var over = d.BegroteUren > 0 && d.Geboekt > d.BegroteUren;
+                                            <tr class="@(d.DeelId is null ? "nc-deel-zonder" : over ? "nc-deel-over" : "")"
+                                                title="@(d.DeelId is null ? "Uren op de werkorder zelf, zonder deel" : null)">
+                                                <td>@d.Naam</td>
+                                                <td class="r">@(d.DeelId is null ? "" : Getal(d.BegroteUren))</td>
+                                                <td class="r">@Getal(d.Geboekt)</td>
+                                                <td class="r">@(d.DeelId is null ? "" : Getal(d.Geboekt - d.BegroteUren))</td>
+                                                <td class="r">@(d.BegroteUren > 0 ? Math.Round(100 * d.Geboekt / d.BegroteUren) + "%" : "")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr><td>Totaal @w.Nummer</td><td class="r">@Getal(delen.Sum(d => d.BegroteUren))</td><td class="r">@Getal(delen.Sum(d => d.Geboekt))</td>
+                                            <td class="r">@Getal(delen.Sum(d => d.Geboekt) - delen.Sum(d => d.BegroteUren))</td><td></td></tr>
                                     </tfoot>
                                 </table>
                             }
@@ -471,6 +501,7 @@
     private readonly HashSet<int> _gekozenProjecten = new();
     private readonly HashSet<int> _gekozenWerkorders = new();
     private NacalcData _data = new();
+    private List<DeelStand> _stand = new();   // begroot tegen geboekt per deel (werkorders uit een calculatie)
     private readonly Dictionary<(int, int), List<NacalcUurRegel>> _details = new();
     private CancellationTokenSource? _pauze;
     private bool _bewaardGelezen;
@@ -616,6 +647,8 @@
         keuze = NacalcBoom.Ordenen(keuze).Select(x => x.Werkorder).ToList();
         try { _data = await Repo.LaadAsync(keuze); }
         catch (Exception ex) { _melding = "Kosten ophalen mislukt: " + ex.Message; _data = new(); }
+        try { _stand = await Delen.StandAsync(keuze.Select(w => w.Id).ToList()); }
+        catch { _stand = new(); }
         if (_jaar is int j && !Jaren.Contains(j)) _jaar = null;
     }
 

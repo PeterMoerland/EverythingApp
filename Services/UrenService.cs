@@ -10,7 +10,8 @@ namespace EverythingApp.Services;
 public class UrenService
 {
     private readonly IUrenRepository _repo;
-    public UrenService(IUrenRepository repo) => _repo = repo;
+    private readonly IWerkorderDelenRepository _delen;
+    public UrenService(IUrenRepository repo, IWerkorderDelenRepository delen) { _repo = repo; _delen = delen; }
 
     // === VBA: DatumVanJaarWeekDag (ISO week rule) — .NET has this built in ===
     public static DateOnly DatumVanJaarWeekDag(int jaar, int week, int weekdag /*1=ma..7=zo*/)
@@ -121,6 +122,16 @@ public class UrenService
         if (wo.WorkorderStatus == 0)
             return "Deze werkbon is al gesloten. Hier zijn geen uren meer op te boeken " +
                    "omdat de werkorder waarschijnlijk al gefactureerd is.";
+
+        // Boeken op delen (10-11-2026): heeft de werkorder delen (uit een calculatie), dan hoort er een deel bij.
+        if (await _delen.BeschikbaarAsync())
+        {
+            var delen = (await _delen.DelenAsync(new[] { wo.WerkbonId })).GetValueOrDefault(wo.WerkbonId) ?? new();
+            if (delen.Count > 0 && e.WerkorderDeelId is null)
+                return $"Kies het deel van werkorder {wo.Weergave} (onder de werkorder): de uren worden per deel bijgehouden.";
+            if (e.WerkorderDeelId is int d && delen.All(x => x.DeelId != d))
+                return $"Het gekozen deel hoort niet (meer) bij werkorder {wo.Weergave}; kies het deel opnieuw.";
+        }
         return null; // OK
     }
 
@@ -194,7 +205,7 @@ public class UrenService
         Kilometers = b.Kilometers, PriveKMs = b.PriveKMs,
         Omschrijving = b.Omschrijving, TariefsoortId = b.TariefsoortId,
         FixedAmount = b.FixedAmount, FixedTypeId = b.FixedTypeId,
-        UrenActiviteitId = b.UrenActiviteitId, SourceUrenId = b.SourceUrenId,
+        UrenActiviteitId = b.UrenActiviteitId, WerkorderDeelId = b.WerkorderDeelId, SourceUrenId = b.SourceUrenId,
         GeneratedByRule = b.GeneratedByRule
     };
 

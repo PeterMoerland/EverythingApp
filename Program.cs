@@ -172,6 +172,11 @@ if (liveDb)
     else
         builder.Services.AddSingleton<ICalculatieRepository>(_ => new MySqlCalculatieRepository(cs!));
     builder.Services.AddSingleton<ISamenstellingRepository>(_ => new MySqlSamenstellingRepository(cs!));
+    // uren boeken op de delen van een werkorder; lokaal testen zonder de kolom en zonder echte delen: UrenDelen__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("UrenDelen:Geheugen"))
+        builder.Services.AddSingleton<IWerkorderDelenRepository, GeheugenWerkorderDelenRepository>();
+    else
+        builder.Services.AddSingleton<IWerkorderDelenRepository>(sp => new MySqlWerkorderDelenRepository(cs!, sp.GetRequiredService<IUrenRepository>()));
     // lokaal testen zonder in Locations te schrijven: Lokaties__Geheugen=true (leest echt)
     if (builder.Configuration.GetValue<bool>("Lokaties:Geheugen"))
         builder.Services.AddSingleton<ILokatieRepository>(_ => new GeheugenLokatieRepository(new MySqlLokatieRepository(cs!)));
@@ -249,6 +254,7 @@ else
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ICalculatieRepository, GeenCalculatieRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
+    builder.Services.AddSingleton<IWerkorderDelenRepository, GeenWerkorderDelenRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
     builder.Services.AddSingleton<IVoorraadRepository, GeenVoorraadRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();
@@ -716,7 +722,8 @@ static bool MagCalculatie(HuidigeGebruiker ik) => ik.Gekoppeld || ik.Mag("Direct
 var calcJson = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 var calcApi = app.MapGroup("/calculaties/api");
 if (loginAan) calcApi.RequireAuthorization();
-calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository repo, IOfferteRepository offertes, HuidigeGebruiker ik) =>
+calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository repo, IOfferteRepository offertes, HuidigeGebruiker ik,
+                                          IWerkorderDelenRepository delen) =>
 {
     await ik.ZorgGeladenAsync();
     var o = await offertes.GetAsync(offerteId);
@@ -725,13 +732,17 @@ calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository r
     var act = (await repo.TarievenAsync()).Select(t => new { id = t.ActiviteitId, naam = t.Naam, tarief = t.Kostprijs ?? 0m });
     var woTabel = await repo.WerkorderTabelAanwezigAsync();
     var werkorders = woTabel ? await repo.WerkordersAsync(offerteId) : new List<CalculatieWerkorder>();
+    var boeken = await delen.BeschikbaarAsync();
+    var stand = boeken && werkorders.Count > 0 ? await delen.StandAsync(werkorders.Select(w => w.WerkbonId).ToList()) : new List<DeelStand>();
     var wanneer = c.Bevroren && c.BevrorenOp is DateTime b
         ? $"Bevroren {b:dd-MM-yyyy HH:mm}{(c.BevrorenDoor.Length > 0 ? " door " + c.BevrorenDoor : "")}"
         : c.GewijzigdOp is DateTime g ? $"Opgeslagen {g:dd-MM-yyyy HH:mm}{(c.GewijzigdDoor.Length > 0 ? " door " + c.GewijzigdDoor : "")}" : "";
     return Results.Json(new
     {
         info = new { offertenr = o.OfferteNr, offerte = o.Omschrijving, project = $"{o.Projectnummer} · {o.Project}", projectnr = o.Projectnummer, klant = o.Klant, bv = o.Bv,
-                     projectId = o.ProjectId, volgendWerkbon = await repo.VolgendWerkbonnummerAsync(o.ProjectId), werkorderTabel = woTabel },
+                     projectId = o.ProjectId, volgendWerkbon = await repo.VolgendWerkbonnummerAsync(o.ProjectId), werkorderTabel = woTabel,
+                     boekenOpDelen = boeken },
+        stand = stand.Select(s => new { werkbonId = s.WerkbonId, deel = s.DeelId, naam = s.Naam, begroot = s.BegroteUren, geboekt = s.Geboekt }),
         werkorders = werkorders.Select(w => new { groep = w.GroepId, werkbonId = w.WerkbonId, nummer = w.Nummer, omschrijving = w.Omschrijving,
                                                    budget = w.Budget, op = w.AangemaaktOp?.ToString("dd-MM-yyyy HH:mm") ?? "", door = w.AangemaaktDoor }),
         act,

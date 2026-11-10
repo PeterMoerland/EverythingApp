@@ -333,6 +333,31 @@ verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu t
 (soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
 zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
 
+## Calculaties, stap 3: uren boeken op de delen van een werkorder (10-11-2026)
+
+Wens gebruiker: per deel zien of het uitloopt. Zoals het ontwerp in de boom al zei: heeft een werkorder delen, dan is
+het deel **verplicht**; de activiteit blijft zoals ze was (het deel zet hem niet).
+- Script **`UrenDelen_MariaDB.sql`**: `Uren.WerkorderDeelID` (INT NULL, index). Daarna de app **herstarten**:
+  `MySqlUrenRepository` leest de kolommen één keer; `KentWerkorderDeel` (nieuw op `IUrenRepository`, standaard false)
+  zegt of de kolom er is, en zonder kolom staat alles uit (geen keuze, geen controle), zodat het scherm nooit een deel
+  vraagt dat niet bewaard wordt.
+- `Services/IWerkorderDelenRepository.cs`: `BeschikbaarAsync` (kolom + tabel WerkorderDelen), `DelenAsync` (actieve delen
+  per werkorder), `StandAsync` (begroot tegen geboekt per deel, ook inactieve delen, plus "zonder deel" = uren op een
+  werkorder met delen maar zonder deel; zonder `GeneratedByRule`-regels). Geen / MySql / Geheugen
+  (`UrenDelen__Geheugen=true`: elke werkorder drie nepdelen met een nepstand).
+- **Ureningave**: onder de werkorder een keuzelijst (`DeelKeuze`, oranje zolang leeg) als de werkorder delen heeft;
+  één deel = vanzelf gekozen (`PasDeelAan`, ook bij een andere werkorder); bestaande regel slaat op bij het kiezen.
+  `UrenService.ValideerAsync` eist het deel en controleert dat het bij de werkorder hoort; Plak kopieert het deel mee.
+- **Calculatie, tabblad Werkorders** (na het aanmaken): delen als `geboekt / begroot u` (rood = meer dan begroot, gestippeld
+  = zonder deel) en een kolom Geboekt; GET `/calculaties/api/{offerte}` geeft `stand` en `info.boekenOpDelen`. Het
+  voorbeeldje "Uren boeken (volgt)" (`vulBoekDelen`) is weg; het tabblad heet geen "vooruitblik" meer.
+- **Nacalculatie**, tab Uren (en Alles): per werkorder met delen een tabel Deel / Begroot / Geboekt / Verschil / %, altijd
+  over alle jaren (het jaarfilter geldt daar niet).
+- Lokaal getest met `UrenDelen__Geheugen` + `Calculaties__Geheugen`: keuze in een nieuwe regel (niet opgeslagen,
+  Annuleren), nacalculatie van 224112 (rechten tijdelijk open, teruggezet), het tabblad Werkorders met nepgegevens in de
+  browser (fetch vervangen). **Niet getest**: opslaan van een regel met deel en de SQL van `StandAsync` tegen de echte
+  database (de kolom bestaat nog niet).
+
 ## Calculaties, stap 2: werkorders aanmaken bij klant akkoord (10-11-2026)
 
 Besluiten gebruiker: groepen zonder werkorder (korting, afronding) **naar rato** over de werkorderbudgetten (de

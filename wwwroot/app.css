@@ -246,6 +246,10 @@ button.rood { color: var(--rood); border-color: var(--rood); background: #fff; }
 /* ===== werkordercel met zoekknop ===== */
 .wo-cel { display: flex; align-items: center; gap: .25rem; }
 .wo-tekst { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Ureningave: deel van de werkorder (boeken op delen, 10-11-2026) */
+.wo-deel { display: block; width: 100%; margin-top: .2rem; font-size: .9em; }
+.wo-deel.leeg { border: 1px solid #e0a040; background: #fff6e8; }
+html[data-thema="donker"] .wo-deel.leeg { background: #3a2a14; border-color: #b07a2a; }
 
 /* ===== zoekvenster werkorder ===== */
 .kiezer { background: #fff; border-radius: 8px; width: min(72rem, 94vw); max-height: 80vh;
@@ -3870,6 +3874,9 @@ html[data-thema="donker"] .nc-subtotaal td { background: #222b37; border-top-col
 .nc-klik:hover { background: rgba(26, 95, 180, .07); }
 .nc-groep { font-weight: 600; margin: .9rem 0 .3rem; }
 .nc-let { color: #c46a14; margin-left: .2rem; }
+.nc-delen { margin-top: .5rem; }
+.nc-delen tr.nc-deel-over td { color: var(--rood); }
+.nc-delen tr.nc-deel-zonder td { color: #9a4a00; font-style: italic; }
 .nc-zonder { color: #9a4a00; background: #fff6e8; border-radius: 4px; padding: .3rem .5rem; margin: .2rem 0 .8rem; font-size: .92em; }
 .nc-geannuleerd td { color: #8a929c; text-decoration: line-through; }
 .nc-details > td { background: #f6f8fb; padding: .3rem .6rem .6rem 1.5rem; }
