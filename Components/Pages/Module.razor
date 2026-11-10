@@ -41,7 +41,7 @@ else
                     {
                         <a class="tegel klaar" href="@onder.Adres">
                             <span class="tegel-icoon">@Svg(onder.Icoon)</span>
-                            <span class="tegel-tekst"><span class="tegel-label">@onder.Naam</span></span>
+                            <span class="tegel-tekst"><span class="tegel-label">@Afbreekbaar(onder.Naam)</span></span>
                         </a>
                     }
                 </div>
@@ -63,7 +63,7 @@ else
                                 {
                                     <a class="tegel klaar" href="@item.Url.TrimStart('/')">
                                         <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
-                                        <span class="tegel-tekst"><span class="tegel-label">@item.Label</span></span>
+                                        <span class="tegel-tekst"><span class="tegel-label">@Afbreekbaar(item.Label)</span></span>
                                     </a>
                                 }
                                 else
@@ -71,7 +71,7 @@ else
                                     <span class="tegel nog-niet" title="Nog niet gemigreerd — gebruik hiervoor voorlopig Access">
                                         <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
                                         <span class="tegel-tekst">
-                                            <span class="tegel-label">@item.Label</span>
+                                            <span class="tegel-label">@Afbreekbaar(item.Label)</span>
                                             <span class="tegel-status">in Access</span>
                                         </span>
                                     </span>
@@ -93,6 +93,14 @@ else
 @code {
     /// <summary>Icoon van een tegel (Lucide, Menu.cs); onbekend = niets.</summary>
     private MarkupString Svg(string? naam) => new(Iconen.MenuSvg(naam) ?? "");
+
+    /// <summary>
+    /// Lange samenstellingen in een tegel netjes laten afbreken (melding gebruiker 10-11-2026: "Geheimhoudingsovereenkomsten"
+    /// liep over de rand). De browser heeft niet altijd een Nederlands afbreekwoordenboek, dus een zacht afbreekstreepje na
+    /// de tussen-s van -ings, -heids en -teits (alleen in de tegel; het menulabel en zoeken blijven zoals ze zijn).
+    /// </summary>
+    private static string Afbreekbaar(string label)
+        => System.Text.RegularExpressions.Regex.Replace(label, @"(?<=\p{L}{4}(?:ings|heids|teits))(?=\p{L}{5})", "\u00AD");
 
     [Parameter] public string? Sleutel { get; set; }
 

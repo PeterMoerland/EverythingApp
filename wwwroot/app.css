@@ -843,7 +843,7 @@ th.c, td.c { text-align: center; }
 .tegel.nog-niet .tegel-label { color: #97a1ad; }
 .tegel-status { font-size: .72em; color: #aab3bd; }
 .tegel-tekst { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
-.tegel-label { font-size: 1.02em; }
+.tegel-label { font-size: 1.02em; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }   /* lange woorden (Geheimhoudingsovereenkomsten) niet over de rand */
 .tegel-icoon { flex: 0 0 auto; width: 2.4rem; height: 2.4rem; border-radius: 8px; display: grid; place-items: center;
                background: #eef3fa; color: var(--accent); }
 .tegel-icoon svg { width: 1.45rem; height: 1.45rem; }
@@ -2340,6 +2340,13 @@ html[data-thema="donker"] .ui-elders td { background: #33290f; }
 .lq-dagvlak.gekozen { fill: rgba(26, 95, 180, .16); }
 .lq-as { display: flex; justify-content: space-between; gap: 1rem; font-size: .8rem; color: #667; }
 .lq-onder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-top: .8rem; align-items: start; }
+.lq-telaat { width: 100%; table-layout: fixed; }
+.lq-telaat td { font-variant-numeric: tabular-nums; }
+.lq-telaat .lq-kap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lq-factuur { all: unset; cursor: pointer; color: #1f5fa8; text-decoration: underline; white-space: nowrap; }
+.lq-factuur:hover, .lq-factuur:focus-visible { color: #123f73; }
+html[data-thema="donker"] .lq-factuur { color: #9ec4f5; }
+@media (max-width: 900px) { .lq-onder { grid-template-columns: minmax(0, 1fr); } }
 .lq-details { border: 1px solid #dfe4ea; border-radius: 6px; padding: .5rem .75rem; background: #fff; }
 @media (max-width: 900px) { .lq-onder { grid-template-columns: 1fr; } }
 html[data-thema="donker"] .lq-kaart,
@@ -3907,6 +3914,8 @@ html[data-thema="donker"] .bon-klaar { background: #173a26; color: #9fe0b3; }
 .inbox-tabel { width: 100%; }
 .inbox-tabel td { vertical-align: top; }
 .inbox-label { display: inline-block; margin: 0 .3rem .15rem 0; padding: 0 .4rem; border-radius: 4px; background: #eef1f6; font-size: .85em; }
+.inbox-label.inbox-al { background: #e7f3e7; border-color: #9c9; color: #1e5c1e; }
+html[data-thema="donker"] .inbox-label.inbox-al { background: #1c3222; border-color: #3c7a4c; color: #a5e6b4; }
 .inbox-fout { color: #b3261e; }
 .inbox-herkomst { margin-bottom: .6rem; padding: .5rem .7rem; border-left: 4px solid #e0b44a; background: #fffaf0; border-radius: 4px; }
 .inbox-opm { margin-top: .2rem; font-style: italic; }

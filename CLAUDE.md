@@ -239,6 +239,17 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
 
+## Factuurinbox: al ingevoerde facturen weghalen (10-11-2026)
+
+Michiel voert inkomende facturen nog in Access in, dus die bleven in Inkomende facturen > Te beoordelen staan. Nu krijgt
+elk stuk dat al bij Inkomende facturen staat het label "✓ al ingevoerd" en haalt de knop **Al ingevoerde weghalen (n)**
+ze in één keer weg (FactuurInbox status 1 = verwerkt, met de gevonden factuur). Regels in `InboxDubbel`
+(`Services/IFactuurRepository.cs`): zelfde factuurnummer (genormaliseerd: zonder spaties, punten, streepjes, schuine
+strepen, `_`; hoofdletters gelijk) en hetzelfde totaal (5 cent) of een woord uit de leveranciersnaam (kort nummer < 4
+tekens: beide). Mislukte het uitlezen (geen nummer), dan nummers uit onderwerp en bestandsnaam (min. 5 tekens, 4 cijfers),
+en dan moet een woord uit afzender of onderwerp in de leveranciersnaam staan. Zoeken: `IFactuurRepository.ZoekOpNummersAsync`.
+Lokaal tegen de echte inbox bekeken (155 van 225 herkend), niet weggehaald.
+
 ## Verzekeringen (9-11-2026)
 
 Financiën > Organisatie > **Verzekeringen** (`Components/Pages/Verzekeringen.razor`, `Services/IVerzekeringRepository.cs`),

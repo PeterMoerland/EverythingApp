@@ -49,6 +49,13 @@
                         <button class="klein" @onclick="NuOphalen" title="Meteen in de factuurmailbox kijken">⟳ Nu ophalen</button>
                     }
                     <button class="klein" @onclick="LaadInbox">Ververs</button>
+                    @if (_alIngevoerd.Count > 0)
+                    {
+                        <button class="klein" @onclick="AlIngevoerdeWeghalen"
+                                title="Deze staan al bij Inkomende facturen (zelfde factuurnummer, en hetzelfde totaal of dezelfde leverancier), bv. omdat ze in Access zijn ingevoerd">
+                            ✓ Al ingevoerde weghalen (@_alIngevoerd.Count)
+                        </button>
+                    }
                     <button class="klein" @onclick="() => _inboxOpen = false">✕</button>
                 </div>
                 @if (_inbox.Count == 0)
@@ -86,6 +93,10 @@
                                         @foreach (var b in Bijzonderheden(s))
                                         {
                                             <span class="inbox-label">@b</span>
+                                        }
+                                        @if (_alIngevoerd.TryGetValue(s.Id, out var al))
+                                        {
+                                            <span class="inbox-label inbox-al" title="Staat al bij Inkomende facturen: @al.Leverancier, @al.Nummer, @Bedrag(al.Totaal)">✓ al ingevoerd@(al.Datum is DateOnly ad ? " (" + ad.ToString("dd-MM-yyyy") + ")" : "")</span>
                                         }
                                         @if (s.Melding.Length > 0) { <span class="inbox-fout" title="@s.Melding">⚠ @Kort(s.Melding, 60)</span> }
                                     </td>
@@ -736,8 +747,57 @@
             var lijst = await Inbox.TeBeoordelenAsync(500);
             _inbox = lijst.Select(s => (s, InboxGelezen.VanJson(s.Gelezen))).ToList();
             _inboxAantal = _inbox.Count;
+            await ZoekAlIngevoerd();
         }
         catch (Exception ex) { Toon("De inbox ophalen mislukte: " + ex.Message, true); }
+    }
+
+    // ---- al ingevoerd (bv. in Access): zelfde factuurnummer bij Inkomende facturen (wens gebruiker 10-11-2026) ----
+    private Dictionary<int, FactuurOpNummer> _alIngevoerd = new();
+
+    private async Task ZoekAlIngevoerd()
+    {
+        _alIngevoerd = new();
+        // het gelezen factuurnummer; als het uitlezen mislukte: nummers uit het onderwerp en de bestandsnaam
+        static bool ZonderNummer(FactuurUitPdf? g) => (g?.Factuurnummer ?? "").Trim().Length == 0;
+        var nummers = _inbox.Select(x => x.Gelezen?.Factuurnummer ?? "").Where(n => n.Trim().Length > 0)
+            .Concat(_inbox.Where(x => ZonderNummer(x.Gelezen)).SelectMany(x => InboxDubbel.NummersUit(x.Stuk.MailOnderwerp + " " + x.Stuk.BijlageNaam)))
+            .ToList();
+        if (nummers.Count == 0) return;
+        try
+        {
+            var kandidaten = await Repo.ZoekOpNummersAsync(nummers);
+            foreach (var (s, g) in _inbox)
+            {
+                var f = ZonderNummer(g)
+                    ? InboxDubbel.ZoekOpMail(s.MailOnderwerp, s.BijlageNaam, s.MailVan, kandidaten)
+                    : InboxDubbel.Zoek(g, kandidaten);
+                if (f is not null) _alIngevoerd[s.Id] = f;
+            }
+        }
+        catch (Exception ex) { Toon("Controleren op al ingevoerde facturen mislukte: " + ex.Message, true); }
+    }
+
+    /// <summary>De stukken die al bij Inkomende facturen staan afhandelen als verwerkt, gekoppeld aan die factuur.</summary>
+    private async Task AlIngevoerdeWeghalen()
+    {
+        if (_alIngevoerd.Count == 0) return;
+        var voorbeelden = string.Join("\n", _inbox.Where(x => _alIngevoerd.ContainsKey(x.Stuk.Id)).Take(8)
+            .Select(x => $"• {(x.Gelezen?.Leverancier is { Length: > 0 } l ? l : x.Stuk.MailOnderwerp)} {x.Gelezen?.Factuurnummer}"));
+        if (!await Vraag($"{_alIngevoerd.Count} stuk(ken) staan al bij Inkomende facturen en gaan uit Te beoordelen:\n{voorbeelden}" +
+                         (_alIngevoerd.Count > 8 ? "\n…" : ""))) return;
+        var n = 0;
+        try
+        {
+            foreach (var (id, f) in _alIngevoerd.ToList())
+            {
+                await Inbox.AfhandelenAsync(id, 1, f.Id, Ik.WerknemerId);
+                n++;
+            }
+            Toon($"{n} al ingevoerde factu(u)r(en) uit Te beoordelen gehaald.", false);
+        }
+        catch (Exception ex) { Toon($"Weghalen mislukt na {n}: " + ex.Message, true); }
+        await LaadInbox();
     }
 
     private void InboxBijgewerkt() => _ = InvokeAsync(async () => { await LaadInbox(); StateHasChanged(); });

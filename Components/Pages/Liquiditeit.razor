@@ -253,24 +253,27 @@
                     {
                         <div class="regels-omhulsel" @key="titel">
                             <h3 class="wn-kop">@titel <span class="zij-extra">(@lijst.Count · @Geld(lijst.Sum(f => f.Bedrag)))</span></h3>
-                            <table class="kiezer-tabel banktabel">
+                            @* Doorklikken naar de factuur (wens gebruiker 10-11-2026): klik op het factuurnummer of dubbelklik
+                               op de regel; verkoop opent het uitgaande-factuurvenster, inkoop het inkomende. *@
+                            <table class="kiezer-tabel lq-telaat">
                                 <thead>
                                     <tr>
-                                        <th style="width:6.5rem">Vervallen</th>
-                                        <th style="width:3rem" class="r">Dagen</th>
+                                        <th style="width:5.5rem">Vervallen</th>
+                                        <th style="width:3.5rem" class="r">Dagen</th>
                                         <th>Relatie</th>
-                                        <th style="width:8rem">Factuur</th>
-                                        <th style="width:8rem" class="r">Bedrag</th>
+                                        <th style="width:9.5rem">Factuur</th>
+                                        <th style="width:7rem" class="r">Bedrag</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var f in lijst.OrderBy(f => f.Vervaldatum))
                                     {
-                                        <tr @key="(f.Verkoop, f.Id)">
+                                        <tr @key="(f.Verkoop, f.Id)" class="lq-open" title="Klik op de factuur (of dubbelklik) om hem te openen"
+                                            @ondblclick="() => OpenFactuur(f)">
                                             <td>@f.Vervaldatum.ToString("dd-MM-yy")</td>
                                             <td class="r">@(_p.Start.DayNumber - f.Vervaldatum.DayNumber)</td>
-                                            <td class="omschrijving" title="@f.Relatie">@f.Relatie</td>
-                                            <td>@f.Bv @f.Nummer</td>
+                                            <td class="lq-kap" title="@f.Relatie">@f.Relatie</td>
+                                            <td class="lq-kap"><button class="lq-factuur" title="@f.Bv @f.Nummer openen" @onclick="() => OpenFactuur(f)">@f.Bv @f.Nummer</button></td>
                                             <td class="r">@Geld(f.Bedrag)</td>
                                         </tr>
                                     }
@@ -486,6 +489,12 @@
         "Vaste last" => "Dubbelklik om de vaste last te openen",
         _ => "Btw van het kwartaal: verkoop-btw min inkoop-btw van de gekozen BV's, te betalen voor het eind van de maand na het kwartaal",
     };
+
+    /// <summary>Een factuur uit de lijsten "te laat" openen: verkoop = uitgaande factuur, inkoop = inkomende factuur.</summary>
+    private void OpenFactuur(OpenstaandeFactuur f)
+    {
+        if (f.Verkoop) _verkoopId = f.Id; else _inkoopId = f.Id;
+    }
 
     private async Task Open(LiquiditeitPost p)
     {

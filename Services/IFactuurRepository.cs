@@ -109,6 +109,71 @@ public interface IFactuurRepository
     /// <summary>Past het factuurdeel van een koppeling aan (en rekent het
     /// doorbelastbedrag opnieuw uit).</summary>
     Task ZetKoppelBedragAsync(int linkId, decimal bedrag, int? doorWerknemerId);
+
+    /// <summary>
+    /// Inkomende facturen met een van deze factuurnummers (genormaliseerd met <see cref="InboxDubbel.Normaliseer"/>):
+    /// om in de factuurinbox te zien wat al (bv. in Access) is ingevoerd.
+    /// </summary>
+    Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers);
+}
+
+/// <summary>Een inkomende factuur gevonden op factuurnummer (voor de factuurinbox).</summary>
+public record FactuurOpNummer(int Id, string Nummer, string Leverancier, DateOnly? Datum, decimal Totaal);
+
+/// <summary>
+/// Staat een stuk uit de factuurinbox al bij Inkomende facturen? (wens gebruiker 10-11-2026: Michiel voert facturen nog in
+/// Access in, dus ze blijven anders in "Te beoordelen" staan.) Zelfde factuurnummer (zonder spaties, punten, streepjes,
+/// schuine strepen; hoofdletters gelijk) én hetzelfde totaal (5 cent speling) of een woord uit de leveranciersnaam. Bij
+/// een kort nummer (minder dan 4 tekens) moeten beide kloppen.
+/// </summary>
+public static class InboxDubbel
+{
+    public static string Normaliseer(string? nummer)
+        => new string((nummer ?? "").Where(c => !char.IsWhiteSpace(c) && c is not ('.' or '-' or '/' or '_')).ToArray()).ToUpperInvariant();
+
+    private static readonly HashSet<string> Leeg = new(StringComparer.OrdinalIgnoreCase)
+        { "bv", "b.v.", "b.v", "nv", "n.v.", "gmbh", "ltd", "inc", "the", "and", "van", "der", "den", "de", "het", "nederland", "netherlands", "holland", "group", "groep" };
+
+    public static FactuurOpNummer? Zoek(FactuurUitPdf? g, IEnumerable<FactuurOpNummer> kandidaten)
+    {
+        if (g is null) return null;
+        var nr = Normaliseer(g.Factuurnummer);
+        if (nr.Length == 0) return null;
+        var woorden = (g.Leverancier ?? "").Split(new[] { ' ', ',', '-', '&', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 3 && !Leeg.Contains(w)).ToList();
+        FactuurOpNummer? beste = null;
+        foreach (var k in kandidaten.Where(k => Normaliseer(k.Nummer) == nr))
+        {
+            var bedrag = g.Totaal is decimal t && Math.Abs(Math.Abs(t) - Math.Abs(k.Totaal)) <= 0.05m;
+            var naam = woorden.Any(w => k.Leverancier.Contains(w, StringComparison.OrdinalIgnoreCase));
+            if (nr.Length < 4 ? bedrag && naam : bedrag || naam)
+                if (beste is null || bedrag) beste = k;
+        }
+        return beste;
+    }
+
+    private static readonly HashSet<string> GeenNaam = new(StringComparer.OrdinalIgnoreCase)
+        { "factuur", "facturen", "invoice", "rechnung", "debiteur", "debiteurnummer", "deb", "nr", "order", "fwd", "re", "fw", "pdf", "noreply", "info" };
+
+    /// <summary>Mogelijke factuurnummers in een tekst (onderwerp, bestandsnaam): minstens 5 tekens en 4 cijfers.</summary>
+    public static List<string> NummersUit(string tekst)
+        => System.Text.RegularExpressions.Regex.Matches(tekst ?? "", @"[A-Za-z0-9][A-Za-z0-9\-/.]{3,}[0-9]")
+            .Select(m => m.Value).Where(v => v.Count(char.IsDigit) >= 4).Distinct().ToList();
+
+    /// <summary>
+    /// Terugval als het uitlezen mislukte (geen factuurnummer): een nummer uit het onderwerp of de bestandsnaam, en dan moet
+    /// ook een woord uit de afzender of het onderwerp in de leveranciersnaam staan.
+    /// </summary>
+    public static FactuurOpNummer? ZoekOpMail(string onderwerp, string bijlage, string afzender, IEnumerable<FactuurOpNummer> kandidaten)
+    {
+        var nummers = NummersUit(onderwerp + " " + bijlage).Select(Normaliseer).ToHashSet();
+        if (nummers.Count == 0) return null;
+        var naamdeel = afzender.Contains('<') ? afzender[..afzender.IndexOf('<')] : afzender.Split('@')[0];
+        var woorden = (naamdeel + " " + onderwerp).Split(new[] { ' ', ',', '-', '&', '(', ')', '"', ':', '|', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 3 && !w.Any(char.IsDigit) && !Leeg.Contains(w) && !GeenNaam.Contains(w)).ToList();
+        return kandidaten.FirstOrDefault(k => nummers.Contains(Normaliseer(k.Nummer))
+                                              && woorden.Any(w => k.Leverancier.Contains(w, StringComparison.OrdinalIgnoreCase)));
+    }
 }
 
 /// <summary>De vlaggen die elk hun eigen wie-en-wanneer bijhouden.</summary>
@@ -144,6 +209,7 @@ public class GeenFactuurRepository : IFactuurRepository
     public Task<bool> IsEigenAutoPoAsync(int o, int f) => Task.FromResult(false);
     public Task OntkoppelAsync(int linkId, bool ookAutoPo) => Task.CompletedTask;
     public Task ZetKoppelBedragAsync(int linkId, decimal b, int? d) => Task.CompletedTask;
+    public Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers) => Task.FromResult(new List<FactuurOpNummer>());
 }
 
 /// <summary>
@@ -168,6 +234,26 @@ public class MySqlFactuurRepository : IFactuurRepository
     public MySqlFactuurRepository(string connectionString) => _cs = connectionString;
 
     public bool Beschikbaar => true;
+
+    public async Task<List<FactuurOpNummer>> ZoekOpNummersAsync(IReadOnlyCollection<string> nummers)
+    {
+        var lijst = new List<FactuurOpNummer>();
+        var nrs = nummers.Select(InboxDubbel.Normaliseer).Where(n => n.Length > 0).Distinct().Take(500).ToList();
+        if (nrs.Count == 0) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT f.`FacturenInkomend-ID`, COALESCE(f.`FactuurNummer`, ''), COALESCE(r.`name`, ''), f.`DatumFactuur`, " +
+            "       COALESCE(f.`BedragExBTW`, 0) + COALESCE(f.`BTW`, 0) " +
+            "  FROM `FacturenInkomend` f LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Bedrijf` " +
+            " WHERE UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(f.`FactuurNummer`), ' ', ''), '.', ''), '-', ''), '/', ''), '_', '')) IN (" +
+            string.Join(", ", nrs.Select((_, i) => "@n" + i)) + ")", cn);
+        for (var i = 0; i < nrs.Count; i++) cmd.Parameters.AddWithValue("@n" + i, nrs[i]);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new FactuurOpNummer(r.GetInt32(0), r.GetString(1), r.GetString(2),
+                r.IsDBNull(3) ? null : DateOnly.FromDateTime(Convert.ToDateTime(r.GetValue(3))), Convert.ToDecimal(r.GetValue(4))));
+        return lijst;
+    }
 
     private async Task<MySqlConnection> OpenAsync()
     {
