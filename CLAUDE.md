@@ -272,6 +272,11 @@ Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het proj
   (`IFactuurRepository.PoBvAsync`, `FactuurVenster.BvVanPo`).
 - Ontvangst boekt nog steeds op de werkorder (projectmateriaal). Inkopen voor de eigen voorraad is een volgende stap.
 - Niet in de browser getest met de kolom (script nog niet gedraaid); zonder kolom laadt Bestellingen zoals voorheen.
+- **Projecten** (wens gebruiker 10-11-2026): filter "Alle BV's" (alle eigen BV's, opgeheven achteraan; leeg
+  Werkmaatschappij telt als AUTO) via `TelProjectenAsync`/`ZoekProjectenAsync(..., bv)`; ✕ wist het mee. Nieuw project:
+  keuze BV (alleen niet opgeheven), standaard de BV van het filter, anders AUTO; `NieuwProjectAsync(..., bvId)` zet
+  Werkmaatschappij meteen (ook gebruikt door het verkoopproject van een VO; de losse UPDATE is weg). Lokaal bekeken:
+  AUTO 1502 van 1506 open projecten, MPR nog 0; niet aangemaakt.
 
 ## Banktransacties: gekoppelde facturen (10-11-2026)
 

@@ -577,16 +577,8 @@ public class MySqlVerkoopOrderRepository : IVerkoopOrderRepository
         if (werkorderId is not null) return werkorderId;
         if (projectId is null)
         {
-            projectId = await _projecten.NieuwProjectAsync(await _projecten.VolgendProjectnummerAsync(), naam, klantId, door);
-            if (projectId is int nieuw && nieuw > 0)
-            {
-                // het nieuwe project hoort bij de BV van de verkooporder
-                await using var cn = await OpenAsync();
-                await using var cmd = new MySqlCommand("UPDATE `Projects` SET `Werkmaatschappij` = @bv WHERE `Project-Id` = @p", cn);
-                cmd.Parameters.AddWithValue("@bv", bvId);
-                cmd.Parameters.AddWithValue("@p", nieuw);
-                await cmd.ExecuteNonQueryAsync();
-            }
+            // het nieuwe project hoort bij de BV van de verkooporder
+            projectId = await _projecten.NieuwProjectAsync(await _projecten.VolgendProjectnummerAsync(), naam, klantId, door, bvId);
         }
         if (projectId is not int pid || pid <= 0) return null;
         var wo = await _projecten.NieuweWerkorderAsync(pid, naam, door);

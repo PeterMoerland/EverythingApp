@@ -21,14 +21,16 @@ public interface IProjectRepository
     Task<HashSet<string>> ProjectKolommenAsync();
     Task<HashSet<string>> WerkorderKolommenAsync();
 
-    Task<int> TelProjectenAsync(string? klant, string? project, int? status);
+    /// <param name="bv">Alleen projecten van deze BV (Werkmaatschappij; leeg telt als MDE Automation); null = alle.</param>
+    Task<int> TelProjectenAsync(string? klant, string? project, int? status, int? bv = null);
     Task<List<ProjectRegel>> ZoekProjectenAsync(string? klant, string? project, int? status,
-                                                int begin, int aantal);
+                                                int begin, int aantal, int? bv = null);
 
     Task<Dictionary<string, object?>> GetProjectVeldenAsync(int projectId);
     Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde);
     Task<int> VolgendProjectnummerAsync();
-    Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door);
+    /// <param name="bvId">De BV van het project (Werkmaatschappij); null = niet zetten (telt als MDE Automation).</param>
+    Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null);
     Task<string?> ProjectInGebruikAsync(int projectId);
     Task VerwijderProjectAsync(int projectId);
 
@@ -67,14 +69,14 @@ public class GeenProjectRepository : IProjectRepository
 
     public Task<HashSet<string>> ProjectKolommenAsync() => Task.FromResult(Leeg);
     public Task<HashSet<string>> WerkorderKolommenAsync() => Task.FromResult(Leeg);
-    public Task<int> TelProjectenAsync(string? klant, string? project, int? status) => Task.FromResult(0);
-    public Task<List<ProjectRegel>> ZoekProjectenAsync(string? klant, string? project, int? status, int begin, int aantal)
+    public Task<int> TelProjectenAsync(string? klant, string? project, int? status, int? bv = null) => Task.FromResult(0);
+    public Task<List<ProjectRegel>> ZoekProjectenAsync(string? klant, string? project, int? status, int begin, int aantal, int? bv = null)
         => Task.FromResult(new List<ProjectRegel>());
     public Task<Dictionary<string, object?>> GetProjectVeldenAsync(int projectId)
         => Task.FromResult(new Dictionary<string, object?>());
     public Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde) => Task.CompletedTask;
     public Task<int> VolgendProjectnummerAsync() => Task.FromResult(0);
-    public Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door) => Task.FromResult(0);
+    public Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null) => Task.FromResult(0);
     public Task<string?> ProjectInGebruikAsync(int projectId) => Task.FromResult<string?>("Geen live database.");
     public Task VerwijderProjectAsync(int projectId) => Task.CompletedTask;
     public Task<List<WerkorderRegel>> GetWerkordersAsync(int projectId) => Task.FromResult(new List<WerkorderRegel>());
@@ -144,7 +146,7 @@ public class MySqlProjectRepository : IProjectRepository
     /// Op klantnaam zoeken gaat via een subquery op Relations, zodat we geen JOIN
     /// nodig hebben en de kolomnaam van de relatietabel losstaat.
     /// </summary>
-    private async Task<string> ZoekVoorwaarden(string? klant, string? project, int? status)
+    private async Task<string> ZoekVoorwaarden(string? klant, string? project, int? status, int? bv = null)
     {
         var kolommen = await ProjectKolommenAsync();
         var delen = new List<string>();
@@ -165,35 +167,40 @@ public class MySqlProjectRepository : IProjectRepository
         if (status is not null && kolommen.Contains("ProjectStatus"))
             delen.Add("p.`ProjectStatus` = @s");
 
+        // zonder Werkmaatschappij hoort een project bij MDE Automation (5254), zoals bij bestellen
+        if (bv is not null && kolommen.Contains("Werkmaatschappij"))
+            delen.Add("COALESCE(NULLIF(p.`Werkmaatschappij`, 0), 5254) = @bv");
+
         if (kolommen.Contains("Deleted"))
             delen.Add("(p.`Deleted` = 0 OR p.`Deleted` IS NULL)");
 
         return delen.Count > 0 ? "WHERE " + string.Join(" AND ", delen) : "";
     }
 
-    private static void VulZoek(MySqlCommand cmd, string? klant, string? project, int? status)
+    private static void VulZoek(MySqlCommand cmd, string? klant, string? project, int? status, int? bv = null)
     {
+        if (bv is not null) cmd.Parameters.AddWithValue("@bv", bv.Value);
         if (!string.IsNullOrWhiteSpace(project)) cmd.Parameters.AddWithValue("@p", "%" + project.Trim() + "%");
         if (!string.IsNullOrWhiteSpace(klant)) cmd.Parameters.AddWithValue("@k", "%" + klant.Trim() + "%");
         if (status is not null) cmd.Parameters.AddWithValue("@s", status.Value);
     }
 
-    public async Task<int> TelProjectenAsync(string? klant, string? project, int? status)
+    public async Task<int> TelProjectenAsync(string? klant, string? project, int? status, int? bv = null)
     {
-        var where = await ZoekVoorwaarden(klant, project, status);
+        var where = await ZoekVoorwaarden(klant, project, status, bv);
 
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand($"SELECT COUNT(*) FROM `Projects` p {where}", cn);
-        VulZoek(cmd, klant, project, status);
+        VulZoek(cmd, klant, project, status, bv);
 
         var res = await cmd.ExecuteScalarAsync();
         return res is null or DBNull ? 0 : Convert.ToInt32(res);
     }
 
     public async Task<List<ProjectRegel>> ZoekProjectenAsync(string? klant, string? project, int? status,
-                                                             int begin, int aantal)
+                                                             int begin, int aantal, int? bv = null)
     {
-        var where = await ZoekVoorwaarden(klant, project, status);
+        var where = await ZoekVoorwaarden(klant, project, status, bv);
 
         var lijst = new List<ProjectRegel>();
         await using var cn = await OpenAsync();
@@ -202,7 +209,7 @@ public class MySqlProjectRepository : IProjectRepository
             $"  FROM `Projects` p {where} " +
             "  ORDER BY p.`Projectnumber` DESC " +
             $" LIMIT {Math.Clamp(aantal, 1, 500)} OFFSET {Math.Max(begin, 0)}", cn);
-        VulZoek(cmd, klant, project, status);
+        VulZoek(cmd, klant, project, status, bv);
 
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
@@ -269,10 +276,12 @@ public class MySqlProjectRepository : IProjectRepository
         return Convert.ToInt32(res) + 1;
     }
 
-    public async Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door)
+    public async Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null)
     {
         var kolommen = await ProjectKolommenAsync();
         var sets = new List<string> { "`Projectnumber` = @nr", "`Projectdescription` = @oms" };
+        var metBv = bvId is not null && kolommen.Contains("Werkmaatschappij");
+        if (metBv) sets.Add("`Werkmaatschappij` = @bv");
 
         if (klantId is not null) sets.Add("`Customer-id` = @klant");
         if (kolommen.Contains("ProjectStatus")) sets.Add("`ProjectStatus` = @status");
@@ -285,6 +294,7 @@ public class MySqlProjectRepository : IProjectRepository
         cmd.Parameters.AddWithValue("@nr", nummer);
         cmd.Parameters.AddWithValue("@oms", omschrijving ?? "");
         if (klantId is not null) cmd.Parameters.AddWithValue("@klant", klantId.Value);
+        if (metBv) cmd.Parameters.AddWithValue("@bv", bvId!.Value);
         if (kolommen.Contains("ProjectStatus"))
             cmd.Parameters.AddWithValue("@status", ProjectVelden.ProjectStatussen[0].Id);   // Open
         if (kolommen.Contains("Created at")) cmd.Parameters.AddWithValue("@nu", DateTime.Now);

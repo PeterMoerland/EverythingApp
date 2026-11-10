@@ -29,12 +29,24 @@
                     <div class="zoekregel">
                         <input data-zoeklijst placeholder="Klant…" value="@_klant" @onchange="KlantGewijzigd" />
                         <button class="klein" title="Filters wissen"
-                                disabled="@(_klant.Length == 0 && _project.Length == 0)"
+                                disabled="@(_klant.Length == 0 && _project.Length == 0 && _bvFilter is null)"
                                 @onclick="WisFilters">✕</button>
                     </div>
                     <div class="zoekregel">
                         <input data-zoeklijst placeholder="Project of nummer…" value="@_project" @onchange="ProjectGewijzigd" />
                     </div>
+                    @if (Lijst("BV").Count > 1)
+                    {
+                        <div class="zoekregel">
+                            <select value="@BvFilterTekst" @onchange="BvFilterGewijzigd">
+                                <option value="">Alle BV's</option>
+                                @foreach (var b in Lijst("BV"))
+                                {
+                                    <option value="@b.Id">@b.Naam</option>
+                                }
+                            </select>
+                        </div>
+                    }
                     <div class="zoekregel">
                         <select value="@StatusTekst" @onchange="StatusGewijzigd">
                             <option value="">Alle statussen</option>
@@ -72,6 +84,18 @@
                                 }
                             </select>
                         </div>
+                        @if (ActieveBvs.Count > 0)
+                        {
+                            <div class="wn-veld">
+                                <label>BV</label>
+                                <select value="@NieuwBvTekst" @onchange="NieuwBvGewijzigd">
+                                    @foreach (var b in ActieveBvs)
+                                    {
+                                        <option value="@b.Id">@b.Naam</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         <div class="btngroup">
                             <button class="primair" @onclick="MaakProject">Aanmaken</button>
                             <button class="klein" @onclick="SluitNieuwProject">Annuleren</button>
@@ -324,6 +348,7 @@
     private string _klant = "";
     private string _project = "";
     private int? _status = ProjectVelden.ProjectStatussen[0].Id;    // begin bij Open, net als Access
+    private int? _bvFilter;                                          // null = alle BV's
 
     // ---- project ----
     private int? _projectId;
@@ -356,6 +381,7 @@
     private string _nieuwNummer = "";
     private string _nieuwOms = "";
     private int? _nieuwKlant;
+    private int? _nieuwBv;
 
     private VeldTab HuidigProjectTab
         => ProjectVelden.ProjectTabs.FirstOrDefault(t => t.Naam == _tabProject) ?? ProjectVelden.ProjectTabs[0];
@@ -377,6 +403,11 @@
 
     private string StatusTekst => _status is null ? "" : _status.Value.ToString();
     private string NieuwKlantTekst => _nieuwKlant is null ? "" : _nieuwKlant.Value.ToString();
+    private string BvFilterTekst => _bvFilter is null ? "" : _bvFilter.Value.ToString();
+    private string NieuwBvTekst => _nieuwBv is null ? "" : _nieuwBv.Value.ToString();
+
+    /// <summary>Eigen BV's die niet opgeheven zijn: daar kan een nieuw project bij horen.</summary>
+    private List<Keuze> ActieveBvs => Lijst("BV").Where(b => !b.Naam.EndsWith("(opgeheven)")).ToList();
 
     // ---- koppeling met het verhang-slepen (mdeBoom in App.razor) ----
     private DotNetObjectReference<Projecten>? _zelf;
@@ -430,7 +461,7 @@
 
     private async Task Laad(bool kiesBijEenResultaat = false)
     {
-        try { _aantal = await Repo.TelProjectenAsync(_klant, _project, _status); }
+        try { _aantal = await Repo.TelProjectenAsync(_klant, _project, _status, _bvFilter); }
         catch (Exception ex) { _aantal = 0; Toon("Zoeken mislukt: " + ex.Message, true); return; }
 
         if (_virtualize is not null)
@@ -441,7 +472,7 @@
         // Eén treffer? Meteen openen — scheelt een klik.
         if (kiesBijEenResultaat && _aantal == 1)
         {
-            var enige = await Repo.ZoekProjectenAsync(_klant, _project, _status, 0, 1);
+            var enige = await Repo.ZoekProjectenAsync(_klant, _project, _status, 0, 1, _bvFilter);
             if (enige.Count == 1) { await KiesProject(enige[0]); return; }
         }
 
@@ -453,7 +484,7 @@
         try
         {
             var blok = await Repo.ZoekProjectenAsync(_klant, _project, _status,
-                                                     verzoek.StartIndex, verzoek.Count);
+                                                     verzoek.StartIndex, verzoek.Count, _bvFilter);
             return new ItemsProviderResult<ProjectRegel>(blok, _aantal);
         }
         catch
@@ -505,10 +536,17 @@
         await Laad(kiesBijEenResultaat: true);
     }
 
+    private async Task BvFilterGewijzigd(ChangeEventArgs e)
+    {
+        _bvFilter = int.TryParse((string?)e.Value, out var v) ? v : null;
+        await Laad(kiesBijEenResultaat: true);
+    }
+
     private async Task WisFilters()
     {
         _klant = "";
         _project = "";
+        _bvFilter = null;
         Leegmaken();
         await Laad();
     }
@@ -612,6 +650,11 @@
     {
         _nieuwOms = _project.Trim();
         _nieuwKlant = null;
+        // standaard de BV van het filter, anders MDE Automation, anders de eerste
+        var bvs = ActieveBvs;
+        _nieuwBv = bvs.Count == 0 ? null
+                 : bvs.Any(b => b.Id == _bvFilter) ? _bvFilter
+                 : bvs.Any(b => b.Id == 5254) ? 5254 : bvs[0].Id;
         try { _nieuwNummer = (await Repo.VolgendProjectnummerAsync()).ToString(); }
         catch { _nieuwNummer = ""; }
         _nieuwOpen = true;
@@ -622,6 +665,8 @@
     private void NieuwOmsGewijzigd(ChangeEventArgs e) => _nieuwOms = (string?)e.Value ?? "";
     private void NieuwKlantGewijzigd(ChangeEventArgs e)
         => _nieuwKlant = int.TryParse((string?)e.Value, out var v) ? v : null;
+    private void NieuwBvGewijzigd(ChangeEventArgs e)
+        => _nieuwBv = int.TryParse((string?)e.Value, out var v) ? v : null;
 
     private async Task MaakProject()
     {
@@ -638,7 +683,7 @@
 
         try
         {
-            var id = await Repo.NieuwProjectAsync(nummer, _nieuwOms.Trim(), _nieuwKlant, Ik.WerknemerId);
+            var id = await Repo.NieuwProjectAsync(nummer, _nieuwOms.Trim(), _nieuwKlant, Ik.WerknemerId, _nieuwBv);
             _nieuwOpen = false;
             await Laad();
             await KiesProject(new ProjectRegel(id, nummer, _nieuwOms.Trim()));
