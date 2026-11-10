@@ -56,6 +56,15 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   `installeer.bat` vraagt op een nieuwe pc (nog geen `%ProgramData%\MDE\Agent\agent.json`) om het token (verborgen
   invoer), `installeer.bat /token` vraagt het opnieuw; het token staat bewust niet op de share en wordt aan het eind
   maar half getoond. Let op: zonder token maakt de agent zelf een willekeurig token, dat de app niet kent.
+- **Installeren vanuit de app** (10-11-2026, wens gebruiker): Tools ▸ MDE Agent (`/tools/mde-agent`,
+  `Components/Pages/AgentInstalleren.razor`; onder Tools omdat Productie pas verschijnt als er al een agent draait).
+  Geen apart recht (net als Test PCB). Bovenaan de stand van deze pc: versie (bijgewerkt/verouderd), token (`/adapters`
+  met token: 401 = `installeer.bat /token`; `WerkplekAgent.TokenKloptAsync`), Npcap (reden van `drives.uitlezen` in
+  `/health`, `WerkplekAgent.Taken`) en andere taken die niet kunnen. Download `/tools/mde-agent/download`
+  (`AgentUitgave.ZipAsync`): `MdeAgent-<versie>\installeer.bat`, LEESMIJ.txt, mde-root.crt en `uitvoer\<installer>`
+  (zelfde opbouw als de share, installer ongecomprimeerd), eenmaal ingepakt in `%TEMP%\mde-agent-download` tot er iets
+  nieuwers op de share staat. Token zit er bewust niet in. De versiemelding in Test PCB linkt naar de pagina. Lokaal: zip
+  gecontroleerd (84 MB, 3 s); de stand met een echte agent en `installeer.bat` vanuit een uitgepakte zip niet getest.
 - **Certificaat van de server** (20-10-2026): de app draait met de eigen CA van Caddy ("Caddy Local Authority - 2026
   ECC Root", mde-root.crt). De agent is een service (systeemaccount) en vertrouwt alleen wat voor de COMPUTER
   (LocalMachine\Root) is geinstalleerd; een dubbelklik zet het alleen bij de gebruiker → firmware ophalen faalde met

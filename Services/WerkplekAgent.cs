@@ -18,7 +18,25 @@ public class WerkplekAgent
     public string Versie { get; private set; } = "";
     public string Hostnaam { get; private set; } = "";
     public string Reden { get; private set; } = "";
+    /// <summary>De taken uit /health: naam → (beschikbaar, reden, omschrijving). Npcap ontbreekt = drives.uitlezen niet.</summary>
+    public Dictionary<string, (bool Ok, string Reden, string Omschrijving)> Taken { get; private set; } = new();
     public event Action? Gewijzigd;
+
+    /// <summary>
+    /// Kent de agent het token van de app (Productie:AgentToken)? Vraagt /adapters (met token). True = ja, false = 401
+    /// (installeer.bat /token), null = niet te zeggen (geen agent, of iets anders mis; zie de tekst).
+    /// </summary>
+    public async Task<(bool? Ok, string Tekst)> TokenKloptAsync(IJSRuntime js)
+    {
+        var (status, tekst) = await VraagAsync(js, "/adapters", 10);
+        return status switch
+        {
+            200 => (true, ""),
+            401 => (false, "de agent kent het token van de app niet"),
+            0 => (null, tekst),
+            _ => (null, $"agent antwoordde {status}"),
+        };
+    }
 
     private readonly string _token;
 
@@ -72,6 +90,13 @@ public class WerkplekAgent
                     Versie = doc.RootElement.TryGetProperty("versie", out var v) ? v.GetString() ?? "" : "";
                     Hostnaam = doc.RootElement.TryGetProperty("hostnaam", out var h) ? h.GetString() ?? ""
                              : doc.RootElement.TryGetProperty("pc", out var pc) ? pc.GetString() ?? "" : "";
+                    var taken = new Dictionary<string, (bool, string, string)>();
+                    if (doc.RootElement.TryGetProperty("taken", out var t) && t.ValueKind == JsonValueKind.Object)
+                        foreach (var p in t.EnumerateObject())
+                            taken[p.Name] = (p.Value.TryGetProperty("beschikbaar", out var b) && b.ValueKind == JsonValueKind.True,
+                                             p.Value.TryGetProperty("reden", out var rd) ? rd.GetString() ?? "" : "",
+                                             p.Value.TryGetProperty("omschrijving", out var o) ? o.GetString() ?? "" : "");
+                    Taken = taken;
                 }
                 catch { }
             }

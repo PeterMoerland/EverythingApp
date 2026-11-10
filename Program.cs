@@ -683,6 +683,14 @@ var agentInstaller = app.MapGet("/agent/installer", (AgentUitgave uitgave) =>
         : Results.NotFound("Geen installer van de MDE Agent gevonden op de share."));
 if (loginAan) agentInstaller.RequireAuthorization();
 
+// --- de hele MDE Agent-installatie als zip (Tools ▸ MDE Agent): installeer.bat, LEESMIJ, certificaat en de installer.
+// Geen apart recht (net als Test PCB), wel aangemeld; het token zit er niet in. ---
+var agentZip = app.MapGet("/tools/mde-agent/download", async (AgentUitgave uitgave) =>
+    await uitgave.ZipAsync() is { } pad
+        ? Results.File(pad, "application/zip", Path.GetFileName(pad))
+        : Results.NotFound("De MDE Agent staat niet (volledig) op de share (MdeAgent\\publiceer-z.bat)."));
+if (loginAan) agentZip.RequireAuthorization();
+
 // --- de Fusion-add-in als zip (FusionAddInUitgave), alleen met het recht Fusion; voor wie niet bij de share kan ---
 var fusionAddin = app.MapGet("/tools/fusion-addin/download", async (FusionAddInUitgave uitgave, HuidigeGebruiker ik) =>
 {

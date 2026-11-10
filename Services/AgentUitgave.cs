@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 
 namespace EverythingApp.Services;
@@ -25,6 +26,62 @@ public class AgentUitgave
 
     /// <summary>De map waar de installer staat (voor de melding aan de gebruiker: één niveau hoger staat installeer.bat).</summary>
     public string Map => _map;
+
+    /// <summary>De map met installeer.bat, LEESMIJ.txt en mde-root.crt (één niveau boven <see cref="Map"/>).</summary>
+    public string InstallMap => Path.GetDirectoryName(_map.TrimEnd('\\', '/')) ?? _map;
+
+    private static readonly string[] Losse = { "installeer.bat", "LEESMIJ.txt", "mde-root.crt" };
+    private readonly SemaphoreSlim _zipSlot = new(1, 1);
+
+    /// <summary>
+    /// De installatie als zip voor Tools ▸ MDE Agent (wens gebruiker 10-11-2026): MdeAgent-&lt;versie&gt;\installeer.bat,
+    /// LEESMIJ.txt, mde-root.crt en uitvoer\MdeAgent-setup-&lt;versie&gt;.exe, zodat installeer.bat na uitpakken precies zo
+    /// werkt als vanaf de share. Het token zit er bewust niet in (installeer.bat vraagt het op een nieuwe pc).
+    /// Eén keer ingepakt in de tijdelijke map en hergebruikt tot er op de share iets nieuwers staat; null als het niet lukt.
+    /// </summary>
+    public async Task<string?> ZipAsync()
+    {
+        var (_, versie, installer) = Zoek();
+        if (versie is null || installer is null) return null;
+        var bat = Path.Combine(InstallMap, "installeer.bat");
+        try { if (!File.Exists(installer) || !File.Exists(bat)) return null; }
+        catch { return null; }
+
+        var map = Path.Combine(Path.GetTempPath(), "mde-agent-download");
+        var doel = Path.Combine(map, $"MdeAgent-{versie}.zip");
+        await _zipSlot.WaitAsync();
+        try
+        {
+            var bronnen = Losse.Select(n => Path.Combine(InstallMap, n)).Where(File.Exists).Append(installer).ToList();
+            var nieuwste = bronnen.Max(File.GetLastWriteTimeUtc);
+            if (File.Exists(doel) && File.GetLastWriteTimeUtc(doel) >= nieuwste) return doel;
+
+            Directory.CreateDirectory(map);
+            var tijdelijk = doel + ".tmp";
+            var wortel = $"MdeAgent-{versie}/";
+            await Task.Run(() =>
+            {
+                using var fs = File.Create(tijdelijk);
+                using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+                foreach (var n in Losse)
+                {
+                    var pad = Path.Combine(InstallMap, n);
+                    if (File.Exists(pad)) zip.CreateEntryFromFile(pad, wortel + n, CompressionLevel.Optimal);
+                }
+                // de installer is al ingepakt (Inno Setup): niet nog eens comprimeren
+                zip.CreateEntryFromFile(installer, wortel + "uitvoer/" + Path.GetFileName(installer), CompressionLevel.NoCompression);
+            });
+            File.Move(tijdelijk, doel, overwrite: true);
+            _log.LogInformation("MDE Agent {Versie} ingepakt voor download: {Doel}", versie, doel);
+            return doel;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "MDE Agent inpakken mislukt ({Map})", InstallMap);
+            return null;
+        }
+        finally { _zipSlot.Release(); }
+    }
 
     public Version? Nieuwste() => Zoek().Versie;
 

@@ -165,6 +165,13 @@ public static class Menu
                     new MenuGroep("Installeren",
                         new MenuItem("Add-in installeren", "/tools/inventor-addin", Icoon: "download"))),
 
+                // de werkplek-agent (uitlezen, programmeren, testen); hier en niet onder Productie, want dat menu
+                // verschijnt pas als er al een agent draait
+                new MenuModule("mde-agent", "MDE Agent", "plug-zap",
+                    new MenuGroep("Installeren",
+                        new MenuItem("MDE Agent installeren", "/tools/mde-agent", Icoon: "download")))
+                { Url = "/tools/mde-agent" },
+
                 new MenuModule("see-electrical", "See Electrical", "zap",
                     new MenuGroep("Onderhoud",
                         new MenuItem("Nog in te vullen", Icoon: "circle-help"))),

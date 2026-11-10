@@ -1,0 +1,180 @@
+﻿@page "/tools/mde-agent"
+@inject AgentUitgave Uitgave
+@inject WerkplekAgent Agent
+@inject IJSRuntime JS
+@implements IDisposable
+
+@* De MDE Werkplek-agent installeren vanuit de app (wens gebruiker 10-11-2026), net als de add-ins voor Inventor en Fusion.
+   Zelfde recht als Test PCB: geen apart recht, wel aangemeld. Staat onder Tools en niet onder Productie, want Productie is
+   pas zichtbaar als er al een agent draait. De zip komt van /tools/mde-agent/download (AgentUitgave.ZipAsync); het token
+   zit er bewust niet in. Bovenaan de stand van deze pc: /health (versie, taken, Npcap) en /adapters (token). *@
+
+<PageTitle>MDE Agent — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>MDE Agent installeren</h1>
+        @if (_nieuwste is not null)
+        {
+            <span class="weeklabel">nieuwste versie @_nieuwste</span>
+        }
+    </header>
+
+    <section class="fai-kaart ag-stand">
+        <h3>Deze pc</h3>
+        @if (_bezig)
+        {
+            <p class="uitleg">Agent zoeken…</p>
+        }
+        else if (Agent.Aanwezig != true)
+        {
+            <p class="ag-regel"><span class="ag-teken niet">✗</span> <span>Op deze pc draait geen MDE Agent.
+                <small class="ag-reden">@Agent.Reden</small></span></p>
+            <p class="uitleg">Nodig op een pc waar je prints, motoren of drives uitleest, programmeert of test (Productie). Installeer hem
+                hieronder; daarna verschijnt het menu Productie.</p>
+        }
+        else
+        {
+            <p class="ag-regel">
+                @if (Verouderd)
+                {
+                    <span class="ag-teken let">!</span> <span>MDE Agent <b>@Agent.Versie</b> op @Agent.Hostnaam: er is een nieuwere versie
+                        (<b>@_nieuwste</b>). Installeer hem hieronder; het token blijft staan.</span>
+                }
+                else
+                {
+                    <span class="ag-teken ok">✓</span> <span>MDE Agent <b>@Agent.Versie</b> op @Agent.Hostnaam@(_nieuwste is null ? "" : " (bijgewerkt)").</span>
+                }
+            </p>
+            <p class="ag-regel">
+                @if (_token is null)
+                {
+                    <span class="ag-teken">…</span> <span>Token: @(_tokenTekst.Length > 0 ? "niet te controleren (" + _tokenTekst + ")" : "controleren…")</span>
+                }
+                else if (_token == true)
+                {
+                    <span class="ag-teken ok">✓</span> <span>De app kan deze agent gebruiken (token klopt).</span>
+                }
+                else
+                {
+                    <span class="ag-teken niet">✗</span> <span>De agent kent het token van de app niet. Start <code>installeer.bat /token</code>
+                        (in de uitgepakte map) en vul het token in; vraag het aan de beheerder.</span>
+                }
+            </p>
+            <p class="ag-regel">
+                @if (NpcapOntbreekt)
+                {
+                    <span class="ag-teken let">!</span> <span>Npcap ontbreekt: USB (ESP32) werkt, maar EtherCAT (drives uitlezen,
+                        programmeren via EtherCAT) niet. Installeer Npcap van <a href="https://npcap.com/#download" target="_blank" rel="noopener">npcap.com</a>
+                        met het vinkje <i>WinPcap API-compatible Mode</i> en herstart de pc.</span>
+                }
+                else if (Agent.Taken.ContainsKey(DrivesTaak))
+                {
+                    <span class="ag-teken ok">✓</span> <span>Npcap aanwezig (EtherCAT).</span>
+                }
+            </p>
+            @if (AndereProblemen.Count > 0)
+            {
+                <details class="ag-taken">
+                    <summary>@AndereProblemen.Count taak/taken niet beschikbaar op deze pc</summary>
+                    <ul>
+                        @foreach (var (naam, t) in AndereProblemen)
+                        {
+                            <li><b>@(t.Omschrijving.Length > 0 ? t.Omschrijving : naam)</b>: @t.Reden</li>
+                        }
+                    </ul>
+                </details>
+            }
+        }
+        <button type="button" class="klein" disabled="@_bezig" @onclick="Controleer">↻ Opnieuw controleren</button>
+    </section>
+
+    @if (_nieuwste is null)
+    {
+        <section class="module-placeholder">
+            <p><b>De agent is nu niet te downloaden.</b></p>
+            <p>De app kan de installer op de share niet vinden (@Uitgave.Map). Vraag degene die de agent uitgeeft
+                (MdeAgent ▸ bouw.bat en publiceer-z.bat) om het na te kijken.</p>
+        </section>
+    }
+    else
+    {
+        <section class="fai-kaart">
+            <h3>Installeren of bijwerken</h3>
+            <a class="fai-knop" href="tools/mde-agent/download" download>⬇ Download MDE Agent @_nieuwste (zip, ca. 85 MB)</a>
+
+            <ol class="fai-stappen">
+                <li><b>Zip uitpakken:</b> rechtermuisknop op het gedownloade bestand ▸ <i>Alles uitpakken</i>.</li>
+                <li><b>Dubbelklik op <code>installeer.bat</code></b> in de uitgepakte map. Vraagt Windows of je het wilt uitvoeren:
+                    <i>Uitvoeren</i> (bij SmartScreen: <i>Meer informatie</i> ▸ <i>Toch uitvoeren</i>).</li>
+                <li><b>Ja</b> bij de vraag om beheerderrechten. Heb je die niet, laat dan iemand met een beheerdersaccount het
+                    wachtwoord invullen.</li>
+                <li><b>Nieuwe pc:</b> het script vraagt om het token van de app. Dat staat bewust niet in de download; vraag het aan
+                    de beheerder. Bij bijwerken blijft het bestaande token staan.</li>
+                <li>Het venster eindigt met een controle; daarna hier <b>↻ Opnieuw controleren</b> (of de pagina vernieuwen).</li>
+            </ol>
+
+            <p class="uitleg">Het script installeert de agent als Windows-service en zet het certificaat van de server bij de computer
+                (nodig om firmware uit de app op te halen). Npcap (voor EtherCAT) zit niet in de installer.</p>
+            <p class="uitleg">Kun je bij de share, dan kan het ook zonder download: dubbelklik <code>installeer.bat</code> in
+                <button type="button" class="link" title="Pad kopiëren" @onclick="KopieerMap">@Uitgave.InstallMap</button>
+                @if (_gekopieerd is not null) { <span class="agent-versie-ok">@_gekopieerd</span> }</p>
+        </section>
+    }
+</div>
+
+@code {
+    private const string DrivesTaak = "drives.uitlezen";
+    private Version? _nieuwste;
+    private bool _bezig = true;
+    private bool? _token;
+    private string _tokenTekst = "";
+    private string? _gekopieerd;
+
+    private bool Verouderd => Agent.Versie.Length > 0 && Uitgave.IsVerouderd(Agent.Versie, out _);
+
+    private bool NpcapOntbreekt
+        => Agent.Taken.TryGetValue(DrivesTaak, out var t) && !t.Ok && t.Reden.Contains("Npcap", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Taken die niet kunnen, behalve wat al bij Npcap staat.</summary>
+    private List<(string Naam, (bool Ok, string Reden, string Omschrijving) T)> AndereProblemen
+        => Agent.Taken.Where(k => !k.Value.Ok && !(k.Key == DrivesTaak && NpcapOntbreekt))
+                      .Select(k => (k.Key, k.Value)).OrderBy(k => k.Key).ToList();
+
+    protected override void OnInitialized()
+    {
+        _nieuwste = Uitgave.Nieuwste();
+        Agent.Gewijzigd += Ververs;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (eerste) await Controleer();
+    }
+
+    private async Task Controleer()
+    {
+        _bezig = true; _token = null; _tokenTekst = "";
+        StateHasChanged();
+        try { await Agent.ControleerAsync(JS, opnieuw: true); } catch { }
+        _bezig = false;
+        StateHasChanged();
+        if (Agent.Aanwezig == true)
+        {
+            try { (_token, _tokenTekst) = await Agent.TokenKloptAsync(JS); }
+            catch (Exception ex) { _token = null; _tokenTekst = ex.Message; }
+            StateHasChanged();
+        }
+    }
+
+    private async Task KopieerMap()
+    {
+        var ok = false;
+        try { ok = await JS.InvokeAsync<bool>("mdeKopieer", Uitgave.InstallMap); } catch { }
+        _gekopieerd = ok ? "Gekopieerd: Windows-toets + R, Ctrl+V, Enter." : "Kopiëren lukte niet.";
+    }
+
+    private void Ververs() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Agent.Gewijzigd -= Ververs;
+}
