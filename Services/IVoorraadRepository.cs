@@ -12,9 +12,16 @@ public record VoorraadPositie(int LokatieId, int? StatusId, string Status, decim
 public record VoorraadStatusKeuze(int Id, string Naam);
 
 /// <summary>Eén regel van de voorraadstand op een datum (Access: query VoorraadStand, formulier VoorraadStandPerDatum).</summary>
-public record VoorraadstandRegel(int ArtikelId, string Code, string Omschrijving, string Status, decimal Aantal, decimal Kostprijs)
+/// <remarks>Uit de database per lokatie (<see cref="LokatieId"/>); het scherm telt ze op per BV (<see cref="BvId"/>, de BV
+/// van de bovenste lokatie, <see cref="LokatieBoom.Bv"/>).</remarks>
+public record VoorraadstandRegel(int ArtikelId, string Code, string Omschrijving, string Status, decimal Aantal, decimal Kostprijs,
+                                 int? LokatieId = null)
 {
     public decimal Totaal => Aantal * Kostprijs;
+    /// <summary>De BV waar deze voorraad bij hoort; null = niet ingedeeld (geen BV boven de lokatie, of geen lokatie).</summary>
+    public int? BvId { get; init; }
+    /// <summary>Afkorting van die BV (Locations), leeg als niet ingedeeld.</summary>
+    public string Bv { get; init; } = "";
 }
 
 /// <summary>Een regel uit VoorraadMutaties, voor de historie.</summary>
@@ -47,8 +54,8 @@ public interface IVoorraadRepository
     Task<int> PersoonLokatieAsync(int werknemerId, int? door);
 
     /// <summary>
-    /// De voorraad aan het eind van <paramref name="datum"/>: de mutaties tot en met die dag opgeteld per artikel en
-    /// status, zonder projectmateriaal (WerkorderID leeg), met de vastgestelde kostprijs. Status null = alle.
+    /// De voorraad aan het eind van <paramref name="datum"/>: de mutaties tot en met die dag opgeteld per artikel,
+    /// status en lokatie, zonder projectmateriaal (WerkorderID leeg), met de vastgestelde kostprijs. Status null = alle.
     /// </summary>
     Task<List<VoorraadstandRegel>> StandOpDatumAsync(DateOnly datum, int? statusId);
 }
@@ -151,13 +158,13 @@ public class MySqlVoorraadRepository : IVoorraadRepository
         // Access vergeleek MutatieOp <= de datum (= middernacht aan het begin van die dag); hier tot en met die dag.
         await using var cmd = new MySqlCommand(
             "SELECT m.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), COALESCE(s.`Status`, ''), " +
-            "       SUM(m.`Mutatie`), MAX(COALESCE(a.`VastgesteldeKostprijs`, 0)) " +
+            "       SUM(m.`Mutatie`), MAX(COALESCE(a.`VastgesteldeKostprijs`, 0)), m.`LocationID` " +
             "  FROM `VoorraadMutaties` m " +
             "  JOIN `@Artikelen` a ON a.`ArtikelID` = m.`ArtikelID` " +
             "  JOIN `VoorraadStatus` s ON s.`VoorraadStatusID` = m.`VoorraadStatusID` " +
             " WHERE m.`MutatieOp` < @tot AND m.`WerkorderID` IS NULL " +
             (statusId is null ? "" : "   AND m.`VoorraadStatusID` = @st ") +
-            " GROUP BY m.`ArtikelID`, m.`VoorraadStatusID` " +
+            " GROUP BY m.`ArtikelID`, m.`VoorraadStatusID`, m.`LocationID` " +
             "HAVING ABS(SUM(m.`Mutatie`)) > 0.0000001 " +
             " ORDER BY s.`VoorraadStatusID`, m.`ArtikelID`", cn);
         cmd.Parameters.AddWithValue("@tot", datum.AddDays(1).ToDateTime(TimeOnly.MinValue));
@@ -165,7 +172,8 @@ public class MySqlVoorraadRepository : IVoorraadRepository
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new VoorraadstandRegel(r.GetInt32(0), S(r, 1), S(r, 2), S(r, 3),
-                                             Math.Round(Convert.ToDecimal(r.GetValue(4)), 6), Convert.ToDecimal(r.GetValue(5))));
+                                             Math.Round(Convert.ToDecimal(r.GetValue(4)), 6), Convert.ToDecimal(r.GetValue(5)),
+                                             r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6))));
         return lijst;
     }
 

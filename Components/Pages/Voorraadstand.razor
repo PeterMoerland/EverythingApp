@@ -1,11 +1,14 @@
 @page "/financien/voorraadstand"
 @inject IVoorraadRepository Repo
+@inject ILokatieRepository Lokaties
 @inject IJSRuntime JS
 
 @* Overgezet van het Access-formulier VoorraadStandPerDatum (met de query en het rapport VoorraadStand): de voorraad
    op een datum per status, met de vastgestelde kostprijs en de waarde. Projectmateriaal (een mutatie met werkorder)
    telt niet mee, zoals in Access. Verschil: Access telde tot het begin van de gekozen dag, hier tot en met die dag.
-   Onder Financiën, dus alleen voor Financial en Directie (HuidigeGebruiker.IsFinancienPad). *@
+   Onder Financiën, dus alleen voor Financial en Directie (HuidigeGebruiker.IsFinancienPad).
+   Per BV (wens gebruiker 10-11-2026): de voorraad hoort bij de BV van de bovenste lokatie waar hij ligt (LokatieBoom.Bv);
+   kaarten per BV, een BV-filter en een kolom BV. Dat gaat op de lokatieboom van nu, ook voor een datum in het verleden. *@
 
 <PageTitle>Voorraadstand — MDE</PageTitle>
 
@@ -36,6 +39,19 @@
                 <button class="klein" @onclick="() => ZetDatum(EindVorigeMaand)">Eind vorige maand</button>
                 <button class="klein" @onclick="() => ZetDatum(new DateOnly(DateTime.Today.Year - 1, 12, 31))">31-12-@(DateTime.Today.Year - 1)</button>
             </div>
+            @if (_boom.HeeftBvs)
+            {
+                <label class="bankveld">
+                    <span>BV</span>
+                    <select value="@BvFilterTekst" @onchange="BvFilterGewijzigd">
+                        <option value="">Alle BV's</option>
+                        @foreach (var b in BvKeuzes)
+                        {
+                            <option value="@b.Id">@b.Naam</option>
+                        }
+                    </select>
+                </label>
+            }
             <label class="bankveld">
                 <span>Productstatus</span>
                 <select value="@(_status?.ToString() ?? "")" @onchange="StatusGewijzigd">
@@ -66,8 +82,27 @@
         {
             <section class="module-placeholder"><p>Geen voorraad op @_datum.ToString("dd-MM-yyyy")@(_status is null ? "" : " met deze status").</p></section>
         }
+        else if (_bvFilter is not null && !Zichtbaar.Any())
+        {
+            <section class="module-placeholder"><p>Geen voorraad bij@(BvTitel) op @_datum.ToString("dd-MM-yyyy")@(_status is null ? "" : " met deze status").</p></section>
+        }
         else
         {
+            @if (_boom.HeeftBvs)
+            {
+                @* per BV, los van het BV-filter (wel status en zoeken); klik = alleen die BV *@
+                <div class="vs-samenvatting vs-bvs">
+                    @foreach (var g in PerBv)
+                    {
+                        <button type="button" class="vs-kaart vs-bvkaart @(BvSleutel(g.Key) == _bvFilter ? "actief" : "")"
+                                title="@(BvSleutel(g.Key) == _bvFilter ? "Weer alle BV's tonen" : "Alleen deze BV tonen")" @onclick="() => KiesBv(g.Key)">
+                            <span class="vs-status">@BvLabel(g.Key)</span>
+                            <b>@Geld(g.Sum(r => r.Totaal))</b>
+                            <small>@g.Select(r => r.ArtikelId).Distinct().Count() artikelen · @Getal(g.Sum(r => r.Aantal)) stuks</small>
+                        </button>
+                    }
+                </div>
+            }
             <div class="vs-samenvatting">
                 @foreach (var g in Groepen)
                 {
@@ -82,6 +117,10 @@
             <table class="kiezer-tabel vs-tabel">
                 <thead>
                     <tr>
+                        @if (BvKolom)
+                        {
+                            <th style="width:5rem">BV</th>
+                        }
                         <th class="r" style="width:5rem">MDE</th>
                         <th style="width:12rem">Artikelcode</th>
                         <th>Omschrijving</th>
@@ -93,10 +132,14 @@
                 @foreach (var g in Groepen)
                 {
                     <tbody>
-                        <tr class="vs-groep"><td colspan="6">@g.Key</td></tr>
+                        <tr class="vs-groep"><td colspan="@Kolommen">@g.Key</td></tr>
                         @foreach (var r in g)
                         {
-                            <tr @key="(r.ArtikelId, r.Status)">
+                            <tr @key="(r.ArtikelId, r.Status, r.BvId)">
+                                @if (BvKolom)
+                                {
+                                    <td>@if (r.BvId is null) { <small class="vs-mist">niet ingedeeld</small> } else { <span class="av-bv">@r.Bv</span> }</td>
+                                }
                                 <td class="r"><button class="link" title="Artikel bekijken" @onclick="() => _bekeken = r.ArtikelId">@r.ArtikelId</button></td>
                                 <td>@r.Code</td>
                                 <td>@r.Omschrijving</td>
@@ -106,21 +149,26 @@
                             </tr>
                         }
                         <tr class="vs-sub">
-                            <td colspan="5" class="r">Totale kostprijs met status @g.Key</td>
+                            <td colspan="@(Kolommen - 1)" class="r">Totale kostprijs met status @g.Key</td>
                             <td class="r">@Geld(g.Sum(r => r.Totaal))</td>
                         </tr>
                     </tbody>
                 }
                 <tfoot>
                     <tr class="vs-eind">
-                        <td colspan="5" class="r">Totale kostprijs voorraad op @_datum.ToString("dd-MM-yyyy")@(_zoek.Trim().Length > 0 ? " (gefilterd)" : "")</td>
+                        <td colspan="@(Kolommen - 1)" class="r">Totale kostprijs voorraad@(BvTitel) op @_datum.ToString("dd-MM-yyyy")@(_zoek.Trim().Length > 0 ? " (gefilterd)" : "")</td>
                         <td class="r">@Geld(Zichtbaar.Sum(r => r.Totaal))</td>
                     </tr>
                 </tfoot>
             </table>
             @if (_regels.Any(r => r.Kostprijs == 0))
             {
-                <p class="uitleg">@_regels.Count(r => r.Kostprijs == 0) artikel(en) hebben geen vastgestelde kostprijs en tellen voor € 0 mee (grijs).</p>
+                <p class="uitleg">@_regels.Where(r => r.Kostprijs == 0).Select(r => r.ArtikelId).Distinct().Count() artikel(en) hebben geen vastgestelde kostprijs en tellen voor € 0 mee (grijs).</p>
+            }
+            @if (_boom.HeeftBvs)
+            {
+                <p class="uitleg">De BV volgt de bovenste lokatie waar de voorraad ligt (Voorraad ▸ Lokaties), zoals de lokaties nu zijn
+                    ingedeeld. "Niet ingedeeld" = voorraad op een plek zonder BV erboven of zonder plek.</p>
             }
         }
     }
@@ -142,6 +190,45 @@
     private string? _melding;
     private bool _fout;
     private int? _bekeken;
+    private LokatieBoom _boom = new(Array.Empty<Lokatie>());
+    /// <summary>null = alle BV's, 0 = niet ingedeeld, anders de BV (Relations.id_supplier).</summary>
+    private int? _bvFilter;
+
+    private static int BvSleutel(int? bvId) => bvId ?? 0;
+    private string BvFilterTekst => _bvFilter?.ToString() ?? "";
+    private bool BvKolom => _boom.HeeftBvs && _bvFilter is null;
+    private int Kolommen => BvKolom ? 7 : 6;
+
+    /// <summary>De BV's uit de lokatieboom (afkorting), plus "Niet ingedeeld" als er zulke voorraad is.</summary>
+    private List<(int Id, string Naam)> BvKeuzes
+    {
+        get
+        {
+            var lijst = _boom.PerId.Values.Where(l => l.BvId is not null)
+                .GroupBy(l => l.BvId!.Value)
+                .Select(g => (g.Key, g.Select(l => l.BvNaam.Length > 0 ? l.BvNaam : l.Omschrijving).First()))
+                .OrderBy(b => b.Key == 5254 ? 0 : 1).ThenBy(b => b.Item2, StringComparer.CurrentCultureIgnoreCase).ToList();
+            if (_regels.Any(r => r.BvId is null)) lijst.Add((0, "Niet ingedeeld"));
+            return lijst;
+        }
+    }
+
+    private string BvLabel(int? bvId)
+        => bvId is null ? "Niet ingedeeld" : BvKeuzes.FirstOrDefault(b => b.Id == bvId).Naam ?? $"BV {bvId}";
+
+    private string BvTitel => _bvFilter is int f ? " " + BvLabel(f == 0 ? null : f) : "";
+
+    /// <summary>Per BV (status en zoeken tellen mee, het BV-filter niet): MDE Automation eerst, niet ingedeeld laatst.</summary>
+    private IEnumerable<IGrouping<int?, VoorraadstandRegel>> PerBv
+        => Gezocht.GroupBy(r => r.BvId).OrderBy(g => g.Key is null ? 2 : g.Key == 5254 ? 0 : 1).ThenBy(g => BvLabel(g.Key));
+
+    private void KiesBv(int? bvId)
+    {
+        var s = BvSleutel(bvId);
+        _bvFilter = _bvFilter == s ? null : s;
+    }
+
+    private void BvFilterGewijzigd(ChangeEventArgs e) => _bvFilter = int.TryParse((string?)e.Value, out var v) ? v : null;
 
     private static DateOnly EindVorigeMaand
     {
@@ -149,6 +236,9 @@
     }
 
     private IEnumerable<VoorraadstandRegel> Zichtbaar
+        => _bvFilter is int f ? Gezocht.Where(r => BvSleutel(r.BvId) == f) : Gezocht;
+
+    private IEnumerable<VoorraadstandRegel> Gezocht
     {
         get
         {
@@ -165,15 +255,36 @@
     {
         if (!Repo.Beschikbaar) return;
         try { _statussen = await Repo.StatussenAsync(); } catch { }
+        try { _boom = await Lokaties.BoomAsync(); } catch { }
         await Laad();
     }
 
     private async Task Laad()
     {
         _bezig = true;
-        try { _regels = await Repo.StandOpDatumAsync(_datum, _status); }
+        try { _regels = PerBvOptellen(await Repo.StandOpDatumAsync(_datum, _status)); }
         catch (Exception ex) { _regels = new(); _melding = "Berekenen mislukt: " + ex.Message; _fout = true; }
         finally { _bezig = false; }
+    }
+
+    /// <summary>
+    /// De database geeft een regel per artikel, status en lokatie; hier opgeteld per BV (zonder BV's in de boom: alles
+    /// samen, zoals voorheen). Wat per BV op nul uitkomt valt weg.
+    /// </summary>
+    private List<VoorraadstandRegel> PerBvOptellen(List<VoorraadstandRegel> perLokatie)
+    {
+        var metBv = _boom.HeeftBvs;
+        return perLokatie
+            .Select(r =>
+            {
+                if (!metBv || r.LokatieId is not int l) return r;
+                var (id, naam) = _boom.Bv(l);
+                return r with { BvId = id, Bv = naam };
+            })
+            .GroupBy(r => (r.BvId, r.ArtikelId, r.Status))
+            .Select(g => g.First() with { Aantal = Math.Round(g.Sum(r => r.Aantal), 6), LokatieId = null })
+            .Where(r => Math.Abs(r.Aantal) > 0.0000001m)
+            .ToList();
     }
 
     private async Task ZetDatum(DateOnly d)
@@ -197,16 +308,18 @@
         var vet = new HashSet<int>();
         foreach (var g in Groepen)
         {
-            foreach (var r in g) rijen.Add(new object?[] { r.Status, r.ArtikelId, r.Code, r.Omschrijving, r.Aantal, r.Kostprijs, r.Totaal });
+            foreach (var r in g) rijen.Add(new object?[] { r.Status, BvLabel(r.BvId), r.ArtikelId, r.Code, r.Omschrijving, r.Aantal, r.Kostprijs, r.Totaal });
             vet.Add(rijen.Count);
-            rijen.Add(new object?[] { g.Key, null, null, "Totaal " + g.Key, g.Sum(r => r.Aantal), null, g.Sum(r => r.Totaal) });
+            rijen.Add(new object?[] { g.Key, null, null, null, "Totaal " + g.Key, g.Sum(r => r.Aantal), null, g.Sum(r => r.Totaal) });
         }
         vet.Add(rijen.Count);
-        rijen.Add(new object?[] { "Totaal", null, null, $"Totale kostprijs voorraad op {_datum:dd-MM-yyyy}", null, null, Zichtbaar.Sum(r => r.Totaal) });
+        rijen.Add(new object?[] { "Totaal", null, null, null, $"Totale kostprijs voorraad{BvTitel} op {_datum:dd-MM-yyyy}", null, null, Zichtbaar.Sum(r => r.Totaal) });
+        if (!_boom.HeeftBvs) foreach (var rij in rijen) rij[1] = null;
 
         var bestand = XlsxSchrijver.Maak("Voorraadstand " + _datum.ToString("dd-MM-yyyy"), new[]
         {
             new XlsxSchrijver.Kolom("Status", XlsxSoort.Tekst, 12),
+            new XlsxSchrijver.Kolom("BV", XlsxSoort.Tekst, 14),
             new XlsxSchrijver.Kolom("MDE", XlsxSoort.Tekst, 8),
             new XlsxSchrijver.Kolom("Artikelcode", XlsxSoort.Tekst, 22),
             new XlsxSchrijver.Kolom("Omschrijving", XlsxSoort.Tekst, 60),
@@ -214,7 +327,8 @@
             new XlsxSchrijver.Kolom("Kostprijs", XlsxSoort.Geld, 13),
             new XlsxSchrijver.Kolom("Totaal", XlsxSoort.Geld, 14),
         }, rijen, vet);
-        try { await JS.InvokeVoidAsync("mdeBestand.download", $"Voorraadstand {_datum:yyyy-MM-dd}.xlsx", bestand); }
+        var naam = $"Voorraadstand{BvTitel} {_datum:yyyy-MM-dd}.xlsx";
+        try { await JS.InvokeVoidAsync("mdeBestand.download", naam, bestand); }
         catch (Exception ex) { _melding = "Downloaden mislukt: " + ex.Message; _fout = true; }
     }
 }

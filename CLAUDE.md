@@ -308,8 +308,13 @@ wissen alleen zonder lokaties eronder, zonder voorraadmutaties en zonder inhoud;
 Repository: `NieuweLokatieAsync`, `BewaarLokatieAsync`, `WisLokatieAsync`, `ZetBvAsync`. Lokaal: `Lokaties__Geheugen=true`
 (leest echt, schrijft in het geheugen). Getest in het geheugen: gebouw/ruimte/3 stellingen onder MPR (label
 MPR-S48-MAG-1), wissen, weigeren met plekken eronder. Niet getest: echt opslaan en printen.
-**Volgende stappen** (nog niet gebouwd): BV op inkooporders (`Orders` heeft geen BV) en bij
-ontvangst boeken op een plek van die BV, Voorraadstand per BV, verplaatsen tussen BV's = interne verkoop.
+**Voorraadstand per BV** (gebouwd 10-11-2026, Financiën > Voorraadstand): `StandOpDatumAsync` geeft nu een regel per
+artikel, status **en lokatie** (`VoorraadstandRegel.LokatieId`); het scherm telt op per BV via `LokatieBoom.Bv`
+(`BvId`/`Bv`, "niet ingedeeld" = geen BV erboven of geen lokatie). Kaarten per BV (klik = filter), filter BV, kolom BV
+(bij Alle), Excel met kolom BV. Op de lokatieboom van nu, ook voor een datum in het verleden. Getoetst: totaal gelijk
+aan de oude query (€ 481.778,10, 1075 regels op 10-11-2026); alles is nu AUTO, MPR leeg.
+**Volgende stappen** (nog niet gebouwd): bij ontvangst boeken op een plek van de BV van de bestelling, inkopen voor de
+eigen voorraad (zonder project), verplaatsen tussen BV's = interne verkoop.
 
 ## Factuurinbox: al ingevoerde facturen weghalen (10-11-2026)
 

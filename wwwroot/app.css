@@ -3999,6 +3999,14 @@ html[data-thema="donker"] .pb-naam small { color: #9aa8bb; }
 .vs-tabel button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font: inherit; }
 html[data-thema="donker"] .vs-kaart { background: #1b2a3f; border-color: #2b4a73; }
 html[data-thema="donker"] .vs-kaart small, html[data-thema="donker"] .vs-status { color: #9aa8bb; }
+/* Voorraadstand per BV: kaarten zijn knoppen (filter) */
+.vs-bvs { margin-bottom: .3rem; }
+.vs-bvkaart { font: inherit; text-align: left; cursor: pointer; border-left: 4px solid #1f5fa8; color: inherit; }
+.vs-bvkaart:hover { background: #f2f6fc; }
+.vs-bvkaart.actief { outline: 2px solid #1f5fa8; outline-offset: 1px; }
+html[data-thema="donker"] .vs-bvkaart { border-left-color: #6aa7ef; }
+html[data-thema="donker"] .vs-bvkaart:hover { background: #22344d; }
+html[data-thema="donker"] .vs-bvkaart.actief { outline-color: #6aa7ef; }
 
 /* ---------- Artikelen ▸ Leveranciers (ArtikelSupplier) ---------- */
 .al-omhulsel { overflow-x: auto; }
