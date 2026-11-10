@@ -316,6 +316,17 @@ bevriezen**; werkorders aanmaken (budget, kostenbegroting, delen met begrote ure
   nagerekend), opslaan met versie, 409 bij een oude versie, 423 bij een getal na bevriezen, notitie na bevriezen wel,
   ontdooien, werkordernummers 224112-01/-02, donker thema. Niet getest: echte database, twee echte gebruikers tegelijk.
 
+## Ingelogde gebruiker in losse adressen (10-11-2026)
+
+Melding gebruiker: de calculatieboom stond in productie op "Concept · alleen lezen". Oorzaak: `HuidigeGebruiker` leest de
+gebruiker via Blazor's `AuthenticationStateProvider`, en die is bij een gewoon HTTP-verzoek (minimal API) niet gezet →
+iedereen "niet ingelogd" (`GetAuthenticationStateAsync` gooit, `LaadAsync` vangt). Nu zet een middleware in Program.cs
+(na `UseAuthorization`) per verzoek `IHostEnvironmentAuthenticationStateProvider.SetAuthenticationState(ctx.User)`.
+Gevolg ook elders: **/bestand en /voorbeeld** van vertrouwelijke soorten (personeelsdossier, BV-documenten,
+verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu toe tegen een niet-ingelogde gebruiker
+(soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
+zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
+
 ## Calculaties, stap 2: werkorders aanmaken bij klant akkoord (10-11-2026)
 
 Besluiten gebruiker: groepen zonder werkorder (korting, afronding) **naar rato** over de werkorderbudgetten (de

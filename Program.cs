@@ -520,6 +520,17 @@ app.Use((context, next) =>
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// HuidigeGebruiker leest de ingelogde gebruiker via de AuthenticationStateProvider. Binnen Blazor zet Blazor die zelf;
+// bij de losse adressen hieronder (calculaties/api, bestand, artikelfoto, Fusion-download) niet, waardoor iedereen daar
+// "niet ingelogd" was: de calculatieboom stond op alleen lezen (gevonden 10-11-2026). Daarom per verzoek zetten.
+app.Use((ctx, next) =>
+{
+    if (ctx.RequestServices.GetService<Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider>()
+        is Microsoft.AspNetCore.Components.Authorization.IHostEnvironmentAuthenticationStateProvider host)
+        host.SetAuthenticationState(Task.FromResult(new Microsoft.AspNetCore.Components.Authorization.AuthenticationState(ctx.User)));
+    return next();
+});
 app.UseAntiforgery();
 
 // --- inlog- en uitlogadressen ---
