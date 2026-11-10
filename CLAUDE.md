@@ -333,6 +333,13 @@ verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu t
 (soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
 zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
 
+## Todo-overzicht per werkzaamheid (10-11-2026)
+
+Wens gebruiker. Vinkje **Per werkzaamheid** (standaard aan, onthouden via `mdeOpslag` `todoGroeperen`): per Wat een kop
+(`tr.todo-groep`) met het aantal open (en gereed bij Ook gereed), klik = in-/uitklappen (`_dicht`), knoppen Alles open /
+Alles dicht; de kolom Wat valt dan weg (`Kolommen`, kopklasse `todo-toel-kop` in plaats van `nth-child(5)`). Rij als
+RenderFragment `Rij`. Lokaal bekeken met de echte punten (155 open, 13 werkzaamheden), niets afgevinkt.
+
 ## Banktransacties: eerst de BV, dan de rekening (10-11-2026)
 
 Wens gebruiker. Keuzelijst **BV** vóór Rekening (alleen als je rekeningen van meer dan één BV mag zien); de rekeninglijst

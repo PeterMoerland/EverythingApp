@@ -66,6 +66,13 @@
                        @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
             </label>
             <label class="vink"><input type="checkbox" checked="@_ookGereed" @onchange="OokGereedGewijzigd" /> Ook gereed</label>
+            <label class="vink" title="Een kop per werkzaamheid (Wat); klik op een kop om hem in of uit te klappen">
+                <input type="checkbox" checked="@_groeperen" @onchange="GroeperenGewijzigd" /> Per werkzaamheid</label>
+            @if (_groeperen)
+            {
+                <button class="klein" @onclick="AllesOpen" title="Alle werkzaamheden uitklappen">▾ Alles open</button>
+                <button class="klein" @onclick="AllesDicht" title="Alle werkzaamheden inklappen">▸ Alles dicht</button>
+            }
             <button class="klein" @onclick="Laad">↻ Vernieuwen</button>
             <button class="klein" @onclick="Afdrukken">🖨 Afdrukken</button>
         </div>
@@ -82,8 +89,11 @@
                         <th class="niet-afdrukken" style="width:2.2rem" title="Gereed">✓</th>
                         <th style="width:10rem">Product</th>
                         <th style="width:10rem">Onderdeel</th>
-                        <th style="width:10rem">Wat</th>
-                        <th>Toelichting</th>
+                        @if (!_groeperen)
+                        {
+                            <th style="width:10rem">Wat</th>
+                        }
+                        <th class="todo-toel-kop">Toelichting</th>
                         <th style="width:11rem">Klant</th>
                         <th style="width:8rem">Project</th>
                         <th style="width:5rem">Status</th>
@@ -95,35 +105,40 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var t in Getoond)
+                    @if (_groeperen)
                     {
-                        <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
-                            <td class="niet-afdrukken">
-                                <input @key="(t.Id, _herteken)" type="checkbox" checked="@(!t.Open)" disabled="@_bezig"
-                                       title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")" @onchange="e => ZetGereed(t, e.Value is true)" />
-                            </td>
-                            <td><a href="producten?product=@(t.WortelId ?? t.ProductId)" title="Exemplaar openen">@(t.WortelId is null ? t.Exemplaar : t.Wortel)</a></td>
-                            <td>
-                                @if (t.InOnderdeel)
-                                {
-                                    <a href="producten?product=@t.ProductId" title="Onderdeel openen">@t.Exemplaar</a>
-                                }
-                            </td>
-                            <td><b>@t.Wat</b></td>
-                            <td>@t.Toelichting</td>
-                            <td class="omschrijving" title="@t.Klant">@t.Klant</td>
-                            <td class="omschrijving" title="@t.Project">@t.Project</td>
-                            <td>@t.Status</td>
-                            <td class="klein-grijs">@t.Aangemaakt.ToString("dd-MM-yyyy") @t.Door</td>
-                            @if (_ookGereed)
+                        @* per werkzaamheid (Wat) een kop met het aantal; klik = in- of uitklappen (wens gebruiker 10-11-2026) *@
+                        @foreach (var g in Getoond.GroupBy(t => t.Wat))
+                        {
+                            var dicht = _dicht.Contains(g.Key);
+                            var open = g.Count(t => t.Open);
+                            <tr @key="@("g:" + g.Key)" class="todo-groep @(dicht ? "dicht" : "")" title="@(dicht ? "Uitklappen" : "Inklappen")"
+                                @onclick="() => Wissel(g.Key)">
+                                <td colspan="@Kolommen">
+                                    <span class="todo-pijl niet-afdrukken">@(dicht ? "▸" : "▾")</span>
+                                    <b>@g.Key</b>
+                                    <span class="todo-groep-aantal">@open open@(_ookGereed && g.Count() > open ? $" · {g.Count() - open} gereed" : "")</span>
+                                </td>
+                            </tr>
+                            @if (!dicht)
                             {
-                                <td class="klein-grijs">@(t.Gereed?.ToString("dd-MM-yyyy")) @t.GereedDoor</td>
+                                @foreach (var t in g)
+                                {
+                                    @Rij(t)
+                                }
                             }
-                        </tr>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var t in Getoond)
+                        {
+                            @Rij(t)
+                        }
                     }
                     @if (Getoond.Count == 0)
                     {
-                        <tr><td colspan="10" class="kiezer-info">@(_lijst.Count == 0 ? "Geen open punten." : "Niets gevonden voor dit filter.")</td></tr>
+                        <tr><td colspan="@Kolommen" class="kiezer-info">@(_lijst.Count == 0 ? "Geen open punten." : "Niets gevonden voor dit filter.")</td></tr>
                     }
                 </tbody>
             </table>
@@ -176,10 +191,69 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!_voorkeurGelezen)
+        {
+            _voorkeurGelezen = true;
+            try
+            {
+                var v = await JS.InvokeAsync<string?>("mdeOpslag.lees", "todoGroeperen");
+                if (v == "0") { _groeperen = false; StateHasChanged(); }
+            }
+            catch { }
+        }
         if (!_focusHernoem) return;
         _focusHernoem = false;
         try { await _hernoemVeld.FocusAsync(); } catch { }
     }
+
+    /// <summary>Eén punt; bij groeperen zonder de kolom Wat (die staat in de kop).</summary>
+    private RenderFragment Rij(ProductTodo t) => __builder =>
+    {
+        <tr @key="t.Id" class="@(t.Open ? "" : "todo-gereed")">
+            <td class="niet-afdrukken">
+                <input @key="(t.Id, _herteken)" type="checkbox" checked="@(!t.Open)" disabled="@_bezig"
+                       title="@(t.Open ? "Afvinken: gereed" : "Weer open zetten")" @onchange="e => ZetGereed(t, e.Value is true)" />
+            </td>
+            <td><a href="producten?product=@(t.WortelId ?? t.ProductId)" title="Exemplaar openen">@(t.WortelId is null ? t.Exemplaar : t.Wortel)</a></td>
+            <td>
+                @if (t.InOnderdeel)
+                {
+                    <a href="producten?product=@t.ProductId" title="Onderdeel openen">@t.Exemplaar</a>
+                }
+            </td>
+            @if (!_groeperen)
+            {
+                <td><b>@t.Wat</b></td>
+            }
+            <td>@t.Toelichting</td>
+            <td class="omschrijving" title="@t.Klant">@t.Klant</td>
+            <td class="omschrijving" title="@t.Project">@t.Project</td>
+            <td>@t.Status</td>
+            <td class="klein-grijs">@t.Aangemaakt.ToString("dd-MM-yyyy") @t.Door</td>
+            @if (_ookGereed)
+            {
+                <td class="klein-grijs">@(t.Gereed?.ToString("dd-MM-yyyy")) @t.GereedDoor</td>
+            }
+        </tr>
+    };
+
+    // ---- groeperen per werkzaamheid (Wat) ----
+    private bool _groeperen = true;
+    private readonly HashSet<string> _dicht = new();
+    private int Kolommen => 9 + (_ookGereed ? 1 : 0) - (_groeperen ? 1 : 0);
+
+    private void Wissel(string wat) { if (!_dicht.Remove(wat)) _dicht.Add(wat); }
+
+    private async Task GroeperenGewijzigd(ChangeEventArgs e)
+    {
+        _groeperen = e.Value is true;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "todoGroeperen", _groeperen ? "1" : "0"); } catch { }
+    }
+
+    private void AllesOpen() => _dicht.Clear();
+    private void AllesDicht() { foreach (var w in Getoond.Select(t => t.Wat)) _dicht.Add(w); }
+
+    private bool _voorkeurGelezen;
 
     private string HernoemUitleg => !_magHernoemen
         ? "Alleen voor projectleiders van een open project en Directie."

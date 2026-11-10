@@ -3775,7 +3775,16 @@ html[data-thema="donker"] .wn-naam.actief:focus-visible { background: var(--acce
 .todo-tabel, .todo-overzicht { margin-top: .5rem; }
 .todo-tabel td, .todo-overzicht td { vertical-align: top; }
 .todo-overzicht td:nth-child(2), .todo-overzicht td:nth-child(3) { white-space: nowrap; }
-.todo-overzicht th:nth-child(5) { min-width: 14rem; }
+.todo-overzicht th.todo-toel-kop { min-width: 14rem; }
+/* Todo-overzicht per werkzaamheid (10-11-2026) */
+.todo-overzicht tr.todo-groep td { background: #eef2f7; cursor: pointer; padding-top: .45rem; border-top: 2px solid #d6dde6; }
+.todo-overzicht tr.todo-groep:hover td { background: #e2e9f2; }
+.todo-pijl { display: inline-block; width: 1rem; color: #55606d; }
+.todo-groep-aantal { color: #55606d; font-size: .9em; margin-left: .5rem; }
+html[data-thema="donker"] .todo-overzicht tr.todo-groep td { background: var(--d1); border-top-color: var(--d3); }
+html[data-thema="donker"] .todo-overzicht tr.todo-groep:hover td { background: var(--d3); }
+html[data-thema="donker"] .todo-pijl, html[data-thema="donker"] .todo-groep-aantal { color: var(--dt2); }
+@media print { .todo-overzicht tr.todo-groep td { background: none; border-top: 1px solid #999; } }
 .todo-tabel { width: 100%; }
 .todo-toel { color: #4b5563; font-size: .92em; margin-top: .1rem; }
 html[data-thema="donker"] .todo-toel { color: var(--dt2); }
