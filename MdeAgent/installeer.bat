@@ -3,8 +3,9 @@ rem ============================================================================
 rem  MDE Werkplek-agent installeren of bijwerken (op de werkplek-pc).
 rem  Dubbelklikken vanaf de share is genoeg: pakt de nieuwste installer uit
 rem  de map uitvoer\, vraagt om administratorrechten en installeert stil.
-rem  Een bestaand token blijft staan. Op een nieuwe pc (nog geen agent.json) vraagt
-rem  het script om het token van de app (Productie:AgentToken); het wordt niet getoond.
+rem  Het script vraagt altijd om het token van de app (Productie:AgentToken; het wordt
+rem  niet getoond). Bij bijwerken = Enter: het huidige token blijft staan. Ook als de
+rem  agent eerder zelf een token verzon (dat de app niet kent), kun je het zo goedzetten.
 rem  Meegeven kan ook:            installeer.bat MijnToken
 rem  Opnieuw laten vragen:        installeer.bat /token
 rem  Het token staat bewust NIET in deze map: die is voor iedereen leesbaar.
@@ -42,10 +43,11 @@ if %errorlevel% neq 0 (
 )
 
 echo Bronmap: %BRON%
-set "VRAAG="
-if /i "%TOKEN%"=="/token" ( set "TOKEN=" & set "VRAAG=1" )
-rem Nieuwe pc: de agent maakt bij de eerste start zelf een willekeurig token, dat de app niet kent.
-if not exist "%ProgramData%\MDE\Agent\agent.json" set "VRAAG=1"
+if /i "%TOKEN%"=="/token" set "TOKEN="
+rem Nieuwe pc: de agent maakt bij de eerste start zelf een willekeurig token, dat de app niet kent. Dan mag Enter
+rem het huidige token dus niet houden.
+set "NIEUW="
+if not exist "%ProgramData%\MDE\Agent\agent.json" set "NIEUW=1"
 if not exist "%BRON%\uitvoer\" (
     echo De bronmap is vanuit dit verhoogde venster niet bereikbaar ^(netwerkshare zonder aanmelding?^).
     echo Koppel de share eerst met:  net use \\172.16.1.13\claudecoworkshare /user:GEBRUIKER
@@ -80,13 +82,23 @@ if exist "%BRON%\mde-root.crt" (
 )
 
 set "EXE=%ProgramFiles%\MDE\Agent\MdeAgent.exe"
-if "%TOKEN%"=="" if defined VRAAG (
+rem Het token altijd vragen (10-11-2026): eerder vroeg het script alleen op een pc zonder agent.json, en een token dat de
+rem agent zelf had verzonnen bleef dan stilletjes staan (de app kon de agent niet gebruiken). Enter = huidige houden.
+set "HUIDIG="
+if not defined NIEUW for /f "delims=" %%t in ('call "%EXE%" --toon-token') do set "HUIDIG=%%t"
+if "!HUIDIG!"=="(geen token ingesteld)" set "HUIDIG="
+if "%TOKEN%"=="" (
     echo.
-    echo De agent heeft het token van de app nodig ^(Productie:AgentToken in appsettings.json^).
-    echo Vraag het zo nodig aan de beheerder. Leeg laten = later instellen met: installeer.bat /token
+    echo De agent heeft het token van de app nodig ^(Productie:AgentToken in appsettings.json^); vraag het zo nodig aan de beheerder.
+    if defined HUIDIG (
+        echo Nu ingesteld: !HUIDIG:~0,4!...   Enter = dat token houden.
+        echo Zegt de app ^(Tools ^> MDE Agent^) dat het token niet klopt, vul dan hier het token van de app in.
+    ) else (
+        echo Leeg laten = later instellen met: installeer.bat /token
+    )
     for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "$s = Read-Host 'Token (wordt niet getoond)' -AsSecureString; [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))"`) do set "TOKEN=%%t"
 )
-if "%TOKEN%"=="" if defined VRAAG (
+if "%TOKEN%"=="" if not defined HUIDIG (
     echo LET OP: geen token ingesteld; de app kan deze agent pas bereiken na: installeer.bat /token
 )
 if not "%TOKEN%"=="" (

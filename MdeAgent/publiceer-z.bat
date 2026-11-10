@@ -73,7 +73,7 @@ if errorlevel 1 (
     echo Installeren of bijwerken op een pc:
     echo   dubbelklik op installeer.bat en bevestig de vraag om administratorrechten.
     echo.
-    echo Nieuwe pc: het script vraagt om het token van de app ^(Productie:AgentToken^).
+    echo Het script vraagt om het token van de app ^(Productie:AgentToken^); bij bijwerken = Enter, dan blijft het huidige staan.
     echo Dat staat bewust niet in deze map; vraag het aan de beheerder.
     echo Token later ^(opnieuw^) instellen: open hier een venster en typ
     echo   in PowerShell:   .\installeer.bat /token

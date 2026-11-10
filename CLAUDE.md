@@ -56,6 +56,12 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   `installeer.bat` vraagt op een nieuwe pc (nog geen `%ProgramData%\MDE\Agent\agent.json`) om het token (verborgen
   invoer), `installeer.bat /token` vraagt het opnieuw; het token staat bewust niet op de share en wordt aan het eind
   maar half getoond. Let op: zonder token maakt de agent zelf een willekeurig token, dat de app niet kent.
+  **Sinds 10-11-2026 vraagt installeer.bat altijd** (melding collega: geen vraag, want agent.json bestond al met zo'n
+  zelfverzonnen token): bij bijwerken toont hij de eerste 4 tekens en houdt Enter het huidige token; op een nieuwe pc
+  (`NIEUW`, geen agent.json vóór de installatie) mag leeg niet "houden" betekenen. Droog getest met een nepagent
+  (scratchpad `battest`). Uitrollen = `publiceer-z.bat` (zet installeer.bat en LEESMIJ op de share; de download in
+  Tools ▸ MDE Agent pakt hem dan vanzelf). De losse installer (.exe, knop in de versiemelding) vraagt nog steeds niet
+  als er al een token staat.
 - **Installeren vanuit de app** (10-11-2026, wens gebruiker): Tools ▸ MDE Agent (`/tools/mde-agent`,
   `Components/Pages/AgentInstalleren.razor`; onder Tools omdat Productie pas verschijnt als er al een agent draait).
   Geen apart recht (net als Test PCB). Bovenaan de stand van deze pc: versie (bijgewerkt/verouderd), token (`/adapters`
