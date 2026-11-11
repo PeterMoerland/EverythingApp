@@ -18,6 +18,14 @@ public record BankImportResultaat(int Verwerkt, int Toegevoegd, int AlAanwezig, 
 /// </summary>
 public record GekoppeldeFactuur(bool Verkoop, int FactuurId, string Nummer, string Relatie, DateOnly? Datum, decimal Bedrag, bool Betaald);
 
+/// <summary>
+/// Een factuur die bij een banktransactie zou kunnen horen (handmatig koppelen, wens gebruiker 11-11-2026).
+/// NummerInTekst = het factuurnummer staat in de omschrijving of het betalingskenmerk; BedragGelijk = zelfde bedrag
+/// (zonder teken); IbanGelijk = de tegenrekening is het IBAN van de relatie; Elders = aan zoveel andere transacties gekoppeld.
+/// </summary>
+public record FactuurKandidaat(bool Verkoop, int FactuurId, string Nummer, string Relatie, DateOnly? Datum, decimal Bedrag,
+                               bool Betaald, string Omschrijving, int Elders, bool NummerInTekst, bool BedragGelijk, bool IbanGelijk);
+
 public interface IBankRepository
 {
     bool Beschikbaar { get; }
@@ -37,6 +45,17 @@ public interface IBankRepository
     Task<BanktransactieDetail?> GetDetailAsync(int id);
     /// <summary>De facturen die aan deze transactie gekoppeld zijn (inkomend en uitgaand).</summary>
     Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId);
+
+    /// <summary>
+    /// Facturen om aan de transactie te koppelen (nog niet gekoppeld aan deze transactie). Zonder zoektekst: de nummers
+    /// uit omschrijving/betalingskenmerk en het zelfde bedrag; met zoektekst: elk woord in nummer, relatie, omschrijving
+    /// of als bedrag. Beste treffers eerst.
+    /// </summary>
+    Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max);
+    /// <summary>Koppeling leggen (banktransacties_facturen_crossref); dubbel kan niet.</summary>
+    Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId);
+    /// <summary>Koppeling weghalen; null = gelukt, anders de reden waarom niet (hoort bij een geregistreerde betaling).</summary>
+    Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId);
     Task ZetOpmerkingAsync(int id, string? opmerking);
 
     /// <summary>Paskaartnummers die in de transacties voorkomen, voor het filter.</summary>
@@ -90,6 +109,9 @@ public class GeenBankRepository : IBankRepository
         => Task.FromResult(new BankTotalen(0, 0, null, null, null));
     public Task<BanktransactieDetail?> GetDetailAsync(int id) => Task.FromResult<BanktransactieDetail?>(null);
     public Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId) => Task.FromResult(new List<GekoppeldeFactuur>());
+    public Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max) => Task.FromResult(new List<FactuurKandidaat>());
+    public Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.CompletedTask;
+    public Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.FromResult<string?>("Geen live database.");
     public Task ZetOpmerkingAsync(int id, string? opmerking) => Task.CompletedTask;
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
     public Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId)
@@ -351,11 +373,180 @@ public class MySqlBankRepository : IBankRepository
         return lijst;
     }
 
+    // ---- handmatig koppelen ----
+
+    /// <summary>
+    /// De kolommen van een factuurkant: inkomend (FacturenInkomend) of uitgaand (Invoices). Bv = de BV van de factuur
+    /// (Admin / Werkmaatschappij; leeg = MDE Automation, 5254, zoals bij projecten): factuurnummers zijn per BV, dus
+    /// 2026011 bestaat bij meerdere BV's.
+    /// </summary>
+    private static (string From, string Id, string Nr, string Datum, string Bedrag, string Betaald, string Oms, string Kruis, string Bv) Kant(bool verkoop)
+        => verkoop
+            ? ("`Invoices` f LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Customer-id`", "f.`Invoice-id`", "COALESCE(f.`Invoicenumber`, '')",
+               "f.`Date invoice`", "COALESCE(f.`Total incl`, 0)", "COALESCE(f.`Betaald`, 0)",
+               "CONCAT_WS(' ', f.`Description`, f.`PO_Klant`, f.`Referentie`)", "Facturenuitgaand-id",
+               "COALESCE(NULLIF(f.`Werkmaatschappij`, 0), 5254)")
+            : ("`FacturenInkomend` f LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Bedrijf`", "f.`FacturenInkomend-ID`", "COALESCE(f.`FactuurNummer`, '')",
+               "f.`DatumFactuur`", "(COALESCE(f.`BedragExBTW`, 0) + COALESCE(f.`BTW`, 0))", "COALESCE(f.`Betaald`, 0)",
+               "CONCAT_WS(' ', f.`Omschrijving`, f.`Referentie_MDE`)", "Factureninkomend-id",
+               "COALESCE(NULLIF(f.`Admin`, 0), 5254)");
+
+    /// <summary>Mogelijke factuurnummers in een tekst: woorden van minstens 4 tekens met een cijfer, en losse cijferreeksen.</summary>
+    public static List<string> NummersIn(string tekst)
+    {
+        var uit = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(tekst ?? "", @"[A-Za-z0-9][A-Za-z0-9\-/.]{2,}[A-Za-z0-9]"))
+            if (m.Value.Any(char.IsDigit)) uit.Add(m.Value);
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(tekst ?? "", @"\d{4,}"))
+            uit.Add(m.Value);
+        return uit.Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToList();
+    }
+
+    /// <summary>Een woord als bedrag: 1.234,56 / 1234,56 / 1234.56 / € 1234.</summary>
+    public static decimal? AlsBedrag(string woord)
+    {
+        var s = woord.Replace("€", "").Trim();
+        if (s.Length == 0 || !s.Any(char.IsDigit)) return null;
+        if (System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d{1,3}(\.\d{3})+(,\d{1,2})?$|^-?\d+,\d{1,2}$"))
+            s = s.Replace(".", "").Replace(",", ".");
+        return decimal.TryParse(s, System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint,
+                                System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Abs(d) : null;
+    }
+
+    public async Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max)
+    {
+        await using var cn = await OpenAsync();
+        decimal bedrag = 0; DateTime? datum = null; var tekst = ""; int? bv = null; var iban = "";
+        await using (var cmd = new MySqlCommand(
+            "SELECT t.`Bedrag`, t.`Datum`, CONCAT_WS(' ', t.`Omschrijving`, t.`Betalingskenmerk`), " +
+            "       (SELECT b.`BVid` FROM `Bankrekeningen` b WHERE REPLACE(b.`Rekeningnummer`, ' ', '') = REPLACE(t.`Rekening`, ' ', '') LIMIT 1), " +
+            "       REPLACE(COALESCE(t.`Tegenrekening`, ''), ' ', '') " +
+            "  FROM `banktransacties` t WHERE t.`BankTransacties_ID` = @t", cn))
+        {
+            cmd.Parameters.AddWithValue("@t", transactieId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return new();
+            bedrag = r.IsDBNull(0) ? 0 : Math.Abs(Convert.ToDecimal(r.GetValue(0)));
+            datum = r.IsDBNull(1) ? null : Convert.ToDateTime(r.GetValue(1));
+            tekst = r.IsDBNull(2) ? "" : r.GetString(2);
+            bv = r.IsDBNull(3) || Convert.ToInt64(r.GetValue(3)) == 0 ? null : Convert.ToInt32(r.GetValue(3));
+            iban = r.IsDBNull(4) ? "" : r.GetString(4);
+        }
+        var nummers = NummersIn(tekst);
+        var k = Kant(verkoop);
+
+        await using var q = new MySqlCommand("", cn);
+        q.Parameters.AddWithValue("@t", transactieId);
+        q.Parameters.AddWithValue("@iban", iban);
+        var waar = new List<string>
+        {
+            $"NOT EXISTS (SELECT 1 FROM `banktransacties_facturen_crossref` x WHERE x.`Banktransacties-id` = @t AND x.`{k.Kruis}` = {k.Id})",
+        };
+        // alleen facturen van de BV van deze rekening
+        if (bv is int bvId) { waar.Add($"{k.Bv} = @bv"); q.Parameters.AddWithValue("@bv", bvId); }
+        var woorden = (zoek ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (woorden.Length == 0)
+        {
+            // voorstellen: een nummer uit de omschrijving, of precies het bedrag
+            var of = new List<string>();
+            if (bedrag > 0) { of.Add($"ABS(ABS({k.Bedrag}) - @abs) < 0.005"); q.Parameters.AddWithValue("@abs", bedrag); }
+            if (nummers.Count > 0)
+            {
+                of.Add($"{k.Nr} IN ({string.Join(",", nummers.Select((_, i) => "@n" + i))})");
+                for (var i = 0; i < nummers.Count; i++) q.Parameters.AddWithValue("@n" + i, nummers[i]);
+            }
+            if (of.Count == 0) return new();
+            waar.Add("(" + string.Join(" OR ", of) + ")");
+        }
+        else
+        {
+            for (var i = 0; i < woorden.Length && i < 6; i++)
+            {
+                var deel = $"({k.Nr} LIKE @w{i} OR r.`name` LIKE @w{i} OR {k.Oms} LIKE @w{i}";
+                q.Parameters.AddWithValue("@w" + i, "%" + woorden[i] + "%");
+                if (AlsBedrag(woorden[i]) is decimal b) { deel += $" OR ABS(ABS({k.Bedrag}) - @b{i}) < 0.005"; q.Parameters.AddWithValue("@b" + i, b); }
+                waar.Add(deel + ")");
+            }
+        }
+        q.CommandText =
+            $"SELECT {k.Id}, {k.Nr}, COALESCE(r.`name`, ''), {k.Datum}, {k.Bedrag}, {k.Betaald}, COALESCE({k.Oms}, ''), " +
+            $"       (SELECT COUNT(*) FROM `banktransacties_facturen_crossref` x WHERE x.`{k.Kruis}` = {k.Id} AND x.`Banktransacties-id` <> @t), " +
+            $"       (@iban <> '' AND REPLACE(COALESCE(r.`IBAN`, ''), ' ', '') = @iban) " +
+            $"  FROM {k.From} WHERE {string.Join(" AND ", waar)} ORDER BY {k.Datum} DESC LIMIT 200";
+
+        var lijst = new List<FactuurKandidaat>();
+        await using (var r = await q.ExecuteReaderAsync())
+            while (await r.ReadAsync())
+            {
+                var nr = r.GetString(1);
+                var b = Convert.ToDecimal(r.GetValue(4));
+                lijst.Add(new FactuurKandidaat(verkoop, r.GetInt32(0), nr, r.GetString(2),
+                    r.IsDBNull(3) ? null : DateOnly.FromDateTime(Convert.ToDateTime(r.GetValue(3))), b,
+                    Convert.ToInt64(r.GetValue(5)) != 0, r.GetString(6), Convert.ToInt32(r.GetValue(7)),
+                    nr.Length > 0 && nummers.Contains(nr, StringComparer.OrdinalIgnoreCase),
+                    bedrag > 0 && Math.Abs(Math.Abs(b) - bedrag) < 0.005m,
+                    !r.IsDBNull(8) && Convert.ToInt64(r.GetValue(8)) != 0));
+            }
+        // beste eerst: nummer in de omschrijving, dan de tegenrekening van de relatie, dan zelfde bedrag, dan nog niet
+        // elders gekoppeld, dan dichtst bij de datum
+        var dag = datum is DateTime d0 ? DateOnly.FromDateTime(d0) : DateOnly.FromDateTime(DateTime.Today);
+        return lijst.OrderByDescending(x => (x.NummerInTekst ? 8 : 0) + (x.IbanGelijk ? 4 : 0) + (x.BedragGelijk ? 2 : 0) + (x.Elders == 0 ? 1 : 0))
+                    .ThenBy(x => x.Datum is DateOnly fd ? Math.Abs(fd.DayNumber - dag.DayNumber) : int.MaxValue)
+                    .Take(max).ToList();
+    }
+
+    public async Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId)
+    {
+        var kolom = verkoop ? "Facturenuitgaand-id" : "Factureninkomend-id";
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            $"INSERT INTO `banktransacties_facturen_crossref` (`Banktransacties-id`, `{kolom}`, `Datum`) " +
+            $"SELECT @t, @f, NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `banktransacties_facturen_crossref` " +
+            $"  WHERE `Banktransacties-id` = @t AND `{kolom}` = @f)", cn);
+        cmd.Parameters.AddWithValue("@t", transactieId);
+        cmd.Parameters.AddWithValue("@f", factuurId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId)
+    {
+        await using var cn = await OpenAsync();
+        if (verkoop)
+        {
+            // een koppeling die bij een geregistreerde (deel)betaling hoort, gaat via de betalingen van de factuur
+            await using var t = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'FactuurBetalingen'", cn);
+            if (Convert.ToInt64(await t.ExecuteScalarAsync()) > 0)
+            {
+                await using var b = new MySqlCommand(
+                    "SELECT COUNT(*) FROM `FactuurBetalingen` WHERE `BanktransactieID` = @t AND `FactuurID` = @f", cn);
+                b.Parameters.AddWithValue("@t", transactieId);
+                b.Parameters.AddWithValue("@f", factuurId);
+                if (Convert.ToInt64(await b.ExecuteScalarAsync()) > 0)
+                    return "Deze koppeling hoort bij een geregistreerde betaling; haal die betaling weg bij de factuur (Betalingen).";
+            }
+        }
+        var kolom = verkoop ? "Facturenuitgaand-id" : "Factureninkomend-id";
+        await using var cmd = new MySqlCommand(
+            $"DELETE FROM `banktransacties_facturen_crossref` WHERE `Banktransacties-id` = @t AND `{kolom}` = @f", cn);
+        cmd.Parameters.AddWithValue("@t", transactieId);
+        cmd.Parameters.AddWithValue("@f", factuurId);
+        await cmd.ExecuteNonQueryAsync();
+        return null;
+    }
+
     public async Task<BanktransactieDetail?> GetDetailAsync(int id)
     {
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "SELECT t.*, COALESCE(w.`NaamVoluit`, '') AS ImportDoor " +
+            "SELECT t.*, COALESCE(w.`NaamVoluit`, '') AS ImportDoor, " +
+            // de relatie(s) met de tegenrekening als IBAN, en de BV van de eigen rekening (wens gebruiker 11-11-2026)
+            "       (SELECT GROUP_CONCAT(DISTINCT rel.`name` ORDER BY rel.`name` SEPARATOR ' / ') FROM `Relations` rel " +
+            "         WHERE COALESCE(t.`Tegenrekening`, '') <> '' " +
+            "           AND REPLACE(rel.`IBAN`, ' ', '') = REPLACE(t.`Tegenrekening`, ' ', '')) AS TegenRelatie, " +
+            "       (SELECT COALESCE(NULLIF(bv.`Afkorting`, ''), bv.`name`) FROM `Bankrekeningen` b " +
+            "          JOIN `Relations` bv ON bv.`id_supplier` = b.`BVid` " +
+            "         WHERE REPLACE(b.`Rekeningnummer`, ' ', '') = REPLACE(t.`Rekening`, ' ', '') LIMIT 1) AS RekeningBv " +
             "  FROM `banktransacties` t " +
             "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = t.`GeimporteerdDoor` " +
             " WHERE t.`BankTransacties_ID` = @id", cn);
@@ -408,6 +599,8 @@ public class MySqlBankRepository : IBankRepository
 
             Omschrijving = S("Omschrijving"),
             Tegenrekening = S("Tegenrekening"),
+            TegenrekeningRelatie = S("TegenRelatie"),
+            RekeningBv = S("RekeningBv"),
             NaamTegenpartij = S("NaamTegenpartij"),
             NaamUiteindelijkePartij = S("NaamUiteindelijkePartij"),
             NaamInitierendePartij = S("NaamInitierendePartij"),

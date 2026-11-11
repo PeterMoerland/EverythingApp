@@ -41,6 +41,10 @@ public class BanktransactieDetail
 
     public string Omschrijving { get; set; } = "";
     public string Tegenrekening { get; set; } = "";
+    /// <summary>Relatie(s) met de tegenrekening als IBAN (Relations.IBAN), leeg = onbekend.</summary>
+    public string TegenrekeningRelatie { get; set; } = "";
+    /// <summary>De BV van de eigen rekening (afkorting).</summary>
+    public string RekeningBv { get; set; } = "";
     public string NaamTegenpartij { get; set; } = "";
     public string NaamUiteindelijkePartij { get; set; } = "";
     public string NaamInitierendePartij { get; set; } = "";
