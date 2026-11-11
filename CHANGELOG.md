@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 11-11-2026
 
+- **Bankrekeningen** — Nieuw: creditcards als rekening (soort 💳 Creditcard, met het kaartnummer als nummer) en "Afgerekend via" voor de betaalrekening waarvan de kaart wordt afgeschreven.
+- **Banktransacties** — Nieuw: de creditcard-export van de Rabobank importeren; kaarttransacties koppel je net zo aan facturen en grootboek als gewone transacties.
+- **Banktransacties** — Opgelost: importeren in de app stopte met "Data too long for column 'Importdatum'".
 - **Algemeen** — Nieuw: deze pagina Wat is er nieuw; bovenin verschijnt 🆕 Nieuw als er iets veranderd is sinds je vorige bezoek.
 - **Artikelen** — Nieuw: knop 🛒 In orderbatch in het artikeldetail, met aantal (per verpakking), werkorder en opmerking; zat ook in Access (verzoek van Stein).
 - **Artikelen** — Verbeterd: artikelen en samenstellingen wijzigen kan nu met het nieuwe recht Artikelbeheer (of Directie); wie niet aan een werknemer gekoppeld is, kan alleen nog kijken.

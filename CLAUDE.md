@@ -261,6 +261,27 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   in gebruikerstaal voor collega's, met "(verzoek van Naam)" als een collega erom vroeg. Technisch onderhoud (build,
   CLAUDE.md, scripts) hoort er niet in. De app toont het bestand op `/nieuw` (Wat is er nieuw).
 
+## Creditcards als rekening (11-11-2026)
+
+Wens gebruiker: creditcards net zo behandelen als rekeningen (koppelen aan facturen, grootboek). Transacties hangen aan een
+rekening via `banktransacties.Rekening` = `Bankrekeningen.Rekeningnummer`; dat blijft de sleutel, dus nummers blijven uniek.
+- `Bankrekeningen_Creditcard_MariaDB.sql` (**zelf draaien**): `Soort` (0 bank, 1 creditcard) en `AfgerekendVia` (IBAN van
+  de maandafrekening, mag bij meerdere kaarten gelijk). `IBankRepository.SoortKolomAsync` (alleen "ja" gecachet);
+  zonder kolommen kan alleen een IBAN en zegt Bankrekeningen dat het script nodig is.
+- Bankrekeningen: kolommen Soort en Afgerekend via; nummer = IBAN (bank) of 4-19 cijfers (creditcard, `NummerKlopt`).
+- Import (`ImporteerAsync` stuurt door naar `ImporteerCreditcardAsync` als de kop "Creditcard Nummer" heeft; **vóór** de
+  IBAN-kopcontrole, anders kwamen kaartregels op de betaalrekening uit "Tegenrekening IBAN"). Rabo BusinessCard-export
+  (RA_CC_….csv): kaart = rekening met dat nummer (onbekende kaart = melding met aantal, regels overgeslagen); ontdubbelen op
+  Rekening + Transactiereferentie (uniek per kaart, niet over kaarten); NaamTegenpartij = eerste 25 tekens van de
+  omschrijving (vaste breedte: winkel 25, plaats 13, land 3), NaamInitierendePartij = kaarthouder, Tegenrekening leeg,
+  Saldo na trn NULL (geen saldo in de export), oorspronkelijk bedrag/munt mee; AfgerekendVia eenmalig uit de export.
+  Getoetst (alleen lezen) op de export van 11-11-2026: 671 regels, kaarten 6481/8960/2723, alles leesbaar. Niet in de
+  database geïmporteerd. "Verrekening vorig overzicht" en "Koersopslag" zijn gewone regels.
+- **Importdatum** (melding gebruiker bij de eerste creditcard-import): `banktransacties.Importdatum` is VARCHAR(25) met
+  Access-tekst "9-11-2026 09:14:05"; een DateTime-parameter werd 26 tekens ("Data too long"). Nu `Importdatum()` als tekst
+  in alle drie de inserts (CSV, creditcard, API). Gold dus ook voor de gewone CSV- en API-import; de regels tot 9-11-2026
+  kwamen nog uit Access.
+
 ## Wat is er nieuw / changelog (11-11-2026)
 
 Wens gebruiker: een changelog per datum, ook voor collega's, met namen. `CHANGELOG.md` (repo-root, met terugwerkende kracht

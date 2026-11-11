@@ -112,6 +112,9 @@ public interface IBankRepository
     /// <summary>Alle rekeningen met BV, aantallen en wie ze mag zien.</summary>
     Task<List<BankrekeningBeheer>> BeheerLijstAsync();
 
+    /// <summary>Bestaan Bankrekeningen.Soort en AfgerekendVia (Bankrekeningen_Creditcard_MariaDB.sql)?</summary>
+    Task<bool> SoortKolomAsync();
+
     /// <summary>De BV's die een rekening kunnen hebben (Relations.Werkmaatschappij).</summary>
     Task<List<(int Id, string Naam)>> WerkmaatschappijenAsync();
 
@@ -156,6 +159,7 @@ public class GeenBankRepository : IBankRepository
     public Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
         => Task.FromResult(new BankImportResultaat(regels.Count, 0, 0, new List<string> { "Geen live database." }));
     public Task<List<BankrekeningBeheer>> BeheerLijstAsync() => Task.FromResult(new List<BankrekeningBeheer>());
+    public Task<bool> SoortKolomAsync() => Task.FromResult(false);
     public Task<List<(int Id, string Naam)>> WerkmaatschappijenAsync() => Task.FromResult(new List<(int, string)>());
     public Task<int> BewaarRekeningAsync(BankrekeningBeheer rekening) => Task.FromResult(0);
     public Task WisRekeningAsync(int id) => Task.CompletedTask;
@@ -867,6 +871,11 @@ public class MySqlBankRepository : IBankRepository
         if (rijen.Count == 0)
             return new(0, 0, 0, new List<string> { "Het bestand is leeg." });
 
+        // Creditcard-export (RA_CC_…csv, "Rabo BusinessCard"): eigen kolommen. Moet vóór de IBAN-controle hieronder, want
+        // die kopregel noemt ook "Tegenrekening IBAN" en dan zouden de kaartregels op de betaalrekening belanden.
+        if (rijen[0].Any(k => k.Trim().Equals("Creditcard Nummer", StringComparison.OrdinalIgnoreCase)))
+            return await ImporteerCreditcardAsync(rijen, doorWerknemerId);
+
         // Een snelle zekerheid dat dit echt een bankbestand is: de kopregel van de
         // Rabobank begint met IBAN/BBAN. Zo voorkomen we dat een willekeurige CSV
         // als transacties in de boeken belandt.
@@ -1010,7 +1019,7 @@ public class MySqlBankRepository : IBankRepository
             voeg.Parameters.AddWithValue("@oorBedrag", Geld(V(KolOorspronkelijkBedrag)));
             voeg.Parameters.AddWithValue("@oorMunt", V(KolOorspronkelijkeMunt));
 
-            voeg.Parameters.AddWithValue("@nu", DateTime.Now);
+            voeg.Parameters.AddWithValue("@nu", Importdatum());
             voeg.Parameters.AddWithValue("@door", (object?)doorWerknemerId ?? DBNull.Value);
 
             try
@@ -1034,6 +1043,144 @@ public class MySqlBankRepository : IBankRepository
             fouten.Add($"… en nog {rest} vergelijkbare regels.");
         }
 
+        return new(verwerkt, toegevoegd, alAanwezig, fouten);
+    }
+
+    // ============================================================
+    //  Creditcard-export van de Rabobank (wens gebruiker 11-11-2026)
+    //
+    //  Kolommen: Tegenrekening IBAN (de rekening waarvan de kaart wordt afgerekend), Munt, Creditcard Nummer (laatste 4),
+    //  Productnaam, Creditcard Regel1 (kaarthouder), Regel2 (bedrijf), Transactiereferentie (uniek per kaart), Datum,
+    //  Bedrag (+/-), Omschrijving (25 tekens winkel, 13 plaats, 3 land, soms "Token: …"), Oorspr bedrag/munt, Koers.
+    //  De kaart is een rekening met Soort = creditcard en het kaartnummer als rekeningnummer; de regels komen met dat
+    //  nummer in banktransacties.Rekening, zodat koppelen aan facturen, grootboek en rechten net zo werken.
+    //  Geen saldo in de export: Saldo na trn blijft leeg (het saldo-overzicht slaat lege saldi over).
+    // ============================================================
+    private async Task<BankImportResultaat> ImporteerCreditcardAsync(List<string[]> rijen, int? doorWerknemerId)
+    {
+        var kop = rijen[0].Select(k => k.Trim()).ToList();
+        int Kol(string naam) => kop.FindIndex(k => k.Equals(naam, StringComparison.OrdinalIgnoreCase));
+        int kIban = Kol("Tegenrekening IBAN"), kMunt = Kol("Munt"), kKaart = Kol("Creditcard Nummer"), kProduct = Kol("Productnaam"),
+            kHouder = Kol("Creditcard Regel1"), kRef = Kol("Transactiereferentie"), kDatum = Kol("Datum"), kBedrag = Kol("Bedrag"),
+            kOms = Kol("Omschrijving"), kOorBedrag = Kol("Oorspr bedrag"), kOorMunt = Kol("Oorspr munt");
+        if (kKaart < 0 || kDatum < 0 || kBedrag < 0)
+            return new(0, 0, 0, new List<string> { "Dit lijkt geen creditcard-export: de kolommen Creditcard Nummer, Datum of Bedrag ontbreken." });
+
+        var fouten = new List<string>();
+        int verwerkt = 0, toegevoegd = 0, alAanwezig = 0;
+
+        await using var cn = await OpenAsync();
+        var soort = await SoortKolomAsync(cn);
+
+        // de kaarten zoals ze bij Bankrekeningen staan (rekeningnummer = kaartnummer)
+        var kaarten = new Dictionary<string, (int Id, string Via)>(StringComparer.OrdinalIgnoreCase);
+        await using (var cmd = new MySqlCommand(
+            "SELECT `Bankrekeningen_id`, REPLACE(COALESCE(`Rekeningnummer`, ''), ' ', ''), " +
+            (soort ? "COALESCE(`AfgerekendVia`, '') " : "'' ") +
+            "  FROM `Bankrekeningen`" + (soort ? " WHERE `Soort` = 1" : ""), cn))
+        await using (var rd = await cmd.ExecuteReaderAsync())
+            while (await rd.ReadAsync())
+                if (rd.GetString(1).Length > 0) kaarten[rd.GetString(1)] = (rd.GetInt32(0), rd.GetString(2));
+
+        var onbekend = new Dictionary<string, (string Wat, int Aantal)>();
+        var viaGezet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rij in rijen.Skip(1))
+        {
+            string V(int i) => i >= 0 && i < rij.Length ? rij[i].Replace('\\', '_').Trim() : "";
+            if (rij.All(string.IsNullOrWhiteSpace)) continue;
+            verwerkt++;
+            var regelnummer = verwerkt + 1;
+
+            var kaart = V(kKaart).Replace(" ", "");
+            if (!kaarten.TryGetValue(kaart, out var rekening))
+            {
+                var wat = string.Join(", ", new[] { V(kProduct), V(kHouder) }.Where(x => x.Length > 0));
+                onbekend[kaart] = (wat, (onbekend.TryGetValue(kaart, out var o) ? o.Aantal : 0) + 1);
+                continue;
+            }
+
+            // het IBAN waarvan de kaart wordt afgerekend: eenmalig invullen als het nog leeg is
+            var via = V(kIban).Replace(" ", "").ToUpperInvariant();
+            if (soort && rekening.Via.Length == 0 && IbanKlopt(via) && viaGezet.Add(kaart))
+            {
+                await using var zet = new MySqlCommand(
+                    "UPDATE `Bankrekeningen` SET `AfgerekendVia` = @via WHERE `Bankrekeningen_id` = @id " +
+                    "   AND COALESCE(`AfgerekendVia`, '') = ''", cn);
+                zet.Parameters.AddWithValue("@via", via);
+                zet.Parameters.AddWithValue("@id", rekening.Id);
+                await zet.ExecuteNonQueryAsync();
+            }
+
+            var datum = DatumUit(V(kDatum));
+            if (datum is null) { fouten.Add($"Regel {regelnummer}: '{V(kDatum)}' is geen datum (verwacht: jjjj-mm-dd). Regel overgeslagen."); continue; }
+            if (!ProbeerGeld(V(kBedrag), out var bedrag)) { fouten.Add($"Regel {regelnummer}: '{V(kBedrag)}' is geen bedrag. Regel overgeslagen."); continue; }
+
+            var referentie = Kort(V(kRef), 50);
+            var ruw = V(kOms);
+            var omschrijving = Kort(ZonderDubbeleSpaties(ruw.Replace('\'', '_')).Trim(), 200);
+            // vaste breedte: de eerste 25 tekens zijn de winkel ("UBER   *TRIP", "TESLA MOTORS NETHERLANDS")
+            var winkel = ZonderDubbeleSpaties((ruw.Length >= 38 ? ruw[..25] : ruw).Replace('\'', '_')).Trim();
+
+            // ---- staat hij er al? (de referentie is uniek per kaart) ----
+            await using (var kijk = new MySqlCommand(referentie.Length > 0
+                ? "SELECT COUNT(*) FROM `banktransacties` WHERE `Rekening` = @r AND `Transactiereferentie` = @ref"
+                : "SELECT COUNT(*) FROM `banktransacties` WHERE `Rekening` = @r AND DATE(`Datum`) = @d " +
+                  "   AND CAST(`Bedrag` AS DECIMAL(15,2)) = @b AND `Omschrijving` = @o", cn))
+            {
+                kijk.Parameters.AddWithValue("@r", kaart);
+                kijk.Parameters.AddWithValue("@ref", referentie);
+                kijk.Parameters.AddWithValue("@d", datum.Value);
+                kijk.Parameters.AddWithValue("@b", bedrag);
+                kijk.Parameters.AddWithValue("@o", omschrijving);
+                if (Convert.ToInt64(await kijk.ExecuteScalarAsync()) > 0) { alAanwezig++; continue; }
+            }
+
+            await using var voeg = new MySqlCommand(
+                "INSERT INTO `banktransacties` " +
+                "(`Rekening`, `Munt`, `BIC`, `VolgNr`, `Datum`, `Bedrag`, `SomBedrag`, `Saldo na trn`, " +
+                " `Tegenrekening`, `NaamTegenpartij`, `NaamUiteindelijkePartij`, `NaamInitierendePartij`, `BICtegenpartij`, " +
+                " `Code`, `BatchID`, `Transactiereferentie`, `MachtigingsKenmerk`, `IncassantID`, `Betalingskenmerk`, " +
+                " `Omschrijving`, `Pasnummer`, `RedenRetour`, `OorspronkelijkeBedrag`, `OorspronkelijkeMunt`, " +
+                " `Importdatum`, `GeimporteerdDoor`, `Opmerking`) VALUES " +
+                "(@rekening, @munt, '', 0, @datum, @bedrag, @bedrag, NULL, " +
+                " '', @winkel, '', @houder, '', " +
+                " '', '', @referentie, '', '', '', " +
+                " @omschrijving, NULL, '', @oorBedrag, @oorMunt, " +
+                " @nu, @door, '')", cn);
+            voeg.Parameters.AddWithValue("@rekening", kaart);
+            voeg.Parameters.AddWithValue("@munt", Kort(V(kMunt), 5));
+            voeg.Parameters.AddWithValue("@datum", datum.Value);
+            voeg.Parameters.AddWithValue("@bedrag", bedrag);
+            voeg.Parameters.AddWithValue("@winkel", Kort(winkel, 50));
+            voeg.Parameters.AddWithValue("@houder", Kort(V(kHouder), 50));
+            voeg.Parameters.AddWithValue("@referentie", referentie);
+            voeg.Parameters.AddWithValue("@omschrijving", omschrijving);
+            voeg.Parameters.AddWithValue("@oorBedrag", Geld(V(kOorBedrag)));
+            voeg.Parameters.AddWithValue("@oorMunt", Kort(V(kOorMunt), 25));
+            voeg.Parameters.AddWithValue("@nu", Importdatum());
+            voeg.Parameters.AddWithValue("@door", (object?)doorWerknemerId ?? DBNull.Value);
+            try
+            {
+                await voeg.ExecuteNonQueryAsync();
+                toegevoegd++;
+            }
+            catch (Exception ex)
+            {
+                fouten.Add($"Regel {regelnummer}: opslaan mislukt — {ex.Message}. De import is gestopt.");
+                break;
+            }
+        }
+
+        foreach (var (kaart, (wat, aantal)) in onbekend)
+            fouten.Insert(0, $"Kaart {kaart}{(wat.Length > 0 ? $" ({wat})" : "")} staat niet bij Bankrekeningen: voeg hem daar toe als " +
+                             $"creditcard met nummer {kaart} en importeer opnieuw. {aantal} regel(s) overgeslagen.");
+        if (fouten.Count > 20)
+        {
+            var rest = fouten.Count - 20;
+            fouten = fouten.Take(20).ToList();
+            fouten.Add($"… en nog {rest} vergelijkbare regels.");
+        }
         return new(verwerkt, toegevoegd, alAanwezig, fouten);
     }
 
@@ -1115,7 +1262,7 @@ public class MySqlBankRepository : IBankRepository
             voeg.Parameters.AddWithValue("@oorBedrag", r.OorspronkelijkBedrag);
             voeg.Parameters.AddWithValue("@oorMunt", V(r.OorspronkelijkeMunt));
 
-            voeg.Parameters.AddWithValue("@nu", DateTime.Now);
+            voeg.Parameters.AddWithValue("@nu", Importdatum());
             voeg.Parameters.AddWithValue("@opmerking", Kort(r.Opmerking ?? "", 50));
 
             try
@@ -1136,6 +1283,24 @@ public class MySqlBankRepository : IBankRepository
     // ============================================================
     //  Beheer: rekeningen en wie ze mag zien (Access-formulier Bankrekeningen)
     // ============================================================
+    private static bool _soortKolom;      // alleen "ja" onthouden: het script kan later nog gedraaid worden
+
+    private static async Task<bool> SoortKolomAsync(MySqlConnection cn)
+    {
+        if (_soortKolom) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+            "   AND TABLE_NAME = 'Bankrekeningen' AND COLUMN_NAME IN ('Soort', 'AfgerekendVia')", cn);
+        _soortKolom = Convert.ToInt64(await cmd.ExecuteScalarAsync()) == 2;
+        return _soortKolom;
+    }
+
+    public async Task<bool> SoortKolomAsync()
+    {
+        await using var cn = await OpenAsync();
+        return await SoortKolomAsync(cn);
+    }
+
     public async Task<List<BankrekeningBeheer>> BeheerLijstAsync()
     {
         var lijst = new List<BankrekeningBeheer>();
@@ -1145,7 +1310,8 @@ public class MySqlBankRepository : IBankRepository
             "       b.`BVid`, COALESCE(r.`Afkorting`, r.`name`, ''), " +
             "       (SELECT COUNT(*) FROM `banktransacties` t WHERE t.`Rekening` = REPLACE(b.`Rekeningnummer`, ' ', '')), " +
             "       (SELECT COUNT(*) FROM `Passen` p WHERE p.`BankrekeningID` = b.`Bankrekeningen_id`), " +
-            "       (SELECT COUNT(*) FROM `BankReferentieNegeren` n WHERE n.`BankrekeningID` = b.`Bankrekeningen_id`) " +
+            "       (SELECT COUNT(*) FROM `BankReferentieNegeren` n WHERE n.`BankrekeningID` = b.`Bankrekeningen_id`), " +
+            (await SoortKolomAsync(cn) ? "COALESCE(b.`Soort`, 0), COALESCE(b.`AfgerekendVia`, '') " : "0, '' ") +
             "  FROM `Bankrekeningen` b LEFT JOIN `Relations` r ON r.`id_supplier` = b.`BVid` " +
             " ORDER BY b.`OmschrijvingRekening`, b.`Rekeningnummer`", cn))
         await using (var rd = await cmd.ExecuteReaderAsync())
@@ -1160,6 +1326,8 @@ public class MySqlBankRepository : IBankRepository
                     Transacties = Convert.ToInt32(rd.GetValue(5)),
                     Passen = Convert.ToInt32(rd.GetValue(6)),
                     Negeren = Convert.ToInt32(rd.GetValue(7)),
+                    Creditcard = Convert.ToInt32(rd.GetValue(8)) == 1,
+                    AfgerekendVia = rd.GetString(9),
                 });
 
         await using (var cmd = new MySqlCommand(
@@ -1189,10 +1357,15 @@ public class MySqlBankRepository : IBankRepository
     {
         var nummer = rekening.Nummer.Replace(" ", "").ToUpperInvariant();
         await using var cn = await OpenAsync();
+        var soort = await SoortKolomAsync(cn);
         await using var cmd = new MySqlCommand(rekening.Id == 0
-            ? "INSERT INTO `Bankrekeningen` (`Rekeningnummer`, `OmschrijvingRekening`, `BVid`) VALUES (@n, @o, @bv); SELECT LAST_INSERT_ID();"
+            ? (soort ? "INSERT INTO `Bankrekeningen` (`Rekeningnummer`, `OmschrijvingRekening`, `BVid`, `Soort`, `AfgerekendVia`) VALUES (@n, @o, @bv, @s, @via); SELECT LAST_INSERT_ID();"
+                     : "INSERT INTO `Bankrekeningen` (`Rekeningnummer`, `OmschrijvingRekening`, `BVid`) VALUES (@n, @o, @bv); SELECT LAST_INSERT_ID();")
             : "UPDATE `Bankrekeningen` SET `Rekeningnummer` = @n, `OmschrijvingRekening` = @o, `BVid` = @bv " +
+              (soort ? ", `Soort` = @s, `AfgerekendVia` = @via " : "") +
               " WHERE `Bankrekeningen_id` = @id; SELECT @id;", cn);
+        cmd.Parameters.AddWithValue("@s", rekening.Creditcard ? 1 : 0);
+        cmd.Parameters.AddWithValue("@via", rekening.Creditcard && rekening.AfgerekendVia.Length > 0 ? (object)Kort(rekening.AfgerekendVia, 34) : DBNull.Value);
         cmd.Parameters.AddWithValue("@n", Kort(nummer, 25));
         cmd.Parameters.AddWithValue("@o", Kort(rekening.Omschrijving.Trim(), 45));
         cmd.Parameters.AddWithValue("@bv", (object?)rekening.BvId ?? DBNull.Value);
@@ -1337,6 +1510,14 @@ public class MySqlBankRepository : IBankRepository
 
     private static string Kort(string tekst, int lengte)
         => tekst.Length <= lengte ? tekst : tekst[..lengte].Trim();
+
+    /// <summary>
+    /// banktransacties.Importdatum is tekst (VARCHAR 25) zoals Access hem schreef: "9-11-2026 09:14:05". Een DateTime als
+    /// parameter werd "2026-11-11 16:05:12.123456" (26 tekens) en gaf "Data too long for column 'Importdatum'"
+    /// (melding gebruiker 11-11-2026, eerste creditcard-import).
+    /// </summary>
+    private static string Importdatum()
+        => DateTime.Now.ToString("d-M-yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string ZonderDubbeleSpaties(string tekst)
     {

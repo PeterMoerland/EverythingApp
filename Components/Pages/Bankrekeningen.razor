@@ -49,8 +49,10 @@
                 <thead>
                     <tr>
                         <th style="width:13rem">Rekeningnummer</th>
+                        @if (_soortKolom) { <th style="width:10.5rem">Soort</th> }
                         <th style="width:16rem">Omschrijving</th>
                         <th style="width:15rem">BV</th>
+                        @if (_soortKolom) { <th style="width:15rem" title="Creditcard: het IBAN waarvan de maandafrekening wordt afgeschreven">Afgerekend via</th> }
                         <th class="r" style="width:6rem">Transacties</th>
                         <th>Mag zien</th>
                         <th style="width:2.5rem"></th>
@@ -61,11 +63,22 @@
                     {
                         <tr @key="r.Id" class="@(r.Id == _open ? "br-open" : "")">
                             <td>
-                                <input @key="(r.Id, _herteken)" class="br-veld br-iban @(r.Nummer.Length == 0 || Sepa.IbanKlopt(r.Nummer) ? "" : "br-mist")"
+                                <input @key="(r.Id, _herteken)" class="br-veld br-iban @(r.Nummer.Length == 0 || NummerKlopt(r.Nummer, r.Creditcard) ? "" : "br-mist")"
                                        value="@r.Nummer" maxlength="34" disabled="@(!MagBeheren)"
-                                       title="@(r.Transacties > 0 ? "Er hangen transacties aan dit nummer; wijzigen kan niet." : "")"
+                                       placeholder="@(r.Creditcard ? "kaartnummer, bv. 6481" : "IBAN")"
+                                       title="@(r.Transacties > 0 ? "Er hangen transacties aan dit nummer; wijzigen kan niet." : r.Creditcard ? "Het kaartnummer zoals in de creditcard-export (de laatste 4 cijfers)" : "")"
                                        readonly="@(r.Transacties > 0)" @onchange="e => NummerGewijzigd(r, e)" />
                             </td>
+                            @if (_soortKolom)
+                            {
+                                <td>
+                                    <select @key="(r.Id, _herteken, 's')" class="br-veld" value="@(r.Creditcard ? "1" : "0")" disabled="@(!MagBeheren)"
+                                            @onchange="e => SoortGewijzigd(r, e)">
+                                        <option value="0">🏦 Bankrekening</option>
+                                        <option value="1">💳 Creditcard</option>
+                                    </select>
+                                </td>
+                            }
                             <td>
                                 <input class="br-veld" value="@r.Omschrijving" maxlength="45" disabled="@(!MagBeheren)"
                                        @onchange="e => OmschrijvingGewijzigd(r, e)" />
@@ -80,6 +93,26 @@
                                     }
                                 </select>
                             </td>
+                            @if (_soortKolom)
+                            {
+                                <td>
+                                    @if (r.Creditcard)
+                                    {
+                                        <select @key="(r.Id, _herteken, 'v')" class="br-veld" value="@r.AfgerekendVia" disabled="@(!MagBeheren)"
+                                                @onchange="e => ViaGewijzigd(r, e)">
+                                            <option value="">—</option>
+                                            @foreach (var b in _rekeningen.Where(x => !x.Creditcard && x.Nummer.Length > 0))
+                                            {
+                                                <option value="@b.Nummer">@(b.Omschrijving.Length > 0 ? $"{b.Omschrijving} · {b.Nummer}" : b.Nummer)</option>
+                                            }
+                                            @if (r.AfgerekendVia.Length > 0 && _rekeningen.All(x => x.Nummer != r.AfgerekendVia))
+                                            {
+                                                <option value="@r.AfgerekendVia">@r.AfgerekendVia</option>
+                                            }
+                                        </select>
+                                    }
+                                </td>
+                            }
                             <td class="r">@r.Transacties.ToString("N0", Nl)</td>
                             <td>
                                 @if (r.Rechten.Count == 0)
@@ -109,7 +142,14 @@
         </div>
         <p class="uitleg">
             Het rekeningnummer is het IBAN zoals het in de bankafschriften staat (zonder spaties); daarop worden de
-            transacties aan de rekening gekoppeld. Wie een rekening mag zien bepaalt wat Banktransacties toont.
+            transacties aan de rekening gekoppeld. Bij een creditcard is het het kaartnummer uit de creditcard-export
+            (de laatste 4 cijfers, bv. 6481); importeer die export bij Banktransacties ▸ Importeren. Elk nummer komt maar
+            één keer voor; bij welke betaalrekening een kaart hoort staat bij Afgerekend via.
+            Wie een rekening mag zien bepaalt wat Banktransacties toont.
+            @if (!_soortKolom)
+            {
+                <span><br /><b>Creditcards invoeren?</b> Voer eerst <code>Bankrekeningen_Creditcard_MariaDB.sql</code> uit op de database.</span>
+            }
         </p>
     }
 </div>
@@ -191,7 +231,40 @@
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
     }
 
-    private async Task Laad() => _rekeningen = await Repo.BeheerLijstAsync();
+    private async Task Laad()
+    {
+        _soortKolom = await Repo.SoortKolomAsync();
+        _rekeningen = await Repo.BeheerLijstAsync();
+    }
+
+    // ---- creditcards (wens gebruiker 11-11-2026; Bankrekeningen_Creditcard_MariaDB.sql) ----
+    private bool _soortKolom;
+
+    /// <summary>Bankrekening: geldig IBAN. Creditcard: alleen cijfers (4 tot 19), zoals "Creditcard Nummer" in de export.</summary>
+    private static bool NummerKlopt(string nummer, bool creditcard)
+        => creditcard ? nummer.Length is >= 4 and <= 19 && nummer.All(char.IsAsciiDigit) : Sepa.IbanKlopt(nummer);
+
+    private async Task SoortGewijzigd(BankrekeningBeheer r, ChangeEventArgs e)
+    {
+        var creditcard = (string?)e.Value == "1";
+        if (creditcard == r.Creditcard) return;
+        if (r.Nummer.Length > 0 && !NummerKlopt(r.Nummer, creditcard))
+        {
+            Toon(creditcard ? $"{r.Nummer} is geen kaartnummer; maak het nummer eerst leeg of vul het kaartnummer in."
+                            : $"{r.Nummer} is geen IBAN; een bankrekening heeft een IBAN als nummer.", true);
+            _herteken++;
+            return;
+        }
+        r.Creditcard = creditcard;
+        if (!creditcard) r.AfgerekendVia = "";
+        await Bewaar(r, creditcard ? "Soort: creditcard." : "Soort: bankrekening.");
+    }
+
+    private async Task ViaGewijzigd(BankrekeningBeheer r, ChangeEventArgs e)
+    {
+        r.AfgerekendVia = (string?)e.Value ?? "";
+        await Bewaar(r, "Afgerekend via opgeslagen.");
+    }
 
     private string Naam(int werknemerId) => _namen.TryGetValue(werknemerId, out var n) ? n : $"#{werknemerId}";
 
@@ -211,7 +284,15 @@
         var nieuw = ((string?)e.Value ?? "").Replace(" ", "").ToUpperInvariant();
         if (nieuw == r.Nummer) return;
         if (r.Transacties > 0) { Toon("Er hangen transacties aan dit nummer; wijzigen kan niet.", true); _herteken++; return; }
-        if (!Sepa.IbanKlopt(nieuw)) { Toon($"'{nieuw}' is geen geldig IBAN.", true); _herteken++; return; }
+        if (!NummerKlopt(nieuw, r.Creditcard))
+        {
+            Toon(r.Creditcard ? $"'{nieuw}' is geen kaartnummer (alleen cijfers, de laatste 4 uit de export)."
+                 : _soortKolom && nieuw.Length > 0 && nieuw.All(char.IsAsciiDigit)
+                     ? $"'{nieuw}' is geen geldig IBAN. Is het een creditcard? Kies dan eerst bij Soort 💳 Creditcard."
+                     : $"'{nieuw}' is geen geldig IBAN.", true);
+            _herteken++;
+            return;
+        }
         if (_rekeningen.Any(x => x.Id != r.Id && x.Nummer == nieuw)) { Toon($"{nieuw} staat er al.", true); _herteken++; return; }
         r.Nummer = nieuw;
         await Bewaar(r, "Rekeningnummer opgeslagen.");

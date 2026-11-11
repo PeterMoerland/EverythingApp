@@ -82,6 +82,15 @@ public class BankrekeningBeheer
     public int Negeren { get; set; }               // BankReferentieNegeren
     public List<int> Rechten { get; set; } = new(); // werknemers die de rekening mogen zien
 
+    /// <summary>
+    /// Creditcard in plaats van bankrekening (Bankrekeningen.Soort = 1, Bankrekeningen_Creditcard_MariaDB.sql): het nummer is
+    /// dan het kaartnummer uit de export (laatste 4 cijfers), geen IBAN. Transacties hangen er net zo aan (banktransacties.Rekening).
+    /// </summary>
+    public bool Creditcard { get; set; }
+
+    /// <summary>Creditcard: het IBAN waarvan de maandafrekening wordt afgeschreven (mag bij meerdere kaarten hetzelfde zijn).</summary>
+    public string AfgerekendVia { get; set; } = "";
+
     /// <summary>Wissen kan alleen zonder transacties, passen en genegeerde referenties (sleutels in de database).</summary>
     public bool Wisbaar => Transacties == 0 && Passen == 0 && Negeren == 0;
 }
