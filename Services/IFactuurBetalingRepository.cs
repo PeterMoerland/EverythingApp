@@ -258,10 +258,12 @@ public class MySqlFactuurBetalingRepository : IFactuurBetalingRepository
         if (!await TabelAsync(cn)) throw new InvalidOperationException("Deelbetalingen kunnen pas na FactuurBetalingen_MariaDB.sql.");
         await using var tx = await cn.BeginTransactionAsync();
         int betaald = 0, deels = 0;
+        var gekoppeld = new List<(int, int)>();
         foreach (var v in voorstellen.Where(v => v.KanVerwerken))
         {
             foreach (var d in Betalingsmatcher.Verdeel(v))
             {
+                gekoppeld.Add((d.Ontvangst.Id, d.FactuurId));
                 await VoegAsync(cn, tx, d.FactuurId, d.Ontvangst.Datum, d.Bedrag, BetalingSoort.Bank, d.Ontvangst.Id, "", door);
                 await using var cmd = new MySqlCommand(
                     "INSERT INTO `banktransacties_facturen_crossref` (`Banktransacties-id`, `Facturenuitgaand-id`) " +
@@ -275,6 +277,8 @@ public class MySqlFactuurBetalingRepository : IFactuurBetalingRepository
                 if (await MaakRondAsync(cn, tx, f.Id, door)) betaald++; else deels++;
         }
         await tx.CommitAsync();
+        // de tegenrekeningen bij de klanten onthouden (RelatieIbans), na het vastleggen
+        await RelatieIbans.LeerAllesAsync(cn, gekoppeld, verkoop: true, door, "betalingscheck");
         return (betaald, deels);
     }
 

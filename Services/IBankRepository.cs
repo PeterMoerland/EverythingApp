@@ -52,8 +52,15 @@ public interface IBankRepository
     /// of als bedrag. Beste treffers eerst.
     /// </summary>
     Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max);
-    /// <summary>Koppeling leggen (banktransacties_facturen_crossref); dubbel kan niet.</summary>
-    Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId);
+    /// <summary>
+    /// Koppeling leggen (banktransacties_facturen_crossref); dubbel kan niet. De tegenrekening komt bij de bekende
+    /// rekeningen van de relatie van de factuur (RelatieIbans), als die tabel er is.
+    /// </summary>
+    Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId, int? door = null);
+    /// <summary>De bekende rekeningen van een relatie naast Relations.IBAN (leeg zonder de tabel).</summary>
+    Task<List<RelatieIban>> RelatieIbansAsync(int relatieId);
+    /// <summary>Een bekende rekening weghalen (bijvoorbeeld een betaaldienst die per ongeluk is geleerd).</summary>
+    Task VerwijderRelatieIbanAsync(int id);
     /// <summary>Koppeling weghalen; null = gelukt, anders de reden waarom niet (hoort bij een geregistreerde betaling).</summary>
     Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId);
     Task ZetOpmerkingAsync(int id, string? opmerking);
@@ -110,7 +117,9 @@ public class GeenBankRepository : IBankRepository
     public Task<BanktransactieDetail?> GetDetailAsync(int id) => Task.FromResult<BanktransactieDetail?>(null);
     public Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId) => Task.FromResult(new List<GekoppeldeFactuur>());
     public Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max) => Task.FromResult(new List<FactuurKandidaat>());
-    public Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.CompletedTask;
+    public Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId, int? door = null) => Task.CompletedTask;
+    public Task<List<RelatieIban>> RelatieIbansAsync(int relatieId) => Task.FromResult(new List<RelatieIban>());
+    public Task VerwijderRelatieIbanAsync(int id) => Task.CompletedTask;
     public Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.FromResult<string?>("Geen live database.");
     public Task ZetOpmerkingAsync(int id, string? opmerking) => Task.CompletedTask;
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
@@ -435,9 +444,10 @@ public class MySqlBankRepository : IBankRepository
         var nummers = NummersIn(tekst);
         var k = Kant(verkoop);
 
+        var ibanTabel = await RelatieIbans.TabelAsync(cn);
         await using var q = new MySqlCommand("", cn);
         q.Parameters.AddWithValue("@t", transactieId);
-        q.Parameters.AddWithValue("@iban", iban);
+        q.Parameters.AddWithValue("@iban", RelatieIbans.Schoon(iban));
         var waar = new List<string>
         {
             $"NOT EXISTS (SELECT 1 FROM `banktransacties_facturen_crossref` x WHERE x.`Banktransacties-id` = @t AND x.`{k.Kruis}` = {k.Id})",
@@ -471,7 +481,7 @@ public class MySqlBankRepository : IBankRepository
         q.CommandText =
             $"SELECT {k.Id}, {k.Nr}, COALESCE(r.`name`, ''), {k.Datum}, {k.Bedrag}, {k.Betaald}, COALESCE({k.Oms}, ''), " +
             $"       (SELECT COUNT(*) FROM `banktransacties_facturen_crossref` x WHERE x.`{k.Kruis}` = {k.Id} AND x.`Banktransacties-id` <> @t), " +
-            $"       (@iban <> '' AND REPLACE(COALESCE(r.`IBAN`, ''), ' ', '') = @iban) " +
+            $"       (@iban <> '' AND (UPPER(REPLACE(COALESCE(r.`IBAN`, ''), ' ', '')) = @iban{RelatieIbans.KentRekening("r.`id_supplier`", ibanTabel)})) " +
             $"  FROM {k.From} WHERE {string.Join(" AND ", waar)} ORDER BY {k.Datum} DESC LIMIT 200";
 
         var lijst = new List<FactuurKandidaat>();
@@ -495,7 +505,7 @@ public class MySqlBankRepository : IBankRepository
                     .Take(max).ToList();
     }
 
-    public async Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId)
+    public async Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId, int? door = null)
     {
         var kolom = verkoop ? "Facturenuitgaand-id" : "Factureninkomend-id";
         await using var cn = await OpenAsync();
@@ -505,6 +515,34 @@ public class MySqlBankRepository : IBankRepository
             $"  WHERE `Banktransacties-id` = @t AND `{kolom}` = @f)", cn);
         cmd.Parameters.AddWithValue("@t", transactieId);
         cmd.Parameters.AddWithValue("@f", factuurId);
+        await cmd.ExecuteNonQueryAsync();
+        try { await RelatieIbans.LeerAsync(cn, transactieId, verkoop, factuurId, door, "handmatig koppelen"); }
+        catch { /* de koppeling staat er; de rekening leren is extra */ }
+    }
+
+    public async Task<List<RelatieIban>> RelatieIbansAsync(int relatieId)
+    {
+        var lijst = new List<RelatieIban>();
+        await using var cn = await OpenAsync();
+        if (!await RelatieIbans.TabelAsync(cn)) return lijst;
+        await using var cmd = new MySqlCommand(
+            "SELECT ri.`RelatieIbanID`, ri.`IBAN`, ri.`Bron`, ri.`AangemaaktOp`, COALESCE(w.`NaamVoluit`, '') " +
+            "  FROM `RelatieIbans` ri LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = ri.`AangemaaktDoor` " +
+            " WHERE ri.`RelatieID` = @r ORDER BY ri.`AangemaaktOp` DESC", cn);
+        cmd.Parameters.AddWithValue("@r", relatieId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new RelatieIban(r.GetInt32(0), r.GetString(1), r.GetString(2),
+                r.IsDBNull(3) ? null : Convert.ToDateTime(r.GetValue(3)), r.GetString(4)));
+        return lijst;
+    }
+
+    public async Task VerwijderRelatieIbanAsync(int id)
+    {
+        await using var cn = await OpenAsync();
+        if (!await RelatieIbans.TabelAsync(cn)) return;
+        await using var cmd = new MySqlCommand("DELETE FROM `RelatieIbans` WHERE `RelatieIbanID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", id);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -538,12 +576,16 @@ public class MySqlBankRepository : IBankRepository
     public async Task<BanktransactieDetail?> GetDetailAsync(int id)
     {
         await using var cn = await OpenAsync();
+        var bekend = await RelatieIbans.TabelAsync(cn)
+            ? " OR EXISTS (SELECT 1 FROM `RelatieIbans` ri WHERE ri.`RelatieID` = rel.`id_supplier` " +
+              "             AND ri.`IBAN` = UPPER(REPLACE(t.`Tegenrekening`, ' ', '')))"
+            : "";
         await using var cmd = new MySqlCommand(
             "SELECT t.*, COALESCE(w.`NaamVoluit`, '') AS ImportDoor, " +
             // de relatie(s) met de tegenrekening als IBAN, en de BV van de eigen rekening (wens gebruiker 11-11-2026)
             "       (SELECT GROUP_CONCAT(DISTINCT rel.`name` ORDER BY rel.`name` SEPARATOR ' / ') FROM `Relations` rel " +
             "         WHERE COALESCE(t.`Tegenrekening`, '') <> '' " +
-            "           AND REPLACE(rel.`IBAN`, ' ', '') = REPLACE(t.`Tegenrekening`, ' ', '')) AS TegenRelatie, " +
+            "           AND (UPPER(REPLACE(rel.`IBAN`, ' ', '')) = UPPER(REPLACE(t.`Tegenrekening`, ' ', ''))" + bekend + ")) AS TegenRelatie, " +
             "       (SELECT COALESCE(NULLIF(bv.`Afkorting`, ''), bv.`name`) FROM `Bankrekeningen` b " +
             "          JOIN `Relations` bv ON bv.`id_supplier` = b.`BVid` " +
             "         WHERE REPLACE(b.`Rekeningnummer`, ' ', '') = REPLACE(t.`Rekening`, ' ', '') LIMIT 1) AS RekeningBv " +

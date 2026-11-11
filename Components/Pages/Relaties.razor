@@ -9,6 +9,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject IBezoekRepository Bezoeken
+@inject IBankRepository Bank
 
 <div class="page">
     <header class="topbar">
@@ -489,6 +490,32 @@
                                     </div>
                                 }
                             </ZijBlok>
+
+                            @* alle rekeningen van de relatie (wens gebruiker 11-11-2026): eerst het IBAN van de relatie zelf, dan wat uit
+                               koppelingen van banktransacties aan facturen geleerd is (RelatieIbans) *@
+                            @{ var hoofdIban = RelatieIbans.Schoon(Tekst("IBAN")); var extra = _ibans.Where(b => b.Iban != hoofdIban).ToList(); }
+                            <ZijBlok Titel="Rekeningen" Aantal="(hoofdIban.Length > 0 ? 1 : 0) + extra.Count"
+                                     Leeg="@(hoofdIban.Length == 0 && extra.Count == 0)" LeegTekst="Nog geen rekening bekend.">
+                                    @if (hoofdIban.Length > 0)
+                                    {
+                                        <div class="zij-regel">
+                                            <span class="zij-naam mono-iban">@Tekst("IBAN")</span>
+                                            <span class="zij-extra">IBAN van de relatie</span>
+                                        </div>
+                                    }
+                                    @foreach (var b in extra)
+                                    {
+                                        <div class="zij-regel" @key="b.Id">
+                                            <span class="zij-naam mono-iban">@b.Iban
+                                                @if (MagIbansBeheren)
+                                                {
+                                                    <button class="klein rood zij-wis" title="Deze rekening vergeten" @onclick="() => VergeetIban(b)">✕</button>
+                                                }
+                                            </span>
+                                            <span class="zij-extra">@b.Bron · @(b.Op?.ToString("dd-MM-yyyy") ?? "")@(b.Door.Length > 0 ? " · " + b.Door : "")</span>
+                                        </div>
+                                    }
+                            </ZijBlok>
                         </Zij>
                         </DetailMetZij>
                     }
@@ -839,9 +866,31 @@
         _contacten = new();
         _contactId = null;
         _documenten = new();
+        _ibans = new();
         _mails = new();
         _mailZoek = "";
         _melding = null;
+    }
+
+    // ---- bekende rekeningen (RelatieIbans) ----
+    private List<RelatieIban> _ibans = new();
+    private bool MagIbansBeheren => Ik.MagEenVan("Financial", "Directie");
+
+    private async Task LaadIbans()
+    {
+        if (_gekozenId is null) { _ibans = new(); return; }
+        try { _ibans = await Bank.RelatieIbansAsync(_gekozenId.Value); }
+        catch { _ibans = new(); }
+    }
+
+    private async Task VergeetIban(RelatieIban b)
+    {
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Rekening {b.Iban} niet meer bij deze relatie onthouden?\n\nKoppelingen aan facturen blijven staan."); }
+        catch { ja = false; }
+        if (!ja) return;
+        try { await Bank.VerwijderRelatieIbanAsync(b.Id); await LaadIbans(); Toon($"{b.Iban} vergeten.", false); }
+        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
     }
 
     private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
@@ -881,6 +930,7 @@
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); }
         await LaadContacten();
         await LaadDocumenten();
+        await LaadIbans();
         _mails = new();          // mail hoort bij de vorige relatie
         _mailZoek = "";
         if (_tab == "Mail") await KiesMail();      // meteen opnieuw zoeken voor deze relatie

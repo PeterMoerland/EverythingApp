@@ -882,6 +882,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
     public async Task<int> VerwerkBetalingenAsync(IEnumerable<BetalingVoorstel> voorstellen, int? doorWerknemerId)
     {
         var aantal = 0;
+        var gekoppeld = new List<(int, int)>();
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
 
@@ -903,6 +904,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
 
                 foreach (var o in v.Ontvangsten)
                 {
+                    gekoppeld.Add((o.Id, f.Id));
                     await using var cmd = new MySqlCommand(
                         "INSERT INTO `banktransacties_facturen_crossref` (`Banktransacties-id`, `Facturenuitgaand-id`) " +
                         "VALUES (@b, @f)", cn, tx);
@@ -914,6 +916,8 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         }
 
         await tx.CommitAsync();
+        // de tegenrekeningen bij de klanten onthouden (RelatieIbans), na het vastleggen
+        await RelatieIbans.LeerAllesAsync(cn, gekoppeld, verkoop: true, doorWerknemerId, "betalingscheck");
         return aantal;
     }
 

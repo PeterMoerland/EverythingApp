@@ -391,7 +391,13 @@
 
                 @* handmatig een factuur koppelen (wens gebruiker 11-11-2026): voorstellen op nummer in de omschrijving en bedrag,
                    of zelf zoeken. Alleen de koppeling; de betaald-status van de factuur verandert niet. *@
-                @if (MagKoppelen)
+                @if (MagKoppelen && VolledigGekoppeld && !_kopToch)
+                {
+                    @* het hele bedrag is gedekt: geen voorstellen meer (wens gebruiker 11-11-2026) *@
+                    <p class="uitleg">De gekoppelde facturen dekken het hele bedrag.
+                        <button class="link" @onclick="() => _kopToch = true">Toch nog een factuur koppelen</button></p>
+                }
+                else if (MagKoppelen)
                 {
                     <h3 class="wn-kop">Factuur koppelen</h3>
                     <div class="bt-koppel-balk">
@@ -416,14 +422,14 @@
                     }
                     else
                     {
-                        <p class="uitleg">@(_kopZoek.Length == 0 ? "Voorstellen op nummer in de omschrijving en op bedrag; de beste bovenaan." : $"{_kandidaten.Count} gevonden{(_kandidaten.Count >= KopMax ? " (de eerste " + KopMax + ")" : "")}.")@KopBvTekst</p>
+                        <p class="uitleg">@(AlleenVolledig ? "Nummer, bedrag en rekening kloppen." : _kopZoek.Length == 0 ? "Voorstellen op nummer in de omschrijving en op bedrag; de beste bovenaan." : $"{_kandidaten.Count} gevonden{(_kandidaten.Count >= KopMax ? " (de eerste " + KopMax + ")" : "")}.")@KopBvTekst</p>
                         <table class="kiezer-tabel bt-facturen">
                             <thead>
                                 <tr><th style="width:9rem">Factuur</th><th>Relatie</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Bedrag</th>
                                     <th style="width:5rem">Betaald</th><th>Waarom</th><th style="width:6rem"></th></tr>
                             </thead>
                             <tbody>
-                                @foreach (var k in _kandidaten)
+                                @foreach (var k in KandidatenTonen)
                                 {
                                     <tr @key="(k.Verkoop, k.FactuurId)">
                                         <td><button class="lq-factuur" title="@(k.Omschrijving.Length > 0 ? k.Omschrijving : "Factuur openen")"
@@ -443,6 +449,14 @@
                                 }
                             </tbody>
                         </table>
+                        @if (AlleenVolledig)
+                        {
+                            <button class="link" @onclick="() => _toonHalf = true">Ook @(_kandidaten.Count - KandidatenTonen.Count) gedeeltelijke overeenkomst@(_kandidaten.Count - KandidatenTonen.Count == 1 ? "" : "en") tonen</button>
+                        }
+                        else if (_toonHalf && _kopZoek.Length == 0 && _kandidaten.Any(Volledig))
+                        {
+                            <button class="link" @onclick="() => _toonHalf = false">Alleen de volledige overeenkomst tonen</button>
+                        }
                     }
                 }
             </div>
@@ -720,6 +734,8 @@
         _facturen = null;
         _kandidaten = null;
         _kopZoek = "";
+        _kopToch = false;
+        _toonHalf = false;
         try { _detail = await Repo.GetDetailAsync(t.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); return; }
         try { _facturen = await Repo.GekoppeldeFacturenAsync(t.Id); }
@@ -737,6 +753,28 @@
 
     private bool MagKoppelen => Ik.MagEenVan("Financial", "Directie");
 
+    // ---- wat er van de voorstellen getoond wordt (wens gebruiker 11-11-2026) ----
+    private bool _kopToch, _toonHalf;
+
+    /// <summary>De gekoppelde facturen samen dekken het bedrag van de transactie (op een cent).</summary>
+    private bool VolledigGekoppeld
+        => _detail is not null && _facturen is { Count: > 0 } f
+           && Math.Abs(Math.Abs(f.Sum(x => x.Bedrag)) - Math.Abs(_detail.Bedrag)) < 0.01m;
+
+    /// <summary>
+    /// Nummer in de omschrijving, zelfde bedrag en de rekening van de relatie. Kent geen enkel voorstel de rekening
+    /// (de relatie heeft geen IBAN), dan is nummer + bedrag genoeg.
+    /// </summary>
+    private bool Volledig(FactuurKandidaat k)
+        => k.NummerInTekst && k.BedragGelijk && (k.IbanGelijk || _kandidaten?.Any(x => x.IbanGelijk) != true);
+
+    /// <summary>Alleen de volledige overeenkomst(en) tonen, met een knop voor de rest.</summary>
+    private bool AlleenVolledig
+        => !_toonHalf && _kopZoek.Length == 0 && _kandidaten is { } l && l.Any(Volledig) && l.Any(k => !Volledig(k));
+
+    private List<FactuurKandidaat> KandidatenTonen
+        => _kandidaten is null ? new() : AlleenVolledig ? _kandidaten.Where(Volledig).ToList() : _kandidaten;
+
     /// <summary>Factuurnummers zijn per BV: alleen facturen van de BV van de rekening (zie FactuurKandidatenAsync).</summary>
     private string KopBvTekst
         => _detail is not null && _rekeningen.FirstOrDefault(r => r.Nummer.Replace(" ", "") == _detail.Rekening.Replace(" ", "")) is { Bv.Length: > 0 } rk
@@ -751,8 +789,8 @@
     }
 
     private async Task KopSoortGewijzigd(ChangeEventArgs e) { _kopVerkoop = (string?)e.Value == "uit"; await ZoekKandidaten(); }
-    private async Task KopZoekGewijzigd(ChangeEventArgs e) { _kopZoek = ((string?)e.Value ?? "").Trim(); await ZoekKandidaten(); }
-    private async Task WisKopZoek() { _kopZoek = ""; await ZoekKandidaten(); }
+    private async Task KopZoekGewijzigd(ChangeEventArgs e) { _kopZoek = ((string?)e.Value ?? "").Trim(); _toonHalf = false; await ZoekKandidaten(); }
+    private async Task WisKopZoek() { _kopZoek = ""; _toonHalf = false; await ZoekKandidaten(); }
 
     private void OpenKandidaat(FactuurKandidaat k)
     {
@@ -765,7 +803,7 @@
         _kopBezig = true;
         try
         {
-            await Repo.KoppelFactuurAsync(_detail.Id, k.Verkoop, k.FactuurId);
+            await Repo.KoppelFactuurAsync(_detail.Id, k.Verkoop, k.FactuurId, Ik.WerknemerId);
             await NaKoppelWijziging();
             Toon($"Factuur {(k.Nummer.Length > 0 ? k.Nummer : "#" + k.FactuurId)} gekoppeld" +
                  (k.Verkoop && !k.Betaald ? "; de factuur staat nog op onbetaald." : "."), false);
