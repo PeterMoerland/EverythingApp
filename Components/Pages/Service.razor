@@ -1,5 +1,9 @@
 @page "/service"
 @inject IServiceRepository Repo
+@inject MailService Post
+@inject MailPostbussen Postbussen
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
 
 @* Service: wie werkte aan een project (verzoek van Michiel, 11-11-2026). Bij een storingsmelding: klant kiezen, project
    kiezen, en zien wie er uren op schreef met het aandeel in procenten. Storingen gaan meestal over software, daarom ook
@@ -18,6 +22,15 @@
     }
     else
     {
+        @* open meldingen (Servicemeldingen_MariaDB.sql), zolang er geen klant gekozen is *@
+        @if (_klant is null && _openMeldingen is { Count: > 0 } open)
+        {
+            <section class="sv-blok sv-breed">
+                <label class="sv-label">Open meldingen (@open.Count)</label>
+                @MeldingenTabel(open, true)
+            </section>
+        }
+
         <section class="sv-blok">
             <label class="sv-label">1. Klant</label>
             @if (_klant is { } k)
@@ -103,6 +116,11 @@
                             }
                         </p>
                     }
+                    <div class="sv-mailbalk">
+                        <button class="klein" @onclick="() => OpenMail(_werknemers.Where(x => _gekozen.Contains(x.Id)))">
+                            ✉ Storing melden@(_gekozen.Count > 0 ? $" ({_gekozen.Count})" : "")</button>
+                        <span class="uitleg">Vink de mensen aan die de melding moeten krijgen, of klik ✉ achter een naam.@(_meldingenAan ? " De melding wordt ook opgeslagen." : "")</span>
+                    </div>
                     <table class="kiezer-tabel sv-werknemers">
                         <thead>
                             <tr>
@@ -118,7 +136,23 @@
                             {
                                 var pct = totaal == 0 ? 0 : w.Uren * 100 / totaal;
                                 <tr class="@(w.UitDienst ? "sv-uit" : "")">
-                                    <td>@w.Naam@(w.UitDienst ? " (uit dienst)" : "")</td>
+                                    <td>
+                                        @if (Mailbaar(w))
+                                        {
+                                            <input type="checkbox" class="sv-vink" title="Meenemen in de mail" checked="@_gekozen.Contains(w.Id)"
+                                                   @onchange="e => Vink(w, e.Value is true)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="sv-vink-leeg" title="@(w.UitDienst ? "Uit dienst" : "Geen mailadres bekend (Werknemers)")"></span>
+                                        }
+                                        @w.Naam@(w.UitDienst ? " (uit dienst)" : "")
+                                        @if (Mailbaar(w))
+                                        {
+                                            <button class="klein sv-mailknop" title="@($"Storing of verzoek mailen naar {w.Naam}")"
+                                                    @onclick="() => OpenMail(new[] { w })">✉</button>
+                                        }
+                                    </td>
                                     <td class="r">@Uren(w.Uren)</td>
                                     <td class="sv-aandeel">
                                         <span class="sv-balk"><span style="width:@(Math.Round(pct, 1).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span></span>
@@ -144,9 +178,90 @@
                     }
                 }
             </section>
+
+            @if (_meldingenAan)
+            {
+                <section class="sv-blok sv-breed">
+                    <label class="sv-label">Meldingen op @pr.Nummer</label>
+                    @if (_projectMeldingen is null)
+                    {
+                        <p class="uitleg">Laden…</p>
+                    }
+                    else if (_projectMeldingen.Count == 0)
+                    {
+                        <p class="uitleg">Nog geen meldingen op dit project.</p>
+                    }
+                    else
+                    {
+                        @MeldingenTabel(_projectMeldingen, false)
+                    }
+                </section>
+            }
         }
     }
 </div>
+
+@* storing of verzoek doorzetten naar een werknemer (wens gebruiker 11-11-2026): de vaste vragen, dan mailen vanuit je eigen
+   Gmail (zoals de bestelmail) *@
+@if (_mailAan is { } aan && _project is { } mp && _werknemers is { } alleWn)
+{
+    <div class="cmdk-overlay" @onclick="SluitMail">
+        <div class="voorbeeldvenster sv-mail" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Storing of verzoek doorzetten</h2>
+                <button class="klein" @onclick="SluitMail">✕</button>
+            </header>
+            <div class="sv-mailvelden">
+                <div class="sv-aan">
+                    <span class="sv-aan-kop">Aan</span>
+                    @foreach (var a in aan)
+                    {
+                        <span class="sv-chip" title="@a.Mail">@a.Naam<button class="link" title="Weghalen" @onclick="() => aan.Remove(a)">✕</button></span>
+                    }
+                    @if (alleWn.Where(x => Mailbaar(x) && !aan.Contains(x)).ToList() is { Count: > 0 } erbij)
+                    {
+                        <select value="" @onchange="e => VoegToe(erbij, e)">
+                            <option value="">+ iemand toevoegen…</option>
+                            @foreach (var x in erbij) { <option value="@x.Id">@x.Naam</option> }
+                        </select>
+                    }
+                </div>
+                <label>Project<span class="alleen-lezen">@(_klant?.Naam) · @mp.Nummer @mp.Omschrijving</span></label>
+                <label>Wie belde *<input @bind="_mBeller" @bind:event="oninput" placeholder="Naam (en bedrijf) van de beller" /></label>
+                <label>Wanneer<input type="datetime-local" @bind="_mWanneer" /></label>
+                <label>Telefoonnummer<input type="tel" @bind="_mTelefoon" @bind:event="oninput" placeholder="Terugbelnummer" /></label>
+                <label class="breed">Omschrijving klacht/verzoek *<textarea rows="5" @bind="_mOmschrijving" @bind:event="oninput"></textarea></label>
+            </div>
+            @if (_mFout.Length > 0)
+            {
+                <p class="melding fout">@_mFout</p>
+            }
+            <div class="sv-mailknoppen">
+                <button class="primair" disabled="@(_mBezig || !MailCompleet || Postbus is null || aan.Count == 0)" @onclick="VerstuurMail">
+                    @(_mBezig ? "Bezig…" : _meldingenAan ? "✉ Versturen en opslaan" : "✉ Versturen")</button>
+                @if (_meldingenAan)
+                {
+                    <button class="klein" disabled="@(_mBezig || !MailCompleet)" title="Vastleggen zonder te mailen" @onclick="AlleenOpslaan">Alleen opslaan</button>
+                }
+                <button class="klein" disabled="@(!MailCompleet)" title="De tekst kopiëren, om hem zelf te mailen of in Teams te zetten" @onclick="KopieerMail">Tekst kopiëren</button>
+                <button class="klein" @onclick="SluitMail">Annuleren</button>
+                @if (Postbus is null)
+                {
+                    <span class="uitleg">Versturen kan als je met Google bent ingelogd.</span>
+                }
+                else
+                {
+                    <span class="uitleg">Gaat vanuit @Postbus.Adres; je vindt hem terug bij Verzonden.</span>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_melding is not null)
+{
+    <div class="melding @(_meldingFout ? "fout" : "ok") sv-melding" @onclick="() => _melding = null">@_melding</div>
+}
 
 @code {
     private string _zoek = "";
@@ -204,11 +319,233 @@
         _werknemers = null;
     }
 
+    // ---- storing mailen ----
+    private List<ServiceWerknemer>? _mailAan;          // null = venster dicht
+    private readonly HashSet<int> _gekozen = new();      // vinkjes in de tabel
+    private string _mBeller = "", _mTelefoon = "", _mOmschrijving = "", _mFout = "";
+    private DateTime _mWanneer = DateTime.Now;
+    private bool _mBezig;
+    private string? _melding;
+    private bool _meldingFout;
+
+    private MailPostbus? Postbus => Ik.IsWerkplek ? Postbussen.Werkplek(Ik) : Ik.Email.Length > 0 ? MailService.Eigen(Ik.Email) : null;
+
+    private bool MailCompleet => _mBeller.Trim().Length > 0 && _mOmschrijving.Trim().Length > 0;
+
+    private static bool Mailbaar(ServiceWerknemer w) => !w.UitDienst && w.Mail.Length > 0;
+
+    private void Vink(ServiceWerknemer w, bool aan) { if (aan) _gekozen.Add(w.Id); else _gekozen.Remove(w.Id); }
+
+    private void VoegToe(List<ServiceWerknemer> keuzes, ChangeEventArgs e)
+    {
+        if (_mailAan is not null && int.TryParse((string?)e.Value, out var id) && keuzes.FirstOrDefault(x => x.Id == id) is { } w)
+            _mailAan.Add(w);
+    }
+
+    private void OpenMail(IEnumerable<ServiceWerknemer> wie)
+    {
+        _mailAan = wie.Where(Mailbaar).ToList();
+        _mBeller = _mTelefoon = _mOmschrijving = _mFout = "";
+        _mWanneer = DateTime.Now.AddSeconds(-DateTime.Now.Second);
+    }
+
+    private void SluitMail() { if (!_mBezig) _mailAan = null; }
+
+    private string MailOnderwerp
+        => $"Storing/verzoek {_klant?.Naam} – {_project?.Nummer} {_project?.Omschrijving}".Trim();
+
+    private string MailTekst()
+    {
+        var aan = _mailAan ?? new();
+        var voornamen = aan.Select(a => a.Naam.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? a.Naam).ToList();
+        var groet = voornamen.Count switch
+        {
+            0 => "Hoi",
+            1 => "Hoi " + voornamen[0],
+            _ => "Hoi " + string.Join(", ", voornamen.Take(voornamen.Count - 1)) + " en " + voornamen[^1],
+        };
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(groet + ",").AppendLine();
+        sb.AppendLine($"Er is een storing of verzoek binnengekomen voor {_klant?.Naam}, project {_project?.Nummer} {_project?.Omschrijving}.");
+        sb.AppendLine(aan.Count > 1 ? "Jullie hebben aan dit project gewerkt; kan een van jullie contact opnemen?"
+                                    : "Jij hebt aan dit project gewerkt; kun je contact opnemen?").AppendLine();
+        sb.AppendLine($"Wie belde: {_mBeller.Trim()}");
+        sb.AppendLine($"Wanneer: {_mWanneer:dd-MM-yyyy HH:mm}");
+        sb.AppendLine($"Telefoonnummer: {(_mTelefoon.Trim().Length > 0 ? _mTelefoon.Trim() : "—")}");
+        sb.AppendLine("Omschrijving klacht/verzoek:");
+        sb.AppendLine(_mOmschrijving.Trim());
+        return sb.ToString();
+    }
+
+    private async Task VerstuurMail()
+    {
+        if (_mailAan is not { Count: > 0 } aan || Postbus is not { } postbus || !MailCompleet || _mBezig) return;
+        var naar = string.Join(", ", aan.Select(a => a.Mail));
+        var namen = string.Join(", ", aan.Select(a => a.Naam));
+        _mBezig = true;
+        _mFout = "";
+        int? meldingId = null;
+        try
+        {
+            // eerst vastleggen: mislukt het mailen, dan staat de melding er toch
+            if (_meldingenAan) meldingId = await BewaarMelding(namen);
+            var handtekening = await Post.HandtekeningAsync(postbus);
+            var tekst = MailTekst();
+            if (handtekening.Length > 0)
+                await Post.VerstuurAsync(postbus, naar, MailOnderwerp, MailService.MetHandtekening(tekst, handtekening), html: true);
+            else
+                await Post.VerstuurAsync(postbus, naar, MailOnderwerp, tekst + Environment.NewLine + "Groet," + Environment.NewLine + Ik.Naam);
+            if (meldingId is int id) { try { await Repo.ZetGemaildAsync(id); } catch { } }
+            _mailAan = null;
+            _gekozen.Clear();
+            _melding = $"Gemaild naar {namen}" + (meldingId is not null ? " en opgeslagen." : ".");
+            _meldingFout = false;
+        }
+        catch (Exception ex)
+        {
+            _mFout = (meldingId is not null ? "De melding is opgeslagen, maar versturen mislukte: " : "Versturen mislukt: ")
+                     + ex.Message + " Kopieer de tekst en mail hem zelf.";
+        }
+        finally
+        {
+            _mBezig = false;
+            if (meldingId is not null) await LaadMeldingen();
+        }
+    }
+
+    /// <summary>Legt de melding vast zoals hij in het venster staat; null als het niet lukte (dan staat de fout in het venster).</summary>
+    private async Task<int?> BewaarMelding(string aan)
+        => await Repo.BewaarMeldingAsync(_project?.Id, _klant?.Id, _mBeller, _mTelefoon, _mWanneer, _mOmschrijving, aan, Ik.WerknemerId);
+
+    private async Task AlleenOpslaan()
+    {
+        if (!MailCompleet || _mBezig) return;
+        _mBezig = true;
+        _mFout = "";
+        try
+        {
+            await BewaarMelding("");
+            _mailAan = null;
+            _gekozen.Clear();
+            _melding = "Melding opgeslagen (niet gemaild).";
+            _meldingFout = false;
+            await LaadMeldingen();
+        }
+        catch (Exception ex) { _mFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _mBezig = false; }
+    }
+
+    // ---- vastgelegde meldingen ----
+    private bool _meldingenAan;
+    private List<Servicemelding>? _openMeldingen, _projectMeldingen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _meldingenAan = await Repo.MeldingenAanwezigAsync(); } catch { _meldingenAan = false; }
+        await LaadMeldingen();
+    }
+
+    private async Task LaadMeldingen()
+    {
+        if (!_meldingenAan) return;
+        try
+        {
+            _openMeldingen = await Repo.MeldingenAsync(null, 50);
+            if (_project is { } p) _projectMeldingen = await Repo.MeldingenAsync(p.Id, 100);
+        }
+        catch { /* de lijst is extra; het scherm blijft werken */ }
+    }
+
+    private async Task WisselAfgehandeld(Servicemelding m)
+    {
+        try
+        {
+            await Repo.ZetAfgehandeldAsync(m.Id, !m.Afgehandeld, Ik.WerknemerId);
+            _melding = m.Afgehandeld ? "Melding weer open gezet." : "Melding afgehandeld.";
+            _meldingFout = false;
+            await LaadMeldingen();
+        }
+        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; _meldingFout = true; }
+    }
+
+    /// <summary>Uit de lijst open meldingen: klant en project van de melding openen.</summary>
+    private async Task OpenVanMelding(Servicemelding m)
+    {
+        if (m.KlantId is not int klantId) return;
+        await KiesKlant(new ServiceKlant(klantId, m.Klant, 0));
+        if (m.ProjectId is int pid && _projecten?.FirstOrDefault(p => p.Id == pid) is { } p && _project?.Id != pid)
+            await KiesProject(p);
+    }
+
+    private RenderFragment MeldingenTabel(List<Servicemelding> lijst, bool metProject) => __builder =>
+    {
+        <table class="kiezer-tabel sv-meldingen">
+            <thead>
+                <tr>
+                    <th style="width:8.5rem">Gebeld</th>
+                    @if (metProject) { <th style="width:16rem">Klant / project</th> }
+                    <th style="width:12rem">Wie belde</th>
+                    <th>Klacht/verzoek</th>
+                    <th style="width:12rem">Naar</th>
+                    <th style="width:9rem"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var m in lijst)
+                {
+                    <tr class="@(m.Afgehandeld ? "sv-af" : "")" @key="m.Id">
+                        <td>@(m.GebeldOp?.ToString("dd-MM-yyyy HH:mm") ?? m.AangemaaktOp.ToString("dd-MM-yyyy HH:mm"))</td>
+                        @if (metProject)
+                        {
+                            <td><button class="link" title="Klant en project openen" @onclick="() => OpenVanMelding(m)">@m.Klant</button>
+                                <div class="sv-klein">@m.ProjectNummer @m.Project</div></td>
+                        }
+                        <td>
+                            <span>@m.Beller</span>
+                            @if (m.Telefoon.Length > 0)
+                            {
+                                <div class="sv-klein"><a href="@("tel:" + m.Telefoon.Replace(" ", ""))">@m.Telefoon</a></div>
+                            }
+                        </td>
+                        <td class="sv-omschrijving" title="@($"Vastgelegd door {m.AangemaaktDoor} op {m.AangemaaktOp:dd-MM-yyyy HH:mm}")">@m.Omschrijving</td>
+                        <td>
+                            <span>@(m.Aan.Length > 0 ? m.Aan : "—")</span>
+                            @if (m.Aan.Length > 0 && !m.Gemaild)
+                            {
+                                <div class="sv-klein">niet gemaild</div>
+                            }
+                        </td>
+                        <td>
+                            <button class="klein" title="@(m.Afgehandeld ? $"Afgehandeld door {m.AfgehandeldDoor} op {m.AfgehandeldOp:dd-MM-yyyy HH:mm}; klik om weer open te zetten" : "Als afgehandeld markeren")"
+                                    @onclick="() => WisselAfgehandeld(m)">@(m.Afgehandeld ? "↺ Weer open" : "✓ Afgehandeld")</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    };
+
+    private async Task KopieerMail()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("mdeKopieer", MailOnderwerp + Environment.NewLine + Environment.NewLine + MailTekst());
+            _melding = "Tekst gekopieerd.";
+            _meldingFout = false;
+        }
+        catch { }
+    }
+
     private async Task KiesProject(ServiceProject p)
     {
         _project = p;
         _werknemers = null;
+        _gekozen.Clear();
+        _projectMeldingen = null;
         try { _werknemers = await Repo.WerknemersAsync(p.Id); }
         catch { _werknemers = new(); }
+        await LaadMeldingen();
     }
 }

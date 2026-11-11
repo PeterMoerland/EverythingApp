@@ -1192,6 +1192,29 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
 .sv-software { margin: 0 0 .6rem; padding: .5rem .75rem; border-radius: 8px; background: #eef4fc; border: 1px solid #d3e2f5; }
 html[data-thema="donker"] .sv-software { background: #1b2a3f; border-color: #2b4a73; }
 .sv-werknemers td { white-space: nowrap; }
+.sv-mailknop { margin-left: .4rem; padding: 0 .4rem; line-height: 1.4; }
+.sv-blok.sv-breed { max-width: 80rem; }
+.sv-meldingen { width: 100%; }
+.sv-meldingen td { vertical-align: top; }
+.sv-meldingen .sv-klein { margin-left: 0; }
+.sv-omschrijving { white-space: pre-line; }
+.sv-af td { color: var(--muted, #6b7280); }
+.sv-vink { margin: 0 .45rem 0 0; vertical-align: middle; }
+.sv-vink-leeg { display: inline-block; width: 13px; margin-right: .45rem; }
+.sv-mailbalk { display: flex; align-items: center; gap: .7rem; margin-bottom: .4rem; }
+.sv-aan { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.sv-aan-kop { font-weight: 600; font-size: .9rem; margin-right: .3rem; }
+.sv-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .5rem; border-radius: 999px; background: #e8f0fb; }
+html[data-thema="donker"] .sv-chip { background: #22344d; }
+.sv-mail { width: min(40rem, 94vw); height: auto; max-height: 92vh; overflow-y: auto; }
+.sv-mailvelden { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem .9rem; padding: .8rem 1rem 0; }
+.sv-mailvelden label { display: flex; flex-direction: column; gap: .2rem; font-weight: 600; font-size: .9rem; }
+.sv-mailvelden label:nth-of-type(1), .sv-mailvelden .breed { grid-column: 1 / -1; }
+.sv-mailvelden input, .sv-mailvelden textarea { font-weight: normal; }
+.sv-mailvelden .alleen-lezen { font-weight: normal; }
+.sv-mailknoppen { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .8rem 1rem 1rem; }
+.sv-mail .melding { margin: .6rem 1rem 0; }
+.sv-melding { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); z-index: 120; cursor: pointer; }
 html[data-thema="donker"] .sv-klanten { border-color: #2b4a73; }
 html[data-thema="donker"] .sv-rij.gekozen td { background: #22344d; }
 html[data-thema="donker"] .sv-balk { background: var(--d3); }
