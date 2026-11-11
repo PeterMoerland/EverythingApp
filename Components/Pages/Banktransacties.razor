@@ -188,6 +188,15 @@
                     <option value="@BijAf.Af">Alleen af</option>
                 </select>
             </label>
+
+            <label class="bankveld">
+                <span>Facturen</span>
+                <select value="@_koppel.ToString()" @onchange="KoppelGewijzigd">
+                    <option value="@KoppelFilter.Alle">Alle</option>
+                    <option value="@KoppelFilter.Zonder">Zonder factuur</option>
+                    <option value="@KoppelFilter.Met">Met factuur</option>
+                </select>
+            </label>
         </div>
 
         @* ---------- de transacties ---------- *@
@@ -663,6 +672,7 @@
     private int? _bv;                    // null = alle BV's; 0 = rekeningen zonder BV
     private int? _pas;
     private BijAf _bijAf = BijAf.Beide;
+    private KoppelFilter _koppel = KoppelFilter.Alle;
 
     private BanktransactieDetail? _detail;
     private string? _melding;
@@ -758,8 +768,8 @@
     {
         try
         {
-            _lijst = await Repo.ZoekAsync(Gekozen(), _van, _tot, _zoek, _bijAf, _pas, 1000);
-            _totalen = await Repo.GetTotalenAsync(Alle(), Gekozen(), _van, _tot, _zoek, _bijAf, _pas);
+            _lijst = await Repo.ZoekAsync(Gekozen(), _van, _tot, _zoek, _bijAf, _pas, 1000, _koppel);
+            _totalen = await Repo.GetTotalenAsync(Alle(), Gekozen(), _van, _tot, _zoek, _bijAf, _pas, _koppel);
         }
         catch (Exception ex) { _lijst = new(); Toon("Zoeken mislukt: " + ex.Message, true); }
     }
@@ -833,6 +843,12 @@
     private async Task BijAfGewijzigd(ChangeEventArgs e)
     {
         _bijAf = Enum.TryParse<BijAf>((string?)e.Value, out var v) ? v : BijAf.Beide;
+        await Laad();
+    }
+
+    private async Task KoppelGewijzigd(ChangeEventArgs e)
+    {
+        _koppel = Enum.TryParse<KoppelFilter>((string?)e.Value, out var v) ? v : KoppelFilter.Alle;
         await Laad();
     }
 

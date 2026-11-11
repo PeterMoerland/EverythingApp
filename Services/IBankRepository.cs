@@ -6,6 +6,9 @@ namespace EverythingApp.Services;
 /// <summary>Waar filteren we op: bij, af of allebei.</summary>
 public enum BijAf { Beide, Bij, Af }
 
+/// <summary>Filter op gekoppelde facturen (wens gebruiker 11-11-2026): alle transacties, alleen zonder of alleen met factuur.</summary>
+public enum KoppelFilter { Alle, Zonder, Met }
+
 /// <summary>De uitkomst van een import: wat is er met de regels gebeurd.</summary>
 public record BankImportResultaat(int Verwerkt, int Toegevoegd, int AlAanwezig, List<string> Fouten)
 {
@@ -49,10 +52,12 @@ public interface IBankRepository
     Task<List<Bankrekening>> GetRekeningenAsync(int? werknemerId);
 
     Task<List<Banktransactie>> ZoekAsync(IEnumerable<string> rekeningen, DateOnly van, DateOnly tot,
-                                         string? zoek, BijAf bijAf, int? pasnummer, int max);
+                                         string? zoek, BijAf bijAf, int? pasnummer, int max,
+                                         KoppelFilter koppel = KoppelFilter.Alle);
 
     Task<BankTotalen> GetTotalenAsync(IEnumerable<string> alleRekeningen, IEnumerable<string> gekozen,
-                                      DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer);
+                                      DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer,
+                                      KoppelFilter koppel = KoppelFilter.Alle);
 
     Task<BanktransactieDetail?> GetDetailAsync(int id);
     /// <summary>De facturen die aan deze transactie gekoppeld zijn (inkomend en uitgaand).</summary>
@@ -136,10 +141,12 @@ public class GeenBankRepository : IBankRepository
     public Task<List<Bankrekening>> GetRekeningenAsync(int? werknemerId)
         => Task.FromResult(new List<Bankrekening>());
     public Task<List<Banktransactie>> ZoekAsync(IEnumerable<string> rekeningen, DateOnly van, DateOnly tot,
-                                                string? zoek, BijAf bijAf, int? pasnummer, int max)
+                                                string? zoek, BijAf bijAf, int? pasnummer, int max,
+                                                KoppelFilter koppel = KoppelFilter.Alle)
         => Task.FromResult(new List<Banktransactie>());
     public Task<BankTotalen> GetTotalenAsync(IEnumerable<string> alleRekeningen, IEnumerable<string> gekozen,
-                                             DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer)
+                                             DateOnly van, DateOnly tot, string? zoek, BijAf bijAf, int? pasnummer,
+                                             KoppelFilter koppel = KoppelFilter.Alle)
         => Task.FromResult(new BankTotalen(0, 0, null, null, null));
     public Task<BanktransactieDetail?> GetDetailAsync(int id) => Task.FromResult<BanktransactieDetail?>(null);
     public Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId) => Task.FromResult(new List<GekoppeldeFactuur>());
@@ -222,7 +229,8 @@ public class MySqlBankRepository : IBankRepository
     /// Eén plek voor de voorwaarden, gebruikt door de lijst én de totalen. De
     /// rekeningen komen altijd uit de rechtencontrole, nooit uit het scherm.
     /// </summary>
-    private static string Voorwaarden(List<string> rekeningen, string? zoek, BijAf bijAf, int? pasnummer)
+    private static string Voorwaarden(List<string> rekeningen, string? zoek, BijAf bijAf, int? pasnummer,
+                                      KoppelFilter koppel = KoppelFilter.Alle)
     {
         var delen = new List<string> { "t.`Datum` >= @van", "t.`Datum` < @tot" };
 
@@ -238,6 +246,13 @@ public class MySqlBankRepository : IBankRepository
         if (bijAf == BijAf.Bij) delen.Add("t.`Bedrag` > 0");
         if (bijAf == BijAf.Af) delen.Add("t.`Bedrag` < 0");
         if (pasnummer is not null) delen.Add("t.`Pasnummer` = @pas");
+
+        // zelfde telling als de kolom Facturen: alleen regels met een inkomende of uitgaande factuur
+        if (koppel != KoppelFilter.Alle)
+            delen.Add((koppel == KoppelFilter.Zonder ? "NOT " : "") +
+                      "EXISTS (SELECT 1 FROM `banktransacties_facturen_crossref` x " +
+                      " WHERE x.`Banktransacties-id` = t.`BankTransacties_ID` " +
+                      "   AND (x.`Factureninkomend-id` IS NOT NULL OR x.`Facturenuitgaand-id` IS NOT NULL))");
 
         return "WHERE " + string.Join(" AND ", delen);
     }
@@ -256,7 +271,8 @@ public class MySqlBankRepository : IBankRepository
     }
 
     public async Task<List<Banktransactie>> ZoekAsync(IEnumerable<string> rekeningen, DateOnly van, DateOnly tot,
-                                                      string? zoek, BijAf bijAf, int? pasnummer, int max)
+                                                      string? zoek, BijAf bijAf, int? pasnummer, int max,
+                                                      KoppelFilter koppel = KoppelFilter.Alle)
     {
         var lijst = new List<Banktransactie>();
         var toegestaan = rekeningen.ToList();
@@ -274,7 +290,7 @@ public class MySqlBankRepository : IBankRepository
             "  LEFT JOIN (SELECT `Banktransacties-id` AS `b`, COUNT(*) AS `n` FROM `banktransacties_facturen_crossref` " +
             "              WHERE `Factureninkomend-id` IS NOT NULL OR `Facturenuitgaand-id` IS NOT NULL GROUP BY `Banktransacties-id`) xc " +
             "         ON xc.`b` = t.`BankTransacties_ID` " +
-            $" {Voorwaarden(toegestaan, zoek, bijAf, pasnummer)} " +
+            $" {Voorwaarden(toegestaan, zoek, bijAf, pasnummer, koppel)} " +
             $" ORDER BY t.`Datum` DESC, t.`BankTransacties_ID` DESC LIMIT {Math.Clamp(max, 1, 2000)}", cn);
         Vul(cmd, toegestaan, van, tot, zoek, pasnummer);
 
@@ -309,7 +325,7 @@ public class MySqlBankRepository : IBankRepository
     /// </summary>
     public async Task<BankTotalen> GetTotalenAsync(IEnumerable<string> alleRekeningen, IEnumerable<string> gekozen,
                                                    DateOnly van, DateOnly tot, string? zoek, BijAf bijAf,
-                                                   int? pasnummer)
+                                                   int? pasnummer, KoppelFilter koppel = KoppelFilter.Alle)
     {
         var toegestaan = gekozen.ToList();
         var alles = alleRekeningen.ToList();
@@ -323,7 +339,7 @@ public class MySqlBankRepository : IBankRepository
         await using (var cmd = new MySqlCommand(
             "SELECT COALESCE(SUM(t.`Bedrag`), 0), COUNT(*), MAX(t.`Datum`) " +
             "  FROM `banktransacties` t " +
-            $" {Voorwaarden(toegestaan, zoek, bijAf, pasnummer)}", cn))
+            $" {Voorwaarden(toegestaan, zoek, bijAf, pasnummer, koppel)}", cn))
         {
             Vul(cmd, toegestaan, van, tot, zoek, pasnummer);
             await using var r = await cmd.ExecuteReaderAsync();
