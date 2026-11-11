@@ -1220,7 +1220,7 @@ html[data-thema="donker"] .sv-chip { background: #22344d; }
 .sv-mailvelden .alleen-lezen { font-weight: normal; }
 .sv-mailknoppen { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .8rem 1rem 1rem; }
 .sv-mail .melding { margin: .6rem 1rem 0; }
-.sv-melding { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); z-index: 120; cursor: pointer; }
+.sv-melding { z-index: 400; }      /* boven een open venster; plek en maat als elke .melding (rechtsboven) */
 html[data-thema="donker"] .sv-klanten { border-color: #2b4a73; }
 html[data-thema="donker"] .sv-rij.gekozen td { background: #22344d; }
 html[data-thema="donker"] .sv-balk { background: var(--d3); }

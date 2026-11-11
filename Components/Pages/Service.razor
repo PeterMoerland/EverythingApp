@@ -352,6 +352,18 @@
 
     private void SluitMail() { if (!_mBezig) _mailAan = null; }
 
+    /// <summary>Melding rechtsboven, zoals de rest van de app; een groene verdwijnt na een paar tellen vanzelf.</summary>
+    private void Toon(string tekst, bool fout)
+    {
+        _melding = tekst;
+        _meldingFout = fout;
+        if (fout) return;
+        _ = Task.Delay(4000).ContinueWith(_ => InvokeAsync(() =>
+        {
+            if (_melding == tekst) { _melding = null; StateHasChanged(); }
+        }));
+    }
+
     private string MailOnderwerp
         => $"Storing/verzoek {_klant?.Naam} – {_project?.Nummer} {_project?.Omschrijving}".Trim();
 
@@ -399,8 +411,7 @@
             if (meldingId is int id) { try { await Repo.ZetGemaildAsync(id); } catch { } }
             _mailAan = null;
             _gekozen.Clear();
-            _melding = $"Gemaild naar {namen}" + (meldingId is not null ? " en opgeslagen." : ".");
-            _meldingFout = false;
+            Toon($"Gemaild naar {namen}" + (meldingId is not null ? " en opgeslagen." : "."), false);
         }
         catch (Exception ex)
         {
@@ -428,8 +439,7 @@
             await BewaarMelding("");
             _mailAan = null;
             _gekozen.Clear();
-            _melding = "Melding opgeslagen (niet gemaild).";
-            _meldingFout = false;
+            Toon("Melding opgeslagen (niet gemaild).", false);
             await LaadMeldingen();
         }
         catch (Exception ex) { _mFout = "Opslaan mislukt: " + ex.Message; }
@@ -464,11 +474,10 @@
         try
         {
             await Repo.ZetAfgehandeldAsync(m.Id, !m.Afgehandeld, Ik.WerknemerId);
-            _melding = m.Afgehandeld ? "Melding weer open gezet." : "Melding afgehandeld.";
-            _meldingFout = false;
+            Toon(m.Afgehandeld ? "Melding weer open gezet." : "Melding afgehandeld.", false);
             await LaadMeldingen();
         }
-        catch (Exception ex) { _melding = "Opslaan mislukt: " + ex.Message; _meldingFout = true; }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
     }
 
     /// <summary>Uit de lijst open meldingen: klant en project van de melding openen.</summary>
@@ -533,8 +542,7 @@
         try
         {
             await JS.InvokeVoidAsync("mdeKopieer", MailOnderwerp + Environment.NewLine + Environment.NewLine + MailTekst());
-            _melding = "Tekst gekopieerd.";
-            _meldingFout = false;
+            Toon("Tekst gekopieerd.", false);
         }
         catch { }
     }
