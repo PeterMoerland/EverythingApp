@@ -273,11 +273,11 @@
                         </div>
                         <div class="wn-veld">
                             <label>Doorbelasten</label>
-                            <span class="factuur-termijn">
-                                <input class="r smal" value="@_factuur.Doorbelasten.ToString("0.##", Nl)"
-                                       @onchange="DoorbelastenGewijzigd" />
-                                <span class="zij-extra">%</span>
-                            </span>
+                            @* in de database 1 = 100% en 0 = 0% (geheel getal, zoals Access het toonde); tussenwaarden kunnen niet *@
+                            <select class="smal" value="@(_factuur.Doorbelasten >= 50 ? "100" : "0")" @onchange="DoorbelastenGewijzigd">
+                                <option value="100">100%</option>
+                                <option value="0">0%</option>
+                            </select>
                         </div>
                     </div>
 
@@ -1347,9 +1347,7 @@
 
     private void DoorbelastenGewijzigd(ChangeEventArgs e)
     {
-        var tekst = ((string?)e.Value ?? "").Replace('.', ',').Trim();
-        if (double.TryParse(tekst, System.Globalization.NumberStyles.Any, Nl, out var v))
-            _factuur.Doorbelasten = Math.Clamp(v, 0, 100);
+        _factuur.Doorbelasten = (string?)e.Value == "0" ? 0 : 100;
     }
 
     /// <summary>

@@ -528,9 +528,16 @@ html[data-thema="donker"] .bt-chip.let { background: #382d16; color: #f0c46a; }
 .bankdetail.bankkoppel { width: min(72rem, 95vw); }
 /* het voorbeeldvenster centreert zijn inhoud (pdf, plaatje); hier een gewoon formulier: van boven, links uitgelijnd */
 .voorbeeld-inhoud.bankdetail-inhoud { display: block; overflow-y: auto; padding: .8rem 1.2rem 1.2rem; text-align: left; }
-.bankdetail-inhoud .wn-velden { grid-template-columns: 1fr; max-width: none; gap: .35rem; }
+.bankdetail-inhoud .wn-velden { grid-template-columns: 1fr; max-width: none; gap: .05rem; }
 .bankdetail-inhoud .wn-veld { grid-template-columns: 11rem minmax(0, 1fr); align-items: start; }
 .bankdetail-inhoud .wn-veld .alleen-lezen { overflow-wrap: anywhere; }
+.bankdetail-inhoud .wn-veld { line-height: 1.35; gap: .5rem; }
+.bankdetail-inhoud .wn-veld label { font-size: .88em; }
+/* opmerking: geen kader, een lichte achtergrond (wens gebruiker 11-11-2026) */
+.bankdetail-inhoud .wn-veld input:not([type="checkbox"]) { border: 0; border-radius: 4px; background: #eef3f9; padding: .3rem .5rem; font: inherit; }
+.bankdetail-inhoud .wn-veld input:not([type="checkbox"]):focus { outline: 2px solid var(--accent); outline-offset: 0; background: #fff; }
+html[data-thema="donker"] .bankdetail-inhoud .wn-veld input:not([type="checkbox"]) { background: var(--d3); color: inherit; }
+html[data-thema="donker"] .bankdetail-inhoud .wn-veld input:not([type="checkbox"]):focus { background: var(--d1); }
 .bankdetail-inhoud h3.wn-kop { text-align: left; margin-top: 1rem; }
 .bt-koppel-knop { display: flex; align-items: center; gap: .8rem; margin-top: .6rem; }
 .bt-facturen tr.bt-scan-klaar td { color: #8a929c; }

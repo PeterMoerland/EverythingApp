@@ -537,6 +537,13 @@ public class MySqlFactuurRepository : IFactuurRepository
         int? I(string k) { try { var v = r[k]; return v is DBNull ? null : Convert.ToInt32(v); } catch { return null; } }
         decimal M(string k) { try { var v = r[k]; return v is DBNull ? 0 : Convert.ToDecimal(v); } catch { return 0; } }
         double Db(string k) { try { var v = r[k]; return v is DBNull ? 0 : Convert.ToDouble(v); } catch { return 0; } }
+        // PercentageDoorbelasten is een geheel getal dat Access als percentage toonde: 1 = 100% (11-11-2026: alle 23.824
+        // facturen staan op 1, 225 oude op leeg). Leeg = 100%; een eventuele 100 blijft 100.
+        double DoorbelastenPct()
+        {
+            try { var v = r["PercentageDoorbelasten"]; if (v is DBNull) return 100; var d = Convert.ToDouble(v); return d <= 1 ? d * 100 : d; }
+            catch { return 100; }
+        }
         bool B(string k) { try { var v = r[k]; return v is not DBNull && Convert.ToInt64(v) != 0; } catch { return false; } }
         DateTime? D(string k) { try { var v = r[k]; return v is DBNull ? null : Convert.ToDateTime(v); } catch { return null; } }
 
@@ -561,7 +568,7 @@ public class MySqlFactuurRepository : IFactuurRepository
 
             BedragExBtw = M("BedragExBTW"),
             Btw = M("BTW"),
-            Doorbelasten = Db("PercentageDoorbelasten"),
+            Doorbelasten = DoorbelastenPct(),
 
             OpHold = B("BetalingOpHold"),
 
@@ -694,7 +701,8 @@ public class MySqlFactuurRepository : IFactuurRepository
         cmd.Parameters.AddWithValue("@termijn", factuur.Betalingstermijn);
         cmd.Parameters.AddWithValue("@ex", factuur.BedragExBtw);
         cmd.Parameters.AddWithValue("@btw", factuur.Btw);
-        cmd.Parameters.AddWithValue("@doorbelast", factuur.Doorbelasten);
+        // zoals Access: 1 = 100%, 0 = 0% (de kolom is een geheel getal, tussenwaarden passen er niet in)
+        cmd.Parameters.AddWithValue("@doorbelast", factuur.Doorbelasten >= 50 ? 1 : 0);
         cmd.Parameters.AddWithValue("@hold", factuur.OpHold ? 1 : 0);
 
         if (nieuw)

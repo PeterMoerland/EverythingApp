@@ -353,6 +353,14 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Inkoopfactuur: Doorbelasten is 1 = 100% (11-11-2026)
+
+`FacturenInkomend.PercentageDoorbelasten` is een geheel getal (standaard 100) dat Access als percentage toonde: alle 23.824
+facturen staan op 1, 225 oude op leeg; views geven het alleen door, nergens wordt ermee gerekend. Het factuurvenster toonde "1 %".
+Nu: lezen 1 -> 100% (leeg -> 100%), keuzelijst 100% / 0%, opslaan 1 of 0 (een nieuwe factuur schreef eerder 100 = 10.000% in Access).
+Banktransacties-voorstellen zonder zoektekst: alleen bedrag telt alleen als de datum past en de factuur nog nergens hangt
+(TME-factuur van 820 dagen, al gekoppeld, werd voorgesteld). Detailvenster: rijen dichter, opmerking zonder kader.
+
 ## Relaties: verwijzingen als keuzelijst, activiteiten (11-11-2026)
 
 Wens gebruiker (Inkoop contactpersoon stond als 6299). `RelatieVelden`: `Lijst` = "Contactpersoon" (OfferteContactID,

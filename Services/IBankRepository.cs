@@ -529,6 +529,10 @@ public class MySqlBankRepository : IBankRepository
         // elders gekoppeld, dan dichtst bij de datum
         var dag = datum is DateTime d0 ? DateOnly.FromDateTime(d0) : DateOnly.FromDateTime(DateTime.Today);
         lijst = lijst.Select(x => x with { Dagen = x.Datum is DateOnly fd ? dag.DayNumber - fd.DayNumber : null }).ToList();
+        // voorstellen (geen zoektekst): alleen het bedrag is te weinig voor een oude of al gekoppelde factuur (wens gebruiker
+        // 11-11-2026: een TME-factuur van 820 dagen oud, al elders gekoppeld). Zelf zoeken toont alles.
+        if (woorden.Length == 0)
+            lijst = lijst.Where(x => x.NummerInTekst || (x.IbanGelijk && x.BedragGelijk) || (x.BedragGelijk && x.DatumPast && x.Elders == 0)).ToList();
         // nummer > rekening > bedrag > datum past > nog nergens gekoppeld; dan de dichtstbijzijnde factuur vóór de betaling
         return lijst.OrderByDescending(x => (x.NummerInTekst ? 16 : 0) + (x.IbanGelijk ? 8 : 0) + (x.BedragGelijk ? 4 : 0)
                                             + (x.DatumPast ? 2 : 0) + (x.Elders == 0 ? 1 : 0))
