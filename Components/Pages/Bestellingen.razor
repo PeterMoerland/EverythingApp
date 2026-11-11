@@ -9,6 +9,8 @@
 @inject MeldingSignaal Signaal
 @inject BestelregelLezer Schermlezer
 @inject IArtikelRepository Artikelen
+@inject IPakbonRepository Pakbonnen
+@inject PakbonPdfService PakbonPdf
 
 <div class="page">
     <header class="topbar">
@@ -330,6 +332,9 @@
                         <h3 class="wn-kop">Regels</h3>
                         <div class="btngroup">
                             <button class="klein" @onclick="NieuweRegel">+ Regel</button>
+                            <button class="klein" disabled="@(_pakbonBezig || _regels.Count == 0)" @onclick="PakbonMaken"
+                                    title="Een pakbon voor deze leverancier met de regels van deze bestelling, om mee te geven (bv. delen die naar de anodiseerder gaan)">
+                                @(_pakbonBezig ? "Bezig…" : "📦 Pakbon")</button>
                             <div class="menu-knop">
                                 <button class="klein" @onclick="() => _importMenu = !_importMenu">Importeren ▾</button>
                                 @if (_importMenu)
@@ -445,6 +450,24 @@
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                     <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                        OpToegevoegd="NaPlakken" OpGesloten="() => _schermOpen = false" />
+                    @if (_pakbonUrl is not null)
+                    {
+                        <div class="cmdk-overlay midden" @onclick="SluitPakbonPdf">
+                            <div class="factuurvenster pb-pdf" @onclick:stopPropagation>
+                                <header class="bijlagekop">
+                                    <h2>Pakbon PS-@_pakbonId</h2>
+                                    <div class="btngroup">
+                                        <button class="klein" @onclick="() => ToonPakbon(!_pakbonPlaatjes)">
+                                            @(_pakbonPlaatjes ? "📄 Zonder afbeeldingen" : "🖼 Met afbeeldingen")</button>
+                                        <button class="klein" @onclick="DownloadPakbon">⭳ Downloaden</button>
+                                        <a class="knopje" href="@($"bestellingen/pakbonnen?pakbon={_pakbonId}")" title="De pakbon bewerken (t.a.v., opmerking op de bon, regels)">✎ In Pakbonnen</a>
+                                        <button class="klein" @onclick="SluitPakbonPdf">✕</button>
+                                    </div>
+                                </header>
+                                <iframe src="@_pakbonUrl" title="Pakbon PS-@_pakbonId"></iframe>
+                            </div>
+                        </div>
+                    }
                     <ImportBestellingVenster Open="_uitBestellingOpen" OrderId="_orderId" Leverdatum="StandaardLeverdatum"
                                              OpToegevoegd="NaPlakken" OpGesloten="() => _uitBestellingOpen = false" />
                 }
@@ -1449,6 +1472,77 @@
 
     // ---- Plakken uit klembord (Components/PlakVenster.razor) en het menu Importeren ----
     private bool _plakOpen, _importMenu, _schermOpen, _uitBestellingOpen;
+
+    // ---- pakbon vanuit de bestelling (wens gebruiker 11-11-2026): delen die met iemand meegaan naar de leverancier ----
+    private bool _pakbonBezig, _pakbonPlaatjes;
+    private int? _pakbonId;
+    private string? _pakbonUrl;
+    private byte[]? _pakbonPdf;
+
+    /// <summary>
+    /// Een pakbon voor de leverancier van deze bestelling met de regels ervan (zonder kostenregels), referentie het PO-nummer,
+    /// en meteen de PDF om te printen. Is er al een pakbon van deze bestelling, dan eerst de vraag of die open moet.
+    /// </summary>
+    private async Task PakbonMaken()
+    {
+        if (_orderId is not int orderId || _pakbonBezig) return;
+        if (LeverancierVanOrder is not int lev) { Toon("Kies eerst de leverancier: de pakbon gaat naar hen.", true); return; }
+        _pakbonBezig = true;
+        try
+        {
+            var bestaand = await Pakbonnen.PakbonnenVanPoAsync(orderId);
+            if (bestaand.Count > 0 && await Bevestig($"Van deze bestelling is al pakbon PS-{bestaand[0]} gemaakt.\n\nDie openen? (Annuleren = een nieuwe pakbon maken)"))
+            {
+                _pakbonId = bestaand[0];
+            }
+            else
+            {
+                var regels = (await Pakbonnen.PoRegelsAsync(orderId)).Where(r => !PakbonRegels.IsKostenregel(r)).ToList();
+                if (regels.Count == 0) { Toon("Deze bestelling heeft geen regels voor een pakbon.", true); return; }
+                var id = await Pakbonnen.NieuwAsync(lev, Nummer("Contact"), Ik.WerknemerId);
+                foreach (var r in regels)
+                {
+                    var gewicht = r.MdeId is int mde ? (await Pakbonnen.ArtikelAsync(mde))?.Gewicht ?? 0 : 0;
+                    await Pakbonnen.VoegRegelToeAsync(new PakbonItem
+                    {
+                        PakbonId = id, Aantal = r.Aantal, Artikelnummer = r.Artikelnummer, Omschrijving = r.Omschrijving,
+                        MdeId = r.MdeId, Gewicht = gewicht, Opmerking = "Uit PO-" + orderId, ReferentieKlant = "PO-" + orderId,
+                    });
+                }
+                _pakbonId = id;
+                Toon($"Pakbon PS-{id} gemaakt met {regels.Count} regel(s).", false);
+            }
+            await ToonPakbon(false);
+        }
+        catch (Exception ex) { Toon("Pakbon maken mislukt: " + ex.Message, true); }
+        finally { _pakbonBezig = false; }
+    }
+
+    private async Task ToonPakbon(bool metPlaatjes)
+    {
+        if (_pakbonId is not int id) return;
+        try
+        {
+            _pakbonPdf = await PakbonPdf.PakbonAsync(id, metPlaatjes);
+            if (_pakbonUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pakbonUrl); } catch { } }
+            _pakbonUrl = await JS.InvokeAsync<string>("mdeBlob.maak", _pakbonPdf, "application/pdf");
+            _pakbonPlaatjes = metPlaatjes;
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+    }
+
+    private async Task DownloadPakbon()
+    {
+        if (_pakbonPdf is null || _pakbonId is null) return;
+        try { await JS.InvokeVoidAsync("mdeBestand.download", $"Pakbon PS-{_pakbonId}.pdf", _pakbonPdf); } catch { }
+    }
+
+    private async Task SluitPakbonPdf()
+    {
+        if (_pakbonUrl is not null) { try { await JS.InvokeVoidAsync("mdeBlob.weg", _pakbonUrl); } catch { } }
+        _pakbonUrl = null;
+        _pakbonPdf = null;
+    }
 
     private int? LeverancierVanOrder => Nummer("Supplier");
 

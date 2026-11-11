@@ -636,10 +636,7 @@
         foreach (var r in _poRegels.Where(r => !IsKostenregel(r))) _poGekozen.Add(r.OrderItemId);
     }
 
-    private static bool IsKostenregel(PakbonPoRegel r)
-        => r.Artikelnummer.Trim().Length == 0
-           && System.Text.RegularExpressions.Regex.IsMatch(r.Omschrijving, "verzend|transport|vracht|toeslag|orderkosten|shipping|freight",
-                                                           System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    private static bool IsKostenregel(PakbonPoRegel r) => PakbonRegels.IsKostenregel(r);
 
     private void WisselPoRegel(int id, ChangeEventArgs e)
     {

@@ -45,6 +45,16 @@ public class PakbonItem
     public string ReferentieKlant { get; set; } = "";   // InkooporderKlant
 }
 
+/// <summary>Gedeeld door Pakbonnen ▸ Uit PO en Bestellingen ▸ Pakbon maken.</summary>
+public static class PakbonRegels
+{
+    /// <summary>Kostenregels zonder artikelnummer (verzendkosten, toeslag) gaan niet in de doos.</summary>
+    public static bool IsKostenregel(PakbonPoRegel r)
+        => r.Artikelnummer.Trim().Length == 0
+           && System.Text.RegularExpressions.Regex.IsMatch(r.Omschrijving, "verzend|transport|vracht|toeslag|orderkosten|shipping|freight",
+                                                           System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+}
+
 /// <summary>Een PO om regels uit over te nemen (Access: Parts Search History met "PAKBON").</summary>
 public record PakbonPoKeuze(int OrderId, string Leverancier, DateTime? Datum, string Omschrijving)
 {
@@ -92,6 +102,8 @@ public interface IPakbonRepository
     Task VerwijderRegelAsync(int itemId);
     Task<List<PakbonPoKeuze>> ZoekPosAsync(string zoek, int max);
     Task<List<PakbonPoRegel>> PoRegelsAsync(int orderId);
+    /// <summary>De pakbonnen (niet gewist) met een regel "Uit PO-…" van deze bestelling, nieuwste eerst.</summary>
+    Task<List<int>> PakbonnenVanPoAsync(int orderId);
     /// <summary>Artikelcode, omschrijving (NL) en gewicht per stuk uit Artikelen.</summary>
     Task<(string Code, string Omschrijving, decimal Gewicht)?> ArtikelAsync(int artikelId);
     Task<PakbonAfdruk?> AfdrukAsync(int id);
@@ -115,6 +127,7 @@ public class GeenPakbonRepository : IPakbonRepository
     public Task VerwijderRegelAsync(int itemId) => Task.CompletedTask;
     public Task<List<PakbonPoKeuze>> ZoekPosAsync(string zoek, int max) => Task.FromResult(new List<PakbonPoKeuze>());
     public Task<List<PakbonPoRegel>> PoRegelsAsync(int orderId) => Task.FromResult(new List<PakbonPoRegel>());
+    public Task<List<int>> PakbonnenVanPoAsync(int orderId) => Task.FromResult(new List<int>());
     public Task<(string Code, string Omschrijving, decimal Gewicht)?> ArtikelAsync(int artikelId)
         => Task.FromResult<(string, string, decimal)?>(null);
     public Task<PakbonAfdruk?> AfdrukAsync(int id) => Task.FromResult<PakbonAfdruk?>(null);
@@ -329,6 +342,19 @@ public class MySqlPakbonRepository : IPakbonRepository
         return uit;
     }
 
+    public async Task<List<int>> PakbonnenVanPoAsync(int orderId)
+    {
+        var lijst = new List<int>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT DISTINCT p.`PakbonID` FROM `PakbonItem` i JOIN `Pakbonnen` p ON p.`PakbonID` = i.`PakbonID` " +
+            " WHERE i.`Remark` = @r AND COALESCE(p.`Deleted`, 0) = 0 ORDER BY p.`PakbonID` DESC", cn);
+        cmd.Parameters.AddWithValue("@r", "Uit PO-" + orderId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(r.GetInt32(0));
+        return lijst;
+    }
+
     public async Task<List<PakbonPoRegel>> PoRegelsAsync(int orderId)
     {
         var uit = new List<PakbonPoRegel>();
@@ -496,6 +522,12 @@ public class GeheugenPakbonRepository : IPakbonRepository
 
     public Task<List<PakbonPoKeuze>> ZoekPosAsync(string zoek, int max) => _echt.ZoekPosAsync(zoek, max);
     public Task<List<PakbonPoRegel>> PoRegelsAsync(int orderId) => _echt.PoRegelsAsync(orderId);
+    public async Task<List<int>> PakbonnenVanPoAsync(int orderId)
+    {
+        var echt = (await _echt.PakbonnenVanPoAsync(orderId)).Where(id => !_gewist.Contains(id)).ToList();
+        var hier = _regels.Where(kv => kv.Value.Any(i => i.Opmerking == "Uit PO-" + orderId) && !_gewist.Contains(kv.Key)).Select(kv => kv.Key);
+        return echt.Union(hier).OrderByDescending(i => i).ToList();
+    }
     public Task<(string Code, string Omschrijving, decimal Gewicht)?> ArtikelAsync(int artikelId) => _echt.ArtikelAsync(artikelId);
     public Task<Models.FactuurAfzender?> AfzenderAsync(int bvId) => _echt.AfzenderAsync(bvId);
 

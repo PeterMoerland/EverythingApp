@@ -353,6 +353,16 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Bestellingen: pakbon om mee te geven (11-11-2026)
+
+Wens gebruiker: delen die iemand naar de leverancier rijdt (bv. naar Nederlandse Anodising) krijgen een pakbon mee. Knop
+**📦 Pakbon** in de regelsbalk van Bestellingen: maakt in `Pakbonnen` een bon voor de leverancier (`Orders.Supplier`, net als
+`Pakbonnen.RelationID` een `Relations.id_supplier`), t.a.v. het contact van de bestelling, met de regels van de bestelling
+(zonder kostenregels, `PakbonRegels.IsKostenregel`, gedeeld met Pakbonnen ▸ Uit PO), gewicht uit Artikelen, Remark
+"Uit PO-…" en referentie "PO-…". Daarna meteen de PDF (`PakbonPdfService`) in een venster: Met afbeeldingen, Downloaden,
+✎ In Pakbonnen (`?pakbon=`). Is er al een pakbon met een regel "Uit PO-…" (`IPakbonRepository.PakbonnenVanPoAsync`), dan
+eerst de vraag die te openen (Annuleren = nieuwe). Lokaal getest met `Pakbon__Geheugen=true` op PO-18521 (3 regels, 3,471 kg).
+
 ## Bestellingen: importeren uit een andere bestelling (11-11-2026)
 
 Wens gebruiker (frezen bij Jansen, daarna anodiseren bij Nederlandse Anodising). Importeren ▸ **📦 Uit andere bestelling**
