@@ -471,6 +471,14 @@
 
     private async Task WisselAfgehandeld(Servicemelding m)
     {
+        // eerst vragen (wens gebruiker 11-11-2026): een melding verdwijnt dan uit de open meldingen
+        var vraag = m.Afgehandeld
+            ? $"De melding van {m.Beller} ({m.Klant}) weer open zetten?"
+            : $"De melding van {m.Beller} ({m.Klant}) als afgehandeld markeren?\n\nHij verdwijnt dan uit de open meldingen; bij het project blijft hij staan.";
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", vraag); }
+        catch { ja = false; }
+        if (!ja) return;
         try
         {
             await Repo.ZetAfgehandeldAsync(m.Id, !m.Afgehandeld, Ik.WerknemerId);

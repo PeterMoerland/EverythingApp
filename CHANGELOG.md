@@ -15,6 +15,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 - **Banktransacties** — Nieuw: een afschrijving zonder factuur toch verantwoorden met "Koppeling aanmaken (factuur zonder bon + PO)": kies leverancier en werkorder, eventueel een omschrijving, en de app maakt de factuur (op betaald, zonder btw) en een PO onder de werkorder en koppelt ze.
 - **Service** — Nieuw: kopje Service in het menu. Bij een storing een klant en project kiezen en zien wie eraan werkte, met het aandeel in de uren en wie de software deed (verzoek van Michiel).
 - **Service** — Nieuw: een storing of verzoek doormailen naar een of meer mensen uit de lijst (vinkjes of ✉ achter de naam), met wie belde, wanneer, het telefoonnummer en de omschrijving.
+- **Service** — Verbeterd: een melding afvinken (of weer open zetten) vraagt eerst of je het zeker weet.
 - **Service** — Opgelost: de bevestiging na het mailen van een melding vulde de hele hoogte van het scherm; nu een klein blokje rechtsboven dat vanzelf verdwijnt.
 - **Service** — Nieuw: meldingen worden opgeslagen (ook zonder mail met "Alleen opslaan"). Bovenaan staan de open meldingen, bij een project alle meldingen van dat project, en met ✓ Afgehandeld vink je ze af.
 - **Mobiel** — Opgelost: op een telefoon viel de vraag "mobiel verder?" buiten beeld, en na "Volledige app gebruiken" kon je niet meer terug. Nu staat de vraag linksboven en heeft de volledige app op een telefoon de knop 📱 Mobiele weergave.
