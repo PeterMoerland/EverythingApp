@@ -247,7 +247,7 @@ public class MySqlBankRepository : IBankRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT t.`BankTransacties_ID`, t.`Rekening`, t.`Datum`, t.`Bedrag`, " +
-            "       COALESCE(t.`Tegenrekening`, ''), COALESCE(t.`Tenaamstelling`, ''), " +
+            "       COALESCE(t.`Tegenrekening`, ''), COALESCE(NULLIF(t.`NaamTegenpartij`, ''), t.`Tenaamstelling`, ''), " +
             "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer`, COALESCE(xc.`n`, 0) " +
             "  FROM `banktransacties` t " +
             // aantal gekoppelde facturen: één keer tellen (de koppeltabel heeft ~16.000 regels), niet per transactie

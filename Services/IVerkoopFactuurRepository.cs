@@ -70,6 +70,8 @@ public interface IVerkoopFactuurRepository
 
     /// <summary>Onbetaalde, niet oninbare facturen met een positief bedrag, van BV's met een IBAN.</summary>
     Task<List<OpenFactuur>> GetOpenFacturenAsync();
+    /// <summary>De bekende rekeningen per klant (Relations.IBAN en RelatieIbans), zonder spaties, in hoofdletters.</summary>
+    Task<Dictionary<int, HashSet<string>>> KlantRekeningenAsync(IReadOnlyCollection<int> klantIds);
 
     /// <summary>Ontvangsten op de rekeningen van de eigen BV's vanaf deze datum, die nog nergens aan hangen.</summary>
     Task<List<Ontvangst>> GetOntvangstenAsync(DateOnly vanaf);
@@ -104,6 +106,8 @@ public class GeenVerkoopFactuurRepository : IVerkoopFactuurRepository
     public Task<string> MailTekstAsync(bool engels) => Task.FromResult("");
     public Task MarkeerVerstuurdAsync(int id) => Task.CompletedTask;
     public Task<List<OpenFactuur>> GetOpenFacturenAsync() => Task.FromResult(new List<OpenFactuur>());
+    public Task<Dictionary<int, HashSet<string>>> KlantRekeningenAsync(IReadOnlyCollection<int> klantIds)
+        => Task.FromResult(new Dictionary<int, HashSet<string>>());
     public Task<List<Ontvangst>> GetOntvangstenAsync(DateOnly vanaf) => Task.FromResult(new List<Ontvangst>());
     public Task<int> VerwerkBetalingenAsync(IEnumerable<BetalingVoorstel> voorstellen, int? doorWerknemerId)
         => Task.FromResult(0);
@@ -847,7 +851,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT f.`Invoice-id`, COALESCE(f.`Invoicenumber`, ''), f.`Werkmaatschappij`, COALESCE(bv.`Afkorting`, ''), " +
-            "       COALESCE(r.`name`, ''), f.`Date invoice`, COALESCE(f.`Total incl`, 0) " +
+            "       COALESCE(r.`name`, ''), f.`Date invoice`, COALESCE(f.`Total incl`, 0), COALESCE(f.`Customer-id`, 0) " +
             "  FROM `Invoices` f " + BvRekening + " AND bv.`id_supplier` = f.`Werkmaatschappij` " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = f.`Customer-id` " +
             " WHERE COALESCE(f.`Betaald`, 0) = 0 AND COALESCE(f.`On-Inbaar`, 0) = 0 " +
@@ -855,8 +859,33 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         await using var r2 = await cmd.ExecuteReaderAsync();
         while (await r2.ReadAsync())
             lijst.Add(new OpenFactuur(r2.GetInt32(0), r2.GetString(1), r2.GetInt32(2), r2.GetString(3), r2.GetString(4),
-                DateOnly.FromDateTime(r2.GetDateTime(5)), Convert.ToDecimal(r2.GetValue(6))));
+                DateOnly.FromDateTime(r2.GetDateTime(5)), Convert.ToDecimal(r2.GetValue(6)), Convert.ToInt32(r2.GetValue(7))));
         return lijst;
+    }
+
+    public async Task<Dictionary<int, HashSet<string>>> KlantRekeningenAsync(IReadOnlyCollection<int> klantIds)
+    {
+        var uit = new Dictionary<int, HashSet<string>>();
+        var ids = klantIds.Where(i => i > 0).Distinct().ToList();
+        if (ids.Count == 0) return uit;
+        await using var cn = await OpenAsync();
+        var tabel = await RelatieIbans.TabelAsync(cn);
+        await using var cmd = new MySqlCommand("", cn);
+        var lijst = string.Join(",", ids.Select((_, i) => "@k" + i));
+        for (var i = 0; i < ids.Count; i++) cmd.Parameters.AddWithValue("@k" + i, ids[i]);
+        cmd.CommandText =
+            $"SELECT `id_supplier`, UPPER(REPLACE(REPLACE(COALESCE(`IBAN`, ''), ' ', ''), '-', '')) FROM `Relations` WHERE `id_supplier` IN ({lijst})" +
+            (tabel ? $" UNION SELECT `RelatieID`, `IBAN` FROM `RelatieIbans` WHERE `RelatieID` IN ({lijst})" : "");
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var iban = r.IsDBNull(1) ? "" : r.GetString(1);
+            if (iban.Length == 0) continue;
+            var k = r.GetInt32(0);
+            if (!uit.TryGetValue(k, out var set)) uit[k] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            set.Add(iban);
+        }
+        return uit;
     }
 
     public async Task<List<Ontvangst>> GetOntvangstenAsync(DateOnly vanaf)
@@ -865,7 +894,8 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT b.`BankTransacties_ID`, bv.`id_supplier`, COALESCE(b.`Verwerkingsdatum`, b.`Datum`), b.`Bedrag`, " +
-            "       COALESCE(NULLIF(b.`NaamTegenpartij`, ''), b.`Tenaamstelling`, ''), COALESCE(b.`Omschrijving`, '') " +
+            "       COALESCE(NULLIF(b.`NaamTegenpartij`, ''), b.`Tenaamstelling`, ''), COALESCE(b.`Omschrijving`, ''), " +
+            "       UPPER(REPLACE(COALESCE(b.`Tegenrekening`, ''), ' ', '')) " +
             "  FROM `banktransacties` b " + BvRekening +
             "   AND REPLACE(bv.`IBAN`, ' ', '') = REPLACE(b.`Rekening`, ' ', '') " +
             " WHERE b.`Bedrag` > 0 AND b.`Datum` >= @vanaf " +
@@ -875,7 +905,7 @@ public class MySqlVerkoopFactuurRepository : IVerkoopFactuurRepository
         await using var r2 = await cmd.ExecuteReaderAsync();
         while (await r2.ReadAsync())
             lijst.Add(new Ontvangst(r2.GetInt32(0), r2.GetInt32(1), DateOnly.FromDateTime(r2.GetDateTime(2)),
-                Convert.ToDecimal(r2.GetValue(3)), r2.GetString(4), r2.GetString(5)));
+                Convert.ToDecimal(r2.GetValue(3)), r2.GetString(4), r2.GetString(5), r2.GetString(6)));
         return lijst;
     }
 

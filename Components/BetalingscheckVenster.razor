@@ -182,7 +182,10 @@
             if (open.Count > 0)
             {
                 var vanaf = open.Min(f => f.Datum).AddDays(-7);
-                _voorstellen = Betalingsmatcher.Zoek(open, await Repo.GetOntvangstenAsync(vanaf));
+                // bekende rekeningen van de klanten: een betaling van zo'n rekening met precies het bedrag is een sterk voorstel
+                Dictionary<int, HashSet<string>>? rekeningen = null;
+                try { rekeningen = await Repo.KlantRekeningenAsync(open.Select(f => f.KlantId).ToList()); } catch { }
+                _voorstellen = Betalingsmatcher.Zoek(open, await Repo.GetOntvangstenAsync(vanaf), rekeningen);
                 if (_tabel)
                     foreach (var v in _voorstellen.Where(v => v.Soort == VoorstelSoort.Afwijkend && v.Verschil < 0))
                         v.Deelbetaling = true;

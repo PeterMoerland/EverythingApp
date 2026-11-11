@@ -21,8 +21,17 @@ public static class Betalingsmatcher
     /// <summary>Bedragen mogen 1 euro schelen, zoals in Access (afronding, bankkosten).</summary>
     public const decimal Marge = 1m;
 
-    public static List<BetalingVoorstel> Zoek(IReadOnlyList<OpenFactuur> facturen, IReadOnlyList<Ontvangst> ontvangsten)
+    /// <param name="rekeningen">
+    /// De bekende rekeningen per klant (Relations.IBAN en RelatieIbans, zonder spaties). Een betaling van een bekende
+    /// rekening van de klant met precies het bedrag van één van zijn openstaande facturen is een sterk voorstel (11-11-2026).
+    /// </param>
+    public static List<BetalingVoorstel> Zoek(IReadOnlyList<OpenFactuur> facturen, IReadOnlyList<Ontvangst> ontvangsten,
+                                              IReadOnlyDictionary<int, HashSet<string>>? rekeningen = null)
     {
+        bool Bekend(Ontvangst o, OpenFactuur f)
+            => rekeningen is not null && o.Tegenrekening.Length > 0 && f.KlantId != 0
+               && rekeningen.TryGetValue(f.KlantId, out var set) && set.Contains(o.Tegenrekening);
+
         var voorstellen = new List<BetalingVoorstel>();
         var factuurGebruikt = new HashSet<int>();
         var ontvangstGebruikt = new HashSet<int>();
@@ -75,6 +84,17 @@ public static class Betalingsmatcher
         {
             var zelfdeBedrag = facturen.Where(f => !factuurGebruikt.Contains(f.Id) && f.BvId == o.BvId
                                                    && f.Datum <= o.Datum && Math.Abs(f.Bedrag - o.Bedrag) < 0.01m).ToList();
+
+            // De rekening van de betaler is een bekende rekening van de klant: dan telt alleen zijn factuur, ook als een
+            // andere klant een factuur met hetzelfde bedrag open heeft. Aangevinkt, want rekening en bedrag kloppen.
+            var vanKlant = zelfdeBedrag.Where(f => Bekend(o, f)).ToList();
+            if (vanKlant.Count == 1
+                && rest.Count(x => x.BvId == o.BvId && Math.Abs(x.Bedrag - o.Bedrag) < 0.01m && Bekend(x, vanKlant[0])) == 1)
+            {
+                Voeg(VoorstelSoort.AlleenBedrag, new() { o }, new() { vanKlant[0] }, "zelfde bedrag, van een bekende rekening van de klant");
+                continue;
+            }
+
             if (zelfdeBedrag.Count != 1) continue;
             if (rest.Count(x => x.BvId == o.BvId && Math.Abs(x.Bedrag - o.Bedrag) < 0.01m) > 1) continue;
 

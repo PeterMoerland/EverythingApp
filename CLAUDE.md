@@ -333,6 +333,21 @@ verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu t
 (soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
 zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
 
+## Banktransacties: rustiger detail, ongekoppeld nalopen, betalingscheck op rekening (11-11-2026)
+
+Wensen gebruiker. **Detailvenster**: velden onder elkaar en links (`.voorbeeld-inhoud.bankdetail-inhoud` = display block; de
+voorbeeldvenster-stijl stond later in app.css en centreerde alles, vandaar het lege stuk bovenin). **Factuur koppelen** in een
+eigen venster (knop onder Gekoppelde facturen, `_koppelOpen`; dicht na een koppeling die het bedrag dekt). Kolom Tenaamstelling
+heet **Tegenpartij** en toont `NaamTegenpartij` (anders de tenaamstelling; die was altijd leeg).
+**🔗 Ongekoppeld…** (Financial/Directie): de transacties in de lijst zonder factuur (max. 300) nalopen met`FactuurKandidatenAsync`;
+`Beste`: zeker = één met nummer, bedrag en rekening (of nummer en bedrag als geen voorstel de rekening kent), aangevinkt;
+anders één met rekening en bedrag, nog nergens gekoppeld ("zelf bekijken"). Een factuur maar bij één transactie. Per regel
+koppelen of de aangevinkte samen (met bevestiging). Lezend gemeten sep-okt 2026: 354 ongekoppeld, 60 zeker, 10 zelf bekijken,
+21 s. **Betalingscheck**: `OpenFactuur.KlantId`, `Ontvangst.Tegenrekening`, `KlantRekeningenAsync` (Relations.IBAN +
+RelatieIbans); stap 4 van `Betalingsmatcher`: bedrag gelijk en de betaler is een bekende rekening van de klant = aangevinkt,
+ook als een andere klant een factuur met hetzelfde bedrag open heeft (gemeten: 4 voorstellen kregen dit). Detailvenster en
+scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de logica lezend getest via de dll.
+
 ## Relaties: verwijzingen als keuzelijst, activiteiten (11-11-2026)
 
 Wens gebruiker (Inkoop contactpersoon stond als 6299). `RelatieVelden`: `Lijst` = "Contactpersoon" (OfferteContactID,

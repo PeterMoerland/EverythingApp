@@ -1,10 +1,10 @@
 namespace EverythingApp.Models;
 
 /// <summary>Een openstaande uitgaande factuur, zoals de betalingscheck hem nodig heeft.</summary>
-public record OpenFactuur(int Id, string Nummer, int BvId, string Bv, string Klant, DateOnly Datum, decimal Bedrag);
+public record OpenFactuur(int Id, string Nummer, int BvId, string Bv, string Klant, DateOnly Datum, decimal Bedrag, int KlantId = 0);
 
 /// <summary>Een ontvangst op een rekening van een eigen BV die nog aan geen uitgaande factuur hangt.</summary>
-public record Ontvangst(int Id, int BvId, DateOnly Datum, decimal Bedrag, string Tegenpartij, string Omschrijving);
+public record Ontvangst(int Id, int BvId, DateOnly Datum, decimal Bedrag, string Tegenpartij, string Omschrijving, string Tegenrekening = "");
 
 public enum VoorstelSoort
 {
