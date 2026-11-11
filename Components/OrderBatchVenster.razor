@@ -1,0 +1,191 @@
+@inject IOrderBatchRepository Repo
+@inject IInstellingRepository Instellingen
+@inject HuidigeGebruiker Ik
+@inject BatchBel Bel
+
+@* ============================================================================
+   Artikelen ▸ 🛒 In orderbatch (verzoek collega Stein, 11-11-2026; zat ook in Access): het artikel in de orderbatch
+   zetten zonder de scanner. Zelfde regels als Scannen: aantal rondt af op hele verpakkingen van de voorkeursleverancier,
+   een samenstelling gaat in onderdelen de batch in, en standaard op de standaard-voorraadorder.
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer ob-venster" @onclick:stopPropagation role="dialog" aria-modal="true" aria-label="In orderbatch">
+            <div class="kiezer-kop">
+                <b>🛒 In orderbatch</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="ob-inhoud">
+                @if (_artikel is null)
+                {
+                    <p class="uitleg">@(_laadFout ?? "Laden…")</p>
+                }
+                else
+                {
+                    <div class="ob-artikel">
+                        <b>@_artikel.Code</b> <span class="zij-extra">#@_artikel.Id</span>
+                        <div>@_artikel.Omschrijving</div>
+                        <div class="zij-extra">
+                            @(_artikel.Leverancier.Length > 0 ? _artikel.Leverancier : "geen voorkeursleverancier")
+                            @if (_artikel.PerVerpakking > 1) { <span> · per @_artikel.PerVerpakking</span> }
+                            @if (_artikel.Voorraad is not null) { <span> · voorraad @_artikel.Voorraad</span> }
+                        </div>
+                        @if (_artikel.Samenstelling)
+                        {
+                            <div class="uitleg">Samenstelling: de onderdelen komen los in de batch.</div>
+                        }
+                    </div>
+
+                    <div class="wn-velden een-kolom">
+                        <div class="wn-veld">
+                            <label>Aantal</label>
+                            <div class="ob-aantal">
+                                <button class="klein" @onclick="Minder">−</button>
+                                <input inputmode="numeric" value="@_aantal" @onchange="AantalGewijzigd" @onkeydown="Toets" />
+                                <button class="klein" @onclick="Meer">＋</button>
+                                @if (_artikel.PerVerpakking > 1 && _aantal % _artikel.PerVerpakking != 0)
+                                {
+                                    <span class="uitleg">wordt @(((_aantal + _artikel.PerVerpakking - 1) / _artikel.PerVerpakking) * _artikel.PerVerpakking)</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Op werkorder</label>
+                            <div class="ob-order">
+                                <select value="@OrderKeuze" @onchange="OrderGekozen">
+                                    @if (_orderId == 0) { <option value="">— kies —</option> }
+                                    @foreach (var vo in _voorraadOrders.Where(v => v.OrderId is not null))
+                                    {
+                                        <option value="@vo.OrderId">@vo.Omschrijving@(vo.Standaard ? " (standaard)" : "")</option>
+                                    }
+                                    @if (_andere is not null)
+                                    {
+                                        <option value="@_andere.WerkbonId">@_andere.VolledigeTekst</option>
+                                    }
+                                </select>
+                                <button class="klein" title="Een andere werkorder zoeken" @onclick="() => _kiezerOpen = true">🔍</button>
+                            </div>
+                        </div>
+                        <div class="wn-veld">
+                            <label>Opmerking</label>
+                            <input maxlength="200" value="@_opmerking" @oninput="e => _opmerking = (string?)e.Value ?? string.Empty" @onkeydown="Toets" />
+                        </div>
+                    </div>
+
+                    @if (_melding is not null)
+                    {
+                        <div class="melding @(_fout ? "fout" : "ok")">@_melding</div>
+                    }
+
+                    <div class="ob-knoppen">
+                        <button class="primair" disabled="@(_bezig || _orderId == 0 || _aantal <= 0)" @onclick="Toevoegen">
+                            @(_bezig ? "Bezig…" : $"In de batch ({_aantal})")
+                        </button>
+                        <a class="knopje" href="orderbatch">Naar orderbatch</a>
+                        <button class="klein" @onclick="Sluit">Sluiten</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <WerkorderKiezer Open="_kiezerOpen" WerknemerId="Ik.WerknemerId ?? 0" AlleenInkoop="true"
+                     OpGekozen="WerkorderGekozen" OpGesloten="() => _kiezerOpen = false" />
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int ArtikelId { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private ScanArtikel? _artikel;
+    private string? _laadFout;
+    private int _aantal = 1;
+    private int _orderId;
+    private Workorder? _andere;            // via 🔍 gekozen werkorder (geen voorraadorder)
+    private string _opmerking = "";
+    private List<VoorraadOrder> _voorraadOrders = new();
+    private bool _kiezerOpen, _bezig, _fout;
+    private string? _melding;
+    private int _geladenVoor;
+
+    private string OrderKeuze => _orderId == 0 ? "" : _orderId.ToString();
+    private int Stap => Math.Max(1, _artikel?.PerVerpakking ?? 1);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Open) { _geladenVoor = 0; return; }
+        if (_geladenVoor == ArtikelId) return;
+        _geladenVoor = ArtikelId;
+        _artikel = null; _laadFout = null; _melding = null; _opmerking = ""; _andere = null;
+        try
+        {
+            if (_voorraadOrders.Count == 0) _voorraadOrders = await Instellingen.GetVoorraadOrdersAsync();
+            // standaard de standaard-voorraadorder, net als de scanner
+            var standaard = _voorraadOrders.FirstOrDefault(v => v.Standaard && v.OrderId is not null)
+                         ?? _voorraadOrders.FirstOrDefault(v => v.OrderId is not null);
+            if (_orderId == 0 && standaard is not null) _orderId = standaard.OrderId!.Value;
+
+            _artikel = await Repo.GetScanArtikelAsync(ArtikelId);
+            if (_artikel is null) { _laadFout = $"Artikel {ArtikelId} bestaat niet."; return; }
+            _aantal = Math.Max(1, _artikel.PerVerpakking);
+        }
+        catch (Exception ex) { _laadFout = "Laden mislukt: " + ex.Message; }
+    }
+
+    private void Meer() => _aantal += Stap;
+    private void Minder() => _aantal = Math.Max(Stap, _aantal - Stap);
+
+    private void AantalGewijzigd(ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var v) && v > 0) _aantal = v;
+    }
+
+    private void OrderGekozen(ChangeEventArgs e) => _orderId = int.TryParse((string?)e.Value, out var v) ? v : 0;
+
+    private void WerkorderGekozen(Workorder wo)
+    {
+        _andere = _voorraadOrders.Any(v => v.OrderId == wo.WerkbonId) ? null : wo;
+        _orderId = wo.WerkbonId;
+        _kiezerOpen = false;
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Toevoegen();
+        else if (e.Key == "Escape") await Sluit();
+    }
+
+    private async Task Toevoegen()
+    {
+        if (_artikel is null || _orderId == 0 || _aantal <= 0 || _bezig) return;
+        _bezig = true;
+        try
+        {
+            var regels = await Repo.VoegToeAsync(_artikel.Id, _aantal, _orderId, Ik.WerknemerId, viaScanner: false, _opmerking.Trim());
+            if (regels == 0)
+            {
+                _melding = $"Er is niets toegevoegd: {_artikel.Code} is een samenstelling zonder onderdelen.";
+                _fout = true;
+                return;
+            }
+            _melding = _artikel.Samenstelling
+                ? $"{regels} onderdelen van {_artikel.Code} staan in de batch."
+                : $"{_artikel.Code} ({_aantal}) staat in de batch.";
+            _fout = false;
+            Bel.Meld();        // open Orderbatch-schermen verversen zichzelf
+        }
+        catch (Exception ex) { _melding = "Toevoegen mislukt: " + ex.Message; _fout = true; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Sluit()
+    {
+        _geladenVoor = 0;
+        await OpGesloten.InvokeAsync();
+    }
+}

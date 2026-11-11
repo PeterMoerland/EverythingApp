@@ -353,6 +353,15 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Artikelen: 🛒 In orderbatch (11-11-2026)
+
+Verzoek collega Stein (zat ook in Access): knop naast ✎ Bewerken in het artikeldetail, voor iedereen (zoals de scanner).
+`Components/OrderBatchVenster.razor`: aantal (−/＋ per verpakking van de voorkeursleverancier; afronden doet
+`IOrderBatchRepository.VoegToeAsync` al, het venster toont "wordt N"), werkorder (voorraadorders, standaard de
+standaard-voorraadorder; 🔍 = `WerkorderKiezer` met AlleenInkoop), opmerking; Enter = toevoegen. Samenstelling = onderdelen
+los in de batch. `viaScanner: false`, daarna `BatchBel.Meld()`. Lokaal alleen het venster bekeken (geen geheugenstand
+voor de orderbatch, dus niet toegevoegd).
+
 ## Rechten: Artikelbeheer, bankrekeningen alleen Financial/Directie (11-11-2026)
 
 - **Artikelen en Artikelsamenstellingen wijzigen**: recht `Artikelbeheer` (nieuwe kolom, `Werknemers_Artikelbeheer_MariaDB.sql`,

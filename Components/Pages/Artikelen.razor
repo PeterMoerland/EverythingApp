@@ -180,6 +180,9 @@
                                     {
                                         <button class="klein" disabled="@(!MagBewerken)"
                                                 @onclick="StartBewerken">✎ Bewerken</button>
+                                        @* verzoek collega Stein (11-11-2026), zat ook in Access; mag iedereen, net als de scanner *@
+                                        <button class="klein" @onclick="() => _batchOpen = true"
+                                                title="Dit artikel in de orderbatch zetten (aantal, werkorder)">🛒 In orderbatch</button>
                                         @if (!MagBewerken)
                                         {
                                             <span class="uitleg">Je hebt geen recht om artikelen te wijzigen (Werknemers ▸ Rechten ▸ Artikelbeheer).</span>
@@ -899,6 +902,11 @@
     </div>
 }
 
+@if (_artikel is not null)
+{
+    <OrderBatchVenster Open="_batchOpen" ArtikelId="_artikel.Id" OpGesloten="() => _batchOpen = false" />
+}
+
 @code {
     private static readonly string[] Tabs = { "Info", "Leveranciers", "Voorraad/Bestellen", "Documenten", "Groepen", "Alias", "Overigen" };
     private const int StoreTypeArtikel = 2;
@@ -1344,6 +1352,7 @@
     private bool MagBewerken => Ik.Mag("Artikelbeheer") || Ik.Mag("Directie");
 
     private bool _bewerken;
+    private bool _batchOpen;          // venster 🛒 In orderbatch
     private bool _bewaren;
     private Artikel? _origineel;
     private List<(int Id, string Naam)> _merken = new();

@@ -3526,6 +3526,16 @@ html[data-thema="donker"] .nb-item { color: var(--dt); }
 .regels-balk { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 1.2rem 0 .3rem; }
 .regels-balk .wn-kop { margin: 0; }
 .menu-knop { position: relative; display: inline-block; }
+/* Artikelen > In orderbatch (OrderBatchVenster) */
+.ob-venster { width: min(34rem, 94vw); }
+.ob-inhoud { padding: .7rem .9rem .9rem; overflow-y: auto; }
+.ob-artikel { margin-bottom: .6rem; line-height: 1.35; }
+.ob-aantal { display: flex; align-items: center; gap: .3rem; }
+.ob-aantal input { width: 5rem; text-align: right; }
+.ob-order { display: flex; align-items: center; gap: .3rem; }
+.ob-order select { flex: 1; min-width: 0; }
+.ob-knoppen { display: flex; align-items: center; gap: .5rem; margin-top: .8rem; }
+.ob-knoppen > * { height: 2rem; box-sizing: border-box; display: inline-flex; align-items: center; padding-top: 0; padding-bottom: 0; }
 /* + Regel, Pakbon en Importeren even hoog (het emoji maakte Pakbon hoger; wens gebruiker 11-11-2026) */
 .regels-balk .btngroup { align-items: center; }
 .regels-balk .btngroup > button.klein, .regels-balk .btngroup > .menu-knop > button.klein {
