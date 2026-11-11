@@ -336,8 +336,8 @@ zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen
 ## Banktransacties: rustiger detail, ongekoppeld nalopen, betalingscheck op rekening (11-11-2026)
 
 Wensen gebruiker. **Detailvenster**: velden onder elkaar en links (`.voorbeeld-inhoud.bankdetail-inhoud` = display block; de
-voorbeeldvenster-stijl stond later in app.css en centreerde alles, vandaar het lege stuk bovenin). **Factuur koppelen** in een
-eigen venster (knop onder Gekoppelde facturen, `_koppelOpen`; dicht na een koppeling die het bedrag dekt). Kolom Tenaamstelling
+voorbeeldvenster-stijl stond later in app.css en centreerde alles, vandaar het lege stuk bovenin). **Factuur koppelen** in hetzelfde
+venster (een tweede venster werkte niet handig): open zolang het bedrag niet gedekt is, anders achter een knop (`_koppelOpen`). Kolom Tenaamstelling
 heet **Tegenpartij** en toont `NaamTegenpartij` (anders de tenaamstelling; die was altijd leeg).
 **🔗 Ongekoppeld…** (Financial/Directie): de transacties in de lijst zonder factuur (max. 300) nalopen met`FactuurKandidatenAsync`;
 `Beste`: zeker = één met nummer, bedrag en rekening (of nummer en bedrag als geen voorstel de rekening kent), aangevinkt;
@@ -347,6 +347,11 @@ koppelen of de aangevinkte samen (met bevestiging). Lezend gemeten sep-okt 2026:
 RelatieIbans); stap 4 van `Betalingsmatcher`: bedrag gelijk en de betaler is een bekende rekening van de klant = aangevinkt,
 ook als een andere klant een factuur met hetzelfde bedrag open heeft (gemeten: 4 voorstellen kregen dit). Detailvenster en
 scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de logica lezend getest via de dll.
+
+**Datum in de beoordeling** (11-11-2026): `FactuurKandidaat.Dagen` (transactie min factuur); `DatumPast` = -7..120 dagen,
+`NaBetaling` (> 7 dagen na de betaling: nooit zeker), `Oud` (> 120). Volgorde nummer > rekening > bedrag > datum > niet elders;
+de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
+(de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
 ## Relaties: verwijzingen als keuzelijst, activiteiten (11-11-2026)
 

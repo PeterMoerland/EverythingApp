@@ -24,7 +24,19 @@ public record GekoppeldeFactuur(bool Verkoop, int FactuurId, string Nummer, stri
 /// (zonder teken); IbanGelijk = de tegenrekening is het IBAN van de relatie; Elders = aan zoveel andere transacties gekoppeld.
 /// </summary>
 public record FactuurKandidaat(bool Verkoop, int FactuurId, string Nummer, string Relatie, DateOnly? Datum, decimal Bedrag,
-                               bool Betaald, string Omschrijving, int Elders, bool NummerInTekst, bool BedragGelijk, bool IbanGelijk);
+                               bool Betaald, string Omschrijving, int Elders, bool NummerInTekst, bool BedragGelijk, bool IbanGelijk,
+                               int? Dagen = null)
+{
+    // Datum in de beoordeling (wens gebruiker 11-11-2026). Dagen = transactiedatum min factuurdatum: een betaling komt na de
+    // factuur, hoogstens een week ervoor (vooruitbetaling, proforma) en meestal binnen een paar maanden.
+    public const int DagenVoor = 7, DagenNa = 120;
+    /// <summary>De factuurdatum past bij de betaling: hoogstens 7 dagen erna, hoogstens 120 dagen ervoor.</summary>
+    public bool DatumPast => Dagen is int d && d >= -DagenVoor && d <= DagenNa;
+    /// <summary>De factuur is van ruim na de betaling: dan nooit een zeker voorstel.</summary>
+    public bool NaBetaling => Dagen is int d && d < -DagenVoor;
+    /// <summary>De factuur was al ruim voor de betaling (late betaler, of een oude factuur met hetzelfde bedrag).</summary>
+    public bool Oud => Dagen is int d && d > DagenNa;
+}
 
 public interface IBankRepository
 {
@@ -516,8 +528,11 @@ public class MySqlBankRepository : IBankRepository
         // beste eerst: nummer in de omschrijving, dan de tegenrekening van de relatie, dan zelfde bedrag, dan nog niet
         // elders gekoppeld, dan dichtst bij de datum
         var dag = datum is DateTime d0 ? DateOnly.FromDateTime(d0) : DateOnly.FromDateTime(DateTime.Today);
-        return lijst.OrderByDescending(x => (x.NummerInTekst ? 8 : 0) + (x.IbanGelijk ? 4 : 0) + (x.BedragGelijk ? 2 : 0) + (x.Elders == 0 ? 1 : 0))
-                    .ThenBy(x => x.Datum is DateOnly fd ? Math.Abs(fd.DayNumber - dag.DayNumber) : int.MaxValue)
+        lijst = lijst.Select(x => x with { Dagen = x.Datum is DateOnly fd ? dag.DayNumber - fd.DayNumber : null }).ToList();
+        // nummer > rekening > bedrag > datum past > nog nergens gekoppeld; dan de dichtstbijzijnde factuur vóór de betaling
+        return lijst.OrderByDescending(x => (x.NummerInTekst ? 16 : 0) + (x.IbanGelijk ? 8 : 0) + (x.BedragGelijk ? 4 : 0)
+                                            + (x.DatumPast ? 2 : 0) + (x.Elders == 0 ? 1 : 0))
+                    .ThenBy(x => x.Dagen is int d ? (d >= -FactuurKandidaat.DagenVoor ? d : 100_000 - d) : int.MaxValue)
                     .Take(max).ToList();
     }
 

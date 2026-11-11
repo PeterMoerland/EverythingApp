@@ -393,89 +393,78 @@
                     </table>
                 }
 
-                @* koppelen in een eigen venster (wens gebruiker 11-11-2026): het detail blijft rustig *@
-                @if (MagKoppelen)
+                @* factuur koppelen in hetzelfde venster (wens gebruiker 11-11-2026: een tweede venster werkte niet handig). Open als
+                   het bedrag nog niet gedekt is; anders achter een knop. Alleen de koppeling; de betaald-status verandert niet. *@
+                @if (MagKoppelen && !_koppelOpen)
                 {
                     <div class="bt-koppel-knop">
-                        <button class="klein @(VolledigGekoppeld ? "" : "primair")" @onclick="OpenKoppelen">🔗 Factuur koppelen…</button>
-                        @if (VolledigGekoppeld)
-                        {
-                            <span class="uitleg">De gekoppelde facturen dekken het hele bedrag.</span>
-                        }
+                        <button class="klein" @onclick="OpenKoppelen">🔗 Toch nog een factuur koppelen…</button>
+                        <span class="uitleg">De gekoppelde facturen dekken het hele bedrag.</span>
                     </div>
                 }
-            </div>
-        </div>
-    </div>
-}
-
-@* ---------- factuur koppelen: voorstellen op nummer in de omschrijving, rekening en bedrag, of zelf zoeken. Alleen de
-     koppeling; de betaald-status van de factuur verandert niet. Na het detailvenster, zodat het erboven ligt. ---------- *@
-@if (_detail is not null && _koppelOpen && MagKoppelen)
-{
-    <div class="cmdk-overlay" @onclick="SluitKoppelen">
-        <div class="voorbeeldvenster bankdetail bankkoppel" @onclick:stopPropagation>
-            <header class="bijlagekop">
-                <h2>Factuur koppelen · @(_detail.Datum?.ToString("dd-MM-yyyy") ?? "") · @Bedrag(_detail.Bedrag)@(_detail.NaamTegenpartij.Length > 0 ? " · " + _detail.NaamTegenpartij : "")</h2>
-                <button class="klein" @onclick="SluitKoppelen">✕</button>
-            </header>
-            <div class="voorbeeld-inhoud bankdetail-inhoud">
-                <div class="bt-koppel-balk">
-                    <select value="@(_kopVerkoop ? "uit" : "in")" @onchange="KopSoortGewijzigd">
-                        <option value="uit">Uitgaande facturen (verkoop)</option>
-                        <option value="in">Inkomende facturen (inkoop)</option>
-                    </select>
-                    <input class="groei" placeholder="Factuurnummer, relatie, omschrijving of bedrag…" value="@_kopZoek"
-                           @onchange="KopZoekGewijzigd" />
-                    @if (_kopZoek.Length > 0)
+                else if (MagKoppelen)
+                {
+                    <h3 class="wn-kop">Factuur koppelen</h3>
+                    <div class="bt-koppel-balk">
+                        <select value="@(_kopVerkoop ? "uit" : "in")" @onchange="KopSoortGewijzigd">
+                            <option value="uit">Uitgaande facturen (verkoop)</option>
+                            <option value="in">Inkomende facturen (inkoop)</option>
+                        </select>
+                        <input class="groei" placeholder="Factuurnummer, relatie, omschrijving of bedrag…" value="@_kopZoek"
+                               @onchange="KopZoekGewijzigd" />
+                        @if (_kopZoek.Length > 0)
+                        {
+                            <button class="klein" title="Terug naar de voorstellen" @onclick="WisKopZoek">✕</button>
+                        }
+                    </div>
+                    @if (_kandidaten is null)
                     {
-                        <button class="klein" title="Terug naar de voorstellen" @onclick="WisKopZoek">✕</button>
+                        <p class="uitleg">Zoeken…</p>
                     }
-                </div>
-                @if (_kandidaten is null)
-                {
-                    <p class="uitleg">Zoeken…</p>
-                }
-                else if (_kandidaten.Count == 0)
-                {
-                    <p class="uitleg">@(_kopZoek.Length == 0 ? "Geen voorstel: geen factuur met een nummer uit de omschrijving of met hetzelfde bedrag. Zoek hierboven op nummer, relatie of bedrag." : "Niets gevonden.")</p>
-                }
-                else
-                {
-                    <p class="uitleg">@(AlleenVolledig ? "Nummer, bedrag en rekening kloppen." : _kopZoek.Length == 0 ? "Voorstellen op nummer in de omschrijving en op bedrag; de beste bovenaan." : $"{_kandidaten.Count} gevonden{(_kandidaten.Count >= KopMax ? " (de eerste " + KopMax + ")" : "")}.")@KopBvTekst</p>
-                    <table class="kiezer-tabel bt-facturen">
-                        <thead>
-                            <tr><th style="width:9rem">Factuur</th><th>Relatie</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Bedrag</th>
-                                <th style="width:5rem">Betaald</th><th>Waarom</th><th style="width:6rem"></th></tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var k in KandidatenTonen)
-                            {
-                                <tr @key="(k.Verkoop, k.FactuurId)">
-                                    <td><button class="lq-factuur" title="@(k.Omschrijving.Length > 0 ? k.Omschrijving : "Factuur openen")"
-                                                @onclick="() => OpenKandidaat(k)">@(k.Nummer.Length > 0 ? k.Nummer : "#" + k.FactuurId)</button></td>
-                                    <td>@k.Relatie</td>
-                                    <td>@(k.Datum?.ToString("dd-MM-yyyy") ?? "")</td>
-                                    <td class="r">@Bedrag(k.Bedrag)</td>
-                                    <td>@(k.Betaald ? "✓" : "")</td>
-                                    <td class="bt-waarom">
-                                        @if (k.NummerInTekst) { <span class="bt-chip goed">nummer in omschrijving</span> }
-                                        @if (k.IbanGelijk) { <span class="bt-chip goed" title="De tegenrekening is het IBAN van deze relatie">zelfde rekening</span> }
-                                        @if (k.BedragGelijk) { <span class="bt-chip goed">zelfde bedrag</span> }
-                                        @if (k.Elders > 0) { <span class="bt-chip let" title="Deze factuur hangt al aan @k.Elders andere transactie(s)">al elders gekoppeld</span> }
-                                    </td>
-                                    <td><button class="klein primair" disabled="@_kopBezig" @onclick="() => Koppel(k)">🔗 Koppelen</button></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                    @if (AlleenVolledig)
+                    else if (_kandidaten.Count == 0)
                     {
-                        <button class="link" @onclick="() => _toonHalf = true">Ook @(_kandidaten.Count - KandidatenTonen.Count) gedeeltelijke overeenkomst@(_kandidaten.Count - KandidatenTonen.Count == 1 ? "" : "en") tonen</button>
+                        <p class="uitleg">@(_kopZoek.Length == 0 ? "Geen voorstel: geen factuur met een nummer uit de omschrijving of met hetzelfde bedrag. Zoek hierboven op nummer, relatie of bedrag." : "Niets gevonden.")</p>
                     }
-                    else if (_toonHalf && _kopZoek.Length == 0 && _kandidaten.Any(Volledig))
+                    else
                     {
-                        <button class="link" @onclick="() => _toonHalf = false">Alleen de volledige overeenkomst tonen</button>
+                        <p class="uitleg">@(AlleenVolledig ? "Nummer, bedrag en rekening kloppen." : _kopZoek.Length == 0 ? "Voorstellen op nummer in de omschrijving en op bedrag; de beste bovenaan." : $"{_kandidaten.Count} gevonden{(_kandidaten.Count >= KopMax ? " (de eerste " + KopMax + ")" : "")}.")@KopBvTekst</p>
+                        <table class="kiezer-tabel bt-facturen">
+                            <thead>
+                                <tr><th style="width:9rem">Factuur</th><th>Relatie</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Bedrag</th>
+                                    <th style="width:5rem">Betaald</th><th>Waarom</th><th style="width:6rem"></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var k in KandidatenTonen)
+                                {
+                                    <tr @key="(k.Verkoop, k.FactuurId)">
+                                        <td><button class="lq-factuur" title="@(k.Omschrijving.Length > 0 ? k.Omschrijving : "Factuur openen")"
+                                                    @onclick="() => OpenKandidaat(k)">@(k.Nummer.Length > 0 ? k.Nummer : "#" + k.FactuurId)</button></td>
+                                        <td>@k.Relatie</td>
+                                        <td>@(k.Datum?.ToString("dd-MM-yyyy") ?? "")</td>
+                                        <td class="r">@Bedrag(k.Bedrag)</td>
+                                        <td>@(k.Betaald ? "✓" : "")</td>
+                                        <td class="bt-waarom">
+                                            @if (k.NummerInTekst) { <span class="bt-chip goed">nummer in omschrijving</span> }
+                                            @if (k.IbanGelijk) { <span class="bt-chip goed" title="De tegenrekening is het IBAN van deze relatie">zelfde rekening</span> }
+                                            @if (k.BedragGelijk) { <span class="bt-chip goed">zelfde bedrag</span> }
+                                            @if (k.DatumPast) { <span class="bt-chip goed" title="Factuur @k.Dagen dagen voor de betaling">datum past</span> }
+                                            @if (k.NaBetaling) { <span class="bt-chip let" title="De factuur is van na de betaling">factuur na betaling</span> }
+                                            @if (k.Oud) { <span class="bt-chip let" title="De factuur was al @k.Dagen dagen oud bij de betaling">@k.Dagen dagen oud</span> }
+                                            @if (k.Elders > 0) { <span class="bt-chip let" title="Deze factuur hangt al aan @k.Elders andere transactie(s)">al elders gekoppeld</span> }
+                                        </td>
+                                        <td><button class="klein primair" disabled="@_kopBezig" @onclick="() => Koppel(k)">🔗 Koppelen</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (AlleenVolledig)
+                        {
+                            <button class="link" @onclick="() => _toonHalf = true">Ook @(_kandidaten.Count - KandidatenTonen.Count) gedeeltelijke overeenkomst@(_kandidaten.Count - KandidatenTonen.Count == 1 ? "" : "en") tonen</button>
+                        }
+                        else if (_toonHalf && _kopZoek.Length == 0 && _kandidaten.Any(Volledig))
+                        {
+                            <button class="link" @onclick="() => _toonHalf = false">Alleen de volledige overeenkomst tonen</button>
+                        }
                     }
                 }
             </div>
@@ -527,6 +516,7 @@
                                         @if (s.K.NummerInTekst) { <span class="bt-chip goed">nummer</span> }
                                         @if (s.K.IbanGelijk) { <span class="bt-chip goed">rekening</span> }
                                         @if (s.K.BedragGelijk) { <span class="bt-chip goed">bedrag</span> }
+                                        @if (s.K.DatumPast) { <span class="bt-chip goed" title="Factuur @s.K.Dagen dagen voor de betaling">datum</span> }
                                         @if (!s.Zeker) { <span class="bt-chip let" title="Geen factuurnummer in de omschrijving: zelf beoordelen">zelf bekijken</span> }
                                     </td>
                                     <td>@if (s.Gekoppeld) { <span class="klein-grijs">✓ gekoppeld</span> }
@@ -538,7 +528,7 @@
                     <div class="bt-koppel-knop">
                         <button class="primair" disabled="@(_scanBezig || _kopBezig || !_scan.Any(s => s.Aan && !s.Gekoppeld))" @onclick="KoppelAangevinkt">
                             🔗 @_scan.Count(s => s.Aan && !s.Gekoppeld) aangevinkte koppelen</button>
-                        <span class="uitleg">Aangevinkt zijn de zekere: nummer, bedrag en rekening kloppen.</span>
+                        <span class="uitleg">Aangevinkt zijn de zekere: nummer, bedrag en rekening kloppen, en de factuur is niet van na de betaling.</span>
                     </div>
                 }
             </div>
@@ -825,6 +815,7 @@
         // bij: een klant betaalt (uitgaande factuur); af: wij betalen (inkomende factuur)
         _kopVerkoop = (_detail?.Bedrag ?? 0) > 0;
         _koppelOpen = false;
+        if (MagKoppelen && !VolledigGekoppeld) await OpenKoppelen();
     }
 
     // ---- handmatig een factuur koppelen (Financial of Directie) ----
@@ -859,7 +850,7 @@
     /// (de relatie heeft geen IBAN), dan is nummer + bedrag genoeg.
     /// </summary>
     private bool Volledig(FactuurKandidaat k)
-        => k.NummerInTekst && k.BedragGelijk && (k.IbanGelijk || _kandidaten?.Any(x => x.IbanGelijk) != true);
+        => k.NummerInTekst && k.BedragGelijk && !k.NaBetaling && (k.IbanGelijk || _kandidaten?.Any(x => x.IbanGelijk) != true);
 
     /// <summary>Alleen de volledige overeenkomst(en) tonen, met een knop voor de rest.</summary>
     private bool AlleenVolledig
@@ -945,11 +936,13 @@
     /// </summary>
     private static (FactuurKandidaat K, bool Zeker)? Beste(List<FactuurKandidaat> l)
     {
-        var zeker = l.Where(k => k.NummerInTekst && k.BedragGelijk && (k.IbanGelijk || !l.Any(x => x.IbanGelijk))).ToList();
+        var zeker = l.Where(k => k.NummerInTekst && k.BedragGelijk && !k.NaBetaling && (k.IbanGelijk || !l.Any(x => x.IbanGelijk))).ToList();
         if (zeker.Count == 1) return (zeker[0], true);
         if (zeker.Count > 1) return null;
-        var rekening = l.Where(k => k.IbanGelijk && k.BedragGelijk && k.Elders == 0).ToList();
-        return rekening.Count == 1 ? (rekening[0], false) : null;
+        // rekening en bedrag, de datum past; bij meer (een maandelijkse factuur) de laatste factuur vóór de betaling
+        var rekening = l.Where(k => k.IbanGelijk && k.BedragGelijk && k.Elders == 0 && k.DatumPast)
+                        .OrderBy(k => k.Dagen is int d && d >= 0 ? d : 1000 - (k.Dagen ?? 0)).ToList();
+        return rekening.Count > 0 ? (rekening[0], false) : null;
     }
 
     private async Task OpenScan()
