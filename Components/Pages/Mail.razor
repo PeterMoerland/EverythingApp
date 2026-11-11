@@ -1,5 +1,6 @@
 @page "/mail"
 @inject MailService Post
+@inject GoogleHerstel Herstel
 @inject MailPostbussen Postbussen
 @inject FilestoreService Store
 @inject IRelatieRepository RelatieRepo
@@ -286,8 +287,8 @@ else
         try
         {
             static string Lijst(string s) => string.Join(", ", s.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            await Post.VerstuurAsync(_wpPostbus, Lijst(_wpAan), _wpOnderwerp.Trim(), _wpTekst,
-                _wpBijlagen.Count > 0 ? _wpBijlagen.ToList() : null, _wpCc.Trim().Length > 0 ? Lijst(_wpCc) : null);
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(_wpPostbus, Lijst(_wpAan), _wpOnderwerp.Trim(), _wpTekst,
+                _wpBijlagen.Count > 0 ? _wpBijlagen.ToList() : null, _wpCc.Trim().Length > 0 ? Lijst(_wpCc) : null));
             _melding = $"Verstuurd naar {_wpAan.Trim()}.";
             _fout = false;
             _wpAan = _wpCc = _wpOnderwerp = _wpTekst = "";

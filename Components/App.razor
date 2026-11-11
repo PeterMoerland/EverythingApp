@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=383" />
+    <link rel="stylesheet" href="app.css?v=384" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -99,6 +99,22 @@
         window.mdeInBeeld = function (selector) {
             var e = document.querySelector(selector);
             if (e) e.scrollIntoView({ block: 'nearest' });
+        };
+
+        // Opnieuw aanmelden bij Google in een pop-up (GoogleHerstelVenster): het scherm eronder blijft staan. Als de pop-up
+        // dicht is (google-klaar sluit hem), de verborgen knop klikken, dan gaat de onderbroken actie verder.
+        window.mdeGoogleAanmelden = function () {
+            var b = 520, h = 640;
+            var x = Math.max(0, (window.screenX || 0) + (window.outerWidth - b) / 2);
+            var y = Math.max(0, (window.screenY || 0) + (window.outerHeight - h) / 2);
+            var w = window.open('login?popup=1', 'mde-google', 'width=' + b + ',height=' + h + ',left=' + x + ',top=' + y);
+            if (!w) { alert('De browser blokkeerde het aanmeldvenster. Sta pop-ups toe voor deze site en klik nog eens.'); return; }
+            var t = setInterval(function () {
+                if (!w.closed) return;
+                clearInterval(t);
+                var k = document.getElementById('google-herstel-klaar');
+                if (k) k.click();
+            }, 500);
         };
 
         // Tekst naar het klembord; ook zonder https (navigator.clipboard werkt alleen in een veilige context). True = gelukt.

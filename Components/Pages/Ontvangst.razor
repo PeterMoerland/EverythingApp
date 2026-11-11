@@ -1,5 +1,6 @@
 @page "/bestellingen/ontvangst"
 @inject IOntvangstRepository Repo
+@inject GoogleHerstel Herstel
 @inject IUrenRepository Uren
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
@@ -317,9 +318,9 @@
             if (postbus is null) return " Mail niet verstuurd (geen afzender op deze pc); wel een melding in de app.";
             var door = _personen.FirstOrDefault(p => p.Id == _door)?.Naam ?? "";
             var logo = await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"));
-            await Post.VerstuurAsync(postbus, g.MailOntvanger, BestelMail.GeleverdOnderwerp(g),
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(postbus, g.MailOntvanger, BestelMail.GeleverdOnderwerp(g),
                 "<html><body>" + BestelMail.GeleverdHtml(g, door, "cid:" + BestelMail.LogoCid) + "</body></html>",
-                null, null, html: true, ingebed: new[] { (BestelMail.LogoCid, "logo-mde.png", logo) });
+                null, null, html: true, ingebed: new[] { (BestelMail.LogoCid, "logo-mde.png", logo) }));
             extra = $" {g.NaamOntvanger} krijgt een mail en een melding.";
         }
         catch (Exception ex) { extra = " Mail versturen mislukt: " + ex.Message; }

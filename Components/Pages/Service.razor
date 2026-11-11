@@ -1,5 +1,6 @@
 @page "/service"
 @inject IServiceRepository Repo
+@inject GoogleHerstel Herstel
 @inject MailService Post
 @inject MailPostbussen Postbussen
 @inject HuidigeGebruiker Ik
@@ -182,7 +183,7 @@
             @if (_meldingenAan)
             {
                 <section class="sv-blok sv-breed">
-                    <label class="sv-label">Meldingen op @pr.Nummer</label>
+                    <label class="sv-label">Meldingen op project @pr.Nummer @pr.Omschrijving</label>
                     @if (_projectMeldingen is null)
                     {
                         <p class="uitleg">Laden…</p>
@@ -392,9 +393,9 @@
             var handtekening = await Post.HandtekeningAsync(postbus);
             var tekst = MailTekst();
             if (handtekening.Length > 0)
-                await Post.VerstuurAsync(postbus, naar, MailOnderwerp, MailService.MetHandtekening(tekst, handtekening), html: true);
+                await Herstel.VoerUitAsync(() => Post.VerstuurAsync(postbus, naar, MailOnderwerp, MailService.MetHandtekening(tekst, handtekening), html: true));
             else
-                await Post.VerstuurAsync(postbus, naar, MailOnderwerp, tekst + Environment.NewLine + "Groet," + Environment.NewLine + Ik.Naam);
+                await Herstel.VoerUitAsync(() => Post.VerstuurAsync(postbus, naar, MailOnderwerp, tekst + Environment.NewLine + "Groet," + Environment.NewLine + Ik.Naam));
             if (meldingId is int id) { try { await Repo.ZetGemaildAsync(id); } catch { } }
             _mailAan = null;
             _gekozen.Clear();

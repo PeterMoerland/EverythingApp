@@ -3,6 +3,7 @@
    Daarna: PDF's in de filestore (en de factuurmap), factuur op verstuurd, uren op gefactureerd.
    FactuurId: een getal = die factuur, null = dicht. *@
 @inject FactuurPdfService Pdf
+@inject GoogleHerstel Herstel
 @inject IVerkoopFactuurRepository Repo
 @inject FilestoreService Filestore
 @inject MailService Post
@@ -279,9 +280,9 @@
         {
             _bezig = "Mail versturen…";
             var metHt = _metHandtekening && _handtekening is { Length: > 0 };
-            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
                                      metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst,
-                                     _bijlagen.Select(b => (b.Naam, b.Inhoud)), _cc.Length > 0 ? _cc : null, html: metHt);
+                                     _bijlagen.Select(b => (b.Naam, b.Inhoud)), _cc.Length > 0 ? _cc : null, html: metHt));
         }
         catch (Exception ex)
         {

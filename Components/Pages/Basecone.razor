@@ -1,5 +1,6 @@
 @page "/financien/basecone"
 @inject IBaseconeRepository Repo
+@inject GoogleHerstel Herstel
 @inject IFactuurRepository Facturen
 @inject IWerknemerRepository WnRepo
 @inject FilestoreService Filestore
@@ -258,7 +259,7 @@
                                 $"Omschrijving: {regel.Omschrijving}\r\n" +
                                 $"Bedrag(ex): {Geld(regel.Bedrag)}";
 
-                    await Mail.VerstuurAsync(eigenPostbus, adres, onderwerp, tekst, bijlagen);
+                    await Herstel.VoerUitAsync(() => Mail.VerstuurAsync(eigenPostbus, adres, onderwerp, tekst, bijlagen));
 
                     // -- Pas ná een gelukte mail gaat de vlag om ---------------
                     if (regel.Soort == "INK")

@@ -478,6 +478,15 @@ if (loginAan)
             tokens.Bewaar(email, ctx.AccessToken, ctx.RefreshToken,
                           ctx.ExpiresIn is { } t ? (int)t.TotalSeconds : null);
 
+            // Google geeft het refresh-token alleen bij (nieuwe) toestemming. Is er nog geen (ook niet bewaard), dan werkt
+            // mail en agenda maar een uur: meteen nog één keer langs Google met prompt=consent (11-11-2026). Daarna wordt
+            // het bewaard (AgendaTokens) en is dit niet meer nodig, ook niet na een update.
+            if (!tokens.HeeftRefresh(email) && !ctx.Properties.Items.ContainsKey("toestemming"))
+            {
+                var terug = string.IsNullOrWhiteSpace(ctx.Properties.RedirectUri) ? ctx.Request.PathBase + "/" : ctx.Properties.RedirectUri;
+                ctx.Properties.RedirectUri = ctx.Request.PathBase + "/login?toestemming=1&terug=" + Uri.EscapeDataString(terug);
+            }
+
             return Task.CompletedTask;
         };
 
@@ -485,7 +494,9 @@ if (loginAan)
         // en 'uitloggen' ook echt merkbaar is), en meteen het juiste domein voorstellen.
         o.Events.OnRedirectToAuthorizationEndpoint = ctx =>
         {
-            var url = ctx.RedirectUri + "&prompt=select_account";
+            // toestemming=1 (zie OnCreatingTicket): ook om toestemming vragen, dan stuurt Google een refresh-token
+            var url = ctx.RedirectUri + "&prompt=" + Uri.EscapeDataString(
+                ctx.Properties.Items.ContainsKey("toestemming") ? "select_account consent" : "select_account");
             if (!string.IsNullOrWhiteSpace(googleDomein))
                 url += "&hd=" + Uri.EscapeDataString(googleDomein!);
             ctx.Response.Redirect(url);
@@ -499,6 +510,8 @@ builder.Services.AddCascadingAuthenticationState();
 
 // Wie is ingelogd + welke rechten (uit de Werknemers-tabel).
 builder.Services.AddScoped<HuidigeGebruiker>();
+// Opnieuw aanmelden bij Google midden in een actie (GoogleHerstelVenster in de layouts).
+builder.Services.AddScoped<GoogleHerstel>();
 
 var app = builder.Build();
 
@@ -553,20 +566,32 @@ app.UseAntiforgery();
 // reverse-proxy pad-voorvoegsel (PathBase, bv. "/mde") moeten die expliciet
 // met PathBase geprefixt worden — anders navigeert de browser per ongeluk
 // naar de root van het domein in plaats van terug naar "/mde/...".
-app.MapGet("/login", async (HttpContext ctx, string? terug) =>
+// popup=1: opnieuw aanmelden in een klein venster (GoogleHerstelVenster) en daarna terug naar /google-klaar, dat het venster
+// sluit; het scherm eronder blijft staan en de onderbroken actie (een mail) gaat verder. toestemming=1: ook om toestemming
+// vragen (zie OnCreatingTicket).
+app.MapGet("/login", async (HttpContext ctx, string? terug, string? popup, string? toestemming) =>
 {
     var thuis = ctx.Request.PathBase + "/";
     if (!loginAan) { ctx.Response.Redirect(thuis); return; }
-    await ctx.ChallengeAsync(GoogleDefaults.AuthenticationScheme,
-        new AuthenticationProperties
-        {
-            RedirectUri = string.IsNullOrWhiteSpace(terug) ? thuis : terug,
-            // Zonder dit is het inlogkoekje een sessiekoekje en gooit de browser
-            // het weg bij het afsluiten — dan moet iedereen elke ochtend opnieuw
-            // inloggen. Zo blijft het de ingestelde 14 dagen (glijdend) geldig.
-            IsPersistent = true,
-        });
+    // alleen paden binnen de app als terugadres (geen open redirect naar een andere site)
+    if (!string.IsNullOrWhiteSpace(terug) && (!terug.StartsWith('/') || terug.StartsWith("//"))) terug = null;
+    var eigenschappen = new AuthenticationProperties
+    {
+        RedirectUri = popup == "1" ? ctx.Request.PathBase + "/google-klaar" : string.IsNullOrWhiteSpace(terug) ? thuis : terug,
+        // Zonder dit is het inlogkoekje een sessiekoekje en gooit de browser
+        // het weg bij het afsluiten — dan moet iedereen elke ochtend opnieuw
+        // inloggen. Zo blijft het de ingestelde 14 dagen (glijdend) geldig.
+        IsPersistent = true,
+    };
+    if (toestemming == "1") eigenschappen.Items["toestemming"] = "1";
+    await ctx.ChallengeAsync(GoogleDefaults.AuthenticationScheme, eigenschappen);
 });
+
+// Einde van het aanmelden in een pop-up: venster dicht (het scherm in het hoofdvenster merkt dat en gaat verder).
+app.MapGet("/google-klaar", (HttpContext ctx) => Results.Content(Pagina(
+    "Aangemeld",
+    "<p>Je bent weer aangemeld bij Google. Dit venster sluit vanzelf.</p>" +
+    $"<script>if (window.opener) window.close(); else location.href = '{ctx.Request.PathBase}/';</script>"), "text/html"));
 
 // Uitloggen: cookie wissen en naar een pagina die géén login vereist. Zou je naar "/"
 // terugsturen, dan volgt meteen een nieuwe login en lijkt uitloggen niet te werken.

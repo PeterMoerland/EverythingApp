@@ -885,6 +885,12 @@ th.c, td.c { text-align: center; }
 .cmdk-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: center; padding-top: 10vh; z-index: 100; }
 /* variant voor echte vensters (facturen, PO's): netjes in het midden */
 .cmdk-overlay.midden { align-items: center; padding-top: 0; }
+/* opnieuw aanmelden bij Google: boven elk ander venster (een mailvenster staat er vaak al) */
+.cmdk-overlay.gh-overlay { z-index: 300; }
+.gh-venster { background: #fff; border-radius: 12px; padding: 1.2rem 1.3rem; max-width: 30rem; margin: 0 1rem; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.gh-venster p { margin: .6rem 0 .8rem; }
+.gh-klein { font-size: .85rem; color: var(--muted, #6b7280); }
+html[data-thema="donker"] .gh-venster { background: #1b2a3f; border: 1px solid #2b4a73; }
 /* een popup die bovenop een andere popup moet openen */
 .cmdk-overlay.laag2 { z-index: 120; }
 /* aan deze kop is het venster te verslepen (zie het script in App.razor) */

@@ -4,6 +4,7 @@
    Opbouw van de mail: Services/BestelMail.cs. Na versturen: Orders.MailAangemaakt en een regel in Log_Orderchanges.
    OrderId: een getal = open, null = dicht. *@
 @inject IBestelRepository Repo
+@inject GoogleHerstel Herstel
 @inject FilestoreService Store
 @inject MailService Post
 @inject MailPostbussen Postbussen
@@ -273,7 +274,7 @@
             var ingebed = ht is null
                 ? new[] { (BestelMail.LogoCid, "logo-mde.png", await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"))) }
                 : null;
-            await Post.VerstuurAsync(postbus, _aan, _onderwerp, html, bijlagen, _cc.Length > 0 ? _cc : null, html: true, ingebed: ingebed);
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(postbus, _aan, _onderwerp, html, bijlagen, _cc.Length > 0 ? _cc : null, html: true, ingebed: ingebed));
 
             // na het versturen: aangepaste melding en aanhef bewaren (aanhef zoals Access vroeg), en vastleggen dat er gemaild is
             if (_melding2.Trim() != _g.Opmerking.Trim())

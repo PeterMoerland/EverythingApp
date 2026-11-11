@@ -1,0 +1,36 @@
+@implements IDisposable
+@inject GoogleHerstel Herstel
+
+@* Opnieuw aanmelden bij Google en dan doorgaan (zie Services/GoogleHerstel.cs). De knop is een gewone HTML-onclick (geen
+   Blazor-@onclick): alleen dan telt het als klik van de gebruiker en blokkeert de browser de pop-up niet. Zodra de pop-up
+   dicht is, klikt mdeGoogleAanmelden de verborgen knop hieronder, en gaat de actie verder. *@
+
+@if (Herstel.Open)
+{
+    <div class="cmdk-overlay midden gh-overlay">
+        <div class="gh-venster">
+            <b>Opnieuw aanmelden bij Google</b>
+            <p>Je Google-toegang (mail, agenda) is verlopen, bijvoorbeeld na een update van de app. Meld je opnieuw aan; daarna gaat
+               je actie gewoon verder. Je ingevulde gegevens blijven staan.</p>
+            <p class="gh-klein">@Herstel.Reden</p>
+            <div class="btngroup">
+                <button class="primair" onclick="mdeGoogleAanmelden()">Opnieuw aanmelden</button>
+                <button @onclick="() => Herstel.Klaar(false)">Annuleren</button>
+            </div>
+            <p class="gh-klein">Er opent een klein venster van Google. Gebeurt er niets, sta dan pop-ups toe voor deze site.</p>
+            <button id="google-herstel-klaar" style="display:none" @onclick="() => Herstel.Klaar(true)"></button>
+        </div>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Herstel.Gewijzigd += Teken;
+
+    private void Teken() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Herstel.Gewijzigd -= Teken;
+        Herstel.Klaar(false);       // verbinding weg: een wachtende actie niet eeuwig laten hangen
+    }
+}

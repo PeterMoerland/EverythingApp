@@ -2,6 +2,7 @@
    via de eigen Gmail (zelfde opzet als FactuurVersturenVenster). Daarna de PDF in de filestore (StoreType 350,
    MasterID = de order) en de order op bevestigd. Order: de order (met regels), null = dicht. *@
 @inject OrderbevestigingPdfService Pdf
+@inject GoogleHerstel Herstel
 @inject IVerkoopOrderRepository Repo
 @inject FilestoreService Filestore
 @inject MailService Post
@@ -171,9 +172,9 @@
             _bezig = "Mail versturen…";
             StateHasChanged();
             var metHt = _metHandtekening && _handtekening is { Length: > 0 };
-            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan, _onderwerp,
                                      metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst,
-                                     new[] { (_naam, _pdf) }, _cc.Length > 0 ? _cc : null, html: metHt);
+                                     new[] { (_naam, _pdf) }, _cc.Length > 0 ? _cc : null, html: metHt));
         }
         catch (Exception ex)
         {

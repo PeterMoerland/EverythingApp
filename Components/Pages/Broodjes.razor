@@ -2,6 +2,7 @@
 @using System.Globalization
 @using System.Text
 @inject IBroodjesRepository Repo
+@inject GoogleHerstel Herstel
 @inject BroodjesAssortimentService Assortiment
 @inject IUrenRepository Uren
 @inject HuidigeGebruiker Ik
@@ -520,8 +521,8 @@
         try
         {
             var metHt = _metHandtekening && _handtekening is { Length: > 0 };
-            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan.Trim(), _onderwerp,
-                                     metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst, html: metHt);
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(MailService.Eigen(Ik.Email), _aan.Trim(), _onderwerp,
+                                     metHt ? MailService.MetHandtekening(_tekst, _handtekening!) : _tekst, html: metHt));
             await Repo.ZetGemaildAsync(_lijst.Id, Ik.WerknemerId);
             _mailOpen = false;
             Toon($"Gemaild naar {_aan.Trim()}.", false);

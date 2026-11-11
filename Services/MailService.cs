@@ -92,7 +92,9 @@ public class MailService
 
     private async Task<HttpClient> ClientOfFoutAsync(MailPostbus postbus)
         => await ClientAsync(postbus)
-           ?? throw new InvalidOperationException($"Kon {postbus.Naam} niet openen. {Beschrijf(postbus)}");
+           ?? throw (postbus.Eigen
+               ? new GoogleToegangException($"Kon {postbus.Naam} niet openen. {Beschrijf(postbus)}")
+               : new InvalidOperationException($"Kon {postbus.Naam} niet openen. {Beschrijf(postbus)}"));
 
     // ============================================================
     //  Lijst en zoeken

@@ -1,6 +1,7 @@
 @page "/relaties/nda"
 @using Microsoft.AspNetCore.WebUtilities
 @inject INdaRepository Repo
+@inject GoogleHerstel Herstel
 @inject IRelatieRepository RelatieRepo
 @inject NdaService Dienst
 @inject MailService Post
@@ -683,8 +684,8 @@
                 return;
             }
 
-            await Post.VerstuurAsync(MailService.Eigen(Ik.Email), _mailNaar,
-                                     _mail.Value.Onderwerp, _mail.Value.Tekst, bijlagen);
+            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(MailService.Eigen(Ik.Email), _mailNaar,
+                                     _mail.Value.Onderwerp, _mail.Value.Tekst, bijlagen));
 
             // Verstuurd: status en datum bijwerken
             if (_nda.Status == NdaStatus.Concept)
