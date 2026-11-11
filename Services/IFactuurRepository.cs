@@ -536,7 +536,6 @@ public class MySqlFactuurRepository : IFactuurRepository
         string S(string k) { try { var v = r[k]; return v is DBNull ? "" : v.ToString() ?? ""; } catch { return ""; } }
         int? I(string k) { try { var v = r[k]; return v is DBNull ? null : Convert.ToInt32(v); } catch { return null; } }
         decimal M(string k) { try { var v = r[k]; return v is DBNull ? 0 : Convert.ToDecimal(v); } catch { return 0; } }
-        double Db(string k) { try { var v = r[k]; return v is DBNull ? 0 : Convert.ToDouble(v); } catch { return 0; } }
         // PercentageDoorbelasten is een geheel getal dat Access als percentage toonde: 1 = 100% (11-11-2026: alle 23.824
         // facturen staan op 1, 225 oude op leeg). Leeg = 100%; een eventuele 100 blijft 100.
         double DoorbelastenPct()

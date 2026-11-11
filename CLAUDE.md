@@ -361,6 +361,9 @@ aanvinken met eigen aantal; artikelcode, omschrijving, MDE-nummer, eenheid en we
 bestelling. Opties: prijzen niet overnemen (standaard), tekst vóór de omschrijving ("Anodiseren:"), "uit PO-…" in de
 opmerking, en **bijlagen per soort** (PDF/STEP/DXF met aantallen, wens gebruiker; nieuwste per bestandsnaam, gekopieerd
 via `FilestoreService`). Lokaal bekeken met PO-18506 (Jansen, 4 regels, elk DXF/PDF/STEP); niet toegevoegd.
+Zoeken (wens gebruiker): `IBestelRepository.ZoekVoorImportAsync` - elk woord past op PO-nummer, leverancier, omschrijving of
+besteller (`Orders.Created by`, NaamVoluit/Afkorting): "Jansen Leon" = bij Jansen door Leon Kerkvliet; kolom Besteller in de lijst.
+Bouwwaarschuwingen opgeruimd (11-11-2026): 0 warnings.
 
 ## Grootboekrekeningen en grootboek per afschrift (11-11-2026)
 

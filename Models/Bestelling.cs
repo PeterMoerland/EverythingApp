@@ -3,7 +3,7 @@
 /// <summary>Eén bestelling in de lijst links.</summary>
 /// <param name="Bv">Afkorting van de BV die bestelt (Orders.BvID, BestellingBv_MariaDB.sql); leeg = kolom ontbreekt.</param>
 public record BestelRegel(int Id, string Nummer, string Leverancier, string Omschrijving,
-                          int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal, string Bv = "");
+                          int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal, string Bv = "", string Besteller = "");
 
 /// <summary>Eén treffer bij het zoeken door de bestelregels (Bestellingen ▸ Zoeken in regels).</summary>
 public record BestelregelTreffer(int OrderId, string Leverancier, string OrderOmschrijving, int Status, string StatusNaam,

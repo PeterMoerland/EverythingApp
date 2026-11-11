@@ -71,6 +71,11 @@ public interface IBestelRepository
 
     // --- regels ---
     Task<List<Orderregel>> GetRegelsAsync(int orderId);
+    /// <summary>
+    /// Bestellingen om regels uit over te nemen (Importeren ▸ Uit andere bestelling): elk woord moet passen bij het PO-nummer,
+    /// de leverancier, de omschrijving of de besteller ("Jansen Leon"), geannuleerde niet; nieuwste eerst.
+    /// </summary>
+    Task<List<BestelRegel>> ZoekVoorImportAsync(string? zoek, int max);
     Task<int> BewaarRegelAsync(Orderregel regel);
     Task VerwijderRegelAsync(int orderitemId);
 
@@ -136,6 +141,7 @@ public class GeenBestelRepository : IBestelRepository
     public Task ZetAanhefAsync(int contactId, string aanhef) => Task.CompletedTask;
     public Task MailVerstuurdAsync(int orderId, int? door, string logtekst) => Task.CompletedTask;
     public Task<List<Orderregel>> GetRegelsAsync(int orderId) => Task.FromResult(new List<Orderregel>());
+    public Task<List<BestelRegel>> ZoekVoorImportAsync(string? zoek, int max) => Task.FromResult(new List<BestelRegel>());
     public Task<int> BewaarRegelAsync(Orderregel regel) => Task.FromResult(0);
     public Task VerwijderRegelAsync(int orderitemId) => Task.CompletedTask;
     public Task<List<Keuze>> GetLeveranciersAsync() => Task.FromResult(new List<Keuze>());
@@ -267,6 +273,41 @@ public class MySqlBestelRepository : IBestelRepository
             $" WHERE COALESCE(`Werkmaatschappij`, 0) <> 0 AND NOT {BvOpgeheven.Is(opg)} ORDER BY `Afkorting`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), r.IsDBNull(1) ? "" : r.GetString(1)));
+        return lijst;
+    }
+
+    public async Task<List<BestelRegel>> ZoekVoorImportAsync(string? zoek, int max)
+    {
+        var woorden = (zoek ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(6).ToList();
+        var delen = new List<string> { $"COALESCE(o.`Status`, 0) <> {BestelVelden.StatusGeannuleerd}" };
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("", cn);
+        for (var i = 0; i < woorden.Count; i++)
+        {
+            var w = woorden[i];
+            if (w.StartsWith("PO-", StringComparison.OrdinalIgnoreCase)) w = w[3..];
+            delen.Add($"(CAST(o.`Order-id` AS CHAR) LIKE @w{i} OR o.`Description` LIKE @w{i} OR r.`name` LIKE @w{i} " +
+                      $" OR wn.`NaamVoluit` LIKE @w{i} OR wn.`Afkorting` LIKE @w{i})");
+            cmd.Parameters.AddWithValue("@w" + i, "%" + w + "%");
+        }
+        cmd.CommandText =
+            "SELECT o.`Order-id`, COALESCE(r.`name`, ''), COALESCE(o.`Description`, ''), COALESCE(o.`Status`, 0), " +
+            "       COALESCE(st.`Omschrijving`, ''), o.`Creation date`, " +
+            "       COALESCE((SELECT SUM(i.`Totalprice`) FROM `Orderitems` i WHERE i.`Order-id` = o.`Order-id`), 0), " +
+            "       COALESCE(wn.`NaamVoluit`, '') " +
+            "  FROM `Orders` o " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
+            "  LEFT JOIN `OrderState` st ON st.`Id` = o.`Status` " +
+            "  LEFT JOIN `Werknemers` wn ON wn.`Werknemer-id` = o.`Created by` " +
+            $" WHERE {string.Join(" AND ", delen)} ORDER BY o.`Order-id` DESC LIMIT {Math.Clamp(max, 1, 200)}";
+        var lijst = new List<BestelRegel>();
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+        {
+            var id = rd.GetInt32(0);
+            lijst.Add(new BestelRegel(id, "PO-" + id, rd.GetString(1), rd.GetString(2), Convert.ToInt32(rd.GetValue(3)), rd.GetString(4),
+                rd.IsDBNull(5) ? null : Convert.ToDateTime(rd.GetValue(5)), Convert.ToDecimal(rd.GetValue(6)), "", rd.GetString(7)));
+        }
         return lijst;
     }
 

@@ -3609,7 +3609,7 @@
                                        double? ImaxA, double? IgemA, double? ImaxB, double? IgemB);
     private sealed class DualUitslag { public bool Geslaagd, Bezig; public string Samenvatting = ""; public List<DualBeweging> Bewegingen = new(); }
     private DualUitslag? _dm;
-    private int _dmPositieB, _dmSnelheid = 200, _dmHerhalingen = 10;
+    private int _dmSnelheid = 200, _dmHerhalingen = 10;
     private bool _dmInterpoleren = true;
     private double _dmAcc = 500;
     private Dictionary<int, long>? _dmPos1, _dmPos2;

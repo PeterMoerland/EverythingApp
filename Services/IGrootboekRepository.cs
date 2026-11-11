@@ -31,7 +31,7 @@ public static class GrootboekExcel
         var meldingen = new List<string>();
         using var doc = SpreadsheetDocument.Open(xlsx, false);
         var wb = doc.WorkbookPart ?? throw new InvalidDataException("Dit is geen Excel-bestand (.xlsx).");
-        var blad = wb.Workbook.Sheets?.Elements<Sheet>().FirstOrDefault() ?? throw new InvalidDataException("Het bestand heeft geen blad.");
+        var blad = wb.Workbook?.Sheets?.Elements<Sheet>().FirstOrDefault() ?? throw new InvalidDataException("Het bestand heeft geen blad.");
         var ws = (WorksheetPart)wb.GetPartById(blad.Id!);
         var teksten = wb.SharedStringTablePart?.SharedStringTable?.Elements<SharedStringItem>().Select(s => s.InnerText).ToList() ?? new();
 
@@ -55,7 +55,7 @@ public static class GrootboekExcel
 
         int adm = -1, code = -1, naam = -1, kp = -1;
         var codeAlsGetal = new List<int>();     // index in regels
-        foreach (var rij in ws.Worksheet.Descendants<Row>())
+        foreach (var rij in ws.Worksheet?.Descendants<Row>() ?? Enumerable.Empty<Row>())
         {
             // een cel zonder verwijzing (A1) mag; dan is het de kolom na de vorige
             var cellen = new Dictionary<int, Cell>();

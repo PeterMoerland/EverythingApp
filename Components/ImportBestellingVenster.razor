@@ -30,7 +30,7 @@
                 @if (_bron is null)
                 {
                     <div class="ib-zoek">
-                        <input @ref="_zoekVak" placeholder="PO-nummer, leverancier of omschrijving… (Enter)" value="@_zoek"
+                        <input @ref="_zoekVak" placeholder="PO-nummer, leverancier, besteller of omschrijving, bv. Jansen Leon (Enter)" value="@_zoek"
                                @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
                         <button class="klein" disabled="@_bezig" @onclick="Zoek">Zoeken</button>
                     </div>
@@ -41,12 +41,12 @@
                         <p class="uitleg">@(_zoek.Trim().Length == 0 ? "De recentste bestellingen; zoek hierboven op een andere." : $"{_orders.Count} gevonden.") Klik op een bestelling.</p>
                         <div class="pk-tabelvak">
                             <table class="kiezer-tabel">
-                                <thead><tr><th style="width:6.5rem">PO</th><th>Leverancier</th><th>Omschrijving</th><th style="width:8rem">Status</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Totaal</th></tr></thead>
+                                <thead><tr><th style="width:6.5rem">PO</th><th>Leverancier</th><th>Besteller</th><th>Omschrijving</th><th style="width:8rem">Status</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Totaal</th></tr></thead>
                                 <tbody>
                                     @foreach (var o in _orders)
                                     {
                                         <tr class="ib-klik" @onclick="() => Kies(o)">
-                                            <td>@o.Nummer</td><td>@o.Leverancier</td><td>@o.Omschrijving</td><td>@o.StatusNaam</td>
+                                            <td>@o.Nummer</td><td>@o.Leverancier</td><td>@o.Besteller</td><td>@o.Omschrijving</td><td>@o.StatusNaam</td>
                                             <td>@(o.Aangemaakt?.ToString("dd-MM-yyyy") ?? "")</td><td class="r">@o.Totaal.ToString("C2", Nl)</td>
                                         </tr>
                                     }
@@ -203,8 +203,7 @@
         try
         {
             var z = _zoek.Trim();
-            _orders = (await Repo.ZoekAsync(z.Length == 0 ? null : z, null, null, null, 40, metGeannuleerd: false))
-                      .Where(o => o.Id != OrderId).ToList();
+            _orders = (await Repo.ZoekVoorImportAsync(z, 40)).Where(o => o.Id != OrderId).ToList();
         }
         catch (Exception ex) { _orders = new(); _fout = "Zoeken mislukt: " + ex.Message; }
         finally { _bezig = false; }

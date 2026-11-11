@@ -831,7 +831,6 @@
         _facturen = null;
         _kandidaten = null;
         _kopZoek = "";
-        _kopToch = false;
         _toonHalf = false;
         try { _detail = await Repo.GetDetailAsync(t.Id); }
         catch (Exception ex) { Toon("Gegevens ophalen mislukt: " + ex.Message, true); return; }
@@ -909,7 +908,7 @@
     private void SluitKoppelen() => _koppelOpen = false;
 
     // ---- wat er van de voorstellen getoond wordt (wens gebruiker 11-11-2026) ----
-    private bool _kopToch, _toonHalf;
+    private bool _toonHalf;
 
     /// <summary>De gekoppelde facturen samen dekken het bedrag van de transactie (op een cent).</summary>
     private bool VolledigGekoppeld
