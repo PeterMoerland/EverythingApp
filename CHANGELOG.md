@@ -12,6 +12,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 - **Banktransacties** — Opgelost: importeren in de app stopte met "Data too long for column 'Importdatum'".
 - **Banktransacties** — Verbeterd: tijdens het importeren een voortgangsbalk met percentage en het aantal regels.
 - **Banktransacties** — Nieuw: een afschrijving zonder factuur toch verantwoorden met "Koppeling aanmaken (factuur zonder bon + PO)": kies leverancier en werkorder, eventueel een omschrijving, en de app maakt de factuur (op betaald, zonder btw) en een PO onder de werkorder en koppelt ze.
+- **Mobiel** — Opgelost: op een telefoon viel de vraag "mobiel verder?" buiten beeld, en na "Volledige app gebruiken" kon je niet meer terug. Nu staat de vraag linksboven en heeft de volledige app op een telefoon de knop 📱 Mobiele weergave.
 - **Banktransacties** — Nieuw: filter Facturen (Alle / Zonder factuur / Met factuur) om bijvoorbeeld alleen de nog niet verantwoorde transacties te zien; aantal en totaal bovenin volgen het filter.
 - **Algemeen** — Nieuw: deze pagina Wat is er nieuw; bovenin verschijnt 🆕 Nieuw als er iets veranderd is sinds je vorige bezoek.
 - **Artikelen** — Nieuw: knop 🛒 In orderbatch in het artikeldetail, met aantal (per verpakking), werkorder en opmerking; zat ook in Access (verzoek van Stein).

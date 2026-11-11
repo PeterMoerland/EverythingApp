@@ -38,6 +38,21 @@
 </div>
 
 @code {
+    /// <summary>
+    /// Wie het mobiele startscherm opent (de knop 📱 Mobiel of zelf /mobiel), kiest daarmee voor mobiel: zo opent de app op
+    /// dit toestel voortaan weer hier.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        try
+        {
+            if (await JS.InvokeAsync<string>("mdeMobiel.stand") != "geen-telefoon")
+                await JS.InvokeVoidAsync("mdeMobiel.kies", true);
+        }
+        catch { }
+    }
+
     /// <summary>Terug naar de volledige app; de keuze wordt op dit toestel
     /// onthouden, dus de vraag komt niet opnieuw.</summary>
     private async Task VolledigeApp()

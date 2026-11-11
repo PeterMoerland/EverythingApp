@@ -13,6 +13,13 @@
         <button id="cmdk-open" class="zoekknop zoekknop-zij" @onclick="Open" title="Zoeken in MDE (Ctrl+K)">
             <span>🔍 Zoeken…</span><kbd>Ctrl+K</kbd>
         </button>
+        @* Op een telefoon altijd een weg terug naar de mobiele weergave (melding gebruiker 11-11-2026: na "Volledige app
+           gebruiken" kwam de vraag nooit meer terug). Hier linksboven: de volledige app is breder dan een telefoon, dus wat
+           rechts of onderin staat, valt buiten beeld. *@
+        @if (_telefoon)
+        {
+            <button class="mobiel-terug" title="Naar de mobiele weergave (wordt op dit toestel onthouden)" @onclick="() => KiesMobiel(true)">📱 Mobiele weergave</button>
+        }
         <nav>
             @* "Snel" en "Recent" zijn vervangen door de snelbalk bovenin (15-10-2026); Ureningave, Mail en Agenda staan
                in het zoekvenster (Ctrl+K). *@
@@ -167,7 +174,7 @@
    De keuze staat in localStorage van dat toestel (mdeMobiel in App.razor). *@
 @if (_mobielVraag)
 {
-    <div class="cmdk-overlay midden">
+    <div class="cmdk-overlay mobiel-overlay">
         <div class="mobiel-vraag">
             <b>Je opent MDE op een telefoon</b>
             <p>Wil je verder in de mobiele weergave? Die is gemaakt voor onderweg,
@@ -294,6 +301,7 @@
 
     // ===== mobiele weergave =====
     private bool _mobielVraag;
+    private bool _telefoon;
 
     /// <summary>
     /// Op een telefoon: koos deze gebruiker al eerder voor mobiel, dan gaat het
@@ -306,6 +314,7 @@
         try
         {
             var stand = await JS.InvokeAsync<string>("mdeMobiel.stand");
+            _telefoon = stand != "geen-telefoon";
             if (stand == "ja")
             {
                 var pad = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');

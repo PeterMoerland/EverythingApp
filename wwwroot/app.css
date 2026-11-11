@@ -1174,6 +1174,12 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
                 max-width: 24rem; margin: 0 1rem; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 .mobiel-vraag p { margin: .6rem 0 .8rem; }
 .mobiel-vraag .btngroup { margin-bottom: .3rem; }
+/* De volledige app is op een telefoon breder dan het scherm (de pagina staat op ware grootte, linksboven in beeld): wat in
+   het midden of onderin staat, valt erbuiten. Daarom de vraag en de knop terug naar mobiel linksboven. */
+.cmdk-overlay.mobiel-overlay { align-items: flex-start; justify-content: flex-start; padding: 12px; }
+.mobiel-overlay .mobiel-vraag { margin: 0; max-width: 330px; }
+.mobiel-terug { display: block; width: 100%; margin: .2rem 0 .6rem; padding: .55rem .7rem; border-radius: 8px;
+                background: var(--accent); color: #fff; border: none; font-size: 1rem; text-align: left; }
 html[data-thema="donker"] .mobiel-top,
 html[data-thema="donker"] .mobiel-tegel,
 html[data-thema="donker"] .mobiel-vraag { background: #1b2a3f; border-color: #2b4a73; }
