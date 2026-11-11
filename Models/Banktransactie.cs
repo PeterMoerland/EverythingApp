@@ -14,6 +14,10 @@ public class Banktransactie
     public int? Pasnummer { get; set; }
     /// <summary>Aantal gekoppelde facturen (banktransacties_facturen_crossref), inkomend en uitgaand.</summary>
     public int Facturen { get; set; }
+    /// <summary>De grootboekrekening (banktransacties.GrootboekID, Grootboekrekeningen_MariaDB.sql) en de code ervan.</summary>
+    public int? GrootboekId { get; set; }
+    public string Grootboek { get; set; } = "";
+    public string GrootboekNaam { get; set; } = "";
 
     public bool Bij => Bedrag > 0;
 }
@@ -45,6 +49,8 @@ public class BanktransactieDetail
     public string TegenrekeningRelatie { get; set; } = "";
     /// <summary>De BV van de eigen rekening (afkorting).</summary>
     public string RekeningBv { get; set; } = "";
+    /// <summary>De grootboekrekening van dit afschriftrecord (leeg = geen of nog geen kolom).</summary>
+    public int? GrootboekId { get; set; }
     public string NaamTegenpartij { get; set; } = "";
     public string NaamUiteindelijkePartij { get; set; } = "";
     public string NaamInitierendePartij { get; set; } = "";

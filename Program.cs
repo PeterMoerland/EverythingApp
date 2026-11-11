@@ -177,6 +177,11 @@ if (liveDb)
         builder.Services.AddSingleton<IWerkorderDelenRepository, GeheugenWerkorderDelenRepository>();
     else
         builder.Services.AddSingleton<IWerkorderDelenRepository>(sp => new MySqlWerkorderDelenRepository(cs!, sp.GetRequiredService<IUrenRepository>()));
+    // grootboekrekeningen (Financiën ▸ Grootboekrekeningen); lokaal testen zonder de tabel: Grootboek__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("Grootboek:Geheugen"))
+        builder.Services.AddSingleton<IGrootboekRepository, GeheugenGrootboekRepository>();
+    else
+        builder.Services.AddSingleton<IGrootboekRepository>(_ => new MySqlGrootboekRepository(cs!));
     // lokaal testen zonder in Locations te schrijven: Lokaties__Geheugen=true (leest echt)
     if (builder.Configuration.GetValue<bool>("Lokaties:Geheugen"))
         builder.Services.AddSingleton<ILokatieRepository>(_ => new GeheugenLokatieRepository(new MySqlLokatieRepository(cs!)));
@@ -255,6 +260,7 @@ else
     builder.Services.AddSingleton<ICalculatieRepository, GeenCalculatieRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<IWerkorderDelenRepository, GeenWerkorderDelenRepository>();
+    builder.Services.AddSingleton<IGrootboekRepository, GeenGrootboekRepository>();
     builder.Services.AddSingleton<ILokatieRepository, GeenLokatieRepository>();
     builder.Services.AddSingleton<IVoorraadRepository, GeenVoorraadRepository>();
     builder.Services.AddSingleton<IPlanningRepository, GeenPlanningRepository>();

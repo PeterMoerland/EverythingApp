@@ -353,6 +353,20 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Grootboekrekeningen en grootboek per afschrift (11-11-2026)
+
+Wens gebruiker. Script **`Grootboekrekeningen_MariaDB.sql`**: tabel `Grootboekrekeningen` (BvID, Administratie = naam uit de
+export, Code als tekst met voorloopnul, Naam, CodeRelatieKostenplaats, Actief; uniek per administratie + code; nooit wissen,
+niet-actief) en `banktransacties.GrootboekID`. `Services/IGrootboekRepository.cs`: `GrootboekExcel.Lees` (OpenXml; kopregel op
+naam, cellen zonder verwijzing, code als getal -> voorloopnul terug tot de gebruikelijke lengte), `Vergelijk` (nieuw /
+gewijzigd / gelijk / ontbrekend), MySql (BvID op naam of afkorting van de eigen BV, zonder punten en spaties), Geheugen
+(`Grootboek__Geheugen=true`), `GrootboekKoppeling` (tabel/kolom aanwezig). Financiën ▸ Bank ▸ **Grootboekrekeningen**
+(`/financien/grootboekrekeningen`, Financial; beheren Financial/Directie): filter administratie, zoeken, naam en kostenplaats
+bewerken, actief, toevoegen, **Excel inlezen** met voorbeeld (ontbrekende eventueel op niet-actief) en **Naar Excel** (zelfde
+kolommen). Banktransacties: kolom Grootboek en in het detail een keuzelijst (de actieve rekeningen van de BV van die
+bankrekening). Getest: inlezen van proefbestanden (tekst- en getalcodes) en de pagina met Geheugen; de koppeling in
+Banktransacties niet in de browser (lokaal geen rekeningen zonder login).
+
 ## Factuur-inbox: foto's in de mail, opnieuw proberen, zonder factuur (11-11-2026)
 
 Melding gebruiker: veel "Geen factuur gevonden" en "Bedrock gaf 503". Oorzaken: `MailService` sloeg elk onderdeel met

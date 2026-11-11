@@ -480,6 +480,12 @@ button.prijsknop:hover { text-decoration: underline; }
 .zij-wis { margin-left: auto; padding: 0 .35rem; line-height: 1.2; }
 .rek-tabel input { width: 100%; box-sizing: border-box; }
 .rel-activiteiten { display: flex; flex-wrap: wrap; gap: .2rem .9rem; }
+/* Financiën ▸ Grootboekrekeningen (11-11-2026) */
+.gb-tabel input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
+.gb-tabel .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }
+.gb-tabel tr.gb-uit td { color: #8a929c; }
+.gb-import { border: 1px solid #d6dde6; border-radius: 6px; padding: .6rem .9rem; margin: .6rem 0; background: #f8fafc; }
+html[data-thema="donker"] .gb-import { background: var(--d1); border-color: var(--d3); }
 .rel-activiteiten .vink { white-space: nowrap; }
 .rek-tabel .rek-iban, .rek-tabel .rek-bic, .rek-tabel td.mono-iban { font-family: ui-monospace, Consolas, monospace; }
 .rek-tabel .rek-bic { text-transform: uppercase; }

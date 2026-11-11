@@ -1,0 +1,326 @@
+@page "/financien/grootboekrekeningen"
+@inject IGrootboekRepository Repo
+@inject IBankRepository Bank
+@inject IJSRuntime JS
+@inject HuidigeGebruiker Ik
+
+@* Grootboekrekeningen per administratie (wens gebruiker 11-11-2026, Grootboekrekeningen_MariaDB.sql). Onderhouden in de lijst
+   of in één keer uit Excel (de export uit de boekhouding: NaamAdministratie, CodeGrootboekrekening, NaamGrootboekrekening,
+   CodeRelatiekostenplaats); eerst een voorbeeld van wat er verandert. Naar Excel geeft hetzelfde formaat terug.
+   Afschriftrecords (Banktransacties) krijgen hier een rekening van. *@
+
+<PageTitle>Grootboekrekeningen — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Grootboekrekeningen</h1>
+        <span class="weeklabel">@Getoond.Count van @_lijst.Count rekeningen</span>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (_geladen && !_tabel)
+    {
+        <section class="module-placeholder"><p>De tabel Grootboekrekeningen bestaat nog niet. Voer eerst Grootboekrekeningen_MariaDB.sql uit op de database.</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!MagBeheren)
+        {
+            <div class="melding fout">Alleen bekijken: grootboekrekeningen beheren mag met het recht Financial of Directie.</div>
+        }
+
+        <div class="bankfilters">
+            <label class="bankveld">
+                <span>Administratie</span>
+                <select value="@_administratie" @onchange="e => _administratie = (string?)e.Value ?? string.Empty">
+                    <option value="">Alle administraties</option>
+                    @foreach (var a in Administraties)
+                    {
+                        <option value="@a">@a (@_lijst.Count(g => g.Administratie == a && (g.Actief || _ookUit)))</option>
+                    }
+                </select>
+            </label>
+            <label class="bankveld groei">
+                <span>Zoeken</span>
+                <input placeholder="Code of naam…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            </label>
+            <label class="vink"><input type="checkbox" checked="@_ookUit" @onchange="e => _ookUit = e.Value is true" /> Ook niet-actief</label>
+            @if (MagBeheren)
+            {
+                <label class="knopje" title="Excel-bestand met NaamAdministratie, CodeGrootboekrekening, NaamGrootboekrekening, CodeRelatiekostenplaats">
+                    ⬆ Excel inlezen…<InputFile OnChange="ExcelGekozen" accept=".xlsx" style="display:none" /></label>
+            }
+            <button class="klein" disabled="@(_lijst.Count == 0)" @onclick="NaarExcel">⬇ Naar Excel</button>
+        </div>
+
+        @* ---------- voorbeeld van het inlezen ---------- *@
+        @if (_import is not null)
+        {
+            <section class="gb-import">
+                <h3 class="wn-kop">Excel inlezen: @_importNaam</h3>
+                <p>
+                    <b>@_import.Count(x => x.Wat == GrootboekExcel.Wijziging.Nieuw)</b> nieuw ·
+                    <b>@_import.Count(x => x.Wat == GrootboekExcel.Wijziging.Gewijzigd)</b> gewijzigd ·
+                    @_import.Count(x => x.Wat == GrootboekExcel.Wijziging.Gelijk) gelijk
+                    @if (_importOntbrekend.Count > 0) { <text> · @_importOntbrekend.Count actieve rekening(en) staan niet in het bestand</text> }
+                </p>
+                @foreach (var m in _importMeldingen) { <p class="uitleg">@m</p> }
+                @if (OnbekendeAdministraties.Count > 0)
+                {
+                    <p class="uitleg">Niet als eigen BV herkend (komen er wel in, zonder BV): @string.Join(", ", OnbekendeAdministraties).</p>
+                }
+                @{ var wijzigingen = _import.Where(x => x.Wat != GrootboekExcel.Wijziging.Gelijk).ToList(); }
+                @if (wijzigingen.Count > 0)
+                {
+                    <table class="kiezer-tabel gb-tabel">
+                        <thead><tr><th style="width:7rem"></th><th style="width:14rem">Administratie</th><th style="width:7rem">Code</th><th>Naam</th><th style="width:10rem">Kostenplaats</th></tr></thead>
+                        <tbody>
+                            @foreach (var (r, wat, oud) in wijzigingen.Take(60))
+                            {
+                                <tr>
+                                    <td><span class="bt-chip @(wat == GrootboekExcel.Wijziging.Nieuw ? "goed" : "let")">@(wat == GrootboekExcel.Wijziging.Nieuw ? "nieuw" : "gewijzigd")</span></td>
+                                    <td>@r.Administratie</td>
+                                    <td class="mono">@r.Code</td>
+                                    <td>@r.Naam @if (oud is not null && oud.Naam != r.Naam) { <small class="zij-extra">(was @oud.Naam)</small> }</td>
+                                    <td>@r.Kostenplaats</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (wijzigingen.Count > 60) { <p class="uitleg">En nog @(wijzigingen.Count - 60).</p> }
+                }
+                @if (_importOntbrekend.Count > 0)
+                {
+                    <label class="vink"><input type="checkbox" checked="@_ontbrekendUit" @onchange="e => _ontbrekendUit = e.Value is true" />
+                        De @_importOntbrekend.Count rekening(en) die niet in het bestand staan op niet-actief zetten</label>
+                }
+                <div class="bt-koppel-knop">
+                    <button class="primair" disabled="@(_bezig || (wijzigingen.Count == 0 && !(_ontbrekendUit && _importOntbrekend.Count > 0)))" @onclick="Inlezen">
+                        @(_bezig ? "Bezig…" : "Inlezen")</button>
+                    <button class="klein" disabled="@_bezig" @onclick="() => _import = null">Annuleren</button>
+                </div>
+            </section>
+        }
+
+        <div class="regels-omhulsel">
+            <table class="kiezer-tabel gb-tabel">
+                <thead>
+                    <tr>
+                        <th style="width:12rem">Administratie</th>
+                        <th style="width:4.5rem">BV</th>
+                        <th style="width:6.5rem">Code</th>
+                        <th style="min-width:18rem">Naam</th>
+                        <th style="width:9rem">Kostenplaats</th>
+                        <th style="width:4.5rem" class="c">Actief</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var g in Getoond)
+                    {
+                        <tr @key="(g.Id, _herteken)" class="@(g.Actief ? "" : "gb-uit")">
+                            <td>@g.Administratie</td>
+                            <td>@g.Bv</td>
+                            <td class="mono">@g.Code</td>
+                            @if (MagBeheren)
+                            {
+                                <td><input value="@g.Naam" maxlength="150" @onchange="e => Wijzig(g, g with { Naam = (string?)e.Value ?? string.Empty })" /></td>
+                                <td><input value="@g.Kostenplaats" maxlength="50" @onchange="e => Wijzig(g, g with { Kostenplaats = (string?)e.Value ?? string.Empty })" /></td>
+                                <td class="c"><input type="checkbox" checked="@g.Actief" @onchange="e => ZetActief(g, e.Value is true)" /></td>
+                            }
+                            else
+                            {
+                                <td>@g.Naam</td><td>@g.Kostenplaats</td><td class="c">@(g.Actief ? "✓" : "")</td>
+                            }
+                        </tr>
+                    }
+                    @if (_geladen && Getoond.Count == 0)
+                    {
+                        <tr><td colspan="6" class="kiezer-info">@(_lijst.Count == 0 ? "Nog geen grootboekrekeningen. Lees het Excel-bestand in, of voeg ze hieronder toe." : "Niets gevonden.")</td></tr>
+                    }
+                    @if (MagBeheren)
+                    {
+                        <tr class="rek-nieuw">
+                            <td>
+                                <input list="gb-administraties" value="@_nieuwAdm" @oninput="e => _nieuwAdm = (string?)e.Value ?? string.Empty" title="Administratie (de naam zoals in de boekhouding)" />
+                                <datalist id="gb-administraties">
+                                    @foreach (var a in Administraties) { <option value="@a"></option> }
+                                </datalist>
+                            </td>
+                            <td></td>
+                            <td><input value="@_nieuwCode" maxlength="20" @oninput="e => _nieuwCode = (string?)e.Value ?? string.Empty" title="Code" /></td>
+                            <td><input value="@_nieuwNaam" maxlength="150" @oninput="e => _nieuwNaam = (string?)e.Value ?? string.Empty" @onkeydown="NieuwToets" title="Naam" /></td>
+                            <td><input value="@_nieuwKp" maxlength="50" @oninput="e => _nieuwKp = (string?)e.Value ?? string.Empty" @onkeydown="NieuwToets" title="Kostenplaats (optioneel)" /></td>
+                            <td class="c"><button class="klein primair" disabled="@(_bezig || _nieuwCode.Trim().Length == 0 || _nieuwNaam.Trim().Length == 0 || _nieuwAdm.Trim().Length == 0)"
+                                                  @onclick="Toevoegen">＋</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Grootboekrekening> _lijst = new();
+    private bool _geladen, _tabel, _bezig, _ookUit, _fout;
+    private string _administratie = "", _zoek = "";
+    private string? _melding;
+    private int _herteken;
+    private string _nieuwAdm = "", _nieuwCode = "", _nieuwNaam = "", _nieuwKp = "";
+
+    // inlezen
+    private List<(GrootboekExcel.Regel Regel, GrootboekExcel.Wijziging Wat, Grootboekrekening? Oud)>? _import;
+    private List<GrootboekExcel.Regel> _importRegels = new();
+    private List<Grootboekrekening> _importOntbrekend = new();
+    private List<string> _importMeldingen = new();
+    private string _importNaam = "";
+    private bool _ontbrekendUit;
+
+    private bool MagBeheren => Ik.MagEenVan("Financial", "Directie");
+
+    private List<string> Administraties => _lijst.Select(g => g.Administratie).Distinct().OrderBy(a => a).ToList();
+
+    // de eigen BV's, om te zeggen welke administraties niet als BV herkend worden (zelfde regel als de database: zonder punten en spaties)
+    private List<string> _bvNamen = new();
+    private static string Kaal(string s) => s.Replace(".", "").Replace(" ", "").ToLowerInvariant();
+
+    private List<string> OnbekendeAdministraties
+        => _bvNamen.Count == 0 ? new()
+         : _importRegels.Select(r => r.Administratie).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase)
+               .Where(a => !_bvNamen.Any(b => Kaal(b) == Kaal(a))).ToList();
+
+    private List<Grootboekrekening> Getoond
+    {
+        get
+        {
+            var woorden = _zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return _lijst.Where(g => (_ookUit || g.Actief) && (_administratie.Length == 0 || g.Administratie == _administratie))
+                         .Where(g => woorden.All(w => (g.Code + " " + g.Naam + " " + g.Kostenplaats).Contains(w, StringComparison.OrdinalIgnoreCase)))
+                         .ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try { _bvNamen = (await Bank.WerkmaatschappijenAsync()).Select(b => b.Naam).ToList(); } catch { }
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            if (_tabel) _lijst = await Repo.LijstAsync();
+        }
+        catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
+        _geladen = true;
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private async Task Wijzig(Grootboekrekening oud, Grootboekrekening nieuw)
+    {
+        if (!MagBeheren || nieuw == oud) return;
+        var fout = await Repo.BewaarAsync(nieuw, Ik.WerknemerId);
+        if (fout is not null) { Toon(fout, true); _herteken++; return; }
+        await Laad();
+        Toon("Opgeslagen.", false);
+    }
+
+    private async Task ZetActief(Grootboekrekening g, bool actief)
+    {
+        if (!MagBeheren) return;
+        try { await Repo.ZetActiefAsync(g.Id, actief, Ik.WerknemerId); await Laad(); Toon($"{g.Code} {(actief ? "weer actief" : "niet-actief")}.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); _herteken++; }
+    }
+
+    private async Task NieuwToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Toevoegen();
+    }
+
+    private async Task Toevoegen()
+    {
+        if (!MagBeheren || _bezig) return;
+        _bezig = true;
+        try
+        {
+            var g = new Grootboekrekening(0, null, "", _nieuwAdm.Trim(), _nieuwCode.Trim(), _nieuwNaam.Trim(), _nieuwKp.Trim(), true);
+            var fout = await Repo.BewaarAsync(g, Ik.WerknemerId);
+            if (fout is not null) { Toon(fout, true); return; }
+            Toon($"{g.Code} {g.Naam} toegevoegd.", false);
+            _nieuwCode = ""; _nieuwNaam = ""; _nieuwKp = "";
+            await Laad();
+        }
+        finally { _bezig = false; }
+    }
+
+    private async Task ExcelGekozen(InputFileChangeEventArgs e)
+    {
+        _import = null;
+        try
+        {
+            await using var bron = e.File.OpenReadStream(10_000_000);
+            using var geheugen = new MemoryStream();
+            await bron.CopyToAsync(geheugen);
+            geheugen.Position = 0;
+            var (regels, meldingen) = GrootboekExcel.Lees(geheugen);
+            if (regels.Count == 0) { Toon("Geen grootboekrekeningen gevonden in " + e.File.Name + ".", true); return; }
+            // zonder kolom administratie: de gekozen administratie
+            if (regels.All(r => r.Administratie.Length == 0))
+            {
+                if (_administratie.Length == 0) { Toon("Het bestand heeft geen kolom NaamAdministratie: kies eerst links de administratie.", true); return; }
+                regels = regels.Select(r => r with { Administratie = _administratie }).ToList();
+            }
+            var (per, ontbrekend) = GrootboekExcel.Vergelijk(regels, _lijst);
+            _importRegels = regels;
+            _import = per;
+            _importOntbrekend = ontbrekend;
+            _importMeldingen = meldingen;
+            _importNaam = e.File.Name;
+            _ontbrekendUit = false;
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("Het bestand kon niet worden gelezen: " + ex.Message, true); }
+    }
+
+    private async Task Inlezen()
+    {
+        if (_import is null || !MagBeheren || _bezig) return;
+        _bezig = true;
+        try
+        {
+            var (nieuw, gewijzigd, uit) = await Repo.ImporteerAsync(_importRegels, _ontbrekendUit, Ik.WerknemerId);
+            _import = null;
+            await Laad();
+            Toon($"Ingelezen: {nieuw} nieuw, {gewijzigd} gewijzigd{(uit > 0 ? $", {uit} op niet-actief" : "")}.", false);
+        }
+        catch (Exception ex) { Toon("Inlezen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task NaarExcel()
+    {
+        var rijen = Getoond.Select(g => new object?[] { g.Administratie, g.Code, g.Naam, g.Kostenplaats, g.Actief ? "ja" : "nee" }).ToList();
+        var bestand = XlsxSchrijver.Maak("Grootboekrekeningen", new[]
+        {
+            new XlsxSchrijver.Kolom("NaamAdministratie", XlsxSoort.Tekst, 26),
+            new XlsxSchrijver.Kolom("CodeGrootboekrekening", XlsxSoort.Tekst, 14),
+            new XlsxSchrijver.Kolom("NaamGrootboekrekening", XlsxSoort.Tekst, 50),
+            new XlsxSchrijver.Kolom("CodeRelatiekostenplaats", XlsxSoort.Tekst, 16),
+            new XlsxSchrijver.Kolom("Actief", XlsxSoort.Tekst, 8),
+        }, rijen);
+        try { await JS.InvokeVoidAsync("mdeBestand.download", $"Grootboekrekeningen {DateTime.Today:yyyy-MM-dd}.xlsx", bestand); }
+        catch (Exception ex) { Toon("Downloaden mislukt: " + ex.Message, true); }
+    }
+}

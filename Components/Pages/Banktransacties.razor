@@ -4,6 +4,7 @@
 @inject RabobankOphaler Rabobank
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject IGrootboekRepository Grootboek
 
 <div class="page">
     <header class="topbar">
@@ -197,6 +198,7 @@
                         <th style="width:12rem">Tegenrekening</th>
                         <th style="width:15rem" title="Naam tegenpartij (anders de tenaamstelling)">Tegenpartij</th>
                         <th>Omschrijving</th>
+                        @if (_grootboekAan) { <th style="width:7rem" title="Grootboekrekening">Grootboek</th> }
                         <th style="width:14rem">Opmerking</th>
                         <th style="width:4.5rem" class="c" title="Gekoppelde facturen">Facturen</th>
                     </tr>
@@ -211,6 +213,7 @@
                             <td class="iban">@t.Tegenrekening</td>
                             <td>@t.Tenaamstelling</td>
                             <td class="omschrijving" title="@t.Omschrijving">@t.Omschrijving</td>
+                            @if (_grootboekAan) { <td class="iban" title="@t.GrootboekNaam">@t.Grootboek</td> }
                             <td>
                                 <input value="@t.Opmerking" maxlength="50"
                                        @onchange="e => ZetOpmerking(t, e)" />
@@ -354,6 +357,27 @@
                         <label>Opmerking</label>
                         <input value="@_detail.Opmerking" maxlength="50" @onchange="DetailOpmerkingGewijzigd" />
                     </div>
+                    @if (_grootboekAan)
+                    {
+                        @* grootboekrekening van dit afschriftrecord (wens gebruiker 11-11-2026): de rekeningen van de BV van deze bankrekening *@
+                        <div class="wn-veld breed">
+                            <label>Grootboekrekening</label>
+                            @if (MagKoppelen)
+                            {
+                                <select @key="(_detail.Id, _gbHerteken)" value="@(_detail.GrootboekId?.ToString() ?? "")" @onchange="GrootboekGewijzigd">
+                                    <option value="">— geen —</option>
+                                    @foreach (var g in GrootboekKeuzes)
+                                    {
+                                        <option value="@g.Id">@g.Code  @g.Naam@(g.Actief ? "" : " (niet actief)")</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <span class="alleen-lezen">@(_grootboeken.FirstOrDefault(g => g.Id == _detail.GrootboekId)?.Weergave ?? "")</span>
+                            }
+                        </div>
+                    }
                 </div>
 
                 @* gekoppelde facturen (banktransacties_facturen_crossref), klik = de factuur openen (wens gebruiker 10-11-2026) *@
@@ -636,6 +660,7 @@
         {
             _rekeningen = await Repo.GetRekeningenAsync(Ik.WerknemerId);
             if (_rekeningen.Count == 0) return;
+            await LaadGrootboek();
 
             try { _pasnummers = await Repo.GetPasnummersAsync(Alle()); } catch { }
             await Laad();
@@ -825,6 +850,52 @@
     private string _kopZoek = "";
 
     private bool MagKoppelen => Ik.MagEenVan("Financial", "Directie");
+
+    // ---- grootboekrekening per afschriftrecord (Grootboekrekeningen_MariaDB.sql) ----
+    private bool _grootboekAan;
+    private int _gbHerteken;
+    private List<Grootboekrekening> _grootboeken = new();
+
+    /// <summary>De actieve rekeningen van de BV van deze bankrekening (anders alle actieve), plus de huidige.</summary>
+    private List<Grootboekrekening> GrootboekKeuzes
+    {
+        get
+        {
+            if (_detail is null) return new();
+            var bv = _rekeningen.FirstOrDefault(r => r.Nummer.Replace(" ", "") == _detail.Rekening.Replace(" ", ""))?.BvId;
+            var vanBv = _grootboeken.Where(g => g.Actief && bv is not null && g.BvId == bv).ToList();
+            var lijst = vanBv.Count > 0 ? vanBv : _grootboeken.Where(g => g.Actief).ToList();
+            if (_detail.GrootboekId is int huidig && lijst.All(g => g.Id != huidig) && _grootboeken.FirstOrDefault(g => g.Id == huidig) is { } h)
+                lijst.Insert(0, h);
+            return lijst;
+        }
+    }
+
+    private async Task LaadGrootboek()
+    {
+        try
+        {
+            _grootboekAan = Grootboek.Beschikbaar && await Grootboek.KoppelingAanwezigAsync();
+            if (_grootboekAan) _grootboeken = await Grootboek.LijstAsync();
+        }
+        catch { _grootboekAan = false; }
+    }
+
+    private async Task GrootboekGewijzigd(ChangeEventArgs e)
+    {
+        if (_detail is null || !MagKoppelen) return;
+        int? id = int.TryParse((string?)e.Value, out var v) ? v : null;
+        try
+        {
+            await Grootboek.ZetTransactieAsync(_detail.Id, id);
+            _detail.GrootboekId = id;
+            var g = _grootboeken.FirstOrDefault(x => x.Id == id);
+            var regel = _lijst.FirstOrDefault(t => t.Id == _detail.Id);
+            if (regel is not null) { regel.GrootboekId = id; regel.Grootboek = g?.Code ?? ""; regel.GrootboekNaam = g?.Naam ?? ""; }
+            Toon(g is null ? "Grootboekrekening weggehaald." : $"Grootboekrekening {g.Code} {g.Naam}.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); _gbHerteken++; }
+    }
     private bool _koppelOpen;
 
     private async Task OpenKoppelen()

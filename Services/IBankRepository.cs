@@ -257,11 +257,14 @@ public class MySqlBankRepository : IBankRepository
         var toegestaan = rekeningen.ToList();
 
         await using var cn = await OpenAsync();
+        var grootboek = await GrootboekKoppeling.AanwezigAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT t.`BankTransacties_ID`, t.`Rekening`, t.`Datum`, t.`Bedrag`, " +
             "       COALESCE(t.`Tegenrekening`, ''), COALESCE(NULLIF(t.`NaamTegenpartij`, ''), t.`Tenaamstelling`, ''), " +
-            "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer`, COALESCE(xc.`n`, 0) " +
+            "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer`, COALESCE(xc.`n`, 0), " +
+            (grootboek ? "t.`GrootboekID`, COALESCE(gb.`Code`, ''), COALESCE(gb.`Naam`, '') " : "NULL, '', '' ") +
             "  FROM `banktransacties` t " +
+            (grootboek ? "  LEFT JOIN `Grootboekrekeningen` gb ON gb.`GrootboekID` = t.`GrootboekID` " : "") +
             // aantal gekoppelde facturen: één keer tellen (de koppeltabel heeft ~16.000 regels), niet per transactie
             "  LEFT JOIN (SELECT `Banktransacties-id` AS `b`, COUNT(*) AS `n` FROM `banktransacties_facturen_crossref` " +
             "              WHERE `Factureninkomend-id` IS NOT NULL OR `Facturenuitgaand-id` IS NOT NULL GROUP BY `Banktransacties-id`) xc " +
@@ -286,6 +289,9 @@ public class MySqlBankRepository : IBankRepository
                 Opmerking = S(7),
                 Pasnummer = r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8)),
                 Facturen = r.IsDBNull(9) ? 0 : Convert.ToInt32(r.GetValue(9)),
+                GrootboekId = r.IsDBNull(10) ? null : Convert.ToInt32(r.GetValue(10)),
+                Grootboek = S(11),
+                GrootboekNaam = S(12),
             });
         }
         return lijst;
@@ -804,6 +810,7 @@ public class MySqlBankRepository : IBankRepository
             Tegenrekening = S("Tegenrekening"),
             TegenrekeningRelatie = S("TegenRelatie"),
             RekeningBv = S("RekeningBv"),
+            GrootboekId = I("GrootboekID"),
             NaamTegenpartij = S("NaamTegenpartij"),
             NaamUiteindelijkePartij = S("NaamUiteindelijkePartij"),
             NaamInitierendePartij = S("NaamInitierendePartij"),
