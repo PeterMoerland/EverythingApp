@@ -340,6 +340,8 @@
                                                 title="Onderdelen van het klembord toevoegen, bv. uit Inventor (Collect Parts ▸ stuklijst naar klembord)">📋 Plakken uit klembord</button>
                                         <button disabled="@(!Schermlezer.Beschikbaar)" @onclick="() => _schermOpen = true"
                                                 title="@(Schermlezer.Beschikbaar ? "Een screenshot (Win+Shift+S) of PDF van een winkelwagen, offerte of orderbevestiging laten lezen door de AI" : "Bedrock is niet ingesteld")">📷 Uit screenshot of PDF</button>
+                                        <button @onclick="() => _uitBestellingOpen = true"
+                                                title="Regels uit een andere bestelling overnemen, bv. gefreesde delen die nu geanodiseerd moeten worden">📦 Uit andere bestelling</button>
                                         <button disabled title="Volgt: staat nog in Access">SMC-website <small>volgt</small></button>
                                         <button disabled title="Volgt: staat nog in Access">Solar-website <small>volgt</small></button>
                                         <button disabled title="Volgt: staat nog in Access">Materialise-prijzen <small>volgt</small></button>
@@ -443,6 +445,8 @@
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                     <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                        OpToegevoegd="NaPlakken" OpGesloten="() => _schermOpen = false" />
+                    <ImportBestellingVenster Open="_uitBestellingOpen" OrderId="_orderId" Leverdatum="StandaardLeverdatum"
+                                             OpToegevoegd="NaPlakken" OpGesloten="() => _uitBestellingOpen = false" />
                 }
             </section>
         </div>
@@ -1444,7 +1448,7 @@
     }
 
     // ---- Plakken uit klembord (Components/PlakVenster.razor) en het menu Importeren ----
-    private bool _plakOpen, _importMenu, _schermOpen;
+    private bool _plakOpen, _importMenu, _schermOpen, _uitBestellingOpen;
 
     private int? LeverancierVanOrder => Nummer("Supplier");
 

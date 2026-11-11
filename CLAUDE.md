@@ -353,6 +353,15 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Bestellingen: importeren uit een andere bestelling (11-11-2026)
+
+Wens gebruiker (frezen bij Jansen, daarna anodiseren bij Nederlandse Anodising). Importeren ▸ **📦 Uit andere bestelling**
+(`Components/ImportBestellingVenster.razor`): bestelling zoeken (`IBestelRepository.ZoekAsync`, de recentste bij openen), regels
+aanvinken met eigen aantal; artikelcode, omschrijving, MDE-nummer, eenheid en werkorder gaan mee, leverdatum = die van de nieuwe
+bestelling. Opties: prijzen niet overnemen (standaard), tekst vóór de omschrijving ("Anodiseren:"), "uit PO-…" in de
+opmerking, en **bijlagen per soort** (PDF/STEP/DXF met aantallen, wens gebruiker; nieuwste per bestandsnaam, gekopieerd
+via `FilestoreService`). Lokaal bekeken met PO-18506 (Jansen, 4 regels, elk DXF/PDF/STEP); niet toegevoegd.
+
 ## Grootboekrekeningen en grootboek per afschrift (11-11-2026)
 
 Wens gebruiker. Script **`Grootboekrekeningen_MariaDB.sql`**: tabel `Grootboekrekeningen` (BvID, Administratie = naam uit de

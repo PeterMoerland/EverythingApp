@@ -480,6 +480,16 @@ button.prijsknop:hover { text-decoration: underline; }
 .zij-wis { margin-left: auto; padding: 0 .35rem; line-height: 1.2; }
 .rek-tabel input { width: 100%; box-sizing: border-box; }
 .rel-activiteiten { display: flex; flex-wrap: wrap; gap: .2rem .9rem; }
+/* Bestellingen ▸ Importeren ▸ Uit andere bestelling (11-11-2026) */
+.ib-zoek { display: flex; gap: .4rem; margin-bottom: .4rem; }
+.ib-zoek input { flex: 1; }
+.ib-klik { cursor: pointer; }
+.ib-klik:hover td { background: var(--selected); }
+.ib-opties { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; margin-bottom: .5rem; }
+.ib-voor { display: inline-flex; align-items: center; gap: .4rem; }
+.ib-voor input { width: 11rem; }
+.ib-aantal { width: 4.2rem; }
+html[data-thema="donker"] .ib-klik:hover td { background: var(--d3); }
 /* Financiën ▸ Grootboekrekeningen (11-11-2026) */
 .gb-tabel input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
 .gb-tabel .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }

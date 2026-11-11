@@ -1,0 +1,304 @@
+@inject IBestelRepository Repo
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+
+@* ============================================================================
+   Bestellingen ▸ Importeren ▸ Uit andere bestelling (wens gebruiker 11-11-2026): onderdelen die bij de ene leverancier
+   gemaakt zijn (frezen bij Jansen) naar een volgende (anodiseren bij Nederlandse Anodising). Kies een bestelling, vink de
+   regels aan; artikelcode, omschrijving, MDE-nummer, eenheid en werkorder gaan mee, met desgewenst een tekst ervoor
+   ("Anodiseren: "), de bijlagen (tekeningen) en "uit PO-…" in de opmerking. Prijzen standaard niet (andere leverancier).
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer pk-venster" @onclick:stopPropagation role="dialog" aria-modal="true" aria-label="Uit andere bestelling">
+            <div class="kiezer-kop">
+                <b>📦 Uit andere bestelling</b>
+                @if (_bron is not null)
+                {
+                    <span class="zij-extra">· @_bron.Nummer · @_bron.Leverancier@(_bron.Omschrijving.Length > 0 ? " · " + _bron.Omschrijving : "")</span>
+                }
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="pk-inhoud">
+                @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+
+                @if (_bron is null)
+                {
+                    <div class="ib-zoek">
+                        <input @ref="_zoekVak" placeholder="PO-nummer, leverancier of omschrijving… (Enter)" value="@_zoek"
+                               @oninput="e => _zoek = (string?)e.Value ?? string.Empty" @onkeydown="ZoekToets" />
+                        <button class="klein" disabled="@_bezig" @onclick="Zoek">Zoeken</button>
+                    </div>
+                    @if (_bezig) { <p class="uitleg">Zoeken…</p> }
+                    else if (_orders.Count == 0) { <p class="uitleg">Niets gevonden.</p> }
+                    else
+                    {
+                        <p class="uitleg">@(_zoek.Trim().Length == 0 ? "De recentste bestellingen; zoek hierboven op een andere." : $"{_orders.Count} gevonden.") Klik op een bestelling.</p>
+                        <div class="pk-tabelvak">
+                            <table class="kiezer-tabel">
+                                <thead><tr><th style="width:6.5rem">PO</th><th>Leverancier</th><th>Omschrijving</th><th style="width:8rem">Status</th><th style="width:6.5rem">Datum</th><th style="width:7rem" class="r">Totaal</th></tr></thead>
+                                <tbody>
+                                    @foreach (var o in _orders)
+                                    {
+                                        <tr class="ib-klik" @onclick="() => Kies(o)">
+                                            <td>@o.Nummer</td><td>@o.Leverancier</td><td>@o.Omschrijving</td><td>@o.StatusNaam</td>
+                                            <td>@(o.Aangemaakt?.ToString("dd-MM-yyyy") ?? "")</td><td class="r">@o.Totaal.ToString("C2", Nl)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="ib-opties">
+                        <label class="vink"><input type="checkbox" checked="@_zonderPrijs" @onchange="e => _zonderPrijs = e.Value is true" /> Prijzen niet overnemen (andere leverancier)</label>
+                        <label class="vink"><input type="checkbox" checked="@_herkomst" @onchange="e => _herkomst = e.Value is true" /> "uit @_bron.Nummer" in de opmerking</label>
+                        <label class="ib-voor">Tekst vóór de omschrijving
+                            <input placeholder="bijv. Anodiseren: " maxlength="60" value="@_voor" @oninput="e => _voor = (string?)e.Value ?? string.Empty" /></label>
+                        <button class="link" @onclick="AndereBestelling">andere bestelling kiezen</button>
+                    </div>
+                    @* welke bijlagen mee (wens gebruiker 11-11-2026): per bestandssoort, met het aantal *@
+                    <div class="ib-opties">
+                        @if (Soorten.Count == 0)
+                        {
+                            <span class="zij-extra">@(_bezig ? "Bijlagen ophalen…" : "Geen bijlagen bij deze regels.")</span>
+                        }
+                        else
+                        {
+                            <span><b>Bijlagen mee:</b></span>
+                            @foreach (var (soort, aantal) in Soorten)
+                            {
+                                var s = soort;
+                                <label class="vink"><input type="checkbox" checked="@_soortenMee.Contains(s)"
+                                                           @onchange="e => { if (e.Value is true) _soortenMee.Add(s); else _soortenMee.Remove(s); }" />
+                                    @(s.Length > 0 ? s : "zonder extensie") (@aantal)</label>
+                            }
+                        }
+                    </div>
+                    @if (_regels.Count == 0)
+                    {
+                        <p class="uitleg">@(_bezig ? "Regels ophalen…" : "Deze bestelling heeft geen regels.")</p>
+                    }
+                    else
+                    {
+                        <div class="pk-tabelvak">
+                            <table class="kiezer-tabel pk-tabel">
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" checked="@_regels.All(r => r.Mee)" @onchange="e => { foreach (var r in _regels) r.Mee = e.Value is true; }" title="Alles aan of uit" /></th>
+                                        <th class="r" style="width:5rem">Aantal</th>
+                                        <th style="width:10rem">Artikelcode</th>
+                                        <th>Omschrijving</th>
+                                        <th style="width:5.5rem">MDE</th>
+                                        <th style="width:5rem" class="c">Bijlagen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var r in _regels)
+                                    {
+                                        var rij = r;
+                                        <tr class="@(rij.Mee ? "" : "pk-uit") @(rij.Toegevoegd ? "pk-klaar" : "")">
+                                            <td><input type="checkbox" checked="@rij.Mee" disabled="@_bezig" @onchange="e => rij.Mee = e.Value is true" /></td>
+                                            <td class="r"><input class="r ib-aantal" value="@rij.Aantal.ToString("0.##", Nl)" disabled="@_bezig"
+                                                                 @onchange="e => ZetAantal(rij, e)" /></td>
+                                            <td>@rij.Bron.Artikelcode</td>
+                                            <td>@(_voor.Trim().Length > 0 ? _voor.TrimEnd() + " " : "")@rij.Bron.Omschrijving</td>
+                                            <td>@rij.Bron.MdeCode</td>
+                                            <td class="c" title="@string.Join("\n", rij.Bestanden.Select(f => (MeeBestand(f.Naam) ? "✓ " : "✗ ") + f.Naam))">
+                                                @(rij.Bestanden.Count == 0 ? "" : $"{rij.Bestanden.Count(f => MeeBestand(f.Naam))}/{rij.Bestanden.Count}")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+
+            @if (_bron is not null && _regels.Count > 0)
+            {
+                <div class="pk-voet">
+                    <span class="zij-extra">@_melding</span>
+                    <span style="flex:1"></span>
+                    <button class="klein" disabled="@_bezig" @onclick="Sluit">@(_klaar ? "Sluiten" : "Annuleren")</button>
+                    @if (!_klaar)
+                    {
+                        <button class="primair" disabled="@(_bezig || !_regels.Any(r => r.Mee))" @onclick="Toevoegen">
+                            @(_bezig ? "Bezig…" : $"{_regels.Count(r => r.Mee)} regel(s) toevoegen")</button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int? OrderId { get; set; }
+    [Parameter] public DateOnly? Leverdatum { get; set; }
+    [Parameter] public EventCallback OpToegevoegd { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+
+    private sealed class Rij
+    {
+        public required Orderregel Bron { get; init; }
+        public double Aantal { get; set; }
+        public bool Mee { get; set; } = true;
+        public bool Toegevoegd { get; set; }
+        /// <summary>De bijlagen van de bronregel: de nieuwste per bestandsnaam.</summary>
+        public List<(int Id, string Naam)> Bestanden { get; set; } = new();
+    }
+
+    // bijlagen per soort (PDF, STEP, DXF, ...); standaard alles mee
+    private readonly HashSet<string> _soortenMee = new(StringComparer.OrdinalIgnoreCase);
+    private static string SoortVan(string naam) => Path.GetExtension(naam).TrimStart('.').ToUpperInvariant() switch { "STP" => "STEP", var x => x };
+    private bool MeeBestand(string naam) => _soortenMee.Contains(SoortVan(naam));
+    private List<(string Soort, int Aantal)> Soorten
+        => _regels.SelectMany(r => r.Bestanden).GroupBy(f => SoortVan(f.Naam)).OrderBy(g => g.Key)
+                  .Select(g => (g.Key, g.Count())).ToList();
+
+    private bool _wasOpen, _bezig, _klaar;
+    private string _zoek = "", _voor = "";
+    private string? _fout, _melding;
+    private bool _zonderPrijs = true, _herkomst = true;
+    private List<BestelRegel> _orders = new();
+    private BestelRegel? _bron;
+    private List<Rij> _regels = new();
+    private ElementReference _zoekVak;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)
+        {
+            _bron = null; _regels = new(); _fout = null; _melding = null; _klaar = false; _zoek = ""; _voor = "";
+            _zonderPrijs = true; _herkomst = true;
+            await Zoek();
+        }
+        _wasOpen = Open;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (Open && _bron is null && !_bezig) { try { await _zoekVak.FocusAsync(); } catch { } }
+    }
+
+    private async Task ZoekToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Zoek();
+        else if (e.Key == "Escape") await Sluit();
+    }
+
+    private async Task Zoek()
+    {
+        _bezig = true; _fout = null;
+        try
+        {
+            var z = _zoek.Trim();
+            _orders = (await Repo.ZoekAsync(z.Length == 0 ? null : z, null, null, null, 40, metGeannuleerd: false))
+                      .Where(o => o.Id != OrderId).ToList();
+        }
+        catch (Exception ex) { _orders = new(); _fout = "Zoeken mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Kies(BestelRegel o)
+    {
+        _bron = o; _regels = new(); _bezig = true; _fout = null;
+        try
+        {
+            _regels = (await Repo.GetRegelsAsync(o.Id))
+                      .Where(r => !string.IsNullOrWhiteSpace(r.Artikelcode) || !string.IsNullOrWhiteSpace(r.Omschrijving) || !string.IsNullOrWhiteSpace(r.MdeCode))
+                      .Select(r => new Rij { Bron = r, Aantal = r.Aantal > 0 ? r.Aantal : 1 }).ToList();
+            // de bijlagen van elke regel, om te kunnen kiezen welke soorten mee gaan
+            if (WnRepo.Beschikbaar)
+                foreach (var r in _regels.Where(r => r.Bron.Bijlagen > 0))
+                    r.Bestanden = (await WnRepo.GetBestandenAsync(BestelVelden.StoreTypeOrderregel, r.Bron.Id))
+                        .GroupBy(d => d.Bestandsnaam, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.OrderByDescending(d => d.Toegevoegd ?? DateTime.MinValue).ThenByDescending(d => d.FileStoreId).First())
+                        .Select(d => (d.FileStoreId, d.Bestandsnaam)).ToList();
+            _soortenMee.Clear();
+            foreach (var (soort, _) in Soorten) _soortenMee.Add(soort);
+        }
+        catch (Exception ex) { _fout = "Regels ophalen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private void AndereBestelling() { _bron = null; _regels = new(); _klaar = false; _melding = null; }
+
+    private static void ZetAantal(Rij rij, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace('.', ',');
+        if (double.TryParse(tekst, System.Globalization.NumberStyles.Any, Nl, out var a) && a > 0) rij.Aantal = a;
+    }
+
+    private async Task Toevoegen()
+    {
+        if (OrderId is not int orderId || _bron is null || _bezig) return;
+        _bezig = true; _fout = null;
+        int regels = 0, bestanden = 0;
+        try
+        {
+            foreach (var r in _regels.Where(r => r.Mee && !r.Toegevoegd))
+            {
+                var b = r.Bron;
+                var voor = _voor.Trim();
+                var oms = voor.Length > 0 ? $"{voor} {b.Omschrijving}".Trim() : b.Omschrijving;
+                var nieuw = new Orderregel
+                {
+                    OrderId = orderId,
+                    Aantal = r.Aantal,
+                    EenheidId = b.EenheidId ?? 2,
+                    Artikelcode = b.Artikelcode,
+                    Omschrijving = oms.Length > 255 ? oms[..255] : oms,
+                    MdeCode = b.MdeCode,
+                    Leverdatum = Leverdatum,
+                    Prijs = _zonderPrijs ? null : b.Prijs,
+                    Schatprijs = _zonderPrijs ? null : b.Schatprijs,
+                    Korting = _zonderPrijs ? null : b.Korting,
+                    Opmerking = _herkomst ? $"uit {_bron.Nummer}" : "",
+                    WerkorderId = b.WerkorderId,
+                };
+                nieuw.Id = await Repo.BewaarRegelAsync(nieuw);
+                r.Toegevoegd = true;
+                regels++;
+                if (nieuw.Id > 0)
+                    bestanden += await KopieerBijlagen(r.Bestanden.Where(f => MeeBestand(f.Naam)), nieuw.Id);
+            }
+            _klaar = true;
+            _melding = $"{regels} regel(s) toegevoegd" + (bestanden > 0 ? $", {bestanden} bijlage(n) meegenomen." : ".");
+            await OpToegevoegd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = $"{regels} regel(s) toegevoegd; daarna mislukt: {ex.Message}"; await OpToegevoegd.InvokeAsync(); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>De gekozen bijlagen van de bronregel (StoreType 3) bij de nieuwe regel.</summary>
+    private async Task<int> KopieerBijlagen(IEnumerable<(int Id, string Naam)> bestanden, int naarRegel)
+    {
+        var n = 0;
+        foreach (var d in bestanden)
+        {
+            try
+            {
+                var gevonden = await Store.ZoekAsync(d.Id);
+                if (gevonden is null) continue;
+                await using var bron = File.OpenRead(gevonden.Value.Pad);
+                await Store.ToevoegenAsync(bron, gevonden.Value.Naam, BestelVelden.StoreTypeOrderregel, naarRegel, Ik.WerknemerId ?? 0);
+                n++;
+            }
+            catch { /* een bijlage die niet lukt, slaan we over; de regel staat er */ }
+        }
+        return n;
+    }
+
+    private async Task Sluit() => await OpGesloten.InvokeAsync();
+}
