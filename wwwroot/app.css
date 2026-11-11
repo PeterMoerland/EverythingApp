@@ -494,6 +494,12 @@ html[data-thema="donker"] .ib-klik:hover td { background: var(--d3); }
 .gb-tabel input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
 .gb-tabel .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }
 .gb-tabel tr.gb-uit td { color: #8a929c; }
+/* compact zoals de banktransacties (wens gebruiker 11-11-2026); de invoerregel onderaan houdt zijn kaders */
+.gb-tabel tbody tr:not(.rek-nieuw) td { padding-top: .1rem; padding-bottom: .1rem; vertical-align: middle; line-height: 1.25; white-space: nowrap; }
+.gb-tabel tbody tr:not(.rek-nieuw) input:not([type="checkbox"]) { border: 0; border-radius: 3px; background: #f1f5fa; padding: .1rem .4rem; font: inherit; font-size: .95em; }
+.gb-tabel tbody tr:not(.rek-nieuw) input:not([type="checkbox"]):focus { outline: 2px solid var(--accent); outline-offset: 0; background: #fff; }
+html[data-thema="donker"] .gb-tabel tbody tr:not(.rek-nieuw) input:not([type="checkbox"]) { background: var(--d3); color: inherit; }
+html[data-thema="donker"] .gb-tabel tbody tr:not(.rek-nieuw) input:not([type="checkbox"]):focus { background: var(--d1); }
 .gb-import { border: 1px solid #d6dde6; border-radius: 6px; padding: .6rem .9rem; margin: .6rem 0; background: #f8fafc; }
 html[data-thema="donker"] .gb-import { background: var(--d1); border-color: var(--d3); }
 .rel-activiteiten .vink { white-space: nowrap; }
@@ -3520,6 +3526,10 @@ html[data-thema="donker"] .nb-item { color: var(--dt); }
 .regels-balk { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 1.2rem 0 .3rem; }
 .regels-balk .wn-kop { margin: 0; }
 .menu-knop { position: relative; display: inline-block; }
+/* + Regel, Pakbon en Importeren even hoog (het emoji maakte Pakbon hoger; wens gebruiker 11-11-2026) */
+.regels-balk .btngroup { align-items: center; }
+.regels-balk .btngroup > button.klein, .regels-balk .btngroup > .menu-knop > button.klein {
+    height: 1.9rem; line-height: 1; display: inline-flex; align-items: center; gap: .25rem; box-sizing: border-box; }
 .menu-dicht { position: fixed; inset: 0; z-index: 49; }
 .menu-lijst { position: absolute; right: 0; top: calc(100% + 2px); z-index: 50; background: #fff; border: 1px solid #ccd; border-radius: 6px;
               box-shadow: 0 6px 18px rgba(0,0,0,.15); display: flex; flex-direction: column; min-width: 13rem; padding: .25rem; }
