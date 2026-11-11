@@ -322,6 +322,7 @@ builder.Services.AddSingleton<UNiiKoppeling>();
 builder.Services.AddSingleton<VaultBackupWaker>();
 // Nieuwe versie aankondigen: balk met aftelklok bij iedereen (service-herstarten.bat of Beheer ▸ Nieuwe versie aankondigen)
 builder.Services.AddSingleton<OnderhoudMelding>();
+builder.Services.AddSingleton<Changelog>();      // CHANGELOG.md voor Wat is er nieuw (/nieuw)
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 // herinnering in de bel vóór de opzegdatum van een verzekering (Financiën > Verzekeringen)
 builder.Services.AddHostedService<VerzekeringWaker>();

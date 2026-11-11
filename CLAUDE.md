@@ -256,6 +256,19 @@ naar externe tools verwijzen (MotionLab-registernamen, EtherCAT-begrippen).
   bij hardwarestappen altijd: motoren uit in `finally`, registers terugzetten, STO-check vooraf.
 - Na het bouwen: zeg welke stappen bij de gebruiker liggen (publiceren, agent bouwen/installeren, SQL draaien).
 - Historie-regels in de app noemen concreet wát faalde (drive/uitgang/register), niet alleen een telling.
+- **`CHANGELOG.md` bijwerken bij elke commit** (afspraak 11-11-2026), in dezelfde commit: onder `## d-M-yyyy` van de
+  commitdatum (kop bovenaan erbij als die er nog niet is) een regel `- **Onderdeel** — Nieuw|Verbeterd|Opgelost: tekst`,
+  in gebruikerstaal voor collega's, met "(verzoek van Naam)" als een collega erom vroeg. Technisch onderhoud (build,
+  CLAUDE.md, scripts) hoort er niet in. De app toont het bestand op `/nieuw` (Wat is er nieuw).
+
+## Wat is er nieuw / changelog (11-11-2026)
+
+Wens gebruiker: een changelog per datum, ook voor collega's, met namen. `CHANGELOG.md` (repo-root, met terugwerkende kracht
+gevuld uit Git: 13-9-2026 = eerste commit als één blok, daarna 13-10 t/m 11-11-2026 per dag) wordt meegekopieerd naast de
+dll (`EverythingApp.csproj`). `Services/Changelog.cs` leest hem (opnieuw als hij gewijzigd is); `Components/Pages/
+WatIsErNieuw.razor` (`/nieuw`, Beheer ▸ Verbeteren ▸ Wat is er nieuw) met filter op onderdeel en zoeken; dagen na je vorige
+bezoek krijgen "nieuw". `Components/Layout/NieuwKnop.razor` in de bovenbalk: "🆕 Nieuw" alleen als er iets is van na je
+vorige bezoek (of je de pagina nog nooit opende). Onthouden per browser in localStorage `mde-nieuw-gezien` (geen database).
 
 ## BV op inkooporders (10-11-2026)
 

@@ -3657,6 +3657,24 @@ html[data-thema="donker"] .bel-schrijf { border-color: var(--d3); }
 .idee-knop { position: relative; display: inline-flex; align-items: center; gap: .15rem; border: 1px solid transparent; background: none;
              border-radius: 6px; padding: .15rem .35rem; cursor: pointer; font: inherit; }
 .idee-knop:hover { background: #fff7d6; border-color: #f0d36b; }
+/* Wat is er nieuw: knopje bovenin (alleen als er iets nieuws is) en de pagina /nieuw */
+.nieuw-knop { display: inline-flex; align-items: center; padding: .15rem .55rem; border-radius: 999px; font-size: .85em; font-weight: 600;
+    background: #e8f1fb; color: var(--accent); border: 1px solid #b9d3ee; text-decoration: none; white-space: nowrap; }
+.nieuw-knop:hover { background: #d6e7f8; }
+html[data-thema="donker"] .nieuw-knop { background: var(--d3); border-color: var(--d3); }
+.nw-filter { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: .2rem 0 1rem; }
+.nw-filter input { width: 16rem; max-width: 100%; }
+.nw-dag { margin-bottom: 1.2rem; }
+.nw-dag h2 { font-size: 1.05rem; margin: 0 0 .35rem; display: flex; align-items: center; gap: .5rem; }
+.nw-dag ul { list-style: none; margin: 0; padding: 0; }
+.nw-dag li { padding: .25rem 0; border-bottom: 1px solid #eef1f4; line-height: 1.4; }
+html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
+.nw-onderdeel { font-weight: 600; margin-right: .35rem; }
+.nw-soort { display: inline-block; font-size: .75em; padding: 0 .4rem; border-radius: 3px; margin-right: .35rem; vertical-align: .1em; }
+.nw-soort.nw-nieuw { background: #e3f4e8; color: #1d6b36; }
+.nw-soort.nw-verbeterd { background: #e8f1fb; color: #1f5a96; }
+.nw-soort.nw-opgelost { background: #fdf0e2; color: #8a4b0f; }
+.nw-dag h2 .nw-nieuw { font-size: .7rem; font-weight: 600; padding: .05rem .45rem; border-radius: 999px; background: #1d6b36; color: #fff; text-transform: none; }
 .idee-knop:hover .idee-icoon { filter: drop-shadow(0 0 4px #ffd54f); }
 .idee-icoon { font-size: 1.1rem; }
 .idee-aantal { font-weight: 700; color: #8a6200; font-size: .8rem; background: #ffe58a; border-radius: .6rem; padding: 0 .35rem; }

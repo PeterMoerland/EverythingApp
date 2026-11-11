@@ -1,0 +1,101 @@
+@page "/nieuw"
+@inject Changelog Log
+@inject IJSRuntime JS
+
+@* Wat is er nieuw (wens gebruiker 11-11-2026): CHANGELOG.md per dag, ook voor collega's. Wat er sinds je vorige bezoek
+   bij kwam krijgt het label "nieuw"; dat onthoudt de browser (mde-nieuw-gezien), net als het knopje in de bovenbalk. *@
+
+<PageTitle>Wat is er nieuw — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Wat is er nieuw</h1>
+        <span class="weeklabel">@Getoond.Sum(d => d.Regels.Count) wijzigingen</span>
+    </header>
+
+    <div class="nw-filter">
+        <select value="@_onderdeel" @onchange="e => _onderdeel = (string?)e.Value ?? string.Empty">
+            <option value="">Alle onderdelen</option>
+            @foreach (var o in Onderdelen)
+            {
+                <option value="@o">@o</option>
+            }
+        </select>
+        <input placeholder="Zoeken…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+        <span class="uitleg">Een idee of iets wat niet goed gaat? Gebruik het lampje 💡 bovenin.</span>
+    </div>
+
+    @if (Log.Dagen.Count == 0)
+    {
+        <section class="module-placeholder"><p>Er is nog geen overzicht van wijzigingen.</p></section>
+    }
+    else if (Getoond.Count == 0)
+    {
+        <p class="uitleg">Niets gevonden.</p>
+    }
+    else
+    {
+        @foreach (var dag in Getoond)
+        {
+            <section class="nw-dag">
+                <h2>
+                    @Hoofdletter(dag.Datum.ToString("dddd d MMMM yyyy", Nl))
+                    @if (_gezien is DateOnly g && dag.Datum > g) { <span class="nw-nieuw">nieuw</span> }
+                </h2>
+                <ul>
+                    @foreach (var r in dag.Regels)
+                    {
+                        <li>
+                            <span class="nw-onderdeel">@r.Onderdeel</span>
+                            @if (r.Soort.Length > 0) { <span class="nw-soort nw-@r.Soort.ToLowerInvariant()">@r.Soort</span> }
+                            <span>@Hoofdletter(r.Tekst)</span>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private const string Sleutel = "mde-nieuw-gezien";
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private string _onderdeel = "", _zoek = "";
+    private DateOnly? _gezien;
+
+    private static string Hoofdletter(string s) => s.Length == 0 ? s : char.ToUpper(s[0], Nl) + s[1..];
+
+    private List<string> Onderdelen
+        => Log.Dagen.SelectMany(d => d.Regels).Select(r => r.Onderdeel).Distinct(StringComparer.CurrentCultureIgnoreCase)
+                    .OrderBy(o => o, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    private List<ChangelogDag> Getoond
+    {
+        get
+        {
+            var zoek = _zoek.Trim();
+            return Log.Dagen
+                .Select(d => new ChangelogDag(d.Datum, d.Regels
+                    .Where(r => _onderdeel.Length == 0 || r.Onderdeel.Equals(_onderdeel, StringComparison.CurrentCultureIgnoreCase))
+                    .Where(r => zoek.Length == 0 || r.Tekst.Contains(zoek, StringComparison.CurrentCultureIgnoreCase)
+                                                 || r.Onderdeel.Contains(zoek, StringComparison.CurrentCultureIgnoreCase))
+                    .ToList()))
+                .Where(d => d.Regels.Count > 0)
+                .ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste) return;
+        try
+        {
+            var waarde = await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel);
+            // eerste keer op deze pagina: niets als "nieuw" markeren, anders staat alles erop
+            _gezien = DateOnly.TryParse(waarde, System.Globalization.CultureInfo.InvariantCulture, out var g) ? g : DateOnly.MaxValue;
+            if (Log.Nieuwste is DateOnly n) await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel, n.ToString("yyyy-MM-dd"));
+            StateHasChanged();
+        }
+        catch { /* zonder opslag gewoon zonder labels */ }
+    }
+}

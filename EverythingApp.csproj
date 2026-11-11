@@ -56,6 +56,8 @@
     <!-- Het NDA-sjabloon gaat mee naar de publish-map. Wil je de tekst wijzigen,
          pas dan dit bestand aan (of zet Nda:TemplatePad in appsettings.json). -->
     <None Update="Templates\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Wat is er nieuw (/nieuw) leest CHANGELOG.md naast de dll -->
+    <None Update="CHANGELOG.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- MdeAgent is een aparte wereld (Python-agent + CanLuisteraar, een eigen .NET-project
          dat bouw.bat bouwt). Zonder deze regels compileert de app CanLuisteraar\Program.cs mee. -->
     <Compile Remove="MdeAgent\**" />

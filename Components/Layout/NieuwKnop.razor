@@ -1,0 +1,46 @@
+@implements IDisposable
+@inject Changelog Log
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Knopje "Nieuw" in de bovenbalk (wens gebruiker 11-11-2026): alleen zichtbaar als CHANGELOG.md iets heeft van na je vorige
+   bezoek aan Wat is er nieuw (of als je die pagina nog nooit opende). De browser onthoudt het (mde-nieuw-gezien). *@
+
+@if (_toon)
+{
+    <a class="nieuw-knop" href="nieuw" title="Bekijk wat er veranderd is in de app">🆕 Nieuw</a>
+}
+
+@code {
+    private bool _toon;
+
+    protected override void OnInitialized() => Nav.LocationChanged += Verplaatst;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (eerste) await Kijk();
+    }
+
+    private async void Verplaatst(object? _, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        try { await InvokeAsync(Kijk); } catch { }
+    }
+
+    private async Task Kijk()
+    {
+        var toon = false;
+        try
+        {
+            var hier = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+            if (Log.Nieuwste is DateOnly n && !hier.Equals("nieuw", StringComparison.OrdinalIgnoreCase))
+            {
+                var waarde = await JS.InvokeAsync<string?>("mdeOpslag.lees", "mde-nieuw-gezien");
+                toon = !DateOnly.TryParse(waarde, System.Globalization.CultureInfo.InvariantCulture, out var gezien) || n > gezien;
+            }
+        }
+        catch { toon = false; }
+        if (toon != _toon) { _toon = toon; StateHasChanged(); }
+    }
+
+    public void Dispose() => Nav.LocationChanged -= Verplaatst;
+}
