@@ -89,6 +89,9 @@ public static class Menu
                 new MenuItem("WBSO-uren", Icoon: "flask-conical"),
                 new MenuItem("Nacalculatie", "/financien/nacalculatie", "Financial", Icoon: "calculator"))),
 
+        // Service: bij een storing zien wie aan het project werkte (verzoek van Michiel, 11-11-2026).
+        new MenuModule("service", "Service", "life-buoy") { Url = "/service" },
+
         // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
         new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
 

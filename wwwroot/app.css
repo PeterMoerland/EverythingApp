@@ -1174,6 +1174,27 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
                 max-width: 24rem; margin: 0 1rem; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 .mobiel-vraag p { margin: .6rem 0 .8rem; }
 .mobiel-vraag .btngroup { margin-bottom: .3rem; }
+/* Service: wie werkte aan een project */
+.sv-blok { margin: 0 0 1.2rem; max-width: 60rem; }
+.sv-label { display: block; font-weight: 600; margin-bottom: .35rem; }
+.sv-zoek { width: 100%; max-width: 28rem; }
+.sv-klanten { display: flex; flex-direction: column; gap: .1rem; max-width: 28rem; margin-top: .3rem; border: 1px solid #dde; border-radius: 6px; padding: .2rem; }
+.sv-klein { color: var(--muted, #6b7280); font-size: .85em; margin-left: .4rem; }
+.sv-gekozen { display: flex; align-items: center; gap: .8rem; }
+.sv-projecten { max-height: 22rem; overflow-y: auto; }
+.sv-rij { cursor: pointer; }
+.sv-rij.gekozen td { background: #e8f0fb; font-weight: 600; }
+.sv-balk { display: inline-block; width: 9rem; height: .55rem; border-radius: 999px; background: #e6ebf1; overflow: hidden; vertical-align: middle; }
+.sv-balk > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.sv-pct { display: inline-block; min-width: 3rem; text-align: right; margin-left: .4rem; }
+.sv-uit td { color: var(--muted, #6b7280); }
+.sv-werknemers { width: 100%; }
+.sv-software { margin: 0 0 .6rem; padding: .5rem .75rem; border-radius: 8px; background: #eef4fc; border: 1px solid #d3e2f5; }
+html[data-thema="donker"] .sv-software { background: #1b2a3f; border-color: #2b4a73; }
+.sv-werknemers td { white-space: nowrap; }
+html[data-thema="donker"] .sv-klanten { border-color: #2b4a73; }
+html[data-thema="donker"] .sv-rij.gekozen td { background: #22344d; }
+html[data-thema="donker"] .sv-balk { background: var(--d3); }
 /* De volledige app is op een telefoon breder dan het scherm (de pagina staat op ware grootte, linksboven in beeld): wat in
    het midden of onderin staat, valt erbuiten. Daarom de vraag en de knop terug naar mobiel linksboven. */
 .cmdk-overlay.mobiel-overlay { align-items: flex-start; justify-content: flex-start; padding: 12px; }

@@ -1,0 +1,214 @@
+@page "/service"
+@inject IServiceRepository Repo
+
+@* Service: wie werkte aan een project (verzoek van Michiel, 11-11-2026). Bij een storingsmelding: klant kiezen, project
+   kiezen, en zien wie er uren op schreef met het aandeel in procenten. Storingen gaan meestal over software, daarom ook
+   de kolom Software (activiteit Software Engineering, pas sinds medio 2023 ingevuld). *@
+
+<PageTitle>Service — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Service: wie werkte eraan?</h1>
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        <section class="sv-blok">
+            <label class="sv-label">1. Klant</label>
+            @if (_klant is { } k)
+            {
+                <div class="sv-gekozen"><b>@k.Naam</b><button class="link" @onclick="AndereKlant">andere klant</button></div>
+            }
+            else
+            {
+                <input class="sv-zoek" placeholder="Typ een klantnaam (of een projectnummer)…" value="@_zoek" @oninput="ZoekGetypt" autofocus />
+                @if (_klanten.Count > 0)
+                {
+                    <div class="sv-klanten">
+                        @foreach (var kl in _klanten)
+                        {
+                            <button class="wn-naam" @onclick="() => KiesKlant(kl)">@kl.Naam <span class="sv-klein">@kl.Projecten project@(kl.Projecten == 1 ? "" : "en")</span></button>
+                        }
+                    </div>
+                }
+                else if (_zoek.Trim().Length >= 2 && !_zoeken)
+                {
+                    <p class="uitleg">Geen klant met projecten gevonden.</p>
+                }
+            }
+        </section>
+
+        @if (_klant is not null)
+        {
+            <section class="sv-blok">
+                <label class="sv-label">2. Project</label>
+                @if (_projecten is null)
+                {
+                    <p class="uitleg">Laden…</p>
+                }
+                else if (_projecten.Count == 0)
+                {
+                    <p class="uitleg">Deze klant heeft geen projecten.</p>
+                }
+                else
+                {
+                    <div class="sv-projecten">
+                        <table class="kiezer-tabel">
+                            <thead><tr><th style="width:7rem">Project</th><th>Omschrijving</th><th style="width:6rem" class="r">Uren</th><th style="width:8rem">Laatst gewerkt</th></tr></thead>
+                            <tbody>
+                                @foreach (var p in _projecten)
+                                {
+                                    <tr class="sv-rij @(_project?.Id == p.Id ? "gekozen" : "")" @onclick="() => KiesProject(p)">
+                                        <td>@p.Nummer</td>
+                                        <td>@p.Omschrijving</td>
+                                        <td class="r">@Uren(p.Uren)</td>
+                                        <td>@(p.Laatst?.ToString("dd-MM-yyyy") ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+
+        @if (_project is { } pr)
+        {
+            <section class="sv-blok">
+                <label class="sv-label">3. Wie werkte aan @pr.Nummer @pr.Omschrijving</label>
+                @if (_werknemers is null)
+                {
+                    <p class="uitleg">Laden…</p>
+                }
+                else if (_werknemers.Count == 0)
+                {
+                    <p class="uitleg">Op dit project zijn geen uren geschreven.</p>
+                }
+                else
+                {
+                    var totaal = _werknemers.Sum(w => w.Uren);
+                    var software = _werknemers.Sum(w => w.Software);
+                    @if (software > 0)
+                    {
+                        @* het antwoord op de vraag bij een storing: wie deed de software *@
+                        <p class="sv-software">💻 Software:
+                            @foreach (var (w, i) in _werknemers.Where(w => w.Software * 100 / software >= 1).OrderByDescending(w => w.Software).Select((w, i) => (w, i)))
+                            {
+                                @(i > 0 ? " · " : "")<b>@w.Naam</b>@($"{(w.UitDienst ? " (uit dienst)" : "")} {Procent(w.Software * 100 / software)}")
+                            }
+                        </p>
+                    }
+                    <table class="kiezer-tabel sv-werknemers">
+                        <thead>
+                            <tr>
+                                <th>Werknemer</th>
+                                <th style="width:6rem" class="r">Uren</th>
+                                <th style="width:14rem">Aandeel</th>
+                                <th style="width:9rem" class="r" title="Uren met de activiteit Software Engineering (wordt sinds medio 2023 ingevuld)">Waarvan software</th>
+                                <th style="width:12rem">Periode</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var w in _werknemers)
+                            {
+                                var pct = totaal == 0 ? 0 : w.Uren * 100 / totaal;
+                                <tr class="@(w.UitDienst ? "sv-uit" : "")">
+                                    <td>@w.Naam@(w.UitDienst ? " (uit dienst)" : "")</td>
+                                    <td class="r">@Uren(w.Uren)</td>
+                                    <td class="sv-aandeel">
+                                        <span class="sv-balk"><span style="width:@(Math.Round(pct, 1).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span></span>
+                                        <span class="sv-pct">@Procent(pct)</span>
+                                    </td>
+                                    <td class="r">@(w.Software > 0 ? $"{Uren(w.Software)} ({Procent(software == 0 ? 0 : w.Software * 100 / software)})" : "")</td>
+                                    <td>@Periode(w)</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr><td><b>Totaal</b></td><td class="r"><b>@Uren(totaal)</b></td><td></td><td class="r">@(software > 0 ? Uren(software) : "")</td><td></td></tr>
+                        </tfoot>
+                    </table>
+                    @if (_werknemers.Sum(w => w.ZonderActiviteit) is var zonder && zonder > 0)
+                    {
+                        <p class="uitleg">@Uren(zonder) van de @Uren(totaal) uur is geschreven zonder activiteit (vóór medio 2023); daarvan is niet te zien of het software was.
+                            Het percentage achter de software-uren is het aandeel in de software van dit project.</p>
+                    }
+                    else
+                    {
+                        <p class="uitleg">Het percentage achter de software-uren is het aandeel in de software van dit project.</p>
+                    }
+                }
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private string _zoek = "";
+    private bool _zoeken;
+    private List<ServiceKlant> _klanten = new();
+    private ServiceKlant? _klant;
+    private List<ServiceProject>? _projecten;
+    private ServiceProject? _project;
+    private List<ServiceWerknemer>? _werknemers;
+    private CancellationTokenSource? _typPauze;
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private static string Uren(decimal u) => u.ToString("#,0.#", Nl);
+    private static string Procent(decimal p) => p.ToString("0", Nl) + "%";
+
+    private static string Periode(ServiceWerknemer w)
+        => w.Eerst is not DateTime a ? "" : w.Laatst is not DateTime b || a.Date == b.Date ? a.ToString("dd-MM-yyyy")
+           : a.Year == b.Year && a.Month == b.Month ? b.ToString("MM-yyyy") : $"{a:MM-yyyy} – {b:MM-yyyy}";
+
+    // zoeken terwijl je typt, met een korte pauze
+    private async Task ZoekGetypt(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _typPauze?.Cancel();
+        _typPauze = new CancellationTokenSource();
+        var token = _typPauze.Token;
+        try { await Task.Delay(250, token); }
+        catch (TaskCanceledException) { return; }
+
+        var zoek = _zoek.Trim();
+        if (zoek.Length < 2) { _klanten = new(); return; }
+        _zoeken = true;
+        try { _klanten = await Repo.KlantenAsync(zoek, 15); }
+        catch { _klanten = new(); }
+        finally { _zoeken = false; }
+    }
+
+    private async Task KiesKlant(ServiceKlant k)
+    {
+        _klant = k;
+        _project = null;
+        _werknemers = null;
+        _projecten = null;
+        try { _projecten = await Repo.ProjectenAsync(k.Id); }
+        catch { _projecten = new(); }
+        // één project: meteen tonen
+        if (_projecten.Count == 1) await KiesProject(_projecten[0]);
+    }
+
+    private void AndereKlant()
+    {
+        _klant = null;
+        _projecten = null;
+        _project = null;
+        _werknemers = null;
+    }
+
+    private async Task KiesProject(ServiceProject p)
+    {
+        _project = p;
+        _werknemers = null;
+        try { _werknemers = await Repo.WerknemersAsync(p.Id); }
+        catch { _werknemers = new(); }
+    }
+}

@@ -143,6 +143,7 @@ if (liveDb)
     builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
     builder.Services.AddSingleton<IBankRepository>(_ => new MySqlBankRepository(cs!));
+    builder.Services.AddSingleton<IServiceRepository>(_ => new MySqlServiceRepository(cs!));
     builder.Services.AddSingleton<IArtikelRepository>(_ => new MySqlArtikelRepository(cs!,
         builder.Configuration.GetValue<int?>("Productie:StandaardArtikelEenheidId") ?? 2));
     builder.Services.AddSingleton<IOrderBatchRepository>(_ => new MySqlOrderBatchRepository(cs!));
@@ -233,6 +234,7 @@ else
     builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
     builder.Services.AddSingleton<IBankRepository, GeenBankRepository>();
+    builder.Services.AddSingleton<IServiceRepository, GeenServiceRepository>();
     builder.Services.AddSingleton<IArtikelRepository, GeenArtikelRepository>();
     builder.Services.AddSingleton<IInstellingRepository, GeenInstellingRepository>();
     builder.Services.AddSingleton<IOrderBatchRepository, GeenOrderBatchRepository>();
