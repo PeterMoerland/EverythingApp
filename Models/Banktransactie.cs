@@ -89,7 +89,8 @@ public class BankrekeningBeheer
 /// <summary>Een rekening waar iemand bij mag; Bv = afkorting (of naam) van de BV (Bankrekeningen.BVid), leeg = geen BV.</summary>
 public record Bankrekening(int Id, string Nummer, string Omschrijving, int? BvId, string Bv = "")
 {
-    public string Volledig => string.IsNullOrWhiteSpace(Omschrijving) ? Nummer : $"{Omschrijving} · {Nummer}";
+    public string Volledig => string.IsNullOrWhiteSpace(Nummer) ? $"{Omschrijving} · nog geen nummer"
+                            : string.IsNullOrWhiteSpace(Omschrijving) ? Nummer : $"{Omschrijving} · {Nummer}";
 }
 
 /// <summary>De cijfers onder het overzicht.</summary>

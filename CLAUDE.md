@@ -364,6 +364,9 @@ de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maand
   (`MagIbansBeheren`); anders worden de rekeningen ook niet geladen.
 - **Financiën ▸ Bankrekeningen**: BV-keuze bovenaan ("Alle BV's", per BV met aantal, "zonder BV" achteraan), zoals bij
   Banktransacties; een nieuwe rekening krijgt de gekozen BV.
+- **Banktransacties: rekening kiezen op id** (melding gebruiker): de keuzelijst gebruikte het rekeningnummer als waarde, en
+  nieuwe rekeningen zonder nummer (IBAN First, creditcards, import volgt) gaven dus "" = alle rekeningen. Nu `_rekeningId`;
+  zonder nummer = geen regels. In de lijst staat zo'n rekening als "Omschrijving · nog geen nummer".
 
 ## Bestellingen: pakbon om mee te geven (11-11-2026)
 

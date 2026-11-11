@@ -159,7 +159,7 @@
                     <option value="">@(_bv is null ? "Alle rekeningen" : $"Alle rekeningen van {BvNaam(_bv.Value)}")</option>
                     @foreach (var r in RekeningenVanBv)
                     {
-                        <option value="@r.Nummer">@r.Volledig</option>
+                        <option value="@r.Id">@r.Volledig</option>
                     }
                 </select>
             </label>
@@ -573,7 +573,8 @@
     private DateOnly _van = DateOnly.FromDateTime(DateTime.Today.AddMonths(-1));
     private DateOnly _tot = DateOnly.FromDateTime(DateTime.Today);
     private string _zoek = "";
-    private string _rekening = "";       // leeg = alle rekeningen waar ik bij mag (van de gekozen BV)
+    // gekozen op id, niet op nummer (11-11-2026): een nieuwe rekening zonder nummer gaf de lege waarde, dus "alle rekeningen"
+    private int? _rekeningId;            // null = alle rekeningen waar ik bij mag (van de gekozen BV)
     private int? _bv;                    // null = alle BV's; 0 = rekeningen zonder BV
     private int? _pas;
     private BijAf _bijAf = BijAf.Beide;
@@ -582,7 +583,7 @@
     private string? _melding;
     private bool _fout;
 
-    private string RekeningTekst => _rekening;
+    private string RekeningTekst => _rekeningId?.ToString() ?? "";
     private string PasTekst => _pas is int p ? p.ToString() : "";
 
     private static string Bedrag(decimal waarde)
@@ -592,9 +593,9 @@
 
     /// <summary>De rekeningnummers waar deze gebruiker bij mag (van de gekozen BV), of alleen de gekozene.</summary>
     private List<string> Gekozen()
-        => string.IsNullOrWhiteSpace(_rekening)
-            ? RekeningenVanBv.Select(r => r.Nummer).ToList()
-            : new List<string> { _rekening };
+        => _rekeningId is int id
+            ? _rekeningen.Where(r => r.Id == id).Select(r => r.Nummer).ToList()     // zonder nummer: "" = geen regels
+            : RekeningenVanBv.Select(r => r.Nummer).ToList();
 
     // ---- BV ----
     private static int BvVan(Bankrekening r) => r.BvId ?? 0;
@@ -614,7 +615,7 @@
         => _bv is int bv ? _rekeningen.Where(r => BvVan(r) == bv).ToList() : _rekeningen;
 
     private string SaldoKop
-        => _rekening.Length > 0 ? "Saldo gekozen rekening"
+        => _rekeningId is not null ? "Saldo gekozen rekening"
          : _bv is int bv ? $"Saldo {BvNaam(bv)}"
          : "Saldo gekozen rekeningen";
 
@@ -622,7 +623,7 @@
     {
         _bv = int.TryParse((string?)e.Value, out var v) ? v : null;
         // een rekening van een andere BV past niet meer
-        if (_rekening.Length > 0 && RekeningenVanBv.All(r => r.Nummer != _rekening)) _rekening = "";
+        if (_rekeningId is int id && RekeningenVanBv.All(r => r.Id != id)) _rekeningId = null;
         await Laad();
     }
 
@@ -734,7 +735,7 @@
 
     private async Task RekeningGewijzigd(ChangeEventArgs e)
     {
-        _rekening = (string?)e.Value ?? "";
+        _rekeningId = int.TryParse((string?)e.Value, out var id) ? id : null;
         await Laad();
     }
 
