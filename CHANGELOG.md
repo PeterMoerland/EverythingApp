@@ -11,6 +11,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 - **Banktransacties** — Nieuw: de creditcard-export van de Rabobank importeren; kaarttransacties koppel je net zo aan facturen en grootboek als gewone transacties.
 - **Banktransacties** — Opgelost: importeren in de app stopte met "Data too long for column 'Importdatum'".
 - **Banktransacties** — Verbeterd: tijdens het importeren een voortgangsbalk met percentage en het aantal regels.
+- **Banktransacties** — Nieuw: een afschrijving zonder factuur toch verantwoorden met "Koppeling aanmaken (factuur zonder bon + PO)": kies leverancier en werkorder, eventueel een omschrijving, en de app maakt de factuur (op betaald, zonder btw) en een PO onder de werkorder en koppelt ze.
 - **Algemeen** — Nieuw: deze pagina Wat is er nieuw; bovenin verschijnt 🆕 Nieuw als er iets veranderd is sinds je vorige bezoek.
 - **Artikelen** — Nieuw: knop 🛒 In orderbatch in het artikeldetail, met aantal (per verpakking), werkorder en opmerking; zat ook in Access (verzoek van Stein).
 - **Artikelen** — Verbeterd: artikelen en samenstellingen wijzigen kan nu met het nieuwe recht Artikelbeheer (of Directie); wie niet aan een werknemer gekoppeld is, kan alleen nog kijken.

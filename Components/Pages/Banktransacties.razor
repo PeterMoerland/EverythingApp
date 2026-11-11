@@ -5,6 +5,8 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IGrootboekRepository Grootboek
+@inject IFactuurRepository Facturen
+@inject IRelatieRepository Relaties
 
 <div class="page">
     <header class="topbar">
@@ -501,6 +503,76 @@
                             <button class="link" @onclick="() => _toonHalf = false">Alleen de volledige overeenkomst tonen</button>
                         }
                     }
+
+                    @* geen factuur (bon kwijt, creditcard): zelf een factuur zonder bon met een PO onder een werkorder aanmaken en
+                       koppelen, zodat de afschrijving verantwoord is (wens gebruiker 11-11-2026) *@
+                    @if (_detail.Bedrag < 0)
+                    {
+                        @if (!_zbOpen)
+                        {
+                            <div class="bt-koppel-knop">
+                                <button class="klein" disabled="@_kopBezig" @onclick="OpenZonderBon">➕ Koppeling aanmaken (factuur zonder bon + PO)…</button>
+                                <span class="uitleg">Geen factuur? Leg de afschrijving vast op een werkorder.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <h3 class="wn-kop">Koppeling aanmaken: factuur zonder bon + PO</h3>
+                            <div class="bt-zb">
+                                <div class="wn-veld breed">
+                                    <label>Leverancier</label>
+                                    @if (_zbLev is { } lev)
+                                    {
+                                        <span class="bt-zb-keuze"><b>@lev.Naam</b><button class="link" @onclick="ZbAndereLeverancier">wijzigen</button></span>
+                                    }
+                                    else
+                                    {
+                                        <input placeholder="Typ een naam (desnoods 'Onbekend')…" value="@_zbLevZoek" @oninput="ZbLevGetypt" />
+                                        @if (_zbLevTreffers.Count > 0)
+                                        {
+                                            <div class="al-treffers">
+                                                @foreach (var k in _zbLevTreffers)
+                                                {
+                                                    <button class="wn-naam" @onclick="() => ZbKiesLeverancier(k)">@k.Naam</button>
+                                                }
+                                            </div>
+                                        }
+                                        else if (_zbLevZoek.Trim().Length >= 2)
+                                        {
+                                            <span class="uitleg">Geen leverancier gevonden.</span>
+                                        }
+                                    }
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Werkorder</label>
+                                    <span class="bt-zb-keuze">
+                                        @if (_zbWo is { } wo)
+                                        {
+                                            <b>@wo.Weergave</b><span>@wo.Project@(wo.Omschrijving.Length > 0 ? " · " + wo.Omschrijving : "")</span>
+                                        }
+                                        <button class="klein" @onclick="() => _zbWoOpen = true">🔍 @(_zbWo is null ? "Werkorder zoeken…" : "Andere werkorder…")</button>
+                                    </span>
+                                </div>
+                                <div class="wn-veld breed">
+                                    <label>Omschrijving (optioneel)</label>
+                                    <input maxlength="100" placeholder="@ZbStandaardOmschrijving" value="@_zbOmschrijving"
+                                           @oninput="e => _zbOmschrijving = (string?)e.Value ?? string.Empty" />
+                                </div>
+                                <div class="wn-veld">
+                                    <label>Bedrag</label>
+                                    <input type="number" step="0.01" min="0.01" value="@_zbBedrag.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)"
+                                           @onchange="ZbBedragGewijzigd" />
+                                </div>
+                            </div>
+                            <p class="uitleg">Er komt een inkomende factuur <b>@ZbNummer</b> op betaald, zonder btw (zonder bon is die niet aftrekbaar),
+                                met een PO onder de werkorder; die factuur wordt aan deze transactie gekoppeld.</p>
+                            <div class="bt-koppel-knop">
+                                <button class="primair" disabled="@(_kopBezig || _zbLev is null || _zbWo is null || _zbBedrag <= 0)" @onclick="MaakZonderBon">
+                                    @(_kopBezig ? "Bezig…" : "Aanmaken en koppelen")</button>
+                                <button class="klein" @onclick="() => _zbOpen = false">Annuleren</button>
+                            </div>
+                        }
+                    }
                 }
             </div>
         </div>
@@ -574,6 +646,8 @@
 @* gekoppelde factuur openen vanuit het detailvenster (na het detailvenster, zodat hij erboven ligt) *@
 <FactuurVenster FactuurId="_inkoopId" Sluiten="FactuurDicht" />
 <VerkoopFactuurVenster FactuurId="_verkoopId" Sluiten="FactuurDicht" />
+<WerkorderKiezer Open="_zbWoOpen" WerknemerId="Ik.WerknemerId ?? 0" AlleenInkoop="true"
+                 OpGekozen="ZbWerkorderGekozen" OpGesloten="() => _zbWoOpen = false" />
 
 @code {
     private List<Bankrekening> _rekeningen = new();
@@ -1130,7 +1204,141 @@
 
     private void FactuurDicht(bool _) { _inkoopId = null; _verkoopId = null; }
 
-    private void SluitDetail() { _detail = null; _koppelOpen = false; }
+    private void SluitDetail() { _detail = null; _koppelOpen = false; _zbOpen = false; }
+
+    // ---- koppeling aanmaken: factuur zonder bon + PO (wens gebruiker 11-11-2026) ----
+    private bool _zbOpen, _zbWoOpen;
+    private Keuze? _zbLev;
+    private Workorder? _zbWo;
+    private string _zbLevZoek = "", _zbOmschrijving = "";
+    private decimal _zbBedrag;
+    private List<Keuze> _zbLevTreffers = new();
+
+    /// <summary>Herkenbaar en uniek: ZB- plus het id van de transactie.</summary>
+    private string ZbNummer => $"ZB-{_detail?.Id}";
+
+    private string ZbStandaardOmschrijving
+    {
+        get
+        {
+            var naam = _detail is null ? "" : _detail.NaamTegenpartij.Length > 0 ? _detail.NaamTegenpartij : _detail.Omschrijving;
+            var tekst = ("Zonder bon: " + naam).Trim();
+            return tekst.Length <= 100 ? tekst : tekst[..100];
+        }
+    }
+
+    /// <summary>
+    /// Opent het blok met wat er al te weten is: het nog niet gedekte bedrag, en de leverancier op de tegenrekening (IBAN) of
+    /// op de naam van de tegenpartij (alias, ook voor creditcards).
+    /// </summary>
+    private async Task OpenZonderBon()
+    {
+        if (_detail is null) return;
+        _zbOpen = true;
+        _zbWo = null;
+        _zbLev = null;
+        _zbLevZoek = _zbOmschrijving = "";
+        _zbLevTreffers = new();
+        var gedekt = Math.Abs(_facturen?.Sum(f => f.Bedrag) ?? 0);
+        _zbBedrag = Math.Max(0, Math.Abs(_detail.Bedrag) - gedekt);
+        try
+        {
+            if (await Facturen.ZoekOpIbanAsync(_detail.Tegenrekening) is { } i) _zbLev = new Keuze(i.Id, i.Naam);
+            else if (_detail.NaamTegenpartij.Trim().Length > 0 && await Facturen.ZoekOpAliasAsync(_detail.NaamTegenpartij.Trim()) is { } a)
+                _zbLev = new Keuze(a.Id, a.Naam);
+        }
+        catch { /* dan kiest de gebruiker zelf */ }
+    }
+
+    private void ZbAndereLeverancier() { _zbLev = null; _zbLevZoek = ""; _zbLevTreffers = new(); }
+
+    private void ZbKiesLeverancier(Keuze k) { _zbLev = k; _zbLevTreffers = new(); }
+
+    private async Task ZbLevGetypt(ChangeEventArgs e)
+    {
+        _zbLevZoek = (string?)e.Value ?? "";
+        var zoek = _zbLevZoek.Trim();
+        if (zoek.Length < 2) { _zbLevTreffers = new(); return; }
+        try
+        {
+            var treffers = await Relaties.ZoekAsync(zoek, false, true, 0, 12);
+            if (_zbLevZoek.Trim() == zoek) _zbLevTreffers = treffers;     // alleen de laatste zoekopdracht tonen
+        }
+        catch { _zbLevTreffers = new(); }
+    }
+
+    private void ZbWerkorderGekozen(Workorder w) { _zbWo = w; _zbWoOpen = false; }
+
+    private void ZbBedragGewijzigd(ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Replace(',', '.');
+        _zbBedrag = decimal.TryParse(tekst, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var b)
+            ? Math.Round(Math.Abs(b), 2) : 0;
+    }
+
+    /// <summary>
+    /// Inkomende factuur (BV van de bankrekening, datum van de transactie, geen btw, op betaald), een PO onder de werkorder
+    /// met één regel op geleverd (dezelfde route als in het factuurvenster), en de koppeling met deze transactie. Lukt de PO
+    /// niet, dan gaat de factuur weer weg.
+    /// </summary>
+    private async Task MaakZonderBon()
+    {
+        if (_detail is null || _kopBezig || !MagKoppelen || _zbLev is not { } lev || _zbWo is not { } wo || _zbBedrag <= 0) return;
+        var nummer = ZbNummer;
+        var bedrag = _zbBedrag;
+        var oms = _zbOmschrijving.Trim();
+        bool ja;
+        try
+        {
+            ja = await JS.InvokeAsync<bool>("mdeBevestig",
+                $"Factuur {nummer} van {lev.Naam} ({Bedrag(bedrag)}, zonder btw, op betaald) aanmaken, met een PO onder werkorder {wo.Weergave}, en aan deze transactie koppelen?");
+        }
+        catch { ja = false; }
+        if (!ja) return;
+
+        _kopBezig = true;
+        var factuurId = 0;
+        try
+        {
+            var bv = _rekeningen.FirstOrDefault(r => r.Nummer.Replace(" ", "") == _detail.Rekening.Replace(" ", ""))?.BvId;
+            var factuur = new Factuur
+            {
+                AdministratieId = bv,
+                BedrijfId = lev.Id,
+                Factuurdatum = DateOnly.FromDateTime(_detail.Datum ?? DateTime.Today),
+                Factuurnummer = nummer,
+                Omschrijving = oms.Length > 0 ? (oms.Length <= 100 ? oms : oms[..100]) : ZbStandaardOmschrijving,
+                Betalingstermijn = 0,
+                BedragExBtw = bedrag,
+                Btw = 0,
+            };
+            factuurId = await Facturen.BewaarAsync(factuur, Ik.WerknemerId);
+            try
+            {
+                await Facturen.MaakPoEnKoppelAsync(factuurId, nummer, wo.WerkbonId, lev.Id, bedrag, Ik.WerknemerId,
+                                                   oms.Length > 0 ? oms : null, bv);
+            }
+            catch
+            {
+                try { await Facturen.VerwijderAsync(factuurId); } catch { }
+                factuurId = 0;
+                throw;
+            }
+            await Facturen.ZetVlagAsync(factuurId, FactuurVlag.Betaald, true, Ik.WerknemerId);
+            await Repo.KoppelFactuurAsync(_detail.Id, false, factuurId, Ik.WerknemerId);
+
+            _zbOpen = false;
+            await NaKoppelWijziging();
+            if (VolledigGekoppeld) _koppelOpen = false;
+            Toon($"Factuur {nummer} met een PO onder {wo.Weergave} aangemaakt en gekoppeld.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon((factuurId > 0 ? $"Factuur {nummer} is aangemaakt, maar daarna ging het mis: " : "Aanmaken mislukt: ") + ex.Message, true);
+            if (factuurId > 0) { try { await NaKoppelWijziging(); } catch { } }
+        }
+        finally { _kopBezig = false; }
+    }
 
     private async Task DetailOpmerkingGewijzigd(ChangeEventArgs e)
     {

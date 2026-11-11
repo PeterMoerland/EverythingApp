@@ -93,8 +93,11 @@ public interface IFactuurRepository
     /// (met één orderregel voor het bedrag, meteen op geleverd) en koppelt de
     /// factuur eraan. Geeft het nieuwe order-id terug.
     /// </summary>
+    /// <param name="regelOmschrijving">Tekst van de orderregel; leeg = "Automatisch gegenereerd op basis van factuur ...".</param>
+    /// <param name="bvId">De BV die "bestelde" (Orders.BvID); null = niet zetten.</param>
     Task<int> MaakPoEnKoppelAsync(int factuurId, string factuurnummer, int werkbonId,
-                                  int leverancierId, decimal bedrag, int? doorWerknemerId);
+                                  int leverancierId, decimal bedrag, int? doorWerknemerId,
+                                  string? regelOmschrijving = null, int? bvId = null);
 
     /// <summary>
     /// Is deze PO destijds automatisch aangemaakt vanuit déze factuur, en hangt er
@@ -208,7 +211,7 @@ public class GeenFactuurRepository : IFactuurRepository
     public Task<List<WerkorderKeuze>> ZoekInkoopWerkordersAsync(string z, bool o, int m)
         => Task.FromResult(new List<WerkorderKeuze>());
     public Task<bool> KoppelAsync(int f, int o, decimal b, int? d) => Task.FromResult(false);
-    public Task<int> MaakPoEnKoppelAsync(int f, string nr, int w, int l, decimal b, int? d) => Task.FromResult(0);
+    public Task<int> MaakPoEnKoppelAsync(int f, string nr, int w, int l, decimal b, int? d, string? o = null, int? bv = null) => Task.FromResult(0);
     public Task<bool> IsEigenAutoPoAsync(int o, int f) => Task.FromResult(false);
     public Task OntkoppelAsync(int linkId, bool ookAutoPo) => Task.CompletedTask;
     public Task ZetKoppelBedragAsync(int linkId, decimal b, int? d) => Task.CompletedTask;
@@ -1331,11 +1334,14 @@ public class MySqlFactuurRepository : IFactuurRepository
     }
 
     public async Task<int> MaakPoEnKoppelAsync(int factuurId, string factuurnummer, int werkbonId,
-                                               int leverancierId, decimal bedrag, int? doorWerknemerId)
+                                               int leverancierId, decimal bedrag, int? doorWerknemerId,
+                                               string? regelOmschrijving = null, int? bvId = null)
     {
         var nu = DateTime.Now;
-        var omschrijving = "Automatisch gegenereerd op basis van factuur "
-                         + (factuurnummer.Length > 0 ? factuurnummer : "#" + factuurId);
+        var omschrijving = !string.IsNullOrWhiteSpace(regelOmschrijving)
+            ? Kort(regelOmschrijving.Trim(), 200)
+            : "Automatisch gegenereerd op basis van factuur "
+              + (factuurnummer.Length > 0 ? factuurnummer : "#" + factuurId);
 
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
@@ -1403,6 +1409,20 @@ public class MySqlFactuurRepository : IFactuurRepository
                 cmd.Parameters.AddWithValue("@guid", Guid.NewGuid().ToString("N").ToUpperInvariant());
                 await cmd.ExecuteNonQueryAsync();
                 orderId = (int)cmd.LastInsertedId;
+            }
+
+            // De BV van de bestelling (factuur zonder bon vanuit Banktransacties, 11-11-2026). Ontbreekt de kolom, dan
+            // blijft hij leeg; een mislukte opdracht breekt een MySQL-transactie niet af.
+            if (bvId is int bv)
+            {
+                try
+                {
+                    await using var cmd = new MySqlCommand("UPDATE `Orders` SET `BvID` = @bv WHERE `Order-id` = @o", cn, tx);
+                    cmd.Parameters.AddWithValue("@bv", bv);
+                    cmd.Parameters.AddWithValue("@o", orderId);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (MySqlException) { }
             }
 
             // 2. Eén orderregel voor het gekoppelde bedrag.

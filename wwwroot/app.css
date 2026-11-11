@@ -568,6 +568,9 @@ html[data-thema="donker"] .bankdetail-inhoud .wn-veld input:not([type="checkbox"
 html[data-thema="donker"] .bankdetail-inhoud .wn-veld input:not([type="checkbox"]):focus { background: var(--d1); }
 .bankdetail-inhoud h3.wn-kop { text-align: left; margin-top: 1rem; }
 .bt-koppel-knop { display: flex; align-items: center; gap: .8rem; margin-top: .6rem; }
+.bt-zb { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .8rem; }
+.bt-zb .wn-veld.breed { grid-column: 1 / -1; }
+.bt-zb-keuze { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; min-height: 1.9rem; }
 .bt-facturen tr.bt-scan-klaar td { color: #8a929c; }
 .bt-facturen td.omschrijving { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
