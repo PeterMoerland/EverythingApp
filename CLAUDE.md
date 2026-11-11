@@ -378,6 +378,10 @@ bewerken, actief, toevoegen, **Excel inlezen** met voorbeeld (ontbrekende eventu
 kolommen). Banktransacties: kolom Grootboek en in het detail een keuzelijst (de actieve rekeningen van de BV van die
 bankrekening). Getest: inlezen van proefbestanden (tekst- en getalcodes) en de pagina met Geheugen; de koppeling in
 Banktransacties niet in de browser (lokaal geen rekeningen zonder login).
+**Ook .xls** (melding gebruiker: de export is een .xls): `GrootboekExcel.Lees` herkent de soort aan de inhoud: ZIP = xlsx
+(OpenXml), OLE2 = Excel 97-2003 via het pakket **ExcelDataReader 3.7.0** (CodePages-encoding geregistreerd), HTML-tabel en
+Excel 2003 XML (exports die zich .xls noemen), anders CSV/TSV (scheidingsteken uit de eerste regel). Cellen worden `Cel(Tekst,
+Getal)`, daarna dezelfde `Verwerk`. Getest met proefbestanden in alle soorten (de .xls gemaakt met Excel).
 
 ## Factuur-inbox: foto's in de mail, opnieuw proberen, zonder factuur (11-11-2026)
 

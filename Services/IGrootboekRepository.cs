@@ -21,31 +21,73 @@ public static class GrootboekExcel
 {
     public record Regel(int Rij, string Administratie, string Code, string Naam, string Kostenplaats);
 
+    /// <summary>Een cel: de tekst en of hij als getal in het bestand stond (dan kan een voorloopnul ontbreken).</summary>
+    private readonly record struct Cel(string Tekst, bool Getal);
+
     /// <summary>
-    /// Het eerste blad: een kopregel met (delen van) de kolomnamen, daaronder de rekeningen. Een code die Excel als getal
-    /// bewaarde, verloor zijn voorloopnul: die wordt aangevuld tot de gebruikelijke lengte van de andere codes.
+    /// Het eerste blad van een .xlsx, een echte .xls (oud Excel), of een "xls" die eigenlijk een HTML-tabel of een CSV is
+    /// (exports uit boekhoudpakketten); de soort wordt aan de inhoud herkend, niet aan de naam (wens gebruiker 11-11-2026).
+    /// Daarin een kopregel met (delen van) de kolomnamen, daaronder de rekeningen. Een code die als getal stond, verloor zijn
+    /// voorloopnul: die wordt aangevuld tot de gebruikelijke lengte van de codes.
     /// </summary>
-    public static (List<Regel> Regels, List<string> Meldingen) Lees(Stream xlsx)
+    public static (List<Regel> Regels, List<string> Meldingen) Lees(Stream bestand)
     {
-        var regels = new List<Regel>();
-        var meldingen = new List<string>();
-        using var doc = SpreadsheetDocument.Open(xlsx, false);
+        using var geheugen = new MemoryStream();
+        bestand.CopyTo(geheugen);
+        var bytes = geheugen.ToArray();
+        var (tabel, soort) = LeesTabel(bytes);
+        var (regels, meldingen) = Verwerk(tabel);
+        if (soort != "xlsx") meldingen.Insert(0, $"Gelezen als {soort}.");
+        return (regels, meldingen);
+    }
+
+    private static (List<List<Cel>> Tabel, string Soort) LeesTabel(byte[] bytes)
+    {
+        if (bytes.Length >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) return (LeesXlsx(bytes), "xlsx");
+        if (bytes.Length >= 8 && bytes[0] == 0xD0 && bytes[1] == 0xCF && bytes[2] == 0x11 && bytes[3] == 0xE0) return (LeesXls(bytes), "Excel 97-2003 (.xls)");
+        var tekst = Tekst(bytes);
+        var begin = tekst.TrimStart().ToLowerInvariant();
+        if (begin.StartsWith("<") && (begin.Contains("<table") || tekst.Contains("<tr", StringComparison.OrdinalIgnoreCase)))
+            return (LeesHtml(tekst), "HTML-tabel");
+        if (begin.StartsWith("<?xml") || begin.StartsWith("<workbook"))
+            return (LeesSpreadsheetXml(tekst), "Excel 2003 XML");
+        return (LeesCsv(tekst), "tekst (CSV)");
+    }
+
+    /// <summary>UTF-8 (met of zonder BOM), UTF-16 met BOM, anders Windows-1252 (oude exports).</summary>
+    private static string Tekst(byte[] bytes)
+    {
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) return System.Text.Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return System.Text.Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        try { return new System.Text.UTF8Encoding(false, true).GetString(bytes); }
+        catch (System.Text.DecoderFallbackException)
+        {
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            return System.Text.Encoding.GetEncoding(1252).GetString(bytes);
+        }
+    }
+
+    private static List<List<Cel>> LeesXlsx(byte[] bytes)
+    {
+        var tabel = new List<List<Cel>>();
+        using var doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false);
         var wb = doc.WorkbookPart ?? throw new InvalidDataException("Dit is geen Excel-bestand (.xlsx).");
         var blad = wb.Workbook?.Sheets?.Elements<Sheet>().FirstOrDefault() ?? throw new InvalidDataException("Het bestand heeft geen blad.");
         var ws = (WorksheetPart)wb.GetPartById(blad.Id!);
         var teksten = wb.SharedStringTablePart?.SharedStringTable?.Elements<SharedStringItem>().Select(s => s.InnerText).ToList() ?? new();
 
-        string Waarde(Cell c)
+        Cel Waarde(Cell c)
         {
             if (c.DataType?.Value == CellValues.SharedString)
-                return int.TryParse(c.CellValue?.Text, out var i) && i >= 0 && i < teksten.Count ? teksten[i] : "";
-            if (c.DataType?.Value == CellValues.InlineString) return c.InlineString?.InnerText ?? "";
-            return c.CellValue?.Text ?? "";
+                return new(int.TryParse(c.CellValue?.Text, out var i) && i >= 0 && i < teksten.Count ? teksten[i] : "", false);
+            if (c.DataType?.Value == CellValues.InlineString) return new(c.InlineString?.InnerText ?? "", false);
+            if (c.DataType?.Value == CellValues.String) return new(c.CellValue?.Text ?? "", false);
+            return new(c.CellValue?.Text ?? "", c.DataType is null);
         }
-        static int Kolom(string? verwijzing)
+        static int Kolom(string verwijzing)
         {
             var k = 0;
-            foreach (var t in verwijzing ?? "")
+            foreach (var t in verwijzing)
             {
                 if (!char.IsLetter(t)) break;
                 k = k * 26 + (char.ToUpperInvariant(t) - 'A' + 1);
@@ -53,30 +95,133 @@ public static class GrootboekExcel
             return k - 1;
         }
 
-        int adm = -1, code = -1, naam = -1, kp = -1;
-        var codeAlsGetal = new List<int>();     // index in regels
         foreach (var rij in ws.Worksheet?.Descendants<Row>() ?? Enumerable.Empty<Row>())
         {
             // een cel zonder verwijzing (A1) mag; dan is het de kolom na de vorige
-            var cellen = new Dictionary<int, Cell>();
+            var cellen = new List<Cel>();
             var vorige = -1;
             foreach (var c in rij.Elements<Cell>())
             {
                 var k = c.CellReference?.Value is { Length: > 0 } v ? Kolom(v) : vorige + 1;
-                cellen[k] = c;
+                while (cellen.Count < k) cellen.Add(new("", false));
+                if (k == cellen.Count) cellen.Add(Waarde(c)); else cellen[k] = Waarde(c);
                 vorige = k;
             }
-            string In(int k) => k >= 0 && cellen.TryGetValue(k, out var c) ? Waarde(c).Trim() : "";
+            tabel.Add(cellen);
+        }
+        return tabel;
+    }
+
+    private static List<List<Cel>> LeesXls(byte[] bytes)
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);   // nodig voor oude .xls
+        var tabel = new List<List<Cel>>();
+        using var lezer = ExcelDataReader.ExcelReaderFactory.CreateReader(new MemoryStream(bytes));
+        while (lezer.Read())
+        {
+            var rij = new List<Cel>();
+            for (var i = 0; i < lezer.FieldCount; i++)
+            {
+                var v = lezer.GetValue(i);
+                rij.Add(v switch
+                {
+                    null => new("", false),
+                    double d => new(d.ToString(System.Globalization.CultureInfo.InvariantCulture), true),
+                    DateTime dt => new(dt.ToString("yyyy-MM-dd"), false),
+                    _ => new(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "", false),
+                });
+            }
+            tabel.Add(rij);
+        }
+        return tabel;
+    }
+
+    private static List<List<Cel>> LeesHtml(string html)
+    {
+        var tabel = new List<List<Cel>>();
+        foreach (System.Text.RegularExpressions.Match tr in System.Text.RegularExpressions.Regex.Matches(html, @"<tr\b[^>]*>(.*?)</tr>",
+                     System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline))
+        {
+            var rij = new List<Cel>();
+            foreach (System.Text.RegularExpressions.Match td in System.Text.RegularExpressions.Regex.Matches(tr.Groups[1].Value, @"<t[dh]\b[^>]*>(.*?)</t[dh]>",
+                         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline))
+            {
+                var t = System.Text.RegularExpressions.Regex.Replace(td.Groups[1].Value, "<[^>]+>", "");
+                rij.Add(new(System.Net.WebUtility.HtmlDecode(t).Replace('\u00A0', ' ').Trim(), false));
+            }
+            tabel.Add(rij);
+        }
+        return tabel;
+    }
+
+    /// <summary>Excel 2003 XML (SpreadsheetML): Row/Cell/Data.</summary>
+    private static List<List<Cel>> LeesSpreadsheetXml(string xml)
+    {
+        var tabel = new List<List<Cel>>();
+        var doc = System.Xml.Linq.XDocument.Parse(xml);
+        var blad = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Worksheet") ?? doc.Root!;
+        foreach (var rij in blad.Descendants().Where(e => e.Name.LocalName == "Row"))
+        {
+            var cellen = new List<Cel>();
+            foreach (var c in rij.Elements().Where(e => e.Name.LocalName == "Cell"))
+            {
+                var index = c.Attributes().FirstOrDefault(a => a.Name.LocalName == "Index")?.Value;
+                if (int.TryParse(index, out var k)) while (cellen.Count < k - 1) cellen.Add(new("", false));
+                var data = c.Elements().FirstOrDefault(e => e.Name.LocalName == "Data");
+                var type = data?.Attributes().FirstOrDefault(a => a.Name.LocalName == "Type")?.Value;
+                cellen.Add(new(data?.Value ?? "", type == "Number"));
+            }
+            tabel.Add(cellen);
+        }
+        return tabel;
+    }
+
+    /// <summary>CSV of TSV: scheidingsteken uit de eerste regel (tab, puntkomma of komma), velden tussen aanhalingstekens.</summary>
+    private static List<List<Cel>> LeesCsv(string tekst)
+    {
+        var regels = tekst.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var eerste = regels.FirstOrDefault(r => r.Trim().Length > 0) ?? "";
+        var sep = eerste.Count(c => c == '\t') > 0 ? '\t' : eerste.Count(c => c == ';') >= eerste.Count(c => c == ',') ? ';' : ',';
+        var tabel = new List<List<Cel>>();
+        foreach (var r in regels)
+        {
+            var rij = new List<Cel>();
+            var veld = new System.Text.StringBuilder();
+            var tussen = false;
+            for (var i = 0; i < r.Length; i++)
+            {
+                var c = r[i];
+                if (c == '"') { if (tussen && i + 1 < r.Length && r[i + 1] == '"') { veld.Append('"'); i++; } else tussen = !tussen; }
+                else if (c == sep && !tussen) { rij.Add(new(veld.ToString().Trim(), false)); veld.Clear(); }
+                else veld.Append(c);
+            }
+            rij.Add(new(veld.ToString().Trim(), false));
+            tabel.Add(rij);
+        }
+        return tabel;
+    }
+
+    /// <summary>Kopregel zoeken, regels maken, voorloopnullen aanvullen en dubbele codes melden.</summary>
+    private static (List<Regel> Regels, List<string> Meldingen) Verwerk(List<List<Cel>> tabel)
+    {
+        var regels = new List<Regel>();
+        var meldingen = new List<string>();
+        int adm = -1, code = -1, naam = -1, kp = -1;
+        var codeAlsGetal = new List<int>();     // index in regels
+        for (var nr = 0; nr < tabel.Count; nr++)
+        {
+            var cellen = tabel[nr];
+            string In(int k) => k >= 0 && k < cellen.Count ? cellen[k].Tekst.Trim() : "";
 
             if (code < 0)
             {
                 // de kopregel zoeken
-                foreach (var (k, c) in cellen)
+                for (var k = 0; k < cellen.Count; k++)
                 {
-                    var kop = Waarde(c).Trim().ToLowerInvariant().Replace(" ", "");
+                    var kop = cellen[k].Tekst.Trim().ToLowerInvariant().Replace(" ", "");
                     if (kop.Contains("administratie")) adm = k;
                     else if (kop.Contains("kostenplaats")) kp = k;
-                    else if (kop.StartsWith("code") || kop == "rekening" || kop == "grootboek") code = k;
+                    else if (kop.StartsWith("code") || kop == "rekening" || kop == "grootboek" || kop == "grootboekrekening") code = k;
                     else if (kop.StartsWith("naam") || kop == "omschrijving") naam = k;
                 }
                 if (code < 0) { adm = naam = kp = -1; continue; }
@@ -87,17 +232,17 @@ public static class GrootboekExcel
 
             var c0 = In(code);
             if (c0.Length == 0) continue;
-            if (cellen.TryGetValue(code, out var codeCel) && codeCel.DataType is null && double.TryParse(c0, System.Globalization.NumberStyles.Any,
+            if (code < cellen.Count && cellen[code].Getal && double.TryParse(c0, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var getal) && getal == Math.Floor(getal))
             {
                 c0 = ((long)getal).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 codeAlsGetal.Add(regels.Count);
             }
-            regels.Add(new Regel((int)(rij.RowIndex?.Value ?? 0), In(adm), c0, In(naam), In(kp)));
+            regels.Add(new Regel(nr + 1, In(adm), c0, In(naam), In(kp)));
         }
         if (code < 0) throw new InvalidDataException("Geen kopregel met CodeGrootboekrekening gevonden.");
 
-        // voorloopnullen terug bij codes die Excel als getal bewaarde
+        // voorloopnullen terug bij codes die als getal in het bestand stonden
         if (codeAlsGetal.Count > 0)
         {
             // de gebruikelijke lengte: van de codes die als tekst stonden, anders van alle codes (01100 en 11000 -> 5)
@@ -110,7 +255,7 @@ public static class GrootboekExcel
                 var aangevuld = 0;
                 foreach (var i in codeAlsGetal)
                     if (regels[i].Code.Length < lengte) { regels[i] = regels[i] with { Code = regels[i].Code.PadLeft(lengte, '0') }; aangevuld++; }
-                if (aangevuld > 0) meldingen.Add($"{aangevuld} code(s) stonden als getal in Excel; de voorloopnul is aangevuld tot {lengte} cijfers.");
+                if (aangevuld > 0) meldingen.Add($"{aangevuld} code(s) stonden als getal in het bestand; de voorloopnul is aangevuld tot {lengte} cijfers.");
             }
         }
 

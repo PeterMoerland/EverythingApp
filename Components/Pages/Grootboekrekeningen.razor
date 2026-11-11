@@ -55,7 +55,7 @@
             @if (MagBeheren)
             {
                 <label class="knopje" title="Excel-bestand met NaamAdministratie, CodeGrootboekrekening, NaamGrootboekrekening, CodeRelatiekostenplaats">
-                    ⬆ Excel inlezen…<InputFile OnChange="ExcelGekozen" accept=".xlsx" style="display:none" /></label>
+                    ⬆ Excel inlezen…<InputFile OnChange="ExcelGekozen" accept=".xlsx,.xls,.csv,.txt,.htm,.html,.xml" style="display:none" /></label>
             }
             <button class="klein" disabled="@(_lijst.Count == 0)" @onclick="NaarExcel">⬇ Naar Excel</button>
         </div>
