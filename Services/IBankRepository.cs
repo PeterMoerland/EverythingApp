@@ -57,10 +57,21 @@ public interface IBankRepository
     /// rekeningen van de relatie van de factuur (RelatieIbans), als die tabel er is.
     /// </summary>
     Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId, int? door = null);
-    /// <summary>De bekende rekeningen van een relatie naast Relations.IBAN (leeg zonder de tabel).</summary>
+    /// <summary>Bestaat de lijst met bankrekeningen (RelatieRekeningen_MariaDB.sql: BIC, omschrijving, standaard)?</summary>
+    Task<bool> RekeningLijstAsync();
+    /// <summary>De rekeningen van een relatie, standaard eerst (leeg zonder de tabel).</summary>
     Task<List<RelatieIban>> RelatieIbansAsync(int relatieId);
-    /// <summary>Een bekende rekening weghalen (bijvoorbeeld een betaaldienst die per ongeluk is geleerd).</summary>
-    Task VerwijderRelatieIbanAsync(int id);
+    /// <summary>
+    /// Rekening toevoegen (id 0) of wijzigen. IBAN moet kloppen (controlegetal); BIC leeg = afgeleid uit een NL-IBAN.
+    /// De eerste rekening wordt de standaard; de standaard staat ook in Relations.IBAN/BIC. Null = gelukt, anders de reden.
+    /// </summary>
+    Task<string?> BewaarRelatieRekeningAsync(int relatieId, int id, string iban, string bic, string omschrijving, int? door);
+    /// <summary>Deze rekening wordt de standaard (en komt in Relations.IBAN/BIC).</summary>
+    Task<string?> MaakStandaardRekeningAsync(int relatieId, int id, int? door);
+    /// <summary>Rekening weghalen; de standaard alleen als het de enige is (dan worden Relations.IBAN/BIC leeg).</summary>
+    Task<string?> VerwijderRelatieIbanAsync(int id);
+    /// <summary>De IBAN/BIC uit Relations (buiten de lijst om gewijzigd, bijvoorbeeld in Access) als standaard in de lijst zetten.</summary>
+    Task NeemRelatieRekeningOverAsync(int relatieId, int? door);
     /// <summary>Koppeling weghalen; null = gelukt, anders de reden waarom niet (hoort bij een geregistreerde betaling).</summary>
     Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId);
     Task ZetOpmerkingAsync(int id, string? opmerking);
@@ -118,8 +129,13 @@ public class GeenBankRepository : IBankRepository
     public Task<List<GekoppeldeFactuur>> GekoppeldeFacturenAsync(int transactieId) => Task.FromResult(new List<GekoppeldeFactuur>());
     public Task<List<FactuurKandidaat>> FactuurKandidatenAsync(int transactieId, bool verkoop, string? zoek, int max) => Task.FromResult(new List<FactuurKandidaat>());
     public Task KoppelFactuurAsync(int transactieId, bool verkoop, int factuurId, int? door = null) => Task.CompletedTask;
+    public Task<bool> RekeningLijstAsync() => Task.FromResult(false);
     public Task<List<RelatieIban>> RelatieIbansAsync(int relatieId) => Task.FromResult(new List<RelatieIban>());
-    public Task VerwijderRelatieIbanAsync(int id) => Task.CompletedTask;
+    public Task<string?> BewaarRelatieRekeningAsync(int relatieId, int id, string iban, string bic, string omschrijving, int? door)
+        => Task.FromResult<string?>("Geen live database.");
+    public Task<string?> MaakStandaardRekeningAsync(int relatieId, int id, int? door) => Task.FromResult<string?>("Geen live database.");
+    public Task<string?> VerwijderRelatieIbanAsync(int id) => Task.FromResult<string?>("Geen live database.");
+    public Task NeemRelatieRekeningOverAsync(int relatieId, int? door) => Task.CompletedTask;
     public Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.FromResult<string?>("Geen live database.");
     public Task ZetOpmerkingAsync(int id, string? opmerking) => Task.CompletedTask;
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
@@ -520,30 +536,156 @@ public class MySqlBankRepository : IBankRepository
         catch { /* de koppeling staat er; de rekening leren is extra */ }
     }
 
+    public async Task NeemRelatieRekeningOverAsync(int relatieId, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await RelatieIbans.SyncVanRelatieAsync(cn, relatieId, "relatie", door);
+    }
+
+    public async Task<bool> RekeningLijstAsync()
+    {
+        await using var cn = await OpenAsync();
+        return await RelatieIbans.TabelAsync(cn) && await RelatieIbans.LijstAsync(cn);
+    }
+
     public async Task<List<RelatieIban>> RelatieIbansAsync(int relatieId)
     {
         var lijst = new List<RelatieIban>();
         await using var cn = await OpenAsync();
         if (!await RelatieIbans.TabelAsync(cn)) return lijst;
+        var uitgebreid = await RelatieIbans.LijstAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT ri.`RelatieIbanID`, ri.`IBAN`, ri.`Bron`, ri.`AangemaaktOp`, COALESCE(w.`NaamVoluit`, '') " +
+            (uitgebreid ? ", COALESCE(ri.`BIC`, ''), COALESCE(ri.`Omschrijving`, ''), ri.`Standaard` " : "") +
             "  FROM `RelatieIbans` ri LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = ri.`AangemaaktDoor` " +
-            " WHERE ri.`RelatieID` = @r ORDER BY ri.`AangemaaktOp` DESC", cn);
+            " WHERE ri.`RelatieID` = @r ORDER BY " + (uitgebreid ? "ri.`Standaard` DESC, " : "") + "ri.`AangemaaktOp`", cn);
         cmd.Parameters.AddWithValue("@r", relatieId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new RelatieIban(r.GetInt32(0), r.GetString(1), r.GetString(2),
-                r.IsDBNull(3) ? null : Convert.ToDateTime(r.GetValue(3)), r.GetString(4)));
+                r.IsDBNull(3) ? null : Convert.ToDateTime(r.GetValue(3)), r.GetString(4),
+                uitgebreid ? r.GetString(5) : "", uitgebreid ? r.GetString(6) : "",
+                uitgebreid && Convert.ToInt64(r.GetValue(7)) != 0));
         return lijst;
     }
 
-    public async Task VerwijderRelatieIbanAsync(int id)
+    /// <summary>
+    /// De standaardrekening van de relatie in Relations.IBAN/BIC zetten. Zonder standaard blijft Relations ongemoeid (een
+    /// IBAN die buiten de lijst om is ingevuld, bijvoorbeeld in Access, gaat zo niet verloren); <paramref name="leeg"/> maakt
+    /// ze leeg (de enige rekening is weggehaald).
+    /// </summary>
+    private static async Task ZetRelatieRekeningAsync(MySqlConnection cn, MySqlTransaction tx, int relatieId, bool leeg = false)
+    {
+        await using var cmd = new MySqlCommand(leeg
+            ? "UPDATE `Relations` SET `IBAN` = NULL, `BIC` = NULL WHERE `id_supplier` = @r"
+            : "UPDATE `Relations` r JOIN `RelatieIbans` ri ON ri.`RelatieID` = r.`id_supplier` AND ri.`Standaard` = 1 " +
+              "   SET r.`IBAN` = ri.`IBAN`, r.`BIC` = ri.`BIC` WHERE r.`id_supplier` = @r", cn, tx);
+        cmd.Parameters.AddWithValue("@r", relatieId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<string?> BewaarRelatieRekeningAsync(int relatieId, int id, string iban, string bic, string omschrijving, int? door)
+    {
+        var schoon = Bankgegevens.Schoon(iban);
+        var b = Bankgegevens.Schoon(bic);
+        if (!Bankgegevens.IbanGeldig(schoon)) return $"{schoon} is geen geldige IBAN (het controlegetal klopt niet).";
+        if (b.Length == 0) b = Bankgegevens.BicUitIban(schoon) ?? "";
+        else if (!Bankgegevens.BicGeldig(b)) return $"{b} is geen geldige BIC (8 of 11 tekens, bijvoorbeeld RABONL2U).";
+        omschrijving = omschrijving.Trim();
+        if (omschrijving.Length > 100) omschrijving = omschrijving[..100];
+
+        await using var cn = await OpenAsync();
+        if (!await RelatieIbans.TabelAsync(cn) || !await RelatieIbans.LijstAsync(cn))
+            return "Eerst moet RelatieRekeningen_MariaDB.sql op de database gedraaid worden.";
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var dub = new MySqlCommand(
+            "SELECT COUNT(*) FROM `RelatieIbans` WHERE `RelatieID` = @r AND `IBAN` = @iban AND `RelatieIbanID` <> @id", cn, tx))
+        {
+            dub.Parameters.AddWithValue("@r", relatieId);
+            dub.Parameters.AddWithValue("@iban", schoon);
+            dub.Parameters.AddWithValue("@id", id);
+            if (Convert.ToInt64(await dub.ExecuteScalarAsync()) > 0) return $"{schoon} staat al in de lijst van deze relatie.";
+        }
+        if (id == 0)
+        {
+            // de eerste rekening (of de eerste na het leegmaken) wordt de standaard
+            await using var cmd = new MySqlCommand(
+                "INSERT INTO `RelatieIbans` (`RelatieID`, `IBAN`, `BIC`, `Omschrijving`, `Standaard`, `Bron`, `AangemaaktOp`, `AangemaaktDoor`) " +
+                "SELECT @r, @iban, NULLIF(@bic, ''), NULLIF(@oms, ''), " +
+                "       NOT EXISTS (SELECT 1 FROM `RelatieIbans` x WHERE x.`RelatieID` = @r AND x.`Standaard` = 1), " +
+                "       'handmatig', NOW(), @door", cn, tx);
+            cmd.Parameters.AddWithValue("@r", relatieId);
+            cmd.Parameters.AddWithValue("@iban", schoon);
+            cmd.Parameters.AddWithValue("@bic", b);
+            cmd.Parameters.AddWithValue("@oms", omschrijving);
+            cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            await using var cmd = new MySqlCommand(
+                "UPDATE `RelatieIbans` SET `IBAN` = @iban, `BIC` = NULLIF(@bic, ''), `Omschrijving` = NULLIF(@oms, ''), " +
+                "       `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door WHERE `RelatieIbanID` = @id AND `RelatieID` = @r", cn, tx);
+            cmd.Parameters.AddWithValue("@r", relatieId);
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@iban", schoon);
+            cmd.Parameters.AddWithValue("@bic", b);
+            cmd.Parameters.AddWithValue("@oms", omschrijving);
+            cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+            if (await cmd.ExecuteNonQueryAsync() == 0) return "Deze rekening bestaat niet meer; vernieuw de lijst.";
+        }
+        await ZetRelatieRekeningAsync(cn, tx, relatieId);
+        await tx.CommitAsync();
+        return null;
+    }
+
+    public async Task<string?> MaakStandaardRekeningAsync(int relatieId, int id, int? door)
     {
         await using var cn = await OpenAsync();
-        if (!await RelatieIbans.TabelAsync(cn)) return;
-        await using var cmd = new MySqlCommand("DELETE FROM `RelatieIbans` WHERE `RelatieIbanID` = @id", cn);
-        cmd.Parameters.AddWithValue("@id", id);
-        await cmd.ExecuteNonQueryAsync();
+        if (!await RelatieIbans.TabelAsync(cn) || !await RelatieIbans.LijstAsync(cn))
+            return "Eerst moet RelatieRekeningen_MariaDB.sql op de database gedraaid worden.";
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var cmd = new MySqlCommand(
+            "UPDATE `RelatieIbans` SET `Standaard` = (`RelatieIbanID` = @id), " +
+            "       `GewijzigdOp` = IF(`RelatieIbanID` = @id, NOW(), `GewijzigdOp`), " +
+            "       `GewijzigdDoor` = IF(`RelatieIbanID` = @id, @door, `GewijzigdDoor`) WHERE `RelatieID` = @r", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@r", relatieId);
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await ZetRelatieRekeningAsync(cn, tx, relatieId);
+        await tx.CommitAsync();
+        return null;
+    }
+
+    public async Task<string?> VerwijderRelatieIbanAsync(int id)
+    {
+        await using var cn = await OpenAsync();
+        if (!await RelatieIbans.TabelAsync(cn)) return "De tabel RelatieIbans bestaat niet.";
+        var lijst = await RelatieIbans.LijstAsync(cn);
+        await using var tx = await cn.BeginTransactionAsync();
+        int relatie = 0; var standaard = false; long anderen = 0;
+        await using (var cmd = new MySqlCommand(
+            "SELECT `RelatieID`, " + (lijst ? "`Standaard`" : "0") + ", " +
+            "       (SELECT COUNT(*) FROM `RelatieIbans` x WHERE x.`RelatieID` = ri.`RelatieID` AND x.`RelatieIbanID` <> ri.`RelatieIbanID`) " +
+            "  FROM `RelatieIbans` ri WHERE `RelatieIbanID` = @id", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return null;   // al weg
+            relatie = r.GetInt32(0); standaard = Convert.ToInt64(r.GetValue(1)) != 0; anderen = Convert.ToInt64(r.GetValue(2));
+        }
+        if (standaard && anderen > 0) return "Dit is de standaardrekening. Maak eerst een andere rekening de standaard.";
+        await using (var cmd = new MySqlCommand("DELETE FROM `RelatieIbans` WHERE `RelatieIbanID` = @id", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        if (standaard) await ZetRelatieRekeningAsync(cn, tx, relatie, leeg: true);   // de enige: IBAN/BIC van de relatie leeg
+        await tx.CommitAsync();
+        return null;
     }
 
     public async Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId)

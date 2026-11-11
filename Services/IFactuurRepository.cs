@@ -962,7 +962,13 @@ public class MySqlFactuurRepository : IFactuurRepository
             cmd.Parameters.AddWithValue("@id", bedrijfId);
             return await cmd.ExecuteNonQueryAsync() == 1;
         }
-        return (await Vul("IBAN", iban), await Vul("BIC", bic));
+        var uit = (await Vul("IBAN", iban), await Vul("BIC", bic));
+        if (uit.Item1 || uit.Item2)
+        {
+            try { await RelatieIbans.SyncVanRelatieAsync(cn, bedrijfId, "factuur ingelezen", null); }
+            catch { /* Relations is bijgewerkt; de lijst volgt bij de volgende wijziging */ }
+        }
+        return uit;
     }
 
     // ============================================================

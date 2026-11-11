@@ -10,6 +10,8 @@
 @inject NavigationManager Nav
 @inject IBezoekRepository Bezoeken
 @inject IBankRepository Bank
+@inject IBestelRepository Bestel
+@inject IUrenRepository Uren
 
 <div class="page">
     <header class="topbar">
@@ -93,7 +95,12 @@
                     <div class="wn-tabs">
                         @foreach (var tab in RelatieVelden.Tabs)
                         {
-                            <button class="@(tab.Naam == _tab ? "actief" : "")" @onclick="() => _tab = tab.Naam">@tab.Naam</button>
+                            <button class="@(tab.Naam == _tab ? "actief" : "")" @onclick="() => KiesVeldTab(tab.Naam)">@tab.Naam</button>
+                        }
+                        @if (_bankLijst)
+                        {
+                            <button class="@("Bankrekeningen" == _tab ? "actief" : "")"
+                                    @onclick="() => _tab = BankTab">Bankrekeningen (@_ibans.Count)</button>
                         }
                         <button class="@("Contactpersonen" == _tab ? "actief" : "")"
                                 @onclick="KiesContactpersonen">Contactpersonen (@_contacten.Count)</button>
@@ -270,6 +277,79 @@
                             </table>
                         }
                     }
+                    else if (_tab == BankTab)
+                    {
+                        @* bankrekeningen van de relatie als lijst (wens gebruiker 11-11-2026): de standaard staat ook in Relations.IBAN/BIC
+                           (SEPA, factuur inlezen, Access); de rest helpt bij het herkennen van betalingen *@
+                        <p class="uitleg">De <b>standaardrekening</b> wordt gebruikt om te betalen (SEPA) en om het IBAN op inkoopfacturen te
+                            controleren. De andere rekeningen helpen bij het herkennen van betalingen in Banktransacties.
+                            @(MagIbansBeheren ? "" : "Wijzigen kan alleen met het recht Financial of Directie.")</p>
+                        @if (AfwijkendeRelatieIban is string afw)
+                        {
+                            <div class="melding let">Bij de relatie zelf staat @Opgemaakt(afw), maar dat is niet de standaardrekening in deze lijst
+                                (buiten de app om gewijzigd?).
+                                @if (MagIbansBeheren)
+                                {
+                                    <button class="klein" disabled="@_rekBezig" @onclick="NeemRekeningOver">Overnemen als standaard</button>
+                                }
+                            </div>
+                        }
+                        <table class="kiezer-tabel rek-tabel">
+                            <thead>
+                                <tr><th style="width:5.5rem" class="c">Standaard</th><th style="width:17rem">IBAN</th><th style="width:9rem">BIC</th>
+                                    <th>Omschrijving</th><th style="width:15rem">Herkomst</th><th style="width:2.5rem"></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var b in _ibans)
+                                {
+                                    <tr @key="(b.Id, _rekHerteken)" class="@(b.Standaard ? "rek-standaard" : "")">
+                                        <td class="c"><input type="radio" name="rek-standaard" checked="@b.Standaard" title="Standaardrekening"
+                                                             disabled="@(!MagIbansBeheren || _rekBezig)" @onchange="() => MaakStandaard(b)" /></td>
+                                        @if (MagIbansBeheren)
+                                        {
+                                            <td><input class="rek-iban" value="@Opgemaakt(b.Iban)" disabled="@_rekBezig"
+                                                       @onchange="e => WijzigRekening(b, (string?)e.Value, b.Bic, b.Omschrijving)" /></td>
+                                            <td><input class="rek-bic" value="@b.Bic" disabled="@_rekBezig" maxlength="11"
+                                                       @onchange="e => WijzigRekening(b, b.Iban, (string?)e.Value, b.Omschrijving)" /></td>
+                                            <td><input value="@b.Omschrijving" disabled="@_rekBezig" maxlength="100"
+                                                       @onchange="e => WijzigRekening(b, b.Iban, b.Bic, (string?)e.Value)" /></td>
+                                        }
+                                        else
+                                        {
+                                            <td class="mono-iban">@Opgemaakt(b.Iban)</td>
+                                            <td class="mono-iban">@b.Bic</td>
+                                            <td>@b.Omschrijving</td>
+                                        }
+                                        <td class="klein-grijs">@b.Bron · @(b.Op?.ToString("dd-MM-yyyy") ?? "")@(b.Door.Length > 0 ? " · " + b.Door : "")</td>
+                                        <td>
+                                            @if (MagIbansBeheren)
+                                            {
+                                                <button class="klein rood" disabled="@_rekBezig" title="Rekening weghalen" @onclick="() => VergeetIban(b)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_ibans.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="kiezer-info">Nog geen rekening bekend.</td></tr>
+                                }
+                                @if (MagIbansBeheren)
+                                {
+                                    <tr class="rek-nieuw">
+                                        <td></td>
+                                        <td><input class="rek-iban" title="Nieuwe IBAN" value="@_nieuwIban"
+                                                   @oninput="e => _nieuwIban = (string?)e.Value ?? string.Empty" @onkeydown="RekeningToets" /></td>
+                                        <td><input class="rek-bic" title="Leeg laten: bij een Nederlandse IBAN vult de app de BIC zelf in" maxlength="11" value="@_nieuwBic"
+                                                   @oninput="e => _nieuwBic = (string?)e.Value ?? string.Empty" @onkeydown="RekeningToets" /></td>
+                                        <td><input maxlength="100" value="@_nieuwOms"
+                                                   @oninput="e => _nieuwOms = (string?)e.Value ?? string.Empty" @onkeydown="RekeningToets" /></td>
+                                        <td colspan="2"><button class="klein primair" disabled="@(_rekBezig || _nieuwIban.Trim().Length == 0)"
+                                                                @onclick="VoegRekeningToe">+ Toevoegen</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
                     else if (_tab == "Bezoeken")
                     {
                         <div class="tl-balk">
@@ -392,7 +472,7 @@
                             @foreach (var veld in huidig.Velden)
                             {
                                 var kolom = Kolom(veld);
-                                @if (kolom is not null)
+                                @if (kolom is not null && !(_bankLijst && kolom is "IBAN" or "BIC"))
                                 {
                                     <div class="wn-veld @(veld.Type == VeldType.Meerregelig ? "breed" : "")">
                                         <label>@veld.Label</label>
@@ -406,7 +486,54 @@
                                             <textarea rows="4" value="@Tekst(kolom)"
                                                       @onchange="e => Bewaar(kolom, (string?)e.Value)"></textarea>
                                         }
-                                        else if (veld.Type == VeldType.Keuze && _landen.Count > 0)
+                                        else if (veld.Lijst == "Contactpersoon")
+                                        {
+                                            @* een contactpersoon van deze relatie; een nummer dat er niet (meer) bij hoort blijft zichtbaar *@
+                                            var cid = Tekst(kolom) is var t && t != "0" ? t : "";
+                                            <select value="@cid" @onchange="e => Bewaar(kolom, (string?)e.Value)">
+                                                <option value="">—</option>
+                                                @foreach (var c in _contacten)
+                                                {
+                                                    <option value="@c.Id">@c.Naam@(c.Functie.Length > 0 ? " (" + c.Functie + ")" : "")</option>
+                                                }
+                                                @if (cid.Length > 0 && !_contacten.Any(c => c.Id.ToString() == cid))
+                                                {
+                                                    <option value="@cid">#@cid (niet bij deze relatie)</option>
+                                                }
+                                            </select>
+                                        }
+                                        else if (veld.Lijst == "Activiteiten")
+                                        {
+                                            @* wat de relatie doet (ActivityPerRelation), vinkjes; los van de kolom Business_id *@
+                                            <div class="rel-activiteiten">
+                                                @foreach (var a in _activiteiten)
+                                                {
+                                                    <label class="vink"><input type="checkbox" checked="@_relActiviteiten.Contains(a.Id)"
+                                                                               @onchange="e => ZetActiviteit(a.Id, Vink(e))" /> @a.Naam</label>
+                                                }
+                                                @if (_activiteiten.Count == 0) { <span class="klein-grijs">Laden…</span> }
+                                            </div>
+                                        }
+                                        else if (veld.Lijst is "Taal" or "Werknemer" or "Relatie")
+                                        {
+                                            @* taal (0 = Nederlands telt mee), werknemer of een andere relatie; een waarde die niet in de lijst
+                                               staat blijft zichtbaar als nummer *@
+                                            var waarde = Tekst(kolom);
+                                            if (veld.Lijst != "Taal" && waarde == "0") waarde = "";
+                                            var opties = Keuzes(veld.Lijst);
+                                            <select value="@waarde" @onchange="e => Bewaar(kolom, (string?)e.Value)">
+                                                <option value="">—</option>
+                                                @foreach (var k in opties)
+                                                {
+                                                    <option value="@k.Id">@k.Naam</option>
+                                                }
+                                                @if (waarde.Length > 0 && !opties.Any(k => k.Id.ToString() == waarde))
+                                                {
+                                                    <option value="@waarde">@(NaamBuitenLijst(veld.Lijst, waarde))</option>
+                                                }
+                                            </select>
+                                        }
+                                        else if (veld.Type == VeldType.Keuze && veld.Lijst == "Land" && _landen.Count > 0)
                                         {
                                             <select value="@Tekst(kolom)" @onchange="e => Bewaar(kolom, (string?)e.Value)">
                                                 <option value="">—</option>
@@ -494,6 +621,8 @@
                             @* alle rekeningen van de relatie (wens gebruiker 11-11-2026): eerst het IBAN van de relatie zelf, dan wat uit
                                koppelingen van banktransacties aan facturen geleerd is (RelatieIbans) *@
                             @{ var hoofdIban = RelatieIbans.Schoon(Tekst("IBAN")); var extra = _ibans.Where(b => b.Iban != hoofdIban).ToList(); }
+                            @if (!_bankLijst)
+                            {
                             <ZijBlok Titel="Rekeningen" Aantal="(hoofdIban.Length > 0 ? 1 : 0) + extra.Count"
                                      Leeg="@(hoofdIban.Length == 0 && extra.Count == 0)" LeegTekst="Nog geen rekening bekend.">
                                     @if (hoofdIban.Length > 0)
@@ -516,6 +645,7 @@
                                         </div>
                                     }
                             </ZijBlok>
+                            }
                         </Zij>
                         </DetailMetZij>
                     }
@@ -879,18 +1009,179 @@
     private async Task LaadIbans()
     {
         if (_gekozenId is null) { _ibans = new(); return; }
-        try { _ibans = await Bank.RelatieIbansAsync(_gekozenId.Value); }
+        try
+        {
+            if (!_bankLijst) _bankLijst = await Bank.RekeningLijstAsync();
+            _ibans = await Bank.RelatieIbansAsync(_gekozenId.Value);
+        }
         catch { _ibans = new(); }
+        if (!_bankLijst && _tab == BankTab) _tab = "Adres";
+    }
+
+    // ---- keuzelijsten voor verwijzingen (Taal, Werknemer, Relatie) en activiteiten, pas geladen bij het tabblad ----
+    private List<Keuze> _talen = new(), _werknemersLijst = new(), _relatiesLijst = new(), _activiteiten = new();
+    private Dictionary<int, string> _alleWerknemers = new();
+    private HashSet<int> _relActiviteiten = new();
+    private bool _lijstenGeladen;
+
+    private async Task KiesVeldTab(string naam)
+    {
+        _tab = naam;
+        if (_lijstenGeladen || naam is not ("Inkoop" or "Kenmerken")) return;
+        _lijstenGeladen = true;
+        try { _talen = await Bestel.GetTalenAsync(); } catch { }
+        try
+        {
+            _werknemersLijst = (await Uren.ZoekWerknemersAsync(true, false, true, null)).Select(w => new Keuze(w.WerknemerId, w.Naam)).ToList();
+            _alleWerknemers = (await Uren.ZoekWerknemersAsync(true, true, false, null)).ToDictionary(w => w.WerknemerId, w => w.Naam);
+        }
+        catch { }
+        try
+        {
+            // ZoekAsync geeft hoogstens 200 per keer: in blokken tot de lijst compleet is
+            var alle = new List<Keuze>();
+            for (var begin = 0; begin < 50_000; begin += 200)
+            {
+                var deel = await Repo.ZoekAsync(null, false, false, begin, 200);
+                alle.AddRange(deel);
+                if (deel.Count < 200) break;
+            }
+            _relatiesLijst = alle;
+        }
+        catch { }
+        try { _activiteiten = await Repo.GetActiviteitenAsync(); } catch { }
+        await LaadActiviteiten();
+    }
+
+    private async Task LaadActiviteiten()
+    {
+        if (_gekozenId is not int id) { _relActiviteiten = new(); return; }
+        try { _relActiviteiten = await Repo.GetRelatieActiviteitenAsync(id); } catch { _relActiviteiten = new(); }
+    }
+
+    private List<Keuze> Keuzes(string? lijst) => lijst switch
+    {
+        "Taal" => _talen,
+        "Werknemer" => _werknemersLijst,
+        "Relatie" => _relatiesLijst.Where(k => k.Id != _gekozenId).ToList(),
+        _ => new(),
+    };
+
+    private string NaamBuitenLijst(string? lijst, string waarde)
+        => lijst == "Werknemer" && int.TryParse(waarde, out var w) && _alleWerknemers.TryGetValue(w, out var naam)
+            ? naam + " (niet meer in dienst)"
+            : $"#{waarde}";
+
+    private async Task ZetActiviteit(int activiteitId, bool aan)
+    {
+        if (_gekozenId is not int id) return;
+        try
+        {
+            await Repo.ZetRelatieActiviteitAsync(id, activiteitId, aan, Ik.WerknemerId);
+            if (aan) _relActiviteiten.Add(activiteitId); else _relActiviteiten.Remove(activiteitId);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); await LaadActiviteiten(); }
+    }
+
+    // ---- tabblad Bankrekeningen (RelatieRekeningen_MariaDB.sql) ----
+    private const string BankTab = "Bankrekeningen";
+    private bool _bankLijst, _rekBezig;
+    private int _rekHerteken;           // @key van de rijen: na een afgekeurde wijziging de oude waarden terug
+    private string _nieuwIban = "", _nieuwBic = "", _nieuwOms = "";
+
+    /// <summary>IBAN in groepjes van vier, zoals op een bankpas.</summary>
+    private static string Opgemaakt(string iban)
+        => string.Join(" ", Enumerable.Range(0, (iban.Length + 3) / 4).Select(i => iban.Substring(i * 4, Math.Min(4, iban.Length - i * 4))));
+
+    /// <summary>Het IBAN bij de relatie zelf als dat niet de standaard in de lijst is (gewijzigd buiten de app).</summary>
+    private string? AfwijkendeRelatieIban
+    {
+        get
+        {
+            var rel = RelatieIbans.Schoon(Tekst("IBAN"));
+            return rel.Length > 0 && !_ibans.Any(b => b.Standaard && b.Iban == rel) ? rel : null;
+        }
+    }
+
+    /// <summary>Na een wijziging: lijst en de IBAN/BIC van de relatie zelf opnieuw ophalen.</summary>
+    private async Task NaRekeningWijziging()
+    {
+        await LaadIbans();
+        if (_gekozenId is int id)
+        {
+            try { _velden = await Repo.GetVeldenAsync(id); } catch { }
+        }
+    }
+
+    private async Task<bool> RekeningActie(Func<Task<string?>> actie, string gelukt)
+    {
+        if (_rekBezig || !MagIbansBeheren) return false;
+        _rekBezig = true;
+        try
+        {
+            var fout = await actie();
+            if (fout is not null) { Toon(fout, true); _rekHerteken++; return false; }
+            await NaRekeningWijziging();
+            Toon(gelukt, false);
+            return true;
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); _rekHerteken++; return false; }
+        finally { _rekBezig = false; }
+    }
+
+    private async Task VoegRekeningToe()
+    {
+        if (_gekozenId is not int id) return;
+        var iban = RelatieIbans.Schoon(_nieuwIban);
+        if (await RekeningActie(() => Bank.BewaarRelatieRekeningAsync(id, 0, _nieuwIban, _nieuwBic, _nieuwOms, Ik.WerknemerId),
+                                $"{Opgemaakt(iban)} toegevoegd."))
+        { _nieuwIban = ""; _nieuwBic = ""; _nieuwOms = ""; }
+    }
+
+    private async Task RekeningToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _nieuwIban.Trim().Length > 0) await VoegRekeningToe();
+    }
+
+    private async Task WijzigRekening(RelatieIban b, string? iban, string? bic, string? oms)
+    {
+        if (_gekozenId is not int id) return;
+        var nieuw = RelatieIbans.Schoon(iban);
+        // een andere standaardrekening = waar betalingen heen gaan: eerst bevestigen
+        if (b.Standaard && nieuw != b.Iban)
+        {
+            bool ja;
+            try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"De standaardrekening wijzigen van {Opgemaakt(b.Iban)} naar {Opgemaakt(nieuw)}?\n\nBetalingen (SEPA) gaan dan naar de nieuwe rekening. Controleer een gewijzigd rekeningnummer altijd bij de relatie zelf."); }
+            catch { ja = false; }
+            if (!ja) { _rekHerteken++; return; }
+        }
+        await RekeningActie(() => Bank.BewaarRelatieRekeningAsync(id, b.Id, iban ?? "", bic ?? "", oms ?? "", Ik.WerknemerId), "Opgeslagen.");
+    }
+
+    private async Task MaakStandaard(RelatieIban b)
+    {
+        if (_gekozenId is not int id || b.Standaard) return;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"{Opgemaakt(b.Iban)} de standaardrekening maken?\n\nBetalingen (SEPA) gaan dan naar deze rekening."); }
+        catch { ja = false; }
+        if (!ja) { _rekHerteken++; return; }
+        await RekeningActie(() => Bank.MaakStandaardRekeningAsync(id, b.Id, Ik.WerknemerId), $"{Opgemaakt(b.Iban)} is nu de standaardrekening.");
+    }
+
+    private async Task NeemRekeningOver()
+    {
+        if (_gekozenId is not int id) return;
+        await RekeningActie(async () => { await Bank.NeemRelatieRekeningOverAsync(id, Ik.WerknemerId); return null; },
+                            "De rekening van de relatie staat nu als standaard in de lijst.");
     }
 
     private async Task VergeetIban(RelatieIban b)
     {
         bool ja;
-        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Rekening {b.Iban} niet meer bij deze relatie onthouden?\n\nKoppelingen aan facturen blijven staan."); }
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Rekening {Opgemaakt(b.Iban)} weghalen bij deze relatie?\n\nKoppelingen aan facturen blijven staan."); }
         catch { ja = false; }
         if (!ja) return;
-        try { await Bank.VerwijderRelatieIbanAsync(b.Id); await LaadIbans(); Toon($"{b.Iban} vergeten.", false); }
-        catch (Exception ex) { Toon("Weghalen mislukt: " + ex.Message, true); }
+        await RekeningActie(() => Bank.VerwijderRelatieIbanAsync(b.Id), $"{Opgemaakt(b.Iban)} weggehaald.");
     }
 
     private static bool Vink(ChangeEventArgs e) => e.Value is bool b && b;
@@ -931,6 +1222,7 @@
         await LaadContacten();
         await LaadDocumenten();
         await LaadIbans();
+        if (_lijstenGeladen) await LaadActiviteiten();
         _mails = new();          // mail hoort bij de vorige relatie
         _mailZoek = "";
         if (_tab == "Mail") await KiesMail();      // meteen opnieuw zoeken voor deze relatie

@@ -64,9 +64,10 @@ public static class RelatieVelden
             { EenKolom = true },
 
         new("Inkoop", null,
-            new Veld("Aanvraag contactpersoon", VeldType.Getal, new[] { "OfferteContactID" }),
-            new Veld("Inkoop contactpersoon", VeldType.Getal, new[] { "OrderContact-id" }),
-            new Veld("Taal inkooporder", VeldType.Getal, new[] { "OrderLanguage" }),
+            // verwijzingen naar een contactpersoon van deze relatie (ID_contact): keuzelijst in plaats van het nummer (11-11-2026)
+            new Veld("Aanvraag contactpersoon", VeldType.Keuze, new[] { "OfferteContactID" }, Lijst: "Contactpersoon"),
+            new Veld("Inkoop contactpersoon", VeldType.Keuze, new[] { "OrderContact-id" }, Lijst: "Contactpersoon"),
+            new Veld("Taal inkooporder", VeldType.Keuze, new[] { "OrderLanguage" }, Lijst: "Taal"),
             new Veld("E-mailadres orders", VeldType.Tekst, new[] { "OrderMailAddress" }),
             new Veld("Gebruik OC-codes", VeldType.JaNee, new[] { "GebruikOCcodes" }),
             new Veld("Minimum orderbedrag", VeldType.Bedrag, new[] { "Minimum order" }),
@@ -77,8 +78,8 @@ public static class RelatieVelden
             new Veld("Direct betalen bij bestellen", VeldType.JaNee, new[] { "DirectBetalenBijBestellen" }),
             new Veld("Direct geleverd bij bestellen", VeldType.JaNee, new[] { "DirectGeleverdBijBestellen" }),
             new Veld("Default maakdelen", VeldType.JaNee, new[] { "DefaultMaakdelen" }),
-            new Veld("Default afleveradres", VeldType.Getal, new[] { "DefaultVerzendAdres" }),
-            new Veld("Default afleveradres contactpersoon", VeldType.Getal, new[] { "DefaultVerzendContact" }),
+            new Veld("Default afleveradres", VeldType.Keuze, new[] { "DefaultVerzendAdres" }, Lijst: "Relatie"),
+            new Veld("Default afleveradres contactpersoon", VeldType.Keuze, new[] { "DefaultVerzendContact" }, Lijst: "Contactpersoon"),
             new Veld("CC bij bestelling", VeldType.JaNee, new[] { "CCbijBestelling" }),
             new Veld("CC-e-mailadressen", VeldType.Tekst, new[] { "CCmailadressBijBestelling" }),
             new Veld("Kiloprijs RVS", VeldType.Bedrag, new[] { "KiloprijsRVS" }),
@@ -100,8 +101,9 @@ public static class RelatieVelden
             new Veld("Verbergen in lijsten", VeldType.JaNee, new[] { "Verberg" }),
             new Veld("Uitsluiten bij verlopen", VeldType.JaNee, new[] { "exclude in expired" }),
             new Veld("Eigen apparatuurmap", VeldType.JaNee, new[] { "MakeEquipmentDir" }),
-            new Veld("Verantwoordelijke (werknemer)", VeldType.Getal, new[] { "Responsible" }),
-            new Veld("Branche/activiteit", VeldType.Getal, new[] { "Business_id" }))
+            new Veld("Verantwoordelijke (werknemer)", VeldType.Keuze, new[] { "Responsible" }, Lijst: "Werknemer"),
+            // Business_id stond overal op 0; de echte activiteiten staan in ActivityPerRelation (vinkjes, 11-11-2026)
+            new Veld("Activiteiten", VeldType.Keuze, new[] { "Business_id" }, Lijst: "Activiteiten"))
             { EenKolom = true },
 
         new("Reizen", null,

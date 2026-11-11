@@ -333,6 +333,31 @@ verzekeringen, berichtbijlagen) en de **Fusion-download** controleerden tot nu t
 (soorten: altijd geweigerd; Fusion: `!Gekoppeld` liet iedereen door); nu tellen de echte rechten. `MagRabobank` las al
 zelf het cookie. Lokaal alleen niet-ingelogd getest (pagina's en API laden, geen fouten in het logboek).
 
+## Relaties: verwijzingen als keuzelijst, activiteiten (11-11-2026)
+
+Wens gebruiker (Inkoop contactpersoon stond als 6299). `RelatieVelden`: `Lijst` = "Contactpersoon" (OfferteContactID,
+OrderContact-id, DefaultVerzendContact; de contactpersonen van de relatie), "Taal" (OrderLanguage; `IBestelRepository.GetTalenAsync`,
+0 = Nederlands), "Werknemer" (Responsible; in dienst, oud-werknemers als "(niet meer in dienst)"), "Relatie"
+(DefaultVerzendAdres; alle relaties, in blokken van 200 want `ZoekAsync` geeft er hoogstens 200). Een waarde buiten de lijst
+blijft zichtbaar als "#nummer". De lijsten laden bij het eerste openen van Inkoop of Kenmerken (`KiesVeldTab`).
+**Activiteiten**: `Business_id` stond overal op 0; op die plek nu vinkjes uit `RelationActivities` (29 soorten) via
+`ActivityPerRelation` (24 relaties hadden er al; `GetActiviteitenAsync`, `ZetRelatieActiviteitAsync`). Bankrekeningen: geen
+voorbeeldteksten in de invoervakjes (wens gebruiker). Lokaal bekeken (Moerland Engineering, Kalkhuis), niets gewijzigd.
+
+## Relaties: bankrekeningen als lijst (11-11-2026)
+
+Wens gebruiker: IBAN en BIC als bewerkbare lijst in plaats van twee velden. Script **`RelatieRekeningen_MariaDB.sql`** (na
+RelatieIbans_MariaDB.sql): `RelatieIbans` + BIC, Omschrijving, Standaard, GewijzigdOp/Door, en de huidige IBAN/BIC van elke
+relatie als standaard erin (11-11: 558 met IBAN, 554 met BIC). **De standaard blijft ook in `Relations.IBAN`/`BIC` staan**
+(`ZetRelatieRekeningAsync`, alleen als er een standaard is): SEPA-betalingen (`IBetalingRepository`), factuur inlezen
+(`GetBankgegevensAsync`, fraudecontrole in `FactuurVenster.ControleerIban`), Access en de BV-rekeningen lezen die kolommen.
+Relaties ▸ tabblad **Bankrekeningen** (pas na het script; dan verdwijnen IBAN/BIC uit Opties en het zijblok): standaard
+(rondje, met bevestiging), IBAN/BIC/omschrijving bewerken (IBAN met controlegetal, `Bankgegevens.IbanGeldig`; BIC leeg = uit
+een NL-IBAN), ✕ (de standaard alleen als het de enige is), + Toevoegen. Alleen Financial/Directie wijzigt (fraudegevoelig).
+Staat bij de relatie een IBAN dat niet de standaard in de lijst is (Access, "Uit screenshot"), dan een melding met
+"Overnemen als standaard" (`RelatieIbans.SyncVanRelatieAsync`). Factuur inlezen dat een lege IBAN vult, zet hem ook in de lijst.
+**Niet getest**: het tabblad en de schrijfacties (verschijnen pas na het script; lokaal niet tegen productie geschreven).
+
 ## Bekende rekeningen van relaties (11-11-2026)
 
 Wens gebruiker: bij een koppeling transactie-factuur de tegenrekening bij de relatie onthouden (meer IBANs per relatie).

@@ -37,6 +37,13 @@ public interface IRelatieRepository
     /// <summary>Landen voor de keuzelijsten (country-id).</summary>
     Task<List<Keuze>> GetLandenAsync();
 
+    /// <summary>De soorten activiteiten (RelationActivities: Plaatlaser, Buislaser, Transport, ...).</summary>
+    Task<List<Keuze>> GetActiviteitenAsync();
+    /// <summary>De activiteiten van een relatie (ActivityPerRelation).</summary>
+    Task<HashSet<int>> GetRelatieActiviteitenAsync(int relatieId);
+    /// <summary>Een activiteit bij de relatie aan- of uitzetten.</summary>
+    Task ZetRelatieActiviteitAsync(int relatieId, int activiteitId, bool aan, int? door);
+
     /// <summary>Reden waarom de relatie niet gewist kan worden, of null als het mag.</summary>
     Task<string?> RelatieInGebruikAsync(int relatieId);
 
@@ -72,6 +79,9 @@ public class GeenRelatieRepository : IRelatieRepository
     public Task<List<(int Id, string Naam, string Reden)>> MogelijkDezelfdeAsync(string naam, string kvk, string btw, string iban)
         => Task.FromResult(new List<(int, string, string)>());
     public Task<List<Keuze>> GetLandenAsync() => Task.FromResult(new List<Keuze>());
+    public Task<List<Keuze>> GetActiviteitenAsync() => Task.FromResult(new List<Keuze>());
+    public Task<HashSet<int>> GetRelatieActiviteitenAsync(int relatieId) => Task.FromResult(new HashSet<int>());
+    public Task ZetRelatieActiviteitAsync(int relatieId, int activiteitId, bool aan, int? door) => Task.CompletedTask;
     public Task<List<Tariefafspraak>> GetTariefafsprakenAsync(int relatieId) => Task.FromResult(new List<Tariefafspraak>());
     public Task<int> BewaarTariefafspraakAsync(Tariefafspraak t, int? doorWerknemer) => Task.FromResult(0);
     public Task VerwijderTariefafspraakAsync(int tariefafspraakId) => Task.CompletedTask;
@@ -213,6 +223,43 @@ public class MySqlRelatieRepository : IRelatieRepository
     /// gangbare namen. Lukt het niet, dan blijft de keuzelijst leeg en toont het
     /// scherm het nummer.
     /// </summary>
+    public async Task<List<Keuze>> GetActiviteitenAsync()
+    {
+        var lijst = new List<Keuze>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `RelationActivitiesID`, COALESCE(`Activity`, '') FROM `RelationActivities` ORDER BY `Activity`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new Keuze(r.GetInt32(0), r.GetString(1)));
+        return lijst;
+    }
+
+    public async Task<HashSet<int>> GetRelatieActiviteitenAsync(int relatieId)
+    {
+        var uit = new HashSet<int>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `RelationActivitiesID` FROM `ActivityPerRelation` WHERE `RelationID` = @r AND `RelationActivitiesID` IS NOT NULL", cn);
+        cmd.Parameters.AddWithValue("@r", relatieId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) uit.Add(r.GetInt32(0));
+        return uit;
+    }
+
+    public async Task ZetRelatieActiviteitAsync(int relatieId, int activiteitId, bool aan, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(aan
+            ? "INSERT INTO `ActivityPerRelation` (`RelationID`, `RelationActivitiesID`, `Added`, `AddedBy`) " +
+              "SELECT @r, @a, NOW(), @door FROM DUAL WHERE NOT EXISTS " +
+              "  (SELECT 1 FROM `ActivityPerRelation` WHERE `RelationID` = @r AND `RelationActivitiesID` = @a)"
+            : "DELETE FROM `ActivityPerRelation` WHERE `RelationID` = @r AND `RelationActivitiesID` = @a", cn);
+        cmd.Parameters.AddWithValue("@r", relatieId);
+        cmd.Parameters.AddWithValue("@a", activiteitId);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<Keuze>> GetLandenAsync()
     {
         var lijst = new List<Keuze>();
