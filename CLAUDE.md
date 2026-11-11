@@ -353,6 +353,16 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Rechten: Artikelbeheer, bankrekeningen alleen Financial/Directie (11-11-2026)
+
+- **Artikelen en Artikelsamenstellingen wijzigen**: recht `Artikelbeheer` (nieuwe kolom, `Werknemers_Artikelbeheer_MariaDB.sql`,
+  vinkje in Werknemers ▸ Rechten) of Directie. Daarvoor keek de code naar `Inkoop` en `Beheer`: **die kolommen bestaan niet**
+  in `Werknemers` (alleen Directie mocht dus), en wie niet aan een werknemer gekoppeld was (`!Ik.Gekoppeld`) mocht alles;
+  dat gat is dicht. "+ Artikel" (nieuw artikel aanmaken) blijft voor iedereen. Nog open: `Mag("Beheer")` staat ook in
+  MainLayout, Instellingen, Onderhoud en Werkplekken (daar telt dus alleen Directie of niet ingelogd/gekoppeld).
+- **Relaties ▸ Bankrekeningen** (tab, zijblok Rekeningen en IBAN/BIC in Opties) alleen met Financial of Directie
+  (`MagIbansBeheren`); anders worden de rekeningen ook niet geladen.
+
 ## Bestellingen: pakbon om mee te geven (11-11-2026)
 
 Wens gebruiker: delen die iemand naar de leverancier rijdt (bv. naar Nederlandse Anodising) krijgen een pakbon mee. Knop

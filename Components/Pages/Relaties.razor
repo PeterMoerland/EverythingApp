@@ -97,7 +97,7 @@
                         {
                             <button class="@(tab.Naam == _tab ? "actief" : "")" @onclick="() => KiesVeldTab(tab.Naam)">@tab.Naam</button>
                         }
-                        @if (_bankLijst)
+                        @if (_bankLijst && MagIbansBeheren)
                         {
                             <button class="@("Bankrekeningen" == _tab ? "actief" : "")"
                                     @onclick="() => _tab = BankTab">Bankrekeningen (@_ibans.Count)</button>
@@ -277,7 +277,7 @@
                             </table>
                         }
                     }
-                    else if (_tab == BankTab)
+                    else if (_tab == BankTab && MagIbansBeheren)
                     {
                         @* bankrekeningen van de relatie als lijst (wens gebruiker 11-11-2026): de standaard staat ook in Relations.IBAN/BIC
                            (SEPA, factuur inlezen, Access); de rest helpt bij het herkennen van betalingen *@
@@ -472,7 +472,7 @@
                             @foreach (var veld in huidig.Velden)
                             {
                                 var kolom = Kolom(veld);
-                                @if (kolom is not null && !(_bankLijst && kolom is "IBAN" or "BIC"))
+                                @if (kolom is not null && !((_bankLijst || !MagIbansBeheren) && kolom is "IBAN" or "BIC"))
                                 {
                                     <div class="wn-veld @(veld.Type == VeldType.Meerregelig ? "breed" : "")">
                                         <label>@veld.Label</label>
@@ -621,7 +621,7 @@
                             @* alle rekeningen van de relatie (wens gebruiker 11-11-2026): eerst het IBAN van de relatie zelf, dan wat uit
                                koppelingen van banktransacties aan facturen geleerd is (RelatieIbans) *@
                             @{ var hoofdIban = RelatieIbans.Schoon(Tekst("IBAN")); var extra = _ibans.Where(b => b.Iban != hoofdIban).ToList(); }
-                            @if (!_bankLijst)
+                            @if (!_bankLijst && MagIbansBeheren)
                             {
                             <ZijBlok Titel="Rekeningen" Aantal="(hoofdIban.Length > 0 ? 1 : 0) + extra.Count"
                                      Leeg="@(hoofdIban.Length == 0 && extra.Count == 0)" LeegTekst="Nog geen rekening bekend.">
@@ -1008,7 +1008,8 @@
 
     private async Task LaadIbans()
     {
-        if (_gekozenId is null) { _ibans = new(); return; }
+        // bankrekeningen alleen voor Financial en Directie (wens gebruiker 11-11-2026): tab, zijblok en IBAN/BIC in Opties
+        if (_gekozenId is null || !MagIbansBeheren) { _ibans = new(); if (_tab == BankTab) _tab = "Adres"; return; }
         try
         {
             if (!_bankLijst) _bankLijst = await Bank.RekeningLijstAsync();

@@ -105,6 +105,8 @@ public static class WerknemerVelden
             new Veld("Inventor gebruiker", VeldType.JaNee, new[] { "InventorGebruiker", "Inventor_gebruiker", "inventor" }),
             new Veld("Voorraadbeheer", VeldType.JaNee, new[] { "Voorraadbeheer", "voorraadbeheer" }),
             new Veld("Bestellingen", VeldType.JaNee, new[] { "Bestellingen", "bestellingen" }),
+            // artikelen en samenstellingen wijzigen; kolom uit Werknemers_Artikelbeheer_MariaDB.sql
+            new Veld("Artikelbeheer", VeldType.JaNee, new[] { "Artikelbeheer" }),
             new Veld("Poolmember", VeldType.JaNee, new[] { "Poolmember", "poolmember" }),
             // firmwareversies toevoegen en wijzigen (Controllertypen ▸ Firmware); kolom uit Werknemers_MagFirmware_MariaDB.sql
             new Veld("Mag firmware beheren", VeldType.JaNee, new[] { "MagFirmware" }),

@@ -182,7 +182,7 @@
                                                 @onclick="StartBewerken">✎ Bewerken</button>
                                         @if (!MagBewerken)
                                         {
-                                            <span class="uitleg">Je hebt geen recht om artikelen te wijzigen.</span>
+                                            <span class="uitleg">Je hebt geen recht om artikelen te wijzigen (Werknemers ▸ Rechten ▸ Artikelbeheer).</span>
                                         }
                                     }
                                     else
@@ -1339,7 +1339,9 @@
     // ================================================================
     //  Artikel bewerken
     // ================================================================
-    private bool MagBewerken => !Ik.Gekoppeld || Ik.Mag("Inkoop") || Ik.Mag("Beheer") || Ik.Mag("Directie");
+    // Recht Artikelbeheer (Werknemers_Artikelbeheer_MariaDB.sql) of Directie. Niet gekoppeld = alleen lezen (11-11-2026; de
+    // kolommen Inkoop en Beheer bestonden niet, en wie niet aan een werknemer gekoppeld was mocht alles).
+    private bool MagBewerken => Ik.Mag("Artikelbeheer") || Ik.Mag("Directie");
 
     private bool _bewerken;
     private bool _bewaren;
