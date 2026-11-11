@@ -96,7 +96,8 @@ public interface IBankRepository
     /// overgeslagen (op volgnummer; de spaarrekening heeft er geen en gaat op
     /// saldo, bedrag en datum) — dubbel importeren kan dus geen kwaad.
     /// </summary>
-    Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId);
+    /// <param name="voortgang">Na elke regel: (verwerkt, totaal) — voor de voortgangsbalk.</param>
+    Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId, Action<int, int>? voortgang = null);
 
     /// <summary>
     /// Zet regels uit de Rabobank-API in banktransacties. Een regel bestaat al als het
@@ -154,7 +155,7 @@ public class GeenBankRepository : IBankRepository
     public Task<string?> OntkoppelFactuurAsync(int transactieId, bool verkoop, int factuurId) => Task.FromResult<string?>("Geen live database.");
     public Task ZetOpmerkingAsync(int id, string? opmerking) => Task.CompletedTask;
     public Task<List<int>> GetPasnummersAsync(IEnumerable<string> rekeningen) => Task.FromResult(new List<int>());
-    public Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId)
+    public Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId, Action<int, int>? voortgang = null)
         => Task.FromResult(new BankImportResultaat(0, 0, 0, new List<string> { "Geen live database." }));
     public Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
         => Task.FromResult(new BankImportResultaat(regels.Count, 0, 0, new List<string> { "Geen live database." }));
@@ -863,7 +864,7 @@ public class MySqlBankRepository : IBankRepository
                       KolOmschrijving1 = 19, KolOmschrijving2 = 20, KolOmschrijving3 = 21,
                       KolRedenRetour = 22, KolOorspronkelijkBedrag = 23, KolOorspronkelijkeMunt = 24;
 
-    public async Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId)
+    public async Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId, Action<int, int>? voortgang = null)
     {
         var fouten = new List<string>();
         var rijen = LeesCsv(csv);
@@ -874,7 +875,7 @@ public class MySqlBankRepository : IBankRepository
         // Creditcard-export (RA_CC_…csv, "Rabo BusinessCard"): eigen kolommen. Moet vóór de IBAN-controle hieronder, want
         // die kopregel noemt ook "Tegenrekening IBAN" en dan zouden de kaartregels op de betaalrekening belanden.
         if (rijen[0].Any(k => k.Trim().Equals("Creditcard Nummer", StringComparison.OrdinalIgnoreCase)))
-            return await ImporteerCreditcardAsync(rijen, doorWerknemerId);
+            return await ImporteerCreditcardAsync(rijen, doorWerknemerId, voortgang);
 
         // Een snelle zekerheid dat dit echt een bankbestand is: de kopregel van de
         // Rabobank begint met IBAN/BBAN. Zo voorkomen we dat een willekeurige CSV
@@ -893,6 +894,7 @@ public class MySqlBankRepository : IBankRepository
         foreach (var rij in rijen.Skip(1))
         {
             verwerkt++;
+            voortgang?.Invoke(verwerkt, rijen.Count - 1);
             var regelnummer = verwerkt + 1;   // +1 voor de kopregel, zoals je in Excel telt
 
             // Access verving de backslash door een liggend streepje; dat houden we
@@ -1056,7 +1058,7 @@ public class MySqlBankRepository : IBankRepository
     //  nummer in banktransacties.Rekening, zodat koppelen aan facturen, grootboek en rechten net zo werken.
     //  Geen saldo in de export: Saldo na trn blijft leeg (het saldo-overzicht slaat lege saldi over).
     // ============================================================
-    private async Task<BankImportResultaat> ImporteerCreditcardAsync(List<string[]> rijen, int? doorWerknemerId)
+    private async Task<BankImportResultaat> ImporteerCreditcardAsync(List<string[]> rijen, int? doorWerknemerId, Action<int, int>? voortgang)
     {
         var kop = rijen[0].Select(k => k.Trim()).ToList();
         int Kol(string naam) => kop.FindIndex(k => k.Equals(naam, StringComparison.OrdinalIgnoreCase));
@@ -1090,6 +1092,7 @@ public class MySqlBankRepository : IBankRepository
             string V(int i) => i >= 0 && i < rij.Length ? rij[i].Replace('\\', '_').Trim() : "";
             if (rij.All(string.IsNullOrWhiteSpace)) continue;
             verwerkt++;
+            voortgang?.Invoke(verwerkt, rijen.Count - 1);
             var regelnummer = verwerkt + 1;
 
             var kaart = V(kKaart).Replace(" ", "");

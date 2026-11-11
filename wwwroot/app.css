@@ -2190,6 +2190,9 @@ html[data-thema="donker"] .scan-toevoegen { background: var(--vulling); border-c
 
 /* ---- import van bankbestanden ---- */
 html[data-thema="donker"] .importcijfers { background: var(--d2); border-color: var(--d3); }
+.import-voortgang { height: .6rem; border-radius: 999px; background: #e6ebf1; overflow: hidden; margin: .7rem 0 .2rem; }
+.import-voortgang > div { height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s ease-out; }
+html[data-thema="donker"] .import-voortgang { background: var(--d3); }
 html[data-thema="donker"] .import-nieuw b { color: #4ecb71; }
 html[data-thema="donker"] .import-fout { background: #3a2020; border-color: var(--rood); color: #ffb4ae; }
 html[data-thema="donker"] .banktotalen { box-shadow: 0 2px 12px rgba(0,0,0,.45); }

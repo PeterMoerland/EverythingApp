@@ -278,9 +278,18 @@
                 @* De @key maakt het invoerveld nieuw na elke import; anders doet
                    nogmaals hetzelfde bestand kiezen niets (browsergedrag). *@
                 <label class="bestandknop" @key="_importRonde">
-                    @(_importBezig ? "Bezig met importeren…" : "Kies het CSV-bestand…")
+                    @(_importBezig ? $"Bezig met importeren… {_importPct}%" : "Kies het CSV-bestand…")
                     <InputFile OnChange="ImportBestand" accept=".csv" disabled="@_importBezig" />
                 </label>
+
+                @* voortgang (wens gebruiker 11-11-2026): balk met percentage en regels *@
+                @if (_importBezig && _importTotaal > 0)
+                {
+                    <div class="import-voortgang" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@_importPct">
+                        <div style="width:@(_importPct)%"></div>
+                    </div>
+                    <p class="uitleg">@_importGedaan van @_importTotaal regels (@_importPct%)</p>
+                }
 
                 @if (_import is not null)
                 {
@@ -766,10 +775,13 @@
     private void OpenImport() { _importOpen = true; _import = null; }
     private void SluitImport() { if (!_importBezig) _importOpen = false; }
 
+    private int _importGedaan, _importTotaal, _importPct;
+
     private async Task ImportBestand(InputFileChangeEventArgs e)
     {
         _importBezig = true;
         _import = null;
+        _importGedaan = _importTotaal = _importPct = 0;
 
         try
         {
@@ -778,7 +790,17 @@
             await e.File.OpenReadStream(maxAllowedSize: 10_000_000).CopyToAsync(geheugen);
             var inhoud = LeesTekst(geheugen.ToArray());
 
-            _import = await Repo.ImporteerAsync(inhoud, Ik.WerknemerId);
+            // na elke regel; alleen opnieuw tekenen als het percentage verandert (de import wacht op de database, dus
+            // de tekening komt tussendoor)
+            _import = await Repo.ImporteerAsync(inhoud, Ik.WerknemerId, (gedaan, totaal) =>
+            {
+                _importGedaan = gedaan;
+                _importTotaal = totaal;
+                var pct = totaal == 0 ? 0 : gedaan * 100 / totaal;
+                if (pct == _importPct && gedaan != 1) return;
+                _importPct = pct;
+                _ = InvokeAsync(StateHasChanged);
+            });
 
             if (_import.Toegevoegd > 0)
             {
