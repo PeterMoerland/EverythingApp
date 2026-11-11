@@ -56,6 +56,14 @@
                             ✓ Al ingevoerde weghalen (@_alIngevoerd.Count)
                         </button>
                     }
+                    @if (_inbox.Any(x => ZonderFactuur(x.Stuk)))
+                    {
+                        <label class="vink" title="Mails zonder factuur (orderbevestigingen, herinneringen, nieuwsbrieven) niet tonen">
+                            <input type="checkbox" checked="@_verbergZonder" @onchange="e => _verbergZonder = e.Value is true" />
+                            Zonder factuur verbergen (@_inbox.Count(x => ZonderFactuur(x.Stuk)))</label>
+                        <button class="klein" @onclick="NegeerZonderFactuur" title="Alle mails zonder factuur en zonder bijlage uit de lijst halen">
+                            Alle zonder factuur negeren</button>
+                    }
                     <button class="klein" @onclick="() => _inboxOpen = false">✕</button>
                 </div>
                 @if (_inbox.Count == 0)
@@ -76,7 +84,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var (s, g) in _inbox)
+                            @foreach (var (s, g) in InboxGetoond)
                             {
                                 <tr @key="s.Id">
                                     <td>@s.Ontvangen.ToString("dd-MM-yy HH:mm")</td>
@@ -101,6 +109,16 @@
                                         @if (s.Melding.Length > 0) { <span class="inbox-fout" title="@s.Melding">⚠ @Kort(s.Melding, 60)</span> }
                                     </td>
                                     <td class="r">
+                                        @if (s.Melding.Contains("Uitlezen mislukt"))
+                                        {
+                                            <button class="klein" disabled="@_inboxBezig.Contains(s.Id)" @onclick="() => OpnieuwUitlezen(s)"
+                                                    title="De bewaarde bijlage nog eens laten uitlezen">@(_inboxBezig.Contains(s.Id) ? "Bezig…" : "↻ Opnieuw uitlezen")</button>
+                                        }
+                                        else if (ZonderFactuur(s) && s.MailId.Length > 0)
+                                        {
+                                            <button class="klein" disabled="@_inboxBezig.Contains(s.Id)" @onclick="() => OpnieuwVerwerken(s)"
+                                                    title="De mail opnieuw ophalen; foto's en PDF's in de tekst zelf tellen nu ook mee">@(_inboxBezig.Contains(s.Id) ? "Bezig…" : "↻ Mail opnieuw verwerken")</button>
+                                        }
                                         <button class="klein" @onclick="() => Beoordeel(s)">Beoordelen</button>
                                         <button class="klein" @onclick="() => Negeer(s)" title="Geen factuur (bv. een nieuwsbrief): uit de lijst halen">Negeren</button>
                                     </td>
@@ -853,6 +871,58 @@
         _inboxStuk = null;
         try { await Inbox.AfhandelenAsync(s.Id, 1, id, Ik.WerknemerId); }
         catch (Exception ex) { Toon("De factuur is opgeslagen, maar de inbox-regel bijwerken mislukte: " + ex.Message, true); }
+        await LaadInbox();
+    }
+
+    // ---- mails zonder factuur, opnieuw uitlezen en opnieuw verwerken (11-11-2026) ----
+    private bool _verbergZonder;
+    private readonly HashSet<int> _inboxBezig = new();
+
+    /// <summary>Een mail waar geen PDF of foto in zat (en niets anders bewaard): orderbevestiging, herinnering, nieuwsbrief.</summary>
+    private static bool ZonderFactuur(InboxStuk s)
+        => !s.IsBon && s.Melding.StartsWith("Geen factuur gevonden", StringComparison.OrdinalIgnoreCase) && s.Bestanden.Count == 0;
+
+    private IEnumerable<(InboxStuk Stuk, FactuurUitPdf? Gelezen)> InboxGetoond
+        => _verbergZonder ? _inbox.Where(x => !ZonderFactuur(x.Stuk)) : _inbox;
+
+    private async Task OpnieuwUitlezen(InboxStuk s)
+    {
+        if (!_inboxBezig.Add(s.Id)) return;
+        try
+        {
+            var fout = await Ophaler.OpnieuwUitlezenAsync(s);
+            Toon(fout is null ? "Opnieuw uitgelezen." : "Uitlezen lukt nog steeds niet: " + fout, fout is not null);
+            await LaadInbox();
+        }
+        catch (Exception ex) { Toon("Opnieuw uitlezen mislukt: " + ex.Message, true); }
+        finally { _inboxBezig.Remove(s.Id); }
+    }
+
+    private async Task OpnieuwVerwerken(InboxStuk s)
+    {
+        if (!_inboxBezig.Add(s.Id)) return;
+        try
+        {
+            var (gevonden, tekst) = await Ophaler.OpnieuwVerwerkenAsync(s, Ik.WerknemerId);
+            Toon(tekst, !gevonden);
+            if (gevonden) await LaadInbox();
+        }
+        catch (Exception ex) { Toon("Opnieuw verwerken mislukt: " + ex.Message, true); }
+        finally { _inboxBezig.Remove(s.Id); }
+    }
+
+    private async Task NegeerZonderFactuur()
+    {
+        var lijst = _inbox.Where(x => ZonderFactuur(x.Stuk)).Select(x => x.Stuk).ToList();
+        if (lijst.Count == 0) return;
+        if (!await Vraag($"{lijst.Count} mail(s) zonder factuur negeren? Ze verdwijnen uit deze lijst; er wordt geen factuur van gemaakt.")) return;
+        var n = 0;
+        try
+        {
+            foreach (var s in lijst) { await Inbox.AfhandelenAsync(s.Id, 2, null, Ik.WerknemerId); n++; }
+            Toon($"{n} mail(s) zonder factuur genegeerd.", false);
+        }
+        catch (Exception ex) { Toon($"{n} genegeerd; daarna mislukt: {ex.Message}", true); }
         await LaadInbox();
     }
 

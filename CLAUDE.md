@@ -353,6 +353,21 @@ scan niet in de browser gezien (lokaal geen bankrekeningen zonder login); de log
 de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maandelijkse facturen). Lezend sep-okt: 291 ongekoppeld
 (de gebruiker had er al ruim 60 gekoppeld), 7 zeker, 7 zelf bekijken.
 
+## Factuur-inbox: foto's in de mail, opnieuw proberen, zonder factuur (11-11-2026)
+
+Melding gebruiker: veel "Geen factuur gevonden" en "Bedrock gaf 503". Oorzaken: `MailService` sloeg elk onderdeel met
+Content-Disposition **inline** over (bedoeld voor logo's), maar een op de telefoon geplakte foto en bijlagen uit Apple Mail
+komen zo binnen; herkenning ging alleen op extensie; een 503 werd opgeslagen en de mail gelabeld, dus nooit opnieuw.
+Nu: `MailBericht.Ingebed` (inline-onderdelen, `MailBijlage.Soort`/`Inline`; het Mail-scherm ziet ze niet), de ophaler
+neemt ingebedde PDF's en foto's vanaf 100 kB mee (`MinIngebedFoto`), herkent op MIME-type (`Soort`, naam krijgt de juiste
+extensie), meldt HEIC (iPhone) duidelijk, en `LeesMetHerhalingAsync` probeert bij 503/429/time-out na 5, 30 en 120 s opnieuw.
+Te beoordelen: per regel **Opnieuw uitlezen** (`OpnieuwUitlezenAsync`, bewaarde bijlage, `BijwerkenGelezenAsync`) en **Mail
+opnieuw verwerken** (`OpnieuwVerwerkenAsync`: nieuwe regels, oude genegeerd; anders "nog steeds geen factuur" met de
+onderdelen van de mail); vinkje **Zonder factuur verbergen** en **Alle zonder factuur negeren**. Lokaal bekeken: 69 regels,
+9 opnieuw uitlezen, 18 opnieuw verwerken. Niet getest: het ophalen zelf (de sleutel van het serviceaccount staat alleen
+op de server). Transactielijst: rijen compacter, opmerking zonder kader (alleen `tr.bt-rij`; `.banktabel` zit ook in
+het rechtenpaneel).
+
 ## Inkoopfactuur: Doorbelasten is 1 = 100% (11-11-2026)
 
 `FacturenInkomend.PercentageDoorbelasten` is een geheel getal (standaard 100) dat Access als percentage toonde: alle 23.824

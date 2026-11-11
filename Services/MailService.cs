@@ -9,6 +9,13 @@ public record MailBericht(string Id, string ThreadId, string Van, string Naar, s
                           DateTime? Datum, string Samenvatting, bool Ongelezen,
                           List<MailBijlage> Bijlagen)
 {
+    /// <summary>
+    /// Onderdelen die in de tekst zelf zitten (Content-Disposition: inline): een logo, maar ook een foto die op een
+    /// telefoon in de mail is geplakt of een bijlage uit Apple Mail. Staan niet in <see cref="Bijlagen"/> (anders heeft
+    /// bijna elke mail er een); de factuur-inbox kijkt er wel naar (11-11-2026).
+    /// </summary>
+    public List<MailBijlage> Ingebed { get; init; } = new();
+
     /// <summary>Naam zonder e-mailadres: 'Jan Jansen &lt;j@x.nl&gt;' → 'Jan Jansen'.</summary>
     public string VanKort
     {
@@ -21,7 +28,8 @@ public record MailBericht(string Id, string ThreadId, string Van, string Naar, s
     }
 }
 
-public record MailBijlage(string Id, string Naam, long Grootte);
+/// <summary>Een bijlage; Soort = het MIME-type (application/pdf, image/jpeg, ...), Inline = in de tekst zelf.</summary>
+public record MailBijlage(string Id, string Naam, long Grootte, string Soort = "", bool Inline = false);
 
 /// <summary>De uitgeklapte inhoud van een bericht.</summary>
 public record MailInhoud(MailBericht Bericht, string Tekst);
@@ -179,16 +187,17 @@ public class MailService
                 datum = DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime;
 
             var bijlagen = new List<MailBijlage>();
+            var ingebed = new List<MailBijlage>();
             var tekst = "";
             if (wortel.TryGetProperty("payload", out var deel))
             {
-                ZoekBijlagen(deel, bijlagen);
+                ZoekBijlagen(deel, bijlagen, ingebed);
                 tekst = ZoekTekst(deel) ?? "";
             }
 
             var bericht = new MailBericht(berichtId, threadId, van, naar,
                                           string.IsNullOrWhiteSpace(onderwerp) ? "(geen onderwerp)" : onderwerp,
-                                          datum, samenvatting, ongelezen, bijlagen);
+                                          datum, samenvatting, ongelezen, bijlagen) { Ingebed = ingebed };
 
             return new MailInhoud(bericht, string.IsNullOrWhiteSpace(tekst) ? samenvatting : tekst);
         }
@@ -276,20 +285,27 @@ public class MailService
         return false;
     }
 
-    /// <summary>Loopt door de onderdelen van een bericht en verzamelt de bijlagen.</summary>
-    private static void ZoekBijlagen(JsonElement deel, List<MailBijlage> uit)
+    /// <summary>
+    /// Loopt door de onderdelen van een bericht en verzamelt de bijlagen; onderdelen in de tekst zelf (inline) gaan naar
+    /// <paramref name="ingebed"/>, ook als ze geen bestandsnaam hebben (een geplakte foto heet soms nergens naar).
+    /// </summary>
+    private static void ZoekBijlagen(JsonElement deel, List<MailBijlage> uit, List<MailBijlage>? ingebed = null)
     {
         var naam = Tekst(deel, "filename");
-        if (!string.IsNullOrWhiteSpace(naam) && !IsInline(deel)
-            && deel.TryGetProperty("body", out var body)
-            && body.TryGetProperty("attachmentId", out var bijlageId))
+        var soort = Tekst(deel, "mimeType") ?? "";
+        if (deel.TryGetProperty("body", out var body) && body.TryGetProperty("attachmentId", out var bijlageId))
         {
             var grootte = body.TryGetProperty("size", out var s) && s.TryGetInt64(out var g) ? g : 0;
-            uit.Add(new MailBijlage(bijlageId.GetString() ?? "", naam!, grootte));
+            var inline = IsInline(deel);
+            if (!string.IsNullOrWhiteSpace(naam) && !inline)
+                uit.Add(new MailBijlage(bijlageId.GetString() ?? "", naam!, grootte, soort));
+            else if (ingebed is not null && !soort.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+                     && !soort.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
+                ingebed.Add(new MailBijlage(bijlageId.GetString() ?? "", string.IsNullOrWhiteSpace(naam) ? "" : naam!, grootte, soort, Inline: true));
         }
 
         if (deel.TryGetProperty("parts", out var delen) && delen.ValueKind == JsonValueKind.Array)
-            foreach (var onderdeel in delen.EnumerateArray()) ZoekBijlagen(onderdeel, uit);
+            foreach (var onderdeel in delen.EnumerateArray()) ZoekBijlagen(onderdeel, uit, ingebed);
     }
 
     /// <summary>Inhoud van een bijlage, zodat die de filestore in kan.</summary>

@@ -503,6 +503,12 @@ html[data-thema="donker"] .bt-chip.let { background: #382d16; color: #f0c46a; }
 .banktabel .bedrag-bij { color: #1a8f3c; font-weight: 600; }
 .banktabel td.r { font-variant-numeric: tabular-nums; }
 .banktabel input { width: 100%; }
+/* transactielijst compacter (wens gebruiker 11-11-2026): opmerking zonder kader, met een lichte achtergrond */
+.banktabel tr.bt-rij td { padding-top: .12rem; padding-bottom: .12rem; vertical-align: middle; }
+.banktabel tr.bt-rij input:not([type="checkbox"]) { border: 0; border-radius: 3px; background: #f1f5fa; padding: .12rem .4rem; font: inherit; font-size: .95em; }
+.banktabel tr.bt-rij input:not([type="checkbox"]):focus { outline: 2px solid var(--accent); outline-offset: 0; background: #fff; }
+html[data-thema="donker"] .banktabel tr.bt-rij input:not([type="checkbox"]) { background: var(--d3); color: inherit; }
+html[data-thema="donker"] .banktabel tr.bt-rij input:not([type="checkbox"]):focus { background: var(--d1); }
 
 /* Blijft onderaan het venster staan terwijl je door de (lange) tabel bladert;
    pas aan het einde neemt hij zijn gewone plek in. Zo zijn de totalen altijd

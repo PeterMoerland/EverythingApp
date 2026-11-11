@@ -72,6 +72,8 @@ public interface IFactuurInboxRepository
     Task<int> VoegToeAsync(InboxStuk stuk, IReadOnlyList<(string Naam, byte[] Inhoud)> bestanden);
     /// <summary>Status 1 = verwerkt (met de factuur die eruit ontstond), 2 = genegeerd.</summary>
     Task AfhandelenAsync(int inboxId, int status, int? factuurId, int? door);
+    /// <summary>Na opnieuw uitlezen: wat de AI las (JSON) en de melding.</summary>
+    Task BijwerkenGelezenAsync(int inboxId, string gelezen, string melding);
 }
 
 public class GeenFactuurInboxRepository : IFactuurInboxRepository
@@ -85,6 +87,7 @@ public class GeenFactuurInboxRepository : IFactuurInboxRepository
     public Task<int> VoegToeAsync(InboxStuk stuk, IReadOnlyList<(string Naam, byte[] Inhoud)> bestanden)
         => throw new InvalidOperationException("Er is geen database.");
     public Task AfhandelenAsync(int inboxId, int status, int? factuurId, int? door) => Task.CompletedTask;
+    public Task BijwerkenGelezenAsync(int inboxId, string gelezen, string melding) => Task.CompletedTask;
 }
 
 /// <summary>Alleen om lokaal te testen zonder de tabel FactuurInbox: FactuurInbox__Geheugen=true.</summary>
@@ -121,6 +124,12 @@ public class GeheugenFactuurInboxRepository : IFactuurInboxRepository
     public Task AfhandelenAsync(int inboxId, int status, int? factuurId, int? door)
     {
         if (_rijen.TryGetValue(inboxId, out var r)) _rijen[inboxId] = (r.Stuk, r.Bestanden, status);
+        return Task.CompletedTask;
+    }
+
+    public Task BijwerkenGelezenAsync(int inboxId, string gelezen, string melding)
+    {
+        if (_rijen.TryGetValue(inboxId, out var r)) { r.Stuk.Gelezen = gelezen; r.Stuk.Melding = melding; }
         return Task.CompletedTask;
     }
 }
@@ -280,6 +289,17 @@ public class MySqlFactuurInboxRepository : IFactuurInboxRepository
         cmd.Parameters.AddWithValue("@st", status);
         cmd.Parameters.AddWithValue("@f", (object?)factuurId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", inboxId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task BijwerkenGelezenAsync(int inboxId, string gelezen, string melding)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "UPDATE `FactuurInbox` SET `Gelezen` = @g, `Melding` = @m WHERE `FactuurInboxID` = @id", cn);
+        cmd.Parameters.AddWithValue("@g", gelezen.Length == 0 ? DBNull.Value : gelezen);
+        cmd.Parameters.AddWithValue("@m", melding.Length > 500 ? melding[..500] : melding);
         cmd.Parameters.AddWithValue("@id", inboxId);
         await cmd.ExecuteNonQueryAsync();
     }
