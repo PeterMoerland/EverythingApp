@@ -11,7 +11,7 @@
 <div class="page">
     <header class="topbar">
         <h1>Banktransacties</h1>
-        <span class="weeklabel">@_totalen.Aantal transacties · @Bedrag(_totalen.Totaal)</span>
+        <span class="weeklabel">@_totalen.Aantal transacties · @(TotaalMunt is { Length: > 0 } tm ? Bedrag(_totalen.Totaal, tm) : Bedrag(_totalen.Totaal) + " (verschillende munten bij elkaar opgeteld)")</span>
         @if (_rekeningen.Count > 0)
         {
             <button class="klein" @onclick="OpenImport">⭱ Importeren</button>
@@ -220,7 +220,7 @@
                         <tr @key="t.Id" class="bt-rij @(t.Id == _detail?.Id ? "gekozen-rij" : "")" title="Dubbelklik voor alle gegevens en de gekoppelde facturen"
                             @ondblclick="() => OpenDetail(t)">
                             <td>@(t.Datum?.ToString("dd-MM-yyyy") ?? "")</td>
-                            <td class="r @(t.Bij ? "bedrag-bij" : "")">@Bedrag(t.Bedrag)</td>
+                            <td class="r @(t.Bij ? "bedrag-bij" : "")">@Bedrag(t.Bedrag, t.Munt)</td>
                             <td class="iban">@t.Tegenrekening</td>
                             <td>@t.Tenaamstelling</td>
                             <td class="omschrijving" title="@t.Omschrijving">@t.Omschrijving</td>
@@ -284,6 +284,8 @@
                     overgeslagen — dubbel importeren kan dus geen kwaad.
                     De export van de creditcards (RA_CC_….csv) kan hier ook: elke kaart moet dan bij
                     Bankrekeningen staan als creditcard met zijn kaartnummer.
+                    En de export van iBanFirst (enhanced-….csv): elke rekening (euro, dollar, pond) moet bij
+                    Bankrekeningen staan met haar IBAN.
                 </p>
 
                 @* De @key maakt het invoerveld nieuw na elke import; anders doet
@@ -333,7 +335,7 @@
     <div class="cmdk-overlay" @onclick="SluitDetail">
         <div class="voorbeeldvenster bankdetail" @onclick:stopPropagation>
             <header class="bijlagekop">
-                <h2>Transactie @(_detail.Datum?.ToString("dd-MM-yyyy") ?? "") · @Bedrag(_detail.Bedrag)</h2>
+                <h2>Transactie @(_detail.Datum?.ToString("dd-MM-yyyy") ?? "") · @Bedrag(_detail.Bedrag, _detail.Munt)</h2>
                 <button class="klein" @onclick="SluitDetail">✕</button>
             </header>
 
@@ -343,7 +345,7 @@
                     <div class="wn-veld"><label>Datum</label><span class="alleen-lezen">@(_detail.Datum?.ToString("dd-MM-yyyy") ?? "")</span></div>
                     <div class="wn-veld"><label>Volgnummer</label><span class="alleen-lezen">@_detail.Volgnummer</span></div>
                     <div class="wn-veld"><label>Rentedatum</label><span class="alleen-lezen">@(_detail.Rentedatum?.ToString("dd-MM-yyyy") ?? "")</span></div>
-                    <div class="wn-veld"><label>Bedrag</label><span class="alleen-lezen">@Bedrag(_detail.Bedrag) @_detail.Munt</span></div>
+                    <div class="wn-veld"><label>Bedrag</label><span class="alleen-lezen">@Bedrag(_detail.Bedrag, _detail.Munt)</span></div>
                     <div class="wn-veld"><label>Saldo na transactie</label><span class="alleen-lezen">@Saldo(_detail.SaldoNa)</span></div>
                     <div class="wn-veld"><label>Sombedrag</label><span class="alleen-lezen">@Saldo(_detail.Sombedrag)</span></div>
                     <div class="wn-veld"><label>Oorspronkelijk bedrag</label><span class="alleen-lezen">@Saldo(_detail.OorspronkelijkBedrag) @_detail.OorspronkelijkeMunt</span></div>
@@ -683,6 +685,17 @@
 
     private static string Bedrag(decimal waarde)
         => waarde.ToString("C2", new System.Globalization.CultureInfo("nl-NL"));
+
+    /// <summary>In de munt van de rekening (iBanFirst: dollar en pond, 11-11-2026); euro zoals altijd.</summary>
+    private static string Bedrag(decimal waarde, string? munt)
+        => string.IsNullOrWhiteSpace(munt) || munt.Trim().Equals("EUR", StringComparison.OrdinalIgnoreCase)
+            ? Bedrag(waarde)
+            : (munt.Trim().ToUpperInvariant() switch { "USD" => "$ ", "GBP" => "£ ", var m => m + " " })
+              + waarde.ToString("N2", new System.Globalization.CultureInfo("nl-NL"));
+
+    /// <summary>De munt van alle regels in de lijst als dat er één is, anders leeg (dan is het totaal een mengsel).</summary>
+    private string TotaalMunt
+        => _lijst.Count == 0 ? "EUR" : _lijst.Select(t => t.Munt).Distinct(StringComparer.OrdinalIgnoreCase).ToList() is { Count: 1 } m ? m[0] : "";
 
     private static string Saldo(decimal? waarde) => waarde is null ? "—" : Bedrag(waarde.Value);
 

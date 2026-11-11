@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 11-11-2026
 
+- **Banktransacties** — Nieuw: de export van iBanFirst importeren (euro-, dollar- en pondrekening). Bedragen in dollar en pond staan in de lijst met $ of £ in plaats van €.
 - **Algemeen** — Opgelost: na een update van de app moest je opnieuw inloggen voordat mailen weer werkte, en een half verstuurde mail was dan weg. De Google-aanmelding blijft nu bewaard. Is hij toch verlopen, dan vraagt de app je opnieuw aan te melden in een klein venster en gaat de mail daarna gewoon weg. De eerste keer vraagt Google nog één keer om toestemming.
 - **Bankrekeningen** — Nieuw: creditcards als rekening (soort 💳 Creditcard, met het kaartnummer als nummer) en "Afgerekend via" voor de betaalrekening waarvan de kaart wordt afgeschreven.
 - **Banktransacties** — Nieuw: de creditcard-export van de Rabobank importeren; kaarttransacties koppel je net zo aan facturen en grootboek als gewone transacties.

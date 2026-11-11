@@ -7,6 +7,8 @@ public class Banktransactie
     public string Rekening { get; set; } = "";
     public DateTime? Datum { get; set; }
     public decimal Bedrag { get; set; }
+    /// <summary>EUR, USD, GBP… (iBanFirst heeft per munt een rekening, 11-11-2026).</summary>
+    public string Munt { get; set; } = "EUR";
     public string Tegenrekening { get; set; } = "";
     public string Tenaamstelling { get; set; } = "";
     public string Omschrijving { get; set; } = "";

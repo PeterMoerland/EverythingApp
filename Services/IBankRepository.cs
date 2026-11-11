@@ -283,7 +283,8 @@ public class MySqlBankRepository : IBankRepository
             "SELECT t.`BankTransacties_ID`, t.`Rekening`, t.`Datum`, t.`Bedrag`, " +
             "       COALESCE(t.`Tegenrekening`, ''), COALESCE(NULLIF(t.`NaamTegenpartij`, ''), t.`Tenaamstelling`, ''), " +
             "       COALESCE(t.`Omschrijving`, ''), COALESCE(t.`Opmerking`, ''), t.`Pasnummer`, COALESCE(xc.`n`, 0), " +
-            (grootboek ? "t.`GrootboekID`, COALESCE(gb.`Code`, ''), COALESCE(gb.`Naam`, '') " : "NULL, '', '' ") +
+            (grootboek ? "t.`GrootboekID`, COALESCE(gb.`Code`, ''), COALESCE(gb.`Naam`, ''), " : "NULL, '', '', ") +
+            "       COALESCE(NULLIF(t.`Munt`, ''), 'EUR') " +
             "  FROM `banktransacties` t " +
             (grootboek ? "  LEFT JOIN `Grootboekrekeningen` gb ON gb.`GrootboekID` = t.`GrootboekID` " : "") +
             // aantal gekoppelde facturen: één keer tellen (de koppeltabel heeft ~16.000 regels), niet per transactie
@@ -313,6 +314,7 @@ public class MySqlBankRepository : IBankRepository
                 GrootboekId = r.IsDBNull(10) ? null : Convert.ToInt32(r.GetValue(10)),
                 Grootboek = S(11),
                 GrootboekNaam = S(12),
+                Munt = S(13).Trim().ToUpperInvariant(),
             });
         }
         return lijst;
@@ -883,10 +885,15 @@ public class MySqlBankRepository : IBankRepository
     public async Task<BankImportResultaat> ImporteerAsync(string csv, int? doorWerknemerId, Action<int, int>? voortgang = null)
     {
         var fouten = new List<string>();
-        var rijen = LeesCsv(csv);
+        var rijen = LeesCsv(csv, Scheidingsteken(csv));
 
         if (rijen.Count == 0)
             return new(0, 0, 0, new List<string> { "Het bestand is leeg." });
+
+        // iBanFirst ("enhanced-….csv", puntkomma's): eigen kolommen (wens gebruiker 11-11-2026)
+        if (rijen[0].Any(k => k.Trim().Equals("AccountIdentification", StringComparison.OrdinalIgnoreCase))
+            && rijen[0].Any(k => k.Trim().Equals("Identificatie", StringComparison.OrdinalIgnoreCase)))
+            return await ImporteerIbanFirstAsync(rijen, doorWerknemerId, voortgang);
 
         // Creditcard-export (RA_CC_…csv, "Rabo BusinessCard"): eigen kolommen. Moet vóór de IBAN-controle hieronder, want
         // die kopregel noemt ook "Tegenrekening IBAN" en dan zouden de kaartregels op de betaalrekening belanden.
@@ -1204,6 +1211,157 @@ public class MySqlBankRepository : IBankRepository
     }
 
     // ============================================================
+    //  iBanFirst-export (wens gebruiker 11-11-2026)
+    //
+    //  "enhanced-<van>-<tot>.csv", puntkomma's, punt als decimaalteken. Kolommen: Identificatie (uniek), Boekingdatum,
+    //  Valutadatum, Toestand (Afgerond), Type (Kosten / Uitgaande overschrijving / Binnenkomende overschrijving /
+    //  buy & sell), Tegenpartij (alleen de naam, geen IBAN), Beschrijving, Communicatie (vaak het factuurnummer),
+    //  Interne referentie (bundelt een betaling met zijn kosten), Gedebiteerd bedrag (negatief) of Gecrediteerd bedrag,
+    //  Valuta, Note, Beginbedrag + Initial amount currency (bij omwisselen), AccountIdentification (het eigen IBAN; per
+    //  munt een rekening). Geen saldo in de export: Saldo na trn blijft leeg, zoals bij de creditcards.
+    //  Elke rekening moet bij Bankrekeningen staan; alleen Afgerond wordt ingelezen.
+    // ============================================================
+    private async Task<BankImportResultaat> ImporteerIbanFirstAsync(List<string[]> rijen, int? doorWerknemerId, Action<int, int>? voortgang)
+    {
+        var kop = rijen[0].Select(k => k.Trim()).ToList();
+        int Kol(string naam) => kop.FindIndex(k => k.Equals(naam, StringComparison.OrdinalIgnoreCase));
+        int kId = Kol("Identificatie"), kBoek = Kol("Boekingdatum"), kValuta = Kol("Valutadatum"), kToestand = Kol("Toestand"),
+            kType = Kol("Type"), kTegen = Kol("Tegenpartij"), kBeschr = Kol("Beschrijving"), kComm = Kol("Communicatie"),
+            kIntRef = Kol("Interne referentie"), kDebet = Kol("Gedebiteerd bedrag"), kCredit = Kol("Gecrediteerd bedrag"),
+            kMunt = Kol("Valuta"), kNote = Kol("Note"), kBegin = Kol("Beginbedrag"), kBeginMunt = Kol("Initial amount currency"),
+            kRek = Kol("AccountIdentification");
+        if (kId < 0 || kBoek < 0 || kRek < 0 || (kDebet < 0 && kCredit < 0))
+            return new(0, 0, 0, new List<string> { "Dit lijkt geen iBanFirst-export: de kolommen Identificatie, Boekingdatum, AccountIdentification of de bedragen ontbreken." });
+
+        var fouten = new List<string>();
+        int verwerkt = 0, toegevoegd = 0, alAanwezig = 0, nietAfgerond = 0;
+
+        await using var cn = await OpenAsync();
+
+        // de rekeningen zoals ze bij Bankrekeningen staan
+        var bekend = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var cmd = new MySqlCommand("SELECT UPPER(REPLACE(COALESCE(`Rekeningnummer`, ''), ' ', '')) FROM `Bankrekeningen`", cn))
+        await using (var rd = await cmd.ExecuteReaderAsync())
+            while (await rd.ReadAsync())
+                if (!rd.IsDBNull(0) && rd.GetString(0).Length > 0) bekend.Add(rd.GetString(0));
+        var onbekend = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rij in rijen.Skip(1))
+        {
+            string V(int i) => i >= 0 && i < rij.Length ? rij[i].Replace('\\', '_').Trim() : "";
+            if (rij.All(string.IsNullOrWhiteSpace)) continue;
+            verwerkt++;
+            voortgang?.Invoke(verwerkt, rijen.Count - 1);
+            var regelnummer = verwerkt + 1;
+
+            var rekening = V(kRek).Replace(" ", "").ToUpperInvariant();
+            if (!bekend.Contains(rekening))
+            {
+                onbekend[rekening] = (onbekend.TryGetValue(rekening, out var n) ? n : 0) + 1;
+                continue;
+            }
+            // nog in behandeling of geannuleerd: niet inlezen (een volgende export neemt hem mee als hij afgerond is)
+            if (kToestand >= 0 && V(kToestand).Length > 0 && !V(kToestand).Equals("Afgerond", StringComparison.OrdinalIgnoreCase))
+            {
+                nietAfgerond++;
+                continue;
+            }
+
+            var datum = DatumUit(V(kBoek));
+            if (datum is null) { fouten.Add($"Regel {regelnummer}: '{V(kBoek)}' is geen datum (verwacht: jjjj-mm-dd). Regel overgeslagen."); continue; }
+
+            // af: Gedebiteerd (negatief), bij: Gecrediteerd
+            decimal bedrag;
+            if (V(kDebet).Length > 0)
+            {
+                if (!ProbeerGeld(V(kDebet), out var af)) { fouten.Add($"Regel {regelnummer}: '{V(kDebet)}' is geen bedrag. Regel overgeslagen."); continue; }
+                bedrag = -Math.Abs(af);
+            }
+            else if (!ProbeerGeld(V(kCredit), out bedrag)) { fouten.Add($"Regel {regelnummer}: '{V(kCredit)}' is geen bedrag. Regel overgeslagen."); continue; }
+
+            var referentie = Kort(V(kId), 50);
+
+            // ---- staat hij er al? (Identificatie is uniek) ----
+            await using (var kijk = new MySqlCommand(
+                "SELECT COUNT(*) FROM `banktransacties` WHERE `Rekening` = @r AND `Transactiereferentie` = @ref", cn))
+            {
+                kijk.Parameters.AddWithValue("@r", rekening);
+                kijk.Parameters.AddWithValue("@ref", referentie);
+                if (Convert.ToInt64(await kijk.ExecuteScalarAsync()) > 0) { alAanwezig++; continue; }
+            }
+
+            var beschrijving = V(kBeschr);
+            var communicatie = V(kComm);
+            var omschrijving = beschrijving;
+            if (communicatie.Length > 0 && !beschrijving.Contains(communicatie, StringComparison.OrdinalIgnoreCase))
+                omschrijving = (beschrijving + " " + communicatie).Trim();
+            if (omschrijving.Length == 0) omschrijving = V(kType);
+            omschrijving = Kort(ZonderDubbeleSpaties(omschrijving.Replace('\'', '_')).Trim(), 200);
+
+            // Type als korte code, zoals de bank dat doet (Code is 5 tekens)
+            var code = V(kType).ToLowerInvariant() switch
+            {
+                var t when t.StartsWith("kosten") => "KOST",
+                var t when t.StartsWith("uitgaande") => "UIT",
+                var t when t.StartsWith("binnenkomende") => "IN",
+                var t when t.Contains("buy") || t.Contains("sell") => "FX",
+                var t => Kort(t, 5),
+            };
+
+            await using var voeg = new MySqlCommand(
+                "INSERT INTO `banktransacties` " +
+                "(`Rekening`, `Munt`, `BIC`, `VolgNr`, `Datum`, `RenteDatum`, `Bedrag`, `SomBedrag`, `Saldo na trn`, " +
+                " `Tegenrekening`, `NaamTegenpartij`, `NaamUiteindelijkePartij`, `NaamInitierendePartij`, `BICtegenpartij`, " +
+                " `Code`, `BatchID`, `Transactiereferentie`, `MachtigingsKenmerk`, `IncassantID`, `Betalingskenmerk`, " +
+                " `Omschrijving`, `Pasnummer`, `RedenRetour`, `OorspronkelijkeBedrag`, `OorspronkelijkeMunt`, " +
+                " `Importdatum`, `GeimporteerdDoor`, `Opmerking`) VALUES " +
+                "(@rekening, @munt, '', 0, @datum, @valuta, @bedrag, @bedrag, NULL, " +
+                " '', @tegen, '', '', '', " +
+                " @code, @batch, @referentie, '', '', @kenmerk, " +
+                " @omschrijving, NULL, '', @oorBedrag, @oorMunt, " +
+                " @nu, @door, @opmerking)", cn);
+            voeg.Parameters.AddWithValue("@rekening", rekening);
+            voeg.Parameters.AddWithValue("@munt", Kort(V(kMunt), 5));
+            voeg.Parameters.AddWithValue("@datum", datum.Value);
+            voeg.Parameters.AddWithValue("@valuta", (object?)DatumUit(V(kValuta)) ?? DBNull.Value);
+            voeg.Parameters.AddWithValue("@bedrag", bedrag);
+            voeg.Parameters.AddWithValue("@tegen", Kort(V(kTegen), 50));
+            voeg.Parameters.AddWithValue("@code", code);
+            voeg.Parameters.AddWithValue("@batch", Kort(V(kIntRef), 30));
+            voeg.Parameters.AddWithValue("@referentie", referentie);
+            voeg.Parameters.AddWithValue("@kenmerk", Kort(communicatie, 50));
+            voeg.Parameters.AddWithValue("@omschrijving", omschrijving);
+            voeg.Parameters.AddWithValue("@oorBedrag", Geld(V(kBegin)));
+            voeg.Parameters.AddWithValue("@oorMunt", Kort(V(kBeginMunt), 25));
+            voeg.Parameters.AddWithValue("@nu", Importdatum());
+            voeg.Parameters.AddWithValue("@door", (object?)doorWerknemerId ?? DBNull.Value);
+            voeg.Parameters.AddWithValue("@opmerking", Kort(V(kNote), 50));
+            try
+            {
+                await voeg.ExecuteNonQueryAsync();
+                toegevoegd++;
+            }
+            catch (Exception ex)
+            {
+                fouten.Add($"Regel {regelnummer}: opslaan mislukt — {ex.Message}. De import is gestopt.");
+                break;
+            }
+        }
+
+        foreach (var (rekening, aantal) in onbekend)
+            fouten.Insert(0, $"Rekening {rekening} staat niet bij Bankrekeningen: voeg hem daar toe en importeer opnieuw. {aantal} regel(s) overgeslagen.");
+        if (nietAfgerond > 0)
+            fouten.Add($"{nietAfgerond} regel(s) zijn nog niet afgerond en zijn overgeslagen; een volgende export neemt ze mee.");
+        if (fouten.Count > 20)
+        {
+            var rest = fouten.Count - 20;
+            fouten = fouten.Take(20).ToList();
+            fouten.Add($"… en nog {rest} vergelijkbare regels.");
+        }
+        return new(verwerkt, toegevoegd, alAanwezig, fouten);
+    }
+
+    // ============================================================
     //  Regels uit de Rabobank-API (RabobankKoppeling)
     // ============================================================
     public async Task<BankImportResultaat> VoegApiRegelsToeAsync(IReadOnlyList<BankRegel> regels, bool alleenKijken)
@@ -1433,7 +1591,27 @@ public class MySqlBankRepository : IBankRepository
     /// splitst niet, en "" binnen een veld is één aanhalingsteken. Access loste dit
     /// op met een truc (","  vervangen door "#"); dit is de nette versie.
     /// </summary>
-    private static List<string[]> LeesCsv(string tekst)
+    private static List<string[]> LeesCsv(string tekst) => LeesCsv(tekst, ',');
+
+    /// <summary>
+    /// Komma (Rabobank) of puntkomma (iBanFirst): wat het vaakst voorkomt in de kopregel, buiten aanhalingstekens.
+    /// </summary>
+    private static char Scheidingsteken(string tekst)
+    {
+        int komma = 0, puntkomma = 0;
+        var binnen = false;
+        foreach (var c in tekst)
+        {
+            if (c == '"') binnen = !binnen;
+            else if (binnen) continue;
+            else if (c == '\n') break;
+            else if (c == ',') komma++;
+            else if (c == ';') puntkomma++;
+        }
+        return puntkomma > komma ? ';' : ',';
+    }
+
+    private static List<string[]> LeesCsv(string tekst, char scheiding)
     {
         var rijen = new List<string[]>();
         var velden = new List<string>();
@@ -1461,7 +1639,7 @@ public class MySqlBankRepository : IBankRepository
                 else veld.Append(c);
             }
             else if (c == '"') binnen = true;
-            else if (c == ',') EindeVeld();
+            else if (c == scheiding) EindeVeld();
             else if (c == '\n') EindeRegel();
             else if (c != '\r') veld.Append(c);
         }
