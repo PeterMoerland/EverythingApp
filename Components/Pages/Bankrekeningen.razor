@@ -11,7 +11,18 @@
 <div class="page">
     <header class="topbar">
         <h1>Bankrekeningen</h1>
-        <span class="weeklabel">@_rekeningen.Count rekeningen</span>
+        <span class="weeklabel">@(_bv is null ? $"{_rekeningen.Count} rekeningen" : $"{Getoond.Count} van {_rekeningen.Count} rekeningen")</span>
+        @* eerst de BV kiezen (wens gebruiker 11-11-2026), zoals bij Banktransacties *@
+        @if (BvKeuzes.Count > 1)
+        {
+            <select class="br-bvkeuze" value="@(_bv?.ToString() ?? "")" @onchange="BvFilterGewijzigd" title="Alleen de rekeningen van deze BV">
+                <option value="">Alle BV's</option>
+                @foreach (var (id, naam, aantal) in BvKeuzes)
+                {
+                    <option value="@id">@naam (@aantal)</option>
+                }
+            </select>
+        }
         @if (Repo.Beschikbaar && MagBeheren)
         {
             <button class="klein" @onclick="Nieuw">＋ Rekening toevoegen</button>
@@ -46,7 +57,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var r in _rekeningen)
+                    @foreach (var r in Getoond)
                     {
                         <tr @key="r.Id" class="@(r.Id == _open ? "br-open" : "")">
                             <td>
@@ -138,6 +149,19 @@
 
 @code {
     private List<BankrekeningBeheer> _rekeningen = new();
+    private int? _bv;            // BV-keuze bovenaan: null = alle, 0 = rekeningen zonder BV
+
+    private List<BankrekeningBeheer> Getoond
+        => _bv is int bv ? _rekeningen.Where(r => (r.BvId ?? 0) == bv).ToList() : _rekeningen;
+
+    /// <summary>De BV's met rekeningen, op naam, met het aantal; "zonder BV" achteraan.</summary>
+    private List<(int Id, string Naam, int Aantal)> BvKeuzes
+        => _rekeningen.GroupBy(r => r.BvId ?? 0)
+                      .Select(g => (g.Key, Naam: g.Key == 0 ? "zonder BV" : _bvs.FirstOrDefault(b => b.Id == g.Key).Naam ?? g.First().Bv, Aantal: g.Count()))
+                      .OrderBy(b => b.Key == 0).ThenBy(b => b.Naam, StringComparer.CurrentCultureIgnoreCase)
+                      .ToList();
+
+    private void BvFilterGewijzigd(ChangeEventArgs e) => _bv = int.TryParse((string?)e.Value, out var v) ? v : null;
     private List<(int Id, string Naam)> _bvs = new();
     private List<Werknemer> _werknemers = new();
     private Dictionary<int, string> _namen = new();
@@ -209,7 +233,8 @@
     {
         try
         {
-            var r = new BankrekeningBeheer { Omschrijving = "Nieuwe rekening" };
+            // met een BV gekozen krijgt de nieuwe rekening die BV (anders valt hij buiten de keuze)
+            var r = new BankrekeningBeheer { Omschrijving = "Nieuwe rekening", BvId = _bv is int bv && bv > 0 ? bv : null };
             r.Id = await Repo.BewaarRekeningAsync(r);
             // wie de rekening aanmaakt mag hem ook zien (anders verdwijnt hij uit Banktransacties)
             if (Ik.WerknemerId is int ik) await Repo.ZetRechtAsync(r.Id, ik, true);

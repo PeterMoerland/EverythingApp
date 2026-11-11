@@ -362,6 +362,8 @@ de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maand
   MainLayout, Instellingen, Onderhoud en Werkplekken (daar telt dus alleen Directie of niet ingelogd/gekoppeld).
 - **Relaties ▸ Bankrekeningen** (tab, zijblok Rekeningen en IBAN/BIC in Opties) alleen met Financial of Directie
   (`MagIbansBeheren`); anders worden de rekeningen ook niet geladen.
+- **Financiën ▸ Bankrekeningen**: BV-keuze bovenaan ("Alle BV's", per BV met aantal, "zonder BV" achteraan), zoals bij
+  Banktransacties; een nieuwe rekening krijgt de gekozen BV.
 
 ## Bestellingen: pakbon om mee te geven (11-11-2026)
 
