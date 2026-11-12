@@ -2337,8 +2337,39 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
 - Getest lokaal met tijdelijke nep-gegevens (scratchpad `boom_tijdelijk.py`), niets geschreven. **Niet getest**: het
   boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
   nieuwe historieregels.
-- **Nog te bouwen**: de blokken van Programmeren en testen naar de fases (met het slot van een open fout).
-  Deel 3, 4 en 5 staan hieronder.
+- Het voorstel is hiermee af: deel 3, 4 en 5 en "Programmeren en testen in de fases" staan hieronder.
+
+## Programmeren en testen in de fases (12-11-2026)
+
+Laatste stuk van het voorstel van Sjoerd Quist. Script: `ProductOpbouwStapFases_MariaDB.sql` (tabel `ProductStapFases`:
+producttype, blok, hoofdfase). **Zonder gekozen fase verandert er niets**; zonder script ook niet
+(`IOpbouwRepository.HeeftStapFasesAsync`).
+
+- **Bij het type**: Producten ▸ type ▸ tab Techniek ▸ Stappen: achter elk blok (`ProductStap.MetFase`: Uitlezen,
+  Programmeren, Testen, NodeAdres, Duurtest; niet Opbouw) een keuze uit de hoofdfases (`ZetStapFaseAsync`). Alleen
+  Directie (`MagTechniek`), zoals de rest van dat blok.
+- **De regel** staat in `StapFaseStand` (Models/Opbouw.cs; `LaadAsync(repo, type, exemplaar)`): een blok met een fase
+  is alleen te gebruiken als die fase de **actieve** hoofdfase is (`OpSlot`). Een fase die niet meer bestaat telt niet.
+- **`ExemplaarWerk`** past de regel zelf toe (dus ook op de werkplek, Test PCB): `ToonUitlezen/Programmeren/Testen/
+  NodeAdres/Duurtest` = `HeeftBlok(stap) && Blok(stap)`. Blokken van een andere fase verdwijnen en bovenaan staat een
+  balk "🔒 Niet in deze fase: … (fase n · naam)" met **✎ Buiten de fase om…** (recht Productcorrectie of Directie,
+  bevestigen, één historieregel "Programmeren en testen buiten de fase om geopend: …"; geldt tot het scherm sluit).
+  Parameter `AlleenFase`: alleen de blokken van die fase (geen balk). `NaOpbouw` herlaadt de stand als de afvinklijst
+  in hetzelfde scherm staat (werkplek).
+- **In de fase**: `OpbouwLijst` heeft `FaseActies` (`RenderFragment<OpbouwStap>`); Producten vult die met
+  `<ExemplaarWerk AlleenFase="fase.Id" …>`. In de actieve fase staat een inklapbaar blok (`details.opb-acties`,
+  standaard dicht) "⚙ Programmeren en testen in deze fase: …"; in de andere fases, en waar geen `FaseActies` is
+  meegegeven (werkplek), alleen een regel met de namen. De blokken werken **ook bij een open fout** (om de oorzaak te
+  vinden): alleen afvinken, invullen en afronden staan dan op slot. Blokken afronden is geen voorwaarde voor Fase klaar
+  (daar zijn de afvinkstappen voor).
+- **Productie ▸ Producten** (`ProductieProduct`): de eigen stap Duurtest toont 🔒 met de fase als die niet actief is.
+- Het tabblad Programmeren en testen blijft bestaan (blokken zonder fase, blokken van de actieve fase, en buiten de
+  fase om). "Eerst uitlezen" geldt per scherm: staat Uitlezen in een andere fase dan Node-adressen, dan vraagt het
+  scherm van die latere fase er niet om (de serienummercontrole van deel 4 draait daar wel).
+- Getest lokaal in het geheugen met de nagebootste agent (scratchpad `d3_tijdelijk.py`, `nepagent.py`): fase kiezen
+  bij Techniek, blokken in de actieve fase (inklapbaar, blijft open na een vinkje), namen in de andere fases, slot en
+  "buiten de fase om" op het tabblad. **Niet getest**: de echte tabel en het script, de werkplekschermen (Test PCB,
+  Productie ▸ Producten), de duurtest in een fase (lokaal geen filestore) en het recht zonder de tijdelijke "alles mag".
 
 ## Opbouw deel 5: invullen in de fase, tabblad Info, corrigeren met een recht (12-11-2026)
 

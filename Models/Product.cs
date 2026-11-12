@@ -94,6 +94,16 @@ public static class ProductStap
 
     /// <summary>Kolomnaam in ProductNameExtra.</summary>
     public static string Kolom(string code) => "Toon" + code;
+
+    /// <summary>De blokken van Programmeren en testen die bij een fase van de opbouw kunnen horen (niet de opbouw zelf).</summary>
+    public static readonly string[] MetFase = { Uitlezen, Programmeren, Testen, NodeAdres, Duurtest };
+
+    /// <summary>Korte naam van een blok voor in een zin: "Programmeren", "EtherCAT node-adressen".</summary>
+    public static string Kort(string code)
+    {
+        var naam = Alle.FirstOrDefault(s => s.Code == code).Naam ?? code;
+        return naam.StartsWith("Stap ", StringComparison.Ordinal) ? naam[5..] : naam;
+    }
 }
 
 /// <summary>

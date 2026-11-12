@@ -29,6 +29,11 @@
    fase in te vullen, in de andere fases alleen te lezen. Een verplicht attribuut dat leeg is of een halffabricaat dat
    nog niet gekoppeld is houdt Fase klaar tegen. Op het tabblad Info (Producten) zijn ze alleen te lezen.
 
+   Programmeren en testen in de fases (12-11-2026, ProductOpbouwStapFases_MariaDB.sql): een blok (uitlezen,
+   programmeren, testen, node-adressen, duurtest) kan bij het producttype een hoofdfase krijgen. In de actieve fase
+   toont de aanroeper die blokken via FaseActies (Producten: ExemplaarWerk met AlleenFase); zonder FaseActies en in de
+   andere fases staat er alleen welke blokken erbij horen. Het slot zelf zit in ExemplaarWerk (StapFaseStand).
+
    Elke wijziging komt in de historie; is alles af, dan wordt de knop 'Product gereed' actief die de status van het
    exemplaar omzet. Gebruikt in Half-fabricaten, Producten (Productie) en het tabblad Opbouw bij een exemplaar. De
    regels van de boom staan in Models/Opbouw.cs (OpbouwBoom). *@
@@ -146,11 +151,28 @@ else
                             {
                                 @Tak(_boom.Kinderen(f))
                             }
-                            else if (todos.Count == 0 && !HeeftInvullen(f))
+                            else if (todos.Count == 0 && !HeeftInvullen(f) && _stand.StappenVan(f.Id).Count == 0)
                             {
                                 <p class="uitleg">Deze fase heeft geen afvinkstappen.@(actief ? " Klik op Fase klaar als het werk van deze fase gedaan is." : "")</p>
                             }
                             @Invullen(f, actief && !Geblokkeerd)
+                            @if (_stand.StappenVan(f.Id) is { Count: > 0 } blokken)
+                            {
+                                @* de blokken van Programmeren en testen die bij deze fase horen; ook bij een open fout te gebruiken
+                                   (om de oorzaak te vinden), alleen afvinken en afronden staan dan op slot *@
+                                @if (actief && FaseActies is not null)
+                                {
+                                    @* dicht tot je het nodig hebt: de blokken zijn lang en de stappen en Fase klaar moeten in beeld blijven *@
+                                    <details class="opb-acties">
+                                        <summary>⚙ Programmeren en testen in deze fase: @string.Join(", ", blokken.Select(ProductStap.Kort))</summary>
+                                        @FaseActies(f)
+                                    </details>
+                                }
+                                else
+                                {
+                                    <p class="uitleg opb-blokken">⚙ @(actief ? "In deze fase" : "Hoort bij deze fase"): @string.Join(", ", blokken.Select(ProductStap.Kort))@(actief ? " (bij Programmeren en testen)" : "").</p>
+                                }
+                            }
                             @TodoRegels(f, todos, !Geblokkeerd && (actief || f.Klaar))
                             @if (f.Klaar && f.Opmerking.Length > 0)
                             {
@@ -285,6 +307,11 @@ else
     [Parameter] public EventCallback OpGewijzigd { get; set; }
     /// <summary>Nadat de status op 'Gereed' is gezet (bv. om het scherm te wissen voor het volgende exemplaar). Geeft de statusnaam mee.</summary>
     [Parameter] public EventCallback<string> OpGereed { get; set; }
+    /// <summary>
+    /// Wat er in de actieve fase bij komt te staan als er blokken van Programmeren en testen bij die fase horen
+    /// (Producten: ExemplaarWerk met AlleenFase). Niet opgegeven = alleen de namen van de blokken.
+    /// </summary>
+    [Parameter] public RenderFragment<OpbouwStap>? FaseActies { get; set; }
 
     private OpbouwBoom _boom = new(Array.Empty<OpbouwStap>());
     private readonly HashSet<int> _faseOpen = new();     // hoofdfases die de gebruiker zelf openklapte (alleen kijken)
@@ -313,6 +340,7 @@ else
     private List<ProductAttribuut> _attributen = new();   // de attributen van dit exemplaar die bij een hoofdfase horen
     private List<StuklijstRegel> _stuklijst = new();      // de regels van de stuklijst die bij een hoofdfase horen
     private List<SamenstellingRegel> _onderdelen = new(); // wat er nu in dit exemplaar zit
+    private StapFaseStand _stand = StapFaseStand.Leeg;    // welke blokken van Programmeren en testen bij welke fase horen
 
     private bool Geblokkeerd => _blokkades.Any(b => b.Open);
     private string ExemplaarTekst => Exemplaar.Trim().Length > 0 ? Exemplaar.Trim() : "dit exemplaar";
@@ -380,6 +408,14 @@ else
         }
         catch { _invulFase = false; }
         _attributen = attributen; _stuklijst = stuklijst; _onderdelen = onderdelen;
+        var stand = StapFaseStand.Leeg;
+        try
+        {
+            if (_boom.MetFases && await Opbouw.HeeftStapFasesAsync())
+                stand = new StapFaseStand(await Opbouw.GetStapFasesAsync(ProductNameId), _boom);
+        }
+        catch { }
+        _stand = stand;
         // de foto's van open fouten staan er meteen bij; die van opgeloste pas na een klik
         foreach (var b in blokkades.Where(b => b.AantalFotos > 0 && (b.Open || _blokFotos.ContainsKey(b.Id))))
         {

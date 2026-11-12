@@ -40,6 +40,13 @@ public interface IOpbouwRepository
     Task<bool> LosBlokkadeOpAsync(int blokkadeId, string oplossing, int? door);
     /// <summary>De exemplaren van een type met een open fout (teken in de exemplarenlijst).</summary>
     Task<HashSet<int>> GeblokkeerdeExemplarenAsync(int productNameId);
+
+    /// <summary>Kunnen de blokken van Programmeren en testen bij een fase horen (ProductOpbouwStapFases_MariaDB.sql)?</summary>
+    Task<bool> HeeftStapFasesAsync();
+    /// <summary>Per blok (ProductStap-code) de hoofdfase van dit producttype; een blok zonder fase staat er niet in.</summary>
+    Task<Dictionary<string, int>> GetStapFasesAsync(int productNameId);
+    /// <summary>De fase van een blok vastleggen; null = geen fase (vrij).</summary>
+    Task ZetStapFaseAsync(int productNameId, string stap, int? faseStapId);
 }
 
 public class NullOpbouwRepository : IOpbouwRepository
@@ -58,6 +65,9 @@ public class NullOpbouwRepository : IOpbouwRepository
     public Task<int> MeldBlokkadeAsync(int productId, int? faseStapId, string melding, int? door) => Task.FromResult(0);
     public Task<bool> LosBlokkadeOpAsync(int blokkadeId, string oplossing, int? door) => Task.FromResult(false);
     public Task<HashSet<int>> GeblokkeerdeExemplarenAsync(int productNameId) => Task.FromResult(new HashSet<int>());
+    public Task<bool> HeeftStapFasesAsync() => Task.FromResult(false);
+    public Task<Dictionary<string, int>> GetStapFasesAsync(int productNameId) => Task.FromResult(new Dictionary<string, int>());
+    public Task ZetStapFaseAsync(int productNameId, string stap, int? faseStapId) => Task.CompletedTask;
 }
 
 public class MySqlOpbouwRepository : IOpbouwRepository
@@ -345,5 +355,47 @@ public class MySqlOpbouwRepository : IOpbouwRepository
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) uit.Add(r.GetInt32(0));
         return uit;
+    }
+
+    // ---- programmeren en testen in de fases (ProductOpbouwStapFases_MariaDB.sql); alleen 'ja' onthouden ----
+    private bool _heeftStapFases;
+    public async Task<bool> HeeftStapFasesAsync()
+    {
+        if (_heeftStapFases) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductStapFases'", cn);
+            return _heeftStapFases = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { return false; }
+    }
+
+    public async Task<Dictionary<string, int>> GetStapFasesAsync(int productNameId)
+    {
+        var uit = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!await HeeftStapFasesAsync()) return uit;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `Stap`, `FaseStapID` FROM `ProductStapFases` WHERE `ProductNameID` = @n", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) uit[r.GetString(0)] = Convert.ToInt32(r.GetValue(1));
+        return uit;
+    }
+
+    public async Task ZetStapFaseAsync(int productNameId, string stap, int? faseStapId)
+    {
+        if (!await HeeftStapFasesAsync())
+            throw new InvalidOperationException("De tabel ProductStapFases bestaat nog niet (ProductOpbouwStapFases_MariaDB.sql).");
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(faseStapId is null
+            ? "DELETE FROM `ProductStapFases` WHERE `ProductNameID` = @n AND `Stap` = @stap"
+            : "INSERT INTO `ProductStapFases` (`ProductNameID`, `Stap`, `FaseStapID`) VALUES (@n, @stap, @fase) " +
+              "ON DUPLICATE KEY UPDATE `FaseStapID` = VALUES(`FaseStapID`)", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        cmd.Parameters.AddWithValue("@stap", stap);
+        if (faseStapId is int f) cmd.Parameters.AddWithValue("@fase", f);
+        await cmd.ExecuteNonQueryAsync();
     }
 }

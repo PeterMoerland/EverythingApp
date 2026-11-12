@@ -1043,7 +1043,22 @@
                                 ? "Werk de fases van boven naar beneden af. Alleen in de actieve fase kun je afvinken; elke wijziging komt in de historie van dit exemplaar."
                                 : "Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.")</p>
                             <OpbouwLijst ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")"
-                                         Exemplaar="@($"{_naam?.Naam} · {_product?.Serienummer}")" OpGewijzigd="NaOpbouwWijziging" />
+                                         Exemplaar="@($"{_naam?.Naam} · {_product?.Serienummer}")" OpGewijzigd="NaOpbouwWijziging">
+                                <FaseActies Context="fase">
+                                    @* de blokken van Programmeren en testen die bij de actieve fase horen (Techniek ▸ Stappen ▸ fase) *@
+                                    @if (_naam is not null && _product is not null)
+                                    {
+                                        @if (Agent.Aanwezig != true)
+                                        {
+                                            <p class="uitleg">Op deze pc draait geen MDE Werkplek-agent: uitlezen, programmeren en testen kan hier niet.</p>
+                                        }
+                                        <ExemplaarWerk @key="(pid, fase.Id)" Naam="_naam" Exemplaar="_product" ProductId="pid" AlleenFase="fase.Id"
+                                                       MetNummers="false" ToonOpbouwStap="false" ToonDuurtestStap="IsEindproduct"
+                                                       OpGewijzigd="NaProgrammeerWijziging" OpGereed="NaProgrammeerGereed"
+                                                       OpAnderExemplaar="NaarAnderExemplaar" />
+                                    }
+                                </FaseActies>
+                            </OpbouwLijst>
                         }
                     }
 
@@ -1101,6 +1116,13 @@
                                 (tab Eindcheck) blijft beschikbaar in 'Opbouw en eindcontrole'. Zonder techniek verdwijnen
                                 Programmeren en Testen sowieso. Niet elk product gaat de testrig in: zet dan 'Stap Duurtest' uit.
                             </p>
+                            @if (ToonStapFase)
+                            {
+                                <p class="uitleg">
+                                    Met een <b>fase</b> achter een stap staat dat blok bij een exemplaar in die fase van de opbouw (tab Opbouw)
+                                    en is het daarbuiten op slot. Zonder fase werkt het zoals voorheen.
+                                </p>
+                            }
                             <div class="prod-techniek" @key="@($"stappen-{_techniekVersie}")">
                                 @foreach (var s in ProductStap.Alle)
                                 {
@@ -1108,6 +1130,17 @@
                                     <label class="prod-techniek-vink" title="@s.Uitleg">
                                         <input type="checkbox" checked="@(_naam?.ToonStap(code) ?? true)" @onchange="e => ZetStapZichtbaar(code, e)" />
                                         <b>@s.Naam</b> <small class="uitleg">@s.Uitleg</small>
+                                        @if (ToonStapFase && ProductStap.MetFase.Contains(code))
+                                        {
+                                            <select class="prod-stap-fase" title="In welke fase van de opbouw dit blok hoort; daarbuiten is het op slot"
+                                                    @onchange="e => ZetStapFase(code, e)">
+                                                <option value="" selected="@(!_stapFases.ContainsKey(code))">— geen fase —</option>
+                                                @foreach (var f in Hoofdfases)
+                                                {
+                                                    <option value="@f.Id" selected="@(_stapFases.GetValueOrDefault(code) == f.Id)">@_typeBoom.FaseNummer(f) · @f.Naam</option>
+                                                }
+                                            </select>
+                                        }
                                     </label>
                                 }
                             </div>
@@ -2451,6 +2484,24 @@
     private bool ToonInvulFase => _invulFase && _typeBoom.MetFases;
     /// <summary>Bij een exemplaar: wat bij een fase hoort is op Info alleen te lezen.</summary>
     private bool InfoMetSlot => _productId is not null && ToonInvulFase;
+
+    // ---- programmeren en testen in de fases (ProductOpbouwStapFases_MariaDB.sql): per blok de fase van dit type ----
+    private bool _stapFasesAan;
+    private Dictionary<string, int> _stapFases = new();
+    private bool ToonStapFase => _stapFasesAan && _typeBoom.MetFases;
+
+    private async Task ZetStapFase(string code, ChangeEventArgs e)
+    {
+        if (_naamId is null) return;
+        int? fase = int.TryParse((string?)e.Value, out var f) ? f : null;
+        try
+        {
+            await Opbouw.ZetStapFaseAsync(_naamId.Value, code, fase);
+            if (fase is int id) _stapFases[code] = id; else _stapFases.Remove(code);
+            Toon("Opgeslagen.", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
     /// <summary>De fase waarin een attribuut wordt ingevuld ("2 · Mechanisch opbouwen"); leeg = vrij.</summary>
     private string FaseVan(ProductAttribuut a)
         => InfoMetSlot && a.FaseStapId is int f && Hoofdfases.FirstOrDefault(x => x.Id == f) is { } fase ? $"{_typeBoom.FaseNummer(fase)} · {fase.Naam}" : "";
@@ -2478,6 +2529,8 @@
             _stappen = await Opbouw.GetStappenAsync(_naamId.Value, _productId); _opbouwOntbreekt = false;
             _boomAan = await Opbouw.HeeftBoomAsync();
             _typeBoom = new OpbouwBoom(_stappen);
+            _stapFasesAan = await Opbouw.HeeftStapFasesAsync();
+            _stapFases = _stapFasesAan ? await Opbouw.GetStapFasesAsync(_naamId.Value) : new();
         }
         catch (Exception ex)
         {

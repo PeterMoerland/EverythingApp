@@ -132,6 +132,13 @@
                     @if (ToonDuurtest)
                     {
                     <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrDuurtest</span> Duurtest</h3>
+                    @if (_stand.OpSlot(ProductStap.Duurtest))
+                    {
+                        <p class="uitleg">🔒 De duurtest hoort bij fase @_stand.FaseNaam(ProductStap.Duurtest)@(_stand.ActieveFase is int actieveFase ? $"; nu is fase {_stand.FaseNaam(actieveFase)} actief" : "; de opbouw is al afgerond").
+                            Rond eerst de fases ervoor af bij Opbouw hierboven.</p>
+                    }
+                    else
+                    {
                     <p class="uitleg">
                         Zet het product in de testrig, koppel het aan de PLC en draai het testprogramma (de PLC maakt de logmap
                         leeg bij het starten). Is de test klaar, haal dan de log op: die wordt als zip bij dit exemplaar bewaard.
@@ -154,6 +161,7 @@
                     @if (_duurRegels.Count > 0)
                     {
                         <pre class="prod-log">@string.Join("\n", _duurRegels)</pre>
+                    }
                     }
                     }
 
@@ -237,6 +245,8 @@
     private int _productId;
     private string _bouwjaar = "";
     private List<ProductGebeurtenis> _historie = new();
+    /// <summary>Welke blokken (hier: de duurtest) bij welke fase van de opbouw horen, en welke fase nu actief is.</summary>
+    private StapFaseStand _stand = StapFaseStand.Leeg;
     private OpbouwLijst? _lijst;    // eindcontrole + gereed
     private OpbouwLijst? _opbouw;   // opbouwstappen
 
@@ -292,6 +302,7 @@
         try
         {
             _historie = await Repo.GetHistorieAsync(_productId);
+            if (_naam is not null) _stand = await StapFaseStand.LaadAsync(Opbouw, _naam.Id, _productId);
             if (_naam is not null)
                 _exemplaar = (await Repo.GetProductenAsync(_naam.Id, inclusiefGewist: true)).FirstOrDefault(p => p.Id == _productId) ?? _exemplaar;
             // Twee lijsten (Opbouw, Eindcontrole) delen dezelfde stappen: de knop 'Product gereed'
@@ -401,6 +412,7 @@
             var velden = await Repo.GetVeldenAsync(productId);
             _bouwjaar = velden.TryGetValue("Bouwjaar", out var bj) && bj is not null ? bj.ToString() ?? "" : "";
             _historie = await Repo.GetHistorieAsync(productId);
+            _stand = await StapFaseStand.LaadAsync(Opbouw, productNameId, productId);
             try { _stuklijstAantal = (await Repo.GetStuklijstAsync(productNameId)).Count; } catch { _stuklijstAantal = 0; }
             _melding = null;
         }

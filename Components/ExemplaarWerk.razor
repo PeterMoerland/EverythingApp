@@ -1,4 +1,5 @@
 @inject IProductRepository Repo
+@inject IOpbouwRepository OpbouwRepo
 @inject HuidigeGebruiker Ik
 @inject IConfiguration Config
 @inject IJSRuntime JS
@@ -15,7 +16,14 @@
    servo), testen, en optioneel opbouw/eindcontrole en duurtest — alles wat via de
    werkplek-agent op deze pc loopt. Gebruikt door Productie ▸ Half-fabricaten (werkplek,
    met stapnummers) en door Producten ▸ exemplaar ▸ tab Programmeren (zonder nummers).
-   De aanroeper toont zelf de kaart en de historie en ververst die via OpGewijzigd. *@
+   De aanroeper toont zelf de kaart en de historie en ververst die via OpGewijzigd.
+
+   Programmeren en testen in de fases (voorstel Sjoerd, 12-11-2026, ProductOpbouwStapFases_MariaDB.sql): een blok
+   (uitlezen, programmeren, node-adressen, testen, duurtest) kan bij het producttype een hoofdfase van de opbouw
+   hebben (StapFaseStand). Zo'n blok is alleen te gebruiken als die fase de actieve is; anders staat er bovenaan een
+   regel met 🔒 en welke blokken het zijn, met "Buiten de fase om" voor wie het recht Productcorrectie heeft (komt in
+   de historie). Met AlleenFase (Producten ▸ tab Opbouw, in de actieve fase) toont dit scherm alleen de blokken van die
+   fase. Een blok zonder fase werkt zoals voorheen. *@
 
 <AgentVersieMelding />
 
@@ -45,6 +53,24 @@
 @if (!Mag)
 {
     <p class="uitleg">Je hebt geen rechten om te programmeren of te testen (@_recht); de knoppen staan uit.</p>
+}
+
+@* Blokken die bij een andere fase van de opbouw horen dan de actieve: op slot, tenzij "buiten de fase om" *@
+@if (AlleenFase is null && OpSlotBlokken.Count > 0)
+{
+    <div class="info-slot @(_buitenFase ? "aan" : "")">
+        @if (_buitenFase)
+        {
+            <span><b>✎ Buiten de fase om.</b> Ook de blokken van een andere fase zijn nu te gebruiken: @OpSlotTekst.</span>
+            <button class="klein" @onclick="() => _buitenFase = false">Klaar</button>
+        }
+        else
+        {
+            <span>🔒 Niet in deze fase: @OpSlotTekst. Je gebruikt ze in hun fase (Opbouw)@(_stand.ActieveFase is int actieveFase ? $"; nu is fase {_stand.FaseNaam(actieveFase)} actief" : "; de opbouw is afgerond").</span>
+            <button class="klein" disabled="@(!MagBuitenFase)" @onclick="OpenBuitenFase"
+                    title="@(MagBuitenFase ? "Deze blokken toch gebruiken, bv. om een product dat gereed is nog eens uit te lezen; dit komt in de historie" : "Hiervoor is het recht Productcorrectie nodig (Werknemers ▸ Rechten)")">✎ Buiten de fase om…</button>
+        }
+    </div>
 }
 
 @* ---------- automatisch uitlezen ---------- *@
@@ -956,11 +982,11 @@
 {
     @Kop(NrOpbouw, "Opbouw en eindcontrole")
     <OpbouwLijst ProductNameId="Naam.Id" ProductId="ProductId" HuidigeStatus="@Exemplaar.StatusKort" Exemplaar="@($"{Naam.Naam} · {Exemplaar.Serienummer}")"
-                 OpGewijzigd="OpGewijzigd" OpGereed="OpGereed" />
+                 OpGewijzigd="NaOpbouw" OpGereed="OpGereed" />
 }
 
 @* ---------- duurtest (producten): log van de testrig-PLC als document ---------- *@
-@if (ToonDuurtestStap && Duurtest.Beschikbaar && Naam.ToonStap(ProductStap.Duurtest))
+@if (ToonDuurtest)
 {
     @Kop(NrDuurtest, "Duurtest")
     <p class="uitleg">
@@ -1552,6 +1578,11 @@
     [Parameter] public bool ToonOpbouwStap { get; set; }
     /// <summary>De duurtest (log van de testrig-PLC) hier tonen — alleen bij eindproducten.</summary>
     [Parameter] public bool ToonDuurtestStap { get; set; }
+    /// <summary>
+    /// Alleen de blokken tonen die bij deze hoofdfase van de opbouw horen (Producten ▸ tab Opbouw, in de actieve fase).
+    /// Niet opgegeven = alle blokken; die van een andere fase dan de actieve staan dan op slot.
+    /// </summary>
+    [Parameter] public int? AlleenFase { get; set; }
     /// <summary>Na elke wijziging aan attributen/historie/status, zodat de aanroeper kaart en historie kan verversen.</summary>
     [Parameter] public EventCallback OpGewijzigd { get; set; }
     /// <summary>Doorgegeven aan de afvinklijst: status op 'Gereed' gezet.</summary>
@@ -1696,11 +1727,58 @@
     // Welke stappen dit type toont (Producten ▸ Techniek ▸ 'Stappen'). Zonder techniek (bv. een kabel)
     // is er bovendien niets te programmeren of automatisch te testen.
     private bool IetsTeDoen => AantalTechnieken > 0 || DrivePosities.Count > 0 || MotorModus;
-    private bool ToonUitlezen => Naam.ToonStap(ProductStap.Uitlezen) && IetsTeDoen;
-    private bool ToonProgrammeren => Naam.ToonStap(ProductStap.Programmeren) && IetsTeDoen;
-    private bool ToonTesten => Naam.ToonStap(ProductStap.Testen) && IetsTeDoen;
+    private bool ToonUitlezen => HeeftBlok(ProductStap.Uitlezen) && Blok(ProductStap.Uitlezen);
+    private bool ToonProgrammeren => HeeftBlok(ProductStap.Programmeren) && Blok(ProductStap.Programmeren);
+    private bool ToonTesten => HeeftBlok(ProductStap.Testen) && Blok(ProductStap.Testen);
     private bool ToonOpbouw => Naam.ToonStap(ProductStap.Opbouw);
-    private bool ToonNodeAdres => Naam.ToonStap(ProductStap.NodeAdres);
+    private bool ToonNodeAdres => HeeftBlok(ProductStap.NodeAdres) && Blok(ProductStap.NodeAdres);
+    private bool ToonDuurtest => HeeftBlok(ProductStap.Duurtest) && Blok(ProductStap.Duurtest);
+
+    // ---- programmeren en testen in de fases (StapFaseStand, ProductOpbouwStapFases_MariaDB.sql) ----
+    private StapFaseStand _stand = StapFaseStand.Leeg;
+    private bool _buitenFase;                    // blokken van een andere fase toch gebruiken (recht Productcorrectie)
+    private bool MagBuitenFase => Ik.Mag("Productcorrectie") || Ik.Mag("Directie");
+
+    /// <summary>Heeft dit producttype (op dit scherm) dit blok, los van de fase?</summary>
+    private bool HeeftBlok(string stap) => stap switch
+    {
+        ProductStap.NodeAdres => Naam.ToonStap(stap),
+        ProductStap.Duurtest => ToonDuurtestStap && Duurtest.Beschikbaar && Naam.ToonStap(stap),
+        _ => Naam.ToonStap(stap) && IetsTeDoen,
+    };
+
+    /// <summary>
+    /// Mag dit blok er nu staan? In een fase (AlleenFase): alleen de blokken van die fase. Anders: alles wat geen fase
+    /// heeft of waarvan de fase nu actief is, of alles bij "buiten de fase om".
+    /// </summary>
+    private bool Blok(string stap) => AlleenFase is int f ? _stand.FaseVan(stap) == f : _buitenFase || !_stand.OpSlot(stap);
+
+    /// <summary>De blokken van dit type die bij een andere fase horen dan de actieve.</summary>
+    private List<string> OpSlotBlokken => ProductStap.MetFase.Where(s => HeeftBlok(s) && _stand.OpSlot(s)).ToList();
+    /// <summary>"EtherCAT node-adressen, Duurtest (5 · Eindcheck)", per fase bij elkaar.</summary>
+    private string OpSlotTekst => string.Join("; ", OpSlotBlokken.GroupBy(s => _stand.FaseNaam(s))
+        .Select(g => $"{string.Join(", ", g.Select(ProductStap.Kort))} (fase {g.Key})"));
+
+    private async Task OpenBuitenFase()
+    {
+        if (!MagBuitenFase) return;
+        var welke = OpSlotTekst;
+        if (!await Bevestig($"Deze blokken buiten hun fase om gebruiken?\n\n{welke}\n\nDit komt in de historie van {Naam.Naam} {Exemplaar.Serienummer}.")) return;
+        _buitenFase = true;
+        try
+        {
+            await Repo.VoegHistorieToeAsync(ProductId, "Programmeren en testen buiten de fase om geopend: " + welke, SoortId("Test"), Ik.WerknemerId);
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch { }
+    }
+
+    /// <summary>Na een wijziging in de opbouw (werkplek: de afvinklijst staat in dit scherm): een andere fase kan actief zijn.</summary>
+    private async Task NaOpbouw()
+    {
+        _stand = await StapFaseStand.LaadAsync(OpbouwRepo, Naam.Id, ProductId);
+        await OpGewijzigd.InvokeAsync();
+    }
     // nummering loopt door over de zichtbare stappen
     private int NrProgrammeren => StartNummer;
     private int NrNodeAdres => NrProgrammeren + (ToonProgrammeren ? 1 : 0);
@@ -1813,6 +1891,9 @@
             _sjabloon = await Repo.GetTypeAttributenAsync(Naam.Id);
         }
         catch (Exception ex) { Toon("Attributen laden mislukt: " + ex.Message, true); }
+        // welke blokken bij welke fase van de opbouw horen, en welke fase nu actief is
+        _buitenFase = false;
+        _stand = await StapFaseStand.LaadAsync(OpbouwRepo, Naam.Id, ProductId);
         await LaadProgrammeerKeuzes();
     }
 

@@ -1303,6 +1303,14 @@ html[data-thema="donker"] .fase-rij.actief .fase-rechts { color: #cfe2f8; }
 .opb-keuzes { display: flex; flex-direction: column; gap: .15rem; }
 .opb-daarna { display: flex; align-items: center; gap: .5rem; }
 .opb-todos { margin-top: .2rem; }
+.opb-acties { margin: .5rem 0 .3rem; padding: .5rem .7rem; border: 1px solid #9db8dc; border-radius: 8px; background: #fff; }
+.opb-acties > summary { cursor: pointer; font-weight: 600; color: #12325c; }
+.opb-acties[open] > summary { margin-bottom: .5rem; padding-bottom: .4rem; border-bottom: 1px solid #d3dce7; }
+html[data-thema="donker"] .opb-acties > summary { color: #cfe2f8; }
+html[data-thema="donker"] .opb-acties[open] > summary { border-bottom-color: #334051; }
+.opb-blokken { margin: .35rem 0; }
+.prod-stap-fase { margin-left: auto; max-width: 15rem; flex: none; }
+html[data-thema="donker"] .opb-acties { background: var(--d2); border-color: #2b4a73; }
 .opb-invul { margin: .5rem 0 .3rem; padding: .5rem .7rem; border: 1px solid #b9c6d6; border-radius: 8px; background: #fff; display: flex; flex-direction: column; gap: .3rem; }
 .opb-invul-kop { font-size: .78em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted, #6b7280); }
 .opb-invul-rij { display: grid; grid-template-columns: minmax(10rem, 16rem) minmax(8rem, 14rem) auto; gap: .6rem; align-items: center; }

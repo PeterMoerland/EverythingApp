@@ -144,6 +144,53 @@ public class OpbouwBlokkade
     public bool Open => OpgelostOp is null;
 }
 
+/// <summary>
+/// Programmeren en testen in de fases (voorstel Sjoerd Quist, ProductOpbouwStapFases_MariaDB.sql): bij het producttype
+/// kan een blok (ProductStap: uitlezen, programmeren, testen, node-adressen, duurtest) bij een hoofdfase horen. Bij een
+/// exemplaar is zo'n blok alleen te gebruiken als die fase de actieve is. Een blok zonder fase, of met een fase die niet
+/// (meer) bestaat, is vrij. Zonder fases bij het type is alles vrij.
+/// </summary>
+public sealed class StapFaseStand
+{
+    public static readonly StapFaseStand Leeg = new(new Dictionary<string, int>(), new OpbouwBoom(Array.Empty<OpbouwStap>()));
+
+    private readonly Dictionary<string, int> _stapFase;
+    private readonly OpbouwBoom _boom;
+
+    public StapFaseStand(IReadOnlyDictionary<string, int> stapFase, OpbouwBoom boom)
+    {
+        _boom = boom;
+        var fases = boom.Hoofdfases.Select(f => f.Id).ToHashSet();
+        _stapFase = stapFase.Where(p => fases.Contains(p.Value)).ToDictionary(p => p.Key, p => p.Value);
+    }
+
+    /// <summary>Hoort er minstens één blok bij een fase?</summary>
+    public bool Iets => _stapFase.Count > 0;
+    public int? ActieveFase => _boom.ActieveFase?.Id;
+    /// <summary>De hoofdfase van een blok; null = vrij.</summary>
+    public int? FaseVan(string stap) => _stapFase.TryGetValue(stap, out var f) ? f : null;
+    /// <summary>"4 · Kalibratie"; leeg bij een blok zonder fase.</summary>
+    public string FaseNaam(string stap) => FaseVan(stap) is int id ? FaseNaam(id) : "";
+    public string FaseNaam(int faseId) => _boom.Hoofdfases.FirstOrDefault(f => f.Id == faseId) is { } f ? $"{_boom.FaseNummer(f)} · {f.Naam}" : "";
+    /// <summary>Hoort dit blok bij een fase die nu niet de actieve is?</summary>
+    public bool OpSlot(string stap) => FaseVan(stap) is int f && f != ActieveFase;
+    /// <summary>De blokken van een fase, in de vaste volgorde.</summary>
+    public List<string> StappenVan(int faseId) => ProductStap.MetFase.Where(s => FaseVan(s) == faseId).ToList();
+
+    /// <summary>De stand bij een exemplaar (met <paramref name="productId"/>) of alleen de indeling van het type.</summary>
+    public static async Task<StapFaseStand> LaadAsync(EverythingApp.Services.IOpbouwRepository repo, int productNameId, int? productId)
+    {
+        try
+        {
+            if (!repo.Beschikbaar || productNameId == 0 || !await repo.HeeftStapFasesAsync()) return Leeg;
+            var stapFase = await repo.GetStapFasesAsync(productNameId);
+            if (stapFase.Count == 0) return Leeg;
+            return new StapFaseStand(stapFase, new OpbouwBoom(await repo.GetStappenAsync(productNameId, productId)));
+        }
+        catch { return Leeg; }
+    }
+}
+
 public static class OpbouwSoort
 {
     public const string Opbouw = "opbouw";
