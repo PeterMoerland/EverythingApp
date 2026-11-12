@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Producten** — Nieuw: bij node-adressen schrijven controleert de app eerst de serienummers op de bus (voorstel van Sjoerd). Horen de prints bij een andere robot dan je gekozen hebt, dan wordt er niets geschreven en zie je bij welke robot ze wel horen. In het venster staat per slave bij welk halffabricaat hij hoort.
+- **Producten** — Nieuw: bij het ophalen van de duurtest kijkt de app of het serienummer in de log van de testrig bij het gekozen product hoort; een log van een ander serienummer wordt niet opgeslagen. Dit werkt zodra de PLC het serienummer in de log zet (een regel als "Serienummer=32").
 - **Producten** — Opgelost: een document bij een stap van de opbouw kon ook bij het bezoekverslag met hetzelfde nummer terechtkomen (en omgekeerd). Er stonden nog geen documenten, dus er is niets kwijt of verplaatst.
 - **Producten** — Nieuw: bij de opbouw van een exemplaar kun je een fout melden (voorstel van Sjoerd). De opbouw gaat dan op slot tot de fout is opgelost; bij het oplossen leg je vast wat er gedaan is, met foto's als je wilt. In de exemplarenlijst staat een ⚠ bij een exemplaar met een open fout.
 - **Producten** — Nieuw: terug naar een fase, bijvoorbeeld na het vervangen van een print. De vinkjes van die fase en van alle fases erna vervallen (bij de stap blijft staan wie hem eerder afvinkte) en je doorloopt ze opnieuw of slaat een fase over. Iedereen mag dit, met een reden; die komt in de historie.

@@ -1000,13 +1000,39 @@
             </div>
             <div class="fusion-kijker-inhoud">
                 <div class="bankfilters">
-                    <button class="klein" disabled="@_taakBezig" @onclick="LeesAlias" title="Alle slaves op de bus opnieuw lezen">↻ Lezen</button>
-                    <button class="klein primair" disabled="@(!Mag || _taakBezig || !AliasWijzigingen.Any())" @onclick="SchrijfAlias"
+                    <button class="klein" disabled="@(_taakBezig || _busBezig)" @onclick="LeesAlias" title="Alle slaves op de bus opnieuw lezen">↻ Lezen</button>
+                    <button class="klein primair" disabled="@(!Mag || _taakBezig || _busBezig || !AliasWijzigingen.Any())" @onclick="SchrijfAlias"
                             title="Schrijft de gewijzigde node-nummers in de EEPROM van de slaves (EtherCAT 'Configured Station Alias', register 0x0012) — TwinCAT 'Write to slaves'">
                         ✎ Write to slaves (@AliasWijzigingen.Count())
                     </button>
                     <span class="uitleg">Nieuw nummer leeg laten = ongewijzigd. Bereik 0–65535; 0 = geen node-nummer.</span>
                 </div>
+                @* horen de slaves op de bus bij dit exemplaar? (voorstel Sjoerd deel 4) *@
+                @if (_busBezig)
+                {
+                    <p class="uitleg"><span class="draaier"></span> Serienummers op de bus controleren…</p>
+                }
+                else if (_bus is { } bus)
+                {
+                    <div class="alias-controle @(bus.Vreemd.Count > 0 ? "fout" : bus.Ok ? "ok" : "onzeker")">
+                        @if (bus.Vreemd.Count > 0)
+                        {
+                            <b>✗ Dit hoort niet bij @Naam.Naam · @Exemplaar.Serienummer: er wordt niets geschreven.</b>
+                            @foreach (var r in bus.Vreemd) { <span>@r</span> }
+                            <span class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan eerst op het tabblad Samenstelling. Anders: kies het juiste product." : "Kies het juiste exemplaar.")</span>
+                        }
+                        else if (bus.Ok)
+                        {
+                            <b>✓ De serienummers op de bus horen bij @Naam.Naam · @Exemplaar.Serienummer</b>
+                            <span class="uitleg">@bus.Herkend van @bus.Slaves.Count slave@(bus.Slaves.Count == 1 ? "" : "s") herkend; bij het schrijven wordt het opnieuw gecontroleerd.</span>
+                        }
+                        else
+                        {
+                            <b>Niet te controleren of dit @Naam.Naam · @Exemplaar.Serienummer is</b>
+                            <span>@(bus.Leesfout is { } lf ? "De serienummers lezen lukte niet: " + lf : "Geen van de serienummers op de bus is bekend (nog nooit uitgelezen, of een type zonder elektronisch serienummer).")</span>
+                        }
+                    </div>
+                }
                 @if (_aliasSlaves.Count == 0)
                 {
                     <p class="uitleg">@(_taakBezig ? "Bus wordt gelezen…" : "Nog niets gelezen.")</p>
@@ -1014,7 +1040,7 @@
                 else
                 {
                     <table class="kiezer-tabel smal-tabel">
-                        <thead><tr><th style="width:4rem">Pos.</th><th>Slave</th><th style="width:8rem">Productcode</th><th style="width:7rem">Huidig node</th><th style="width:8rem">Nieuw node</th><th>Melding</th></tr></thead>
+                        <thead><tr><th style="width:4rem">Pos.</th><th>Slave</th><th style="width:8rem">Productcode</th><th title="Bij welk halffabricaat of exemplaar het serienummer van deze slave hoort">Hoort bij</th><th style="width:7rem">Huidig node</th><th style="width:8rem">Nieuw node</th><th>Melding</th></tr></thead>
                         <tbody>
                             @foreach (var a in _aliasSlaves)
                             {
@@ -1023,6 +1049,7 @@
                                     <td><b>@rij.Positie</b></td>
                                     <td title="@(rij.EepromNaam.Length > 0 ? "Naam in de EEPROM: " + rij.EepromNaam : "")">@rij.Naam</td>
                                     <td><small>@rij.ProductCode</small></td>
+                                    <td>@if (_bus?.Slaves.FirstOrDefault(s => s.Positie == rij.Positie) is { } bs) { <span class="stand-chip @bs.Kleur" title="@bs.Uitleg">@bs.Tekst</span> }</td>
                                     <td><b>@(rij.Alias?.ToString() ?? "?")</b>@if (rij.AliasEeprom is int ee && rij.AliasRegister is int rr && ee != rr) { <small class="uitleg" title="EEPROM en register verschillen: het EEPROM-nummer geldt na spanning uit/aan"> (EEPROM @ee)</small> }</td>
                                     <td><input type="number" min="0" max="65535" style="width:6.5rem" placeholder="@rij.Alias" value="@rij.Nieuw" disabled="@_taakBezig"
                                                @onchange="ev => rij.Nieuw = int.TryParse((string?)ev.Value, out var v) && v is >= 0 and <= 65535 ? v : null" /></td>
@@ -2178,7 +2205,8 @@
     {
         foreach (var a in _aliasSlaves)
         {
-            var gelezen = _drives?.FirstOrDefault(d => d.Positie == a.Positie && (d.ProductCode.Length == 0 || d.ProductCode == a.ProductCode));
+            // het uitlezen telt de slaves vanaf 0, de node-adressen vanaf 1
+            var gelezen = _drives?.FirstOrDefault(d => d.Positie == a.Positie - 1 && (d.ProductCode.Length == 0 || d.ProductCode == a.ProductCode));
             var type = gelezen?.TypeUitTabel is { Length: > 0 } tt ? tt
                      : _driveTypen.FirstOrDefault(t => string.Equals(t.ProductCode, a.ProductCode, StringComparison.OrdinalIgnoreCase)
                                                        && (t.VendorId.Length == 0 || a.VendorId.Length == 0
@@ -2220,11 +2248,134 @@
 
     private async Task LeesAlias()
     {
+        _bus = null;
         await VoerTaakUit("ecat.alias", JsonSerializer.Serialize(new { wat = "lees" }), "EtherCAT node-adressen lezen", 120, res =>
         {
             VulAlias(res);
             return Task.FromResult($"{_aliasSlaves.Count} slave(s): {_aliasSamenvatting}");
         });
+        // meteen laten zien of dit de goede robot is, vóórdat er nummers worden ingevuld
+        if (_aliasSlaves.Count > 0) _bus = await ControleerBus();
+    }
+
+    // ---- horen de slaves op de bus bij dit exemplaar? (voorstel Sjoerd Quist deel 4, 12-11-2026) ----
+    // Vóór het schrijven van node-adressen leest de app de serienummers op de bus opnieuw (agent: /drives) en zoekt ze
+    // op: bij een product moet het halffabricaat van elk bekend serienummer in de samenstelling zitten, bij een los
+    // exemplaar moet het serienummer van dat exemplaar zelf zijn. Hoort er iets bij een ander exemplaar, dan wordt er
+    // niets geschreven. Is er niets te herkennen (nooit uitgelezen, eRob zonder elektronisch nummer), dan mag het wel,
+    // met een waarschuwing in de vraag.
+    private sealed record BusSlave(int Positie, string Tekst, string Kleur, string Uitleg, bool Herkend);
+    private sealed class BusControle
+    {
+        /// <summary>Per slave (positie vanaf 1, zoals de node-adressen) wat het serienummer opleverde.</summary>
+        public List<BusSlave> Slaves = new();
+        /// <summary>Slaves die bij een ander exemplaar horen: dan wordt er niet geschreven.</summary>
+        public List<string> Vreemd = new();
+        /// <summary>Hetzelfde, kort (voor de melding en de historie): "MPR-PCBA-RZ 72 uit MPR-1 4".</summary>
+        public List<string> VreemdKort = new();
+        /// <summary>De serienummers konden niet gelezen worden.</summary>
+        public string? Leesfout;
+        public int Herkend => Slaves.Count(s => s.Herkend);
+        public bool Ok => Leesfout is null && Vreemd.Count == 0 && Herkend > 0;
+    }
+    private BusControle? _bus;
+    private bool _busBezig;
+
+    private async Task<BusControle> ControleerBus()
+    {
+        var c = new BusControle();
+        _busBezig = true;
+        StateHasChanged();
+        try
+        {
+            var antwoord = await Agent("/drives", 120);
+            if (antwoord.status != 200)
+            {
+                c.Leesfout = antwoord.status switch
+                {
+                    409 => "er loopt een andere taak op de agent",
+                    401 => "de agent weigert: token klopt niet",
+                    _ => antwoord.tekst.Length > 160 ? antwoord.tekst[..160] + "…" : antwoord.tekst,
+                };
+                return c;
+            }
+            var gelezen = new List<(int Positie, string Serienummer)>();
+            using (var doc = JsonDocument.Parse(antwoord.tekst))
+                if (doc.RootElement.TryGetProperty("drives", out var drives) && drives.ValueKind == JsonValueKind.Array)
+                    foreach (var d in drives.EnumerateArray())
+                    {
+                        var sn = Tekst(d, "serial_number").Trim();
+                        gelezen.Add((Getal(d, "slave_position") + 1, sn is "0" or "None" ? "" : sn));
+                    }
+            // dit exemplaar zelf en alles wat erin zit (de print in de robot, of een onderdeel van een halffabricaat)
+            var eigen = await Afstammelingen();
+            eigen.Add(ProductId);
+            var dit = $"{Naam.Naam} {Exemplaar.Serienummer}".Trim();
+            foreach (var (pos, sn) in gelezen.OrderBy(g => g.Positie))
+            {
+                if (sn.Length == 0)
+                {
+                    c.Slaves.Add(new(pos, "geen serienummer", "s-grijs", "Deze slave meldt geen serienummer (bv. een eRob): niet te controleren.", false));
+                    continue;
+                }
+                SamenstellingRegel? h = null;
+                try { h = await Repo.ZoekOpDriveSerienummerAsync(sn); } catch { }
+                if (h is not null)
+                {
+                    var tekst = $"{h.Code} {h.Serienummer}".Trim();
+                    if (eigen.Contains(h.ProductId))
+                    {
+                        c.Slaves.Add(new(pos, tekst + " ✓", "s-groen", $"Serienummer {sn} hoort bij {tekst}" + (h.ProductId == ProductId ? "." : $", en die zit in {dit}."), true));
+                        continue;
+                    }
+                    var waar = await WaarZit(h);
+                    c.Slaves.Add(new(pos, tekst + " ✗", "s-rood",
+                        $"Serienummer {sn} hoort bij {tekst}{(waar.Length > 0 ? $", en die zit in {waar}" : "")}; niet bij {dit}.", true));
+                    c.Vreemd.Add(ProductModus
+                        ? $"positie {pos}: {tekst} (serienummer {sn}) zit niet in {dit}{(waar.Length > 0 ? $" maar in {waar}" : "")}"
+                        : $"positie {pos}: serienummer {sn} staat bij {tekst}{(waar.Length > 0 ? $" (in {waar})" : "")}");
+                    c.VreemdKort.Add(tekst + (waar.Length > 0 ? $" uit {waar}" : ""));
+                    continue;
+                }
+                // Los exemplaar met een eigen MDE-slave: het nummer in de EEPROM is het serienummer van het exemplaar zelf
+                if (!ProductModus && SerienummerGetal is uint zelf && long.TryParse(sn, out var nr)
+                    && DrivePosities.FirstOrDefault(x => x.Positie == pos) is { } dp && IsMde(dp))
+                {
+                    if (nr == zelf)
+                    {
+                        c.Slaves.Add(new(pos, $"serienummer {nr} ✓", "s-groen", "De EEPROM van de slave meldt het serienummer van dit exemplaar.", true));
+                        continue;
+                    }
+                    c.Slaves.Add(new(pos, $"serienummer {nr} ✗", "s-rood", $"De EEPROM van de slave meldt serienummer {nr}; dit exemplaar is {Exemplaar.Serienummer}.", true));
+                    c.Vreemd.Add($"positie {pos}: de EEPROM van de slave meldt serienummer {nr}, dit exemplaar is {Exemplaar.Serienummer}");
+                    c.VreemdKort.Add($"een slave met serienummer {nr}");
+                    continue;
+                }
+                c.Slaves.Add(new(pos, "onbekend", "s-geel", $"Serienummer {sn} is bij geen exemplaar bekend (nog niet uitgelezen).", false));
+            }
+        }
+        catch (Exception ex) { c.Leesfout = ex.Message; }
+        finally { _busBezig = false; }
+        return c;
+    }
+
+    /// <summary>Waar een halffabricaat nu in zit, bv. "MPR-1 30" (leeg = nergens in).</summary>
+    private async Task<string> WaarZit(SamenstellingRegel h)
+    {
+        try
+        {
+            SamenstellingRegel? top = null;
+            var gezien = new HashSet<int> { h.ProductId };
+            var id = h.ProductId;
+            for (var i = 0; i < 8; i++)
+            {
+                var ouder = await Repo.GetGebruiktInAsync(id);
+                if (ouder is null || !gezien.Add(ouder.ProductId)) break;
+                top = ouder; id = ouder.ProductId;
+            }
+            return top is null ? "" : $"{top.Code} {top.Serienummer}".Trim();
+        }
+        catch { return ""; }
     }
 
     private async Task SchrijfAlias()
@@ -2234,6 +2385,32 @@
         var dubbel = wijz.Select(w => w.Nieuw!.Value).Where(n => n != 0).GroupBy(n => n).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         if (dubbel.Count > 0) { Toon("Hetzelfde nummer bij meerdere slaves: " + string.Join(", ", dubbel), true); return; }
         var tekst = string.Join("\n", wijz.Select(w => $"  • positie {w.Positie} {w.Naam}: {(w.Alias?.ToString() ?? "?")} → {w.Nieuw}"));
+
+        // Hoort wat er nu op de bus zit bij dit exemplaar? Opnieuw lezen: de kabel kan intussen op een andere robot zitten.
+        var bus = _bus = await ControleerBus();
+        StateHasChanged();
+        var dit = $"{Naam.Naam} {Exemplaar.Serienummer}".Trim();
+        if (bus.Vreemd.Count > 0)
+        {
+            var kort = string.Join(", ", bus.VreemdKort.Distinct());
+            Toon($"Niet geschreven: op de bus zit {kort}; dat hoort niet bij {dit}.", true);
+            try
+            {
+                await Repo.VoegHistorieToeAsync(ProductId, $"EtherCAT node-adressen niet geschreven: op de bus zit {kort}, dat hoort niet bij dit exemplaar",
+                                                SoortId("Test"), Ik.WerknemerId, uitkomst: false);
+                await OpGewijzigd.InvokeAsync();
+            }
+            catch { }
+            return;
+        }
+        var controle = bus.Ok
+            ? $"✓ Serienummers gecontroleerd: {bus.Herkend} van {bus.Slaves.Count} slave(s) herkend, alles hoort bij {dit}."
+            : "LET OP: niet te controleren of dit " + dit + " is (" +
+              (bus.Leesfout is { } lf ? "serienummers lezen lukte niet: " + lf : "geen bekend serienummer op de bus") +
+              "). Kijk zelf of het juiste exemplaar is aangesloten.";
+        if (bus.Leesfout is null && bus.Slaves.Count != _aliasSlaves.Count)
+            controle += $"\nLet op: bij het controleren waren er {bus.Slaves.Count} slaves, in de lijst staan er {_aliasSlaves.Count}. Lees bij twijfel opnieuw.";
+        tekst += "\n\n" + controle;
         if (!await Bevestig("Deze node-nummers in de slaves schrijven (EEPROM)?\n" + tekst +
                             "\n\nSluit eerst MotionLab, TwinCAT en andere EtherCAT-programma's: twee masters tegelijk kunnen de EEPROM " +
                             "beschadigen. Mislukt het schrijven, haal dan niet de spanning eraf maar probeer het opnieuw.")) return;
@@ -2242,7 +2419,8 @@
         {
             VulAlias(res);
             var geschreven = _aliasSlaves.Count(a => a.Geschreven);
-            await Repo.VoegHistorieToeAsync(ProductId, "EtherCAT node-adressen geschreven: " + string.Join(", ", _aliasSlaves.Where(a => a.Geschreven).Select(a => $"pos {a.Positie} → {a.Alias}")),
+            await Repo.VoegHistorieToeAsync(ProductId, "EtherCAT node-adressen geschreven: " + string.Join(", ", _aliasSlaves.Where(a => a.Geschreven).Select(a => $"pos {a.Positie} → {a.Alias}"))
+                                                       + (bus.Ok ? " (serienummers gecontroleerd)" : " (serienummers niet te controleren)"),
                                             SoortId("Test"), Ik.WerknemerId, uitkomst: true);
             return $"{geschreven} van {wijz.Count} geschreven · {_aliasSamenvatting}";
         });

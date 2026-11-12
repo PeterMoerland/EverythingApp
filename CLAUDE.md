@@ -2338,7 +2338,44 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
   boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
   nieuwe historieregels.
 - **Nog te bouwen**: de blokken van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een
-  fase, deel 4 (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen). Deel 3 staat hieronder.
+  fase, deel 5 (tabblad Info, alleen lezen). Deel 3 en deel 4 staan hieronder.
+
+## Opbouw deel 4: serienummercontrole bij node-adressen en duurtest (12-11-2026)
+
+Voorstel Sjoerd Quist deel 4: niet per ongeluk node-adressen schrijven in, of een duurtest ophalen van, een andere robot
+dan die gekozen is. Geen script en **geen nieuwe agentversie** nodig (de controle gebruikt het bestaande `/drives`).
+
+- **Node-adressen** (`ExemplaarWerk`, venster Node-adressen): `ControleerBus()` leest de serienummers op de bus
+  (`Agent("/drives")`, posities + 1: het uitlezen telt vanaf 0, de node-adressen vanaf 1) en zoekt elk nummer op met
+  `ZoekOpDriveSerienummerAsync`. Goed = het halffabricaat is dit exemplaar zelf of zit erin (`Afstammelingen`); **vreemd**
+  = het hoort bij een ander exemplaar (met `WaarZit` erbij in welke robot het nu zit, via `GetGebruiktInAsync`). Los
+  exemplaar met een eigen MDE-slave zonder attribuut: het nummer in de EEPROM moet het serienummer van het exemplaar
+  zijn. Geen serienummer (eRob) of een onbekend nummer telt niet mee.
+  Uitkomst (`BusControle`): **Vreemd** → er wordt niets geschreven (melding, rode balk in het venster, historieregel
+  "niet geschreven: op de bus zit … uit …", uitkomst mislukt); **Ok** (minstens één herkend, niets vreemd) → de vraag
+  noemt "✓ Serienummers gecontroleerd"; **niet te controleren** (niets herkend, of lezen mislukt) → schrijven mag, met
+  "LET OP" in de vraag. De controle draait na Lezen (kolom **Hoort bij** per slave) en **opnieuw vlak voor het schrijven**
+  (de kabel kan intussen op een andere robot zitten). De historieregel van het schrijven eindigt op "(serienummers
+  gecontroleerd)" of "(serienummers niet te controleren)". Zit een print er echt in maar staat hij niet in de
+  samenstelling: eerst koppelen op het tabblad Samenstelling.
+  Meteen hersteld: `NoemAliasSlaves` vergeleek de positie van het uitlezen (vanaf 0) met die van de node-adressen
+  (vanaf 1) en nam dus het type van de buurman.
+- **Duurtest** (`DuurtestService`): keuze 11-11-2026 "de PLC zet het serienummer in de download van de SD-kaart";
+  later komt de bediening van de test erbij en kan het nummer vooraf gelezen worden. **Het formaat is nog niet
+  afgesproken.** De app zoekt in de tekstbestanden van de log (`ZoekSerienummer`, niet-binaire bestanden tot 4 MB) een
+  regel die begint met Serienummer, Serienr of Serial number, dan een scheidingsteken en een waarde met een cijfer
+  (`StandaardPatroon`; een kopregel "Serienummer;Datum" en een los "SN" tellen bewust niet, een log kan ook
+  drive-serienummers noemen). `ZelfdeSerienummer`: 032 = 32, "MPR1-0032" = 32. Ander serienummer → uitzondering, er wordt
+  **niets opgeslagen** (de aanroeper zet "Duurtest: log ophalen MISLUKT — …" in de historie). Geen serienummer in de log →
+  doorgaan zoals voorheen met "geen serienummer in de log, niet gecontroleerd" in de historie, tenzij
+  `Productie:Duurtest:SerienummerVerplicht` aan staat. `Productie:Duurtest:SerienummerPatroon`: eigen regex (eerste
+  groep = het nummer); lege tekst = niet controleren.
+- Getest: node-adressen in de browser met een nagebootste agent (scratchpad `nepagent.py`, poort 5066, echte
+  serienummers van MPR-1 16 en MPR-1 4): goed, vreemd (niets geschreven), niet te controleren, en schrijven na de
+  controle; historie en schrijven naar de console. Duurtest: `ZoekSerienummer`/`ZelfdeSerienummer` met voorbeeldlogs
+  (scratchpad `d4toets`). **Niet getest**: echte hardware en de echte agent, een los exemplaar (print direct
+  aangesloten, MDE-slave), of `/drives` op een echte robot evenveel slaves geeft als `ecat.alias` (anders staat er een
+  waarschuwing in de vraag), en de duurtest tegen de PLC (er staat nog geen serienummer in de log).
 
 ## Opbouw deel 3: fout melden, terug naar een fase, todo's per fase, telefoon als camera (12-11-2026)
 
