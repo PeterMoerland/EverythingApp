@@ -1,0 +1,132 @@
+@inject FotoBrug Brug
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Foto's verzamelen bij iets wat je op de pc invult (bv. een fout in de opbouw): kiezen vanaf de pc, of met de telefoon
+   als camera (wens gebruiker 12-11-2026). "📱 Met telefoon" opent een vraag in de FotoBrug en toont een QR-code; op de
+   telefoon (MDE mobiel ▸ Foto, of de QR-code scannen) maak je de foto en die staat hier meteen. De foto's blijven in
+   het geheugen (lijst Fotos van de aanroeper) tot die ze opslaat; dit vak slaat zelf niets op. *@
+
+<div class="fotovak">
+    <div class="fotovak-rij">
+        @foreach (var f in Fotos)
+        {
+            <span class="fotovak-foto" @key="f">
+                <img src="@f.Voorbeeld" alt="@f.Naam" title="@f.Naam" />
+                <button type="button" class="fotovak-weg" title="Deze foto weghalen" @onclick="() => Weg(f)">✕</button>
+            </span>
+        }
+        <label class="klein fotovak-knop" title="Een of meer foto's van deze pc kiezen">
+            📎 Kies foto…
+            <InputFile @key="_invoer" OnChange="Gekozen" accept="image/*" multiple class="bon-verborgen" />
+        </label>
+        <button type="button" class="klein @(_vraag is not null ? "actief" : "")" @onclick="WisselTelefoon"
+                title="Je telefoon als camera gebruiken: de foto staat meteen hier">📱 Met telefoon</button>
+        @if (_bezig) { <span class="uitleg">foto verwerken…</span> }
+    </div>
+    @if (_vraag is not null)
+    {
+        <div class="fotovak-telefoon">
+            <div class="fotovak-qr" title="@_adres">@((MarkupString)_qr)</div>
+            <div class="fotovak-uitleg">
+                <b>Foto maken met je telefoon</b>
+                <span>Open op je telefoon <b>MDE mobiel ▸ 📷 Foto</b>: ben je daar als jezelf aangemeld, dan staat deze vraag er al.
+                    Of scan de QR-code met de camera.</span>
+                <span class="fotovak-stand @(_verbonden.Length > 0 ? "aan" : "")">
+                    @if (_ontvangen > 0)
+                    {
+                        <text>✓ @_ontvangen foto@(_ontvangen == 1 ? "" : "'s") ontvangen van @_verbonden. Maak er gerust nog een.</text>
+                    }
+                    else if (_verbonden.Length > 0)
+                    {
+                        <text>📱 Telefoon van @_verbonden is verbonden; wacht op de foto…</text>
+                    }
+                    else
+                    {
+                        <text><span class="draaier"></span> Wacht op de telefoon…</text>
+                    }
+                </span>
+                <button type="button" class="klein" @onclick="SluitTelefoon">Klaar met de telefoon</button>
+            </div>
+        </div>
+    }
+    @if (_fout is not null) { <span class="uitleg fout-tekst">@_fout</span> }
+</div>
+
+@code {
+    /// <summary>De foto's; de aanroeper houdt de lijst vast en slaat ze op.</summary>
+    [Parameter, EditorRequired] public List<FotoStuk> Fotos { get; set; } = new();
+    /// <summary>Waar de foto's voor zijn (staat op de telefoon), bv. "Fout bij MPR-1 · 32".</summary>
+    [Parameter] public string Titel { get; set; } = "Foto";
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private FotoVraag? _vraag;
+    private string _qr = "", _adres = "", _verbonden = "";
+    private int _ontvangen, _invoer;
+    private bool _bezig;
+    private string? _fout;
+
+    private async Task Gekozen(InputFileChangeEventArgs e)
+    {
+        _fout = null;
+        _bezig = true;
+        try
+        {
+            foreach (var bestand in e.GetMultipleFiles(10))
+            {
+                var groot = await Lees(await bestand.RequestImageFileAsync("image/jpeg", 2000, 2000), 8_000_000);
+                var klein = "data:image/jpeg;base64," +
+                            Convert.ToBase64String(await Lees(await bestand.RequestImageFileAsync("image/jpeg", 360, 360), 2_000_000));
+                var naam = Path.GetFileNameWithoutExtension(bestand.Name);
+                Fotos.Add(new FotoStuk((naam.Length > 0 ? naam : "foto") + ".jpg", groot, klein));
+            }
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "De foto lezen mislukte: " + ex.Message; }
+        finally { _bezig = false; _invoer++; }
+    }
+
+    private static async Task<byte[]> Lees(IBrowserFile bestand, long max)
+    {
+        using var geheugen = new MemoryStream();
+        await bestand.OpenReadStream(max).CopyToAsync(geheugen);
+        return geheugen.ToArray();
+    }
+
+    private async Task Weg(FotoStuk f)
+    {
+        Fotos.Remove(f);
+        await OpGewijzigd.InvokeAsync();
+    }
+
+    private void WisselTelefoon()
+    {
+        if (_vraag is not null) { SluitTelefoon(); return; }
+        _verbonden = ""; _ontvangen = 0; _fout = null;
+        _vraag = Brug.Open(Ik.WerknemerId, Ik.Naam, Titel, OpFoto, OpVerbonden);
+        _adres = Nav.ToAbsoluteUri("mobiel/foto?v=" + _vraag.Id).ToString();
+        _qr = QrSvg.Maak(_adres);
+    }
+
+    private void SluitTelefoon()
+    {
+        if (_vraag is { } v) Brug.Sluit(v.Id);
+        _vraag = null;
+    }
+
+    // De twee hieronder komen binnen vanaf de verbinding van de telefoon: eerst naar ons eigen scherm.
+    private Task OpVerbonden(string wie) => InvokeAsync(() => { _verbonden = Wie(wie); StateHasChanged(); });
+    private static string Wie(string naam) => naam.Trim().Length > 0 ? naam.Trim() : "een collega";
+
+    private Task OpFoto(FotoStuk foto, string wie) => InvokeAsync(async () =>
+    {
+        Fotos.Add(foto);
+        _ontvangen++;
+        if (_verbonden.Length == 0) _verbonden = Wie(wie);
+        StateHasChanged();
+        await OpGewijzigd.InvokeAsync();
+    });
+
+    public void Dispose() => SluitTelefoon();
+}

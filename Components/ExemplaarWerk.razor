@@ -955,7 +955,8 @@
 @if (ToonOpbouwStap && ToonOpbouw)
 {
     @Kop(NrOpbouw, "Opbouw en eindcontrole")
-    <OpbouwLijst ProductNameId="Naam.Id" ProductId="ProductId" HuidigeStatus="@Exemplaar.StatusKort" OpGewijzigd="OpGewijzigd" OpGereed="OpGereed" />
+    <OpbouwLijst ProductNameId="Naam.Id" ProductId="ProductId" HuidigeStatus="@Exemplaar.StatusKort" Exemplaar="@($"{Naam.Naam} · {Exemplaar.Serienummer}")"
+                 OpGewijzigd="OpGewijzigd" OpGereed="OpGereed" />
 }
 
 @* ---------- duurtest (producten): log van de testrig-PLC als document ---------- *@

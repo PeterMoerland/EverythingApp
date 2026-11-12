@@ -1306,8 +1306,10 @@ public class MySqlProductRepository : IProductRepository
     {
         var lijst = new List<Keuze>();
         await using var cn = await OpenAsync();
+        // een vervallen status (TEST, ProductStatusTestVervalt_MariaDB.sql) staat niet meer in de keuzelijsten
         await using var cmd = new MySqlCommand(
             "SELECT `ProductStatusID`, `Status`, `Order` FROM `ProductStatus` " +
+            (await HeeftStatusVervallenAsync(cn) ? "WHERE COALESCE(`Vervallen`, 0) = 0 " : "") +
             "ORDER BY COALESCE(`Order`, `ProductStatusID`)", cn);
 
         await using var r = await cmd.ExecuteReaderAsync();
@@ -1318,6 +1320,17 @@ public class MySqlProductRepository : IProductRepository
             lijst.Add(new Keuze(r.GetInt32(0), nummer is null ? naam : $"{nummer} - {naam}"));
         }
         return lijst;
+    }
+
+    // Kolom Vervallen in ProductStatus aanwezig? (ProductStatusTestVervalt_MariaDB.sql) Alleen 'ja' wordt onthouden.
+    private bool _heeftStatusVervallen;
+    private async Task<bool> HeeftStatusVervallenAsync(MySqlConnection cn)
+    {
+        if (_heeftStatusVervallen) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() " +
+            "  AND table_name = 'ProductStatus' AND LOWER(column_name) = 'vervallen'", cn);
+        return _heeftStatusVervallen = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
     }
 
     public async Task<HashSet<int>> GetStatusIdsMetNaamAsync(string naam)

@@ -2,9 +2,9 @@
 -- Elektrische opbouw, Parameters inschieten, Testen …) en per exemplaar welke
 -- stappen afgevinkt zijn. Elke wijziging van een vinkje komt ook in ProductHistorie.
 --
--- Documenten met hands-on uitleg per stap staan in de FileStore met StoreType 330
--- (MasterID = OpbouwStapID). Voeg 330 toe aan FileStoreType (foreign key!):
---   INSERT INTO `FileStoreType` (`FilestoreTypeID`, `Omschrijving`) VALUES (330, 'Opbouwstap');
+-- Documenten met hands-on uitleg per stap staan in de FileStore met StoreType 331
+-- (MasterID = OpbouwStapID). Die soort komt in FileStoreType (foreign key!) met ProductOpbouwDeel3_MariaDB.sql.
+-- (Eerst stond hier 330, maar dat is de soort van de bezoekverslagen; sinds 12-11-2026 is het 331.)
 
 CREATE TABLE IF NOT EXISTS `ProductOpbouwStappen` (
     `OpbouwStapID`  INT          NOT NULL AUTO_INCREMENT,

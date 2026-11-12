@@ -7,6 +7,11 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Producten** — Opgelost: een document bij een stap van de opbouw kon ook bij het bezoekverslag met hetzelfde nummer terechtkomen (en omgekeerd). Er stonden nog geen documenten, dus er is niets kwijt of verplaatst.
+- **Producten** — Nieuw: bij de opbouw van een exemplaar kun je een fout melden (voorstel van Sjoerd). De opbouw gaat dan op slot tot de fout is opgelost; bij het oplossen leg je vast wat er gedaan is, met foto's als je wilt. In de exemplarenlijst staat een ⚠ bij een exemplaar met een open fout.
+- **Producten** — Nieuw: terug naar een fase, bijvoorbeeld na het vervangen van een print. De vinkjes van die fase en van alle fases erna vervallen (bij de stap blijft staan wie hem eerder afvinkte) en je doorloopt ze opnieuw of slaat een fase over. Iedereen mag dit, met een reden; die komt in de historie.
+- **MDE mobiel** — Nieuw: je telefoon als camera. Klik op de pc bij een fout op "📱 Met telefoon", open op je telefoon MDE mobiel ▸ Foto (of scan de QR-code) en maak de foto: die staat meteen op het scherm van de pc.
+- **Producten** — Nieuw: een todo-punt kan bij een fase van de opbouw horen ("＋ Todo voor deze fase", of de keuze Fase op de tab Todo). Het staat dan in die fase en moet gereed zijn voordat je de fase afrondt.
 - **Producten** — Verbeterd: de opbouwboom van een producttype (tab Opbouw) bedien je nu zoals de calculatieboom, zonder rij knopjes per regel: slepen met de greep ⠿ (boven of onder een regel = ervoor of erna, op een regel = eronder hangen), sneltoetsen (Ctrl+Enter nieuw item, Ctrl+Shift+Enter nieuw item eronder, Alt+Shift+←/→ uit- en inspringen, Alt+↑/↓ schuiven) en een rechtermuismenu voor de rest (verplicht, op volgorde, documenten, verwijderen). Fases kun je in- en uitklappen.
 - **Calculaties** — Nieuw: een calculatie wissen (zolang hij niet bevroren is en er geen werkorders uit gemaakt zijn) en daarna opnieuw maken of importeren; en exporteren als JSON-bestand, om een kopie te bewaren of buiten de app verder te werken.
 - **Projecten** — Nieuw: tabblad Offertes bij een project, met de offertes van dat project (status, datum, maker, bedrag) en knoppen om de offerte of de calculatie te openen.

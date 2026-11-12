@@ -124,7 +124,7 @@
                     {
                     <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrOpbouw</span> Opbouw</h3>
                     <OpbouwLijst @ref="_opbouw" ProductNameId="_naam.Id" ProductId="_productId" ToonControle="false"
-                                 HuidigeStatus="@_exemplaar.StatusKort" OpGewijzigd="NaWijziging" />
+                                 HuidigeStatus="@_exemplaar.StatusKort" Exemplaar="@($"{_naam.Naam} · {_exemplaar.Serienummer}")" OpGewijzigd="NaWijziging" />
                     }
 
                     @* ---------- stap 5: duurtest in de testrig; daarna de log van de PLC als document ---------- *@
@@ -160,7 +160,7 @@
                     <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrEindcontrole</span> Eindcontrole</h3>
                     @* staat de stap Opbouw uit bij dit producttype, dan hier de boom zelf (anders zijn de checks nergens af te vinken) *@
                     <OpbouwLijst @ref="_lijst" ProductNameId="_naam.Id" ProductId="_productId" ToonOpbouw="@(!ToonOpbouw)"
-                                 HuidigeStatus="@_exemplaar.StatusKort" OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
+                                 HuidigeStatus="@_exemplaar.StatusKort" Exemplaar="@($"{_naam.Naam} · {_exemplaar.Serienummer}")" OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
                 </div>
 
                 <aside class="prod-rechts">

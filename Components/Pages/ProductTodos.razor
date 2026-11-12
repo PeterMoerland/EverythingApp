@@ -225,7 +225,7 @@
             {
                 <td><b>@t.Wat</b></td>
             }
-            <td>@t.Toelichting</td>
+            <td>@if (t.Fase.Length > 0) { <span class="opb-chip" title="De fase van de opbouw waarin dit gedaan moet worden">@t.Fase</span> } @t.Toelichting</td>
             <td class="omschrijving" title="@t.Klant">@t.Klant</td>
             <td class="omschrijving" title="@t.Project">@t.Project</td>
             <td>@t.Status</td>

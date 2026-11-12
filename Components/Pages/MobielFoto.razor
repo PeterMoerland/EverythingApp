@@ -1,0 +1,144 @@
+@page "/mobiel/foto"
+@layout MobielLayout
+@inject FotoBrug Brug
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+@* De telefoon als camera voor een scherm op de pc (wens gebruiker 12-11-2026). Op de pc klik je bij bv. een fout in de
+   opbouw op "📱 Met telefoon" (Components/FotoVak.razor); deze pagina toont die vraag: via de QR-code (?v=…) of, als je
+   op de telefoon als jezelf bent aangemeld, vanzelf. Elke foto wordt in de browser verkleind en staat meteen op het
+   pc-scherm; opslaan doet de pc. Staat deze pagina open en komt er op de pc een nieuwe vraag, dan verschijnt die hier. *@
+
+<PageTitle>Foto — MDE</PageTitle>
+
+<h2 class="mobiel-kop">📷 Foto</h2>
+
+@if (!_geladen)
+{
+    <p class="mobiel-klein">Laden…</p>
+}
+else if (_reden is not null)
+{
+    <div class="bon-fout">@_reden</div>
+}
+else if (_vraag is null)
+{
+    @if (_gesloten)
+    {
+        <div class="bon-klaar">✓ Klaar. De pc heeft @(_verstuurd.Count == 1 ? "de foto" : $"de {_verstuurd.Count} foto's").</div>
+    }
+    <p>Er wacht nu geen scherm op een foto.</p>
+    <p class="mobiel-klein">Klik op de pc op <b>📱 Met telefoon</b> (bijvoorbeeld bij een fout in de opbouw van een product).
+        De vraag verschijnt dan hier vanzelf; je kunt ook de QR-code op het scherm scannen.</p>
+    <a class="knopje bon-tweede" href="mobiel">Terug naar het startscherm</a>
+}
+else
+{
+    <div class="foto-voor">
+        <span class="mobiel-klein">Foto voor</span>
+        <b>@_vraag.Titel</b>
+        @if (_vraag.Vrager.Length > 0 && _vraag.WerknemerId != Ik.WerknemerId)
+        {
+            <span class="mobiel-klein">gevraagd door @_vraag.Vrager</span>
+        }
+    </div>
+
+    <label class="bon-hoofdknop">
+        📷 @(_verstuurd.Count == 0 ? "Foto maken" : "Nog een foto")
+        <InputFile @key="_invoer" OnChange="Gekozen" accept="image/*" capture="environment" class="bon-verborgen" />
+    </label>
+    <label class="knopje bon-tweede">
+        Kies uit de galerij
+        <InputFile @key="(_invoer, 1)" OnChange="Gekozen" accept="image/*" multiple class="bon-verborgen" />
+    </label>
+
+    @if (_bezig) { <p class="mobiel-klein"><span class="draaier"></span> Foto versturen…</p> }
+    @if (_melding is not null) { <div class="bon-fout">@_melding</div> }
+
+    @if (_verstuurd.Count > 0)
+    {
+        <div class="bon-klaar">✓ @(_verstuurd.Count == 1 ? "1 foto staat" : $"{_verstuurd.Count} foto's staan") op het scherm van de pc.</div>
+        <div class="foto-verstuurd">
+            @foreach (var v in _verstuurd)
+            {
+                <img src="@v" alt="Verstuurde foto" />
+            }
+        </div>
+    }
+    <p class="mobiel-klein">Opslaan gebeurt op de pc. Een foto die niet goed is haal je daar weer weg.</p>
+}
+
+@code {
+    /// <summary>Het nummer van de vraag uit de QR-code; leeg = de nieuwste vraag van jezelf.</summary>
+    [SupplyParameterFromQuery(Name = "v")] public string? V { get; set; }
+
+    private bool _geladen, _bezig, _gesloten;
+    private string? _reden, _melding;
+    private FotoVraag? _vraag;
+    private readonly List<string> _verstuurd = new();    // voorbeelden van wat al op de pc staat
+    private int _invoer;                                 // @key: na elke foto een verse invoer, zodat dezelfde foto nog eens kan
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Ik.WerknemerId is null) _reden = "Je bent niet als medewerker aangemeld. Log in met je MDE-account.";
+        else
+        {
+            Brug.Gewijzigd += OpGewijzigd;
+            await Bepaal();
+        }
+        _geladen = true;
+    }
+
+    private void OpGewijzigd() => _ = InvokeAsync(async () => { await Bepaal(); StateHasChanged(); });
+
+    /// <summary>Welke vraag hoort bij dit scherm: die van de QR-code, anders de nieuwste van deze medewerker.</summary>
+    private async Task Bepaal()
+    {
+        var nieuw = Brug.Zoek(V) ?? (Ik.WerknemerId is int ik ? Brug.NieuwsteVan(ik) : null);
+        if (nieuw?.Id == _vraag?.Id) return;
+        if (nieuw is null) { _gesloten = _verstuurd.Count > 0; _vraag = null; return; }
+        _vraag = nieuw;
+        _gesloten = false;
+        _verstuurd.Clear();
+        _melding = null;
+        await Brug.VerbondenAsync(nieuw.Id, Ik.Naam);
+    }
+
+    private async Task Gekozen(InputFileChangeEventArgs e)
+    {
+        if (_vraag is not { } vraag) return;
+        _melding = null;
+        _bezig = true;
+        try
+        {
+            foreach (var bestand in e.GetMultipleFiles(8))
+            {
+                // in de browser verkleinen: een foto van een telefoon is al gauw 5-10 MB; 2000 px is ruim genoeg
+                var groot = await Lees(await bestand.RequestImageFileAsync("image/jpeg", 2000, 2000), 8_000_000);
+                var klein = "data:image/jpeg;base64," +
+                            Convert.ToBase64String(await Lees(await bestand.RequestImageFileAsync("image/jpeg", 360, 360), 2_000_000));
+                var foto = new FotoStuk($"foto {DateTime.Now:yyyy-MM-dd HHmmss}.jpg", groot, klein);
+                if (!await Brug.LeverAsync(vraag.Id, foto, Ik.Naam))
+                {
+                    _melding = "De pc wacht niet meer op deze foto (het venster daar is gesloten).";
+                    await Bepaal();
+                    break;
+                }
+                _verstuurd.Add(klein);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) { _melding = "De foto versturen mislukte: " + ex.Message; }
+        finally { _bezig = false; _invoer++; }
+    }
+
+    private static async Task<byte[]> Lees(IBrowserFile bestand, long max)
+    {
+        using var geheugen = new MemoryStream();
+        await bestand.OpenReadStream(max).CopyToAsync(geheugen);
+        return geheugen.ToArray();
+    }
+
+    public void Dispose() => Brug.Gewijzigd -= OpGewijzigd;
+}

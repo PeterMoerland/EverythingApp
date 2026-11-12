@@ -1,6 +1,8 @@
 @inject IOpbouwRepository Opbouw
 @inject IProductRepository Repo
+@inject IProductTodoRepository Todos
 @inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
 @inject IConfiguration Config
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
@@ -13,6 +15,15 @@
    "op volgorde" pas als alles erboven af is. Een hoofdfase rond je af met "Fase klaar" (alles eronder af) of sla je
    over. Subfases krijgen vanzelf een vinkje. Zonder fases: losse stappen, vrij af te vinken, zoals voorheen.
 
+   Deel 3 van het voorstel (12-11-2026, ProductOpbouwDeel3_MariaDB.sql):
+   - Terug naar een fase: de vinkjes van die fase en van alle fases erna vervallen (Klaar uit, de regel blijft: bij de
+     stap staat "eerder: …"). Iedereen mag dit (keuze gebruiker), met een reden; die komt in de historie.
+   - Fout melden: de opbouw gaat op slot (afvinken, Fase klaar, Overslaan en Product gereed) tot de fout is opgelost,
+     met wat er gedaan is en eventueel foto's (FotoVak: van de pc of met de telefoon als camera). Iets anders dan de
+     status FAILED (definitief afgekeurd).
+   - Todo's per fase: een punt van de tab Todo kan bij een hoofdfase horen; het staat dan in die fase en moet gereed
+     zijn voor Fase klaar.
+
    Elke wijziging komt in de historie; is alles af, dan wordt de knop 'Product gereed' actief die de status van het
    exemplaar omzet. Gebruikt in Half-fabricaten, Producten (Productie) en het tabblad Opbouw bij een exemplaar. De
    regels van de boom staan in Models/Opbouw.cs (OpbouwBoom). *@
@@ -23,6 +34,59 @@
 }
 else
 {
+    @if (ToonOpbouw)
+    {
+        @foreach (var b in _blokkades.Where(b => b.Open))
+        {
+            <div class="blok-balk" @key="b.Id">
+                <div class="blok-kop">
+                    <span class="blok-teken">⚠</span>
+                    <b>Opbouw op slot: fout@(FaseTekst(b.FaseStapId) is { Length: > 0 } ft ? " in " + ft : "")</b>
+                    <span class="fase-rechts">gemeld @b.GemeldOp.ToString("dd-MM-yyyy HH:mm")@(b.GemeldDoor.Length > 0 ? " · " + b.GemeldDoor : "")</span>
+                </div>
+                <div class="blok-tekst">@b.Melding</div>
+                @Fotos(b)
+                @if (_paneel == "oplos" && _oplosId == b.Id)
+                {
+                    <div class="opb-paneel">
+                        <b>Fout oplossen</b>
+                        <textarea rows="3" maxlength="1000" placeholder="Wat is er gedaan om het op te lossen? bv. RZ-print vervangen door SN 81"
+                                  @bind="_tekst" @bind:event="oninput"></textarea>
+                        <FotoVak Fotos="_fotos" Titel="@($"Oplossing fout bij {ExemplaarTekst}")" />
+                        @if (TerugKandidaten.Count > 0)
+                        {
+                            <label class="opb-daarna">
+                                Daarna
+                                <select @onchange="e => _terugNaar = int.TryParse((string?)e.Value, out var t) ? t : null">
+                                    <option value="" selected="@(_terugNaar is null)">@(_boom.ActieveFase is { } af ? $"verder in fase {_boom.FaseNummer(af)} · {af.Naam}" : "niets terugzetten")</option>
+                                    @foreach (var k in TerugKandidaten)
+                                    {
+                                        <option value="@k.Id" selected="@(_terugNaar == k.Id)">terug naar fase @_boom.FaseNummer(k) · @k.Naam</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (TerugDoel is { } doel)
+                            {
+                                <span class="uitleg">@VervaltTekst(doel)</span>
+                            }
+                        }
+                        <div class="btngroup">
+                            <button class="primair" disabled="@(_bezig || _tekst.Trim().Length == 0)" @onclick="() => LosOp(b)">✔ Opgelost</button>
+                            <button class="klein" disabled="@_bezig" @onclick="Sluit">Annuleren</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="btngroup">
+                        <button class="primair" disabled="@_bezig" @onclick="@(() => Open("oplos", b.Id))"
+                                title="Vastleggen wat er gedaan is (met foto's als je wilt); daarna gaat de opbouw weer open">✔ Oplossen…</button>
+                    </div>
+                }
+            </div>
+        }
+    }
+
     @if (ToonOpbouw && _boom.MetFases)
     {
         var actieveFase = _boom.ActieveFase;
@@ -33,15 +97,26 @@ else
                 var open = actief || _faseOpen.Contains(f.Id);
                 var stappen = _boom.Stappen(f).ToList();
                 var nr = _boom.FaseNummer(f);
-                <div class="fase-rij @(f.Klaar ? "af" : actief ? "actief" : "slot")" @key="f.Id">
+                var todos = TodosVan(f);
+                var todoOpen = todos.Count(t => t.Open);
+                var blok = actief && Geblokkeerd;
+                <div class="fase-rij @(f.Klaar ? "af" : actief ? "actief" : "slot") @(blok ? "blok" : "")" @key="f.Id">
                     <button class="fase-kop" title="@(actief ? "Dit is de actieve fase" : open ? "Inklappen" : "Bekijken")" @onclick="() => WisselOpen(f)">
-                        <span class="fase-teken">@(f.Klaar && f.Overgeslagen ? "⏭" : f.Klaar ? "✓" : actief ? "▶" : "🔒")</span>
+                        <span class="fase-teken">@(f.Klaar && f.Overgeslagen ? "⏭" : f.Klaar ? "✓" : blok ? "⚠" : actief ? "▶" : "🔒")</span>
                         <b>@nr · @f.Naam</b>
                         <span class="fase-oms">@f.Omschrijving</span>
                         <span class="fase-rechts">
+                            @if (todoOpen > 0)
+                            {
+                                <span class="opb-chip" title="Open todo-punten voor deze fase">@todoOpen todo</span>
+                            }
                             @if (f.Klaar)
                             {
                                 @($"{(f.Overgeslagen ? "overgeslagen" : "klaar")} · {(f.KlaarDoor.Length > 0 ? f.KlaarDoor + " · " : "")}{f.KlaarOp:dd-MM-yyyy}")
+                            }
+                            else if (blok)
+                            {
+                                @("op slot · fout")
                             }
                             else if (actief)
                             {
@@ -65,10 +140,11 @@ else
                             {
                                 @Tak(_boom.Kinderen(f))
                             }
-                            else
+                            else if (todos.Count == 0)
                             {
                                 <p class="uitleg">Deze fase heeft geen afvinkstappen.@(actief ? " Klik op Fase klaar als het werk van deze fase gedaan is." : "")</p>
                             }
+                            @TodoRegels(f, todos, !Geblokkeerd && (actief || f.Klaar))
                             @if (f.Klaar && f.Opmerking.Length > 0)
                             {
                                 <p class="uitleg">@f.Opmerking</p>
@@ -77,30 +153,68 @@ else
                             {
                                 <p class="uitleg">Op slot: eerst fase @_boom.FaseNummer(actieveFase) · @actieveFase.Naam afronden.</p>
                             }
-                            @if (actief)
+                            @if (actief && Geblokkeerd)
+                            {
+                                <p class="uitleg">Op slot tot de fout hierboven is opgelost.</p>
+                            }
+                            else if (actief)
                             {
                                 var open_ = stappen.Count(s => !s.Klaar && s.Moet);
+                                var kanKlaar = _boom.InhoudAf(f) && todoOpen == 0;
                                 <div class="btngroup fase-knoppen">
-                                    <button class="primair" disabled="@(_bezig || !_boom.InhoudAf(f))" @onclick="() => FaseKlaar(f)"
-                                            title="@(open_ > 0 ? "Eerst alle verplichte stappen van deze fase afvinken" : "Deze fase afronden en naar de volgende")">✔ Fase klaar</button>
+                                    <button class="primair" disabled="@(_bezig || !kanKlaar)" @onclick="() => FaseKlaar(f)"
+                                            title="@(open_ > 0 ? "Eerst alle verplichte stappen van deze fase afvinken" : todoOpen > 0 ? "Eerst de todo-punten van deze fase afvinken" : "Deze fase afronden en naar de volgende")">✔ Fase klaar</button>
                                     <button class="klein" disabled="@_bezig" @onclick="() => FaseOverslaan(f)"
                                             title="Deze fase overslaan omdat er niets te doen of niets gewijzigd is; je naam en het tijdstip komen in de historie">⏭ Overslaan</button>
-                                    @if (open_ > 0)
+                                    @if (open_ + todoOpen > 0)
                                     {
-                                        <span class="uitleg">nog @open_ stap@(open_ == 1 ? "" : "pen") af te vinken</span>
+                                        <span class="uitleg">nog @(open_ + todoOpen) af te vinken</span>
+                                    }
+                                    <span class="fase-vulling"></span>
+                                    @if (_blokAan)
+                                    {
+                                        <button class="klein @(_paneel == "fout" ? "actief" : "")" disabled="@_bezig" @onclick="@(() => Open("fout"))"
+                                                title="Er is iets mis: de opbouw gaat op slot tot het is opgelost">⚠ Fout melden…</button>
+                                    }
+                                    @if (TerugKandidaten.Count > 0)
+                                    {
+                                        <button class="klein @(_paneel == "terug" ? "actief" : "")" disabled="@_bezig" @onclick="@(() => Open("terug"))"
+                                                title="Een eerdere fase opnieuw doorlopen, bv. na het vervangen van een print">↩ Terug naar een fase…</button>
                                     }
                                 </div>
+                                @if (_paneel == "fout") { @PaneelFout(f) }
+                                @if (_paneel == "terug") { @PaneelTerug() }
                             }
+                            @OudeFouten(b => b.FaseStapId == f.Id)
                         </div>
                     }
                 </div>
             }
         </div>
+        @if (actieveFase is null && TerugKandidaten.Count > 0)
+        {
+            @* alle fases zijn af: er kan nog wel teruggegaan worden (bv. na een reparatie) *@
+            <div class="btngroup fase-knoppen">
+                <button class="klein @(_paneel == "terug" ? "actief" : "")" disabled="@_bezig" @onclick="@(() => Open("terug"))"
+                        title="Een fase opnieuw doorlopen, bv. na het vervangen van een print">↩ Terug naar een fase…</button>
+            </div>
+            @if (_paneel == "terug") { @PaneelTerug() }
+        }
+        @OudeFouten(b => b.FaseStapId is not int id || _boom.Wortels.All(w => w.Id != id))
     }
     else if (ToonOpbouw)
     {
         @* zonder fases: losse stappen (en eventueel groepen), vrij af te vinken *@
         @Tak(_boom.Wortels)
+        @if (_blokAan && !Geblokkeerd)
+        {
+            <div class="btngroup fase-knoppen">
+                <button class="klein @(_paneel == "fout" ? "actief" : "")" disabled="@_bezig" @onclick="@(() => Open("fout"))"
+                        title="Er is iets mis: de opbouw gaat op slot tot het is opgelost">⚠ Fout melden…</button>
+            </div>
+            @if (_paneel == "fout") { @PaneelFout(null) }
+        }
+        @OudeFouten(_ => true)
     }
     else if (ToonControle)
     {
@@ -110,10 +224,14 @@ else
     @if (ToonControle)
     {
         <div class="btngroup prod-gereed">
-            <button class="primair" disabled="@(_bezig || !_boom.AllesAf || _isGereed)" @onclick="ZetGereed" title="@GereedTitel">
+            <button class="primair" disabled="@(_bezig || !_boom.AllesAf || _isGereed || Geblokkeerd)" @onclick="ZetGereed" title="@GereedTitel">
                 ✔ Product gereed
             </button>
-            @if (_isGereed)
+            @if (Geblokkeerd)
+            {
+                <span class="stand-chip s-rood">op slot: er staat een fout open</span>
+            }
+            else if (_isGereed)
             {
                 <span class="stand-chip s-groen">Status: @HuidigeStatus</span>
             }
@@ -146,6 +264,8 @@ else
     [Parameter] public int ProductId { get; set; }
     /// <summary>Huidige status van het exemplaar (StatusKort), voor de gereed-knop.</summary>
     [Parameter] public string HuidigeStatus { get; set; } = "";
+    /// <summary>Type en serienummer voor in teksten (bv. "MPR-1 · 32"); staat ook op de telefoon bij het maken van een foto.</summary>
+    [Parameter] public string Exemplaar { get; set; } = "";
     /// <summary>De opbouwboom tonen (false = alleen de knop 'Product gereed', als de boom elders al staat).</summary>
     [Parameter] public bool ToonOpbouw { get; set; } = true;
     /// <summary>De knop 'Product gereed' tonen.</summary>
@@ -163,10 +283,31 @@ else
     private string? _statusFout;
     private int _geladenVoor = -1;
 
+    // ---- deel 3: fouten (blokkades), terugzetten, todo's per fase ----
+    private bool _blokAan;                                // de tabel voor fouten is er
+    private List<OpbouwBlokkade> _blokkades = new();
+    private readonly Dictionary<int, List<Bestand>> _blokFotos = new();
+    private string? _paneel;                              // "fout", "oplos" of "terug"
+    private int? _oplosId;
+    private string _tekst = "";
+    private List<FotoStuk> _fotos = new();
+    private int? _terugNaar;
+    private bool _todoFase;                               // todo's kunnen bij een fase horen
+    private List<ProductTodo> _todos = new();
+    private int? _todoVoor;                               // de fase waar nu een todo wordt ingevoerd
+    private string _todoWat = "", _todoToel = "";
+
+    private bool Geblokkeerd => _blokkades.Any(b => b.Open);
+    private string ExemplaarTekst => Exemplaar.Trim().Length > 0 ? Exemplaar.Trim() : "dit exemplaar";
+
     private string GereedStatusNaam => Config["Productie:GereedStatus"] ?? "Gereed";
-    private bool _isGereed => HuidigeStatus.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase);
-    private string GereedTitel => _boom.AllesAf
-        ? $"Status van dit exemplaar op '{GereedStatusNaam}' zetten"
+    private string OkStatusNaam => Config["Productie:OkStatus"] ?? "OK";
+    private string BezigStatusNaam => Config["Productie:BezigStatus"] ?? "In productie";
+    // HuidigeStatus is de korte naam (OK) of, vlak na de knop, de lange (Product gereed)
+    private bool _isGereed => HuidigeStatus.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase)
+                              || HuidigeStatus.Trim().Equals(OkStatusNaam, StringComparison.OrdinalIgnoreCase);
+    private string GereedTitel => Geblokkeerd ? "Eerst de fout oplossen"
+        : _boom.AllesAf ? $"Status van dit exemplaar op '{GereedStatusNaam}' zetten"
         : _boom.MetFases ? "Eerst alle fases afronden" : "Eerst alle verplichte stappen afvinken";
 
     protected override async Task OnParametersSetAsync()
@@ -174,19 +315,43 @@ else
         if (_geladenVoor == ProductId) return;
         _geladenVoor = ProductId;
         _faseOpen.Clear();
+        _statusFout = null;
+        Sluit();
+        _todoVoor = null;
         await Laad();
     }
 
     public async Task Laad()
     {
-        _docsVoor = null; _docs = new(); _statusFout = null;
+        _docsVoor = null; _docs = new();
         var items = new List<OpbouwStap>();
+        var blokkades = new List<OpbouwBlokkade>();
+        var todos = new List<ProductTodo>();
         if (Opbouw.Beschikbaar && ProductNameId != 0)
         {
             try { items = await Opbouw.GetStappenAsync(ProductNameId, ProductId); }
             catch { /* tabellen ontbreken: lege boom */ }
+            try
+            {
+                _blokAan = await Opbouw.HeeftBlokkadesAsync();
+                if (_blokAan) blokkades = await Opbouw.GetBlokkadesAsync(ProductId);
+            }
+            catch { _blokAan = false; }
+            try
+            {
+                _todoFase = await Todos.HeeftFaseAsync();
+                if (_todoFase) todos = (await Todos.VanExemplaarAsync(ProductId)).Where(t => t.ProductId == ProductId && t.FaseStapId is not null).ToList();
+            }
+            catch { _todoFase = false; }
         }
         _boom = new OpbouwBoom(items);
+        _blokkades = blokkades;
+        _todos = todos;
+        // de foto's van open fouten staan er meteen bij; die van opgeloste pas na een klik
+        foreach (var b in blokkades.Where(b => b.AantalFotos > 0 && (b.Open || _blokFotos.ContainsKey(b.Id))))
+        {
+            try { _blokFotos[b.Id] = await WnRepo.GetBestandenAsync(OpbouwStore.Blokkade, b.Id); } catch { }
+        }
         StateHasChanged();   // ook als de aanroeper (een andere lijst op dezelfde pagina) ons herlaadt
     }
 
@@ -202,7 +367,7 @@ else
         <div class="opb-tak">
             @foreach (var s in items)
             {
-                var vrij = _boom.Vrij(s);
+                var vrij = _boom.Vrij(s) && !Geblokkeerd;
                 @if (_boom.IsGroep(s))
                 {
                     var af = _boom.Af(s);
@@ -232,7 +397,10 @@ else
                             <b>@s.Naam</b>@(s.Moet ? "" : " (optioneel)")
                             @if (s.Omschrijving.Length > 0) { <br /><small class="uitleg">@s.Omschrijving</small> }
                         </span>
-                        <span class="opb-stapklaar">@(s.Klaar ? $"{s.KlaarOp:dd-MM-yyyy HH:mm} · {s.KlaarDoor}" : "")</span>
+                        <span class="opb-stapklaar" title="@(!s.Klaar && s.KlaarOp is not null ? "Dit vinkje verviel bij 'Terug naar een fase'" : null)">
+                            @(s.Klaar ? $"{s.KlaarOp:dd-MM-yyyy HH:mm} · {s.KlaarDoor}"
+                              : s.KlaarOp is { } eerder ? $"eerder: {eerder:dd-MM-yyyy}{(s.KlaarDoor.Length > 0 ? " · " + s.KlaarDoor : "")}" : "")
+                        </span>
                         <span class="opb-stapdocs">
                             @if (s.AantalDocumenten > 0)
                             {
@@ -267,6 +435,7 @@ else
     /// <summary>Waarom een stap nu niet af te vinken is.</summary>
     private string SlotReden(OpbouwStap s)
     {
+        if (Geblokkeerd) return "Op slot: er staat een fout open";
         var wortel = s;
         while (_boom.Ouder(wortel) is { } o) wortel = o;
         if (_boom.MetFases && wortel.Id != _boom.ActieveFase?.Id)
@@ -285,8 +454,9 @@ else
     private async Task Vink(OpbouwStap s, ChangeEventArgs e)
     {
         var klaar = e.Value is bool b && b;
+        _statusFout = null;
         // het slot geldt hier, niet alleen via het uitgeschakelde vinkje
-        if (!_boom.Vrij(s))
+        if (!_boom.Vrij(s) || Geblokkeerd)
         {
             _statusFout = SlotReden(s) + ".";
             await Laad();
@@ -306,22 +476,24 @@ else
         finally { _bezig = false; }
     }
 
-    /// <summary>De actieve hoofdfase afronden: alles eronder is af.</summary>
+    /// <summary>De actieve hoofdfase afronden: alles eronder is af, er staat geen todo van de fase open en geen fout.</summary>
     private async Task FaseKlaar(OpbouwStap f)
     {
-        if (f.Id != _boom.ActieveFase?.Id || !_boom.InhoudAf(f)) return;
+        if (f.Id != _boom.ActieveFase?.Id || !_boom.InhoudAf(f) || Geblokkeerd || TodosVan(f).Any(t => t.Open)) return;
         await ZetFase(f, false, $"Fase {_boom.FaseNummer(f)} · {f.Naam}: klaar", true);
     }
 
     /// <summary>De actieve hoofdfase overslaan (keuze Sjoerd 11-11-2026: iedereen, één klik met een vraag; naam en tijd in de historie).</summary>
     private async Task FaseOverslaan(OpbouwStap f)
     {
-        if (f.Id != _boom.ActieveFase?.Id) return;
+        if (f.Id != _boom.ActieveFase?.Id || Geblokkeerd) return;
+        var todo = TodosVan(f).Count(t => t.Open);
         bool ja;
         try
         {
             ja = await JS.InvokeAsync<bool>("mdeBevestig",
                 $"Fase {_boom.FaseNummer(f)} · {f.Naam} overslaan?\n\nAlleen doen als er in deze fase niets te doen of niets gewijzigd is. " +
+                (todo > 0 ? $"Let op: er {(todo == 1 ? "staat nog 1 todo-punt" : $"staan nog {todo} todo-punten")} open voor deze fase. " : "") +
                 "Je naam en het tijdstip komen in de historie.");
         }
         catch { ja = false; }
@@ -339,6 +511,7 @@ else
             // de regel hoort bij de fase die net is afgerond, niet bij de volgende
             await Repo.VoegHistorieToeAsync(ProductId, historie, ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: uitkomst, faseId: f.Id);
             _faseOpen.Remove(f.Id);
+            Sluit();
             await Laad();
             await OpGewijzigd.InvokeAsync();
         }
@@ -353,25 +526,346 @@ else
         try { _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _docs = new(); }
     }
 
-    /// <summary>Alles af: status van het exemplaar op 'Gereed' (naam uit Productie:GereedStatus).</summary>
-    private async Task ZetGereed()
+    // ============================================================
+    //  Paneel: fout melden, oplossen, terug naar een fase
+    // ============================================================
+    private void Open(string paneel, int? blokkadeId = null)
     {
-        if (!_boom.AllesAf) return;
+        if (_paneel == paneel && _oplosId == blokkadeId) { Sluit(); return; }
+        _paneel = paneel; _oplosId = blokkadeId; _tekst = ""; _fotos = new(); _terugNaar = null; _statusFout = null;
+    }
+
+    private void Sluit() { _paneel = null; _oplosId = null; _tekst = ""; _fotos = new(); _terugNaar = null; }
+
+    /// <summary>"fase 4 · Kalibratie" bij een hoofdfase; leeg als de fase niet (meer) bestaat.</summary>
+    private string FaseTekst(int? stapId)
+        => stapId is int id && _boom.Wortels.FirstOrDefault(w => w.Id == id) is { } f
+            ? (_boom.MetFases ? $"fase {_boom.FaseNummer(f)} · {f.Naam}" : f.Naam) : "";
+
+    /// <summary>De fases waar je naar terug kunt: de afgeronde (alles vóór de actieve fase).</summary>
+    private List<OpbouwStap> TerugKandidaten => _boom.MetFases ? _boom.Wortels.Where(w => w.Klaar).ToList() : new();
+    private OpbouwStap? TerugDoel => _terugNaar is int id ? TerugKandidaten.FirstOrDefault(w => w.Id == id) : null;
+
+    /// <summary>Wat er vervalt als je naar deze fase teruggaat: die fase en alles erna.</summary>
+    private List<OpbouwStap> Vervalt(OpbouwStap doel)
+        => _boom.Wortels.Skip(_boom.Wortels.IndexOf(doel))
+                .SelectMany(f => new[] { f }.Concat(_boom.Nakomelingen(f))).Where(s => s.Klaar).ToList();
+
+    private string VervaltTekst(OpbouwStap doel)
+    {
+        var weg = Vervalt(doel);
+        var fases = weg.Where(_boom.IsHoofdfase).ToList();
+        var vinkjes = weg.Count - fases.Count;
+        var bereik = fases.Count <= 1 ? $"fase {_boom.FaseNummer(doel)}"
+            : $"fase {_boom.FaseNummer(doel)} t/m {_boom.FaseNummer(fases[^1])}";
+        return $"Vervalt: de afronding van {bereik} en {vinkjes} vinkje{(vinkjes == 1 ? "" : "s")}. " +
+               "Testresultaten en opmerkingen blijven in de historie.";
+    }
+
+    private RenderFragment PaneelFout(OpbouwStap? fase) => __builder =>
+    {
+        <div class="opb-paneel fout">
+            <b>⚠ Fout melden@(fase is null ? "" : $" in fase {_boom.FaseNummer(fase)} · {fase.Naam}")</b>
+            <span class="uitleg">De opbouw gaat op slot tot de fout is opgelost. Is het product definitief afgekeurd, zet dan de status op afgekeurd.</span>
+            <textarea rows="3" maxlength="1000" placeholder="Wat is er mis? bv. drive 3 geeft een encoderfout bij het uitlezen"
+                      @bind="_tekst" @bind:event="oninput"></textarea>
+            <FotoVak Fotos="_fotos" Titel="@($"Fout bij {ExemplaarTekst}")" />
+            <div class="btngroup">
+                <button class="primair" disabled="@(_bezig || _tekst.Trim().Length == 0)" @onclick="() => MeldFout(fase)">⚠ Melden, opbouw op slot</button>
+                <button class="klein" disabled="@_bezig" @onclick="Sluit">Annuleren</button>
+            </div>
+        </div>
+    };
+
+    private RenderFragment PaneelTerug() => __builder =>
+    {
+        <div class="opb-paneel">
+            <b>↩ Terug naar een fase</b>
+            <span class="uitleg">De vinkjes van die fase en van alle fases erna vervallen; je doorloopt ze opnieuw, of slaat een fase over als er niets veranderd is.</span>
+            <div class="opb-keuzes">
+                @foreach (var k in TerugKandidaten)
+                {
+                    <label class="vink" @key="k.Id">
+                        <input type="radio" name="@($"opb-terug-{ProductId}")" checked="@(_terugNaar == k.Id)" @onchange="() => _terugNaar = k.Id" />
+                        @_boom.FaseNummer(k) · @k.Naam
+                    </label>
+                }
+            </div>
+            <textarea rows="2" maxlength="200" placeholder="Waarom? bv. RZ-print vervangen" @bind="_tekst" @bind:event="oninput"></textarea>
+            @if (TerugDoel is { } doel)
+            {
+                <span class="uitleg">@VervaltTekst(doel)@(_isGereed ? $" De status gaat terug naar '{BezigStatusNaam}'." : "")</span>
+            }
+            <div class="btngroup">
+                <button class="primair" disabled="@(_bezig || TerugDoel is null || _tekst.Trim().Length == 0)" @onclick="ZetTerug">↩ Terugzetten</button>
+                <button class="klein" disabled="@_bezig" @onclick="Sluit">Annuleren</button>
+            </div>
+        </div>
+    };
+
+    /// <summary>De foto's van een fout (klik = groot in een nieuw tabblad).</summary>
+    private RenderFragment Fotos(OpbouwBlokkade b) => __builder =>
+    {
+        if (_blokFotos.TryGetValue(b.Id, out var fotos) && fotos.Count > 0)
+        {
+            <div class="blok-fotos">
+                @foreach (var d in fotos)
+                {
+                    <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener" title="@d.Bestandsnaam">
+                        <img src="@("bestand/" + d.FileStoreId)" alt="@d.Bestandsnaam" loading="lazy" />
+                    </a>
+                }
+            </div>
+        }
+    };
+
+    /// <summary>De opgeloste fouten die bij een fase horen: wat er was, wat er gedaan is, en de foto's na een klik.</summary>
+    private RenderFragment OudeFouten(Func<OpbouwBlokkade, bool> welke) => __builder =>
+    {
+        foreach (var b in _blokkades.Where(b => !b.Open && welke(b)))
+        {
+            <div class="blok-oud" @key="b.Id">
+                <span class="blok-oud-kop">
+                    ✔ Fout opgelost · @($"{b.OpgelostOp:dd-MM-yyyy}")@(b.OpgelostDoor.Length > 0 ? " · " + b.OpgelostDoor : "")
+                    @if (b.AantalFotos > 0)
+                    {
+                        <button class="klein" title="Foto's tonen of verbergen" @onclick="() => WisselFotos(b)">📎 @b.AantalFotos</button>
+                    }
+                </span>
+                <span><span class="uitleg">Fout (@b.GemeldOp.ToString("dd-MM")@(b.GemeldDoor.Length > 0 ? " " + b.GemeldDoor : "")):</span> @b.Melding</span>
+                <span><span class="uitleg">Opgelost:</span> @b.Oplossing</span>
+                @Fotos(b)
+            </div>
+        }
+    };
+
+    private async Task WisselFotos(OpbouwBlokkade b)
+    {
+        if (_blokFotos.Remove(b.Id)) return;
+        try { _blokFotos[b.Id] = await WnRepo.GetBestandenAsync(OpbouwStore.Blokkade, b.Id); } catch { }
+    }
+
+    /// <summary>De foto's uit het paneel in de filestore zetten bij deze fout. Geeft het aantal dat gelukt is.</summary>
+    private async Task<int> BewaarFotos(int blokkadeId, string voorvoegsel)
+    {
+        if (_fotos.Count == 0) return 0;
+        if (!Store.Beschikbaar) { _statusFout = "De foto's zijn niet bewaard: de filestore is niet ingesteld (Filestore:Pad)."; return 0; }
+        var n = 0;
+        foreach (var f in _fotos)
+        {
+            try
+            {
+                using var stroom = new MemoryStream(f.Inhoud);
+                await Store.ToevoegenAsync(stroom, $"{voorvoegsel} {f.Naam}", OpbouwStore.Blokkade, blokkadeId, Ik.WerknemerId ?? 0);
+                n++;
+            }
+            catch (Exception ex) { _statusFout = $"Foto '{f.Naam}' bewaren mislukt: {ex.Message}"; }
+        }
+        return n;
+    }
+
+    private static string FotoTekst(int n) => n == 0 ? "" : n == 1 ? " (1 foto)" : $" ({n} foto's)";
+
+    /// <summary>Een fout melden: de opbouw gaat op slot. Fase = de actieve hoofdfase (null bij een type zonder fases).</summary>
+    private async Task MeldFout(OpbouwStap? fase)
+    {
+        var tekst = _tekst.Trim();
+        if (tekst.Length == 0 || _bezig) return;
+        _bezig = true;
         _statusFout = null;
         try
         {
-            var statussen = await Repo.GetStatussenAsync();
-            var gereed = statussen.FirstOrDefault(s => string.Equals(s.Naam, GereedStatusNaam, StringComparison.OrdinalIgnoreCase))
-                         ?? statussen.FirstOrDefault(s => s.Naam.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase));
-            if (gereed is null) { _statusFout = $"Geen productstatus '{GereedStatusNaam}' gevonden (Productie:GereedStatus in appsettings)."; return; }
-
-            _bezig = true;
-            await Repo.UpdateVeldAsync(ProductId, "ProductStatusID", gereed.Id);
-            await Repo.VoegHistorieToeAsync(ProductId, $"Product gereed: status → {gereed.Naam} (opbouw compleet)",
-                ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: true);
-            HuidigeStatus = gereed.Naam;
+            var id = await Opbouw.MeldBlokkadeAsync(ProductId, fase?.Id, tekst, Ik.WerknemerId);
+            var fotos = await BewaarFotos(id, "fout");
+            await Repo.VoegHistorieToeAsync(ProductId,
+                $"Fout gemeld{(fase is null ? "" : $" in fase {_boom.FaseNummer(fase)} · {fase.Naam}")}, opbouw op slot{FotoTekst(fotos)}: {tekst}",
+                ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: false, faseId: fase?.Id);
+            Sluit();
+            await Laad();
             await OpGewijzigd.InvokeAsync();
-            await OpGereed.InvokeAsync(gereed.Naam);
+        }
+        catch (Exception ex) { _statusFout = "Melden mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Een fout oplossen (wat er gedaan is, met foto's); eventueel daarna terug naar een eerdere fase.</summary>
+    private async Task LosOp(OpbouwBlokkade b)
+    {
+        var tekst = _tekst.Trim();
+        if (tekst.Length == 0 || _bezig) return;
+        var doel = TerugDoel;
+        _bezig = true;
+        _statusFout = null;
+        try
+        {
+            if (!await Opbouw.LosBlokkadeOpAsync(b.Id, tekst, Ik.WerknemerId))
+            {
+                _statusFout = "Deze fout was al opgelost.";
+            }
+            else
+            {
+                var fotos = await BewaarFotos(b.Id, "oplossing");
+                var fase = FaseTekst(b.FaseStapId);
+                await Repo.VoegHistorieToeAsync(ProductId,
+                    $"Fout opgelost{(fase.Length > 0 ? $" ({fase})" : "")}{FotoTekst(fotos)}: {tekst}",
+                    ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: true, faseId: b.FaseStapId);
+                if (doel is not null) await VoerTerugUit(doel, "na fout: " + tekst);
+            }
+            Sluit();
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Terug naar een fase (keuze gebruiker 12-11-2026: iedereen mag dit, met een reden).</summary>
+    private async Task ZetTerug()
+    {
+        var tekst = _tekst.Trim();
+        if (TerugDoel is not { } doel || tekst.Length == 0 || _bezig) return;
+        _bezig = true;
+        _statusFout = null;
+        try
+        {
+            await VoerTerugUit(doel, tekst);
+            Sluit();
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Terugzetten mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task VoerTerugUit(OpbouwStap doel, string reden)
+    {
+        var weg = Vervalt(doel);
+        var vinkjes = weg.Count(s => !_boom.IsHoofdfase(s));
+        await Opbouw.ZetTerugAsync(ProductId, weg.Select(s => s.Id).ToList());
+        await Repo.VoegHistorieToeAsync(ProductId,
+            $"Terug naar fase {_boom.FaseNummer(doel)} · {doel.Naam} ({vinkjes} vinkje{(vinkjes == 1 ? "" : "s")} vervallen): {reden}",
+            ProductVelden.HistorieLevensloop, Ik.WerknemerId, faseId: doel.Id);
+        _faseOpen.Clear();
+        // een product dat gereed was, is dat nu niet meer
+        if (_isGereed) await ZetStatus(BezigStatusNaam, "Productie:BezigStatus", n => $"Status → {n} (opbouw teruggezet)", null);
+    }
+
+    // ============================================================
+    //  Todo's per fase
+    // ============================================================
+    private List<ProductTodo> TodosVan(OpbouwStap f) => _todos.Where(t => t.FaseStapId == f.Id).OrderBy(t => !t.Open).ThenBy(t => t.Aangemaakt).ToList();
+
+    private RenderFragment TodoRegels(OpbouwStap f, List<ProductTodo> todos, bool vrij) => __builder =>
+    {
+        if (_todoFase)
+        {
+            <div class="opb-tak opb-todos">
+                @foreach (var t in todos)
+                {
+                    <div class="opb-stap opb-todo @(t.Open ? "" : "klaar") @(vrij ? "" : "slot")" @key="t.Id">
+                        <input type="checkbox" class="opb-vink" checked="@(!t.Open)" disabled="@(_bezig || !vrij)"
+                               title="@(vrij ? (t.Open ? "Afvinken: gereed" : "Weer open zetten") : Geblokkeerd ? "Op slot: er staat een fout open" : "Deze fase is nog niet aan de beurt (afvinken kan wel op de tab Todo)")"
+                               @onchange="e => VinkTodo(f, t, e.Value is true)" />
+                        <span class="opb-stapnaam">
+                            <span class="opb-chip">todo</span> <b>@t.Wat</b>
+                            @if (t.Toelichting.Length > 0) { <br /><small class="uitleg">@t.Toelichting</small> }
+                        </span>
+                        <span class="opb-stapklaar">
+                            @(t.Gereed is { } g ? $"{g:dd-MM-yyyy HH:mm} · {t.GereedDoor}" : $"ingevoerd {t.Aangemaakt:dd-MM-yyyy} {t.Door}")
+                        </span>
+                        <span class="opb-stapdocs"></span>
+                    </div>
+                }
+                @if (_todoVoor == f.Id)
+                {
+                    <div class="opb-todo-invoer">
+                        <input maxlength="60" placeholder="Wat moet er in deze fase nog gebeuren?" value="@_todoWat"
+                               @oninput="e => _todoWat = (string?)e.Value ?? string.Empty" @onkeydown="e => TodoToets(f, e)" />
+                        <input maxlength="250" placeholder="Toelichting (optioneel)" value="@_todoToel"
+                               @oninput="e => _todoToel = (string?)e.Value ?? string.Empty" @onkeydown="e => TodoToets(f, e)" />
+                        <button class="primair" disabled="@(_bezig || _todoWat.Trim().Length == 0)" @onclick="() => VoegTodoToe(f)">Toevoegen</button>
+                        <button class="klein" @onclick="() => _todoVoor = null">Annuleren</button>
+                    </div>
+                }
+                else
+                {
+                    <button class="opb-todoknop" title="Een punt dat in deze fase nog gedaan moet worden; het staat ook op de tab Todo"
+                            @onclick="() => { _todoVoor = f.Id; _todoWat = string.Empty; _todoToel = string.Empty; }">＋ Todo voor deze fase</button>
+                }
+            </div>
+        }
+    };
+
+    private async Task TodoToets(OpbouwStap f, KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await VoegTodoToe(f);
+        else if (e.Key == "Escape") _todoVoor = null;
+    }
+
+    private async Task VoegTodoToe(OpbouwStap f)
+    {
+        var wat = _todoWat.Trim();
+        var toel = _todoToel.Trim();
+        if (wat.Length == 0 || _bezig) return;
+        _bezig = true;
+        _statusFout = null;
+        try
+        {
+            await Todos.MaakAsync(ProductId, wat, toel, Ik.WerknemerId, f.Id);
+            await Repo.VoegHistorieToeAsync(ProductId, "Todo: " + wat + (toel.Length > 0 ? " — " + toel : ""), null, Ik.WerknemerId, faseId: f.Id);
+            _todoWat = ""; _todoToel = ""; _todoVoor = null;
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Todo toevoegen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task VinkTodo(OpbouwStap f, ProductTodo t, bool gereed)
+    {
+        if (_bezig) return;
+        _statusFout = null;
+        if (Geblokkeerd) { _statusFout = "Op slot: er staat een fout open."; await Laad(); return; }
+        _bezig = true;
+        try
+        {
+            await Todos.ZetGereedAsync(t.Id, gereed, Ik.WerknemerId);
+            await Repo.VoegHistorieToeAsync(ProductId, (gereed ? "Todo gereed: " : "Todo weer open: ") + t.Wat, null, Ik.WerknemerId, faseId: f.Id);
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    // ============================================================
+    //  Status van het exemplaar
+    // ============================================================
+    /// <summary>De status zetten op de status met deze naam (zoals ingesteld in appsettings). Geeft de volledige naam, of null als hij niet bestaat.</summary>
+    private async Task<string?> ZetStatus(string naam, string instelling, Func<string, string> historie, bool? uitkomst)
+    {
+        var statussen = await Repo.GetStatussenAsync();
+        var status = statussen.FirstOrDefault(s => string.Equals(s.Naam, naam, StringComparison.OrdinalIgnoreCase))
+                     ?? statussen.FirstOrDefault(s => s.Naam.Contains(naam, StringComparison.OrdinalIgnoreCase));
+        if (status is null) { _statusFout = $"Geen productstatus '{naam}' gevonden ({instelling} in appsettings)."; return null; }
+        await Repo.UpdateVeldAsync(ProductId, "ProductStatusID", status.Id);
+        await Repo.VoegHistorieToeAsync(ProductId, historie(status.Naam), ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: uitkomst);
+        HuidigeStatus = status.Naam;
+        return status.Naam;
+    }
+
+    /// <summary>Alles af: status van het exemplaar op 'Gereed' (naam uit Productie:GereedStatus).</summary>
+    private async Task ZetGereed()
+    {
+        if (!_boom.AllesAf || Geblokkeerd) return;
+        _statusFout = null;
+        try
+        {
+            _bezig = true;
+            var naam = await ZetStatus(GereedStatusNaam, "Productie:GereedStatus", n => $"Product gereed: status → {n} (opbouw compleet)", true);
+            if (naam is null) return;
+            await OpGewijzigd.InvokeAsync();
+            await OpGereed.InvokeAsync(naam);
         }
         catch (Exception ex) { _statusFout = "Status zetten mislukt: " + ex.Message; }
         finally { _bezig = false; }

@@ -1283,6 +1283,64 @@ html[data-thema="donker"] .fase-rij.slot .fase-kop { color: #6f7c8c; }
 html[data-thema="donker"] .fase-rij.actief { background: #1d2a3a; }
 html[data-thema="donker"] .fase-rij.actief .fase-kop { background: #1d3350; }
 html[data-thema="donker"] .fase-rij.actief .fase-rechts { color: #cfe2f8; }
+/* Opbouw deel 3: fout (opbouw op slot), paneel voor melden/oplossen/terug, todo's per fase, foto's */
+.blok-balk { border: 1px solid var(--rood); border-left-width: 5px; border-radius: 8px; background: #fdecea; padding: .6rem .8rem; margin-bottom: .8rem; display: flex; flex-direction: column; gap: .45rem; }
+.blok-kop { display: flex; align-items: baseline; gap: .5rem; color: #8b1a16; }
+.blok-teken { flex: none; }
+.blok-tekst { white-space: pre-wrap; }
+.blok-fotos { display: flex; flex-wrap: wrap; gap: .4rem; }
+.blok-fotos img { height: 5.5rem; width: auto; max-width: 9rem; object-fit: cover; border-radius: 6px; border: 1px solid #d3dce7; display: block; }
+.blok-oud { display: flex; flex-direction: column; gap: .15rem; margin-top: .5rem; padding: .4rem .6rem; border-left: 3px solid #9c9; background: #f4f8f4; border-radius: 0 6px 6px 0; font-size: .92em; }
+.blok-oud-kop { display: flex; align-items: center; gap: .5rem; color: #1e5c1e; font-weight: 600; }
+.blok-stip { color: #b3261e; margin-right: .15rem; cursor: help; }
+.fase-rij.blok .fase-kop, .fase-rij.blok.actief .fase-kop { background: #fbdcd8; }
+.fase-rij.blok .fase-teken, .fase-rij.blok.actief .fase-rechts { color: #8b1a16; }
+.fase-vulling { flex: 1; }
+.fase-rechts .opb-chip { margin-right: .4rem; }
+.opb-paneel { display: flex; flex-direction: column; gap: .45rem; margin-top: .6rem; padding: .7rem .8rem; border: 1px solid #b9c6d6; border-radius: 8px; background: #fff; }
+.opb-paneel.fout { border-color: var(--rood); }
+.opb-paneel textarea { width: 100%; font: inherit; resize: vertical; }
+.opb-keuzes { display: flex; flex-direction: column; gap: .15rem; }
+.opb-daarna { display: flex; align-items: center; gap: .5rem; }
+.opb-todos { margin-top: .2rem; }
+.opb-todo .opb-chip { margin-right: .25rem; }
+.opb-todoknop { align-self: flex-start; border: none; background: none; color: var(--muted, #6b7280); padding: .25rem .2rem; font: inherit; font-size: .88em; cursor: pointer; }
+.opb-todoknop:hover { color: var(--accent); text-decoration: underline; }
+.opb-todo-invoer { display: flex; flex-wrap: wrap; gap: .4rem; padding: .35rem .2rem; align-items: center; }
+.opb-todo-invoer input { flex: 1 1 12rem; }
+.todo-fase { font-size: .85em; margin-left: .4rem; max-width: 14rem; }
+.todo-fase.leeg { color: var(--muted, #6b7280); }
+.fotovak { display: flex; flex-direction: column; gap: .45rem; }
+.fotovak-rij { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.fotovak-foto { position: relative; display: inline-block; }
+.fotovak-foto img { height: 4.5rem; width: auto; max-width: 8rem; object-fit: cover; border-radius: 6px; border: 1px solid #d3dce7; display: block; }
+.fotovak-weg { position: absolute; top: -.4rem; right: -.4rem; width: 1.3rem; height: 1.3rem; padding: 0; line-height: 1; border-radius: 50%; border: 1px solid #b9c6d6; background: #fff; color: #8b1a16; font-size: .75rem; cursor: pointer; }
+.fotovak-knop { cursor: pointer; }
+.fotovak-telefoon { display: flex; gap: .9rem; align-items: flex-start; padding: .6rem; border: 1px dashed #9db8dc; border-radius: 8px; background: #f3f7fd; }
+.fotovak-qr { flex: none; width: 9.5rem; background: #fff; padding: .3rem; border-radius: 6px; }
+.fotovak-qr svg { display: block; width: 100%; height: auto; }
+.fotovak-uitleg { display: flex; flex-direction: column; gap: .35rem; align-items: flex-start; font-size: .93em; }
+.fotovak-stand { display: flex; align-items: center; gap: .4rem; color: var(--muted, #6b7280); }
+.fotovak-stand.aan { color: #1e7a3c; font-weight: 600; }
+.foto-voor { display: flex; flex-direction: column; gap: .15rem; margin: 0 0 1rem; padding: .7rem .8rem; border-radius: 10px; background: #e4edf9; }
+.foto-voor b { font-size: 1.05rem; }
+.foto-verstuurd { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .6rem 0; }
+.foto-verstuurd img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+html[data-thema="donker"] .blok-balk { background: #3a2020; }
+html[data-thema="donker"] .blok-kop { color: #ffb4ae; }
+html[data-thema="donker"] .blok-fotos img, html[data-thema="donker"] .fotovak-foto img { border-color: #334051; }
+html[data-thema="donker"] .blok-oud { background: #1c2a20; border-left-color: #3c7a4c; }
+html[data-thema="donker"] .blok-oud-kop { color: #a5e6b4; }
+html[data-thema="donker"] .blok-stip { color: #ff8a80; }
+html[data-thema="donker"] .fase-rij.blok .fase-kop, html[data-thema="donker"] .fase-rij.blok.actief .fase-kop { background: #4a2523; }
+html[data-thema="donker"] .fase-rij.blok .fase-teken, html[data-thema="donker"] .fase-rij.blok.actief .fase-rechts { color: #ffb4ae; }
+html[data-thema="donker"] .opb-paneel { background: var(--d2); border-color: #3a4a5e; }
+html[data-thema="donker"] .opb-paneel.fout { border-color: var(--rood); }
+html[data-thema="donker"] .opb-todoknop { background: none; border: none; color: var(--dt2); }
+html[data-thema="donker"] .fotovak-weg { background: #1b2533; border-color: #3a4a5e; color: #ff8a80; }
+html[data-thema="donker"] .fotovak-telefoon { background: #16273d; border-color: #2b4a73; }
+html[data-thema="donker"] .fotovak-stand.aan { color: #6cc58a; }
+html[data-thema="donker"] .foto-voor { background: #16273d; }
 html[data-thema="donker"] .hist-fasechip { background: #1d3350; color: #cfe2f8; }
 html[data-thema="donker"] .hist-fasechip.leeg { background: transparent; color: #6f7c8c; }
 /* Service: wie werkte aan een project */

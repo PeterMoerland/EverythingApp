@@ -1,4 +1,5 @@
 @inject IProductTodoRepository Todos
+@inject IOpbouwRepository Opbouw
 @inject IProductRepository Repo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
@@ -6,7 +7,9 @@
 @* Producten ▸ exemplaar ▸ tab Todo: punten die nog gedaan moeten worden, bij dit exemplaar én bij wat erin zit
    (de print in een robot). 'Wat' is kort en herbruikbaar (bv. Doorsolderen): het Todo-overzicht groepeert erop.
    Toevoegen, gereed en weer open komen ook in de historie van het exemplaar. Open punten zijn te kopiëren naar andere
-   exemplaren van hetzelfde type (links aangevinkt, of serienummer van t/m). *@
+   exemplaren van hetzelfde type (links aangevinkt, of serienummer van t/m).
+   Een punt kan bij een hoofdfase van de opbouwboom horen (voorstel Sjoerd deel 3, ProductOpbouwDeel3_MariaDB.sql): het
+   staat dan ook in die fase op de tab Opbouw en moet gereed zijn voor "Fase klaar". *@
 
 @if (!_geladen)
 {
@@ -29,6 +32,17 @@ else
         </datalist>
         <input class="mail-zoek" maxlength="250" placeholder="Toelichting (optioneel), bv. R12 en R13 onderkant"
                value="@_toelichting" @oninput="e => _toelichting = (string?)e.Value ?? string.Empty" @onkeydown="Toets" />
+        @if (_fases.Count > 0)
+        {
+            <select class="todo-fase" title="In welke fase van de opbouw moet dit gebeuren? Het punt staat dan ook in die fase en moet gereed zijn voor Fase klaar."
+                    @onchange="e => _fase = int.TryParse((string?)e.Value, out var f) ? f : null">
+                <option value="" selected="@(_fase is null)">geen fase</option>
+                @foreach (var f in _fases)
+                {
+                    <option value="@f.Id" selected="@(_fase == f.Id)">@f.Tekst</option>
+                }
+            </select>
+        }
         <button class="primair" disabled="@(_bezig || _wat.Trim().Length == 0)" @onclick="Toevoegen">+ Toevoegen</button>
     </div>
 
@@ -55,6 +69,21 @@ else
                                @onchange="e => ZetGereed(t, e.Value is true)" /></td>
                     <td>
                         <b>@t.Wat</b>
+                        @if (t.ProductId == ProductId && _fases.Count > 0)
+                        {
+                            <select class="todo-fase @(t.FaseStapId is null ? "leeg" : "")" disabled="@_bezig" title="De fase van de opbouw waarin dit gedaan moet worden"
+                                    @onchange="e => ZetFase(t, int.TryParse((string?)e.Value, out var f) ? f : null)">
+                                <option value="" selected="@(t.FaseStapId is null)">geen fase</option>
+                                @foreach (var f in _fases)
+                                {
+                                    <option value="@f.Id" selected="@(t.FaseStapId == f.Id)">@f.Tekst</option>
+                                }
+                            </select>
+                        }
+                        else if (t.Fase.Length > 0)
+                        {
+                            <span class="opb-chip" title="De fase van de opbouw waarin dit gedaan moet worden">@t.Fase</span>
+                        }
                         @if (t.Toelichting.Length > 0)
                         {
                             <div class="todo-toel">@t.Toelichting</div>
@@ -164,6 +193,8 @@ else
 
 @code {
     [Parameter, EditorRequired] public int ProductId { get; set; }
+    /// <summary>Het producttype van dit exemplaar: voor de fases van de opbouwboom (0 = geen fasekeuze).</summary>
+    [Parameter] public int ProductNameId { get; set; }
     /// <summary>Naar het onderdeel van een punt (Producten opent dat exemplaar).</summary>
     [Parameter] public EventCallback<ProductTodo> OpGaNaar { get; set; }
     /// <summary>Er is iets toegevoegd of afgevinkt: tellers en historie bijwerken.</summary>
@@ -182,6 +213,8 @@ else
     private int? _wisVraag;
     private List<ProductTodo> _lijst = new();
     private List<TodoWat> _watLijst = new();
+    private List<(int Id, string Tekst)> _fases = new();   // de hoofdfases van de opbouwboom van dit type
+    private int? _fase;                                    // de fase voor het punt dat nu wordt ingevoerd
 
     private List<ProductTodo> Zichtbaar => _toonGereed ? _lijst : _lijst.Where(t => t.Open).ToList();
 
@@ -225,9 +258,11 @@ else
     {
         var doelen = Doelen;
         // een punt van een onderdeel (de print in de robot) komt bij het doel-exemplaar zelf, met het onderdeel erbij
+        // de fase gaat mee bij een punt van dit exemplaar zelf: de doelen zijn van hetzelfde type, dus dezelfde boom
         var punten = _lijst.Where(t => t.Open && _kopiePunten.Contains(t.Id))
                            .Select(t => (t.Wat, t.ProductId == ProductId ? t.Toelichting
-                                                 : ("bij " + t.Type + (t.Toelichting.Length > 0 ? ": " + t.Toelichting : ""))))
+                                                 : ("bij " + t.Type + (t.Toelichting.Length > 0 ? ": " + t.Toelichting : "")),
+                                         t.ProductId == ProductId ? t.FaseStapId : null))
                            .Distinct().ToList();
         if (doelen.Count == 0 || punten.Count == 0) return;
         var bron = Exemplaren.FirstOrDefault(p => p.Id == ProductId)?.Serienummer ?? "";
@@ -252,7 +287,7 @@ else
     {
         if (_geladenVoor == ProductId) return;
         _geladenVoor = ProductId;
-        _wat = ""; _toelichting = ""; _fout = null; _wisVraag = null;
+        _wat = ""; _toelichting = ""; _fout = null; _wisVraag = null; _fase = null;
         _kopieOpen = false; _kopieUitkomst = null;
         await Laad();
     }
@@ -269,6 +304,16 @@ else
             }
         }
         catch (Exception ex) { _fout = "Laden mislukt: " + ex.Message; }
+        _fases = new();
+        try
+        {
+            if (_tabel && ProductNameId != 0 && Opbouw.Beschikbaar && await Todos.HeeftFaseAsync())
+            {
+                var boom = new OpbouwBoom(await Opbouw.GetStappenAsync(ProductNameId));
+                _fases = boom.Hoofdfases.Select(f => (f.Id, $"{boom.FaseNummer(f)} · {f.Naam}")).ToList();
+            }
+        }
+        catch { /* zonder fases werkt de tab zoals voorheen */ }
         _geladen = true;
     }
 
@@ -286,11 +331,13 @@ else
         var toel = _toelichting.Trim();
         await Doe(async () =>
         {
-            await Todos.MaakAsync(ProductId, wat, toel, Ik.WerknemerId);
-            await Historie(ProductId, "Todo: " + wat + (toel.Length > 0 ? " — " + toel : ""));
+            await Todos.MaakAsync(ProductId, wat, toel, Ik.WerknemerId, _fase);
+            await Historie(ProductId, "Todo: " + wat + (toel.Length > 0 ? " — " + toel : ""), _fase);
             _wat = ""; _toelichting = "";
         });
     }
+
+    private Task ZetFase(ProductTodo t, int? fase) => Doe(() => Todos.ZetFaseAsync(t.Id, fase));
 
     private int _herteken;        // @key van de vinkjes: na "nee" bij gereed melden het vinkje terugzetten
 
@@ -308,9 +355,9 @@ else
 
     private Task Verwijder(ProductTodo t) => Doe(() => Todos.VerwijderAsync(t.Id));
 
-    private async Task Historie(int productId, string tekst)
+    private async Task Historie(int productId, string tekst, int? fase = null)
     {
-        try { await Repo.VoegHistorieToeAsync(productId, tekst, null, Ik.WerknemerId); } catch { /* de todo zelf staat er wel */ }
+        try { await Repo.VoegHistorieToeAsync(productId, tekst, null, Ik.WerknemerId, faseId: fase); } catch { /* de todo zelf staat er wel */ }
     }
 
     private async Task Doe(Func<Task> werk)

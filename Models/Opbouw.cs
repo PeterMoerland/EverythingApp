@@ -123,6 +123,27 @@ public sealed class OpbouwBoom
     public bool AllesAf => Alle.Count > 0 && Wortels.All(Af);
 }
 
+/// <summary>
+/// Een fout tijdens de opbouw van een exemplaar (voorstel Sjoerd Quist deel 3, ProductOpbouwDeel3_MariaDB.sql): zolang
+/// hij open staat is de opbouw op slot. Oplossen gebeurt met de hand, met wat er gedaan is en eventueel foto's
+/// (FileStore, OpbouwStore.Blokkade). Iets anders dan de status FAILED: dat is definitief afgekeurd.
+/// </summary>
+public class OpbouwBlokkade
+{
+    public int Id { get; set; }
+    public int ProductId { get; set; }
+    /// <summary>De hoofdfase waarin de fout is gemeld; null bij een type zonder fases.</summary>
+    public int? FaseStapId { get; set; }
+    public string Melding { get; set; } = "";
+    public DateTime GemeldOp { get; set; }
+    public string GemeldDoor { get; set; } = "";
+    public string Oplossing { get; set; } = "";
+    public DateTime? OpgelostOp { get; set; }
+    public string OpgelostDoor { get; set; } = "";
+    public int AantalFotos { get; set; }
+    public bool Open => OpgelostOp is null;
+}
+
 public static class OpbouwSoort
 {
     public const string Opbouw = "opbouw";
@@ -131,6 +152,12 @@ public static class OpbouwSoort
 
 public static class OpbouwStore
 {
-    /// <summary>FileStore.StoreType voor hands-on documenten bij een opbouwstap (MasterID = OpbouwStapID).</summary>
-    public const int Stap = 330;
+    /// <summary>
+    /// FileStore.StoreType voor hands-on documenten bij een opbouwstap (MasterID = OpbouwStapID). Was 330, maar dat is
+    /// de soort van de bezoekverslagen (BezoekVenster.StoreTypeBezoek): een document bij stap 7 zou dan ook bij
+    /// bezoekverslag 7 staan. Sinds 12-11-2026 een eigen soort; er stonden toen nog geen bestanden met 330.
+    /// </summary>
+    public const int Stap = 331;
+    /// <summary>FileStore.StoreType voor foto's bij een fout in de opbouw (MasterID = BlokkadeID).</summary>
+    public const int Blokkade = 332;
 }

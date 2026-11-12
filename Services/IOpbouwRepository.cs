@@ -25,6 +25,21 @@ public interface IOpbouwRepository
 
     /// <summary>Vinkje zetten of weghalen bij een exemplaar; bij een hoofdfase: afgerond of overgeslagen.</summary>
     Task ZetStatusAsync(int productId, int stapId, bool klaar, int? door, string? opmerking = null, bool overgeslagen = false);
+    /// <summary>
+    /// Terug naar een fase: de vinkjes van deze items vervallen. Alleen Klaar gaat uit; de regel blijft staan, zodat te
+    /// zien is wie het eerder afvinkte. Geeft het aantal vervallen vinkjes.
+    /// </summary>
+    Task<int> ZetTerugAsync(int productId, IReadOnlyCollection<int> stapIds);
+
+    /// <summary>Is de tabel voor fouten in de opbouw er (ProductOpbouwDeel3_MariaDB.sql)?</summary>
+    Task<bool> HeeftBlokkadesAsync();
+    /// <summary>De fouten bij een exemplaar: open eerst, daarna de opgeloste (nieuwste boven).</summary>
+    Task<List<OpbouwBlokkade>> GetBlokkadesAsync(int productId);
+    Task<int> MeldBlokkadeAsync(int productId, int? faseStapId, string melding, int? door);
+    /// <summary>Een open fout oplossen; false als hij al opgelost was.</summary>
+    Task<bool> LosBlokkadeOpAsync(int blokkadeId, string oplossing, int? door);
+    /// <summary>De exemplaren van een type met een open fout (teken in de exemplarenlijst).</summary>
+    Task<HashSet<int>> GeblokkeerdeExemplarenAsync(int productNameId);
 }
 
 public class NullOpbouwRepository : IOpbouwRepository
@@ -37,6 +52,12 @@ public class NullOpbouwRepository : IOpbouwRepository
     public Task VerwijderStapAsync(int stapId) => Task.CompletedTask;
     public Task ZetVolgordeAsync(IReadOnlyList<int> stapIdsOpVolgorde) => Task.CompletedTask;
     public Task ZetStatusAsync(int productId, int stapId, bool klaar, int? door, string? opmerking = null, bool overgeslagen = false) => Task.CompletedTask;
+    public Task<int> ZetTerugAsync(int productId, IReadOnlyCollection<int> stapIds) => Task.FromResult(0);
+    public Task<bool> HeeftBlokkadesAsync() => Task.FromResult(false);
+    public Task<List<OpbouwBlokkade>> GetBlokkadesAsync(int productId) => Task.FromResult(new List<OpbouwBlokkade>());
+    public Task<int> MeldBlokkadeAsync(int productId, int? faseStapId, string melding, int? door) => Task.FromResult(0);
+    public Task<bool> LosBlokkadeOpAsync(int blokkadeId, string oplossing, int? door) => Task.FromResult(false);
+    public Task<HashSet<int>> GeblokkeerdeExemplarenAsync(int productNameId) => Task.FromResult(new HashSet<int>());
 }
 
 public class MySqlOpbouwRepository : IOpbouwRepository
@@ -218,5 +239,111 @@ public class MySqlOpbouwRepository : IOpbouwRepository
         cmd.Parameters.AddWithValue("@opm", (object?)opmerking ?? DBNull.Value);
         if (boom) cmd.Parameters.AddWithValue("@over", klaar && overgeslagen ? 1 : 0);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<int> ZetTerugAsync(int productId, IReadOnlyCollection<int> stapIds)
+    {
+        var ids = stapIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        await using var cn = await OpenAsync();
+        var boom = await HeeftBoomAsync(cn);
+        // KlaarOp en KlaarDoor blijven staan: zo is nog te zien wie het eerder afvinkte
+        await using var cmd = new MySqlCommand(
+            "UPDATE `ProductOpbouwStatus` SET `Klaar` = 0" + (boom ? ", `Overgeslagen` = 0" : "") +
+            $" WHERE `ProductID` = @p AND `Klaar` <> 0 AND `OpbouwStapID` IN ({string.Join(", ", ids)})", cn);
+        cmd.Parameters.AddWithValue("@p", productId);
+        return await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---- fouten in de opbouw (ProductOpbouwDeel3_MariaDB.sql); alleen 'ja' onthouden ----
+    private bool _heeftBlokkades;
+    public async Task<bool> HeeftBlokkadesAsync()
+    {
+        if (_heeftBlokkades) return true;
+        try { await using var cn = await OpenAsync(); return await HeeftBlokkadesAsync(cn); }
+        catch { return false; }
+    }
+    private async Task<bool> HeeftBlokkadesAsync(MySqlConnection cn)
+    {
+        if (_heeftBlokkades) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductOpbouwBlokkades'", cn);
+        return _heeftBlokkades = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    public async Task<List<OpbouwBlokkade>> GetBlokkadesAsync(int productId)
+    {
+        var lijst = new List<OpbouwBlokkade>();
+        await using var cn = await OpenAsync();
+        if (!await HeeftBlokkadesAsync(cn)) return lijst;
+        await using var cmd = new MySqlCommand(
+            "SELECT b.`BlokkadeID`, b.`ProductID`, b.`FaseStapID`, b.`Melding`, b.`GemeldOp`, COALESCE(wg.`NaamVoluit`, ''), " +
+            "       COALESCE(b.`Oplossing`, ''), b.`OpgelostOp`, COALESCE(wo.`NaamVoluit`, ''), " +
+            "       (SELECT COUNT(*) FROM `FileStore` f WHERE f.`StoreType` = @st AND f.`MasterID` = b.`BlokkadeID`) " +
+            "  FROM `ProductOpbouwBlokkades` b " +
+            "  LEFT JOIN `Werknemers` wg ON wg.`Werknemer-id` = b.`GemeldDoor` " +
+            "  LEFT JOIN `Werknemers` wo ON wo.`Werknemer-id` = b.`OpgelostDoor` " +
+            " WHERE b.`ProductID` = @p ORDER BY (b.`OpgelostOp` IS NOT NULL), b.`GemeldOp` DESC, b.`BlokkadeID` DESC", cn);
+        cmd.Parameters.AddWithValue("@p", productId);
+        cmd.Parameters.AddWithValue("@st", OpbouwStore.Blokkade);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new OpbouwBlokkade
+            {
+                Id = r.GetInt32(0), ProductId = r.GetInt32(1),
+                FaseStapId = r.IsDBNull(2) ? null : Convert.ToInt32(r.GetValue(2)),
+                Melding = r.GetString(3), GemeldOp = Convert.ToDateTime(r.GetValue(4)), GemeldDoor = r.GetString(5).Trim(),
+                Oplossing = r.GetString(6), OpgelostOp = r.IsDBNull(7) ? null : Convert.ToDateTime(r.GetValue(7)),
+                OpgelostDoor = r.GetString(8).Trim(), AantalFotos = Convert.ToInt32(r.GetValue(9)),
+            });
+        return lijst;
+    }
+
+    private static string Kort(string tekst, int max)
+    {
+        tekst = (tekst ?? "").Trim();
+        return tekst.Length <= max ? tekst : tekst[..max];
+    }
+
+    public async Task<int> MeldBlokkadeAsync(int productId, int? faseStapId, string melding, int? door)
+    {
+        await using var cn = await OpenAsync();
+        if (!await HeeftBlokkadesAsync(cn))
+            throw new InvalidOperationException("De tabel ProductOpbouwBlokkades bestaat nog niet (ProductOpbouwDeel3_MariaDB.sql).");
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ProductOpbouwBlokkades` (`ProductID`, `FaseStapID`, `Melding`, `GemeldOp`, `GemeldDoor`) " +
+            "VALUES (@p, @fase, @melding, NOW(), @door)", cn);
+        cmd.Parameters.AddWithValue("@p", productId);
+        cmd.Parameters.AddWithValue("@fase", (object?)faseStapId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@melding", Kort(melding, 1000));
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+        return (int)cmd.LastInsertedId;
+    }
+
+    public async Task<bool> LosBlokkadeOpAsync(int blokkadeId, string oplossing, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "UPDATE `ProductOpbouwBlokkades` SET `Oplossing` = @opl, `OpgelostOp` = NOW(), `OpgelostDoor` = @door " +
+            " WHERE `BlokkadeID` = @id AND `OpgelostOp` IS NULL", cn);
+        cmd.Parameters.AddWithValue("@id", blokkadeId);
+        cmd.Parameters.AddWithValue("@opl", Kort(oplossing, 1000));
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        return await cmd.ExecuteNonQueryAsync() == 1;
+    }
+
+    public async Task<HashSet<int>> GeblokkeerdeExemplarenAsync(int productNameId)
+    {
+        var uit = new HashSet<int>();
+        await using var cn = await OpenAsync();
+        if (!await HeeftBlokkadesAsync(cn)) return uit;
+        await using var cmd = new MySqlCommand(
+            "SELECT DISTINCT b.`ProductID` FROM `ProductOpbouwBlokkades` b JOIN `Producten` p ON p.`ProductenID` = b.`ProductID` " +
+            " WHERE b.`OpgelostOp` IS NULL AND p.`ProductNameID` = @n", cn);
+        cmd.Parameters.AddWithValue("@n", productNameId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) uit.Add(r.GetInt32(0));
+        return uit;
     }
 }

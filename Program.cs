@@ -374,6 +374,7 @@ builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<SonosService>();
 builder.Services.AddSingleton<MeldingSignaal>();
 builder.Services.AddSingleton<BelCentrale>();        // videobellen op het intranet (Components/Layout/Videobellen.razor)
+builder.Services.AddSingleton<FotoBrug>();           // de telefoon als camera voor een scherm op de pc (Components/FotoVak.razor, /mobiel/foto)
 builder.Services.AddScoped<BelVerzoek>();           // "bel deze collega" vanuit de berichtenbox naar het belvenster
 builder.Services.AddSingleton<AltecPrinter>();
 builder.Services.AddSingleton<FusionPakketten>();

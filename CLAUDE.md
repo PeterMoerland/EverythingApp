@@ -2337,10 +2337,64 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
 - Getest lokaal met tijdelijke nep-gegevens (scratchpad `boom_tijdelijk.py`), niets geschreven. **Niet getest**: het
   boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
   nieuwe historieregels.
-- **Nog te bouwen**: deel 3 (terug naar een fase = vinkjes van die fase en erna wissen, daarbij `Klaar = 0` zetten en
-  de regel niet weghalen; failed-blokkade met oplossing en foto's; todo's per fase; TEST laten vervallen), de blokken
-  van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een fase, deel 4
-  (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen).
+- **Nog te bouwen**: de blokken van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een
+  fase, deel 4 (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen). Deel 3 staat hieronder.
+
+## Opbouw deel 3: fout melden, terug naar een fase, todo's per fase, telefoon als camera (12-11-2026)
+
+Voorstel Sjoerd Quist deel 3. Besluit gebruiker 12-11-2026: **iedereen mag terugzetten**; wens tijdens het bouwen: de
+foto maken met de telefoon, "interactief als het kan". Scripts (door de gebruiker te draaien):
+`ProductOpbouwDeel3_MariaDB.sql` (tabel `ProductOpbouwBlokkades`, `ProductTodo.FaseStapID`, FileStoreType 331 en 332) en los
+daarvan `ProductStatusTestVervalt_MariaDB.sql`. Zonder het eerste script werkt alleen Terug naar een fase (dat heeft
+geen script nodig); Fout melden en de todo's per fase verschijnen pas daarna (`HeeftBlokkadesAsync`, `HeeftFaseAsync`).
+
+- **Terug naar een fase** (`OpbouwLijst`, knop in de actieve fase, of onder de lijst als alles af is): keuze uit de
+  afgeronde hoofdfases + verplichte reden. `IOpbouwRepository.ZetTerugAsync` zet alleen `Klaar = 0` (en
+  `Overgeslagen = 0`) voor die fase, alle fases erna en alles eronder; `KlaarOp`/`KlaarDoor` blijven staan, zodat bij
+  de stap "eerder: datum · naam" staat. (Een vinkje met de hand weghalen maakt ze wel leeg, zoals voorheen.) Historie:
+  "Terug naar fase n · naam (x vinkjes vervallen): reden", fase = de doelfase. Was het exemplaar gereed (`_isGereed`:
+  status bevat `Productie:GereedStatus` of is gelijk aan `Productie:OkStatus`; StatusKort is "OK", dus alleen op
+  "Gereed" testen klopte nooit), dan gaat de status naar `Productie:BezigStatus` (standaard "In productie").
+- **Fout melden** (blokkade; iets anders dan status FAILED = definitief afgekeurd): `OpbouwBlokkade` in
+  `Models/Opbouw.cs`, tabel `ProductOpbouwBlokkades` (per exemplaar, met de hoofdfase; null bij een type zonder fases).
+  Zolang er een open staat is de opbouw van dat exemplaar **op slot**: afvinken (ook server-side in `Vink`), todo's
+  afvinken, Fase klaar, Overslaan en Product gereed. Rode balk boven de lijst met ✔ Oplossen…: verplichte tekst wat
+  er gedaan is, foto's, en "Daarna": verder in de actieve fase of meteen terug naar een eerdere fase. Opgeloste fouten
+  staan onderin hun fase (melding, oplossing, 📎 foto's). Historie met uitkomst mislukt/geslaagd en de fase. Foto's:
+  FileStore **StoreType 332** (`OpbouwStore.Blokkade`, MasterID = BlokkadeID), naam begint met "fout " of
+  "oplossing ". Producten: ⚠ in de exemplarenlijst (`GeblokkeerdeExemplarenAsync`, geladen met de todo-telling).
+  De blokken Programmeren en testen (ExemplaarWerk) kijken **niet** naar het slot.
+- **Telefoon als camera**: `Services/FotoBrug.cs` (singleton, alles in het geheugen: `FotoVraag` met een Guid, `Open`,
+  `Sluit`, `Zoek`, `NieuwsteVan(werknemer)`, `LeverAsync`, event `Gewijzigd`; ook `QrSvg.Maak` met ZXing).
+  `Components/FotoVak.razor` (pc): miniaturen met ✕, "📎 Kies foto…" en "📱 Met telefoon" = vraag openen + QR-code
+  naar `mobiel/foto?v=<id>` (`Nav.ToAbsoluteUri`, dus het adres waarmee de pc de app open heeft). De foto's blijven in
+  de lijst `Fotos` van de aanroeper (`FotoStuk`: naam, JPEG-bytes, voorbeeld als data-URL) tot die ze opslaat; sluiten
+  van het vak sluit de vraag. `Components/Pages/MobielFoto.razor` (`/mobiel/foto`, tegel 📷 Foto op MDE mobiel): toont
+  de vraag van de QR-code, of zonder QR de nieuwste vraag van dezelfde werknemer, en luistert naar `Gewijzigd` (een
+  nieuwe vraag op de pc verschijnt vanzelf). Foto in de browser verkleind (2000 px, voorbeeld 360 px) zoals MobielBon.
+  De aanroepen van de brug komen binnen op de verbinding van de telefoon: FotoVak gaat eerst naar zijn eigen scherm
+  (`InvokeAsync`). Herbruikbaar voor andere schermen die foto's willen.
+- **Todo's per fase**: `ProductTodo.FaseStapId`/`Fase` ("4 · Kalibratie", zelfde subquery als de historie),
+  `MaakAsync(..., faseStapId)`, `ZetFaseAsync`, `KopieerAsync` neemt de fase mee (doelen zijn van hetzelfde type). In
+  `OpbouwLijst` staan de punten van een fase onder de stappen (chip "todo"), met "＋ Todo voor deze fase" in elke
+  geopende fase (ook een latere). Open punten van de actieve fase houden **Fase klaar** tegen; Overslaan mag, met een
+  waarschuwing. Afvinken in de lijst kan in de actieve of een afgeronde fase; op de tab Todo altijd. Tab Todo: keuze
+  Fase bij het invoeren en per punt van het exemplaar zelf (`ProductNameId` als parameter); todo-overzicht toont de fase.
+- **Status TEST vervalt**: de app zette TEST nergens zelf. Het script zet de exemplaren op TEST (12-11: 14 × MPR-1,
+  4 × MPR-CAB-CA2) naar PROD met een historieregel en geeft de status `Vervallen = 1`; `GetStatussenAsync` laat
+  vervallen statussen weg uit de keuzelijsten (`HeeftStatusVervallenAsync`).
+- Lokaal getest met alles in het geheugen (scratchpad `d3_tijdelijk.py`: opbouw-repository in het geheugen, historie en
+  statuswijziging naar de console, `ProductTodo__Geheugen=true`, `Filestore__Pad=REPLACE_x`): fout melden met een foto
+  vanaf een tweede tabblad als telefoon (QR-adres), het slot, oplossen met terug naar fase 2, terug-paneel, todo in
+  een fase (houdt Fase klaar tegen), tab Todo, licht en donker. **Niet getest**: de MySql-versies van blokkades en
+  todo-fase (tabel/kolom bestonden nog niet; de fase-subquery is lezend gecontroleerd), foto's echt opslaan en tonen,
+  de route zonder QR (zelfde werknemer op pc en telefoon; lokaal is er geen aanmelding), een echte telefoon, de ⚠ in
+  de lijst met echte gegevens, en beide scripts.
+- **Documenten bij een opbouwstap: StoreType 331** (`OpbouwStore.Stap`). Dat was 330, maar 330 is van de
+  bezoekverslagen (`BezoekVenster.StoreTypeBezoek`, in `FileStoreType` "Bezoekverslag"): een document bij stap 7 zou
+  ook bij bezoekverslag 7 staan. Op 12-11-2026 stonden er geen bestanden met 330 of 331 (lezend gecontroleerd), dus er
+  is niets verhuisd. 331 komt in `FileStoreType` met `ProductOpbouwDeel3_MariaDB.sql`; **zonder dat script faalt een
+  document toevoegen bij een opbouwstap op de foreign key**. Niet getest (zou in de filestore schrijven).
 
 ## Calculaties: importeren uit de calculatieboom (12-11-2026, verzoek Edwin)
 

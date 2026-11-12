@@ -216,6 +216,10 @@
                                         @onclick="e => RegelKlik(p, e)" title="@RegelTitel(p)">
                                     <span class="nummer">@p.Serienummer</span>
                                     <span class="todo-kol">
+                                        @if (_geblokkeerd.Contains(p.Id))
+                                        {
+                                            <span class="blok-stip" title="Opbouw op slot: er staat een fout open (tab Opbouw)">⚠</span>
+                                        }
                                         @if (_todoOpen.GetValueOrDefault(p.Id) is > 0 and var todoN)
                                         {
                                             <span class="todo-stip" title="@todoN open todo-punt@(todoN == 1 ? "" : "en") (ook van onderdelen) — klik voor de tab Todo"
@@ -627,7 +631,7 @@
                     @* ===== TODO (alleen bij een exemplaar; Components/ProductTodoTab.razor) ===== *@
                     @if (_tab == "Todo" && _productId is int todoProduct)
                     {
-                        <ProductTodoTab ProductId="todoProduct" OpGaNaar="TodoGaNaar" OpGewijzigd="TodoGewijzigd"
+                        <ProductTodoTab ProductId="todoProduct" ProductNameId="@(_naamId ?? 0)" OpGaNaar="TodoGaNaar" OpGewijzigd="TodoGewijzigd"
                                         Exemplaren="_alleProducten" Geselecteerd="_gekozen" Type="@(_naam?.Naam ?? "exemplaren")" />
                     }
 
@@ -951,7 +955,7 @@
                     {
                         @if (_opbouwOntbreekt)
                         {
-                            <div class="melding fout">De opbouw-tabellen ontbreken nog: voer <code>ProductOpbouw_MariaDB.sql</code> uit (en 330 in FileStoreType).</div>
+                            <div class="melding fout">De opbouw-tabellen ontbreken nog: voer <code>ProductOpbouw_MariaDB.sql</code> uit (documenten bij een stap: soort 331, <code>ProductOpbouwDeel3_MariaDB.sql</code>).</div>
                         }
                         else if (_productId is null)
                         {
@@ -975,7 +979,8 @@
                             <p class="uitleg">@(Hoofdfases.Count > 0
                                 ? "Werk de fases van boven naar beneden af. Alleen in de actieve fase kun je afvinken; elke wijziging komt in de historie van dit exemplaar."
                                 : "Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.")</p>
-                            <OpbouwLijst ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")" OpGewijzigd="NaOpbouwWijziging" />
+                            <OpbouwLijst ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")"
+                                         Exemplaar="@($"{_naam?.Naam} · {_product?.Serienummer}")" OpGewijzigd="NaOpbouwWijziging" />
                         }
                     }
 
@@ -2404,6 +2409,7 @@
             _historie = await Repo.GetHistorieAsync(_productId.Value);
             await LaadProducten();
             _product = _producten.FirstOrDefault(p => p.Id == _productId) ?? _product;
+            await LaadTodoTelling();      // een todo in een fase, of een fout gemeld of opgelost
         }
         catch { }
     }
@@ -3075,12 +3081,15 @@
     //  Todo (tabel ProductTodo): open punten per exemplaar, ook van zijn onderdelen
     // ================================================================
     private Dictionary<int, int> _todoOpen = new();
+    private HashSet<int> _geblokkeerd = new();      // exemplaren met een open fout in de opbouw (⚠ in de lijst)
 
     private async Task LaadTodoTelling()
     {
-        if (_naamId is null) { _todoOpen = new(); return; }
+        if (_naamId is null) { _todoOpen = new(); _geblokkeerd = new(); return; }
         try { _todoOpen = await Todos.OpenPerExemplaarAsync(_naamId.Value); }
         catch { _todoOpen = new(); }
+        try { _geblokkeerd = await Opbouw.GeblokkeerdeExemplarenAsync(_naamId.Value); }
+        catch { _geblokkeerd = new(); }
     }
 
     private async Task TodoGewijzigd()
