@@ -476,6 +476,17 @@
                                     <option value="@s">@s</option>
                                 }
                             </select>
+                            @if (_typeFases.Count > 0)
+                            {
+                                <select value="@_histFaseFilter" title="Alleen de regels van één opbouwfase" @onchange="e => _histFaseFilter = (string?)e.Value ?? string.Empty">
+                                    <option value="">alle fases</option>
+                                    @foreach (var f in _typeFases)
+                                    {
+                                        <option value="@f.Id">@f.Volgorde · @f.Naam</option>
+                                    }
+                                    <option value="0">zonder fase</option>
+                                </select>
+                            }
                             <select value="@_histUitkomst" @onchange="e => _histUitkomst = (string?)e.Value ?? string.Empty">
                                 <option value="">alles</option>
                                 <option value="ok">alleen geslaagd</option>
@@ -485,9 +496,9 @@
                                 <input type="checkbox" checked="@_histMetOnderdelen" @onchange="HistOnderdelenGewijzigd" /> incl. onderdelen
                             </label>
                             <span class="uitleg">@HistorieGefilterd.Count van @(_historie.Count + (_histMetOnderdelen ? _histOnderdelen.Count : 0))</span>
-                            @if (_histZoek.Length > 0 || _histSoortFilter.Length > 0 || _histUitkomst.Length > 0 || (_histMetOnderdelen && _histBronnen.Count > 0))
+                            @if (_histZoek.Length > 0 || _histSoortFilter.Length > 0 || _histUitkomst.Length > 0 || _histFaseFilter.Length > 0 || (_histMetOnderdelen && _histBronnen.Count > 0))
                             {
-                                <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; _histBronnen.Clear(); }">✕ wissen</button>
+                                <button class="klein" @onclick="() => { _histZoek = string.Empty; _histSoortFilter = string.Empty; _histUitkomst = string.Empty; _histFaseFilter = string.Empty; _histBronnen.Clear(); }">✕ wissen</button>
                             }
                             @if (MagHistorieWissen && HistGekozen.Count > 0)
                             {
@@ -549,6 +560,7 @@
                                     <th style="width:8.5rem">Wanneer</th>
                                     @if (HistToonVan) { <th style="width:10rem">Van</th> }
                                     <th style="width:6.5rem">Soort</th>
+                                    @if (_typeFases.Count > 0) { <th style="width:11rem" title="De opbouwfase waarin dit gebeurde; klik om aan te passen">Fase</th> }
                                     <th>Gebeurtenis</th>
                                     <th style="width:7.5rem">Door</th>
                                 </tr>
@@ -565,6 +577,29 @@
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
                                         @if (HistToonVan) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
+                                        @if (_typeFases.Count > 0)
+                                        {
+                                            <td class="hist-fase">
+                                                @if (hvan.Length > 0)
+                                                {
+                                                    @* regel van een onderdeel: dat heeft zijn eigen fases *@
+                                                }
+                                                else if (_histFaseBewerk == h.Id)
+                                                {
+                                                    <select value="@(h.FaseId?.ToString() ?? "")" @onchange="e => ZetHistorieFase(h, e)" @onblur="() => _histFaseBewerk = null">
+                                                        <option value="">— geen —</option>
+                                                        @foreach (var f in _typeFases)
+                                                        {
+                                                            <option value="@f.Id">@f.Volgorde · @f.Naam</option>
+                                                        }
+                                                    </select>
+                                                }
+                                                else
+                                                {
+                                                    <button class="hist-fasechip @(h.Fase.Length == 0 ? "leeg" : "")" title="Fase aanpassen" @onclick="() => _histFaseBewerk = h.Id">@(h.Fase.Length > 0 ? h.Fase : "—")</button>
+                                                }
+                                            </td>
+                                        }
                                         @{ var (histKort, histIngekort) = HistKort(h.Event); var histOpen = _histOpen.Contains(h.Id); }
                                         <td title="@(histIngekort && !histOpen ? h.Event : null)">
                                             @HistorieTekst(histOpen ? h.Event : histKort)
@@ -931,6 +966,45 @@
                         {
                             var soort = _tab == "Eindcheck" ? OpbouwSoort.Controle : OpbouwSoort.Opbouw;
                             var lijst = _stappen.Where(s => s.Soort == soort).ToList();
+                            @* fases van dit producttype (ProductFases_MariaDB.sql): beheren op de tab Opbouw *@
+                            @if (_fasesAan && _tab == "Opbouw")
+                            {
+                                <h4 class="prod-subkop">Fases</h4>
+                                <p class="uitleg">
+                                    Met fases doorloop je een exemplaar van boven naar beneden: alleen in de actieve fase kun je stappen afvinken,
+                                    latere fases zijn op slot. Geef elke stap (en elke eindcheck) hieronder een fase. Zonder fases werkt de opbouw
+                                    zoals voorheen, met de tabbladen Opbouw en Eindcheck.
+                                </p>
+                                <table class="kiezer-tabel opb-tabel fase-beheer">
+                                    <thead>
+                                        <tr><th style="width:5rem">#</th><th style="width:18rem">Fase</th><th>Omschrijving</th><th style="width:7rem">Stappen</th><th style="width:3rem"></th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (var i = 0; i < _typeFases.Count; i++)
+                                        {
+                                            var f = _typeFases[i]; var fidx = i;
+                                            <tr @key="f.Id">
+                                                <td class="opb-volgorde">
+                                                    <button class="klein" disabled="@(fidx == 0)" title="Omhoog" @onclick="() => VerschuifFase(f, -1)">▲</button>
+                                                    <button class="klein" disabled="@(fidx == _typeFases.Count - 1)" title="Omlaag" @onclick="() => VerschuifFase(f, 1)">▼</button>
+                                                </td>
+                                                <td><input value="@f.Naam" maxlength="60" @onchange="e => ZetFase(f, () => f.Naam = (string?)e.Value ?? string.Empty)" /></td>
+                                                <td><input value="@f.Omschrijving" maxlength="250" @onchange="e => ZetFase(f, () => f.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
+                                                <td>@_stappen.Count(s => s.FaseId == f.Id)</td>
+                                                <td class="c"><button class="klein rood" title="Fase verwijderen" @onclick="() => VerwijderFase(f)">✕</button></td>
+                                            </tr>
+                                        }
+                                        @if (_typeFases.Count == 0)
+                                        {
+                                            <tr><td colspan="5" class="kiezer-info">Dit producttype heeft geen fases.</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                <div class="btngroup">
+                                    <button class="klein" @onclick="NieuweFase">+ Fase</button>
+                                </div>
+                                <h4 class="prod-subkop">Stappen</h4>
+                            }
                             <p class="uitleg">
                                 @if (soort == OpbouwSoort.Controle)
                                 {
@@ -949,6 +1023,7 @@
                                     <tr>
                                         <th style="width:5rem">#</th>
                                         <th style="width:18rem">@(soort == OpbouwSoort.Controle ? "Check" : "Stap")</th>
+                                        @if (_typeFases.Count > 0) { <th style="width:13rem">Fase</th> }
                                         <th>Omschrijving</th>
                                         <th style="width:6rem">Verplicht</th>
                                         <th style="width:12rem">Documenten</th>
@@ -965,6 +1040,18 @@
                                                 <button class="klein" disabled="@(idx == lijst.Count - 1)" title="Omlaag" @onclick="() => Verschuif(s, 1)">▼</button>
                                             </td>
                                             <td><input value="@s.Naam" maxlength="80" @onchange="e => ZetStap(s, () => s.Naam = (string?)e.Value ?? string.Empty)" /></td>
+                                            @if (_typeFases.Count > 0)
+                                            {
+                                                <td>
+                                                    <select value="@(s.FaseId?.ToString() ?? "")" @onchange="e => ZetStap(s, () => s.FaseId = int.TryParse((string?)e.Value, out var fv) ? fv : null)">
+                                                        <option value="">— geen —</option>
+                                                        @foreach (var f in _typeFases)
+                                                        {
+                                                            <option value="@f.Id">@f.Volgorde · @f.Naam</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                            }
                                             <td><input value="@s.Omschrijving" maxlength="500" @onchange="e => ZetStap(s, () => s.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
                                             <td class="c"><input type="checkbox" checked="@s.Verplicht" @onchange="e => ZetStap(s, () => s.Verplicht = e.Value is bool b && b)" /></td>
                                             <td>
@@ -976,7 +1063,7 @@
                                         {
                                             <tr @key="@($"{s.Id}-docs")" class="opb-docs">
                                                 <td></td>
-                                                <td colspan="5">
+                                                <td colspan="@(_typeFases.Count > 0 ? 6 : 5)">
                                                     @foreach (var d in _stapDocumenten)
                                                     {
                                                         <span class="opb-doc">
@@ -992,7 +1079,7 @@
                                     }
                                     @if (lijst.Count == 0)
                                     {
-                                        <tr><td colspan="6" class="kiezer-info">@(soort == OpbouwSoort.Controle ? "Nog geen controles." : "Nog geen stappen.")</td></tr>
+                                        <tr><td colspan="@(_typeFases.Count > 0 ? 7 : 6)" class="kiezer-info">@(soort == OpbouwSoort.Controle ? "Nog geen controles." : "Nog geen stappen.")</td></tr>
                                     }
                                 </tbody>
                             </table>
@@ -1002,9 +1089,12 @@
                         }
                         else if (_naamId is int nid && _productId is int pid)
                         {
-                            <p class="uitleg">Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.</p>
+                            <p class="uitleg">@(_typeFases.Count > 0
+                                ? "Werk de fases van boven naar beneden af. Alleen in de actieve fase kun je afvinken; elke wijziging komt in de historie van dit exemplaar."
+                                : "Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.")</p>
                             <OpbouwLijst @key="_tab" ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")"
-                                         ToonOpbouw="TabIsOpbouw" ToonControle="TabIsEindcheck" OpGewijzigd="NaOpbouwWijziging" />
+                                         ToonOpbouw="@(TabIsOpbouw || _typeFases.Count > 0)" ToonControle="@(TabIsEindcheck || _typeFases.Count > 0)"
+                                         OpGewijzigd="NaOpbouwWijziging" />
                         }
                         }
                     }
@@ -1377,9 +1467,11 @@
 
     private string[] Tabs => _productId is null
         ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
-        : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
+        : (Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
             ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
-            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw", "Eindcheck" };   // zonder werkplek-agent op deze pc geen Programmeren
+            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw", "Eindcheck" })   // zonder werkplek-agent op deze pc geen Programmeren
+          // met fases is de eindcheck de laatste fase van de opbouw: geen eigen tabblad meer bij een exemplaar
+          .Where(t => t != "Eindcheck" || _typeFases.Count == 0).ToArray();
 
     private string Titel
     {
@@ -2395,20 +2487,73 @@
     private int? _stapDocs;                       // stap waarvan de documenten open staan
     private List<Bestand> _stapDocumenten = new();
 
+    // Fases van het producttype (ProductFases_MariaDB.sql); leeg = geen fases, dan werkt alles zoals voorheen.
+    private List<ProductFase> _typeFases = new();
+    private bool _fasesAan;                       // de fase-tabellen bestaan
+
     private async Task LaadOpbouw()
     {
-        _stappen = new(); _stapDocs = null; _stapDocumenten = new();
+        _stappen = new(); _stapDocs = null; _stapDocumenten = new(); _typeFases = new();
         if (_naamId is null || !Opbouw.Beschikbaar) return;
         try
         {
             _stappen = await Opbouw.GetStappenAsync(_naamId.Value, _productId); _opbouwOntbreekt = false;
             _heeftSoort = await Opbouw.HeeftSoortAsync();
+            _fasesAan = await Opbouw.HeeftFasesAsync();
+            if (_fasesAan) _typeFases = await Opbouw.GetFasesAsync(_naamId.Value);
+            if (!Tabs.Contains(_tab)) _tab = _tab == "Eindcheck" ? "Opbouw" : "Algemeen";
         }
         catch (Exception ex)
         {
             _opbouwOntbreekt = ex.Message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase);
             if (!_opbouwOntbreekt) Toon("Opbouw laden mislukt: " + ex.Message, true);
         }
+    }
+
+    private async Task NieuweFase()
+    {
+        if (_naamId is null) return;
+        try
+        {
+            await Opbouw.BewaarFaseAsync(new ProductFase { ProductNameId = _naamId.Value, Naam = "(nieuwe fase)" });
+            await LaadOpbouw();
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task ZetFase(ProductFase f, Action wijzig)
+    {
+        wijzig();
+        try { await Opbouw.BewaarFaseAsync(f); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerschuifFase(ProductFase fase, int richting)
+    {
+        var lijst = _typeFases.ToList();
+        var index = lijst.IndexOf(fase);
+        var nieuw = index + richting;
+        if (index < 0 || nieuw < 0 || nieuw >= lijst.Count) return;
+        (lijst[index], lijst[nieuw]) = (lijst[nieuw], lijst[index]);
+        try { await Opbouw.ZetFaseVolgordeAsync(lijst.Select(f => f.Id).ToList()); await LaadOpbouw(); }
+        catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private async Task VerwijderFase(ProductFase f)
+    {
+        var stappen = _stappen.Count(s => s.FaseId == f.Id);
+        bool ja;
+        try
+        {
+            ja = await JS.InvokeAsync<bool>("mdeBevestig",
+                $"Fase '{f.Naam}' verwijderen?\n\n" +
+                (stappen > 0 ? $"De {stappen} stap(pen) van deze fase blijven bestaan, maar hebben dan geen fase meer. " : "") +
+                "Bij exemplaren vervalt de stand (klaar/overgeslagen) van deze fase.");
+        }
+        catch { ja = false; }
+        if (!ja) return;
+        try { await Opbouw.VerwijderFaseAsync(f.Id); await LaadOpbouw(); Toon("Fase verwijderd.", false); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
     }
 
     private async Task NieuweStap(string soort)
@@ -2912,7 +3057,25 @@
     private readonly HashSet<int> _histGekozen = new();
     /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
     private List<ProductGebeurtenis> HistGekozen => HistorieGefilterd.Where(h => _histGekozen.Contains(h.Id)).ToList();
-    private int HistKolommen => 4 + (HistToonVan ? 1 : 0) + (MagHistorieWissen ? 1 : 0);
+    private int HistKolommen => 4 + (HistToonVan ? 1 : 0) + (MagHistorieWissen ? 1 : 0) + (_typeFases.Count > 0 ? 1 : 0);
+
+    // ---- fase bij een historieregel (ProductFases_MariaDB.sql): filter en achteraf aanpassen ----
+    private string _histFaseFilter = "";       // "" = alle, "0" = zonder fase, anders het FaseID
+    private int? _histFaseBewerk;              // regel waarvan de fase nu te kiezen is
+
+    private async Task ZetHistorieFase(ProductGebeurtenis h, ChangeEventArgs e)
+    {
+        int? fase = int.TryParse((string?)e.Value, out var v) ? v : null;
+        _histFaseBewerk = null;
+        if (_productId is null || fase == h.FaseId) return;
+        try
+        {
+            await Repo.ZetHistorieFaseAsync(h.Id, fase);
+            _historie = await Repo.GetHistorieAsync(_productId.Value);
+            Toon("Fase aangepast.", false);
+        }
+        catch (Exception ex) { Toon("Fase aanpassen mislukt: " + ex.Message, true); }
+    }
     /// <summary>Kolom Van alleen als er meer dan één exemplaar te zien is.</summary>
     private bool HistToonVan => _histMetOnderdelen && _histBronnen.Count != 1;
     private bool AlleHistGekozen
@@ -3029,6 +3192,8 @@
                 : _historie;
             if (_histMetOnderdelen && _histBronnen.Count > 0) q = q.Where(h => _histBronnen.Contains(HistBron(h)));
             if (_histSoortFilter.Length > 0) q = q.Where(h => h.Soort == _histSoortFilter);
+            if (_histFaseFilter == "0") q = q.Where(h => h.FaseId is null);
+            else if (int.TryParse(_histFaseFilter, out var faseFilter)) q = q.Where(h => h.FaseId == faseFilter);
             if (_histUitkomst == "ok") q = q.Where(h => h.Uitkomst == true);
             else if (_histUitkomst == "fout") q = q.Where(h => h.Uitkomst == false);
             var termen = _histZoek.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

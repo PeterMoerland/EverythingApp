@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Producten** — Nieuw: opbouw in fases (voorstel van Sjoerd). Bij een MPR-robot werk je acht fases van boven naar beneden af: afgeronde fases zijn ingeklapt, alleen in de actieve fase kun je afvinken en latere fases staan op slot. Een fase rond je af met "Fase klaar" of sla je over. De eindcheck is de laatste fase.
+- **Producten** — Nieuw: elke regel in de historie krijgt de fase waarin hij viel; je kunt op fase filteren en de fase achteraf aanpassen.
+- **Producten** — Nieuw: bij het producttype (tabblad Opbouw) stel je de fases in en geef je elke stap een fase.
 - **Menu** — Verbeterd: de grijze tegels "in Access" zijn weg; je ziet alleen nog wat in de app werkt. See Electrical en Energie (nog zonder schermen) staan daardoor ook niet meer in het menu.
 
 ## 11-11-2026

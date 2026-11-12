@@ -1180,6 +1180,33 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
                 max-width: 24rem; margin: 0 1rem; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 .mobiel-vraag p { margin: .6rem 0 .8rem; }
 .mobiel-vraag .btngroup { margin-bottom: .3rem; }
+/* Opbouwfases van een exemplaar (OpbouwLijst): afgerond ingeklapt, actief open, later op slot */
+.fase-lijst { display: flex; flex-direction: column; border: 1px solid #d3dce7; border-radius: 8px; overflow: hidden; margin-bottom: .8rem; }
+.fase-rij + .fase-rij { border-top: 1px solid #d3dce7; }
+.fase-kop { display: flex; align-items: baseline; gap: .6rem; width: 100%; text-align: left; border: none; border-radius: 0; background: #fff; padding: .55rem .8rem; font: inherit; cursor: pointer; }
+.fase-kop:hover { background: #f3f6fa; }
+.fase-teken { width: 1.4rem; text-align: center; flex: none; }
+.fase-oms { color: var(--muted, #6b7280); font-size: .88em; }
+.fase-rechts { margin-left: auto; color: var(--muted, #6b7280); font-size: .85em; white-space: nowrap; }
+.fase-rij.af .fase-teken { color: #1e7a3c; }
+.fase-rij.slot .fase-kop { color: #8a96a5; }
+.fase-rij.actief { background: #eaf0f7; }
+.fase-rij.actief .fase-kop { background: #dbe7f5; cursor: default; }
+.fase-rij.actief .fase-rechts { color: #12325c; font-weight: 600; }
+.fase-inhoud { padding: .5rem .8rem .7rem 2.8rem; }
+.fase-knoppen { margin-top: .5rem; align-items: center; }
+.hist-fasechip { border: none; background: #d9e8f8; color: #12325c; border-radius: 4px; padding: 1px 7px; font: inherit; font-size: .82em; cursor: pointer; white-space: nowrap; }
+.hist-fasechip.leeg { background: transparent; color: #9aa6b4; }
+.hist-fase select { max-width: 100%; }
+html[data-thema="donker"] .fase-lijst, html[data-thema="donker"] .fase-rij + .fase-rij { border-color: #334051; }
+html[data-thema="donker"] .fase-kop { background: var(--d2); color: inherit; }
+html[data-thema="donker"] .fase-kop:hover { background: var(--d3); }
+html[data-thema="donker"] .fase-rij.slot .fase-kop { color: #6f7c8c; }
+html[data-thema="donker"] .fase-rij.actief { background: #1d2a3a; }
+html[data-thema="donker"] .fase-rij.actief .fase-kop { background: #1d3350; }
+html[data-thema="donker"] .fase-rij.actief .fase-rechts { color: #cfe2f8; }
+html[data-thema="donker"] .hist-fasechip { background: #1d3350; color: #cfe2f8; }
+html[data-thema="donker"] .hist-fasechip.leeg { background: transparent; color: #6f7c8c; }
 /* Service: wie werkte aan een project */
 .sv-blok { margin: 0 0 1.2rem; max-width: 60rem; }
 .sv-label { display: block; font-weight: 600; margin-bottom: .35rem; }

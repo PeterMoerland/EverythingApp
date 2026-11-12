@@ -60,7 +60,11 @@ public interface IProductRepository
     // --- historie ---
     Task<List<ProductGebeurtenis>> GetHistorieAsync(int productId);
     /// <param name="uitkomst">true = geslaagd, false = mislukt, null = neutraal (kleur in de historie).</param>
-    Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null);
+    /// <param name="faseId">De opbouwfase van de regel; niet opgegeven = de fase die nu actief is bij het exemplaar
+    /// (ProductFases_MariaDB.sql), zodat elke regel vanzelf zijn fase krijgt.</param>
+    Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null, int? faseId = null);
+    /// <summary>De fase van een historieregel achteraf aanpassen (null = geen fase).</summary>
+    Task ZetHistorieFaseAsync(int historieId, int? faseId);
     /// <summary>Historieregels definitief wissen (opschonen, alleen Directie; de rechtencontrole zit in het scherm).
     /// Geeft het aantal gewiste regels.</summary>
     Task<int> VerwijderHistorieAsync(IReadOnlyCollection<int> historieIds);
@@ -169,8 +173,9 @@ public class GeenProductRepository : IProductRepository
     public Task ZetStapZichtbaarAsync(int productNameId, string stap, bool toon) => Task.CompletedTask;
     public Task<HashSet<string>> GetTechniekenAsync(int productNameId) => Task.FromResult(new HashSet<string>());
     public Task ZetTechniekAsync(int productNameId, string techniek, bool aan) => Task.CompletedTask;
-    public Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null)
+    public Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null, int? faseId = null)
         => Task.CompletedTask;
+    public Task ZetHistorieFaseAsync(int historieId, int? faseId) => Task.CompletedTask;
     public Task<int> VerwijderHistorieAsync(IReadOnlyCollection<int> historieIds) => Task.FromResult(0);
     public Task<List<ProductAttribuut>> GetAttributenAsync(int productId)
         => Task.FromResult(new List<ProductAttribuut>());
@@ -840,10 +845,13 @@ public class MySqlProductRepository : IProductRepository
 
         await using var cn = await OpenAsync();
         var uitkomst = await HeeftUitkomstAsync(cn) ? "h.`Uitkomst`" : "NULL";
+        var metFase = await HeeftHistorieFaseAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT h.`ProductHistorieID`, h.`Event`, h.`HistorieTypeID`, h.`ToegevoegdOp`, " +
-            $"       COALESCE(w.`NaamVoluit`, ''), {uitkomst} " +
+            $"       COALESCE(w.`NaamVoluit`, ''), {uitkomst}, " +
+            (metFase ? "pf.`FaseID`, COALESCE(CONCAT(pf.`Volgorde`, ' · ', pf.`Naam`), '') " : "NULL, '' ") +
             "  FROM `ProductHistorie` h " +
+            (metFase ? "  LEFT JOIN `ProductFases` pf ON pf.`FaseID` = h.`FaseID` " : "") +
             "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = h.`ToegevoegdDoor` " +
             " WHERE h.`ProductID` = @id " +
             " ORDER BY h.`ToegevoegdOp` DESC, h.`ProductHistorieID` DESC", cn);
@@ -861,19 +869,30 @@ public class MySqlProductRepository : IProductRepository
                 soort,
                 r.IsDBNull(3) ? null : Convert.ToDateTime(r.GetValue(3)),
                 r.IsDBNull(4) ? "" : r.GetString(4),
-                r.IsDBNull(5) ? null : Convert.ToInt32(r.GetValue(5)) != 0));
+                r.IsDBNull(5) ? null : Convert.ToInt32(r.GetValue(5)) != 0,
+                r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
+                r.IsDBNull(7) ? "" : r.GetString(7)));
         }
         return lijst;
     }
 
-    public async Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null)
+    public async Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null, int? faseId = null)
     {
         await using var cn = await OpenAsync();
         var metUitkomst = uitkomst is not null && await HeeftUitkomstAsync(cn);
+        // de fase: opgegeven, of anders de fase die nu actief is (de eerste fase van het type zonder stand bij dit exemplaar)
+        var metFase = await HeeftHistorieFaseAsync(cn);
+        const string actieveFase =
+            "(SELECT f.`FaseID` FROM `ProductFases` f JOIN `Producten` p ON p.`ProductNameID` = f.`ProductNameID` " +
+            "  WHERE p.`ProductenID` = @id AND NOT EXISTS (SELECT 1 FROM `ProductFaseStatus` x " +
+            "                                              WHERE x.`ProductID` = @id AND x.`FaseID` = f.`FaseID`) " +
+            "  ORDER BY f.`Volgorde`, f.`FaseID` LIMIT 1)";
         await using var cmd = new MySqlCommand(
             "INSERT INTO `ProductHistorie` SET `ProductID` = @id, `Event` = @event, " +
             "`HistorieTypeID` = @soort, `ToegevoegdDoor` = @door, `ToegevoegdOp` = NOW()" +
-            (metUitkomst ? ", `Uitkomst` = @uitkomst" : ""), cn);
+            (metUitkomst ? ", `Uitkomst` = @uitkomst" : "") +
+            (metFase ? ", `FaseID` = " + (faseId is null ? actieveFase : "@fase") : ""), cn);
+        if (metFase && faseId is int fid) cmd.Parameters.AddWithValue("@fase", fid);
         cmd.Parameters.AddWithValue("@id", productId);
         cmd.Parameters.AddWithValue("@event", (gebeurtenis ?? "").Length > 250
             ? gebeurtenis![..250] : gebeurtenis ?? "");
@@ -893,6 +912,29 @@ public class MySqlProductRepository : IProductRepository
             $"DELETE FROM `ProductHistorie` WHERE `ProductHistorieID` IN ({string.Join(", ", namen)})", cn);
         for (var i = 0; i < ids.Count; i++) cmd.Parameters.AddWithValue(namen[i], ids[i]);
         return await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task ZetHistorieFaseAsync(int historieId, int? faseId)
+    {
+        await using var cn = await OpenAsync();
+        if (!await HeeftHistorieFaseAsync(cn)) return;
+        await using var cmd = new MySqlCommand("UPDATE `ProductHistorie` SET `FaseID` = @f WHERE `ProductHistorieID` = @id", cn);
+        cmd.Parameters.AddWithValue("@f", (object?)faseId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", historieId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Kolom FaseID in ProductHistorie en de fase-tabellen aanwezig? (ProductFases_MariaDB.sql) Alleen 'ja' wordt onthouden.
+    private bool _heeftHistorieFase;
+    private async Task<bool> HeeftHistorieFaseAsync(MySqlConnection cn)
+    {
+        if (_heeftHistorieFase) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() " +
+            "           AND table_name = 'ProductHistorie' AND LOWER(column_name) = 'faseid') " +
+            "     + (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductFases') " +
+            "     + (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductFaseStatus')", cn);
+        return _heeftHistorieFase = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 3;
     }
 
     // Kolom Uitkomst aanwezig? (ProductTechniek_MariaDB.sql) Alleen 'ja' wordt onthouden.

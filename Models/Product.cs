@@ -23,7 +23,9 @@ public record ProductRegel(int Id, string Serienummer, string Klant, string Stat
 
 /// <summary>Een regel uit ProductHistorie.</summary>
 /// <param name="Uitkomst">true = geslaagd, false = mislukt, null = neutraal (kolom Uitkomst, ProductTechniek_MariaDB.sql).</param>
-public record ProductGebeurtenis(int Id, string Event, string Soort, DateTime? Wanneer, string Door, bool? Uitkomst = null)
+/// <param name="FaseId">De opbouwfase waarin de regel viel (ProductFases_MariaDB.sql); null = geen.</param>
+public record ProductGebeurtenis(int Id, string Event, string Soort, DateTime? Wanneer, string Door, bool? Uitkomst = null,
+                                 int? FaseId = null, string Fase = "")
 {
     /// <summary>CSS-klasse voor de kleur van de regel/het chipje.</summary>
     public string Kleur => Uitkomst switch { true => "s-groen", false => "s-rood", _ => "s-grijs" };

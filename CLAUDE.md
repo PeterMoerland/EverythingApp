@@ -2287,3 +2287,29 @@ regel "gewist" in de historie zelf (dat zou het opschonen tenietdoen).
 - **Nog niet nagelopen**: veldnamen van transacties (o.a. `balanceAfterBooking`,
   `raboTransactionTypeName`, of bedragen met teken komen), paginering (`_links.next`), en het
   token-endpoint met mTLS.
+
+## Opbouwfases per producttype (12-11-2026, voorstel Sjoerd Quist, deel 1 en 2)
+
+Voorstel en keuzes: artifact "MPR-robot opbouwfases" (claude.ai/artifact/QX2tdEnmJcax53mVsGt1Hs, collectie `keuzes`).
+Keuzes 11-11-2026: fases instelbaar per producttype; aparte blokkade per fase (fase op "failed", handmatig op te lossen
+met vastgelegde actie en foto's); status TEST vervalt; opmerking krijgt automatisch de actieve fase (aan te passen);
+iedereen mag overslaan; duurtest: serienummer in de download van de SD-kaart; veld Opmerkingen op Algemeen blijft;
+samenstelling/attributen corrigeren met een recht; volgorde van bouwen akkoord.
+
+- `ProductFases_MariaDB.sql`: `ProductFases` (per ProductNameID), `ProductOpbouwStappen.FaseID`, `ProductFaseStatus`
+  (ProductID + FaseID, Stand klaar/overgeslagen), `ProductHistorie.FaseID`. Vult voor MPR-1 de 8 fases, verdeelt de
+  bestaande stappen (eindchecks naar fase 8) en zet de beginstand van bestaande exemplaren (status OK = alles klaar).
+  Zonder script werkt alles zoals voorheen (`HeeftFasesAsync`, alleen 'ja' onthouden).
+- Actieve fase = de eerste fase zonder regel in `ProductFaseStatus`. `Components/OpbouwLijst.razor` toont met fases de
+  fases onder elkaar (af ingeklapt, actief open, later op slot); afvinken alleen in de actieve fase (ook server-side in
+  `Vink`), "Fase klaar" (alle verplichte stappen/eindchecks af) en "Overslaan" (vraag; historie). Zonder fases de oude
+  weergave. Werkt daardoor ook in ProductieProduct en ExemplaarWerk. Bij een exemplaar vervalt met fases het tabblad
+  Eindcheck (`Tabs` in Producten.razor).
+- Historie: `VoegHistorieToeAsync(..., faseId)`; niet opgegeven = subquery op de actieve fase, dus alle bestaande
+  aanroepen krijgen vanzelf een fase. Kolom Fase (klik = aanpassen, `ZetHistorieFaseAsync`) en filter op fase.
+- Beheer bij het producttype, tab Opbouw: fases (naam, omschrijving, volgorde, verwijderen) en per stap/eindcheck een fase.
+- Getest lokaal met tijdelijke nep-fases (scratchpad `fase_tijdelijk.py`), niets geschreven. **Niet getest**: het script
+  zelf, Fase klaar/Overslaan, de fase in nieuwe historieregels.
+- **Nog te bouwen**: deel 3 (terug naar een fase = vinkjes van die fase en erna wissen; failed-blokkade met oplossing en
+  foto's; todo's per fase; TEST laten vervallen), de blokken van Programmeren en testen naar fase 4 en 6, deel 4
+  (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen).
