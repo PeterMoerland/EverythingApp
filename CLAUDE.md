@@ -2551,9 +2551,17 @@ hadden het in Access niet). `Components/ProjectDocumenten.razor` op Projecten ‚ñ
   403). Daarom `IProjectRepository.IsOokPoKlantAsync(projectId)`: bestaat er een PO klant met dat nummer, dan toont
   het tabblad niets van soort 20, telt het niet en kan er niets bij (uitleg op het scherm).
   **Omgekeerd is er nog geen bescherming**: zodra de PO-nummers een project-id met documenten bereiken (696; bij ruim
-  20 PO's per jaar duurt dat tientallen jaren) zou de PO-kant een projectdocument als zijn PDF zien. De nette oplossing
-  is een eigen soort voor projectdocumenten en de bestaande 14 omzetten; niet gedaan omdat de gebruiker het bestaande
-  type wilde (Access ziet ze dan ook nog).
+  20 PO's per jaar duurt dat tientallen jaren) zou de PO-kant een projectdocument als zijn PDF zien.
+- **Eigen soort 21** (verzoek gebruiker later op 12-11-2026): `ProjectDocumenten_MariaDB.sql` voegt FileStoreType 21
+  "Projectdocument" toe en zet de bestaande projectdocumenten om (soort 20, er is een project met dat nummer en het
+  nummer ligt **boven het hoogste PO-nummer**; op 12-11 de 14 bestanden). Niet "er bestaat geen PO met dat nummer":
+  PO 10, 22, 58 en 59 zijn verwijderd maar hun PDF staat er nog, en bij 22, 58 en 59 bestaat ook een oud project.
+  Om dezelfde reden kijkt `IsOokPoKlantAsync` naar het bereik (`PO_inkomendID >= project-id`). `IProjectRepository.ProjectDocumentSoortAsync` (`ProjectDocumentSoort.Oud` 20 /
+  `.Eigen` 21): **bestaat soort 21 in FileStoreType, dan gebruikt het tabblad alleen 21** (lezen, tellen, toevoegen) en
+  vervalt de controle op een PO klant; tot dan werkt alles met 20 zoals hierboven. Het script en de code kunnen dus in
+  elke volgorde live. Na het script toont Access deze documenten niet meer op zijn projecttabblad. De PO-kant
+  (`StoreTypePoKlant` 20) is ongewijzigd en ziet dan alleen nog PO-PDF's. Gebouwd; het script is niet gedraaid en de
+  stand n√° het script is niet getest.
 - Lokaal bekeken, alleen lezend, tegen de echte gegevens: project 223093 (id 1647) toont zijn 3 documenten uit Access;
   een oud project (id 100) toont de uitleg. **Niet getest**: toevoegen, verwijderen en het voorbeeld (zou in de echte
   filestore schrijven of lezen).

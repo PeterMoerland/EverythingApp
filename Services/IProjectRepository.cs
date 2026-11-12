@@ -30,11 +30,17 @@ public interface IProjectRepository
     Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde);
     Task<int> VolgendProjectnummerAsync();
     /// <summary>
-    /// Is dit Project-Id ook het nummer van een PO klant (PO_Inkomend)? Access bewaart projectdocumenten en de PDF van
-    /// een PO klant allebei in de filestore onder soort 20, met hun eigen nummer als sleutel; bij zo'n project zijn de
-    /// bestanden van soort 20 dus die van de PO (Components/ProjectDocumenten.razor toont ze dan niet).
+    /// Valt dit Project-Id in de nummers van de PO's klant (PO_Inkomend, tot en met het hoogste nummer; ook een
+    /// verwijderde PO kan nog een PDF hebben)? Access bewaart projectdocumenten en de PDF van een PO klant allebei in
+    /// de filestore onder soort 20, met hun eigen nummer als sleutel; bij zo'n project zijn de bestanden van soort 20
+    /// dus die van een PO (Components/ProjectDocumenten.razor toont ze dan niet).
     /// </summary>
     Task<bool> IsOokPoKlantAsync(int projectId);
+    /// <summary>
+    /// De filestore-soort van projectdocumenten: 21 zodra die bestaat (ProjectDocumenten_MariaDB.sql heeft de bestaande
+    /// documenten dan omgezet), anders 20 zoals Access (gedeeld met de PDF van een PO klant).
+    /// </summary>
+    Task<int> ProjectDocumentSoortAsync();
     /// <param name="bvId">De BV van het project (Werkmaatschappij); null = niet zetten (telt als MDE Automation).</param>
     Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null);
     Task<string?> ProjectInGebruikAsync(int projectId);
@@ -68,6 +74,15 @@ public interface IProjectRepository
 }
 
 /// <summary>Doet niets — demo-modus zonder live database.</summary>
+/// <summary>FileStore.StoreType van de documenten van een project (Components/ProjectDocumenten.razor).</summary>
+public static class ProjectDocumentSoort
+{
+    /// <summary>Zoals Access: soort 20 ("inkomende PO"), gedeeld met de PDF van een PO klant (MasterID = PO-nummer).</summary>
+    public const int Oud = 20;
+    /// <summary>Eigen soort voor projectdocumenten (ProjectDocumenten_MariaDB.sql); MasterID = Project-Id.</summary>
+    public const int Eigen = 21;
+}
+
 public class GeenProjectRepository : IProjectRepository
 {
     public bool Beschikbaar => false;
@@ -83,6 +98,7 @@ public class GeenProjectRepository : IProjectRepository
     public Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde) => Task.CompletedTask;
     public Task<int> VolgendProjectnummerAsync() => Task.FromResult(0);
     public Task<bool> IsOokPoKlantAsync(int projectId) => Task.FromResult(false);
+    public Task<int> ProjectDocumentSoortAsync() => Task.FromResult(ProjectDocumentSoort.Oud);
     public Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null) => Task.FromResult(0);
     public Task<string?> ProjectInGebruikAsync(int projectId) => Task.FromResult<string?>("Geen live database.");
     public Task VerwijderProjectAsync(int projectId) => Task.CompletedTask;
@@ -265,12 +281,29 @@ public class MySqlProjectRepository : IProjectRepository
     /// bij het jaar (2026 → 226) en daarachter een oplopend nummer. Bestaat die reeks
     /// dit jaar nog niet, dan begint hij op 001.
     /// </summary>
+    // Alleen 'ja' onthouden: het script mag gedraaid worden terwijl de app draait.
+    private bool _eigenDocumentSoort;
+    public async Task<int> ProjectDocumentSoortAsync()
+    {
+        if (_eigenDocumentSoort) return ProjectDocumentSoort.Eigen;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand("SELECT COUNT(*) FROM `FileStoreType` WHERE `FilestoreTypeID` = @t", cn);
+            cmd.Parameters.AddWithValue("@t", ProjectDocumentSoort.Eigen);
+            _eigenDocumentSoort = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _eigenDocumentSoort ? ProjectDocumentSoort.Eigen : ProjectDocumentSoort.Oud;
+    }
+
     public async Task<bool> IsOokPoKlantAsync(int projectId)
     {
         await using var cn = await OpenAsync();
         try
         {
-            await using var cmd = new MySqlCommand("SELECT COUNT(*) FROM `PO_Inkomend` WHERE `PO_inkomendID` = @id", cn);
+            // t/m het hoogste PO-nummer: er zijn PO's verwijderd waarvan de PDF nog in de filestore staat
+            await using var cmd = new MySqlCommand("SELECT COUNT(*) FROM `PO_Inkomend` WHERE `PO_inkomendID` >= @id", cn);
             cmd.Parameters.AddWithValue("@id", projectId);
             return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
         }

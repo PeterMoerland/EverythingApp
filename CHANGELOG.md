@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Projecten** — Verbeterd: projectdocumenten krijgen een eigen plek in de opslag, zodat een project en een PO klant met hetzelfde nummer elkaars bestanden niet meer kunnen zien. De bestaande documenten gaan mee (na het script).
 - **Artikelen** — Verbeterd: het venster dat je krijgt met het vergrootglas bij een artikel (bijvoorbeeld in Bestellingen) toont de foto nu groot over de hele breedte, en het lege vlak onderaan is weg. Een klik op de foto opent hem op ware grootte.
 - **Projecten** — Nieuw: tabblad Documenten bij een project, zoals in Access. De documenten die daar al bij een project stonden, staan er meteen; toevoegen kan door te slepen of te kiezen, en een klik op de naam toont het document.
 - **Projecten** — Nieuw: projectfoto's vanaf je telefoon. Op MDE mobiel ▸ Foto ▸ Projectfoto's kies je een werkorder of een project, geef je een onderwerp (dat geldt voor alle volgende foto's) en maak je foto's, met een notitie per foto als je wilt. Ze staan daarna in de grote app bij het project op het nieuwe tabblad Foto's, per onderwerp.

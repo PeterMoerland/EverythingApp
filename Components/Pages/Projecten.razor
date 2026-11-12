@@ -660,9 +660,11 @@
         if (!Filestore.Beschikbaar) { if (_tabProject == DocumentTab) _tabProject = ProjectVelden.ProjectTabs[0].Naam; return; }
         try
         {
-            // een (oud) project met het nummer van een PO klant: die bestanden zijn van de PO en tellen niet mee
-            if (!await Repo.IsOokPoKlantAsync(projectId))
-                _documentAantal = (await WnRepo.GetBestandenAsync(ProjectDocumenten.StoreType, projectId)).Count;
+            // eigen soort 21 zodra die bestaat; bij de gedeelde soort 20 telt een (oud) project met het nummer van een
+            // PO klant niet mee: die bestanden zijn van de PO
+            var soort = await Repo.ProjectDocumentSoortAsync();
+            if (soort == ProjectDocumentSoort.Eigen || !await Repo.IsOokPoKlantAsync(projectId))
+                _documentAantal = (await WnRepo.GetBestandenAsync(soort, projectId)).Count;
         }
         catch { /* tab zonder getal */ }
     }

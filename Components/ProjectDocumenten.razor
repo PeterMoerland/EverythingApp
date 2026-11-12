@@ -5,13 +5,14 @@
 @inject IJSRuntime JS
 
 @* De documenten van een project (Projecten ▸ project ▸ tab Documenten; wens gebruiker 12-11-2026: het tabblad uit
-   Access terug). Zelfde opslag als Access (Form_Projects Subform Project): FileStore met StoreType 20 en
-   MasterID = Project-Id, dus de documenten die daar al stonden staan hier ook.
+   Access terug). MasterID = Project-Id.
 
-   LET OP: Access gebruikt soort 20 ook voor de PDF van een PO klant (MasterID = PO_inkomendID). Een project met een
-   nummer dat ook een PO-nummer is (alleen de projecten van vóór 2011, allemaal gesloten) zou zo de PDF van die PO
-   tonen. Daarom: bestaat er een PO klant met hetzelfde nummer, dan toont dit tabblad niets van soort 20 en kan er
-   niets worden toegevoegd (IProjectRepository.IsOokPoKlantAsync). *@
+   Soort: een eigen filestore-soort 21 zodra die bestaat (ProjectDocumenten_MariaDB.sql zet de bestaande documenten
+   dan om); IProjectRepository.ProjectDocumentSoortAsync. Tot het script gedraaid is: soort 20 zoals Access
+   (Form_Projects Subform Project). Access gebruikt 20 ook voor de PDF van een PO klant (MasterID = PO_inkomendID),
+   dus een project met het nummer van een PO klant (alleen projecten van vóór 2011, allemaal gesloten) zou de PDF van
+   die PO tonen: bij soort 20 toont dit tabblad dan niets en kan er niets bij (IsOokPoKlantAsync). Met soort 21 speelt
+   dat niet meer. *@
 
 @if (!_geladen)
 {
@@ -20,8 +21,8 @@
 else if (_ookPo)
 {
     <p class="uitleg">
-        Bij dit project kunnen hier geen documenten staan: het interne nummer van dit (oude) project is ook het nummer van
-        een PO klant, en de bestanden met dat nummer zijn de PDF's van die PO.
+        Bij dit project kunnen hier geen documenten staan: het interne nummer van dit (oude) project valt in de nummers
+        van de PO's klant, en de bestanden met dat nummer zijn de PDF van een PO.
     </p>
 }
 else
@@ -67,8 +68,8 @@ else
 <BestandVoorbeeld Id="_voorbeeldId" Naam="@_voorbeeldNaam" Sluiten="() => _voorbeeldId = null" />
 
 @code {
-    /// <summary>FileStore.StoreType van de projectdocumenten, zoals in Access (heet daar "inkomende PO").</summary>
-    public const int StoreType = 20;
+    /// <summary>De filestore-soort die nu geldt: 21 (eigen soort) of 20 (zoals Access, tot het script gedraaid is).</summary>
+    private int _soort = ProjectDocumentSoort.Oud;
 
     [Parameter, EditorRequired] public int ProjectId { get; set; }
     /// <summary>Na toevoegen of verwijderen (de aanroeper telt opnieuw).</summary>
@@ -94,8 +95,10 @@ else
         _fout = null;
         try
         {
-            _ookPo = await Projecten.IsOokPoKlantAsync(ProjectId);
-            _documenten = _ookPo ? new() : await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+            _soort = await Projecten.ProjectDocumentSoortAsync();
+            // alleen bij de gedeelde soort 20 kan een PO klant met hetzelfde nummer in de weg zitten
+            _ookPo = _soort == ProjectDocumentSoort.Oud && await Projecten.IsOokPoKlantAsync(ProjectId);
+            _documenten = _ookPo ? new() : await WnRepo.GetBestandenAsync(_soort, ProjectId);
         }
         catch (Exception ex) { _fout = "Documenten laden mislukt: " + ex.Message; }
         _geladen = true;
@@ -116,11 +119,11 @@ else
                 try
                 {
                     await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
-                    await Store.ToevoegenAsync(stroom, bestand.Name, StoreType, ProjectId, Ik.WerknemerId ?? 0);
+                    await Store.ToevoegenAsync(stroom, bestand.Name, _soort, ProjectId, Ik.WerknemerId ?? 0);
                 }
                 catch (Exception ex) { fouten.Add($"{bestand.Name}: {ex.Message}"); }
             }
-            _documenten = await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+            _documenten = await WnRepo.GetBestandenAsync(_soort, ProjectId);
             await OpGewijzigd.InvokeAsync();
         }
         catch (Exception ex) { fouten.Add(ex.Message); }
@@ -138,7 +141,7 @@ else
         try
         {
             await Store.VerwijderAsync(d.FileStoreId);
-            _documenten = await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+            _documenten = await WnRepo.GetBestandenAsync(_soort, ProjectId);
             await OpGewijzigd.InvokeAsync();
         }
         catch (Exception ex) { _fout = "Verwijderen mislukt: " + ex.Message; }
