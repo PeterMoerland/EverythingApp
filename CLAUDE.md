@@ -2526,6 +2526,38 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Projectfoto's vanaf de telefoon (12-11-2026)
+
+Wens gebruiker: eerst een project kiezen, een onderwerp ingeven voor de foto's van die sessie, daarna foto's maken die
+het project ingaan. Besluiten: kiezen tussen **werkorder of project** (werkorder staat voor), iedereen die is aangemeld
+mag maken en zien, weghalen alleen de maker en Directie, 3000 px, een optionele notitie per foto. Script (gebruiker):
+`ProjectFotos_MariaDB.sql` (tabel `ProjectFotos`, FileStoreType **370** Projectfoto). Projecten hadden tot nu toe geen
+bestanden in de app: dit is de eerste plek.
+
+- **Opslag**: `Services/IProjectFotoRepository.cs` (MySql, Geen, en `GeheugenProjectFotoRepository` met
+  `ProjectFotos__Geheugen=true`: zoeken gaat dan echt, de foto's blijven in het geheugen). Een regel per foto: project,
+  eventueel werkorder (een foto bij een werkorder hoort ook bij het project), onderwerp, notitie, `FileStoreID` en een
+  klein voorbeeld (`Miniatuur`, MEDIUMBLOB, 400 px). De foto zelf: FileStore soort 370, MasterID = `ProjectFotoID`,
+  naam "<nummer> <onderwerp> <datum tijd>.jpg". Voorbeeld via `/projectfoto/{id}/klein` (Program.cs, aangemeld, een dag
+  in de cache); groot via `/bestand/{FileStoreID}`.
+- **Telefoon**: `Components/Pages/MobielProjectFoto.razor` (`/mobiel/projectfoto`, MDE mobiel ▸ Foto ▸ Projectfoto's).
+  Stap 1 werkorder of project: "recent door jou gebruikt" (`IUrenRepository.RecentGebruikteWerkordersAsync` →
+  `DoelenVanWerkordersAsync`; bij Project de projecten daarvan) of zoeken op alle woorden in nummer, omschrijving en
+  klant (alleen open). Stap 2 onderwerp, met de eerdere onderwerpen van dat project als knop (zelfde schrijfwijze).
+  Stap 3 foto's: elke foto meteen opgeslagen (`VoegToeAsync` → `BewaarBestand`; mislukt het bestand, dan gaat de regel
+  weer weg), met in de lijst een notitieveld en "Weg". Keuze en onderwerp worden voor vandaag op het toestel onthouden
+  (`mdeOpslag`, sleutel `mde-projectfoto`).
+- **Grote app**: `Components/ProjectFotoLijst.razor` op Projecten ▸ project ▸ tab **Foto's (n)** (`FotoTab`,
+  `TelFotos`): per onderwerp (nieuwste eerst), filter op werkorder, klik = groot, ⭳ downloaden; notitie aanpassen en ✕
+  weghalen voor de maker en Directie.
+- **Menu**: `/mobiel/fotos` is een derde menu in Mobiel.razor (Projectfoto's, Voor de pc); `/mobiel/foto` heet nu
+  "Foto voor de pc" en FotoVak verwijst naar "MDE mobiel ▸ Foto ▸ Voor de pc".
+- Getest lokaal op telefoonformaat met `ProjectFotos__Geheugen=true` (scratchpad `d9_tijdelijk.py`: zonder aanmelding
+  en zonder filestore): menu, zoeken tegen de echte database (226099-01), onderwerp, twee foto's, notitie, onthouden op
+  het toestel, en daarna het tabblad Foto's met de voorbeelden. **Niet getest**: de echte tabel en het script, het
+  bestand in de filestore (groot bekijken, downloaden, weghalen), "recent door jou gebruikt" (lokaal geen werknemer),
+  een echte telefoon en het donkere thema.
+
 ## Calculaties: importeren uit de calculatieboom (12-11-2026, verzoek Edwin)
 
 Een offline calculatie (artifact Calculatieboom, export `{"soort":"mde-calculatieboom","versie":1,"calculatie":{id, meta,

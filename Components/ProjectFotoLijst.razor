@@ -1,0 +1,148 @@
+@inject IProjectFotoRepository Fotos
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* De foto's van een project (Projecten ▸ project ▸ tab Foto's; wens gebruiker 12-11-2026), per onderwerp. Ze worden op
+   de telefoon gemaakt (MDE mobiel ▸ Foto ▸ Projectfoto's, Components/Pages/MobielProjectFoto.razor). Het raster toont
+   het kleine voorbeeld (/projectfoto/{id}/klein); een klik opent de foto zelf (/bestand/{id}). De maker en Directie
+   mogen de notitie aanpassen en de foto weghalen. *@
+
+@if (!_geladen)
+{
+    <p class="uitleg">Laden…</p>
+}
+else if (!_tabel)
+{
+    <div class="melding fout">De tabel <code>ProjectFotos</code> ontbreekt nog: voer <code>ProjectFotos_MariaDB.sql</code> uit.</div>
+}
+else if (_fotos.Count == 0)
+{
+    <p class="uitleg">
+        Dit project heeft nog geen foto's. Je maakt ze met je telefoon: <b>MDE mobiel ▸ Foto ▸ Projectfoto's</b>, kies de
+        werkorder of het project, geef een onderwerp en maak de foto's. Ze staan daarna hier, per onderwerp.
+    </p>
+}
+else
+{
+    <div class="tl-balk pfl-balk">
+        <span class="uitleg">@_fotos.Count foto@(_fotos.Count == 1 ? "" : "'s") in @Groepen.Count onderwerp@(Groepen.Count == 1 ? "" : "en")</span>
+        @if (Werkorders.Count > 1)
+        {
+            <select @onchange="e => _werkorder = (string?)e.Value ?? string.Empty" title="Alleen de foto's van één werkorder">
+                <option value="" selected="@(_werkorder.Length == 0)">alle werkorders</option>
+                @foreach (var w in Werkorders)
+                {
+                    <option value="@w" selected="@(_werkorder == w)">@(w == "-" ? "zonder werkorder" : w)</option>
+                }
+            </select>
+        }
+        <button class="klein" title="Opnieuw laden (foto's die net op een telefoon zijn gemaakt)" @onclick="Laad">↻</button>
+    </div>
+    @if (_fout is not null) { <p class="uitleg fout-tekst">@_fout</p> }
+
+    @foreach (var g in Groepen)
+    {
+        <h4 class="prod-subkop pfl-kop" @key="g.Key">@g.Key <small class="uitleg">@g.Count() foto@(g.Count() == 1 ? "" : "'s") · laatst @g.Max(f => f.GemaaktOp).ToString("dd-MM-yyyy")</small></h4>
+        <div class="pfl-raster">
+            @foreach (var f in g)
+            {
+                <figure class="pfl-foto" @key="f.Id">
+                    @if (f.FileStoreId is int fs)
+                    {
+                        <a href="@("bestand/" + fs)" target="_blank" rel="noopener" title="Groot bekijken">
+                            <img src="@("projectfoto/" + f.Id + "/klein")" alt="@f.Onderwerp" loading="lazy" />
+                        </a>
+                    }
+                    else
+                    {
+                        <img src="@("projectfoto/" + f.Id + "/klein")" alt="@f.Onderwerp" loading="lazy" />
+                    }
+                    <figcaption>
+                        <span class="pfl-meta">
+                            @f.GemaaktOp.ToString("dd-MM-yyyy HH:mm")@(f.GemaaktDoor.Length > 0 ? " · " + f.GemaaktDoor : "")
+                            @if (f.Werkorder.Length > 0) { <span class="opb-chip" title="Gemaakt bij deze werkorder">@f.Werkorder</span> }
+                        </span>
+                        @if (MagWijzigen(f))
+                        {
+                            <input class="pfl-notitie" maxlength="500" placeholder="notitie" value="@f.Notitie" @onchange="e => ZetNotitie(f, (string?)e.Value ?? string.Empty)" />
+                        }
+                        else if (f.Notitie.Length > 0)
+                        {
+                            <span class="pfl-notitie">@f.Notitie</span>
+                        }
+                        <span class="pfl-knoppen">
+                            @if (f.FileStoreId is int fd) { <a class="knopje" href="@("bestand/" + fd + "/download")" title="Downloaden">⭳</a> }
+                            @if (MagWijzigen(f)) { <button class="klein rood" title="Deze foto weghalen" disabled="@_bezig" @onclick="() => Verwijder(f)">✕</button> }
+                        </span>
+                    </figcaption>
+                </figure>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public int ProjectId { get; set; }
+    /// <summary>Na het weghalen van een foto (de aanroeper telt opnieuw).</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private bool _geladen, _tabel, _bezig;
+    private string? _fout;
+    private string _werkorder = "";                 // filter: "" = alles, "-" = zonder werkorder
+    private List<ProjectFoto> _fotos = new();
+    private int _geladenVoor = -1;
+
+    private List<string> Werkorders => _fotos.Select(f => f.Werkorder.Length > 0 ? f.Werkorder : "-").Distinct().OrderBy(w => w).ToList();
+    private IEnumerable<ProjectFoto> Zichtbaar => _werkorder.Length == 0 ? _fotos : _fotos.Where(f => (f.Werkorder.Length > 0 ? f.Werkorder : "-") == _werkorder);
+    /// <summary>Per onderwerp, het onderwerp met de nieuwste foto eerst.</summary>
+    private List<IGrouping<string, ProjectFoto>> Groepen => Zichtbaar.GroupBy(f => f.Onderwerp).OrderByDescending(g => g.Max(f => f.GemaaktOp)).ToList();
+
+    private bool MagWijzigen(ProjectFoto f) => (f.GemaaktDoorId is int door && door == Ik.WerknemerId) || Ik.Mag("Directie");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProjectId) return;
+        _geladenVoor = ProjectId;
+        _werkorder = "";
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _fout = null;
+        try
+        {
+            _tabel = Fotos.Beschikbaar && await Fotos.TabelAanwezigAsync();
+            _fotos = _tabel ? await Fotos.VanProjectAsync(ProjectId) : new();
+        }
+        catch (Exception ex) { _fout = "Foto's laden mislukt: " + ex.Message; }
+        _geladen = true;
+    }
+
+    private async Task ZetNotitie(ProjectFoto f, string notitie)
+    {
+        if (!MagWijzigen(f)) return;
+        try { await Fotos.ZetNotitieAsync(f.Id, notitie); f.Notitie = notitie.Trim(); _fout = null; }
+        catch (Exception ex) { _fout = "De notitie opslaan mislukte: " + ex.Message; }
+    }
+
+    private async Task Verwijder(ProjectFoto f)
+    {
+        if (!MagWijzigen(f)) return;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Deze foto van '{f.Onderwerp}' ({f.GemaaktOp:dd-MM-yyyy HH:mm}) weghalen?\n\nHet bestand gaat ook van schijf af."); }
+        catch { ja = false; }
+        if (!ja) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            if (f.FileStoreId is int fs) { try { await Store.VerwijderAsync(fs); } catch { /* het bestand kan al weg zijn */ } }
+            await Fotos.VerwijderAsync(f.Id);
+            _fotos.Remove(f);
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Weghalen mislukte: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+}

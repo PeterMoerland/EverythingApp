@@ -1,0 +1,348 @@
+@page "/mobiel/projectfoto"
+@layout MobielLayout
+@inject IProjectFotoRepository Fotos
+@inject IUrenRepository Uren
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@implements IDisposable
+
+@* Projectfoto's vanaf de telefoon (wens gebruiker 12-11-2026): eerst een werkorder of een project kiezen, dan een
+   onderwerp ingeven (geldt voor alle foto's tot je het wijzigt), daarna foto's maken. Elke foto wordt meteen bij het
+   project opgeslagen (tabel ProjectFotos + de foto in de FileStore, soort 370) en staat in de grote app bij
+   Projecten ▸ project ▸ tab Foto's. Per foto kan er een notitie bij. Keuze en onderwerp worden op het toestel
+   onthouden voor de rest van de dag, zodat je na een telefoontje verder kunt waar je was. *@
+
+<PageTitle>Projectfoto's — MDE</PageTitle>
+
+<a class="mobiel-pad" href="mobiel/fotos">‹ Foto</a>
+<h2 class="mobiel-kop">📸 Projectfoto's</h2>
+
+@if (!_geladen)
+{
+    <p class="mobiel-klein">Laden…</p>
+}
+else if (_reden is not null)
+{
+    <div class="bon-fout">@_reden</div>
+}
+else if (_doel is null)
+{
+    @* ---------- stap 1: werkorder of project kiezen ---------- *@
+    <div class="pf-keuze">
+        <button class="knopje @(_opWerkorder ? "actief" : "")" @onclick="() => KiesSoort(true)">Werkorder</button>
+        <button class="knopje @(!_opWerkorder ? "actief" : "")" @onclick="() => KiesSoort(false)">Project</button>
+    </div>
+    <input class="bon-zoek" placeholder="@(_opWerkorder ? "Zoek een werkorder: nummer, omschrijving of klant" : "Zoek een project: nummer, omschrijving of klant")"
+           value="@_zoek" @oninput="ZoekInput" />
+    <div class="bon-lijst">
+        @if (_zoek.Length < 2 && Lijst.Count > 0)
+        {
+            <div class="mobiel-klein">Recent door jou gebruikt</div>
+        }
+        @foreach (var d in Lijst)
+        {
+            <button class="bon-item" @key="(d.ProjectId, d.WerkbonId)" @onclick="() => KiesDoel(d)">
+                <b>@d.Nummer</b> @d.Omschrijving <small class="mobiel-klein">@d.Klant</small>
+            </button>
+        }
+        @if (_zoek.Length >= 2 && Lijst.Count == 0 && !_zoeken)
+        {
+            <div class="mobiel-klein">Niets gevonden (alleen open @(_opWerkorder ? "werkorders" : "projecten")).</div>
+        }
+        @if (_zoek.Length < 2 && Lijst.Count == 0)
+        {
+            <div class="mobiel-klein">Typ een nummer, omschrijving of klant.</div>
+        }
+    </div>
+}
+else
+{
+    <div class="foto-voor">
+        <span class="mobiel-klein">@(_doel.IsWerkorder ? "Werkorder" : "Project")</span>
+        <b>@_doel.Nummer</b>
+        <span>@_doel.Omschrijving</span>
+        @if (_doel.Klant.Length > 0) { <span class="mobiel-klein">@_doel.Klant</span> }
+        <button class="knopje pf-wijzig" @onclick="AnderDoel">Ander @(_doel.IsWerkorder ? "werkorder of project" : "project of werkorder")</button>
+    </div>
+
+    @if (!_onderwerpVast)
+    {
+        @* ---------- stap 2: het onderwerp ---------- *@
+        <div class="bon-veld">
+            <span>Onderwerp <small class="mobiel-klein">(geldt voor alle foto's tot je het wijzigt)</small></span>
+            <input class="bon-zoek" maxlength="100" placeholder="bv. Montage bij klant, Schade bij ontvangst"
+                   value="@_onderwerp" @oninput="e => _onderwerp = (string?)e.Value ?? string.Empty" @onkeydown="OnderwerpToets" />
+        </div>
+        @if (_eerder.Count > 0)
+        {
+            <div class="mobiel-klein">Eerder bij dit project</div>
+            <div class="bon-keuzes pf-eerder">
+                @foreach (var o in _eerder)
+                {
+                    <button class="knopje" @key="o" @onclick="() => ZetOnderwerp(o)">@o</button>
+                }
+            </div>
+        }
+        <button class="bon-hoofdknop" disabled="@(_onderwerp.Trim().Length == 0)" @onclick="() => ZetOnderwerp(_onderwerp)">Verder</button>
+    }
+    else
+    {
+        @* ---------- stap 3: foto's maken ---------- *@
+        <div class="pf-onderwerp">
+            <span><span class="mobiel-klein">Onderwerp</span><br /><b>@_onderwerp</b></span>
+            <button class="knopje" @onclick="() => _onderwerpVast = false">Wijzigen</button>
+        </div>
+
+        <label class="bon-hoofdknop">
+            📷 @(_gemaakt.Count == 0 ? "Foto maken" : "Nog een foto")
+            <InputFile @key="_invoer" OnChange="Gekozen" accept="image/*" capture="environment" class="bon-verborgen" />
+        </label>
+        <label class="knopje bon-tweede">
+            Kies uit de galerij
+            <InputFile @key="(_invoer, 1)" OnChange="Gekozen" accept="image/*" multiple class="bon-verborgen" />
+        </label>
+
+        @if (_bezig) { <p class="mobiel-klein"><span class="draaier"></span> Foto opslaan…</p> }
+        @if (_melding is not null) { <div class="bon-fout">@_melding</div> }
+
+        @if (_gemaakt.Count > 0)
+        {
+            <div class="bon-klaar">✓ @(_gemaakt.Count == 1 ? "1 foto opgeslagen" : $"{_gemaakt.Count} foto's opgeslagen") bij @_doel.Nummer.</div>
+            <div class="pf-lijst">
+                @foreach (var g in _gemaakt)
+                {
+                    <div class="pf-foto" @key="g.Id">
+                        <img src="@g.Voorbeeld" alt="Foto" />
+                        <div class="pf-foto-rechts">
+                            <span class="mobiel-klein">@g.Onderwerp · @g.Tijd.ToString("HH:mm")</span>
+                            <input maxlength="500" placeholder="Notitie (optioneel)" value="@g.Notitie" @onchange="e => ZetNotitie(g, (string?)e.Value ?? string.Empty)" />
+                            <button class="knopje" disabled="@_bezig" @onclick="() => Verwijder(g)">✕ Weg</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        <p class="mobiel-klein">De foto's staan in de grote app bij Projecten ▸ @(_doel.Nummer.Split('-')[0]) ▸ tab Foto's.</p>
+    }
+}
+
+@code {
+    /// <summary>Een foto uit deze sessie (op het scherm, met notitie en weghalen).</summary>
+    private sealed class Gemaakt
+    {
+        public int Id { get; init; }
+        public int? FileStoreId { get; init; }
+        public string Voorbeeld { get; init; } = "";
+        public string Onderwerp { get; init; } = "";
+        public DateTime Tijd { get; init; }
+        public string Notitie { get; set; } = "";
+    }
+
+    /// <summary>Wat op het toestel onthouden wordt (voor vandaag).</summary>
+    private sealed record Onthouden(string Dag, bool OpWerkorder, int ProjectId, int? WerkbonId, string Nummer, string Omschrijving, string Klant, string Onderwerp);
+    private const string Sleutel = "mde-projectfoto";
+
+    private bool _geladen, _bezig, _zoeken;
+    private string? _reden, _melding;
+    private bool _opWerkorder = true;
+    private string _zoek = "";
+    private List<FotoDoel> _recentWerkorders = new(), _recentProjecten = new(), _gevonden = new();
+    private FotoDoel? _doel;
+    private string _onderwerp = "";
+    private bool _onderwerpVast;
+    private List<string> _eerder = new();
+    private readonly List<Gemaakt> _gemaakt = new();
+    private int _invoer;
+    private CancellationTokenSource? _zoekPauze;
+
+    private List<FotoDoel> Lijst => _zoek.Length >= 2 ? _gevonden : _opWerkorder ? _recentWerkorders : _recentProjecten;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Fotos.Beschikbaar) _reden = "Dit werkt alleen met de live database.";
+        else if (!await Fotos.TabelAanwezigAsync()) _reden = "De tabel voor projectfoto's ontbreekt nog (ProjectFotos_MariaDB.sql).";
+        else if (Ik.WerknemerId is not int ik) _reden = "Je bent niet als medewerker aangemeld. Log in met je MDE-account.";
+        else
+        {
+            try
+            {
+                // de werkorders waar je de laatste tijd uren op schreef, en hun projecten
+                var recent = await Uren.RecentGebruikteWerkordersAsync(ik, 60, 12);
+                _recentWerkorders = await Fotos.DoelenVanWerkordersAsync(recent.Select(w => w.WerkbonId).ToList());
+                _recentProjecten = _recentWerkorders.GroupBy(d => d.ProjectId).Select(g => g.First())
+                    .Select(d => new FotoDoel(d.ProjectId, null, d.Nummer.Split('-')[0], d.Omschrijving.Split(" · ").Last(), d.Klant)).ToList();
+            }
+            catch { /* zonder recente lijst kan er nog gezocht worden */ }
+        }
+        _geladen = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!eerste || _reden is not null) return;
+        // verder waar je vandaag was (zelfde toestel)
+        try
+        {
+            var tekst = await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel);
+            if (string.IsNullOrWhiteSpace(tekst)) return;
+            var o = System.Text.Json.JsonSerializer.Deserialize<Onthouden>(tekst);
+            if (o is null || o.Dag != DateTime.Today.ToString("yyyy-MM-dd") || _doel is not null) return;
+            _opWerkorder = o.OpWerkorder;
+            _doel = new FotoDoel(o.ProjectId, o.WerkbonId, o.Nummer, o.Omschrijving, o.Klant);
+            _onderwerp = o.Onderwerp;
+            _onderwerpVast = o.Onderwerp.Trim().Length > 0;
+            try { _eerder = await Fotos.OnderwerpenAsync(o.ProjectId); } catch { }
+            StateHasChanged();
+        }
+        catch { /* niets onthouden: gewoon opnieuw kiezen */ }
+    }
+
+    private async Task Onthoud()
+    {
+        try
+        {
+            var tekst = _doel is null ? "" : System.Text.Json.JsonSerializer.Serialize(new Onthouden(DateTime.Today.ToString("yyyy-MM-dd"),
+                _opWerkorder, _doel.ProjectId, _doel.WerkbonId, _doel.Nummer, _doel.Omschrijving, _doel.Klant, _onderwerpVast ? _onderwerp : ""));
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel, tekst);
+        }
+        catch { }
+    }
+
+    private void KiesSoort(bool werkorder)
+    {
+        _opWerkorder = werkorder;
+        _zoek = ""; _gevonden = new();
+    }
+
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = ((string?)e.Value ?? "").Trim();
+        _zoekPauze?.Cancel();
+        if (_zoek.Length < 2) { _gevonden = new(); return; }
+        var pauze = _zoekPauze = new CancellationTokenSource();
+        try { await Task.Delay(300, pauze.Token); } catch (TaskCanceledException) { return; }
+        _zoeken = true;
+        try
+        {
+            var gevonden = _opWerkorder ? await Fotos.ZoekWerkordersAsync(_zoek, 20) : await Fotos.ZoekProjectenAsync(_zoek, 20);
+            if (!pauze.IsCancellationRequested) _gevonden = gevonden;
+        }
+        catch { _gevonden = new(); }
+        finally { _zoeken = false; }
+    }
+
+    private async Task KiesDoel(FotoDoel d)
+    {
+        _doel = d;
+        _zoek = ""; _gevonden = new(); _melding = null;
+        _onderwerp = ""; _onderwerpVast = false;
+        try { _eerder = await Fotos.OnderwerpenAsync(d.ProjectId); } catch { _eerder = new(); }
+        await Onthoud();
+    }
+
+    private async Task AnderDoel()
+    {
+        _doel = null; _onderwerp = ""; _onderwerpVast = false; _eerder = new(); _melding = null;
+        _gemaakt.Clear();
+        await Onthoud();
+    }
+
+    private async Task OnderwerpToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _onderwerp.Trim().Length > 0) await ZetOnderwerp(_onderwerp);
+    }
+
+    private async Task ZetOnderwerp(string onderwerp)
+    {
+        onderwerp = onderwerp.Trim();
+        if (onderwerp.Length == 0) return;
+        // zelfde schrijfwijze als een eerder onderwerp, zodat het overzicht ze bij elkaar zet
+        _onderwerp = _eerder.FirstOrDefault(o => o.Equals(onderwerp, StringComparison.OrdinalIgnoreCase)) ?? onderwerp;
+        _onderwerpVast = true;
+        await Onthoud();
+    }
+
+    private async Task Gekozen(InputFileChangeEventArgs e)
+    {
+        if (_doel is not { } doel || !_onderwerpVast) return;
+        _melding = null;
+        _bezig = true;
+        try
+        {
+            foreach (var bestand in e.GetMultipleFiles(12))
+            {
+                // In de browser verkleinen: 3000 px is ruim genoeg om later op details in te zoomen en houdt de foto rond 1-2 MB.
+                var groot = await Lees(await bestand.RequestImageFileAsync("image/jpeg", 3000, 3000), 20_000_000);
+                var klein = await Lees(await bestand.RequestImageFileAsync("image/jpeg", 400, 400), 2_000_000);
+                var id = await Fotos.VoegToeAsync(doel.ProjectId, doel.WerkbonId, _onderwerp, klein, Ik.WerknemerId);
+                int? fileId;
+                try { fileId = await BewaarBestand(id, groot, doel); }
+                catch (Exception ex)
+                {
+                    // zonder de foto zelf heeft de regel geen zin: terugdraaien
+                    try { await Fotos.VerwijderAsync(id); } catch { }
+                    _melding = "De foto opslaan mislukte: " + ex.Message;
+                    break;
+                }
+                _gemaakt.Insert(0, new Gemaakt
+                {
+                    Id = id, FileStoreId = fileId, Onderwerp = _onderwerp, Tijd = DateTime.Now,
+                    Voorbeeld = "data:image/jpeg;base64," + Convert.ToBase64String(klein),
+                });
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) { _melding = "De foto verwerken mislukte: " + ex.Message; }
+        finally { _bezig = false; _invoer++; }
+    }
+
+    /// <summary>De foto zelf in de filestore zetten en aan de regel hangen; geeft het FileStoreID.</summary>
+    private async Task<int?> BewaarBestand(int fotoId, byte[] groot, FotoDoel doel)
+    {
+        if (!Store.Beschikbaar) throw new InvalidOperationException("de filestore is niet ingesteld (Filestore:Pad)");
+        using var stroom = new MemoryStream(groot);
+        var fileId = await Store.ToevoegenAsync(stroom, Bestandsnaam(doel), ProjectFotoStore.Type, fotoId, Ik.WerknemerId ?? 0);
+        await Fotos.ZetBestandAsync(fotoId, fileId);
+        return fileId;
+    }
+
+    /// <summary>"226099-01 Montage bij klant 2026-11-12 143015.jpg", zonder tekens die in een bestandsnaam niet mogen.</summary>
+    private string Bestandsnaam(FotoDoel doel)
+    {
+        var naam = $"{doel.Nummer} {_onderwerp} {DateTime.Now:yyyy-MM-dd HHmmss}";
+        naam = string.Concat(naam.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '-' : c));
+        return (naam.Length > 120 ? naam[..120] : naam) + ".jpg";
+    }
+
+    private static async Task<byte[]> Lees(IBrowserFile bestand, long max)
+    {
+        using var geheugen = new MemoryStream();
+        await bestand.OpenReadStream(max).CopyToAsync(geheugen);
+        return geheugen.ToArray();
+    }
+
+    private async Task ZetNotitie(Gemaakt g, string notitie)
+    {
+        g.Notitie = notitie.Trim();
+        try { await Fotos.ZetNotitieAsync(g.Id, g.Notitie); }
+        catch (Exception ex) { _melding = "De notitie opslaan mislukte: " + ex.Message; }
+    }
+
+    /// <summary>Een foto uit deze sessie weer weghalen (mislukt, verkeerd project).</summary>
+    private async Task Verwijder(Gemaakt g)
+    {
+        _bezig = true; _melding = null;
+        try
+        {
+            if (g.FileStoreId is int fs) { try { await Store.VerwijderAsync(fs); } catch { } }
+            await Fotos.VerwijderAsync(g.Id);
+            _gemaakt.Remove(g);
+        }
+        catch (Exception ex) { _melding = "Weghalen mislukte: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    public void Dispose() => _zoekPauze?.Cancel();
+}

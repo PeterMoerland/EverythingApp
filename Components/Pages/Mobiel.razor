@@ -1,14 +1,15 @@
 @page "/mobiel"
 @page "/mobiel/gebouwbeheer"
 @page "/mobiel/bestellen"
+@page "/mobiel/fotos"
 @layout MobielLayout
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IDisposable
 
 @* Het mobiele startscherm: alleen de functies die op een telefoon zinvol zijn, als grote tegels, in een menu met
-   twee lagen (wens gebruiker 12-11-2026): Gebouwbeheer en Bestellen openen een eigen menu, Foto en Bonnetje gaan
-   direct naar hun pagina. Komt er een functie bij, dan is dat hier één tegel extra in het juiste menu (en zo nodig
+   twee lagen (wens gebruiker 12-11-2026): Gebouwbeheer, Bestellen en Foto openen een eigen menu, Bonnetje gaat
+   direct naar zijn pagina. Komt er een functie bij, dan is dat hier één tegel extra in het juiste menu (en zo nodig
    een /mobiel/...-pagina met het paneel erin). De pagina's zelf hebben bovenaan een link terug naar hun menu
    (class mobiel-pad). *@
 
@@ -44,6 +45,21 @@ else if (Menu == "bestellen")
         </a>
     </div>
 }
+else if (Menu == "fotos")
+{
+    <a class="mobiel-pad" href="mobiel">‹ Menu</a>
+    <h2 class="mobiel-kop">📷 Foto</h2>
+    <div class="mobiel-tegels">
+        <a class="mobiel-tegel" href="mobiel/projectfoto">
+            <span class="ikoon">📸</span>Projectfoto's
+            <small>werkorder of project kiezen, onderwerp, foto's maken</small>
+        </a>
+        <a class="mobiel-tegel" href="mobiel/foto">
+            <span class="ikoon">🖥</span>Voor de pc
+            <small>een scherm op de pc wacht op een foto</small>
+        </a>
+    </div>
+}
 else
 {
     <h2 class="mobiel-kop">Waar wil je heen?</h2>
@@ -56,9 +72,9 @@ else
             <span class="ikoon">🛒</span>Bestellen
             <small>scannen naar batch</small>
         </a>
-        <a class="mobiel-tegel" href="mobiel/foto">
+        <a class="mobiel-tegel" href="mobiel/fotos">
             <span class="ikoon">📷</span>Foto
-            <small>foto's maken voor de grote app</small>
+            <small>projectfoto's, of een foto voor de pc</small>
         </a>
         <a class="mobiel-tegel" href="mobiel/bon">
             <span class="ikoon">🧾</span>Bonnetje
@@ -83,12 +99,13 @@ else
             {
                 "mobiel/gebouwbeheer" => "gebouwbeheer",
                 "mobiel/bestellen" => "bestellen",
+                "mobiel/fotos" => "fotos",
                 _ => null,
             };
         }
     }
 
-    private string Titel => Menu == "gebouwbeheer" ? "Gebouwbeheer" : "Bestellen";
+    private string Titel => Menu switch { "gebouwbeheer" => "Gebouwbeheer", "fotos" => "Foto", _ => "Bestellen" };
 
     // De drie adressen zijn dezelfde pagina zonder parameters: bij wisselen van menu tekent Blazor hem niet vanzelf
     // opnieuw. Daarom zelf luisteren naar het adres.

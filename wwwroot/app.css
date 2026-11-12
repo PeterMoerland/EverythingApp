@@ -1353,6 +1353,31 @@ html[data-thema="donker"] .info-slot.aan { background: #3a3014; border-color: #a
 .foto-voor b { font-size: 1.05rem; }
 .foto-verstuurd { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .6rem 0; }
 .foto-verstuurd img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+/* projectfoto's op de telefoon (MobielProjectFoto) */
+.pf-keuze { display: flex; gap: .4rem; margin-bottom: .6rem; }
+.pf-keuze .knopje { flex: 1; padding: .6rem; font-size: 1rem; border-radius: 8px; text-align: center; }
+.pf-keuze .knopje.actief { background: var(--accent); color: #fff; border-color: var(--accent); }
+.foto-voor .pf-wijzig { align-self: flex-start; margin-top: .4rem; }
+.pf-eerder { margin: .3rem 0 .9rem; }
+.pf-onderwerp { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .9rem; padding: .5rem .7rem; border: 1px solid #cfd6df; border-radius: 10px; background: #fff; }
+.pf-lijst { display: flex; flex-direction: column; gap: .5rem; margin: .6rem 0; }
+.pf-foto { display: flex; gap: .6rem; align-items: flex-start; }
+.pf-foto img { width: 5.5rem; height: 5.5rem; object-fit: cover; border-radius: 8px; flex: none; }
+.pf-foto-rechts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .3rem; align-items: flex-start; }
+.pf-foto-rechts input { width: 100%; box-sizing: border-box; font-size: 1rem; padding: .4rem .5rem; }
+html[data-thema="donker"] .pf-onderwerp { background: #1b2a3f; border-color: #2b4a73; }
+/* foto's bij een project in de grote app (ProjectFotoLijst) */
+.pfl-balk { align-items: center; }
+.pfl-kop { margin-top: 1rem; }
+.pfl-raster { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .7rem; }
+.pfl-foto { margin: 0; display: flex; flex-direction: column; border: 1px solid #d3dce7; border-radius: 8px; overflow: hidden; background: #fff; }
+.pfl-foto img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #eef1f5; }
+.pfl-foto figcaption { display: flex; flex-direction: column; gap: .25rem; padding: .4rem .5rem; font-size: .85em; }
+.pfl-meta { color: var(--muted, #6b7280); display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.pfl-notitie { width: 100%; box-sizing: border-box; font: inherit; }
+.pfl-knoppen { display: flex; gap: .3rem; justify-content: flex-end; }
+html[data-thema="donker"] .pfl-foto { background: var(--d2); border-color: #334051; }
+html[data-thema="donker"] .pfl-foto img { background: #1b2533; }
 html[data-thema="donker"] .blok-balk { background: #3a2020; }
 html[data-thema="donker"] .blok-kop { color: #ffb4ae; }
 html[data-thema="donker"] .blok-fotos img, html[data-thema="donker"] .fotovak-foto img { border-color: #334051; }

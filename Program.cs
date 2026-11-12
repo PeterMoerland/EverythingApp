@@ -139,6 +139,7 @@ if (liveDb)
         builder.Services.AddSingleton<IVerzekeringRepository>(_ => new MySqlVerzekeringRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
+    builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
     builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
@@ -230,6 +231,7 @@ else
     builder.Services.AddSingleton<IVerzekeringRepository, GeenVerzekeringRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
+    builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
     builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
@@ -285,6 +287,11 @@ builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit ww
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
 if (builder.Configuration.GetValue<bool>("ProductTodo:Geheugen"))
     builder.Services.AddSingleton<IProductTodoRepository, GeheugenProductTodoRepository>();
+// Alleen om de projectfoto's lokaal te proberen zonder de tabel ProjectFotos: ProjectFotos__Geheugen=true
+// (werkorders en projecten zoeken gaat echt, alleen lezen; de foto's blijven in het geheugen)
+if (builder.Configuration.GetValue<bool>("ProjectFotos:Geheugen"))
+    builder.Services.AddSingleton<IProjectFotoRepository>(_ => new GeheugenProjectFotoRepository(
+        new MySqlProjectFotoRepository(builder.Configuration.GetConnectionString("MDE") ?? "")));
 // Alleen om Vragen aan AI lokaal te testen zonder de tabel AiVragen: AiVragen__Geheugen=true
 if (builder.Configuration.GetValue<bool>("AiVragen:Geheugen"))
     builder.Services.AddSingleton<IAiVraagRepository, GeheugenAiVraagRepository>();
@@ -733,6 +740,16 @@ app.MapGet("/bestand/{id:int}",
 
 app.MapGet("/bestand/{id:int}/download",
     (int id, FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen) => BestandUitgeven(id, true, store, ik, meldingen));
+
+// --- klein voorbeeld van een projectfoto (Projecten ▸ project ▸ tab Foto's); de foto zelf gaat via /bestand/{id} ---
+var projectFotoKlein = app.MapGet("/projectfoto/{id:int}/klein", async (int id, IProjectFotoRepository fotos, HttpContext http) =>
+{
+    var klein = await fotos.MiniatuurAsync(id);
+    if (klein is null || klein.Length == 0) return Results.NotFound();
+    http.Response.Headers.CacheControl = "private, max-age=86400";
+    return Results.File(klein, "image/jpeg");
+});
+if (loginAan) projectFotoKlein.RequireAuthorization();
 
 // --- installer van de MDE Werkplek-agent: de nieuwste van de share (AgentUitgave), voor de knop in de melding
 // "nieuwere agent" (Components/AgentVersieMelding.razor). Een link naar een netwerkmap blokkeert de browser. ---

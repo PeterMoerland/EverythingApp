@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Projecten** — Nieuw: projectfoto's vanaf je telefoon. Op MDE mobiel ▸ Foto ▸ Projectfoto's kies je een werkorder of een project, geef je een onderwerp (dat geldt voor alle volgende foto's) en maak je foto's, met een notitie per foto als je wilt. Ze staan daarna in de grote app bij het project op het nieuwe tabblad Foto's, per onderwerp.
+- **MDE mobiel** — Verbeterd: Foto opent nu een eigen menu met Projectfoto's en "Voor de pc" (de foto voor een scherm dat erop wacht).
 - **MDE mobiel** — Verbeterd: het startscherm heeft nu een menu: Gebouwbeheer (verlichting, zonwering, compressor, alarm), Bestellen (scannen naar batch), Foto en Bonnetje. Elke pagina heeft bovenaan een link terug naar zijn menu, en linksboven staat het echte MDE-logo.
 - **Inkomende facturen** — Nieuw: een papieren factuur fotograferen met je telefoon. Klik in het factuurvenster op "📱 Foto met telefoon", open op je telefoon MDE mobiel ▸ Foto (of scan de QR-code) en maak de foto: hij staat meteen bij de factuur en wordt uitgelezen zoals een PDF.
 - **Producten** — Nieuw: programmeren en testen in de fases (voorstel van Sjoerd). Bij een producttype kies je bij Techniek ▸ Stappen per blok (uitlezen, programmeren, testen, node-adressen, duurtest) in welke fase het hoort. Bij een exemplaar staat het blok dan in die fase op het tabblad Opbouw (uitklappen) en is het daarbuiten op slot: zo haal je geen duurtest op bij een robot die net is aangemaakt. Met het recht Productcorrectie kun je een blok toch buiten zijn fase gebruiken, bijvoorbeeld om een product dat gereed is nog eens uit te lezen.
