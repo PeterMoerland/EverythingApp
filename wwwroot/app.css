@@ -1914,15 +1914,21 @@ html[data-thema="donker"] .fusion-fabrikanten .klein.actief:hover { background: 
 .instel-tabel td { overflow: hidden; }
 
 /* ===== artikelvenster (overal op te roepen bij een artikelnummer) ===== */
-.artikelvenster { background: #fff; border-radius: 8px; width: min(46rem, 94vw); max-height: 86vh;
+/* align-self: het venster is zo hoog als zijn inhoud (de overlay rekt het anders uit tot de volle hoogte, met een leeg
+   vlak onderaan; melding gebruiker 12-11-2026). */
+.artikelvenster { background: #fff; border-radius: 8px; width: min(56rem, 94vw); max-height: 86vh; align-self: flex-start;
                   display: flex; flex-direction: column; overflow: hidden;
                   box-shadow: 0 10px 40px rgba(0,0,0,.3); }
 .artikelvenster-inhoud { padding: .8rem 1rem 1rem; overflow-y: auto; }
 
-.av-boven { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: .9rem; }
-.av-foto { flex: 0 0 11rem; text-align: center; }
-.av-foto img { max-width: 100%; max-height: 11rem; background: #fff;
-               border: 1px solid #e2e8f0; border-radius: 6px; padding: .25rem; }
+.av-boven { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: .9rem; flex-wrap: wrap; }
+/* De foto groot (wens gebruiker 12-11-2026). ".artikelvenster" ervoor: verderop staat een andere .av-foto (9 x 7 rem,
+   voorraadscherm) die deze anders klein hield. */
+.artikelvenster .av-foto { flex: 0 0 100%; max-width: none; max-height: none; text-align: center; }
+.artikelvenster .av-foto a { display: block; }
+.artikelvenster .av-foto img { width: 100%; max-height: 26rem; object-fit: contain; background: #fff;
+               border: 1px solid #e2e8f0; border-radius: 6px; padding: .25rem; cursor: zoom-in; }
+.artikelvenster .av-kern { flex: 1 1 14rem; }
 .av-kern { flex: 1; min-width: 0; }
 .av-oms { font-size: 1.05rem; line-height: 1.35; }
 .av-merk { color: #6b7480; margin-top: .25rem; }

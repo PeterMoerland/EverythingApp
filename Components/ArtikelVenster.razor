@@ -30,8 +30,11 @@
                 {
                     <div class="av-boven">
                         <div class="av-foto">
-                            <img src="@($"artikelfoto/{ArtikelId}")" alt="" @key="ArtikelId"
-                                 onload="this.style.display=''" onerror="this.style.display='none'" />
+                            @* klik = de foto op ware grootte in een nieuw tabblad *@
+                            <a href="@($"artikelfoto/{ArtikelId}")" target="_blank" rel="noopener" title="Foto groot bekijken">
+                                <img src="@($"artikelfoto/{ArtikelId}")" alt="" @key="ArtikelId"
+                                     onload="this.style.display=''" onerror="this.style.display='none'" />
+                            </a>
                         </div>
 
                         <div class="av-kern">

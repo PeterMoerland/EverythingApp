@@ -29,6 +29,12 @@ public interface IProjectRepository
     Task<Dictionary<string, object?>> GetProjectVeldenAsync(int projectId);
     Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde);
     Task<int> VolgendProjectnummerAsync();
+    /// <summary>
+    /// Is dit Project-Id ook het nummer van een PO klant (PO_Inkomend)? Access bewaart projectdocumenten en de PDF van
+    /// een PO klant allebei in de filestore onder soort 20, met hun eigen nummer als sleutel; bij zo'n project zijn de
+    /// bestanden van soort 20 dus die van de PO (Components/ProjectDocumenten.razor toont ze dan niet).
+    /// </summary>
+    Task<bool> IsOokPoKlantAsync(int projectId);
     /// <param name="bvId">De BV van het project (Werkmaatschappij); null = niet zetten (telt als MDE Automation).</param>
     Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null);
     Task<string?> ProjectInGebruikAsync(int projectId);
@@ -76,6 +82,7 @@ public class GeenProjectRepository : IProjectRepository
         => Task.FromResult(new Dictionary<string, object?>());
     public Task UpdateProjectVeldAsync(int projectId, string kolom, object? waarde) => Task.CompletedTask;
     public Task<int> VolgendProjectnummerAsync() => Task.FromResult(0);
+    public Task<bool> IsOokPoKlantAsync(int projectId) => Task.FromResult(false);
     public Task<int> NieuwProjectAsync(int nummer, string omschrijving, int? klantId, int? door, int? bvId = null) => Task.FromResult(0);
     public Task<string?> ProjectInGebruikAsync(int projectId) => Task.FromResult<string?>("Geen live database.");
     public Task VerwijderProjectAsync(int projectId) => Task.CompletedTask;
@@ -258,6 +265,18 @@ public class MySqlProjectRepository : IProjectRepository
     /// bij het jaar (2026 → 226) en daarachter een oplopend nummer. Bestaat die reeks
     /// dit jaar nog niet, dan begint hij op 001.
     /// </summary>
+    public async Task<bool> IsOokPoKlantAsync(int projectId)
+    {
+        await using var cn = await OpenAsync();
+        try
+        {
+            await using var cmd = new MySqlCommand("SELECT COUNT(*) FROM `PO_Inkomend` WHERE `PO_inkomendID` = @id", cn);
+            cmd.Parameters.AddWithValue("@id", projectId);
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch (MySqlException) { return false; }      // geen tabel PO_Inkomend: dan kan er ook niets botsen
+    }
+
     public async Task<int> VolgendProjectnummerAsync()
     {
         var reeks = 200 + DateTime.Today.Year % 100;   // 2026 → 226

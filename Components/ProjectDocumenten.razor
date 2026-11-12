@@ -1,0 +1,147 @@
+@inject IWerknemerRepository WnRepo
+@inject IProjectRepository Projecten
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* De documenten van een project (Projecten ▸ project ▸ tab Documenten; wens gebruiker 12-11-2026: het tabblad uit
+   Access terug). Zelfde opslag als Access (Form_Projects Subform Project): FileStore met StoreType 20 en
+   MasterID = Project-Id, dus de documenten die daar al stonden staan hier ook.
+
+   LET OP: Access gebruikt soort 20 ook voor de PDF van een PO klant (MasterID = PO_inkomendID). Een project met een
+   nummer dat ook een PO-nummer is (alleen de projecten van vóór 2011, allemaal gesloten) zou zo de PDF van die PO
+   tonen. Daarom: bestaat er een PO klant met hetzelfde nummer, dan toont dit tabblad niets van soort 20 en kan er
+   niets worden toegevoegd (IProjectRepository.IsOokPoKlantAsync). *@
+
+@if (!_geladen)
+{
+    <p class="uitleg">Laden…</p>
+}
+else if (_ookPo)
+{
+    <p class="uitleg">
+        Bij dit project kunnen hier geen documenten staan: het interne nummer van dit (oude) project is ook het nummer van
+        een PO klant, en de bestanden met dat nummer zijn de PDF's van die PO.
+    </p>
+}
+else
+{
+    <table class="kiezer-tabel">
+        <thead>
+            <tr>
+                <th>Bestand</th>
+                <th style="width:10rem">Toegevoegd</th>
+                <th style="width:11rem">Door</th>
+                <th style="width:6rem"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var d in _documenten)
+            {
+                <tr @key="d.FileStoreId">
+                    <td><button class="bestandnaam" title="Bekijken" @onclick="() => { _voorbeeldId = d.FileStoreId; _voorbeeldNaam = d.Bestandsnaam; }">@d.Bestandsnaam</button></td>
+                    <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                    <td>@d.ToegevoegdDoor</td>
+                    <td class="c">
+                        <a class="knopje" href="@("bestand/" + d.FileStoreId + "/download")" title="Downloaden">⭳</a>
+                        <button class="klein rood" title="Verwijderen" disabled="@_bezig" @onclick="() => Verwijder(d)">✕</button>
+                    </td>
+                </tr>
+            }
+            @if (_documenten.Count == 0)
+            {
+                <tr><td colspan="4" class="kiezer-info">Nog geen documenten bij dit project.</td></tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="sleepzone @(_sleep ? "actief" : "")"
+         @ondragenter="() => _sleep = true" @ondragleave="() => _sleep = false" @ondrop="() => _sleep = false"
+         @ondragover:preventDefault="true">
+        <span>@(_bezig ? "Bezig met opslaan…" : "Sleep hier een bestand, of klik om te kiezen")</span>
+        <InputFile @key="_ronde" OnChange="Gekozen" multiple disabled="@_bezig" />
+    </div>
+    @if (_fout is not null) { <p class="uitleg fout-tekst">@_fout</p> }
+}
+
+<BestandVoorbeeld Id="_voorbeeldId" Naam="@_voorbeeldNaam" Sluiten="() => _voorbeeldId = null" />
+
+@code {
+    /// <summary>FileStore.StoreType van de projectdocumenten, zoals in Access (heet daar "inkomende PO").</summary>
+    public const int StoreType = 20;
+
+    [Parameter, EditorRequired] public int ProjectId { get; set; }
+    /// <summary>Na toevoegen of verwijderen (de aanroeper telt opnieuw).</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private bool _geladen, _ookPo, _bezig, _sleep;
+    private string? _fout;
+    private List<Bestand> _documenten = new();
+    private int? _voorbeeldId;
+    private string _voorbeeldNaam = "";
+    private int _ronde, _geladenVoor = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_geladenVoor == ProjectId) return;
+        _geladenVoor = ProjectId;
+        _voorbeeldId = null;
+        await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _fout = null;
+        try
+        {
+            _ookPo = await Projecten.IsOokPoKlantAsync(ProjectId);
+            _documenten = _ookPo ? new() : await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+        }
+        catch (Exception ex) { _fout = "Documenten laden mislukt: " + ex.Message; }
+        _geladen = true;
+    }
+
+    private async Task Gekozen(InputFileChangeEventArgs e)
+    {
+        _sleep = false;
+        if (_ookPo) return;
+        if (!Store.Beschikbaar) { _fout = "De filestore is niet ingesteld (Filestore:Pad in appsettings.json)."; return; }
+        if (e.FileCount > 20) { _fout = $"Dat zijn er {e.FileCount}; maximaal 20 tegelijk."; _ronde++; return; }
+        _bezig = true; _fout = null;
+        var fouten = new List<string>();
+        try
+        {
+            foreach (var bestand in e.GetMultipleFiles(20))
+            {
+                try
+                {
+                    await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                    await Store.ToevoegenAsync(stroom, bestand.Name, StoreType, ProjectId, Ik.WerknemerId ?? 0);
+                }
+                catch (Exception ex) { fouten.Add($"{bestand.Name}: {ex.Message}"); }
+            }
+            _documenten = await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { fouten.Add(ex.Message); }
+        finally { _bezig = false; _ronde++; }
+        if (fouten.Count > 0) _fout = "Niet toegevoegd: " + string.Join("; ", fouten);
+    }
+
+    private async Task Verwijder(Bestand d)
+    {
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af."); }
+        catch { ja = false; }
+        if (!ja) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            _documenten = await WnRepo.GetBestandenAsync(StoreType, ProjectId);
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Verwijderen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+}

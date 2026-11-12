@@ -2526,6 +2526,38 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Artikelvenster: grote foto, geen leeg vlak (12-11-2026)
+
+Melding gebruiker (vergrootglas bij een artikel in Bestellingen): de foto was klein en het venster had een groot leeg
+vlak. `Components/ArtikelVenster.razor` + app.css. Twee oorzaken: (1) `.cmdk-overlay` is een flexrij zonder
+`align-items`, dus het venster werd uitgerekt tot de volle hoogte: `.artikelvenster` heeft nu `align-self: flex-start`
+(zo hoog als de inhoud, max 86vh). (2) Verderop in app.css staat een tweede `.av-foto` (9 x 7 rem, van het
+voorraadscherm) die de foto klein hield: de regels van het venster beginnen nu met `.artikelvenster`. De foto staat
+over de volle breedte (venster 56rem, foto max 26rem hoog, `object-fit: contain`) met de omschrijving eronder; klik =
+de foto in een nieuw tabblad. Lokaal bekeken in Bestellingen (artikel 56466: foto 864 x 416 in plaats van ca. 140 breed).
+
+## Projecten: tabblad Documenten, zoals in Access (12-11-2026)
+
+Wens gebruiker: het tabblad Documenten uit Access terug, met het bestaande type; alleen bij projecten (werkorders
+hadden het in Access niet). `Components/ProjectDocumenten.razor` op Projecten ▸ project ▸ tab **Documenten (n)**
+(`DocumentTab`, `TelDocumenten`): lijst (klik = `BestandVoorbeeld`, ⭳, ✕ met bevestiging) en een sleepvak. Geen script.
+
+- **Opslag zoals Access** (`Form_Projects Subform Project`): FileStore **StoreType 20**, MasterID = `Project-Id`. Op
+  12-11-2026 stonden er 14 documenten bij 9 projecten (project-id 696 t/m 1768); die staan er dus meteen.
+- **LET OP, soort 20 is dubbel gebruikt**: in `FileStoreType` heet 20 "inkomende PO" en Access (en de app:
+  `IProjectBudgetRepository.StoreTypePoKlant`) bewaart daar ook de PDF van een PO klant, met MasterID =
+  `PO_inkomendID` (145 bestanden, nummers 3 t/m 152). Een project met een nummer dat ook een PO-nummer is zou de
+  PDF van die PO tonen. Dat zijn nu alleen de 141 projecten van vóór 2011 (allemaal gesloten; laagste open project is
+  403). Daarom `IProjectRepository.IsOokPoKlantAsync(projectId)`: bestaat er een PO klant met dat nummer, dan toont
+  het tabblad niets van soort 20, telt het niet en kan er niets bij (uitleg op het scherm).
+  **Omgekeerd is er nog geen bescherming**: zodra de PO-nummers een project-id met documenten bereiken (696; bij ruim
+  20 PO's per jaar duurt dat tientallen jaren) zou de PO-kant een projectdocument als zijn PDF zien. De nette oplossing
+  is een eigen soort voor projectdocumenten en de bestaande 14 omzetten; niet gedaan omdat de gebruiker het bestaande
+  type wilde (Access ziet ze dan ook nog).
+- Lokaal bekeken, alleen lezend, tegen de echte gegevens: project 223093 (id 1647) toont zijn 3 documenten uit Access;
+  een oud project (id 100) toont de uitleg. **Niet getest**: toevoegen, verwijderen en het voorbeeld (zou in de echte
+  filestore schrijven of lezen).
+
 ## Projectfoto's vanaf de telefoon (12-11-2026)
 
 Wens gebruiker: eerst een project kiezen, een onderwerp ingeven voor de foto's van die sessie, daarna foto's maken die

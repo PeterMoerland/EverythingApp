@@ -5,6 +5,8 @@
 @inject IOfferteRepository OfferteRepo
 @inject ICalculatieRepository CalculatieRepo
 @inject IProjectFotoRepository FotoRepo
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Filestore
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -199,6 +201,10 @@
                         {
                             <button class="@(_tabProject == OfferteTab ? "actief" : "")" @onclick="() => _tabProject = OfferteTab">@OfferteTab@(_offertes.Count > 0 ? $" ({_offertes.Count})" : "")</button>
                         }
+                        @if (Filestore.Beschikbaar)
+                        {
+                            <button class="@(_tabProject == DocumentTab ? "actief" : "")" @onclick="() => _tabProject = DocumentTab">@DocumentTab@(_documentAantal > 0 ? $" ({_documentAantal})" : "")</button>
+                        }
                         @if (FotoRepo.Beschikbaar)
                         {
                             <button class="@(_tabProject == FotoTab ? "actief" : "")" @onclick="() => _tabProject = FotoTab">@FotoTab@(_fotoAantal > 0 ? $" ({_fotoAantal})" : "")</button>
@@ -218,6 +224,11 @@
                             {
                                 <ProjectTeam @key="teamProject" ProjectId="teamProject" Werknemers="Werknemers"
                                              ProjectleiderId="ProjectleiderId()" />
+                            }
+                            else if (_tabProject == DocumentTab && _projectId is int documentProject)
+                            {
+                                @* de documenten van dit project, zoals het tabblad Documenten in Access (filestore-soort 20) *@
+                                <ProjectDocumenten @key="documentProject" ProjectId="documentProject" OpGewijzigd="() => TelDocumenten(documentProject)" />
                             }
                             else if (_tabProject == FotoTab && _projectId is int fotoProject)
                             {
@@ -400,7 +411,7 @@
     }
 
     <footer class="voet">
-        Documenten, milestones en activiteiten volgen als aparte tabbladen — die hangen elk aan hun eigen tabel.
+        Milestones en activiteiten volgen als aparte tabbladen — die hangen elk aan hun eigen tabel.
     </footer>
 </div>
 
@@ -636,6 +647,24 @@
         await LaadPos(p.Id);
         await LaadOffertes(p.Id);
         await TelFotos(p.Id);
+        await TelDocumenten(p.Id);
+    }
+
+    // ---- documenten van dit project (tabblad Documenten, zoals in Access; Components/ProjectDocumenten.razor) ----
+    private const string DocumentTab = "Documenten";
+    private int _documentAantal;
+
+    private async Task TelDocumenten(int projectId)
+    {
+        _documentAantal = 0;
+        if (!Filestore.Beschikbaar) { if (_tabProject == DocumentTab) _tabProject = ProjectVelden.ProjectTabs[0].Naam; return; }
+        try
+        {
+            // een (oud) project met het nummer van een PO klant: die bestanden zijn van de PO en tellen niet mee
+            if (!await Repo.IsOokPoKlantAsync(projectId))
+                _documentAantal = (await WnRepo.GetBestandenAsync(ProjectDocumenten.StoreType, projectId)).Count;
+        }
+        catch { /* tab zonder getal */ }
     }
 
     // ---- foto's van dit project (tabblad Foto's; gemaakt op de telefoon, Components/ProjectFotoLijst.razor) ----
