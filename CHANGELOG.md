@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Calculaties** — Nieuw: een calculatie wissen (zolang hij niet bevroren is en er geen werkorders uit gemaakt zijn) en daarna opnieuw maken of importeren; en exporteren als JSON-bestand, om een kopie te bewaren of buiten de app verder te werken.
 - **Projecten** — Nieuw: tabblad Offertes bij een project, met de offertes van dat project (status, datum, maker, bedrag) en knoppen om de offerte of de calculatie te openen.
 - **Algemeen** — Verbeterd: 🆕 Nieuw verschijnt nu bij elke publicatie met iets nieuws, ook als dat vaker op één dag is; op de pagina Wat is er nieuw staat het label "nieuw" bij precies de regels die je nog niet zag.
 - **Calculaties** — Nieuw: een calculatie die buiten de app in de calculatieboom is gemaakt (JSON-bestand) importeren bij een offerte die nog geen calculatie heeft; je ziet eerst een samenvatting met uren, kostprijs en verkoop (verzoek van Edwin).

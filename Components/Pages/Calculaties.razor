@@ -4,6 +4,7 @@
 @inject IOfferteRepository Offertes
 @inject HuidigeGebruiker Ik
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 @* Calculaties (wens gebruiker 10-11-2026): de calculatieboom uit het voorbeeld "Calculatieboom FIT Clean" in de app, per
    offerte één (Calculaties_MariaDB.sql). Deze pagina: de lijst (recent of zoeken op offerte/project/klant), een
@@ -34,6 +35,15 @@
             @if (_offerte is not null)
             {
                 <a class="calc-link" href="@OfferteLink">Offerte openen</a>
+            }
+            @if (_calc is not null)
+            {
+                @* exporteren (bewaren of buiten de app verder werken) en wissen (daarna opnieuw maken of importeren) *@
+                <a class="calc-link" href="@($"calculaties/api/{OfferteId}/export")" download title="De calculatie als JSON-bestand bewaren; weer te importeren bij een offerte zonder calculatie">⭳ Exporteren</a>
+                @if (MagMaken && !_calc.Bevroren)
+                {
+                    <button class="klein rood" disabled="@_bezig" title="De calculatie wissen; daarna kun je een nieuwe maken of er een importeren" @onclick="Wis">🗑 Wissen…</button>
+                }
             }
         </header>
     }
@@ -544,6 +554,31 @@
             Toon(kopieVan is null ? "Lege calculatie gemaakt." : "Calculatie gemaakt als kopie.", false);
         }
         catch (Exception ex) { Toon("Maken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>De calculatie wissen (alleen een concept zonder werkorders); daarna staat het blok "Nog geen calculatie" er weer.</summary>
+    private async Task Wis()
+    {
+        if (OfferteId is not int id || _calc is null || !MagMaken) return;
+        bool ja;
+        try
+        {
+            ja = await JS.InvokeAsync<bool>("mdeBevestig",
+                $"De calculatie van {_offerte?.OfferteNr} wissen?\n\nAlle groepen, regels en notities gaan weg; dat is niet terug te draaien. " +
+                "Wil je een kopie bewaren, annuleer dan en klik eerst op Exporteren.\n\nDaarna kun je een nieuwe calculatie maken of er een importeren.");
+        }
+        catch { ja = false; }
+        if (!ja) return;
+        _bezig = true;
+        try
+        {
+            if (await Repo.WisAsync(id) is { } reden) { Toon(reden, true); return; }
+            _boomVersie++;
+            await LaadOfferte(id);
+            Toon("Calculatie gewist. Je kunt nu een nieuwe maken of er een importeren.", false);
+        }
+        catch (Exception ex) { Toon("Wissen mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
     }
 

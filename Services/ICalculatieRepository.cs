@@ -135,6 +135,32 @@ public static class CalculatieData
         return (uit.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }), naam, null);
     }
 
+    /// <summary>
+    /// De calculatie in hetzelfde formaat als de export van de losse calculatieboom (zie <see cref="UitExport"/>), om te
+    /// bewaren of buiten de app verder te werken; weer te importeren bij een offerte zonder calculatie.
+    /// </summary>
+    public static string NaarExport(string data, string naam, string klant, string offerteNr, bool bevroren, DateTime? gewijzigd)
+    {
+        var o = JsonNode.Parse(data) as JsonObject ?? new JsonObject();
+        var nu = (gewijzigd ?? DateTime.Now).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var uit = new JsonObject
+        {
+            ["soort"] = "mde-calculatieboom",
+            ["versie"] = 1,
+            ["calculatie"] = new JsonObject
+            {
+                ["id"] = "offerte-" + offerteNr,
+                ["meta"] = new JsonObject { ["naam"] = naam, ["klant"] = klant, ["offerte"] = offerteNr, ["gemaakt"] = nu, ["gewijzigd"] = nu },
+                ["inst"] = (o["inst"] as JsonObject)?.DeepClone() ?? JsonNode.Parse(Leeg)!["inst"]!.DeepClone(),
+                ["groepen"] = (o["groepen"] as JsonArray)?.DeepClone() ?? new JsonArray(),
+                ["regels"] = (o["regels"] as JsonArray)?.DeepClone() ?? new JsonArray(),
+                ["bevroren"] = bevroren,
+            },
+        };
+        return uit.ToJsonString(new System.Text.Json.JsonSerializerOptions
+            { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+    }
+
     private static bool Heel(JsonNode? n, out long waarde)
     {
         waarde = 0;
@@ -219,6 +245,11 @@ public interface ICalculatieRepository
     Task<int> BewaarAsync(int offerteId, int versie, string data, decimal kostprijs, decimal verkoop, decimal uren, int? door);
     /// <summary>Concept of bevroren zetten; geeft de nieuwe versie.</summary>
     Task<int> ZetStatusAsync(int offerteId, int status, int? door);
+    /// <summary>
+    /// De calculatie van een offerte wissen (wens gebruiker 12-11-2026: wissen en opnieuw importeren). Alleen een concept
+    /// waar nog geen werkorders uit zijn aangemaakt. Null = gewist, anders de reden waarom het niet kan.
+    /// </summary>
+    Task<string?> WisAsync(int offerteId);
     /// <summary>Is CalculatieWerkorders_MariaDB.sql gedraaid?</summary>
     Task<bool> WerkorderTabelAanwezigAsync();
     /// <summary>De werkorders die deze calculatie heeft gemaakt (leeg = nog niet).</summary>
@@ -247,6 +278,7 @@ public class GeenCalculatieRepository : ICalculatieRepository
     public Task<int> MaakAsync(int offerteId, string data, int? door) => Task.FromResult(0);
     public Task<int> BewaarAsync(int offerteId, int versie, string data, decimal kostprijs, decimal verkoop, decimal uren, int? door) => Task.FromResult(versie);
     public Task<int> ZetStatusAsync(int offerteId, int status, int? door) => Task.FromResult(0);
+    public Task<string?> WisAsync(int offerteId) => Task.FromResult<string?>("Er is geen database.");
     public Task<bool> WerkorderTabelAanwezigAsync() => Task.FromResult(false);
     public Task<List<CalculatieWerkorder>> WerkordersAsync(int offerteId) => Task.FromResult(new List<CalculatieWerkorder>());
     public Task<int> VolgendWerkbonnummerAsync(int projectId) => Task.FromResult(1);
@@ -397,6 +429,33 @@ public class MySqlCalculatieRepository : ICalculatieRepository
         await using var v = new MySqlCommand("SELECT `Versie` FROM `Calculaties` WHERE `OfferteID` = @o", cn);
         v.Parameters.AddWithValue("@o", offerteId);
         return Convert.ToInt32(await v.ExecuteScalarAsync());
+    }
+
+    public async Task<string?> WisAsync(int offerteId)
+    {
+        await using var cn = await OpenAsync();
+        int calculatieId, status;
+        await using (var kijk = new MySqlCommand("SELECT `CalculatieID`, `Status` FROM `Calculaties` WHERE `OfferteID` = @o", cn))
+        {
+            kijk.Parameters.AddWithValue("@o", offerteId);
+            await using var r = await kijk.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return "Deze calculatie bestaat niet (meer).";
+            calculatieId = r.GetInt32(0);
+            status = Convert.ToInt32(r.GetValue(1));
+        }
+        if (status == CalculatieStatus.Bevroren)
+            return "Deze calculatie is bevroren (klant akkoord) en kan niet gewist worden. Laat hem eerst ontdooien (Directie).";
+        if (await BestaatAsync(cn, "CalculatieWerkorders"))
+        {
+            await using var wo = new MySqlCommand("SELECT COUNT(*) FROM `CalculatieWerkorders` WHERE `CalculatieID` = @c", cn);
+            wo.Parameters.AddWithValue("@c", calculatieId);
+            if (Convert.ToInt32(await wo.ExecuteScalarAsync()) > 0)
+                return "Uit deze calculatie zijn al werkorders aangemaakt; wissen kan niet meer.";
+        }
+        // alleen een concept: de status nog eens in de opdracht zelf, voor het geval iemand intussen bevroor
+        await using var cmd = new MySqlCommand("DELETE FROM `Calculaties` WHERE `CalculatieID` = @c AND `Status` = 0", cn);
+        cmd.Parameters.AddWithValue("@c", calculatieId);
+        return await cmd.ExecuteNonQueryAsync() == 1 ? null : "De calculatie is intussen gewijzigd (bevroren?); vernieuw de pagina.";
     }
 
     private bool _woTabel;
@@ -666,6 +725,18 @@ public class GeheugenCalculatieRepository : ICalculatieRepository
             var c = _calc[offerteId];
             _calc[offerteId] = c with { Status = status, Versie = c.Versie + 1, BevrorenOp = status == 1 ? DateTime.Now : null };
             return Task.FromResult(c.Versie + 1);
+        }
+    }
+
+    public Task<string?> WisAsync(int offerteId)
+    {
+        lock (_slot)
+        {
+            if (!_calc.TryGetValue(offerteId, out var c)) return Task.FromResult<string?>("Deze calculatie bestaat niet (meer).");
+            if (c.Status == CalculatieStatus.Bevroren) return Task.FromResult<string?>("Deze calculatie is bevroren (klant akkoord) en kan niet gewist worden. Laat hem eerst ontdooien (Directie).");
+            if (_wo.ContainsKey(offerteId)) return Task.FromResult<string?>("Uit deze calculatie zijn al werkorders aangemaakt; wissen kan niet meer.");
+            _calc.Remove(offerteId);
+            return Task.FromResult<string?>(null);
         }
     }
 

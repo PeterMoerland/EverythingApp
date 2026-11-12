@@ -813,6 +813,18 @@ calcApi.MapPut("/{offerteId:int}", async (int offerteId, HttpRequest req, ICalcu
     }
     catch (CalculatieConflictException ex) { return Results.Json(new { fout = ex.Message }, statusCode: 409); }
 });
+// De calculatie als JSON-bestand, in het formaat van de losse calculatieboom (bewaren vóór het wissen, of buiten de app
+// verder werken; importeren kan bij een offerte zonder calculatie).
+calcApi.MapGet("/{offerteId:int}/export", async (int offerteId, ICalculatieRepository repo, IOfferteRepository offertes) =>
+{
+    var o = await offertes.GetAsync(offerteId);
+    var c = o is null ? null : await repo.GetAsync(offerteId);
+    if (o is null || c is null) return Results.Json(new { fout = "Deze offerte heeft (nog) geen calculatie." }, statusCode: 404);
+    var json = CalculatieData.NaarExport(c.Data, $"{o.OfferteNr} {o.Omschrijving}".Trim(), o.Klant, o.OfferteNr, c.Bevroren, c.GewijzigdOp);
+    var naam = string.Concat($"Calculatie {o.OfferteNr} {o.Omschrijving}".Trim().Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+    if (naam.Length > 100) naam = naam[..100].Trim();
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", naam + ".json");
+});
 // Werkorders aanmaken bij klant akkoord (calculaties stap 2): het plan komt uit de boom (werkorderPlan), de app
 // controleert het (bevroren, versie, opbouw, budget = verkoop van de calculatie) en maakt alles in één transactie.
 calcApi.MapPost("/{offerteId:int}/werkorders", async (int offerteId, HttpRequest req, ICalculatieRepository repo, HuidigeGebruiker ik) =>
