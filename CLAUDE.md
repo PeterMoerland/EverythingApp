@@ -2337,8 +2337,48 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
 - Getest lokaal met tijdelijke nep-gegevens (scratchpad `boom_tijdelijk.py`), niets geschreven. **Niet getest**: het
   boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
   nieuwe historieregels.
-- **Nog te bouwen**: de blokken van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een
-  fase, deel 5 (tabblad Info, alleen lezen). Deel 3 en deel 4 staan hieronder.
+- **Nog te bouwen**: de blokken van Programmeren en testen naar de fases (met het slot van een open fout).
+  Deel 3, 4 en 5 staan hieronder.
+
+## Opbouw deel 5: invullen in de fase, tabblad Info, corrigeren met een recht (12-11-2026)
+
+Voorstel Sjoerd Quist deel 5 ("Documenten, Samenstelling en Attributen samen, alleen lezen; invullen gebeurt in de
+fase"). Besluiten gebruiker 12-11-2026: het invullen in de fase **samen** met het tabblad bouwen (anders kan niemand
+zonder recht nog iets invullen), en een **nieuw recht Productcorrectie**. Script: `ProductOpbouwDeel5_MariaDB.sql`
+(`ProductNameAttributes.FaseStapID`, `ProductSamenstelling.FaseStapID`, `Werknemers.Productcorrectie`). Het tabblad
+Info komt er altijd; het slot en de kolom Fase pas na het script (`IProductRepository.HeeftInvulFaseAsync`) en alleen
+bij een type met fases. **Zonder gekozen fase verandert er niets**: het slot geldt per attribuut/stuklijstregel.
+
+- **Bij het type** (Producten ▸ type): tab Attributen kolom "Invullen in fase", tab Samenstelling kolom "Inbouwen in
+  fase" (keuze uit de hoofdfases; `ProductAttribuut.FaseStapId`, `StuklijstRegel.FaseStapId`). Een exemplaar-attribuut
+  leest de fase via zijn standaardattribuut (`ProductNameAttributeID`), dus de keuze geldt meteen voor alle exemplaren.
+- **In de fase** (`OpbouwLijst`, blok "Invullen in deze fase", fragment `Invullen`): de attributen van die fase als
+  invoerveld en de stuklijstregels via `SamenstellingKiezer` met `AlleenFase`. Alleen in de **actieve** fase en niet
+  bij een open fout; in andere fases staat hetzelfde blok als "Ingevuld in deze fase", alleen lezen. `OntbreektIn(f)`
+  (lege verplichte attributen + nog niet gekoppelde halffabricaten) houdt **Fase klaar** tegen (ook server-side);
+  Overslaan mag. Een attribuut invullen in de fase geeft een historieregel (soort Attributen, met de fase). Achteraf
+  iets veranderen: Terug naar de fase (iedereen) of Corrigeren (recht).
+- **Tabblad Info** (Producten ▸ exemplaar): Samenstelling, Attributen en Documenten onder elkaar; de tabs Documenten,
+  Samenstelling en Attributen bestaan bij een exemplaar niet meer (bij het type wel). `ZorgTab()` en `ZetTabUitUrl`
+  zetten een onthouden tab of een oude link (`?tab=Samenstelling`) om naar Info. Balk bovenaan (`info-slot`,
+  `InfoMetSlot`): wat bij een fase hoort is alleen te lezen (🔒 met de fase); **✎ Corrigeren…** (`_corrigeren`, per
+  geopend exemplaar opnieuw; `MagCorrigeren` = recht Productcorrectie of Directie) maakt alles bewerkbaar en zet
+  "Correctie: …" in de historie (attribuutwaarde oud → nieuw, attribuut verwijderd, samenstelling, document
+  verwijderd). **Documenten**: toevoegen mag altijd; verwijderen bij een type met fases alleen bij corrigeren
+  (`DocumentOpSlot`). Op een werkplek gelden de rechten van de werkplek, niet van de aangemelde medewerker.
+- **`SamenstellingKiezer`**: parameters `AlleenFase`, `AlleenLezen`, `Corrigeren`; zoekt de hoofdfases van het type
+  zelf op (alleen als een regel een fase heeft), zodat het slot overal geldt, ook in stap 4 van Productie ▸ Producten
+  (daar staat 🔒 en koppel je in de fase eronder). `OpSlot(regel)` wordt ook in `Koppel`/`Ontkoppel` getoetst (vrij
+  zoeken kan een halffabricaat van een regel op slot vinden). Halffabricaten buiten de stuklijst ("Overig") en regels
+  zonder fase blijven vrij.
+- Niet op slot: wat Programmeren en testen zelf in attributen zet (uitgelezen serienummers, `BewaarDrives`), en de
+  vraag bij het aanmaken van een exemplaar. De oude `Koppel`/`Ontkoppel` in Producten.razor worden niet meer gebruikt.
+- Getest lokaal met alles in het geheugen (scratchpad `d5_tijdelijk.py` naast `d3_tijdelijk.py`: de fase per
+  attribuut/regel en de waarden in het geheugen, schrijven naar de console): fase kiezen bij het type, Info met slot,
+  oude link naar Info, Corrigeren (historie "Correctie:"), invullen in de actieve fase, Fase klaar tegengehouden tot
+  alles is ingevuld, alleen lezen in andere fases. **Niet getest**: de echte kolommen en het script, het recht zonder
+  de tijdelijke "alles mag" (de uitgeschakelde knop Corrigeren), echt koppelen/ontkoppelen in een fase (de test
+  schreef niet), Productie ▸ Producten met een regel op slot, en het donkere thema van de nieuwe blokken.
 
 ## Opbouw deel 4: serienummercontrole bij node-adressen en duurtest (12-11-2026)
 

@@ -23,6 +23,8 @@ public interface IProductRepository
 
     /// <summary>Is de kolom Bron aanwezig (ProductAttribuutBron_MariaDB.sql)? Anders kan 'Automatisch gevuld uit' niet bewaard worden.</summary>
     Task<bool> HeeftAttribuutBronAsync();
+    /// <summary>Kunnen attributen en stuklijstregels bij een fase van de opbouw horen (ProductOpbouwDeel5_MariaDB.sql)?</summary>
+    Task<bool> HeeftInvulFaseAsync();
     Task<int> BewaarTypeAttribuutAsync(int productNameId, ProductAttribuut attribuut, int? door);
     Task VerwijderTypeAttribuutAsync(int productNameAttributeId);
 
@@ -142,6 +144,7 @@ public class GeenProductRepository : IProductRepository
         => Task.FromResult<string?>("Geen live database.");
     public Task VerwijderProductnaamAsync(int productNameId) => Task.CompletedTask;
     public Task<bool> HeeftAttribuutBronAsync() => Task.FromResult(false);
+    public Task<bool> HeeftInvulFaseAsync() => Task.FromResult(false);
     public Task<List<ProductAttribuut>> GetTypeAttributenAsync(int productNameId)
         => Task.FromResult(new List<ProductAttribuut>());
     public Task<int> BewaarTypeAttribuutAsync(int productNameId, ProductAttribuut attribuut, int? door)
@@ -263,6 +266,24 @@ public class MySqlProductRepository : IProductRepository
     {
         await using var cn = await OpenAsync();
         return await HeeftBronAsync(cn);
+    }
+
+    // Kolom FaseStapID bij de standaardattributen en de stuklijst (ProductOpbouwDeel5_MariaDB.sql): in welke fase van de
+    // opbouw iets wordt ingevuld. Alleen 'ja' wordt onthouden.
+    private bool _heeftInvulFase;
+    public async Task<bool> HeeftInvulFaseAsync()
+    {
+        if (_heeftInvulFase) return true;
+        try { await using var cn = await OpenAsync(); return await HeeftInvulFaseAsync(cn); }
+        catch { return false; }
+    }
+    private async Task<bool> HeeftInvulFaseAsync(MySqlConnection cn)
+    {
+        if (_heeftInvulFase) return true;
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND LOWER(column_name) = 'fasestapid' " +
+            "  AND LOWER(table_name) IN ('productnameattributes', 'productsamenstelling')", cn);
+        return _heeftInvulFase = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 2;
     }
 
     private async Task<bool> HeeftBronAsync(MySqlConnection cn)
@@ -483,9 +504,10 @@ public class MySqlProductRepository : IProductRepository
         var lijst = new List<ProductAttribuut>();
         await using var cn = await OpenAsync();
         var bron = await HeeftBronAsync(cn) ? "`Bron`" : "NULL";
+        var fase = await HeeftInvulFaseAsync(cn) ? "`FaseStapID`" : "NULL";
         await using var cmd = new MySqlCommand(
             "SELECT `ProductNameAttributeID`, `Attribute`, `AttributeEenheid`, `Opmerking`, " +
-            $"       `VerplichteInvoer`, `VraagBijAanmaak`, {bron} " +
+            $"       `VerplichteInvoer`, `VraagBijAanmaak`, {bron}, {fase} " +
             "  FROM `ProductNameAttributes` WHERE `ProductNameID` = @id " +
             "  ORDER BY `ProductNameAttributeID`", cn);
         cmd.Parameters.AddWithValue("@id", productNameId);
@@ -510,6 +532,7 @@ public class MySqlProductRepository : IProductRepository
                 Verplicht = B(4),
                 VraagBijAanmaak = B(5),
                 Bron = S(6),
+                FaseStapId = r.IsDBNull(7) ? null : Convert.ToInt32(r.GetValue(7)),
             });
         }
         return lijst;
@@ -519,11 +542,12 @@ public class MySqlProductRepository : IProductRepository
     {
         await using var cn = await OpenAsync();
         var metBron = await HeeftBronAsync(cn);
+        var metFase = await HeeftInvulFaseAsync(cn);
 
         var velden =
             "`ProductNameID` = @naam, `Attribute` = @attr, `AttributeEenheid` = @eenheid, " +
             "`Opmerking` = @opm, `VerplichteInvoer` = @verplicht, `VraagBijAanmaak` = @vraag" +
-            (metBron ? ", `Bron` = @bron" : "");
+            (metBron ? ", `Bron` = @bron" : "") + (metFase ? ", `FaseStapID` = @fase" : "");
 
         var sql = a.Id == 0
             ? $"INSERT INTO `ProductNameAttributes` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
@@ -537,6 +561,7 @@ public class MySqlProductRepository : IProductRepository
         cmd.Parameters.AddWithValue("@verplicht", a.Verplicht ? 1 : 0);
         cmd.Parameters.AddWithValue("@vraag", a.VraagBijAanmaak ? 1 : 0);
         if (metBron) cmd.Parameters.AddWithValue("@bron", string.IsNullOrWhiteSpace(a.Bron) ? DBNull.Value : a.Bron.Trim());
+        if (metFase) cmd.Parameters.AddWithValue("@fase", (object?)a.FaseStapId ?? DBNull.Value);
         if (a.Id == 0) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         else cmd.Parameters.AddWithValue("@id", a.Id);
 
@@ -999,9 +1024,11 @@ public class MySqlProductRepository : IProductRepository
         await using var cn = await OpenAsync();
         // De Bron komt van het standaardattribuut waar dit exemplaar-attribuut van afstamt.
         var bron = await HeeftBronAsync(cn) ? "s.`Bron`" : "NULL";
+        // ook de fase waarin het wordt ingevuld staat op het standaardattribuut
+        var fase = await HeeftInvulFaseAsync(cn) ? "s.`FaseStapID`" : "NULL";
         await using var cmd = new MySqlCommand(
             "SELECT a.`ProductAttributeID`, a.`Attribute`, a.`AttributeValue`, a.`AttributeEenheid`, " +
-            $"       a.`VerplichteInvoer`, a.`Opmerking`, a.`ProductNameAttributeID`, {bron} " +
+            $"       a.`VerplichteInvoer`, a.`Opmerking`, a.`ProductNameAttributeID`, {bron}, {fase} " +
             "  FROM `ProductAttributes` a " +
             "  LEFT JOIN `ProductNameAttributes` s ON s.`ProductNameAttributeID` = a.`ProductNameAttributeID` " +
             " WHERE a.`ProductID` = @id ORDER BY a.`Attribute`", cn);
@@ -1022,6 +1049,7 @@ public class MySqlProductRepository : IProductRepository
                 Opmerking = S(5),
                 SjabloonId = r.IsDBNull(6) ? null : Convert.ToInt32(r.GetValue(6)),
                 Bron = S(7),
+                FaseStapId = r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8)),
             });
         }
         return lijst;
@@ -1236,10 +1264,11 @@ public class MySqlProductRepository : IProductRepository
         if (!await HeeftStuklijstAsync()) return lijst;
         await using var cn = await OpenAsync();
         var extra = await HeeftExtraAsync(cn);
+        var fase = await HeeftInvulFaseAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT s.`SamenstellingID`, s.`ProductNameID`, s.`OnderdeelNameID`, COALESCE(n.`ProductName`, ''), " +
             "       COALESCE(n.`Omschrijving`, ''), s.`Aantal`, s.`Volgorde`, COALESCE(s.`Opmerking`, '')" +
-            (extra ? ", COALESCE(g.`Naam`, '') " : ", '' ") +
+            (extra ? ", COALESCE(g.`Naam`, '')" : ", ''") + (fase ? ", s.`FaseStapID` " : ", NULL ") +
             "  FROM `ProductSamenstelling` s " +
             "  LEFT JOIN `ProductNames` n ON n.`ProductNameID` = s.`OnderdeelNameID` " +
             (extra ? "  LEFT JOIN `ProductNameExtra` x ON x.`ProductNameID` = n.`ProductNameID` " +
@@ -1253,6 +1282,7 @@ public class MySqlProductRepository : IProductRepository
                 Id = r.GetInt32(0), ProductNameId = r.GetInt32(1), OnderdeelNameId = r.GetInt32(2),
                 OnderdeelNaam = r.GetString(3), OnderdeelOmschrijving = r.GetString(4),
                 Aantal = r.GetInt32(5), Volgorde = r.GetInt32(6), Opmerking = r.GetString(7), OnderdeelGroep = r.GetString(8),
+                FaseStapId = r.IsDBNull(9) ? null : Convert.ToInt32(r.GetValue(9)),
             });
         return lijst;
     }
@@ -1269,7 +1299,9 @@ public class MySqlProductRepository : IProductRepository
             max.Parameters.AddWithValue("@n", s.ProductNameId);
             s.Volgorde = Convert.ToInt32(await max.ExecuteScalarAsync());
         }
-        var velden = "`ProductNameID` = @n, `OnderdeelNameID` = @o, `Aantal` = @a, `Volgorde` = @v, `Opmerking` = @opm";
+        var metFase = await HeeftInvulFaseAsync(cn);
+        var velden = "`ProductNameID` = @n, `OnderdeelNameID` = @o, `Aantal` = @a, `Volgorde` = @v, `Opmerking` = @opm"
+                   + (metFase ? ", `FaseStapID` = @fase" : "");
         var sql = s.Id == 0
             ? $"INSERT INTO `ProductSamenstelling` SET {velden}, `AddedBy` = @door, `AddedAt` = NOW()"
             : $"UPDATE `ProductSamenstelling` SET {velden} WHERE `SamenstellingID` = @id";
@@ -1279,6 +1311,7 @@ public class MySqlProductRepository : IProductRepository
         cmd.Parameters.AddWithValue("@a", Math.Max(1, s.Aantal));
         cmd.Parameters.AddWithValue("@v", s.Volgorde);
         cmd.Parameters.AddWithValue("@opm", string.IsNullOrWhiteSpace(s.Opmerking) ? DBNull.Value : s.Opmerking.Trim());
+        if (metFase) cmd.Parameters.AddWithValue("@fase", (object?)s.FaseStapId ?? DBNull.Value);
         if (s.Id == 0) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         else cmd.Parameters.AddWithValue("@id", s.Id);
         try { await cmd.ExecuteNonQueryAsync(); }

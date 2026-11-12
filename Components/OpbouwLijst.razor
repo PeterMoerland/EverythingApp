@@ -24,6 +24,11 @@
    - Todo's per fase: een punt van de tab Todo kan bij een hoofdfase horen; het staat dan in die fase en moet gereed
      zijn voor Fase klaar.
 
+   Deel 5 (12-11-2026, ProductOpbouwDeel5_MariaDB.sql): invullen in de fase. Een attribuut en een regel van de stuklijst
+   kunnen bij het producttype een hoofdfase krijgen; ze staan dan in die fase ("Invullen in deze fase"): in de actieve
+   fase in te vullen, in de andere fases alleen te lezen. Een verplicht attribuut dat leeg is of een halffabricaat dat
+   nog niet gekoppeld is houdt Fase klaar tegen. Op het tabblad Info (Producten) zijn ze alleen te lezen.
+
    Elke wijziging komt in de historie; is alles af, dan wordt de knop 'Product gereed' actief die de status van het
    exemplaar omzet. Gebruikt in Half-fabricaten, Producten (Productie) en het tabblad Opbouw bij een exemplaar. De
    regels van de boom staan in Models/Opbouw.cs (OpbouwBoom). *@
@@ -99,6 +104,7 @@ else
                 var nr = _boom.FaseNummer(f);
                 var todos = TodosVan(f);
                 var todoOpen = todos.Count(t => t.Open);
+                var invullen = OntbreektIn(f);
                 var blok = actief && Geblokkeerd;
                 <div class="fase-rij @(f.Klaar ? "af" : actief ? "actief" : "slot") @(blok ? "blok" : "")" @key="f.Id">
                     <button class="fase-kop" title="@(actief ? "Dit is de actieve fase" : open ? "Inklappen" : "Bekijken")" @onclick="() => WisselOpen(f)">
@@ -140,10 +146,11 @@ else
                             {
                                 @Tak(_boom.Kinderen(f))
                             }
-                            else if (todos.Count == 0)
+                            else if (todos.Count == 0 && !HeeftInvullen(f))
                             {
                                 <p class="uitleg">Deze fase heeft geen afvinkstappen.@(actief ? " Klik op Fase klaar als het werk van deze fase gedaan is." : "")</p>
                             }
+                            @Invullen(f, actief && !Geblokkeerd)
                             @TodoRegels(f, todos, !Geblokkeerd && (actief || f.Klaar))
                             @if (f.Klaar && f.Opmerking.Length > 0)
                             {
@@ -160,15 +167,19 @@ else
                             else if (actief)
                             {
                                 var open_ = stappen.Count(s => !s.Klaar && s.Moet);
-                                var kanKlaar = _boom.InhoudAf(f) && todoOpen == 0;
+                                var kanKlaar = _boom.InhoudAf(f) && todoOpen == 0 && invullen == 0;
                                 <div class="btngroup fase-knoppen">
                                     <button class="primair" disabled="@(_bezig || !kanKlaar)" @onclick="() => FaseKlaar(f)"
-                                            title="@(open_ > 0 ? "Eerst alle verplichte stappen van deze fase afvinken" : todoOpen > 0 ? "Eerst de todo-punten van deze fase afvinken" : "Deze fase afronden en naar de volgende")">✔ Fase klaar</button>
+                                            title="@(open_ > 0 ? "Eerst alle verplichte stappen van deze fase afvinken" : todoOpen > 0 ? "Eerst de todo-punten van deze fase afvinken" : invullen > 0 ? "Eerst invullen wat bij deze fase hoort (verplichte attributen, halffabricaten)" : "Deze fase afronden en naar de volgende")">✔ Fase klaar</button>
                                     <button class="klein" disabled="@_bezig" @onclick="() => FaseOverslaan(f)"
                                             title="Deze fase overslaan omdat er niets te doen of niets gewijzigd is; je naam en het tijdstip komen in de historie">⏭ Overslaan</button>
                                     @if (open_ + todoOpen > 0)
                                     {
                                         <span class="uitleg">nog @(open_ + todoOpen) af te vinken</span>
+                                    }
+                                    @if (invullen > 0)
+                                    {
+                                        <span class="uitleg">nog @invullen in te vullen</span>
                                     }
                                     <span class="fase-vulling"></span>
                                     @if (_blokAan)
@@ -297,6 +308,12 @@ else
     private int? _todoVoor;                               // de fase waar nu een todo wordt ingevoerd
     private string _todoWat = "", _todoToel = "";
 
+    // ---- deel 5: invullen in de fase ----
+    private bool _invulFase;                              // attributen en stuklijstregels kunnen bij een fase horen
+    private List<ProductAttribuut> _attributen = new();   // de attributen van dit exemplaar die bij een hoofdfase horen
+    private List<StuklijstRegel> _stuklijst = new();      // de regels van de stuklijst die bij een hoofdfase horen
+    private List<SamenstellingRegel> _onderdelen = new(); // wat er nu in dit exemplaar zit
+
     private bool Geblokkeerd => _blokkades.Any(b => b.Open);
     private string ExemplaarTekst => Exemplaar.Trim().Length > 0 ? Exemplaar.Trim() : "dit exemplaar";
 
@@ -347,6 +364,22 @@ else
         _boom = new OpbouwBoom(items);
         _blokkades = blokkades;
         _todos = todos;
+        var attributen = new List<ProductAttribuut>();
+        var stuklijst = new List<StuklijstRegel>();
+        var onderdelen = new List<SamenstellingRegel>();
+        try
+        {
+            _invulFase = _boom.MetFases && await Repo.HeeftInvulFaseAsync();
+            if (_invulFase)
+            {
+                var fases = _boom.Hoofdfases.Select(f => f.Id).ToHashSet();
+                attributen = (await Repo.GetAttributenAsync(ProductId)).Where(a => a.FaseStapId is int f && fases.Contains(f)).ToList();
+                stuklijst = (await Repo.GetStuklijstAsync(ProductNameId)).Where(s => s.FaseStapId is int f && fases.Contains(f)).ToList();
+                if (stuklijst.Count > 0) onderdelen = await Repo.GetOnderdelenAsync(ProductId);
+            }
+        }
+        catch { _invulFase = false; }
+        _attributen = attributen; _stuklijst = stuklijst; _onderdelen = onderdelen;
         // de foto's van open fouten staan er meteen bij; die van opgeloste pas na een klik
         foreach (var b in blokkades.Where(b => b.AantalFotos > 0 && (b.Open || _blokFotos.ContainsKey(b.Id))))
         {
@@ -479,7 +512,7 @@ else
     /// <summary>De actieve hoofdfase afronden: alles eronder is af, er staat geen todo van de fase open en geen fout.</summary>
     private async Task FaseKlaar(OpbouwStap f)
     {
-        if (f.Id != _boom.ActieveFase?.Id || !_boom.InhoudAf(f) || Geblokkeerd || TodosVan(f).Any(t => t.Open)) return;
+        if (f.Id != _boom.ActieveFase?.Id || !_boom.InhoudAf(f) || Geblokkeerd || TodosVan(f).Any(t => t.Open) || OntbreektIn(f) > 0) return;
         await ZetFase(f, false, $"Fase {_boom.FaseNummer(f)} · {f.Naam}: klaar", true);
     }
 
@@ -748,6 +781,91 @@ else
         _faseOpen.Clear();
         // een product dat gereed was, is dat nu niet meer
         if (_isGereed) await ZetStatus(BezigStatusNaam, "Productie:BezigStatus", n => $"Status → {n} (opbouw teruggezet)", null);
+    }
+
+    // ============================================================
+    //  Invullen in de fase: attributen en halffabricaten (deel 5)
+    // ============================================================
+    private List<ProductAttribuut> AttributenVan(OpbouwStap f) => _attributen.Where(a => a.FaseStapId == f.Id).ToList();
+    private List<StuklijstRegel> StuklijstVan(OpbouwStap f) => _stuklijst.Where(s => s.FaseStapId == f.Id).ToList();
+    private bool HeeftInvullen(OpbouwStap f) => _invulFase && (_attributen.Any(a => a.FaseStapId == f.Id) || _stuklijst.Any(s => s.FaseStapId == f.Id));
+    /// <summary>Wat er in deze fase nog ingevuld moet worden: lege verplichte attributen en nog niet gekoppelde halffabricaten.</summary>
+    private int OntbreektIn(OpbouwStap f)
+        => !_invulFase ? 0
+         : AttributenVan(f).Count(a => a.Verplicht && string.IsNullOrWhiteSpace(a.Waarde))
+           + StuklijstVan(f).Sum(s => Math.Max(0, s.Aantal - _onderdelen.Count(o => o.ProductNameId == s.OnderdeelNameId)));
+
+    private RenderFragment Invullen(OpbouwStap f, bool vrij) => __builder =>
+    {
+        if (HeeftInvullen(f))
+        {
+            var attributen = AttributenVan(f);
+            <div class="opb-invul">
+                <div class="opb-invul-kop">@(vrij ? "Invullen in deze fase" : "Ingevuld in deze fase")</div>
+                @foreach (var a in attributen)
+                {
+                    var leeg = string.IsNullOrWhiteSpace(a.Waarde);
+                    <div class="opb-invul-rij @(a.Verplicht && leeg ? "ontbreekt" : "")" @key="a.Id">
+                        <span class="opb-invul-naam">
+                            @a.Attribuut
+                            @if (a.Verplicht) { <span class="tl-vlag">verplicht</span> }
+                            @if (a.Bron.Length > 0) { <span class="opb-chip" title="Wordt ook automatisch gevuld bij het uitlezen (Programmeren en testen)">automatisch</span> }
+                        </span>
+                        @if (vrij)
+                        {
+                            <input value="@a.Waarde" maxlength="45" disabled="@_bezig" placeholder="@(a.Verplicht ? "invullen" : "")"
+                                   title="@(a.Opmerking.Length > 0 ? a.Opmerking : null)" @onchange="e => ZetAttribuut(f, a, e)" />
+                        }
+                        else
+                        {
+                            <b title="@(a.Opmerking.Length > 0 ? a.Opmerking : null)">@(leeg ? "—" : a.Waarde)</b>
+                        }
+                        <span class="uitleg">@a.Eenheid</span>
+                    </div>
+                }
+                @if (StuklijstVan(f).Count > 0)
+                {
+                    <SamenstellingKiezer @key="(ProductId, f.Id)" ProductNameId="ProductNameId" ProductId="ProductId" AlleenFase="f.Id"
+                                         AlleenLezen="@(!vrij)" OpGewijzigd="NaSamenstelling" />
+                }
+            </div>
+        }
+    };
+
+    /// <summary>Een attribuut invullen in zijn fase; alleen in de actieve fase en niet als de opbouw op slot staat.</summary>
+    private async Task ZetAttribuut(OpbouwStap f, ProductAttribuut a, ChangeEventArgs e)
+    {
+        var nieuw = ((string?)e.Value ?? "").Trim();
+        var oud = a.Waarde.Trim();
+        if (nieuw == oud || _bezig) return;
+        _statusFout = null;
+        if (f.Id != _boom.ActieveFase?.Id || Geblokkeerd)
+        {
+            _statusFout = Geblokkeerd ? "Op slot: er staat een fout open." : "Dit attribuut hoort bij een fase die nu niet actief is.";
+            await Laad();
+            return;
+        }
+        _bezig = true;
+        try
+        {
+            a.Waarde = nieuw;
+            await Repo.BewaarAttribuutAsync(ProductId, a, Ik.WerknemerId);
+            var eenheid = a.Eenheid.Trim().Length > 0 ? " " + a.Eenheid.Trim() : "";
+            await Repo.VoegHistorieToeAsync(ProductId,
+                oud.Length > 0 ? $"{a.Attribuut}: {oud} → {(nieuw.Length > 0 ? nieuw + eenheid : "(leeg)")}" : $"{a.Attribuut}: {nieuw}{eenheid}",
+                ProductVelden.HistorieAttributen, Ik.WerknemerId, faseId: f.Id);
+            await Laad();
+            await OpGewijzigd.InvokeAsync();
+        }
+        catch (Exception ex) { _statusFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    /// <summary>Er is in een fase een halffabricaat gekoppeld of eruit gehaald (de kiezer schreef zelf de historie).</summary>
+    private async Task NaSamenstelling()
+    {
+        await Laad();
+        await OpGewijzigd.InvokeAsync();
     }
 
     // ============================================================

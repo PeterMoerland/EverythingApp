@@ -1303,6 +1303,18 @@ html[data-thema="donker"] .fase-rij.actief .fase-rechts { color: #cfe2f8; }
 .opb-keuzes { display: flex; flex-direction: column; gap: .15rem; }
 .opb-daarna { display: flex; align-items: center; gap: .5rem; }
 .opb-todos { margin-top: .2rem; }
+.opb-invul { margin: .5rem 0 .3rem; padding: .5rem .7rem; border: 1px solid #b9c6d6; border-radius: 8px; background: #fff; display: flex; flex-direction: column; gap: .3rem; }
+.opb-invul-kop { font-size: .78em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted, #6b7280); }
+.opb-invul-rij { display: grid; grid-template-columns: minmax(10rem, 16rem) minmax(8rem, 14rem) auto; gap: .6rem; align-items: center; }
+.opb-invul-rij.ontbreekt input { border-color: #e0b04a; background: #fff8e6; }
+.opb-invul-naam { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.opb-invul .sam-tabel { margin-top: .2rem; }
+.info-slot { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; margin: 0 0 .7rem; padding: .45rem .7rem; border: 1px solid #b9c6d6; border-left-width: 5px; border-radius: 8px; background: #f3f6fa; }
+.info-slot.aan { border-color: #e0b04a; background: #fff8e6; }
+html[data-thema="donker"] .opb-invul { background: var(--d2); border-color: #3a4a5e; }
+html[data-thema="donker"] .opb-invul-rij.ontbreekt input { background: #3a3014; border-color: #a07a1e; }
+html[data-thema="donker"] .info-slot { background: var(--d2); border-color: #3a4a5e; }
+html[data-thema="donker"] .info-slot.aan { background: #3a3014; border-color: #a07a1e; }
 .opb-todo .opb-chip { margin-right: .25rem; }
 .opb-todoknop { align-self: flex-start; border: none; background: none; color: var(--muted, #6b7280); padding: .25rem .2rem; font: inherit; font-size: .88em; cursor: pointer; }
 .opb-todoknop:hover { color: var(--accent); text-decoration: underline; }

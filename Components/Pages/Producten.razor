@@ -635,68 +635,6 @@
                                         Exemplaren="_alleProducten" Geselecteerd="_gekozen" Type="@(_naam?.Naam ?? "exemplaren")" />
                     }
 
-                    @* ===== DOCUMENTEN ===== *@
-                    @if (_tab == "Documenten")
-                    {
-                        <div class="tl-balk">
-                            <label class="vink">
-                                <input type="checkbox" checked="@_alleenNieuwste" @onchange="NieuwsteGewijzigd" />
-                                Alleen nieuwste versies weergeven
-                            </label>
-                        </div>
-                        <p class="uitleg">
-                            @(_productId is null
-                                ? "Documentatie van dit producttype — geldt voor alle exemplaren."
-                                : "Documenten van dit exemplaar. De documentatie van het type staat op het tabblad van het producttype.")
-                        </p>
-
-                        <table class="kiezer-tabel">
-                            <thead>
-                                <tr>
-                                    <th>Bestand</th>
-                                    <th style="width:10rem">Toegevoegd</th>
-                                    <th style="width:6rem" class="r">Dagen</th>
-                                    <th style="width:11rem">Door</th>
-                                    <th style="width:6rem"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var d in ZichtbareDocumenten())
-                                {
-                                    <tr @key="d.FileStoreId">
-                                        <td>
-                                            <button class="bestandnaam" title="Bekijken"
-                                                    @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
-                                                @d.Bestandsnaam
-                                            </button>
-                                        </td>
-                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
-                                        <td class="r">@DagenOud(d)</td>
-                                        <td>@d.ToegevoegdDoor</td>
-                                        <td class="c">
-                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)"
-                                               title="Downloaden">⭳</a>
-                                            <button class="klein rood" title="Verwijderen"
-                                                    @onclick="() => VerwijderDocument(d)">✕</button>
-                                        </td>
-                                    </tr>
-                                }
-                                @if (ZichtbareDocumenten().Count == 0)
-                                {
-                                    <tr><td colspan="5" class="kiezer-info">Nog geen documenten.</td></tr>
-                                }
-                            </tbody>
-                        </table>
-
-                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
-                             @ondragenter="() => _sleepActief = true"
-                             @ondragleave="() => _sleepActief = false"
-                             @ondragover:preventDefault="true">
-                            <span>Sleep hier een bestand, of klik om te kiezen</span>
-                            <InputFile OnChange="BestandenGekozen" multiple />
-                        </div>
-                    }
-
                     @* ===== SAMENSTELLING (alleen bij een exemplaar) ===== *@
                     @* ===== SAMENSTELLING van een producttype: de stuklijst (welke halffabricaten, hoeveel) ===== *@
                     @if (_tab == "Samenstelling" && _productId is null && _naamId is not null)
@@ -717,6 +655,7 @@
                                     <th>Halffabricaat</th>
                                     <th style="width:6rem">Aantal</th>
                                     <th style="width:18rem">Opmerking</th>
+                                    @if (ToonInvulFase) { <th style="width:13rem" title="In welke fase van de opbouw dit halffabricaat wordt ingebouwd. Met een fase koppel je het bij een exemplaar in die fase (tab Opbouw) en is het op het tabblad Info alleen te lezen.">Inbouwen in fase</th> }
                                     <th style="width:3rem"></th>
                                 </tr>
                             </thead>
@@ -738,6 +677,18 @@
                                                    @onchange="e => ZetStuklijst(s, () => s.Aantal = int.TryParse((string?)e.Value, out var n) && n > 0 ? n : s.Aantal)" /></td>
                                         <td><input value="@s.Opmerking" maxlength="200" placeholder="bv. links/rechts"
                                                    @onchange="e => ZetStuklijst(s, () => s.Opmerking = (string?)e.Value ?? string.Empty)" /></td>
+                                        @if (ToonInvulFase)
+                                        {
+                                            <td>
+                                                <select @onchange="e => ZetStuklijst(s, () => s.FaseStapId = int.TryParse((string?)e.Value, out var f) ? f : null)">
+                                                    <option value="" selected="@(s.FaseStapId is null)">— vrij —</option>
+                                                    @foreach (var f in Hoofdfases)
+                                                    {
+                                                        <option value="@f.Id" selected="@(s.FaseStapId == f.Id)">@_typeBoom.FaseNummer(f) · @f.Naam</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                        }
                                         <td class="c"><button class="klein rood" title="Uit de stuklijst" @onclick="() => VerwijderStuklijst(s)">✕</button></td>
                                     </tr>
                                 }
@@ -768,11 +719,29 @@
                     }
 
                     @* ===== SAMENSTELLING van een exemplaar: koppelen volgens de stuklijst ===== *@
-                    @if (_tab == "Samenstelling" && _naamId is int samNaam && _productId is int samProduct)
+                    @if (_tab == "Info" && _naamId is int samNaam && _productId is int samProduct)
                     {
-                        <h3 class="wn-kop">Gebruikt</h3>
+                        @* Tabblad Info (voorstel Sjoerd deel 5): samenstelling, attributen en documenten samen. Wat bij een fase
+                           van de opbouw hoort vul je in die fase in; hier is het alleen te lezen, tenzij Corrigeren aan staat. *@
+                        @if (InfoMetSlot)
+                        {
+                            <div class="info-slot @(_corrigeren ? "aan" : "")">
+                                @if (_corrigeren)
+                                {
+                                    <span><b>✎ Corrigeren staat aan.</b> Alles is te wijzigen; elke correctie komt in de historie.</span>
+                                    <button class="klein" @onclick="() => _corrigeren = false">Klaar met corrigeren</button>
+                                }
+                                else
+                                {
+                                    <span>🔒 Wat bij een fase van de opbouw hoort vul je in die fase in (tab Opbouw). Hier is het alleen te lezen.</span>
+                                    <button class="klein" disabled="@(!MagCorrigeren)" @onclick="() => _corrigeren = true"
+                                            title="@(MagCorrigeren ? "Samenstelling, attributen en documenten wijzigen buiten de fase om; elke correctie komt in de historie" : "Hiervoor is het recht Productcorrectie nodig (Werknemers ▸ Rechten)")">✎ Corrigeren…</button>
+                                }
+                            </div>
+                        }
+                        <h3 class="wn-kop">Samenstelling</h3>
                         <SamenstellingKiezer @key="samProduct" ProductNameId="samNaam" ProductId="samProduct" OpGewijzigd="NaSamenstellingWijziging"
-                                             OpGaNaar="@(o => GaNaar(o))" />
+                                             OpGaNaar="@(o => GaNaar(o))" Corrigeren="_corrigeren" />
 
                         <h3 class="wn-kop">Wordt gebruikt in</h3>
                         @if (_gebruiktIn is null)
@@ -821,8 +790,9 @@
                     }
 
                     @* ===== ATTRIBUTEN van een exemplaar: met waarde ===== *@
-                    @if (_tab == "Attributen" && _productId is not null)
+                    @if (_tab == "Info" && _productId is not null)
                     {
+                        <h3 class="wn-kop">Attributen</h3>
                         <table class="kiezer-tabel">
                             <thead>
                                 <tr>
@@ -840,16 +810,30 @@
                                         <td>
                                             @a.Attribuut
                                             @if (a.Verplicht) { <span class="tl-vlag">verplicht</span> }
+                                            @if (FaseVan(a) is { Length: > 0 } fase)
+                                            {
+                                                <span class="opb-chip" title="@(AttribuutOpSlot(a) ? "Dit attribuut vul je in deze fase in (tab Opbouw); hier is het alleen te lezen." : "Hoort bij deze fase van de opbouw")">@(AttribuutOpSlot(a) ? "🔒 " : "")@fase</span>
+                                            }
                                         </td>
                                         <td>
-                                            <input value="@a.Waarde" maxlength="45"
-                                                   @onchange="e => ZetWaarde(a, e)" />
+                                            @if (AttribuutOpSlot(a))
+                                            {
+                                                <b>@(a.Waarde.Length > 0 ? a.Waarde : "—")</b>
+                                            }
+                                            else
+                                            {
+                                                <input value="@a.Waarde" maxlength="45"
+                                                       @onchange="e => ZetWaarde(a, e)" />
+                                            }
                                         </td>
                                         <td>@a.Eenheid</td>
                                         <td>@a.Opmerking</td>
                                         <td class="c">
-                                            <button class="klein rood" title="Verwijderen"
-                                                    @onclick="() => VerwijderProductAttribuut(a)">✕</button>
+                                            @if (!AttribuutOpSlot(a))
+                                            {
+                                                <button class="klein rood" title="Verwijderen"
+                                                        @onclick="() => VerwijderProductAttribuut(a)">✕</button>
+                                            }
                                         </td>
                                     </tr>
                                 }
@@ -865,6 +849,72 @@
                                     title="Attributen die het producttype inmiddels heeft erbij halen">
                                 ↻ Sync met producttype
                             </button>
+                        </div>
+                    }
+
+                    @* ===== DOCUMENTEN ===== *@
+                    @if (_tab == "Documenten" || (_tab == "Info" && _productId is not null))
+                    {
+                        @if (_tab == "Info") { <h3 class="wn-kop">Documenten</h3> }
+                        <div class="tl-balk">
+                            <label class="vink">
+                                <input type="checkbox" checked="@_alleenNieuwste" @onchange="NieuwsteGewijzigd" />
+                                Alleen nieuwste versies weergeven
+                            </label>
+                        </div>
+                        <p class="uitleg">
+                            @(_productId is null
+                                ? "Documentatie van dit producttype — geldt voor alle exemplaren."
+                                : "Documenten van dit exemplaar. De documentatie van het type staat op het tabblad van het producttype.")
+                        </p>
+
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th>Bestand</th>
+                                    <th style="width:10rem">Toegevoegd</th>
+                                    <th style="width:6rem" class="r">Dagen</th>
+                                    <th style="width:11rem">Door</th>
+                                    <th style="width:6rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in ZichtbareDocumenten())
+                                {
+                                    <tr @key="d.FileStoreId">
+                                        <td>
+                                            <button class="bestandnaam" title="Bekijken"
+                                                    @onclick="() => ToonVoorbeeld(d.FileStoreId, d.Bestandsnaam)">
+                                                @d.Bestandsnaam
+                                            </button>
+                                        </td>
+                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                        <td class="r">@DagenOud(d)</td>
+                                        <td>@d.ToegevoegdDoor</td>
+                                        <td class="c">
+                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)"
+                                               title="Downloaden">⭳</a>
+                                            @if (!DocumentOpSlot)
+                                            {
+                                                <button class="klein rood" title="Verwijderen"
+                                                        @onclick="() => VerwijderDocument(d)">✕</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (ZichtbareDocumenten().Count == 0)
+                                {
+                                    <tr><td colspan="5" class="kiezer-info">Nog geen documenten.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                             @ondragenter="() => _sleepActief = true"
+                             @ondragleave="() => _sleepActief = false"
+                             @ondragover:preventDefault="true">
+                            <span>Sleep hier een bestand, of klik om te kiezen</span>
+                            <InputFile OnChange="BestandenGekozen" multiple />
                         </div>
                     }
 
@@ -896,6 +946,7 @@
                                     <th style="width:5rem">Verplicht</th>
                                     <th style="width:7rem" title="Wordt gevraagd bij het aanmaken">Bij aanmaak</th>
                                     <th style="width:15rem" title="Test PCB vult dit attribuut automatisch vanuit de werkplek-agent">Automatisch gevuld uit</th>
+                                    @if (ToonInvulFase) { <th style="width:13rem" title="In welke fase van de opbouw dit attribuut wordt ingevuld. Met een fase vul je het bij een exemplaar in die fase in (tab Opbouw) en is het op het tabblad Info alleen te lezen.">Invullen in fase</th> }
                                     <th style="width:3rem"></th>
                                 </tr>
                             </thead>
@@ -919,6 +970,18 @@
                                                 }
                                             </select>
                                         </td>
+                                        @if (ToonInvulFase)
+                                        {
+                                            <td>
+                                                <select @onchange="e => ZetAttribuutFase(a, e)">
+                                                    <option value="" selected="@(a.FaseStapId is null)">— vrij —</option>
+                                                    @foreach (var f in Hoofdfases)
+                                                    {
+                                                        <option value="@f.Id" selected="@(a.FaseStapId == f.Id)">@_typeBoom.FaseNummer(f) · @f.Naam</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                        }
                                         <td class="c">
                                             <button class="klein rood" title="Verwijderen"
                                                     @onclick="() => VerwijderAttribuut(a)">✕</button>
@@ -1347,8 +1410,19 @@
     private string[] Tabs => _productId is null
         ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Techniek" }
         : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
-            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Programmeren", "Opbouw" }
-            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw" };   // zonder werkplek-agent op deze pc geen Programmeren
+            ? new[] { "Algemeen", "Historie", "Todo", "Info", "Typeplaatje", "Programmeren", "Opbouw" }
+            : new[] { "Algemeen", "Historie", "Todo", "Info", "Typeplaatje", "Opbouw" };   // zonder werkplek-agent op deze pc geen Programmeren
+
+    /// <summary>
+    /// Het gekozen tabblad moet bestaan. Bij een exemplaar staan Documenten, Samenstelling en Attributen samen op Info
+    /// (voorstel Sjoerd deel 5); een onthouden tab of een link met de oude naam komt daar dus uit.
+    /// </summary>
+    private void ZorgTab()
+    {
+        if (_productId is not null && _tab is "Documenten" or "Samenstelling" or "Attributen") _tab = "Info";
+        else if (_productId is null && _tab == "Info") _tab = "Samenstelling";
+        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+    }
 
     private string Titel
     {
@@ -1667,7 +1741,7 @@
 
         // Tabbladen verschillen per stand; sta je op een tabblad dat nu niet
         // bestaat, dan terug naar Algemeen.
-        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        ZorgTab();
     }
 
     private async Task ZoekGewijzigd(ChangeEventArgs e)
@@ -1822,7 +1896,9 @@
 
     private void ZetTabUitUrl()
     {
-        if (!string.IsNullOrEmpty(TabQuery) && Tabs.Contains(TabQuery)) _tab = TabQuery;
+        // een link met de oude tabnaam van een exemplaar (Documenten, Samenstelling, Attributen) komt op Info uit
+        var gevraagd = _productId is not null && TabQuery is "Documenten" or "Samenstelling" or "Attributen" ? "Info" : TabQuery;
+        if (!string.IsNullOrEmpty(gevraagd) && Tabs.Contains(gevraagd)) _tab = gevraagd;
         else if (string.IsNullOrEmpty(TabQuery) && _tab != "Algemeen" && Tabs.Contains("Algemeen")) _tab = "Algemeen";
     }
 
@@ -2160,7 +2236,7 @@
         _artikelZoek = ""; _artikelTreffers = new();
         _gekozen.Clear();          // selectie hoort bij het vorige type
         LeegmakenProduct();
-        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        ZorgTab();
 
         try { _typeAttributen = await Repo.GetTypeAttributenAsync(n.Id); }
         catch { _typeAttributen = new(); }
@@ -2180,7 +2256,7 @@
     private async Task TerugNaarType()
     {
         LeegmakenProduct();
-        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        ZorgTab();
         await LaadDocumenten();
         await LaadOpbouw();
     }
@@ -2341,7 +2417,7 @@
     {
         _productId = p.Id;
         _product = p;
-        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        ZorgTab();
         await WachtOpOpslaan();
 
         try { _velden = await Repo.GetVeldenAsync(p.Id); }
@@ -2367,9 +2443,34 @@
     /// <summary>De hoofdfases van dit type (leeg = type zonder fases); voor de kolom en het filter Fase in de historie.</summary>
     private IReadOnlyList<OpbouwStap> Hoofdfases => _typeBoom.Hoofdfases;
 
+    // ---- invullen in de fase en corrigeren (voorstel Sjoerd deel 5, ProductOpbouwDeel5_MariaDB.sql) ----
+    private bool _invulFase;                      // attributen en stuklijstregels kunnen bij een fase horen
+    private bool _corrigeren;                     // tabblad Info: wijzigen buiten de fase om (recht Productcorrectie)
+    private bool MagCorrigeren => Ik.Mag("Productcorrectie") || Ik.Mag("Directie");
+    /// <summary>Bij het type: de kolom Fase tonen (type met fases, en de kolommen bestaan).</summary>
+    private bool ToonInvulFase => _invulFase && _typeBoom.MetFases;
+    /// <summary>Bij een exemplaar: wat bij een fase hoort is op Info alleen te lezen.</summary>
+    private bool InfoMetSlot => _productId is not null && ToonInvulFase;
+    /// <summary>De fase waarin een attribuut wordt ingevuld ("2 · Mechanisch opbouwen"); leeg = vrij.</summary>
+    private string FaseVan(ProductAttribuut a)
+        => InfoMetSlot && a.FaseStapId is int f && Hoofdfases.FirstOrDefault(x => x.Id == f) is { } fase ? $"{_typeBoom.FaseNummer(fase)} · {fase.Naam}" : "";
+    private bool AttribuutOpSlot(ProductAttribuut a) => !_corrigeren && FaseVan(a).Length > 0;
+    /// <summary>Een document van een exemplaar weghalen: bij een type met fases alleen bij corrigeren (toevoegen mag altijd).</summary>
+    private bool DocumentOpSlot => InfoMetSlot && !_corrigeren;
+
+    private async Task ZetAttribuutFase(ProductAttribuut a, ChangeEventArgs e)
+    {
+        if (_naamId is null) return;
+        a.FaseStapId = int.TryParse((string?)e.Value, out var f) ? f : null;
+        try { await Repo.BewaarTypeAttribuutAsync(_naamId.Value, a, Ik.WerknemerId); Toon("Opgeslagen.", false); }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
     private async Task LaadOpbouw()
     {
         _stappen = new(); _typeBoom = new(Array.Empty<OpbouwStap>());
+        _corrigeren = false;                           // per geopend exemplaar opnieuw aanzetten
+        try { _invulFase = await Repo.HeeftInvulFaseAsync(); } catch { _invulFase = false; }
         if (_tab == "Eindcheck") _tab = "Opbouw";      // het tabblad Eindcheck is opgegaan in de boom (per pc onthouden tab)
         if (_naamId is null || !Opbouw.Beschikbaar) return;
         try
@@ -2410,6 +2511,9 @@
             await LaadProducten();
             _product = _producten.FirstOrDefault(p => p.Id == _productId) ?? _product;
             await LaadTodoTelling();      // een todo in een fase, of een fout gemeld of opgelost
+            // in een fase kan een attribuut ingevuld of een halffabricaat gekoppeld zijn
+            _attributen = await Repo.GetAttributenAsync(_productId.Value);
+            await LaadSamenstelling(true);
         }
         catch { }
     }
@@ -2564,7 +2668,7 @@
         _boomBezig = true;                       // boom laten staan terwijl het andere exemplaar laadt (geen verspringen)
         try { await GaNaar(k.Regel, tab); }
         finally { _boomBezig = false; }
-        if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+        ZorgTab();
     }
 
     /// <summary>Na koppelen/ontkoppelen in de SamenstellingKiezer: onderdelen en historie verversen.</summary>
@@ -2776,7 +2880,7 @@
     //  Historie
     // ================================================================
     private void NaarHistorie() => _tab = "Historie";
-    private void NaarAttributen() => _tab = "Attributen";
+    private void NaarAttributen() => _tab = _productId is null ? "Attributen" : "Info";
 
     private void NieuwEventGewijzigd(ChangeEventArgs e) => _nieuwEvent = (string?)e.Value ?? "";
 
@@ -3130,7 +3234,7 @@
             if (u.Regel is null) { Toon(u.Melding, true); return; }
             var tab = Tabs.Contains("Programmeren") || Agent.Aanwezig == true ? "Programmeren" : _tab;
             await GaNaar(u.Regel, tab);
-            if (!Tabs.Contains(_tab)) _tab = "Algemeen";
+            ZorgTab();
             Toon(u.Melding, !u.Zeker);
         }
         catch (Exception ex) { Toon("Detecteren mislukt: " + ex.Message, true); }
@@ -3200,10 +3304,20 @@
     private async Task ZetWaarde(ProductAttribuut a, ChangeEventArgs e)
     {
         if (_productId is null) return;
+        if (AttribuutOpSlot(a)) { Toon($"'{a.Attribuut}' vul je in fase {FaseVan(a)} in (tab Opbouw).", true); return; }
+        var oud = a.Waarde;
         a.Waarde = (string?)e.Value ?? "";
         try
         {
             await Repo.BewaarAttribuutAsync(_productId.Value, a, Ik.WerknemerId);
+            // een correctie buiten de fase om komt in de historie
+            if (_corrigeren && FaseVan(a).Length > 0 && oud.Trim() != a.Waarde.Trim())
+            {
+                await Repo.VoegHistorieToeAsync(_productId.Value,
+                    $"Correctie: {a.Attribuut}: {(oud.Trim().Length > 0 ? oud.Trim() : "(leeg)")} → {(a.Waarde.Trim().Length > 0 ? a.Waarde.Trim() : "(leeg)")}",
+                    ProductVelden.HistorieAttributen, Ik.WerknemerId, faseId: a.FaseStapId);
+                _historie = await Repo.GetHistorieAsync(_productId.Value);
+            }
             Toon("Opgeslagen.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
@@ -3212,11 +3326,15 @@
     private async Task VerwijderProductAttribuut(ProductAttribuut a)
     {
         if (_productId is null) return;
+        if (AttribuutOpSlot(a)) { Toon($"'{a.Attribuut}' hoort bij fase {FaseVan(a)}: verwijderen kan alleen bij corrigeren.", true); return; }
         if (!await Bevestig($"Attribuut '{a.Attribuut}' van dit exemplaar verwijderen?")) return;
 
         try
         {
             await Repo.VerwijderAttribuutAsync(a.Id);
+            if (_corrigeren && FaseVan(a).Length > 0)
+                await Repo.VoegHistorieToeAsync(_productId.Value, $"Correctie: attribuut {a.Attribuut} verwijderd" + (a.Waarde.Trim().Length > 0 ? $" (was {a.Waarde.Trim()})" : ""),
+                    ProductVelden.HistorieAttributen, Ik.WerknemerId, faseId: a.FaseStapId);
             _attributen = await Repo.GetAttributenAsync(_productId.Value);
             Toon("Attribuut verwijderd.", false);
         }
@@ -3317,11 +3435,14 @@
 
     private async Task VerwijderDocument(Bestand d)
     {
+        if (DocumentOpSlot) { Toon("Een document van dit exemplaar weghalen kan alleen bij corrigeren (tabblad Info).", true); return; }
         if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?\n\nHet bestand gaat ook van schijf af.")) return;
 
         try
         {
             await Store.VerwijderAsync(d.FileStoreId);
+            if (InfoMetSlot && _productId is int docProduct)
+                await Repo.VoegHistorieToeAsync(docProduct, $"Correctie: document '{d.Bestandsnaam}' verwijderd", ProductVelden.HistorieLevensloop, Ik.WerknemerId);
             await LaadDocumenten();
             Toon("Document verwijderd.", false);
         }

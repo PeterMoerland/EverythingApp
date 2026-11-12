@@ -1,4 +1,5 @@
 @inject IProductRepository Repo
+@inject IOpbouwRepository Opbouw
 @inject HuidigeGebruiker Ik
 
 @* Samenstelling van een exemplaar, gestuurd door de stuklijst van het producttype
@@ -6,9 +7,16 @@
    hoeveel er al gekoppeld zijn, en een kiezer die uitsluitend vrije exemplaren van
    precies dát halffabricaat aanbiedt (SN typen/scannen of klikken). Halffabricaten
    buiten de stuklijst staan onder 'Overig' en kunnen via de vrije zoekregel erbij.
-   De koppeling zelf is Producten.ParentProductenID, zoals in Access. *@
+   De koppeling zelf is Producten.ParentProductenID, zoals in Access.
 
-@if (_stuklijst.Count == 0 && _onderdelen.Count == 0 && !_vrijZoeken)
+   Invullen in de fase (voorstel Sjoerd deel 5, 12-11-2026): een regel van de stuklijst kan bij een hoofdfase van de
+   opbouw horen (StuklijstRegel.FaseStapId). Die regel koppel je in die fase: OpbouwLijst toont de kiezer met
+   AlleenFase (alleen de regels van die fase, zonder Overig en vrij zoeken). Overal elders staat zo'n regel op slot
+   (🔒 met de fase erbij), tenzij Corrigeren aan staat (recht Productcorrectie; de historieregel begint dan met
+   "Correctie:"). Een regel zonder fase werkt zoals voorheen. De kiezer zoekt de fases van het type zelf op, zodat het
+   slot op elke plek geldt (tabblad Info, Productie ▸ Producten). *@
+
+@if (AlleenFase is null && _stuklijst.Count == 0 && _onderdelen.Count == 0 && !_vrijZoeken)
 {
     <p class="uitleg">
         Dit producttype heeft nog geen stuklijst (Producten ▸ producttype ▸ tab Samenstelling).
@@ -16,14 +24,15 @@
     </p>
 }
 
-@if (_stuklijst.Count > 0)
+@if (Regels.Count > 0)
 {
     <table class="kiezer-tabel sam-tabel">
         <tbody>
-            @foreach (var s in _stuklijst)
+            @foreach (var s in Regels)
             {
                 var gekoppeld = Gekoppeld(s).ToList();
                 var klaar = gekoppeld.Count >= s.Aantal;
+                var slot = OpSlot(s);
                 <tr @key="s.Id" class="@RijKleur(gekoppeld.Count, s.Aantal)">
                     <td style="width:3rem" class="c">
                         <span class="stand-chip @ChipKleur(gekoppeld.Count, s.Aantal)" title="gekoppeld van verwacht">@gekoppeld.Count / @s.Aantal</span>
@@ -33,6 +42,10 @@
                         @if (s.OnderdeelGroep.Length > 0) { <small class="uitleg"> · @s.OnderdeelGroep</small> }
                         @if (s.OnderdeelOmschrijving.Length > 0) { <br /><small class="uitleg">@s.OnderdeelOmschrijving</small> }
                         @if (s.Opmerking.Length > 0) { <br /><small class="uitleg">@s.Opmerking</small> }
+                        @if (AlleenFase is null && FaseVan(s) is { Length: > 0 } fase)
+                        {
+                            <br /><span class="opb-chip" title="@(slot ? "Dit halffabricaat koppel je in deze fase (tab Opbouw); hier is het alleen te lezen." : "Hoort bij deze fase van de opbouw")">@(slot ? "🔒 " : "")@fase</span>
+                        }
                     </td>
                     <td>
                         @foreach (var o in gekoppeld)
@@ -41,14 +54,21 @@
                                   title="@(o.Afgekeurd ? "Dit exemplaar is afgekeurd en hoort niet in dit product: haal het eruit." : null)">
                                 <span class="nummer">@o.Serienummer</span>
                                 @if (o.Afgekeurd) { <span class="stand-chip s-rood">afgekeurd</span> }
-                                <button class="knopje rood" title="Uit de samenstelling halen" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
+                                @if (!slot)
+                                {
+                                    <button class="knopje rood" title="Uit de samenstelling halen" disabled="@_bezig" @onclick="() => Ontkoppel(o)">✕</button>
+                                }
                             </span>
                             @if (OpGaNaar.HasDelegate)
                             {
                                 <button class="klein sam-ganaar" title="Naar dit exemplaar" @onclick="() => OpGaNaar.InvokeAsync(o)">↗ @o.Code @o.Serienummer</button>
                             }
                         }
-                        @if (!klaar)
+                        @if (!klaar && slot)
+                        {
+                            <span class="uitleg">nog niet gekoppeld</span>
+                        }
+                        else if (!klaar)
                         {
                             <span class="sam-kies">
                                 <input class="sam-sn" placeholder="SN typen/scannen ↵" value="@SnVoor(s.Id)" disabled="@_bezig"
@@ -60,7 +80,7 @@
                         }
                     </td>
                 </tr>
-                @if (_open == s.Id && !klaar)
+                @if (_open == s.Id && !klaar && !slot)
                 {
                     <tr @key="@($"{s.Id}-vrij")" class="opb-docs">
                         <td></td>
@@ -87,13 +107,16 @@
             }
         </tbody>
     </table>
-    <p class="uitleg sam-stand">
-        @if (AllesCompleet) { <span class="stand-chip s-groen">✔ Samenstelling compleet</span> }
-        else { <text>nog @Ontbrekend halffabrica(a)t(en) te koppelen</text> }
-    </p>
+    @if (AlleenFase is null)
+    {
+        <p class="uitleg sam-stand">
+            @if (AllesCompleet) { <span class="stand-chip s-groen">✔ Samenstelling compleet</span> }
+            else { <text>nog @Ontbrekend halffabrica(a)t(en) te koppelen</text> }
+        </p>
+    }
 }
 
-@{ var overig = Overig().ToList(); }
+@{ var overig = AlleenFase is null ? Overig().ToList() : new List<SamenstellingRegel>(); }
 @if (overig.Count > 0)
 {
     <h4 class="prod-subkop">Overig (niet in de stuklijst)</h4>
@@ -115,7 +138,7 @@
     </table>
 }
 
-@if (_vrijZoeken || _stuklijst.Count > 0)
+@if (AlleenFase is null && !AllesOpSlot && (_vrijZoeken || _stuklijst.Count > 0))
 {
     <div class="tl-balk">
         <input data-zoeklijst class="mail-zoek" placeholder="@ZoekTekst"
@@ -144,8 +167,16 @@
     [Parameter] public EventCallback OpGewijzigd { get; set; }
     /// <summary>Optioneel: knop ↗ achter elk gekoppeld exemplaar om ernaartoe te gaan.</summary>
     [Parameter] public EventCallback<SamenstellingRegel> OpGaNaar { get; set; }
+    /// <summary>Alleen de regels van deze hoofdfase tonen (de kiezer in een fase van de opbouw), zonder Overig en vrij zoeken.</summary>
+    [Parameter] public int? AlleenFase { get; set; }
+    /// <summary>Corrigeren buiten de fase om (recht Productcorrectie): niets op slot; de historie begint met "Correctie:".</summary>
+    [Parameter] public bool Corrigeren { get; set; }
+    /// <summary>Alles alleen lezen (bv. de regels van een fase die niet actief is).</summary>
+    [Parameter] public bool AlleenLezen { get; set; }
 
     private List<StuklijstRegel> _stuklijst = new();
+    /// <summary>De hoofdfases van de opbouwboom van dit type (id → "2 · Mechanisch opbouwen"). Een regel met zo'n fase staat buiten die fase op slot.</summary>
+    private Dictionary<int, string> _fases = new();
     private List<SamenstellingRegel> _onderdelen = new();
     private List<SamenstellingRegel> _vrijeVoor = new();
     private List<SamenstellingRegel> _vrije = new();
@@ -156,6 +187,17 @@
     private bool _bezig;
     private string? _fout;
     private int _geladenVoor = -1;
+
+    /// <summary>De regels die deze kiezer toont: alles, of alleen die van één fase.</summary>
+    private List<StuklijstRegel> Regels => AlleenFase is int f ? _stuklijst.Where(s => s.FaseStapId == f).ToList() : _stuklijst;
+    /// <summary>De fase van een regel, als die (nog) bestaat in de boom.</summary>
+    private string FaseVan(StuklijstRegel s) => s.FaseStapId is int f && _fases.TryGetValue(f, out var naam) ? naam : "";
+    /// <summary>Mag deze regel hier niet gewijzigd worden? In zijn eigen fase en bij corrigeren wel.</summary>
+    private bool OpSlot(StuklijstRegel s)
+        => AlleenLezen || (!Corrigeren && s.FaseStapId is int f && f != AlleenFase && _fases.ContainsKey(f));
+    /// <summary>Het hele scherm alleen lezen: dan ook geen vrije zoekregel.</summary>
+    private bool AllesOpSlot => AlleenLezen;
+    private string Voorvoegsel => Corrigeren ? "Correctie: " : "";
 
     private IEnumerable<SamenstellingRegel> Gekoppeld(StuklijstRegel s) => _onderdelen.Where(o => o.ProductNameId == s.OnderdeelNameId);
     private IEnumerable<SamenstellingRegel> Overig() => _onderdelen.Where(o => _stuklijst.All(s => s.OnderdeelNameId != o.ProductNameId));
@@ -185,6 +227,17 @@
             _onderdelen = await Repo.GetOnderdelenAsync(ProductId);
         }
         catch (Exception ex) { _fout = "Samenstelling laden mislukt: " + ex.Message; }
+        // hoort er een regel bij een fase van de opbouw, dan de fases van dit type erbij (alleen een type met fases telt)
+        _fases = new();
+        try
+        {
+            if (_stuklijst.Any(s => s.FaseStapId is not null) && Opbouw.Beschikbaar)
+            {
+                var boom = new OpbouwBoom(await Opbouw.GetStappenAsync(ProductNameId));
+                _fases = boom.Hoofdfases.ToDictionary(f => f.Id, f => $"{boom.FaseNummer(f)} · {f.Naam}");
+            }
+        }
+        catch { /* zonder de boom is er geen slot: de kiezer werkt zoals voorheen */ }
         StateHasChanged();
     }
 
@@ -240,6 +293,12 @@
     {
         if (v.ProductId == ProductId) { _fout = "Een product kan niet zichzelf bevatten."; return; }
         if (v.Afgekeurd) { _fout = $"{v.Code} {v.Serienummer} is afgekeurd en kan niet worden ingebouwd."; return; }
+        // het slot geldt ook hier, niet alleen via de knoppen (vrij zoeken kan een halffabricaat van een regel op slot vinden)
+        if (_stuklijst.FirstOrDefault(x => x.OnderdeelNameId == v.ProductNameId) is { } eigen && OpSlot(eigen))
+        {
+            _fout = $"{eigen.OnderdeelNaam} koppel je in {(FaseVan(eigen) is { Length: > 0 } fn ? "fase " + fn : "zijn fase")} (tab Opbouw).";
+            return;
+        }
         // Buiten de stuklijst, of al vol? Dan wel koppelen maar het zeggen — de stuklijst is een hulpmiddel, geen slot.
         var regel = s ?? _stuklijst.FirstOrDefault(x => x.OnderdeelNameId == v.ProductNameId);
         var melding = regel is null && _stuklijst.Count > 0 ? $" (let op: {v.Code} staat niet in de stuklijst)"
@@ -249,7 +308,7 @@
         try
         {
             await Repo.KoppelAsync(v.ProductId, ProductId);
-            await Repo.VoegHistorieToeAsync(ProductId, $"Samenstelling: {v.Code} {v.Serienummer} toegevoegd{melding}",
+            await Repo.VoegHistorieToeAsync(ProductId, $"{Voorvoegsel}Samenstelling: {v.Code} {v.Serienummer} toegevoegd{melding}",
                 ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: melding.Length == 0 ? true : null);
             await Repo.VoegHistorieToeAsync(v.ProductId, $"Ingebouwd in product #{ProductId}", ProductVelden.HistorieLevensloop, Ik.WerknemerId);
             var open = _open;
@@ -268,11 +327,12 @@
 
     private async Task Ontkoppel(SamenstellingRegel o)
     {
+        if (_stuklijst.FirstOrDefault(x => x.OnderdeelNameId == o.ProductNameId) is { } eigen && OpSlot(eigen)) return;
         _bezig = true; _fout = null;
         try
         {
             await Repo.KoppelAsync(o.ProductId, null);
-            await Repo.VoegHistorieToeAsync(ProductId, $"Samenstelling: {o.Code} {o.Serienummer} verwijderd",
+            await Repo.VoegHistorieToeAsync(ProductId, $"{Voorvoegsel}Samenstelling: {o.Code} {o.Serienummer} verwijderd",
                 ProductVelden.HistorieLevensloop, Ik.WerknemerId);
             await Repo.VoegHistorieToeAsync(o.ProductId, $"Uit product #{ProductId} gehaald", ProductVelden.HistorieLevensloop, Ik.WerknemerId);
             await Laad();

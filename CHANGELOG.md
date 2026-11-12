@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Producten** — Nieuw: invullen in de fase (voorstel van Sjoerd). Bij een producttype kies je per attribuut en per regel van de stuklijst in welke fase van de opbouw het wordt ingevuld. Bij een exemplaar staat het dan in die fase op het tabblad Opbouw: daar vul je het attribuut in of koppel je het halffabricaat. Een verplicht attribuut dat leeg is of een halffabricaat dat nog ontbreekt houdt Fase klaar tegen.
+- **Producten** — Verbeterd: bij een exemplaar staan Samenstelling, Attributen en Documenten nu samen op het tabblad Info. Wat bij een fase hoort is daar alleen te lezen; met het nieuwe recht Productcorrectie (Werknemers ▸ Rechten) kun je het met "Corrigeren" toch wijzigen, en dat komt in de historie. Wat geen fase heeft blijft invulbaar zoals voorheen.
 - **Producten** — Nieuw: bij node-adressen schrijven controleert de app eerst de serienummers op de bus (voorstel van Sjoerd). Horen de prints bij een andere robot dan je gekozen hebt, dan wordt er niets geschreven en zie je bij welke robot ze wel horen. In het venster staat per slave bij welk halffabricaat hij hoort.
 - **Producten** — Nieuw: bij het ophalen van de duurtest kijkt de app of het serienummer in de log van de testrig bij het gekozen product hoort; een log van een ander serienummer wordt niet opgeslagen. Dit werkt zodra de PLC het serienummer in de log zet (een regel als "Serienummer=32").
 - **Producten** — Opgelost: een document bij een stap van de opbouw kon ook bij het bezoekverslag met hetzelfde nummer terechtkomen (en omgekeerd). Er stonden nog geen documenten, dus er is niets kwijt of verplaatst.

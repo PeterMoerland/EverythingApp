@@ -177,7 +177,7 @@
                                     <li>@reden</li>
                                 }
                             </ul>
-                            <p class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan op het tabblad Samenstelling." : "Er is niets opgeslagen.")</p>
+                            <p class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan op het tabblad Info." : "Er is niets opgeslagen.")</p>
                             <div class="prod-ander-knoppen">
                                 @if (_anderExemplaar is { } naar && OpAnderExemplaar.HasDelegate)
                                 {
@@ -1019,7 +1019,7 @@
                         {
                             <b>✗ Dit hoort niet bij @Naam.Naam · @Exemplaar.Serienummer: er wordt niets geschreven.</b>
                             @foreach (var r in bus.Vreemd) { <span>@r</span> }
-                            <span class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan eerst op het tabblad Samenstelling. Anders: kies het juiste product." : "Kies het juiste exemplaar.")</span>
+                            <span class="uitleg">@(ProductModus ? "Zit de print hier echt in, koppel hem dan eerst op het tabblad Info. Anders: kies het juiste product." : "Kies het juiste exemplaar.")</span>
                         }
                         else if (bus.Ok)
                         {
@@ -4994,7 +4994,7 @@
         {
             // Product (robot): zitten er prints op die niet in de samenstelling staan, dan is misschien het verkeerde
             // product gekozen. Alleen voorstellen als de herkenning een ander product van hetzelfde type vindt; anders
-            // hoort de print er gewoon nog niet in (koppelen op het tabblad Samenstelling).
+            // hoort de print er gewoon nog niet in (koppelen op het tabblad Info).
             if (!regels.Any(r => r.HalfVreemd)) return;
             try
             {

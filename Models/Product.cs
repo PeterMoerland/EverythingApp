@@ -111,6 +111,11 @@ public class StuklijstRegel
     public int Aantal { get; set; } = 1;
     public int Volgorde { get; set; }
     public string Opmerking { get; set; } = "";
+    /// <summary>
+    /// De hoofdfase van de opbouwboom waarin dit halffabricaat wordt ingebouwd (ProductOpbouwDeel5_MariaDB.sql). Met een
+    /// fase koppel je het in die fase (tab Opbouw) en is het elders alleen te lezen; null = vrij, zoals voorheen.
+    /// </summary>
+    public int? FaseStapId { get; set; }
 }
 
 /// <summary>
@@ -145,6 +150,13 @@ public class ProductAttribuut
 
     /// <summary>Bij een exemplaar-attribuut: het standaardattribuut (ProductNameAttributeID) waar het van afstamt.</summary>
     public int? SjabloonId { get; set; }
+
+    /// <summary>
+    /// De hoofdfase van de opbouwboom waarin dit attribuut wordt ingevuld (ProductOpbouwDeel5_MariaDB.sql). Staat op het
+    /// standaardattribuut van het producttype; bij een exemplaar-attribuut via het sjabloon meegelezen. Met een fase vul
+    /// je het in die fase in (tab Opbouw) en is het elders alleen te lezen; null = vrij, zoals voorheen.
+    /// </summary>
+    public int? FaseStapId { get; set; }
 }
 
 /// <summary>De bronnen die Test PCB kan vullen — de keuzelijst in het attributenbeheer.</summary>
