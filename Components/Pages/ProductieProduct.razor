@@ -118,7 +118,8 @@
                     <SamenstellingKiezer @key="_productId" ProductNameId="_naam.Id" ProductId="_productId" OpGewijzigd="NaWijziging" />
                     }
 
-                    @* ---------- opbouw ---------- *@
+                    @* ---------- opbouw: de opbouwboom (fases, stappen en de vroegere eindchecks); de knop 'Product gereed' staat
+                         onderaan, bij de eindcontrole ---------- *@
                     @if (ToonOpbouw)
                     {
                     <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrOpbouw</span> Opbouw</h3>
@@ -157,7 +158,8 @@
 
                     @* ---------- stap 6: eindcontrole en gereedmelden ---------- *@
                     <h3 class="wn-kop prod-stapkop"><span class="prod-nr">@NrEindcontrole</span> Eindcontrole</h3>
-                    <OpbouwLijst @ref="_lijst" ProductNameId="_naam.Id" ProductId="_productId" ToonOpbouw="false"
+                    @* staat de stap Opbouw uit bij dit producttype, dan hier de boom zelf (anders zijn de checks nergens af te vinken) *@
+                    <OpbouwLijst @ref="_lijst" ProductNameId="_naam.Id" ProductId="_productId" ToonOpbouw="@(!ToonOpbouw)"
                                  HuidigeStatus="@_exemplaar.StatusKort" OpGewijzigd="NaWijziging" OpGereed="NaGereed" />
                 </div>
 

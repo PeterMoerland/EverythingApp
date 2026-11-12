@@ -23,7 +23,8 @@ public record ProductRegel(int Id, string Serienummer, string Klant, string Stat
 
 /// <summary>Een regel uit ProductHistorie.</summary>
 /// <param name="Uitkomst">true = geslaagd, false = mislukt, null = neutraal (kolom Uitkomst, ProductTechniek_MariaDB.sql).</param>
-/// <param name="FaseId">De opbouwfase waarin de regel viel (ProductFases_MariaDB.sql); null = geen.</param>
+/// <param name="FaseId">De hoofdfase waarin de regel viel: een item op het bovenste niveau van de opbouwboom
+/// (ProductOpbouwBoom_MariaDB.sql); null = geen.</param>
 public record ProductGebeurtenis(int Id, string Event, string Soort, DateTime? Wanneer, string Door, bool? Uitkomst = null,
                                  int? FaseId = null, string Fase = "")
 {

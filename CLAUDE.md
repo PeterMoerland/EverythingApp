@@ -2288,28 +2288,38 @@ regel "gewist" in de historie zelf (dat zou het opschonen tenietdoen).
   `raboTransactionTypeName`, of bedragen met teken komen), paginering (`_links.next`), en het
   token-endpoint met mTLS.
 
-## Opbouwfases per producttype (12-11-2026, voorstel Sjoerd Quist, deel 1 en 2)
+## Opbouwboom per producttype (12-11-2026, voorstel Sjoerd Quist deel 1 en 2, daarna als boom)
 
 Voorstel en keuzes: artifact "MPR-robot opbouwfases" (claude.ai/artifact/QX2tdEnmJcax53mVsGt1Hs, collectie `keuzes`).
 Keuzes 11-11-2026: fases instelbaar per producttype; aparte blokkade per fase (fase op "failed", handmatig op te lossen
 met vastgelegde actie en foto's); status TEST vervalt; opmerking krijgt automatisch de actieve fase (aan te passen);
 iedereen mag overslaan; duurtest: serienummer in de download van de SD-kaart; veld Opmerkingen op Algemeen blijft;
 samenstelling/attributen corrigeren met een recht; volgorde van bouwen akkoord.
+Wens gebruiker 12-11-2026: fases, subfases en stappen in **één boom**, daar te onderhouden; het slot (op volgorde) **per
+item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
 
-- `ProductFases_MariaDB.sql`: `ProductFases` (per ProductNameID), `ProductOpbouwStappen.FaseID`, `ProductFaseStatus`
-  (ProductID + FaseID, Stand klaar/overgeslagen), `ProductHistorie.FaseID`. Vult voor MPR-1 de 8 fases, verdeelt de
-  bestaande stappen (eindchecks naar fase 8) en zet de beginstand van bestaande exemplaren (status OK = alles klaar).
-  Zonder script werkt alles zoals voorheen (`HeeftFasesAsync`, alleen 'ja' onthouden).
-- Actieve fase = de eerste fase zonder regel in `ProductFaseStatus`. `Components/OpbouwLijst.razor` toont met fases de
-  fases onder elkaar (af ingeklapt, actief open, later op slot); afvinken alleen in de actieve fase (ook server-side in
-  `Vink`), "Fase klaar" (alle verplichte stappen/eindchecks af) en "Overslaan" (vraag; historie). Zonder fases de oude
-  weergave. Werkt daardoor ook in ProductieProduct en ExemplaarWerk. Bij een exemplaar vervalt met fases het tabblad
-  Eindcheck (`Tabs` in Producten.razor).
-- Historie: `VoegHistorieToeAsync(..., faseId)`; niet opgegeven = subquery op de actieve fase, dus alle bestaande
+- **Eén tabel**: `ProductOpbouwStappen` met `ParentStapID` en `OpVolgorde` (`ProductOpbouwBoom_MariaDB.sql`); status per
+  exemplaar in `ProductOpbouwStatus` (+ `Overgeslagen`); `ProductHistorie.FaseStapID` = de hoofdfase van een regel.
+  `ProductFases_MariaDB.sql` (eerste versie, losse fasetabellen) is in productie gedraaid; het boomscript zet die om
+  (fases worden items, stappen eronder, stand en historie over). `ProductFases`, `ProductFaseStatus` en de kolommen
+  `FaseID` zijn daarna **NIET MEER IN GEBRUIK**. Zonder boomscript: losse stappen zonder fases (`HeeftBoomAsync`).
+- **Regels** in `Models/Opbouw.cs` (`OpbouwBoom`): item met kinderen = (sub)fase, zonder = stap. Hangt er op het bovenste
+  niveau iets onder een item, dan is het een type met fases en zijn álle items van dat niveau hoofdfases (op volgorde;
+  actief = de eerste die niet `Klaar` is). Hoofdfase af = afgerond met de knop of overgeslagen; subfase af = alles
+  eronder af; stap af = afgevinkt of niet verplicht (`Moet`; een oude eindcheck, Soort 'controle', telt als verplicht).
+  `Vrij(item)` = in de actieve hoofdfase, en bij een ouder met `OpVolgorde` pas als alles erboven af is.
+- `Components/OpbouwLijst.razor`: de boom bij een exemplaar (hoofdfases ingeklapt/actief/op slot, `Tak` recursief,
+  `Vink` controleert `Vrij` ook server-side, Fase klaar / Overslaan). Gebruikt in Producten (tab Opbouw; het tabblad
+  Eindcheck is weg, ook bij het type), ProductieProduct en ExemplaarWerk.
+- Onderhoud bij het type (Producten.razor, `BoomTak`): ▲▼ tussen items met dezelfde ouder, ◀ uitspringen, ▶ inspringen
+  (onder het item erboven), "+ onder", verplicht (stap) of op volgorde ((sub)fase), documenten, verwijderen met alles
+  eronder (`VerwijderStapAsync` haalt de hele tak weg).
+- Historie: `VoegHistorieToeAsync(..., faseId)`; niet opgegeven = subquery op de actieve hoofdfase, dus alle bestaande
   aanroepen krijgen vanzelf een fase. Kolom Fase (klik = aanpassen, `ZetHistorieFaseAsync`) en filter op fase.
-- Beheer bij het producttype, tab Opbouw: fases (naam, omschrijving, volgorde, verwijderen) en per stap/eindcheck een fase.
-- Getest lokaal met tijdelijke nep-fases (scratchpad `fase_tijdelijk.py`), niets geschreven. **Niet getest**: het script
-  zelf, Fase klaar/Overslaan, de fase in nieuwe historieregels.
-- **Nog te bouwen**: deel 3 (terug naar een fase = vinkjes van die fase en erna wissen; failed-blokkade met oplossing en
-  foto's; todo's per fase; TEST laten vervallen), de blokken van Programmeren en testen naar fase 4 en 6, deel 4
+- Getest lokaal met tijdelijke nep-gegevens (scratchpad `boom_tijdelijk.py`), niets geschreven. **Niet getest**: het
+  boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
+  nieuwe historieregels.
+- **Nog te bouwen**: deel 3 (terug naar een fase = vinkjes van die fase en erna wissen, daarbij `Klaar = 0` zetten en
+  de regel niet weghalen; failed-blokkade met oplossing en foto's; todo's per fase; TEST laten vervallen), de blokken
+  van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een fase, deel 4
   (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen).

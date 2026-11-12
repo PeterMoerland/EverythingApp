@@ -476,13 +476,13 @@
                                     <option value="@s">@s</option>
                                 }
                             </select>
-                            @if (_typeFases.Count > 0)
+                            @if (Hoofdfases.Count > 0)
                             {
                                 <select value="@_histFaseFilter" title="Alleen de regels van één opbouwfase" @onchange="e => _histFaseFilter = (string?)e.Value ?? string.Empty">
                                     <option value="">alle fases</option>
-                                    @foreach (var f in _typeFases)
+                                    @foreach (var f in Hoofdfases)
                                     {
-                                        <option value="@f.Id">@f.Volgorde · @f.Naam</option>
+                                        <option value="@f.Id">@_typeBoom.FaseNummer(f) · @f.Naam</option>
                                     }
                                     <option value="0">zonder fase</option>
                                 </select>
@@ -560,7 +560,7 @@
                                     <th style="width:8.5rem">Wanneer</th>
                                     @if (HistToonVan) { <th style="width:10rem">Van</th> }
                                     <th style="width:6.5rem">Soort</th>
-                                    @if (_typeFases.Count > 0) { <th style="width:11rem" title="De opbouwfase waarin dit gebeurde; klik om aan te passen">Fase</th> }
+                                    @if (Hoofdfases.Count > 0) { <th style="width:11rem" title="De opbouwfase waarin dit gebeurde; klik om aan te passen">Fase</th> }
                                     <th>Gebeurtenis</th>
                                     <th style="width:7.5rem">Door</th>
                                 </tr>
@@ -577,7 +577,7 @@
                                         <td>@(h.Wanneer?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
                                         @if (HistToonVan) { <td><small class="@(hvan.Length > 0 ? "uitleg" : "")">@(hvan.Length > 0 ? hvan : "dit exemplaar")</small></td> }
                                         <td>@h.Soort</td>
-                                        @if (_typeFases.Count > 0)
+                                        @if (Hoofdfases.Count > 0)
                                         {
                                             <td class="hist-fase">
                                                 @if (hvan.Length > 0)
@@ -588,9 +588,9 @@
                                                 {
                                                     <select value="@(h.FaseId?.ToString() ?? "")" @onchange="e => ZetHistorieFase(h, e)" @onblur="() => _histFaseBewerk = null">
                                                         <option value="">— geen —</option>
-                                                        @foreach (var f in _typeFases)
+                                                        @foreach (var f in Hoofdfases)
                                                         {
-                                                            <option value="@f.Id">@f.Volgorde · @f.Naam</option>
+                                                            <option value="@f.Id">@_typeBoom.FaseNummer(f) · @f.Naam</option>
                                                         }
                                                     </select>
                                                 }
@@ -946,156 +946,49 @@
                                        OpAnderExemplaar="NaarAnderExemplaar" />
                     }
 
-                    @* ===== OPBOUW: de stappen (bij het type: beheren; bij een exemplaar: afvinken) ===== *@
-                    @if (_tab is "Opbouw" or "Eindcheck")
+                    @* ===== OPBOUW: de opbouwboom (bij het type: onderhouden; bij een exemplaar: afvinken) ===== *@
+                    @if (_tab == "Opbouw")
                     {
                         @if (_opbouwOntbreekt)
                         {
                             <div class="melding fout">De opbouw-tabellen ontbreken nog: voer <code>ProductOpbouw_MariaDB.sql</code> uit (en 330 in FileStoreType).</div>
                         }
-                        else if (!_heeftSoort)
+                        else if (_productId is null)
                         {
-                            <div class="melding fout">
-                                De kolom <code>Soort</code> ontbreekt nog in <code>ProductOpbouwStappen</code>; daardoor komt alles onder Opbouw terecht.
-                                Voer uit: <code>ALTER TABLE `ProductOpbouwStappen` ADD COLUMN IF NOT EXISTS `Soort` VARCHAR(12) NOT NULL DEFAULT 'opbouw' AFTER `Volgorde`;</code>
-                            </div>
-                        }
-                        @if (!_opbouwOntbreekt)
-                        {
-                        @if (_productId is null)
-                        {
-                            var soort = _tab == "Eindcheck" ? OpbouwSoort.Controle : OpbouwSoort.Opbouw;
-                            var lijst = _stappen.Where(s => s.Soort == soort).ToList();
-                            @* fases van dit producttype (ProductFases_MariaDB.sql): beheren op de tab Opbouw *@
-                            @if (_fasesAan && _tab == "Opbouw")
+                            @* fases, subfases en stappen in één boom (wens gebruiker 12-11-2026); de regels staan in Models/Opbouw.cs *@
+                            @if (!_boomAan)
                             {
-                                <h4 class="prod-subkop">Fases</h4>
-                                <p class="uitleg">
-                                    Met fases doorloop je een exemplaar van boven naar beneden: alleen in de actieve fase kun je stappen afvinken,
-                                    latere fases zijn op slot. Geef elke stap (en elke eindcheck) hieronder een fase. Zonder fases werkt de opbouw
-                                    zoals voorheen, met de tabbladen Opbouw en Eindcheck.
-                                </p>
-                                <table class="kiezer-tabel opb-tabel fase-beheer">
-                                    <thead>
-                                        <tr><th style="width:5rem">#</th><th style="width:18rem">Fase</th><th>Omschrijving</th><th style="width:7rem">Stappen</th><th style="width:3rem"></th></tr>
-                                    </thead>
-                                    <tbody>
-                                        @for (var i = 0; i < _typeFases.Count; i++)
-                                        {
-                                            var f = _typeFases[i]; var fidx = i;
-                                            <tr @key="f.Id">
-                                                <td class="opb-volgorde">
-                                                    <button class="klein" disabled="@(fidx == 0)" title="Omhoog" @onclick="() => VerschuifFase(f, -1)">▲</button>
-                                                    <button class="klein" disabled="@(fidx == _typeFases.Count - 1)" title="Omlaag" @onclick="() => VerschuifFase(f, 1)">▼</button>
-                                                </td>
-                                                <td><input value="@f.Naam" maxlength="60" @onchange="e => ZetFase(f, () => f.Naam = (string?)e.Value ?? string.Empty)" /></td>
-                                                <td><input value="@f.Omschrijving" maxlength="250" @onchange="e => ZetFase(f, () => f.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
-                                                <td>@_stappen.Count(s => s.FaseId == f.Id)</td>
-                                                <td class="c"><button class="klein rood" title="Fase verwijderen" @onclick="() => VerwijderFase(f)">✕</button></td>
-                                            </tr>
-                                        }
-                                        @if (_typeFases.Count == 0)
-                                        {
-                                            <tr><td colspan="5" class="kiezer-info">Dit producttype heeft geen fases.</td></tr>
-                                        }
-                                    </tbody>
-                                </table>
-                                <div class="btngroup">
-                                    <button class="klein" @onclick="NieuweFase">+ Fase</button>
+                                <div class="melding waarschuwing">
+                                    Fases en subfases kunnen nog niet: voer <code>ProductOpbouwBoom_MariaDB.sql</code> uit. Tot die tijd zijn het losse stappen.
                                 </div>
-                                <h4 class="prod-subkop">Stappen</h4>
                             }
                             <p class="uitleg">
-                                @if (soort == OpbouwSoort.Controle)
-                                {
-                                    <text>De handmatige eindcheck vóór het gereedmelden. Bij een exemplaar wordt elke check afgevinkt;
-                                    zijn alle checks en verplichte opbouwstappen klaar, dan kan de status op 'Gereed'.</text>
-                                }
-                                else
-                                {
-                                    <text>De opbouwvolgorde van dit producttype: Mechanische opbouw, Elektrische opbouw, Parameters
-                                    inschieten, Testen … Per stap kun je documenten met hands-on uitleg toevoegen. Bij een exemplaar
-                                    worden de stappen afgevinkt; elke wijziging komt in de historie.</text>
-                                }
+                                De opbouwboom van dit producttype. Een item met iets eronder is een fase of subfase; een item zonder iets eronder
+                                is een stap die je bij een exemplaar afvinkt. Hangt er op het bovenste niveau iets onder een item, dan zijn de
+                                items van dat niveau de hoofdfases: die werk je van boven naar beneden af en rond je af met "Fase klaar".
+                                Zet bij een (sub)fase "op volgorde" aan als wat eronder hangt ook van boven naar beneden moet.
+                                Met ◀ en ▶ spring je een item uit of in; per item kun je documenten met uitleg toevoegen.
                             </p>
-                            <table class="kiezer-tabel opb-tabel">
-                                <thead>
-                                    <tr>
-                                        <th style="width:5rem">#</th>
-                                        <th style="width:18rem">@(soort == OpbouwSoort.Controle ? "Check" : "Stap")</th>
-                                        @if (_typeFases.Count > 0) { <th style="width:13rem">Fase</th> }
-                                        <th>Omschrijving</th>
-                                        <th style="width:6rem">Verplicht</th>
-                                        <th style="width:12rem">Documenten</th>
-                                        <th style="width:3rem"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @for (var i = 0; i < lijst.Count; i++)
-                                    {
-                                        var s = lijst[i]; var idx = i;
-                                        <tr @key="s.Id">
-                                            <td class="opb-volgorde">
-                                                <button class="klein" disabled="@(idx == 0)" title="Omhoog" @onclick="() => Verschuif(s, -1)">▲</button>
-                                                <button class="klein" disabled="@(idx == lijst.Count - 1)" title="Omlaag" @onclick="() => Verschuif(s, 1)">▼</button>
-                                            </td>
-                                            <td><input value="@s.Naam" maxlength="80" @onchange="e => ZetStap(s, () => s.Naam = (string?)e.Value ?? string.Empty)" /></td>
-                                            @if (_typeFases.Count > 0)
-                                            {
-                                                <td>
-                                                    <select value="@(s.FaseId?.ToString() ?? "")" @onchange="e => ZetStap(s, () => s.FaseId = int.TryParse((string?)e.Value, out var fv) ? fv : null)">
-                                                        <option value="">— geen —</option>
-                                                        @foreach (var f in _typeFases)
-                                                        {
-                                                            <option value="@f.Id">@f.Volgorde · @f.Naam</option>
-                                                        }
-                                                    </select>
-                                                </td>
-                                            }
-                                            <td><input value="@s.Omschrijving" maxlength="500" @onchange="e => ZetStap(s, () => s.Omschrijving = (string?)e.Value ?? string.Empty)" /></td>
-                                            <td class="c"><input type="checkbox" checked="@s.Verplicht" @onchange="e => ZetStap(s, () => s.Verplicht = e.Value is bool b && b)" /></td>
-                                            <td>
-                                                <button class="klein" @onclick="() => ToonStapDocs(s)">📎 @s.AantalDocumenten</button>
-                                            </td>
-                                            <td class="c"><button class="klein rood" title="Stap verwijderen" @onclick="() => VerwijderStap(s)">✕</button></td>
-                                        </tr>
-                                        @if (_stapDocs == s.Id)
-                                        {
-                                            <tr @key="@($"{s.Id}-docs")" class="opb-docs">
-                                                <td></td>
-                                                <td colspan="@(_typeFases.Count > 0 ? 6 : 5)">
-                                                    @foreach (var d in _stapDocumenten)
-                                                    {
-                                                        <span class="opb-doc">
-                                                            <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
-                                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⬇</a>
-                                                            <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStapDoc(d)">✕</button>
-                                                        </span>
-                                                    }
-                                                    <InputFile OnChange="e => UploadStapDoc(s, e)" multiple />
-                                                </td>
-                                            </tr>
-                                        }
-                                    }
-                                    @if (lijst.Count == 0)
-                                    {
-                                        <tr><td colspan="@(_typeFases.Count > 0 ? 7 : 6)" class="kiezer-info">@(soort == OpbouwSoort.Controle ? "Nog geen controles." : "Nog geen stappen.")</td></tr>
-                                    }
-                                </tbody>
-                            </table>
+                            <div class="opb-boom">
+                                <div class="opb-boomrij opb-boomkop">
+                                    <span></span><span>Fase / stap</span><span>Omschrijving</span><span></span><span>Documenten</span><span></span>
+                                </div>
+                                @BoomTak(_typeBoom.Wortels, 0)
+                                @if (_stappen.Count == 0)
+                                {
+                                    <div class="kiezer-info">Nog geen items. Begin met de eerste fase of stap.</div>
+                                }
+                            </div>
                             <div class="btngroup">
-                                <button class="klein" @onclick="() => NieuweStap(soort)">@(soort == OpbouwSoort.Controle ? "+ Check" : "+ Stap")</button>
+                                <button class="klein" @onclick="() => NieuwItem(null)">+ Item op het bovenste niveau</button>
                             </div>
                         }
                         else if (_naamId is int nid && _productId is int pid)
                         {
-                            <p class="uitleg">@(_typeFases.Count > 0
+                            <p class="uitleg">@(Hoofdfases.Count > 0
                                 ? "Werk de fases van boven naar beneden af. Alleen in de actieve fase kun je afvinken; elke wijziging komt in de historie van dit exemplaar."
                                 : "Vink af wat klaar is; elke wijziging komt in de historie van dit exemplaar.")</p>
-                            <OpbouwLijst @key="_tab" ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")"
-                                         ToonOpbouw="@(TabIsOpbouw || _typeFases.Count > 0)" ToonControle="@(TabIsEindcheck || _typeFases.Count > 0)"
-                                         OpGewijzigd="NaOpbouwWijziging" />
-                        }
+                            <OpbouwLijst ProductNameId="nid" ProductId="pid" HuidigeStatus="@(_product?.StatusKort ?? "")" OpGewijzigd="NaOpbouwWijziging" />
                         }
                     }
 
@@ -1451,12 +1344,6 @@
 
     private List<Keuze> Lijst(string naam) => _lijsten.TryGetValue(naam, out var l) ? l : GeenLijst;
 
-    /// <summary>
-    /// Bij een producttype drie tabbladen (zoals in Access), bij een exemplaar vijf.
-    /// </summary>
-    private bool TabIsOpbouw => _tab == "Opbouw";
-    private bool TabIsEindcheck => _tab == "Eindcheck";
-
     /// <summary>Opschrift van een tab; de interne naam blijft 'Programmeren' (per-pc onthouden, URL's).</summary>
     private string TabTitel(string tab) => tab switch
     {
@@ -1466,12 +1353,10 @@
     };
 
     private string[] Tabs => _productId is null
-        ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Eindcheck", "Techniek" }
-        : (Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
-            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Programmeren", "Opbouw", "Eindcheck" }
-            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw", "Eindcheck" })   // zonder werkplek-agent op deze pc geen Programmeren
-          // met fases is de eindcheck de laatste fase van de opbouw: geen eigen tabblad meer bij een exemplaar
-          .Where(t => t != "Eindcheck" || _typeFases.Count == 0).ToArray();
+        ? new[] { "Algemeen", "Documenten", "Attributen", "Samenstelling", "Opbouw", "Techniek" }
+        : Agent.Aanwezig == true && Ik.Werkplek?.Productie != false
+            ? new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Programmeren", "Opbouw" }
+            : new[] { "Algemeen", "Historie", "Todo", "Documenten", "Samenstelling", "Typeplaatje", "Attributen", "Opbouw" };   // zonder werkplek-agent op deze pc geen Programmeren
 
     private string Titel
     {
@@ -2483,25 +2368,25 @@
     // ================================================================
     private List<OpbouwStap> _stappen = new();
     private bool _opbouwOntbreekt;
-    private bool _heeftSoort = true;
     private int? _stapDocs;                       // stap waarvan de documenten open staan
     private List<Bestand> _stapDocumenten = new();
 
-    // Fases van het producttype (ProductFases_MariaDB.sql); leeg = geen fases, dan werkt alles zoals voorheen.
-    private List<ProductFase> _typeFases = new();
-    private bool _fasesAan;                       // de fase-tabellen bestaan
+    // De opbouwboom van het producttype (ProductOpbouwBoom_MariaDB.sql); de regels staan in Models/Opbouw.cs.
+    private OpbouwBoom _typeBoom = new(Array.Empty<OpbouwStap>());
+    private bool _boomAan;                        // de kolommen van de boom bestaan (anders alleen losse stappen)
+    /// <summary>De hoofdfases van dit type (leeg = type zonder fases); voor de kolom en het filter Fase in de historie.</summary>
+    private IReadOnlyList<OpbouwStap> Hoofdfases => _typeBoom.Hoofdfases;
 
     private async Task LaadOpbouw()
     {
-        _stappen = new(); _stapDocs = null; _stapDocumenten = new(); _typeFases = new();
+        _stappen = new(); _stapDocs = null; _stapDocumenten = new(); _typeBoom = new(Array.Empty<OpbouwStap>());
+        if (_tab == "Eindcheck") _tab = "Opbouw";      // het tabblad Eindcheck is opgegaan in de boom (per pc onthouden tab)
         if (_naamId is null || !Opbouw.Beschikbaar) return;
         try
         {
             _stappen = await Opbouw.GetStappenAsync(_naamId.Value, _productId); _opbouwOntbreekt = false;
-            _heeftSoort = await Opbouw.HeeftSoortAsync();
-            _fasesAan = await Opbouw.HeeftFasesAsync();
-            if (_fasesAan) _typeFases = await Opbouw.GetFasesAsync(_naamId.Value);
-            if (!Tabs.Contains(_tab)) _tab = _tab == "Eindcheck" ? "Opbouw" : "Algemeen";
+            _boomAan = await Opbouw.HeeftBoomAsync();
+            _typeBoom = new OpbouwBoom(_stappen);
         }
         catch (Exception ex)
         {
@@ -2510,61 +2395,78 @@
         }
     }
 
-    private async Task NieuweFase()
+    /// <summary>Eén tak van de boom om te onderhouden: per item een regel, met wat eronder hangt ingesprongen.</summary>
+    private RenderFragment BoomTak(IReadOnlyList<OpbouwStap> items, int diepte) => __builder =>
     {
-        if (_naamId is null) return;
-        try
-        {
-            await Opbouw.BewaarFaseAsync(new ProductFase { ProductNameId = _naamId.Value, Naam = "(nieuwe fase)" });
-            await LaadOpbouw();
-        }
-        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
-    }
+        <div class="opb-boomtak">
+            @for (var i = 0; i < items.Count; i++)
+            {
+                var s = items[i]; var idx = i; var aantal = items.Count;
+                var groep = _typeBoom.IsGroep(s);
+                <div class="opb-boomrij @(groep ? "groep" : "") @(_typeBoom.IsHoofdfase(s) ? "hoofdfase" : "")" @key="s.Id">
+                    <span class="opb-boomknoppen">
+                        <button class="klein" disabled="@(idx == 0)" title="Omhoog" @onclick="() => VerschuifItem(s, -1)">▲</button>
+                        <button class="klein" disabled="@(idx == aantal - 1)" title="Omlaag" @onclick="() => VerschuifItem(s, 1)">▼</button>
+                        <button class="klein" disabled="@(diepte == 0 || !_boomAan)" title="Uitspringen: een niveau omhoog" @onclick="() => Uitspringen(s)">◀</button>
+                        <button class="klein" disabled="@(idx == 0 || !_boomAan)" title="Inspringen: onder het item erboven hangen" @onclick="() => Inspringen(s)">▶</button>
+                    </span>
+                    <span class="opb-boomnaam" style="padding-left:@((diepte * 1.5).ToString(System.Globalization.CultureInfo.InvariantCulture))rem">
+                        <span class="opb-boomteken" title="@(groep ? (_typeBoom.IsHoofdfase(s) ? "Hoofdfase" : "Subfase") : _typeBoom.IsHoofdfase(s) ? "Hoofdfase zonder stappen" : "Stap")">@(_typeBoom.IsHoofdfase(s) ? _typeBoom.FaseNummer(s).ToString() : groep ? "▾" : "•")</span>
+                        <input value="@s.Naam" maxlength="80" @onchange="e => ZetStap(s, () => s.Naam = (string?)e.Value ?? string.Empty)" />
+                    </span>
+                    <input class="opb-boomoms" value="@s.Omschrijving" maxlength="500" placeholder="omschrijving" @onchange="e => ZetStap(s, () => s.Omschrijving = (string?)e.Value ?? string.Empty)" />
+                    <span class="opb-boomvlag">
+                        @if (groep)
+                        {
+                            <label class="vink" title="Wat onder deze (sub)fase hangt moet van boven naar beneden worden afgewerkt">
+                                <input type="checkbox" checked="@s.OpVolgorde" disabled="@(!_boomAan)" @onchange="e => ZetStap(s, () => s.OpVolgorde = e.Value is bool b && b)" /> op volgorde
+                            </label>
+                        }
+                        else if (!_typeBoom.IsHoofdfase(s))
+                        {
+                            <label class="vink" title="Een verplichte stap moet af zijn voordat de fase klaar kan">
+                                <input type="checkbox" checked="@s.Moet" @onchange="e => ZetStap(s, () => { s.Verplicht = e.Value is bool b && b; if (!s.Verplicht) s.Soort = OpbouwSoort.Opbouw; })" /> verplicht
+                            </label>
+                        }
+                    </span>
+                    <span class="opb-boomdocs">
+                        <button class="klein" title="Documenten met uitleg" @onclick="() => ToonStapDocs(s)">📎 @s.AantalDocumenten</button>
+                        <button class="klein" disabled="@(!_boomAan)" title="Een item onder dit item toevoegen (dit wordt dan een fase of subfase)" @onclick="() => NieuwItem(s)">+ onder</button>
+                    </span>
+                    <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStap(s)">✕</button>
+                </div>
+                @if (_stapDocs == s.Id)
+                {
+                    <div class="opb-docs opb-docsregel" @key="@($"{s.Id}-docs")">
+                        @foreach (var d in _stapDocumenten)
+                        {
+                            <span class="opb-doc">
+                                <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
+                                <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⬇</a>
+                                <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStapDoc(d)">✕</button>
+                            </span>
+                        }
+                        <InputFile OnChange="e => UploadStapDoc(s, e)" multiple />
+                    </div>
+                }
+                @if (groep)
+                {
+                    @BoomTak(_typeBoom.Kinderen(s), diepte + 1)
+                }
+            }
+        </div>
+    };
 
-    private async Task ZetFase(ProductFase f, Action wijzig)
-    {
-        wijzig();
-        try { await Opbouw.BewaarFaseAsync(f); Toon("Opgeslagen.", false); }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
-    }
-
-    private async Task VerschuifFase(ProductFase fase, int richting)
-    {
-        var lijst = _typeFases.ToList();
-        var index = lijst.IndexOf(fase);
-        var nieuw = index + richting;
-        if (index < 0 || nieuw < 0 || nieuw >= lijst.Count) return;
-        (lijst[index], lijst[nieuw]) = (lijst[nieuw], lijst[index]);
-        try { await Opbouw.ZetFaseVolgordeAsync(lijst.Select(f => f.Id).ToList()); await LaadOpbouw(); }
-        catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); }
-    }
-
-    private async Task VerwijderFase(ProductFase f)
-    {
-        var stappen = _stappen.Count(s => s.FaseId == f.Id);
-        bool ja;
-        try
-        {
-            ja = await JS.InvokeAsync<bool>("mdeBevestig",
-                $"Fase '{f.Naam}' verwijderen?\n\n" +
-                (stappen > 0 ? $"De {stappen} stap(pen) van deze fase blijven bestaan, maar hebben dan geen fase meer. " : "") +
-                "Bij exemplaren vervalt de stand (klaar/overgeslagen) van deze fase.");
-        }
-        catch { ja = false; }
-        if (!ja) return;
-        try { await Opbouw.VerwijderFaseAsync(f.Id); await LaadOpbouw(); Toon("Fase verwijderd.", false); }
-        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
-    }
-
-    private async Task NieuweStap(string soort)
+    /// <summary>Nieuw item: onder een ander item (dat wordt dan een fase of subfase), of op het bovenste niveau.</summary>
+    private async Task NieuwItem(OpbouwStap? onder)
     {
         if (_naamId is null) return;
         try
         {
             await Opbouw.BewaarStapAsync(new OpbouwStap
             {
-                ProductNameId = _naamId.Value, Soort = soort,
-                Naam = soort == OpbouwSoort.Controle ? "(nieuwe check)" : "(nieuwe stap)"
+                ProductNameId = _naamId.Value, ParentId = onder?.Id,
+                Naam = onder is null ? "(nieuwe fase of stap)" : "(nieuwe stap)"
             }, Ik.WerknemerId);
             await LaadOpbouw();
         }
@@ -2622,11 +2524,11 @@
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
     }
 
-    /// <summary>Een stap omhoog/omlaag binnen zijn eigen soort (opbouw of controle).</summary>
-    private async Task Verschuif(OpbouwStap stap, int richting)
+    /// <summary>Een item omhoog/omlaag tussen de items met dezelfde ouder.</summary>
+    private async Task VerschuifItem(OpbouwStap item, int richting)
     {
-        var lijst = _stappen.Where(s => s.Soort == stap.Soort).ToList();
-        var index = lijst.IndexOf(stap);
+        var lijst = _typeBoom.Broers(item).ToList();
+        var index = lijst.IndexOf(item);
         var nieuw = index + richting;
         if (index < 0 || nieuw < 0 || nieuw >= lijst.Count) return;
         (lijst[index], lijst[nieuw]) = (lijst[nieuw], lijst[index]);
@@ -2634,12 +2536,51 @@
         catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); }
     }
 
-    private async Task VerwijderStap(OpbouwStap s)
+    /// <summary>Inspringen: het item komt achteraan onder het item dat er direct boven staat.</summary>
+    private async Task Inspringen(OpbouwStap item)
     {
-        if (!await Bevestig($"Stap '{s.Naam}' verwijderen? De vinkjes van bestaande exemplaren voor deze stap gaan mee.")) return;
+        var broers = _typeBoom.Broers(item).ToList();
+        var index = broers.IndexOf(item);
+        if (index <= 0) return;
+        var ouder = broers[index - 1];
         try
         {
-            foreach (var d in await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id)) { try { await Store.VerwijderAsync(d.FileStoreId); } catch { } }
+            var kinderen = _typeBoom.Kinderen(ouder).Select(k => k.Id).Append(item.Id).ToList();
+            item.ParentId = ouder.Id;
+            await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
+            await Opbouw.ZetVolgordeAsync(kinderen);
+            await LaadOpbouw();
+        }
+        catch (Exception ex) { Toon("Inspringen mislukt: " + ex.Message, true); await LaadOpbouw(); }
+    }
+
+    /// <summary>Uitspringen: het item komt een niveau hoger, direct na de (sub)fase waar het onder hing.</summary>
+    private async Task Uitspringen(OpbouwStap item)
+    {
+        if (_typeBoom.Ouder(item) is not { } ouder) return;
+        try
+        {
+            var niveau = _typeBoom.Broers(ouder).Select(k => k.Id).ToList();
+            niveau.Insert(niveau.IndexOf(ouder.Id) + 1, item.Id);
+            item.ParentId = ouder.ParentId;
+            await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
+            await Opbouw.ZetVolgordeAsync(niveau);
+            await LaadOpbouw();
+        }
+        catch (Exception ex) { Toon("Uitspringen mislukt: " + ex.Message, true); await LaadOpbouw(); }
+    }
+
+    private async Task VerwijderStap(OpbouwStap s)
+    {
+        var eronder = _typeBoom.Nakomelingen(s).ToList();
+        var vraag = eronder.Count > 0
+            ? $"'{s.Naam}' verwijderen, met de {eronder.Count} item(s) die eronder hangen? De vinkjes van bestaande exemplaren gaan mee."
+            : $"'{s.Naam}' verwijderen? De vinkjes van bestaande exemplaren voor dit item gaan mee.";
+        if (!await Bevestig(vraag)) return;
+        try
+        {
+            foreach (var item in eronder.Prepend(s))
+                foreach (var d in await WnRepo.GetBestandenAsync(OpbouwStore.Stap, item.Id)) { try { await Store.VerwijderAsync(d.FileStoreId); } catch { } }
             await Opbouw.VerwijderStapAsync(s.Id);
             await LaadOpbouw();
         }
@@ -3057,10 +2998,10 @@
     private readonly HashSet<int> _histGekozen = new();
     /// <summary>Aangevinkt én nu zichtbaar: alleen die worden gewist (filter of ander exemplaar laat oude vinkjes vallen).</summary>
     private List<ProductGebeurtenis> HistGekozen => HistorieGefilterd.Where(h => _histGekozen.Contains(h.Id)).ToList();
-    private int HistKolommen => 4 + (HistToonVan ? 1 : 0) + (MagHistorieWissen ? 1 : 0) + (_typeFases.Count > 0 ? 1 : 0);
+    private int HistKolommen => 4 + (HistToonVan ? 1 : 0) + (MagHistorieWissen ? 1 : 0) + (Hoofdfases.Count > 0 ? 1 : 0);
 
-    // ---- fase bij een historieregel (ProductFases_MariaDB.sql): filter en achteraf aanpassen ----
-    private string _histFaseFilter = "";       // "" = alle, "0" = zonder fase, anders het FaseID
+    // ---- hoofdfase bij een historieregel (ProductOpbouwBoom_MariaDB.sql): filter en achteraf aanpassen ----
+    private string _histFaseFilter = "";       // "" = alle, "0" = zonder fase, anders het id van de hoofdfase
     private int? _histFaseBewerk;              // regel waarvan de fase nu te kiezen is
 
     private async Task ZetHistorieFase(ProductGebeurtenis h, ChangeEventArgs e)

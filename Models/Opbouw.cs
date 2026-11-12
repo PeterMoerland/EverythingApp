@@ -1,53 +1,126 @@
 namespace EverythingApp.Models;
 
-/// <summary>Eén stap in de opbouwvolgorde van een producttype (tab Opbouw).</summary>
+/// <summary>
+/// Eén item in de opbouwboom van een producttype (tab Opbouw; ProductOpbouwBoom_MariaDB.sql). Een item met iets eronder is
+/// een fase of subfase; een item zonder iets eronder is een stap die je bij een exemplaar afvinkt.
+/// </summary>
 public class OpbouwStap
 {
     public int Id { get; set; }
     public int ProductNameId { get; set; }
+    /// <summary>Het item waar dit onder hangt; null = bovenste niveau.</summary>
+    public int? ParentId { get; set; }
+    /// <summary>Volgorde binnen de items met dezelfde ouder.</summary>
     public int Volgorde { get; set; }
-    /// <summary>OpbouwSoort.Opbouw of OpbouwSoort.Controle.</summary>
+    /// <summary>Alleen nog herkomst: OpbouwSoort.Opbouw of OpbouwSoort.Controle (de vroegere eindchecks).</summary>
     public string Soort { get; set; } = OpbouwSoort.Opbouw;
-    /// <summary>De fase waar de stap bij hoort (ProductFases_MariaDB.sql); null = geen fase.</summary>
-    public int? FaseId { get; set; }
     public string Naam { get; set; } = "";
     public string Omschrijving { get; set; } = "";
     public bool Verplicht { get; set; } = true;
+    /// <summary>(Sub)fase: wat eronder hangt moet van boven naar beneden worden afgewerkt.</summary>
+    public bool OpVolgorde { get; set; }
     public int AantalDocumenten { get; set; }
 
-    // Bij een exemplaar: de status van deze stap.
+    // Bij een exemplaar: de status van dit item (stap afgevinkt, of hoofdfase afgerond).
     public bool Klaar { get; set; }
+    /// <summary>Hoofdfase overgeslagen in plaats van afgerond (dan is Klaar ook waar).</summary>
+    public bool Overgeslagen { get; set; }
     public DateTime? KlaarOp { get; set; }
     public string KlaarDoor { get; set; } = "";
     public string Opmerking { get; set; } = "";
+
+    /// <summary>Moet deze stap af zijn? (Een eindcheck van vóór de boom was altijd verplicht.)</summary>
+    public bool Moet => Verplicht || Soort == OpbouwSoort.Controle;
 }
 
 /// <summary>
-/// Een opbouwfase van een producttype (ProductFases_MariaDB.sql, voorstel Sjoerd Quist 11-2026). Bij een exemplaar ook de
-/// stand: klaar of overgeslagen, door wie en wanneer. De eerste fase zonder stand is de actieve fase.
+/// De opbouwboom van een producttype, met de regels voor fases (wens gebruiker 12-11-2026, voorstel Sjoerd Quist):
+/// <list type="bullet">
+/// <item>Staat er op het bovenste niveau een item met iets eronder, dan is het een type met fases: alle items op het
+/// bovenste niveau zijn hoofdfases. Die gaan op volgorde; de eerste die niet is afgerond is de actieve fase.</item>
+/// <item>Een hoofdfase is af als hij met de knop is afgerond (of overgeslagen). Een subfase is af als alles eronder af is;
+/// een stap als hij is afgevinkt of niet verplicht is.</item>
+/// <item>Werken kan alleen in de actieve hoofdfase; staat bij een (sub)fase "op volgorde" aan, dan ook pas als alles
+/// erboven binnen die (sub)fase af is.</item>
+/// </list>
+/// Zonder fases (alleen losse stappen) is alles vrij, zoals voorheen.
 /// </summary>
-public class ProductFase
+public sealed class OpbouwBoom
 {
-    public int Id { get; set; }
-    public int ProductNameId { get; set; }
-    public int Volgorde { get; set; }
-    public string Naam { get; set; } = "";
-    public string Omschrijving { get; set; } = "";
+    private static readonly IReadOnlyList<OpbouwStap> Leeg = Array.Empty<OpbouwStap>();
+    private readonly Dictionary<int, OpbouwStap> _opId;
+    private readonly Dictionary<int, List<OpbouwStap>> _kinderen;
 
-    // Bij een exemplaar
-    /// <summary>FaseStand.Klaar, FaseStand.Overgeslagen of leeg (nog niet af).</summary>
-    public string Stand { get; set; } = "";
-    public DateTime? Op { get; set; }
-    public string Door { get; set; } = "";
-    public string Opmerking { get; set; } = "";
+    public OpbouwBoom(IEnumerable<OpbouwStap> items)
+    {
+        Alle = items.OrderBy(s => s.Volgorde).ThenBy(s => s.Id).ToList();
+        _opId = Alle.ToDictionary(s => s.Id);
+        // een ouder die niet bestaat of een kringverwijzing: het item hoort dan op het bovenste niveau
+        var wortel = new HashSet<int>();
+        foreach (var s in Alle)
+        {
+            var gezien = new HashSet<int> { s.Id };
+            var p = s.ParentId;
+            while (p is int id)
+            {
+                if (!_opId.TryGetValue(id, out var ouder) || !gezien.Add(id)) { wortel.Add(s.Id); break; }
+                p = ouder.ParentId;
+            }
+        }
+        OpId = s => s.ParentId is int p && !wortel.Contains(s.Id) && _opId.TryGetValue(p, out var o) ? o : null;
+        _kinderen = Alle.Where(s => OpId(s) is not null).GroupBy(s => s.ParentId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+        Wortels = Alle.Where(s => OpId(s) is null).ToList();
+        MetFases = Wortels.Any(IsGroep);
+    }
 
-    public bool Af => Stand.Length > 0;
-}
+    private Func<OpbouwStap, OpbouwStap?> OpId { get; }
 
-public static class FaseStand
-{
-    public const string Klaar = "klaar";
-    public const string Overgeslagen = "overgeslagen";
+    public List<OpbouwStap> Alle { get; }
+    /// <summary>De items op het bovenste niveau, op volgorde.</summary>
+    public List<OpbouwStap> Wortels { get; }
+    /// <summary>Type met fases: op het bovenste niveau staat minstens één item met iets eronder.</summary>
+    public bool MetFases { get; }
+    /// <summary>De hoofdfases (leeg bij een type zonder fases).</summary>
+    public IReadOnlyList<OpbouwStap> Hoofdfases => MetFases ? Wortels : Leeg;
+    /// <summary>De eerste hoofdfase die niet is afgerond; null = alles af of geen fases.</summary>
+    public OpbouwStap? ActieveFase => MetFases ? Wortels.FirstOrDefault(w => !w.Klaar) : null;
+
+    public OpbouwStap? Ouder(OpbouwStap s) => OpId(s);
+    public IReadOnlyList<OpbouwStap> Kinderen(OpbouwStap s) => _kinderen.TryGetValue(s.Id, out var l) ? l : Leeg;
+    public IReadOnlyList<OpbouwStap> Broers(OpbouwStap s) => Ouder(s) is { } o ? Kinderen(o) : Wortels;
+    public bool IsGroep(OpbouwStap s) => Kinderen(s).Count > 0;
+    public bool IsHoofdfase(OpbouwStap s) => MetFases && Ouder(s) is null;
+    public int Diepte(OpbouwStap s) => Ouder(s) is { } o ? Diepte(o) + 1 : 0;
+    /// <summary>Het volgnummer van een hoofdfase (1, 2, …); 0 als het geen hoofdfase is.</summary>
+    public int FaseNummer(OpbouwStap s) => IsHoofdfase(s) ? Wortels.IndexOf(s) + 1 : 0;
+
+    /// <summary>Alles wat onder een item hangt, op elke diepte.</summary>
+    public IEnumerable<OpbouwStap> Nakomelingen(OpbouwStap s) => Kinderen(s).SelectMany(k => new[] { k }.Concat(Nakomelingen(k)));
+    /// <summary>De stappen (items zonder iets eronder) onder een item.</summary>
+    public IEnumerable<OpbouwStap> Stappen(OpbouwStap s) => Nakomelingen(s).Where(n => !IsGroep(n));
+
+    /// <summary>Is dit item af? Zie de regels bij de klasse.</summary>
+    public bool Af(OpbouwStap s) => IsHoofdfase(s) ? s.Klaar : IsGroep(s) ? Kinderen(s).All(Af) : s.Klaar || !s.Moet;
+    /// <summary>Is alles onder deze (hoofd)fase af (voor de knop Fase klaar)?</summary>
+    public bool InhoudAf(OpbouwStap s) => Kinderen(s).All(Af);
+
+    /// <summary>Mag hier nu gewerkt worden (afvinken)?</summary>
+    public bool Vrij(OpbouwStap s)
+    {
+        var ouder = Ouder(s);
+        if (ouder is null) return !MetFases || s.Id == ActieveFase?.Id;
+        if (!Vrij(ouder)) return false;
+        if (!ouder.OpVolgorde) return true;
+        foreach (var broer in Kinderen(ouder))
+        {
+            if (broer.Id == s.Id) return true;
+            if (!Af(broer)) return false;      // iets erboven is nog niet af
+        }
+        return true;
+    }
+
+    /// <summary>Alles af: alle hoofdfases afgerond, of (zonder fases) alle verplichte stappen afgevinkt.</summary>
+    public bool AllesAf => Alle.Count > 0 && Wortels.All(Af);
 }
 
 public static class OpbouwSoort

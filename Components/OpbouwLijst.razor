@@ -5,36 +5,43 @@
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
-@* Afvinklijst van een exemplaar: de opbouwstappen en daaronder de eindcontrole.
-   Elke wijziging komt in de historie; zijn alle verplichte opbouwstappen en alle
-   controles klaar, dan wordt de knop 'Product gereed' actief die de status van
-   het exemplaar omzet. Gebruikt in Half-fabricaten, Producten en het tabblad
-   Opbouw bij een exemplaar.
+@* De opbouwboom van een exemplaar (ProductOpbouwBoom_MariaDB.sql; wens gebruiker 12-11-2026, voorstel Sjoerd Quist):
+   fases, subfases en stappen in één boom, zoals bij het producttype vastgelegd (Producten ▸ type ▸ tab Opbouw).
 
-   Heeft het producttype fases (ProductFases_MariaDB.sql, voorstel Sjoerd Quist 11-2026), dan staan de stappen per fase
-   onder elkaar: afgeronde fases ingeklapt, de actieve fase open, latere fases op slot. Alleen in de actieve fase kun je
-   afvinken; "Fase klaar" (alle verplichte stappen af) of "Overslaan" gaat naar de volgende. De eindcheck is dan gewoon
-   de laatste fase. Zonder fases werkt het zoals voorheen. *@
+   Type met fases (op het bovenste niveau hangt iets onder een item): de hoofdfases staan onder elkaar, afgeronde
+   ingeklapt, de actieve open, latere op slot. Afvinken kan alleen in de actieve hoofdfase, en bij een (sub)fase met
+   "op volgorde" pas als alles erboven af is. Een hoofdfase rond je af met "Fase klaar" (alles eronder af) of sla je
+   over. Subfases krijgen vanzelf een vinkje. Zonder fases: losse stappen, vrij af te vinken, zoals voorheen.
 
-@if (_fases.Count > 0)
+   Elke wijziging komt in de historie; is alles af, dan wordt de knop 'Product gereed' actief die de status van het
+   exemplaar omzet. Gebruikt in Half-fabricaten, Producten (Productie) en het tabblad Opbouw bij een exemplaar. De
+   regels van de boom staan in Models/Opbouw.cs (OpbouwBoom). *@
+
+@if (_boom.Alle.Count == 0)
 {
-    @if (ToonOpbouw)
+    <p class="uitleg">Dit producttype heeft nog geen opbouwboom (Producten ▸ producttype ▸ tab Opbouw).</p>
+}
+else
+{
+    @if (ToonOpbouw && _boom.MetFases)
     {
+        var actieveFase = _boom.ActieveFase;
         <div class="fase-lijst">
-            @foreach (var f in _fases)
+            @foreach (var f in _boom.Wortels)
             {
-                var stappen = StappenVan(f).ToList();
-                var actief = f.Id == ActieveFaseId;
+                var actief = f.Id == actieveFase?.Id;
                 var open = actief || _faseOpen.Contains(f.Id);
-                <div class="fase-rij @(f.Af ? "af" : actief ? "actief" : "slot")" @key="f.Id">
-                    <button class="fase-kop" title="@(actief ? "Dit is de actieve fase" : open ? "Inklappen" : "Stappen bekijken")" @onclick="() => WisselOpen(f)">
-                        <span class="fase-teken">@(f.Stand == FaseStand.Overgeslagen ? "⏭" : f.Af ? "✓" : actief ? "▶" : "🔒")</span>
-                        <b>@f.Volgorde · @f.Naam</b>
+                var stappen = _boom.Stappen(f).ToList();
+                var nr = _boom.FaseNummer(f);
+                <div class="fase-rij @(f.Klaar ? "af" : actief ? "actief" : "slot")" @key="f.Id">
+                    <button class="fase-kop" title="@(actief ? "Dit is de actieve fase" : open ? "Inklappen" : "Bekijken")" @onclick="() => WisselOpen(f)">
+                        <span class="fase-teken">@(f.Klaar && f.Overgeslagen ? "⏭" : f.Klaar ? "✓" : actief ? "▶" : "🔒")</span>
+                        <b>@nr · @f.Naam</b>
                         <span class="fase-oms">@f.Omschrijving</span>
                         <span class="fase-rechts">
-                            @if (f.Af)
+                            @if (f.Klaar)
                             {
-                                @($"{(f.Stand == FaseStand.Overgeslagen ? "overgeslagen" : "klaar")} · {(f.Door.Length > 0 ? f.Door + " · " : "")}{f.Op:dd-MM-yyyy}")
+                                @($"{(f.Overgeslagen ? "overgeslagen" : "klaar")} · {(f.KlaarDoor.Length > 0 ? f.KlaarDoor + " · " : "")}{f.KlaarOp:dd-MM-yyyy}")
                             }
                             else if (actief)
                             {
@@ -49,27 +56,32 @@
                     @if (open)
                     {
                         <div class="fase-inhoud">
-                            @if (stappen.Count > 0)
+                            @if (f.AantalDocumenten > 0)
                             {
-                                @Tabel(stappen, actief)
+                                <button class="klein" title="Hands-on uitleg bij deze fase" @onclick="() => ToonDocs(f)">📎 @f.AantalDocumenten</button>
+                                @DocsVan(f)
+                            }
+                            @if (_boom.IsGroep(f))
+                            {
+                                @Tak(_boom.Kinderen(f))
                             }
                             else
                             {
                                 <p class="uitleg">Deze fase heeft geen afvinkstappen.@(actief ? " Klik op Fase klaar als het werk van deze fase gedaan is." : "")</p>
                             }
-                            @if (f.Af && f.Opmerking.Length > 0)
+                            @if (f.Klaar && f.Opmerking.Length > 0)
                             {
                                 <p class="uitleg">@f.Opmerking</p>
                             }
-                            @if (!f.Af && !actief)
+                            @if (!f.Klaar && !actief && actieveFase is not null)
                             {
-                                <p class="uitleg">Op slot: eerst fase @(_fases.First(x => x.Id == ActieveFaseId).Volgorde) · @(_fases.First(x => x.Id == ActieveFaseId).Naam) afronden.</p>
+                                <p class="uitleg">Op slot: eerst fase @_boom.FaseNummer(actieveFase) · @actieveFase.Naam afronden.</p>
                             }
                             @if (actief)
                             {
-                                var open_ = stappen.Count(s => !s.Klaar && Moet(s));
+                                var open_ = stappen.Count(s => !s.Klaar && s.Moet);
                                 <div class="btngroup fase-knoppen">
-                                    <button class="primair" disabled="@(_bezig || open_ > 0)" @onclick="() => FaseKlaar(f)"
+                                    <button class="primair" disabled="@(_bezig || !_boom.InhoudAf(f))" @onclick="() => FaseKlaar(f)"
                                             title="@(open_ > 0 ? "Eerst alle verplichte stappen van deze fase afvinken" : "Deze fase afronden en naar de volgende")">✔ Fase klaar</button>
                                     <button class="klein" disabled="@_bezig" @onclick="() => FaseOverslaan(f)"
                                             title="Deze fase overslaan omdat er niets te doen of niets gewijzigd is; je naam en het tijdstip komen in de historie">⏭ Overslaan</button>
@@ -84,32 +96,38 @@
                 </div>
             }
         </div>
-
-        @if (ZonderFase.Any())
-        {
-            <h4 class="prod-subkop">Zonder fase</h4>
-            <p class="uitleg">Deze stappen horen nog bij geen fase (Producten ▸ producttype ▸ tab Opbouw of Eindcheck, kolom Fase).</p>
-            @Tabel(ZonderFase, true)
-        }
+    }
+    else if (ToonOpbouw)
+    {
+        @* zonder fases: losse stappen (en eventueel groepen), vrij af te vinken *@
+        @Tak(_boom.Wortels)
     }
     else if (ToonControle)
     {
-        <p class="uitleg">De eindcheck is de laatste fase van de opbouw hierboven.</p>
+        <p class="uitleg">De eindcheck staat in de opbouwboom hierboven.</p>
     }
 
     @if (ToonControle)
     {
         <div class="btngroup prod-gereed">
-            <button class="primair" disabled="@(_bezig || !AllesKlaar || _isGereed)" @onclick="ZetGereed" title="@GereedTitel">
+            <button class="primair" disabled="@(_bezig || !_boom.AllesAf || _isGereed)" @onclick="ZetGereed" title="@GereedTitel">
                 ✔ Product gereed
             </button>
             @if (_isGereed)
             {
                 <span class="stand-chip s-groen">Status: @HuidigeStatus</span>
             }
-            else if (!AllesKlaar)
+            else if (!_boom.AllesAf)
             {
-                <span class="uitleg">nog @(_fases.Count(f => !f.Af)) fase@(_fases.Count(f => !f.Af) == 1 ? "" : "s") te doen</span>
+                @if (_boom.MetFases)
+                {
+                    var n = _boom.Wortels.Count(f => !f.Klaar);
+                    <span class="uitleg">nog @n fase@(n == 1 ? "" : "s") te doen</span>
+                }
+                else
+                {
+                    <span class="uitleg">nog @(_boom.Alle.Count(s => !_boom.IsGroep(s) && !s.Klaar && s.Moet)) te doen</span>
+                }
             }
             @if (_statusFout is not null)
             {
@@ -122,104 +140,34 @@
         <span class="uitleg fout-tekst">@_statusFout</span>
     }
 }
-else if (_stappen.Count == 0)
-{
-    <p class="uitleg">Dit producttype heeft nog geen opbouwstappen of eindchecks (Producten ▸ producttype ▸ tabs Opbouw en Eindcheck).</p>
-}
-else
-{
-    @if (ToonOpbouw && Opbouwstappen.Any())
-    {
-        <h4 class="prod-subkop">Opbouw <span class="stand-chip @(OpbouwKlaar ? "s-groen" : "s-geel")">@Opbouwstappen.Count(s => s.Klaar) van @Opbouwstappen.Count()</span></h4>
-        @Tabel(Opbouwstappen, true)
-    }
-    @if (ToonOpbouw && !ToonControle && !Opbouwstappen.Any())
-    {
-        <p class="uitleg">Dit producttype heeft geen opbouwstappen; zie de tab Eindcheck.</p>
-    }
-    @if (ToonControle && Controles.Any())
-    {
-        <h4 class="prod-subkop">Eindcontrole <span class="stand-chip @(ControlesKlaar ? "s-groen" : "s-geel")">@Controles.Count(s => s.Klaar) van @Controles.Count()</span></h4>
-        <p class="uitleg">Handmatige controle vóór het gereedmelden; vink elke check af nadat je hem hebt uitgevoerd.</p>
-        @Tabel(Controles, true)
-    }
-    @if (ToonControle && !Controles.Any())
-    {
-        <p class="uitleg">Dit producttype heeft nog geen eindchecks (Producten ▸ producttype ▸ tab Eindcheck).</p>
-    }
-
-    @if (ToonControle)
-    {
-    <div class="btngroup prod-gereed">
-        <button class="primair" disabled="@(_bezig || !AllesKlaar || _isGereed)" @onclick="ZetGereed"
-                title="@GereedTitel">
-            ✔ Product gereed
-        </button>
-        @if (_isGereed)
-        {
-            <span class="stand-chip s-groen">Status: @HuidigeStatus</span>
-        }
-        else if (!AllesKlaar)
-        {
-            <span class="uitleg">nog @(_stappen.Count(s => !s.Klaar && Moet(s))) te doen</span>
-        }
-        @if (_statusFout is not null)
-        {
-            <span class="uitleg fout-tekst">@_statusFout</span>
-        }
-    </div>
-    }
-    else if (_statusFout is not null)
-    {
-        <span class="uitleg fout-tekst">@_statusFout</span>
-    }
-}
 
 @code {
     [Parameter] public int ProductNameId { get; set; }
     [Parameter] public int ProductId { get; set; }
     /// <summary>Huidige status van het exemplaar (StatusKort), voor de gereed-knop.</summary>
     [Parameter] public string HuidigeStatus { get; set; } = "";
-    /// <summary>Opbouwstappen tonen (false = alleen de eindcontrole, als de opbouw elders al staat).</summary>
+    /// <summary>De opbouwboom tonen (false = alleen de knop 'Product gereed', als de boom elders al staat).</summary>
     [Parameter] public bool ToonOpbouw { get; set; } = true;
-    /// <summary>Eindcontrole en de knop 'Product gereed' tonen (false = alleen de opbouwstappen).</summary>
+    /// <summary>De knop 'Product gereed' tonen.</summary>
     [Parameter] public bool ToonControle { get; set; } = true;
     /// <summary>Na elke wijziging (vinkje of status), zodat de aanroeper historie/kaart kan verversen.</summary>
     [Parameter] public EventCallback OpGewijzigd { get; set; }
     /// <summary>Nadat de status op 'Gereed' is gezet (bv. om het scherm te wissen voor het volgende exemplaar). Geeft de statusnaam mee.</summary>
     [Parameter] public EventCallback<string> OpGereed { get; set; }
 
-    private List<OpbouwStap> _stappen = new();
-    private List<ProductFase> _fases = new();
-    private readonly HashSet<int> _faseOpen = new();     // fases die de gebruiker zelf openklapte (alleen kijken)
+    private OpbouwBoom _boom = new(Array.Empty<OpbouwStap>());
+    private readonly HashSet<int> _faseOpen = new();     // hoofdfases die de gebruiker zelf openklapte (alleen kijken)
     private int? _docsVoor;
     private List<Bestand> _docs = new();
     private bool _bezig;
     private string? _statusFout;
     private int _geladenVoor = -1;
 
-    private IEnumerable<OpbouwStap> Opbouwstappen => _stappen.Where(s => s.Soort != OpbouwSoort.Controle);
-    private IEnumerable<OpbouwStap> Controles => _stappen.Where(s => s.Soort == OpbouwSoort.Controle);
-    private bool OpbouwKlaar => Opbouwstappen.All(s => s.Klaar || !s.Verplicht);
-    private bool ControlesKlaar => Controles.All(s => s.Klaar);
-
-    /// <summary>Moet deze stap af zijn (verplichte opbouwstap of een eindcheck)?</summary>
-    private static bool Moet(OpbouwStap s) => s.Verplicht || s.Soort == OpbouwSoort.Controle;
-
-    // ---- fases ----
-    /// <summary>De eerste fase die niet klaar of overgeslagen is; null = alles af.</summary>
-    private int? ActieveFaseId => _fases.FirstOrDefault(f => !f.Af)?.Id;
-    private IEnumerable<OpbouwStap> StappenVan(ProductFase f) => _stappen.Where(s => s.FaseId == f.Id);
-    private IEnumerable<OpbouwStap> ZonderFase => _stappen.Where(s => s.FaseId is null || _fases.All(f => f.Id != s.FaseId));
-
-    private bool AllesKlaar => _fases.Count > 0
-        ? _fases.All(f => f.Af) && ZonderFase.All(s => s.Klaar || !Moet(s))
-        : _stappen.Count > 0 && OpbouwKlaar && ControlesKlaar;
     private string GereedStatusNaam => Config["Productie:GereedStatus"] ?? "Gereed";
     private bool _isGereed => HuidigeStatus.Contains(GereedStatusNaam, StringComparison.OrdinalIgnoreCase);
-    private string GereedTitel => AllesKlaar
+    private string GereedTitel => _boom.AllesAf
         ? $"Status van dit exemplaar op '{GereedStatusNaam}' zetten"
-        : _fases.Count > 0 ? "Eerst alle fases afronden" : "Eerst alle verplichte opbouwstappen en controles afvinken";
+        : _boom.MetFases ? "Eerst alle fases afronden" : "Eerst alle verplichte stappen afvinken";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -231,72 +179,116 @@ else
 
     public async Task Laad()
     {
-        _stappen = new(); _fases = new(); _docsVoor = null; _docs = new(); _statusFout = null;
-        if (!Opbouw.Beschikbaar || ProductNameId == 0) return;
-        try { _stappen = await Opbouw.GetStappenAsync(ProductNameId, ProductId); }
-        catch { /* tabellen ontbreken: lege lijst */ }
-        try { _fases = await Opbouw.GetFasesAsync(ProductNameId, ProductId); }
-        catch { _fases = new(); }      // zonder fases: de oude weergave
+        _docsVoor = null; _docs = new(); _statusFout = null;
+        var items = new List<OpbouwStap>();
+        if (Opbouw.Beschikbaar && ProductNameId != 0)
+        {
+            try { items = await Opbouw.GetStappenAsync(ProductNameId, ProductId); }
+            catch { /* tabellen ontbreken: lege boom */ }
+        }
+        _boom = new OpbouwBoom(items);
         StateHasChanged();   // ook als de aanroeper (een andere lijst op dezelfde pagina) ons herlaadt
     }
 
-    private void WisselOpen(ProductFase f)
+    private void WisselOpen(OpbouwStap f)
     {
-        if (f.Id == ActieveFaseId) return;      // de actieve fase staat altijd open
+        if (f.Id == _boom.ActieveFase?.Id) return;      // de actieve fase staat altijd open
         if (!_faseOpen.Remove(f.Id)) _faseOpen.Add(f.Id);
     }
 
-    /// <param name="bewerkbaar">Vinkjes te zetten (de actieve fase); anders alleen kijken.</param>
-    private RenderFragment Tabel(IEnumerable<OpbouwStap> stappen, bool bewerkbaar) => __builder =>
+    /// <summary>Een tak van de boom: subfases met hun inhoud, en stappen om af te vinken.</summary>
+    private RenderFragment Tak(IReadOnlyList<OpbouwStap> items) => __builder =>
     {
-        <table class="kiezer-tabel opb-tabel">
-            <tbody>
-                @foreach (var s in stappen)
+        <div class="opb-tak">
+            @foreach (var s in items)
+            {
+                var vrij = _boom.Vrij(s);
+                @if (_boom.IsGroep(s))
                 {
-                    <tr @key="s.Id" class="@(s.Klaar ? "hist-ok" : "")">
-                        <td style="width:3rem" class="c"><input type="checkbox" class="opb-vink" checked="@s.Klaar" disabled="@(_bezig || !bewerkbaar)"
-                                                                title="@(bewerkbaar ? null : "Alleen in de actieve fase kun je afvinken")" @onchange="e => Vink(s, e)" /></td>
-                        <td style="width:2.5rem"><span class="prod-nr klein-nr">@s.Volgorde</span></td>
-                        <td>
-                            <b>@s.Naam</b>@(Moet(s) ? "" : " (optioneel)")
-                            @if (s.Omschrijving.Length > 0) { <br /><small class="uitleg">@s.Omschrijving</small> }
-                        </td>
-                        <td style="width:16rem">@(s.Klaar ? $"{s.KlaarOp:dd-MM-yyyy HH:mm} · {s.KlaarDoor}" : "")</td>
-                        <td style="width:6rem">
+                    var af = _boom.Af(s);
+                    var st = _boom.Stappen(s).ToList();
+                    <div class="opb-groep @(af ? "af" : vrij ? "" : "slot")" @key="s.Id">
+                        <div class="opb-groepkop">
+                            <span class="fase-teken">@(af ? "✓" : vrij ? "▸" : "🔒")</span>
+                            <b>@s.Naam</b>
+                            @if (s.Omschrijving.Length > 0) { <span class="fase-oms">@s.Omschrijving</span> }
+                            @if (s.OpVolgorde) { <span class="opb-chip" title="De stappen hieronder moeten van boven naar beneden worden afgewerkt">op volgorde</span> }
                             @if (s.AantalDocumenten > 0)
                             {
                                 <button class="klein" title="Hands-on uitleg" @onclick="() => ToonDocs(s)">📎 @s.AantalDocumenten</button>
                             }
-                        </td>
-                    </tr>
-                    @if (_docsVoor == s.Id)
-                    {
-                        <tr @key="@($"{s.Id}-docs")" class="opb-docs">
-                            <td colspan="2"></td>
-                            <td colspan="3">
-                                @foreach (var d in _docs)
-                                {
-                                    <span class="opb-doc">
-                                        <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
-                                        <a class="knopje" href="@("bestand/" + d.FileStoreId + "/download")" title="Downloaden">⬇</a>
-                                    </span>
-                                }
-                                @if (_docs.Count == 0) { <span class="uitleg">geen documenten</span> }
-                            </td>
-                        </tr>
-                    }
+                            <span class="fase-rechts">@(vrij || af ? $"{st.Count(x => x.Klaar)} van {st.Count}" : "op slot")</span>
+                        </div>
+                        @DocsVan(s)
+                        @Tak(_boom.Kinderen(s))
+                    </div>
                 }
-            </tbody>
-        </table>
+                else
+                {
+                    <div class="opb-stap @(s.Klaar ? "klaar" : "") @(vrij ? "" : "slot")" @key="s.Id">
+                        <input type="checkbox" class="opb-vink" checked="@s.Klaar" disabled="@(_bezig || !vrij)"
+                               title="@(vrij ? null : SlotReden(s))" @onchange="e => Vink(s, e)" />
+                        <span class="opb-stapnaam">
+                            <b>@s.Naam</b>@(s.Moet ? "" : " (optioneel)")
+                            @if (s.Omschrijving.Length > 0) { <br /><small class="uitleg">@s.Omschrijving</small> }
+                        </span>
+                        <span class="opb-stapklaar">@(s.Klaar ? $"{s.KlaarOp:dd-MM-yyyy HH:mm} · {s.KlaarDoor}" : "")</span>
+                        <span class="opb-stapdocs">
+                            @if (s.AantalDocumenten > 0)
+                            {
+                                <button class="klein" title="Hands-on uitleg" @onclick="() => ToonDocs(s)">📎 @s.AantalDocumenten</button>
+                            }
+                        </span>
+                    </div>
+                    @DocsVan(s)
+                }
+            }
+        </div>
     };
+
+    /// <summary>De documenten van een item, als die open staan.</summary>
+    private RenderFragment DocsVan(OpbouwStap s) => __builder =>
+    {
+        if (_docsVoor == s.Id)
+        {
+            <div class="opb-docs opb-docsregel">
+                @foreach (var d in _docs)
+                {
+                    <span class="opb-doc">
+                        <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
+                        <a class="knopje" href="@("bestand/" + d.FileStoreId + "/download")" title="Downloaden">⬇</a>
+                    </span>
+                }
+                @if (_docs.Count == 0) { <span class="uitleg">geen documenten</span> }
+            </div>
+        }
+    };
+
+    /// <summary>Waarom een stap nu niet af te vinken is.</summary>
+    private string SlotReden(OpbouwStap s)
+    {
+        var wortel = s;
+        while (_boom.Ouder(wortel) is { } o) wortel = o;
+        if (_boom.MetFases && wortel.Id != _boom.ActieveFase?.Id)
+            return wortel.Klaar ? "Deze fase is al afgerond" : "Deze fase is nog niet aan de beurt";
+        return "Eerst afmaken wat hierboven staat (op volgorde)";
+    }
+
+    /// <summary>De naam van een stap met de subfases erboven (zonder de hoofdfase: die staat in de kolom Fase van de historie).</summary>
+    private string Pad(OpbouwStap s)
+    {
+        var delen = new List<string> { s.Naam };
+        for (var o = _boom.Ouder(s); o is not null && !_boom.IsHoofdfase(o); o = _boom.Ouder(o)) delen.Insert(0, o.Naam);
+        return string.Join(" › ", delen);
+    }
 
     private async Task Vink(OpbouwStap s, ChangeEventArgs e)
     {
         var klaar = e.Value is bool b && b;
-        // slot: met fases alleen de actieve fase (of een stap zonder fase); de server beslist, niet het uitgeschakelde vinkje
-        if (_fases.Count > 0 && s.FaseId is int fid && _fases.Any(f => f.Id == fid) && fid != ActieveFaseId)
+        // het slot geldt hier, niet alleen via het uitgeschakelde vinkje
+        if (!_boom.Vrij(s))
         {
-            _statusFout = "Deze stap hoort bij een andere fase dan de actieve.";
+            _statusFout = SlotReden(s) + ".";
             await Laad();
             return;
         }
@@ -304,9 +296,8 @@ else
         try
         {
             await Opbouw.ZetStatusAsync(ProductId, s.Id, klaar, Ik.WerknemerId);
-            var soort = s.Soort == OpbouwSoort.Controle ? "Eindcontrole" : "Opbouw";
             await Repo.VoegHistorieToeAsync(ProductId,
-                klaar ? $"{soort}: '{s.Naam}' klaar" : $"{soort}: '{s.Naam}' teruggezet naar niet klaar",
+                klaar ? $"Opbouw: '{Pad(s)}' klaar" : $"Opbouw: '{Pad(s)}' teruggezet naar niet klaar",
                 ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: klaar ? true : null);
             await Laad();
             await OpGewijzigd.InvokeAsync();
@@ -315,36 +306,36 @@ else
         finally { _bezig = false; }
     }
 
-    /// <summary>De actieve fase afronden: alle verplichte stappen zijn af.</summary>
-    private async Task FaseKlaar(ProductFase f)
+    /// <summary>De actieve hoofdfase afronden: alles eronder is af.</summary>
+    private async Task FaseKlaar(OpbouwStap f)
     {
-        if (f.Id != ActieveFaseId || StappenVan(f).Any(s => !s.Klaar && Moet(s))) return;
-        await ZetFase(f, FaseStand.Klaar, $"Fase {f.Volgorde} · {f.Naam}: klaar", true);
+        if (f.Id != _boom.ActieveFase?.Id || !_boom.InhoudAf(f)) return;
+        await ZetFase(f, false, $"Fase {_boom.FaseNummer(f)} · {f.Naam}: klaar", true);
     }
 
-    /// <summary>De actieve fase overslaan (keuze Sjoerd 11-11-2026: iedereen, één klik met een vraag; naam en tijd in de historie).</summary>
-    private async Task FaseOverslaan(ProductFase f)
+    /// <summary>De actieve hoofdfase overslaan (keuze Sjoerd 11-11-2026: iedereen, één klik met een vraag; naam en tijd in de historie).</summary>
+    private async Task FaseOverslaan(OpbouwStap f)
     {
-        if (f.Id != ActieveFaseId) return;
+        if (f.Id != _boom.ActieveFase?.Id) return;
         bool ja;
         try
         {
             ja = await JS.InvokeAsync<bool>("mdeBevestig",
-                $"Fase {f.Volgorde} · {f.Naam} overslaan?\n\nAlleen doen als er in deze fase niets te doen of niets gewijzigd is. " +
+                $"Fase {_boom.FaseNummer(f)} · {f.Naam} overslaan?\n\nAlleen doen als er in deze fase niets te doen of niets gewijzigd is. " +
                 "Je naam en het tijdstip komen in de historie.");
         }
         catch { ja = false; }
         if (!ja) return;
-        await ZetFase(f, FaseStand.Overgeslagen, $"Fase {f.Volgorde} · {f.Naam}: overgeslagen (niets te doen of niets gewijzigd)", null);
+        await ZetFase(f, true, $"Fase {_boom.FaseNummer(f)} · {f.Naam}: overgeslagen (niets te doen of niets gewijzigd)", null);
     }
 
-    private async Task ZetFase(ProductFase f, string stand, string historie, bool? uitkomst)
+    private async Task ZetFase(OpbouwStap f, bool overgeslagen, string historie, bool? uitkomst)
     {
         _bezig = true;
         _statusFout = null;
         try
         {
-            await Opbouw.ZetFaseStandAsync(ProductId, f.Id, stand, Ik.WerknemerId);
+            await Opbouw.ZetStatusAsync(ProductId, f.Id, true, Ik.WerknemerId, overgeslagen: overgeslagen);
             // de regel hoort bij de fase die net is afgerond, niet bij de volgende
             await Repo.VoegHistorieToeAsync(ProductId, historie, ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: uitkomst, faseId: f.Id);
             _faseOpen.Remove(f.Id);
@@ -362,10 +353,10 @@ else
         try { _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _docs = new(); }
     }
 
-    /// <summary>Alle checks klaar: status van het exemplaar op 'Gereed' (naam uit Productie:GereedStatus).</summary>
+    /// <summary>Alles af: status van het exemplaar op 'Gereed' (naam uit Productie:GereedStatus).</summary>
     private async Task ZetGereed()
     {
-        if (!AllesKlaar) return;
+        if (!_boom.AllesAf) return;
         _statusFout = null;
         try
         {
@@ -376,7 +367,7 @@ else
 
             _bezig = true;
             await Repo.UpdateVeldAsync(ProductId, "ProductStatusID", gereed.Id);
-            await Repo.VoegHistorieToeAsync(ProductId, $"Product gereed: status → {gereed.Naam} (opbouw en eindcontrole compleet)",
+            await Repo.VoegHistorieToeAsync(ProductId, $"Product gereed: status → {gereed.Naam} (opbouw compleet)",
                 ProductVelden.HistorieLevensloop, Ik.WerknemerId, uitkomst: true);
             HuidigeStatus = gereed.Naam;
             await OpGewijzigd.InvokeAsync();

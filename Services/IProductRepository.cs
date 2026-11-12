@@ -60,8 +60,8 @@ public interface IProductRepository
     // --- historie ---
     Task<List<ProductGebeurtenis>> GetHistorieAsync(int productId);
     /// <param name="uitkomst">true = geslaagd, false = mislukt, null = neutraal (kleur in de historie).</param>
-    /// <param name="faseId">De opbouwfase van de regel; niet opgegeven = de fase die nu actief is bij het exemplaar
-    /// (ProductFases_MariaDB.sql), zodat elke regel vanzelf zijn fase krijgt.</param>
+    /// <param name="faseId">De hoofdfase van de regel (een item op het bovenste niveau van de opbouwboom); niet opgegeven =
+    /// de fase die nu actief is bij het exemplaar (ProductOpbouwBoom_MariaDB.sql), zodat elke regel vanzelf zijn fase krijgt.</param>
     Task VoegHistorieToeAsync(int productId, string gebeurtenis, int? soortId, int? door, bool? uitkomst = null, int? faseId = null);
     /// <summary>De fase van een historieregel achteraf aanpassen (null = geen fase).</summary>
     Task ZetHistorieFaseAsync(int historieId, int? faseId);
@@ -849,9 +849,14 @@ public class MySqlProductRepository : IProductRepository
         await using var cmd = new MySqlCommand(
             "SELECT h.`ProductHistorieID`, h.`Event`, h.`HistorieTypeID`, h.`ToegevoegdOp`, " +
             $"       COALESCE(w.`NaamVoluit`, ''), {uitkomst}, " +
-            (metFase ? "pf.`FaseID`, COALESCE(CONCAT(pf.`Volgorde`, ' · ', pf.`Naam`), '') " : "NULL, '' ") +
+            // de hoofdfase: nummer = plek op het bovenste niveau van de boom, dan de naam
+            (metFase ? "pf.`OpbouwStapID`, COALESCE(CONCAT((SELECT COUNT(*) + 1 FROM `ProductOpbouwStappen` z " +
+                       "   WHERE z.`ProductNameID` = pf.`ProductNameID` AND z.`ParentStapID` IS NULL " +
+                       "     AND (z.`Volgorde` < pf.`Volgorde` OR (z.`Volgorde` = pf.`Volgorde` AND z.`OpbouwStapID` < pf.`OpbouwStapID`))), " +
+                       "   ' · ', pf.`Naam`), '') "
+                     : "NULL, '' ") +
             "  FROM `ProductHistorie` h " +
-            (metFase ? "  LEFT JOIN `ProductFases` pf ON pf.`FaseID` = h.`FaseID` " : "") +
+            (metFase ? "  LEFT JOIN `ProductOpbouwStappen` pf ON pf.`OpbouwStapID` = h.`FaseStapID` " : "") +
             "  LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = h.`ToegevoegdDoor` " +
             " WHERE h.`ProductID` = @id " +
             " ORDER BY h.`ToegevoegdOp` DESC, h.`ProductHistorieID` DESC", cn);
@@ -880,18 +885,22 @@ public class MySqlProductRepository : IProductRepository
     {
         await using var cn = await OpenAsync();
         var metUitkomst = uitkomst is not null && await HeeftUitkomstAsync(cn);
-        // de fase: opgegeven, of anders de fase die nu actief is (de eerste fase van het type zonder stand bij dit exemplaar)
+        // de fase: opgegeven, of anders de hoofdfase die nu actief is: het eerste item op het bovenste niveau van de boom dat
+        // bij dit exemplaar niet is afgerond; alleen bij een type met fases (er hangt iets onder een item van dat niveau)
         var metFase = await HeeftHistorieFaseAsync(cn);
         const string actieveFase =
-            "(SELECT f.`FaseID` FROM `ProductFases` f JOIN `Producten` p ON p.`ProductNameID` = f.`ProductNameID` " +
-            "  WHERE p.`ProductenID` = @id AND NOT EXISTS (SELECT 1 FROM `ProductFaseStatus` x " +
-            "                                              WHERE x.`ProductID` = @id AND x.`FaseID` = f.`FaseID`) " +
-            "  ORDER BY f.`Volgorde`, f.`FaseID` LIMIT 1)";
+            "(SELECT s.`OpbouwStapID` FROM `ProductOpbouwStappen` s JOIN `Producten` p ON p.`ProductNameID` = s.`ProductNameID` " +
+            "  WHERE p.`ProductenID` = @id AND s.`ParentStapID` IS NULL " +
+            "    AND EXISTS (SELECT 1 FROM `ProductOpbouwStappen` k JOIN `ProductOpbouwStappen` w ON w.`OpbouwStapID` = k.`ParentStapID` " +
+            "                 WHERE w.`ProductNameID` = s.`ProductNameID` AND w.`ParentStapID` IS NULL) " +
+            "    AND NOT EXISTS (SELECT 1 FROM `ProductOpbouwStatus` x " +
+            "                     WHERE x.`ProductID` = @id AND x.`OpbouwStapID` = s.`OpbouwStapID` AND x.`Klaar` <> 0) " +
+            "  ORDER BY s.`Volgorde`, s.`OpbouwStapID` LIMIT 1)";
         await using var cmd = new MySqlCommand(
             "INSERT INTO `ProductHistorie` SET `ProductID` = @id, `Event` = @event, " +
             "`HistorieTypeID` = @soort, `ToegevoegdDoor` = @door, `ToegevoegdOp` = NOW()" +
             (metUitkomst ? ", `Uitkomst` = @uitkomst" : "") +
-            (metFase ? ", `FaseID` = " + (faseId is null ? actieveFase : "@fase") : ""), cn);
+            (metFase ? ", `FaseStapID` = " + (faseId is null ? actieveFase : "@fase") : ""), cn);
         if (metFase && faseId is int fid) cmd.Parameters.AddWithValue("@fase", fid);
         cmd.Parameters.AddWithValue("@id", productId);
         cmd.Parameters.AddWithValue("@event", (gebeurtenis ?? "").Length > 250
@@ -918,23 +927,22 @@ public class MySqlProductRepository : IProductRepository
     {
         await using var cn = await OpenAsync();
         if (!await HeeftHistorieFaseAsync(cn)) return;
-        await using var cmd = new MySqlCommand("UPDATE `ProductHistorie` SET `FaseID` = @f WHERE `ProductHistorieID` = @id", cn);
+        await using var cmd = new MySqlCommand("UPDATE `ProductHistorie` SET `FaseStapID` = @f WHERE `ProductHistorieID` = @id", cn);
         cmd.Parameters.AddWithValue("@f", (object?)faseId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@id", historieId);
         await cmd.ExecuteNonQueryAsync();
     }
 
-    // Kolom FaseID in ProductHistorie en de fase-tabellen aanwezig? (ProductFases_MariaDB.sql) Alleen 'ja' wordt onthouden.
+    // Kolom FaseStapID in ProductHistorie en de opbouwboom aanwezig? (ProductOpbouwBoom_MariaDB.sql) Alleen 'ja' wordt onthouden.
     private bool _heeftHistorieFase;
     private async Task<bool> HeeftHistorieFaseAsync(MySqlConnection cn)
     {
         if (_heeftHistorieFase) return true;
         await using var cmd = new MySqlCommand(
-            "SELECT (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() " +
-            "           AND table_name = 'ProductHistorie' AND LOWER(column_name) = 'faseid') " +
-            "     + (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductFases') " +
-            "     + (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'ProductFaseStatus')", cn);
-        return _heeftHistorieFase = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 3;
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND " +
+            " ((table_name = 'ProductHistorie' AND LOWER(column_name) = 'fasestapid') " +
+            "  OR (table_name = 'ProductOpbouwStappen' AND LOWER(column_name) = 'parentstapid'))", cn);
+        return _heeftHistorieFase = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 2;
     }
 
     // Kolom Uitkomst aanwezig? (ProductTechniek_MariaDB.sql) Alleen 'ja' wordt onthouden.

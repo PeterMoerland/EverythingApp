@@ -1193,8 +1193,42 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
 .fase-rij.actief { background: #eaf0f7; }
 .fase-rij.actief .fase-kop { background: #dbe7f5; cursor: default; }
 .fase-rij.actief .fase-rechts { color: #12325c; font-weight: 600; }
-.fase-inhoud { padding: .5rem .8rem .7rem 2.8rem; }
+.fase-inhoud { padding: .4rem .8rem .7rem 1.2rem; }
 .fase-knoppen { margin-top: .5rem; align-items: center; }
+/* de boom binnen een fase: subfases en stappen (OpbouwLijst) */
+.opb-tak { display: flex; flex-direction: column; }
+.opb-tak .opb-tak { margin-left: .9rem; border-left: 2px solid #d3dce7; padding-left: .5rem; }
+.opb-stap { display: grid; grid-template-columns: 1.6rem minmax(8rem, 1fr) auto auto; gap: .5rem; align-items: start; padding: .3rem .2rem; border-bottom: 1px solid #e6ebf1; }
+.opb-stap.klaar { background: #eaf6ec; }
+.opb-stap.slot { color: #8a96a5; }
+.opb-stap .opb-vink { margin-top: .2rem; }
+.opb-stapklaar { font-size: .85em; color: var(--muted, #6b7280); text-align: right; }
+.opb-groep { margin: .35rem 0 .2rem; }
+.opb-groepkop { display: flex; align-items: baseline; gap: .55rem; padding: .3rem .2rem; font-size: .97em; }
+.opb-groep.slot > .opb-groepkop { color: #8a96a5; }
+.opb-groep.af > .opb-groepkop .fase-teken { color: #1e7a3c; }
+.opb-chip { font-size: .75em; border: 1px solid #b9c6d6; border-radius: 99px; padding: 0 .45rem; color: var(--muted, #6b7280); white-space: nowrap; }
+.opb-docsregel { padding: .3rem .2rem .4rem 2.5rem; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+/* de boom onderhouden bij het producttype (Producten ▸ type ▸ Opbouw) */
+.opb-boom { border: 1px solid #d3dce7; border-radius: 8px; overflow-x: auto; margin-bottom: .6rem; }
+.opb-boom > * { min-width: 46rem; }
+.opb-boomrij { display: grid; grid-template-columns: 6.8rem minmax(11rem, 1.2fr) minmax(6rem, 1fr) 7.2rem 7.6rem 2rem; gap: .4rem; align-items: center; padding: .25rem .5rem; border-bottom: 1px solid #e6ebf1; }
+.opb-boomkop { background: #f3f6fa; font-weight: 600; font-size: .85em; color: var(--muted, #6b7280); }
+.opb-boomrij.hoofdfase { background: #eef3f9; }
+.opb-boomrij.groep .opb-boomnaam input { font-weight: 600; }
+.opb-boomknoppen { display: flex; gap: 2px; }
+.opb-boomknoppen button { padding: 0 .2rem; min-width: 1.5rem; }
+.opb-boomnaam { display: flex; align-items: center; gap: .35rem; min-width: 0; }
+.opb-boomnaam input, .opb-boomoms { width: 100%; min-width: 0; }
+.opb-boomteken { flex: none; width: 1.3rem; text-align: center; color: var(--muted, #6b7280); font-weight: 600; }
+.opb-boomdocs { display: flex; gap: .3rem; white-space: nowrap; }
+.opb-boomvlag { font-size: .88em; white-space: nowrap; }
+html[data-thema="donker"] .opb-tak .opb-tak { border-left-color: #334051; }
+html[data-thema="donker"] .opb-stap { border-bottom-color: #2a3646; }
+html[data-thema="donker"] .opb-stap.klaar { background: #1b3325; }
+html[data-thema="donker"] .opb-boom, html[data-thema="donker"] .opb-boomrij { border-color: #334051; }
+html[data-thema="donker"] .opb-boomkop { background: var(--d3); }
+html[data-thema="donker"] .opb-boomrij.hoofdfase { background: #1d2a3a; }
 .hist-fasechip { border: none; background: #d9e8f8; color: #12325c; border-radius: 4px; padding: 1px 7px; font: inherit; font-size: .82em; cursor: pointer; white-space: nowrap; }
 .hist-fasechip.leeg { background: transparent; color: #9aa6b4; }
 .hist-fase select { max-width: 100%; }
