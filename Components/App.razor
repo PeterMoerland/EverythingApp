@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=392" />
+    <link rel="stylesheet" href="app.css?v=393" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -99,6 +99,88 @@
         window.mdeInBeeld = function (selector) {
             var e = document.querySelector(selector);
             if (e) e.scrollIntoView({ block: 'nearest' });
+        };
+
+        // Boom bewerken zoals de calculatieboom (Components/OpbouwBoomBewerker.razor): slepen met de greep (boven/onder een
+        // rij = ervoor/erna, erop = eronder hangen), sneltoetsen en het rechtermuismenu. De browser doet het tekenwerk
+        // (aanwijzers tijdens het slepen, standaardgedrag tegenhouden); de app krijgt alleen de uitkomst.
+        // Rijen: [data-boom-id]; een item met alles wat eronder hangt: [data-boom-tak]; data-plat="1" = geen niveaus.
+        // "Erna" staat op het hele item (de streep komt onder wat eronder hangt): daar komt het gesleepte item ook.
+        window.mdeBoomBewerk = {
+            koppel: function (el, net) {
+                if (!el || el._mdeBoomBewerk) return;
+                el._mdeBoomBewerk = true;
+                var bron = null;
+                function rij(t) { return t && t.closest ? t.closest('[data-boom-id]') : null; }
+                function wis(ookBron) {
+                    el.querySelectorAll('.sleep-voor,.sleep-na,.sleep-in' + (ookBron ? ',.sleept' : '')).forEach(function (x) {
+                        x.classList.remove('sleep-voor', 'sleep-na', 'sleep-in'); if (ookBron) x.classList.remove('sleept');
+                    });
+                }
+                el.addEventListener('dragstart', function (e) {
+                    var greep = e.target.closest ? e.target.closest('.boom-greep') : null, r = rij(e.target);
+                    if (!greep || !r) { e.preventDefault(); return; }
+                    bron = r.dataset.boomId;
+                    r.classList.add('sleept');
+                    e.dataTransfer.effectAllowed = 'move';
+                    try { e.dataTransfer.setData('text/plain', bron); e.dataTransfer.setDragImage(r, 12, 12); } catch (x) { }
+                });
+                el.addEventListener('dragover', function (e) {
+                    if (!bron) return;
+                    var r = rij(e.target);
+                    // niet op zichzelf of op iets wat eronder hangt
+                    if (!r || r.closest('[data-boom-tak="' + bron + '"]')) { wis(false); return; }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    var b = r.getBoundingClientRect(), y = (e.clientY - b.top) / b.height;
+                    var zone = el.dataset.plat === '1' ? (y < .5 ? 'voor' : 'na') : (y < .28 ? 'voor' : y > .72 ? 'na' : 'in');
+                    var merk = zone === 'na' ? (r.closest('[data-boom-tak]') || r) : r;
+                    if (!merk.classList.contains('sleep-' + zone)) { wis(false); merk.classList.add('sleep-' + zone); }
+                });
+                el.addEventListener('dragleave', function (e) { if (!el.contains(e.relatedTarget)) wis(false); });
+                el.addEventListener('drop', function (e) {
+                    if (!bron) return;
+                    e.preventDefault();
+                    var r = el.querySelector('.sleep-voor,.sleep-na,.sleep-in'), b = bron;
+                    var zone = !r ? null : r.classList.contains('sleep-voor') ? 'voor' : r.classList.contains('sleep-na') ? 'na' : 'in';
+                    bron = null; wis(true);
+                    if (r && zone) net.invokeMethodAsync('Verplaats', parseInt(b), parseInt(r.dataset.boomId || r.dataset.boomTak), zone);
+                });
+                el.addEventListener('dragend', function () { bron = null; wis(true); });
+                el.addEventListener('contextmenu', function (e) {
+                    var r = rij(e.target);
+                    if (!r) return;
+                    e.preventDefault();
+                    net.invokeMethodAsync('OpenMenu', parseInt(r.dataset.boomId), e.clientX, e.clientY);
+                });
+                el.addEventListener('keydown', function (e) {
+                    var r = rij(e.target), id = r ? parseInt(r.dataset.boomId) : 0, actie = null;
+                    if (e.key === 'Escape') { net.invokeMethodAsync('SluitMenu'); return; }
+                    if (e.ctrlKey && e.key === 'Enter') actie = e.shiftKey ? 'erin' : 'eronder';
+                    else if (e.altKey && e.shiftKey && e.key === 'ArrowLeft') actie = 'uit';
+                    else if (e.altKey && e.shiftKey && e.key === 'ArrowRight') actie = 'in';
+                    else if (e.altKey && !e.shiftKey && e.key === 'ArrowUp') actie = 'omhoog';
+                    else if (e.altKey && !e.shiftKey && e.key === 'ArrowDown') actie = 'omlaag';
+                    else if (!e.altKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && r && e.target.matches('input.boom-naam, input.boom-oms')) {
+                        // pijltje omhoog/omlaag: hetzelfde veld in de rij erboven of eronder
+                        var rijen = Array.prototype.slice.call(el.querySelectorAll('[data-boom-id]'));
+                        var doel = rijen[rijen.indexOf(r) + (e.key === 'ArrowUp' ? -1 : 1)];
+                        var veld = doel ? doel.querySelector(e.target.classList.contains('boom-oms') ? 'input.boom-oms' : 'input.boom-naam') : null;
+                        if (veld) { e.preventDefault(); veld.focus(); veld.select(); }
+                        return;
+                    }
+                    if (!actie) return;
+                    e.preventDefault();
+                    // wat je net typte eerst opslaan (de browser meldt een wijziging pas bij het verlaten van het veld)
+                    if (e.target.matches && e.target.matches('input') && e.target.value !== e.target.defaultValue)
+                        e.target.dispatchEvent(new Event('change', { bubbles: true }));
+                    net.invokeMethodAsync('Toets', id, actie);
+                });
+            },
+            focus: function (el, id) {
+                var veld = el ? el.querySelector('[data-boom-id="' + id + '"] input.boom-naam') : null;
+                if (veld && document.activeElement !== veld) { veld.focus(); veld.select(); }
+            }
         };
 
         // Opnieuw aanmelden bij Google in een pop-up (GoogleHerstelVenster): het scherm eronder blijft staan. Als de pop-up

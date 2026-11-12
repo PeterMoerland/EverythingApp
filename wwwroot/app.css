@@ -1209,26 +1209,70 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
 .opb-groep.af > .opb-groepkop .fase-teken { color: #1e7a3c; }
 .opb-chip { font-size: .75em; border: 1px solid #b9c6d6; border-radius: 99px; padding: 0 .45rem; color: var(--muted, #6b7280); white-space: nowrap; }
 .opb-docsregel { padding: .3rem .2rem .4rem 2.5rem; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-/* de boom onderhouden bij het producttype (Producten ▸ type ▸ Opbouw) */
-.opb-boom { border: 1px solid #d3dce7; border-radius: 8px; overflow-x: auto; margin-bottom: .6rem; }
-.opb-boom > * { min-width: 46rem; }
-.opb-boomrij { display: grid; grid-template-columns: 6.8rem minmax(11rem, 1.2fr) minmax(6rem, 1fr) 7.2rem 7.6rem 2rem; gap: .4rem; align-items: center; padding: .25rem .5rem; border-bottom: 1px solid #e6ebf1; }
-.opb-boomkop { background: #f3f6fa; font-weight: 600; font-size: .85em; color: var(--muted, #6b7280); }
-.opb-boomrij.hoofdfase { background: #eef3f9; }
-.opb-boomrij.groep .opb-boomnaam input { font-weight: 600; }
-.opb-boomknoppen { display: flex; gap: 2px; }
-.opb-boomknoppen button { padding: 0 .2rem; min-width: 1.5rem; }
-.opb-boomnaam { display: flex; align-items: center; gap: .35rem; min-width: 0; }
-.opb-boomnaam input, .opb-boomoms { width: 100%; min-width: 0; }
-.opb-boomteken { flex: none; width: 1.3rem; text-align: center; color: var(--muted, #6b7280); font-weight: 600; }
-.opb-boomdocs { display: flex; gap: .3rem; white-space: nowrap; }
-.opb-boomvlag { font-size: .88em; white-space: nowrap; }
+/* De boom onderhouden bij het producttype (Producten ▸ type ▸ Opbouw; Components/OpbouwBoomBewerker.razor): een rustige
+   boom zoals de calculatieboom. Velden zonder rand tot je erin staat; slepen met de greep; de rest in het rechtermuismenu. */
+.boomb { border: 1px solid #d3dce7; border-radius: 8px; margin-bottom: .6rem; background: #fff; }
+.boomb-balk { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .4rem .6rem; border-bottom: 1px solid #e6ebf1; background: #f3f6fa; border-radius: 8px 8px 0 0; }
+.boomb-status { color: #1e7a3c; font-size: .82em; white-space: nowrap; }
+.boomb-hulp { margin-left: auto; color: var(--muted, #6b7280); font-size: .82em; }
+.boomb-hulp kbd, .boomb-menu kbd { font: inherit; font-size: .88em; padding: 0 .25rem; border: 1px solid #cfd8e3; border-radius: 3px; background: #fff; color: #44546a; white-space: nowrap; }
+.boomb-lijst { padding: .3rem 0; overflow-x: auto; }
+.boomb-rij { display: flex; align-items: center; gap: .25rem; min-width: 32rem; padding: 0 .5rem 0 calc(.35rem + var(--diepte, 0) * 1.5rem); border-top: 2px solid transparent; border-bottom: 2px solid transparent; }
+.boomb-rij:hover { background: #f6f9fc; }
+.boomb-rij.gekozen { background: #e8f1fc; }
+.boomb .boom-greep { flex: none; cursor: grab; color: #c3ccd7; user-select: none; padding: 0 .1rem; line-height: 1; }
+.boomb-rij:hover .boom-greep, .boomb-rij.gekozen .boom-greep { color: #6b7887; }
+.boomb .boomb-pijl { flex: none; width: 1.1rem; padding: 0; border: none; background: none; color: #6b7480; font-size: .8rem; line-height: 1.4rem; text-align: center; }
+.boomb button.boomb-pijl { cursor: pointer; }
+.boomb button.boomb-pijl:hover:not(:disabled) { background: none; color: var(--accent); }
+.boomb-nr { flex: none; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: var(--accent); color: #fff; font-size: .78rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.boomb-punt { flex: none; width: .8rem; text-align: center; color: #9aa5b1; }
+.boomb .boom-naam, .boomb .boom-oms { min-width: 0; font: inherit; padding: .22rem .35rem; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; }
+.boomb .boom-naam { flex: 0 1 19rem; }
+.boomb .boom-oms { flex: 1 1 9rem; font-size: .92em; color: var(--muted, #6b7280); }
+.boomb-rij.groep .boom-naam { font-weight: 600; }
+.boomb-rij:hover .boom-naam, .boomb-rij:hover .boom-oms { border-color: #d3dce7; }
+.boomb .boom-naam:focus, .boomb .boom-oms:focus { border-color: var(--accent); background: #fff; outline: none; color: inherit; }
+.boomb-rij:not(:hover):not(.gekozen) .boom-oms::placeholder { color: transparent; }
+.boomb-vlaggen { flex: none; display: inline-flex; align-items: center; gap: .3rem; }
+.boomb .boomb-vlag { font: inherit; font-size: .76em; padding: .02rem .45rem; border: 1px solid #b9c6d6; border-radius: 99px; background: #fff; color: #44546a; white-space: nowrap; cursor: pointer; }
+.boomb-aantal { font-size: .78em; color: #8a96a5; white-space: nowrap; }
+.boomb .boomb-meer { flex: none; border: none; background: none; padding: 0 .35rem; color: #8a96a5; font-size: 1.05rem; line-height: 1; cursor: pointer; visibility: hidden; }
+.boomb-rij:hover .boomb-meer, .boomb-rij.gekozen .boomb-meer { visibility: visible; }
+.boomb .boomb-meer:hover:not(:disabled) { background: none; color: var(--accent); }
+.boomb-docs { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .3rem .6rem .45rem calc(3.4rem + var(--diepte, 0) * 1.5rem); background: #f7f9fc; }
+/* slepen: streep boven de rij = ervoor, streep onder het item (met wat eronder hangt) = erna, gekleurde rij = eronder hangen */
+.boomb .sleept { opacity: .4; }
+.boomb-rij.sleep-voor { border-top-color: #2f7de1; }
+.boomb-tak.sleep-na { box-shadow: 0 2px 0 #2f7de1; position: relative; z-index: 1; }
+.boomb-rij.sleep-in { background: #d5e5f9; outline: 2px solid #2f7de1; outline-offset: -2px; border-radius: 4px; }
+/* het rechtermuismenu */
+.boomb-achter { position: fixed; inset: 0; z-index: 500; }
+.boomb-menu { position: fixed; z-index: 501; min-width: 17rem; max-width: 22rem; display: flex; flex-direction: column; padding: .3rem; background: #fff; border: 1px solid #cfd8e3; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.boomb-menukop { padding: .25rem .6rem .35rem; font-size: .82em; font-weight: 600; color: var(--muted, #6b7280); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.boomb-menu button { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; border: none; background: none; padding: .32rem .6rem; border-radius: 5px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.boomb-menu button:hover:not(:disabled) { background: #e8f1fc; }
+.boomb-menu button.gevaar { color: var(--rood); }
+.boomb-menu hr { border: none; border-top: 1px solid #e6ebf1; margin: .25rem 0; width: 100%; }
 html[data-thema="donker"] .opb-tak .opb-tak { border-left-color: #334051; }
 html[data-thema="donker"] .opb-stap { border-bottom-color: #2a3646; }
 html[data-thema="donker"] .opb-stap.klaar { background: #1b3325; }
-html[data-thema="donker"] .opb-boom, html[data-thema="donker"] .opb-boomrij { border-color: #334051; }
-html[data-thema="donker"] .opb-boomkop { background: var(--d3); }
-html[data-thema="donker"] .opb-boomrij.hoofdfase { background: #1d2a3a; }
+html[data-thema="donker"] .boomb { background: transparent; border-color: #334051; }
+html[data-thema="donker"] .boomb-balk { background: var(--d3); border-color: #334051; }
+html[data-thema="donker"] .boomb-status { color: #6fcf8f; }
+html[data-thema="donker"] .boomb-hulp kbd, html[data-thema="donker"] .boomb-menu kbd { background: #1b2533; border-color: #3a4a5e; color: #c3d0e0; }
+html[data-thema="donker"] .boomb-rij:hover { background: #1c2735; }
+html[data-thema="donker"] .boomb-rij.gekozen { background: #1d2f47; }
+html[data-thema="donker"] .boomb-rij:hover .boom-naam, html[data-thema="donker"] .boomb-rij:hover .boom-oms { border-color: #3a4a5e; }
+html[data-thema="donker"] .boomb .boom-naam:focus, html[data-thema="donker"] .boomb .boom-oms:focus { background: #131b26; }
+html[data-thema="donker"] .boomb .boomb-vlag { background: #1b2533; border-color: #3a4a5e; color: #c3d0e0; }
+html[data-thema="donker"] .boomb-docs { background: #1b2a3f; }
+html[data-thema="donker"] .boomb-rij.sleep-in { background: #1f3a5f; }
+html[data-thema="donker"] .boomb-menu { background: #1b2533; border-color: #3a4a5e; }
+html[data-thema="donker"] .boomb-menu button, html[data-thema="donker"] .boomb .boomb-pijl, html[data-thema="donker"] .boomb .boomb-meer { background: none; border: none; }
+html[data-thema="donker"] .boomb-menu button.gevaar { color: #ff8a80; }
+html[data-thema="donker"] .boomb .boomb-menu button:hover:not(:disabled) { background: #26405f; }
+html[data-thema="donker"] .boomb-menu hr { border-top-color: #334051; }
 .hist-fasechip { border: none; background: #d9e8f8; color: #12325c; border-radius: 4px; padding: 1px 7px; font: inherit; font-size: .82em; cursor: pointer; white-space: nowrap; }
 .hist-fasechip.leeg { background: transparent; color: #9aa6b4; }
 .hist-fase select { max-width: 100%; }

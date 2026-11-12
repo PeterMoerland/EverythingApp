@@ -2311,9 +2311,27 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
 - `Components/OpbouwLijst.razor`: de boom bij een exemplaar (hoofdfases ingeklapt/actief/op slot, `Tak` recursief,
   `Vink` controleert `Vrij` ook server-side, Fase klaar / Overslaan). Gebruikt in Producten (tab Opbouw; het tabblad
   Eindcheck is weg, ook bij het type), ProductieProduct en ExemplaarWerk.
-- Onderhoud bij het type (Producten.razor, `BoomTak`): ▲▼ tussen items met dezelfde ouder, ◀ uitspringen, ▶ inspringen
-  (onder het item erboven), "+ onder", verplicht (stap) of op volgorde ((sub)fase), documenten, verwijderen met alles
-  eronder (`VerwijderStapAsync` haalt de hele tak weg).
+- Onderhoud bij het type: `Components/OpbouwBoomBewerker.razor` (wens gebruiker later op 12-11-2026: "erg druk
+  formulier met veel knopjes", bedienen zoals de calculatieboom). Per rij alleen greep ⠿, in-/uitklappijl, naam en
+  omschrijving (velden zonder rand tot je erin staat) en kleine labels voor wat afwijkt ("↓ op volgorde", "optioneel",
+  📎 n; klik = uitzetten/openen). **Slepen** met de greep: bovenste kwart van een rij = ervoor, onderste = erna (de
+  streep staat onder het hele item met wat eronder hangt, daar komt hij ook), midden = eronder hangen (achteraan);
+  niet op zichzelf of iets wat eronder hangt. **Sneltoetsen**: Ctrl+Enter nieuw item hierna, Ctrl+Shift+Enter nieuw
+  item eronder, Alt+Shift+←/→ uit-/inspringen, Alt+↑/↓ schuiven, ↑/↓ zelfde veld in de rij erboven/eronder, Esc sluit
+  het menu. **Rechtermuismenu** (of ⋯ op de rij): dezelfde handelingen plus Verplicht (stap) / Op volgorde ((sub)fase),
+  Documenten en Verwijderen… (met alles eronder; `VerwijderStapAsync` haalt de hele tak weg). Balk: + Nieuw item,
+  Uitspringen, Inspringen, status ("Opgeslagen · tijd") en de sneltoetsen.
+  Het browserdeel is `window.mdeBoomBewerk` in App.razor (`koppel(el, net)`, `focus(el, id)`; **niet** `mdeBoom`, dat
+  is het verhangen van werkorders bij Projecten): tekent de aanwijzers (`sleep-voor/na/in`, `sleept`) en roept
+  `Verplaats(bron, doel, zone)`, `OpenMenu(id, x, y)`, `SluitMenu()` en `Toets(id, actie)` aan. Een sneltoets stuurt
+  eerst een `change` van het veld waar je in staat, zodat wat je net typte bewaard is. Alle wijzigingen lopen door één
+  `SemaphoreSlim` (volgorde van geven). Na een wijziging in de opbouw roept de bewerker `OpGewijzigd` aan; Producten
+  laadt dan met `HerlaadOpbouw` (zonder eerst leeg te maken, anders verdwijnen de rijen even en is de cursor weg) en
+  de bewerker zet de cursor terug (`_focusNa`). Zonder boomkolommen (`BoomAan` false): platte lijst, alleen ervoor/erna.
+  Lokaal getest met een tijdelijke repository in het geheugen (scratchpad `boomb_tijdelijk.py`): alle sneltoetsen,
+  menu, slepen (ervoor, erna, eronder, weigeren onder zichzelf), inklappen, verwijderen, licht en donker. **Niet
+  getest**: tegen de echte tabel, de platte lijst zonder boomkolommen, documenten uploaden, en slepen met een echte muis
+  (de test stuurde de sleepgebeurtenissen vanuit de pagina).
 - Historie: `VoegHistorieToeAsync(..., faseId)`; niet opgegeven = subquery op de actieve hoofdfase, dus alle bestaande
   aanroepen krijgen vanzelf een fase. Kolom Fase (klik = aanpassen, `ZetHistorieFaseAsync`) en filter op fase.
 - Getest lokaal met tijdelijke nep-gegevens (scratchpad `boom_tijdelijk.py`), niets geschreven. **Niet getest**: het

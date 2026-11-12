@@ -1,0 +1,462 @@
+@inject IOpbouwRepository Opbouw
+@inject IWerknemerRepository WnRepo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@implements IDisposable
+
+@* De opbouwboom van een producttype onderhouden (Producten ▸ type ▸ tab Opbouw). Wens gebruiker 12-11-2026: geen druk
+   formulier met knopjes per regel, maar bedienen zoals de calculatieboom:
+   - slepen met de greep ⠿: boven of onder een rij loslaten = ervoor of erna, op een rij = eronder hangen;
+   - sneltoetsen: Ctrl+Enter nieuw item hierna, Ctrl+Shift+Enter nieuw item eronder, Alt+Shift+←/→ uit- en inspringen,
+     Alt+↑/↓ schuiven, ↑/↓ naar de rij erboven of eronder;
+   - rechtermuisknop (of ⋯) voor de rest: verplicht, op volgorde, documenten, verwijderen.
+   Het browserdeel staat in App.razor (window.mdeBoomBewerk); de regels van de boom in Models/Opbouw.cs. Alles wordt meteen
+   opgeslagen; na een wijziging in de opbouw vraagt dit onderdeel de pagina om de boom opnieuw te laden (OpGewijzigd). *@
+
+<div class="boomb" @ref="_el" data-plat="@(BoomAan ? "0" : "1")">
+    <div class="boomb-balk">
+        <button class="klein" title="Nieuw item na het gekozen item (Ctrl+Enter); zonder keuze achteraan" @onclick="@(() => Doe(_gekozen ?? 0, "eronder"))">+ Nieuw item</button>
+        @if (BoomAan)
+        {
+            <button class="klein" disabled="@(!KanUit(Vind(_gekozen)))" title="Een niveau omhoog (Alt+Shift+←)" @onclick="@(() => Doe(_gekozen ?? 0, "uit"))">⇤ Uitspringen</button>
+            <button class="klein" disabled="@(!KanIn(Vind(_gekozen)))" title="Onder het item erboven hangen (Alt+Shift+→)" @onclick="@(() => Doe(_gekozen ?? 0, "in"))">⇥ Inspringen</button>
+        }
+        @if (_status.Length > 0) { <span class="boomb-status">@_status</span> }
+        <span class="boomb-hulp">
+            Slepen met ⠿ · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> nieuw · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> uit-/inspringen ·
+            <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> schuiven · rechtermuisknop voor meer
+        </span>
+    </div>
+    <div class="boomb-lijst">
+        @Tak(Boom.Wortels, 0)
+        @if (Boom.Alle.Count == 0)
+        {
+            <div class="kiezer-info">Nog geen items. Klik op “+ Nieuw item” voor de eerste fase of stap.</div>
+        }
+    </div>
+
+    @if (_menu is { } m && Vind(m.Id) is { } ms)
+    {
+        var mGroep = Boom.IsGroep(ms);
+        var mHoofd = Boom.IsHoofdfase(ms);
+        var mRij = Boom.Broers(ms);
+        var mPlek = mRij.ToList().IndexOf(ms);
+        <div class="boomb-achter" @onclick="SluitMenu" @oncontextmenu="SluitMenu" @oncontextmenu:preventDefault></div>
+        <div class="boomb-menu" role="menu" style="left:min(@Px(m.X), calc(100vw - 23rem));top:min(@Px(m.Y), calc(100vh - 24rem))">
+            <div class="boomb-menukop">@(ms.Naam.Length > 0 ? ms.Naam : "(zonder naam)")</div>
+            <button role="menuitem" @onclick="@(() => Doe(ms.Id, "eronder"))"><span>+ @(mHoofd ? "Fase" : mGroep ? "Subfase" : "Stap") hierna</span><kbd>Ctrl+Enter</kbd></button>
+            @if (BoomAan)
+            {
+                <button role="menuitem" title="@(mGroep ? "Achteraan in deze fase" : "Dit item wordt dan een fase of subfase")" @onclick="@(() => Doe(ms.Id, "erin"))"><span>+ Stap @(mGroep ? "in deze fase" : "eronder")</span><kbd>Ctrl+Shift+Enter</kbd></button>
+                <hr />
+                <button role="menuitem" disabled="@(!KanUit(ms))" @onclick="@(() => Doe(ms.Id, "uit"))"><span>⇤ Uitspringen</span><kbd>Alt+Shift+←</kbd></button>
+                <button role="menuitem" disabled="@(!KanIn(ms))" @onclick="@(() => Doe(ms.Id, "in"))"><span>⇥ Inspringen</span><kbd>Alt+Shift+→</kbd></button>
+            }
+            <button role="menuitem" disabled="@(mPlek <= 0)" @onclick="@(() => Doe(ms.Id, "omhoog"))"><span>↑ Omhoog</span><kbd>Alt+↑</kbd></button>
+            <button role="menuitem" disabled="@(mPlek >= mRij.Count - 1)" @onclick="@(() => Doe(ms.Id, "omlaag"))"><span>↓ Omlaag</span><kbd>Alt+↓</kbd></button>
+            <hr />
+            @if (mGroep)
+            {
+                <button role="menuitem" title="Wat onder deze (sub)fase hangt moet van boven naar beneden worden afgewerkt" @onclick="@(() => Doe(ms.Id, "volgorde"))"><span>@(ms.OpVolgorde ? "☑" : "☐") Op volgorde afwerken</span></button>
+            }
+            else if (!mHoofd)
+            {
+                <button role="menuitem" title="Een verplichte stap moet af zijn voordat de fase klaar kan" @onclick="@(() => Doe(ms.Id, "verplicht"))"><span>@(ms.Moet ? "☑" : "☐") Verplicht</span></button>
+            }
+            <button role="menuitem" @onclick="@(() => Doe(ms.Id, "docs"))"><span>📎 Documenten met uitleg…</span>@if (ms.AantalDocumenten > 0) { <kbd>@ms.AantalDocumenten</kbd> }</button>
+            <hr />
+            <button role="menuitem" class="gevaar" @onclick="@(() => Doe(ms.Id, "verwijder"))"><span>Verwijderen…</span></button>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Het producttype waarvan dit de opbouw is.</summary>
+    [Parameter, EditorRequired] public int ProductNameId { get; set; }
+    /// <summary>De boom zoals de pagina hem geladen heeft; na OpGewijzigd komt hier de nieuwe.</summary>
+    [Parameter, EditorRequired] public OpbouwBoom Boom { get; set; } = new(Array.Empty<OpbouwStap>());
+    /// <summary>Zijn de kolommen van de boom er (ProductOpbouwBoom_MariaDB.sql)? Zonder: een platte lijst, zonder niveaus.</summary>
+    [Parameter] public bool BoomAan { get; set; }
+    /// <summary>De opbouw is veranderd (nieuw, verplaatst, verwijderd): de pagina laadt de boom opnieuw.</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+    /// <summary>Er ging iets mis; de pagina toont de melding.</summary>
+    [Parameter] public EventCallback<string> OpFout { get; set; }
+
+    private ElementReference _el;
+    private DotNetObjectReference<OpbouwBoomBewerker>? _net;
+    private readonly SemaphoreSlim _slot = new(1, 1);      // wijzigingen een voor een, in de volgorde waarin ze gegeven zijn
+    private readonly HashSet<int> _dicht = new();          // ingeklapte (sub)fases
+    private int _type;
+    private int? _gekozen;                                 // de rij waar je staat
+    private int? _focusNa;                                 // na het tekenen de cursor in de naam van dit item
+    private (int Id, double X, double Y)? _menu;
+    private int? _docsVan;                                 // item waarvan de documenten open staan
+    private List<Bestand> _docs = new();
+    private string _status = "";
+
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    private static string Px(double x) => ((int)Math.Max(0, x)).ToString(Inv) + "px";
+    private static string DownloadUrl(int id) => "bestand/" + id + "/download";
+
+    private OpbouwStap? Vind(int? id) => id is int i && i != 0 ? Boom.Alle.FirstOrDefault(s => s.Id == i) : null;
+    private bool KanUit(OpbouwStap? s) => s is not null && BoomAan && Boom.Ouder(s) is not null;
+    private bool KanIn(OpbouwStap? s) => s is not null && BoomAan && Boom.Broers(s).ToList().IndexOf(s) > 0;
+
+    protected override void OnParametersSet()
+    {
+        if (_type == ProductNameId) return;
+        _type = ProductNameId;
+        _dicht.Clear(); _gekozen = null; _focusNa = null; _menu = null; _docsVan = null; _docs = new(); _status = "";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        try
+        {
+            if (eerste)
+            {
+                _net = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("mdeBoomBewerk.koppel", _el, _net);
+            }
+            // pas als het item ook echt in de (nieuwe) boom staat; een tussentijdse tekenronde slaat hem over
+            if (_focusNa is int id && Vind(id) is not null)
+            {
+                _focusNa = null;
+                await JS.InvokeVoidAsync("mdeBoomBewerk.focus", _el, id);
+            }
+        }
+        catch { /* de verbinding is weg of de pagina sluit */ }
+    }
+
+    public void Dispose() => _net?.Dispose();
+
+    /// <summary>Eén tak: per item een rij, met wat eronder hangt ingesprongen.</summary>
+    private RenderFragment Tak(IReadOnlyList<OpbouwStap> items, int diepte) => __builder =>
+    {
+        foreach (var s in items)
+        {
+            var groep = Boom.IsGroep(s);
+            var hoofd = Boom.IsHoofdfase(s);
+            var dicht = groep && _dicht.Contains(s.Id);
+            <div class="boomb-tak" data-boom-tak="@s.Id" @key="s.Id">
+                <div class="boomb-rij @(groep ? "groep" : "stap") @(hoofd ? "hoofdfase" : "") @(_gekozen == s.Id ? "gekozen" : "")"
+                     data-boom-id="@s.Id" style="--diepte:@diepte" @onfocusin="() => Kies(s.Id)" @onclick="() => Kies(s.Id)">
+                    <span class="boom-greep" draggable="true" title="Sleep om te verplaatsen: boven of onder een rij = ervoor of erna, op een rij = eronder">⠿</span>
+                    @if (groep)
+                    {
+                        <button class="boomb-pijl" tabindex="-1" title="@(dicht ? "Uitklappen" : "Inklappen")" @onclick="() => Klap(s.Id)">@(dicht ? "▸" : "▾")</button>
+                    }
+                    else
+                    {
+                        <span class="boomb-pijl"></span>
+                    }
+                    @if (hoofd)
+                    {
+                        <span class="boomb-nr" title="@(groep ? "Hoofdfase" : "Hoofdfase zonder stappen")">@Boom.FaseNummer(s)</span>
+                    }
+                    else if (!groep)
+                    {
+                        <span class="boomb-punt" title="Stap">•</span>
+                    }
+                    <input class="boom-naam" value="@s.Naam" maxlength="80" placeholder="naam" @onchange="e => ZetNaam(s, (string?)e.Value)" />
+                    <input class="boom-oms" value="@s.Omschrijving" maxlength="500" placeholder="omschrijving" @onchange="e => ZetOmschrijving(s, (string?)e.Value)" />
+                    <span class="boomb-vlaggen">
+                        @if (dicht)
+                        {
+                            <span class="boomb-aantal">@Boom.Nakomelingen(s).Count() eronder</span>
+                        }
+                        @if (groep && s.OpVolgorde)
+                        {
+                            <button class="boomb-vlag" tabindex="-1" title="Wat hieronder hangt moet van boven naar beneden worden afgewerkt. Klik om dat uit te zetten." @onclick="@(() => Doe(s.Id, "volgorde"))">↓ op volgorde</button>
+                        }
+                        @if (!groep && !hoofd && !s.Moet)
+                        {
+                            <button class="boomb-vlag" tabindex="-1" title="Deze stap hoeft niet af te zijn voordat de fase klaar kan. Klik om hem verplicht te maken." @onclick="@(() => Doe(s.Id, "verplicht"))">optioneel</button>
+                        }
+                        @if (s.AantalDocumenten > 0 || _docsVan == s.Id)
+                        {
+                            <button class="boomb-vlag" tabindex="-1" title="Documenten met uitleg" @onclick="@(() => Doe(s.Id, "docs"))">📎 @s.AantalDocumenten</button>
+                        }
+                    </span>
+                    <button class="boomb-meer" tabindex="-1" title="Meer (of rechtermuisknop)" @onclick="e => OpenMenu(s.Id, e.ClientX, e.ClientY)">⋯</button>
+                </div>
+                @if (_docsVan == s.Id)
+                {
+                    <div class="opb-docs boomb-docs" style="--diepte:@diepte">
+                        @foreach (var d in _docs)
+                        {
+                            <span class="opb-doc">
+                                <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
+                                <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⬇</a>
+                                <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderDoc(s, d)">✕</button>
+                            </span>
+                        }
+                        @if (_docs.Count == 0) { <span class="uitleg">Nog geen documenten bij dit item.</span> }
+                        <InputFile OnChange="e => UploadDoc(s, e)" multiple />
+                        <button class="klein" @onclick="() => _docsVan = null">Sluiten</button>
+                    </div>
+                }
+                @if (groep && !dicht)
+                {
+                    @Tak(Boom.Kinderen(s), diepte + 1)
+                }
+            </div>
+        }
+    };
+
+    private void Kies(int id) { _gekozen = id; }
+
+    private void Klap(int id) { if (!_dicht.Remove(id)) _dicht.Add(id); }
+
+    // ---- vanuit de browser (window.mdeBoomBewerk) ----
+
+    [JSInvokable]
+    public void OpenMenu(int id, double x, double y)
+    {
+        _menu = (id, x, y);
+        _gekozen = id;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void SluitMenu()
+    {
+        if (_menu is null) return;
+        _menu = null;
+        StateHasChanged();
+    }
+
+    /// <summary>Een sneltoets; zonder rij (cursor in de balk) geldt de gekozen rij.</summary>
+    [JSInvokable]
+    public async Task Toets(int id, string actie)
+    {
+        await Doe(id != 0 ? id : _gekozen ?? 0, actie);
+        StateHasChanged();
+    }
+
+    /// <summary>Slepen: <paramref name="zone"/> = voor, na (het doel en alles wat eronder hangt) of in (eronder hangen).</summary>
+    [JSInvokable]
+    public async Task Verplaats(int bronId, int doelId, string zone)
+    {
+        await _slot.WaitAsync();
+        try
+        {
+            var bron = Vind(bronId);
+            var doel = Vind(doelId);
+            if (bron is null || doel is null || bron.Id == doel.Id) return;
+            if (Boom.Nakomelingen(bron).Any(n => n.Id == doel.Id)) return;      // niet onder zichzelf
+            if (zone == "in" && !BoomAan) zone = "na";
+            var ouder = zone == "in" ? doel : Boom.Ouder(doel);
+            var rij = (ouder is null ? Boom.Wortels : Boom.Kinderen(ouder)).Where(x => x.Id != bron.Id).Select(x => x.Id).ToList();
+            if (zone == "in") rij.Add(bron.Id);
+            else rij.Insert(rij.IndexOf(doel.Id) + (zone == "na" ? 1 : 0), bron.Id);
+            if (Boom.Ouder(bron)?.Id != ouder?.Id)
+            {
+                bron.ParentId = ouder?.Id;
+                await Opbouw.BewaarStapAsync(bron, Ik.WerknemerId);
+            }
+            await Opbouw.ZetVolgordeAsync(rij);
+            if (zone == "in") _dicht.Remove(doel.Id);
+            _gekozen = bron.Id; _focusNa = bron.Id;
+            await Herlaad("Verplaatst");
+        }
+        catch (Exception ex) { await Fout("Verplaatsen mislukt: " + ex.Message); await Herlaad(null); }
+        finally { _slot.Release(); StateHasChanged(); }
+    }
+
+    // ---- de handelingen (menu, balk, sneltoetsen) ----
+
+    private async Task Doe(int id, string actie)
+    {
+        _menu = null;
+        await _slot.WaitAsync();
+        try
+        {
+            var s = Vind(id);
+            switch (actie)
+            {
+                case "eronder": await Nieuw(s, kind: false); break;
+                case "erin": if (s is not null && BoomAan) await Nieuw(s, kind: true); break;
+                case "uit": if (KanUit(s)) await Uitspringen(s!); break;
+                case "in": if (KanIn(s)) await Inspringen(s!); break;
+                case "omhoog": if (s is not null) await Verschuif(s, -1); break;
+                case "omlaag": if (s is not null) await Verschuif(s, 1); break;
+                case "volgorde": if (s is not null) { s.OpVolgorde = !s.OpVolgorde; await Bewaar(s); } break;
+                case "verplicht":
+                    if (s is not null)
+                    {
+                        s.Verplicht = !s.Moet;
+                        if (!s.Verplicht) s.Soort = OpbouwSoort.Opbouw;      // een eindcheck van vroeger was altijd verplicht
+                        await Bewaar(s);
+                    }
+                    break;
+                case "docs": if (s is not null) await ToonDocs(s); break;
+                case "verwijder": if (s is not null) await Verwijder(s); break;
+            }
+        }
+        catch (Exception ex) { await Fout("Dat lukte niet: " + ex.Message); await Herlaad(null); }
+        finally { _slot.Release(); }
+    }
+
+    private async Task Herlaad(string? status)
+    {
+        if (status is not null) _status = $"{status} · {DateTime.Now:HH:mm:ss}";
+        await OpGewijzigd.InvokeAsync();
+    }
+
+    private Task Fout(string tekst) { _status = ""; return OpFout.InvokeAsync(tekst); }
+
+    private async Task Bewaar(OpbouwStap s)
+    {
+        await Opbouw.BewaarStapAsync(s, Ik.WerknemerId);
+        _status = $"Opgeslagen · {DateTime.Now:HH:mm:ss}";
+    }
+
+    private async Task ZetNaam(OpbouwStap s, string? waarde)
+    {
+        var naam = (waarde ?? string.Empty).Trim();
+        if (naam == s.Naam) return;
+        await _slot.WaitAsync();
+        try { s.Naam = naam; await Bewaar(s); }
+        catch (Exception ex) { await Fout("Opslaan mislukt: " + ex.Message); }
+        finally { _slot.Release(); }
+    }
+
+    private async Task ZetOmschrijving(OpbouwStap s, string? waarde)
+    {
+        var tekst = (waarde ?? string.Empty).Trim();
+        if (tekst == s.Omschrijving) return;
+        await _slot.WaitAsync();
+        try { s.Omschrijving = tekst; await Bewaar(s); }
+        catch (Exception ex) { await Fout("Opslaan mislukt: " + ex.Message); }
+        finally { _slot.Release(); }
+    }
+
+    /// <summary>Nieuw item: direct na <paramref name="bij"/> op hetzelfde niveau, of (kind) achteraan onder dat item.</summary>
+    private async Task Nieuw(OpbouwStap? bij, bool kind)
+    {
+        var ouderId = kind ? bij!.Id : bij is null ? null : Boom.Ouder(bij)?.Id;
+        var nieuw = new OpbouwStap
+        {
+            ProductNameId = ProductNameId, ParentId = ouderId,
+            Naam = ouderId is null && Boom.MetFases ? "Nieuwe fase" : "Nieuwe stap"
+        };
+        var id = await Opbouw.BewaarStapAsync(nieuw, Ik.WerknemerId);      // komt achteraan bij de items met dezelfde ouder
+        if (!kind && bij is not null)
+        {
+            var rij = Boom.Broers(bij).Select(x => x.Id).ToList();
+            var plek = rij.IndexOf(bij.Id);
+            if (plek >= 0 && plek < rij.Count - 1) { rij.Insert(plek + 1, id); await Opbouw.ZetVolgordeAsync(rij); }
+        }
+        if (kind) _dicht.Remove(bij!.Id);
+        _gekozen = id; _focusNa = id;
+        await Herlaad("Toegevoegd");
+    }
+
+    /// <summary>Een item omhoog/omlaag tussen de items met dezelfde ouder.</summary>
+    private async Task Verschuif(OpbouwStap item, int richting)
+    {
+        var rij = Boom.Broers(item).ToList();
+        var plek = rij.IndexOf(item);
+        var nieuw = plek + richting;
+        if (plek < 0 || nieuw < 0 || nieuw >= rij.Count) return;
+        (rij[plek], rij[nieuw]) = (rij[nieuw], rij[plek]);
+        await Opbouw.ZetVolgordeAsync(rij.Select(s => s.Id).ToList());
+        _focusNa = item.Id;
+        await Herlaad("Verplaatst");
+    }
+
+    /// <summary>Inspringen: het item komt achteraan onder het item dat er direct boven staat.</summary>
+    private async Task Inspringen(OpbouwStap item)
+    {
+        var rij = Boom.Broers(item).ToList();
+        var plek = rij.IndexOf(item);
+        if (plek <= 0) return;
+        var ouder = rij[plek - 1];
+        var kinderen = Boom.Kinderen(ouder).Select(k => k.Id).Append(item.Id).ToList();
+        item.ParentId = ouder.Id;
+        await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
+        await Opbouw.ZetVolgordeAsync(kinderen);
+        _dicht.Remove(ouder.Id);
+        _focusNa = item.Id;
+        await Herlaad("Ingesprongen");
+    }
+
+    /// <summary>Uitspringen: het item komt een niveau hoger, direct na de (sub)fase waar het onder hing.</summary>
+    private async Task Uitspringen(OpbouwStap item)
+    {
+        if (Boom.Ouder(item) is not { } ouder) return;
+        var niveau = Boom.Broers(ouder).Select(k => k.Id).ToList();
+        niveau.Insert(niveau.IndexOf(ouder.Id) + 1, item.Id);
+        item.ParentId = Boom.Ouder(ouder)?.Id;
+        await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
+        await Opbouw.ZetVolgordeAsync(niveau);
+        _focusNa = item.Id;
+        await Herlaad("Uitgesprongen");
+    }
+
+    private async Task Verwijder(OpbouwStap s)
+    {
+        var eronder = Boom.Nakomelingen(s).ToList();
+        var naam = s.Naam.Length > 0 ? s.Naam : "(zonder naam)";
+        var vraag = eronder.Count > 0
+            ? $"'{naam}' verwijderen, met de {eronder.Count} item(s) die eronder hangen? De vinkjes van bestaande exemplaren gaan mee."
+            : $"'{naam}' verwijderen? De vinkjes van bestaande exemplaren voor dit item gaan mee.";
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", vraag); } catch { ja = false; }
+        if (!ja) return;
+        // de cursor daarna op het item eronder, anders erboven, anders de (sub)fase
+        var rij = Boom.Broers(s).ToList();
+        var plek = rij.IndexOf(s);
+        var volgende = plek + 1 < rij.Count ? rij[plek + 1] : plek > 0 ? rij[plek - 1] : Boom.Ouder(s);
+        foreach (var item in eronder.Prepend(s))
+            foreach (var d in await WnRepo.GetBestandenAsync(OpbouwStore.Stap, item.Id)) { try { await Store.VerwijderAsync(d.FileStoreId); } catch { } }
+        await Opbouw.VerwijderStapAsync(s.Id);
+        if (_docsVan is int open && (open == s.Id || eronder.Any(e => e.Id == open))) { _docsVan = null; _docs = new(); }
+        _gekozen = volgende?.Id; _focusNa = volgende?.Id;
+        await Herlaad("Verwijderd");
+    }
+
+    // ---- documenten met uitleg bij een item ----
+
+    private async Task ToonDocs(OpbouwStap s)
+    {
+        if (_docsVan == s.Id) { _docsVan = null; return; }
+        _docsVan = s.Id;
+        try { _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _docs = new(); }
+    }
+
+    private async Task UploadDoc(OpbouwStap s, InputFileChangeEventArgs e)
+    {
+        if (!Store.Beschikbaar) { await Fout("De filestore is niet ingesteld (Filestore:Pad)."); return; }
+        var gelukt = 0;
+        foreach (var bestand in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
+                await Store.ToevoegenAsync(stroom, bestand.Name, OpbouwStore.Stap, s.Id, Ik.WerknemerId ?? 0);
+                gelukt++;
+            }
+            catch (Exception ex) { await Fout($"'{bestand.Name}' toevoegen mislukt: {ex.Message}"); }
+        }
+        _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id);
+        s.AantalDocumenten = _docs.Count;
+        if (gelukt > 0) _status = $"{gelukt} document(en) toegevoegd · {DateTime.Now:HH:mm:ss}";
+    }
+
+    private async Task VerwijderDoc(OpbouwStap s, Bestand d)
+    {
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"'{d.Bestandsnaam}' verwijderen?"); } catch { ja = false; }
+        if (!ja) return;
+        try
+        {
+            await Store.VerwijderAsync(d.FileStoreId);
+            _docs = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id);
+            s.AantalDocumenten = _docs.Count;
+        }
+        catch (Exception ex) { await Fout("Verwijderen mislukt: " + ex.Message); }
+    }
+}

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Producten** — Verbeterd: de opbouwboom van een producttype (tab Opbouw) bedien je nu zoals de calculatieboom, zonder rij knopjes per regel: slepen met de greep ⠿ (boven of onder een regel = ervoor of erna, op een regel = eronder hangen), sneltoetsen (Ctrl+Enter nieuw item, Ctrl+Shift+Enter nieuw item eronder, Alt+Shift+←/→ uit- en inspringen, Alt+↑/↓ schuiven) en een rechtermuismenu voor de rest (verplicht, op volgorde, documenten, verwijderen). Fases kun je in- en uitklappen.
 - **Calculaties** — Nieuw: een calculatie wissen (zolang hij niet bevroren is en er geen werkorders uit gemaakt zijn) en daarna opnieuw maken of importeren; en exporteren als JSON-bestand, om een kopie te bewaren of buiten de app verder te werken.
 - **Projecten** — Nieuw: tabblad Offertes bij een project, met de offertes van dat project (status, datum, maker, bedrag) en knoppen om de offerte of de calculatie te openen.
 - **Algemeen** — Verbeterd: 🆕 Nieuw verschijnt nu bij elke publicatie met iets nieuws, ook als dat vaker op één dag is; op de pagina Wat is er nieuw staat het label "nieuw" bij precies de regels die je nog niet zag.

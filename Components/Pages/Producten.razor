@@ -966,22 +966,9 @@
                                 De opbouwboom van dit producttype. Een item met iets eronder is een fase of subfase; een item zonder iets eronder
                                 is een stap die je bij een exemplaar afvinkt. Hangt er op het bovenste niveau iets onder een item, dan zijn de
                                 items van dat niveau de hoofdfases: die werk je van boven naar beneden af en rond je af met "Fase klaar".
-                                Zet bij een (sub)fase "op volgorde" aan als wat eronder hangt ook van boven naar beneden moet.
-                                Met ◀ en ▶ spring je een item uit of in; per item kun je documenten met uitleg toevoegen.
                             </p>
-                            <div class="opb-boom">
-                                <div class="opb-boomrij opb-boomkop">
-                                    <span></span><span>Fase / stap</span><span>Omschrijving</span><span></span><span>Documenten</span><span></span>
-                                </div>
-                                @BoomTak(_typeBoom.Wortels, 0)
-                                @if (_stappen.Count == 0)
-                                {
-                                    <div class="kiezer-info">Nog geen items. Begin met de eerste fase of stap.</div>
-                                }
-                            </div>
-                            <div class="btngroup">
-                                <button class="klein" @onclick="() => NieuwItem(null)">+ Item op het bovenste niveau</button>
-                            </div>
+                            <OpbouwBoomBewerker ProductNameId="@(_naamId ?? 0)" Boom="_typeBoom" BoomAan="_boomAan"
+                                                OpGewijzigd="HerlaadOpbouw" OpFout="@(tekst => Toon(tekst, true))" />
                         }
                         else if (_naamId is int nid && _productId is int pid)
                         {
@@ -2368,8 +2355,6 @@
     // ================================================================
     private List<OpbouwStap> _stappen = new();
     private bool _opbouwOntbreekt;
-    private int? _stapDocs;                       // stap waarvan de documenten open staan
-    private List<Bestand> _stapDocumenten = new();
 
     // De opbouwboom van het producttype (ProductOpbouwBoom_MariaDB.sql); de regels staan in Models/Opbouw.cs.
     private OpbouwBoom _typeBoom = new(Array.Empty<OpbouwStap>());
@@ -2379,7 +2364,7 @@
 
     private async Task LaadOpbouw()
     {
-        _stappen = new(); _stapDocs = null; _stapDocumenten = new(); _typeBoom = new(Array.Empty<OpbouwStap>());
+        _stappen = new(); _typeBoom = new(Array.Empty<OpbouwStap>());
         if (_tab == "Eindcheck") _tab = "Opbouw";      // het tabblad Eindcheck is opgegaan in de boom (per pc onthouden tab)
         if (_naamId is null || !Opbouw.Beschikbaar) return;
         try
@@ -2395,82 +2380,19 @@
         }
     }
 
-    /// <summary>Eén tak van de boom om te onderhouden: per item een regel, met wat eronder hangt ingesprongen.</summary>
-    private RenderFragment BoomTak(IReadOnlyList<OpbouwStap> items, int diepte) => __builder =>
+    /// <summary>
+    /// De boom opnieuw laden na een wijziging in de bewerker (Components/OpbouwBoomBewerker.razor), zonder hem eerst leeg te
+    /// maken: dan blijven de rijen staan en houdt de cursor zijn plek.
+    /// </summary>
+    private async Task HerlaadOpbouw()
     {
-        <div class="opb-boomtak">
-            @for (var i = 0; i < items.Count; i++)
-            {
-                var s = items[i]; var idx = i; var aantal = items.Count;
-                var groep = _typeBoom.IsGroep(s);
-                <div class="opb-boomrij @(groep ? "groep" : "") @(_typeBoom.IsHoofdfase(s) ? "hoofdfase" : "")" @key="s.Id">
-                    <span class="opb-boomknoppen">
-                        <button class="klein" disabled="@(idx == 0)" title="Omhoog" @onclick="() => VerschuifItem(s, -1)">▲</button>
-                        <button class="klein" disabled="@(idx == aantal - 1)" title="Omlaag" @onclick="() => VerschuifItem(s, 1)">▼</button>
-                        <button class="klein" disabled="@(diepte == 0 || !_boomAan)" title="Uitspringen: een niveau omhoog" @onclick="() => Uitspringen(s)">◀</button>
-                        <button class="klein" disabled="@(idx == 0 || !_boomAan)" title="Inspringen: onder het item erboven hangen" @onclick="() => Inspringen(s)">▶</button>
-                    </span>
-                    <span class="opb-boomnaam" style="padding-left:@((diepte * 1.5).ToString(System.Globalization.CultureInfo.InvariantCulture))rem">
-                        <span class="opb-boomteken" title="@(groep ? (_typeBoom.IsHoofdfase(s) ? "Hoofdfase" : "Subfase") : _typeBoom.IsHoofdfase(s) ? "Hoofdfase zonder stappen" : "Stap")">@(_typeBoom.IsHoofdfase(s) ? _typeBoom.FaseNummer(s).ToString() : groep ? "▾" : "•")</span>
-                        <input value="@s.Naam" maxlength="80" @onchange="e => ZetStap(s, () => s.Naam = (string?)e.Value ?? string.Empty)" />
-                    </span>
-                    <input class="opb-boomoms" value="@s.Omschrijving" maxlength="500" placeholder="omschrijving" @onchange="e => ZetStap(s, () => s.Omschrijving = (string?)e.Value ?? string.Empty)" />
-                    <span class="opb-boomvlag">
-                        @if (groep)
-                        {
-                            <label class="vink" title="Wat onder deze (sub)fase hangt moet van boven naar beneden worden afgewerkt">
-                                <input type="checkbox" checked="@s.OpVolgorde" disabled="@(!_boomAan)" @onchange="e => ZetStap(s, () => s.OpVolgorde = e.Value is bool b && b)" /> op volgorde
-                            </label>
-                        }
-                        else if (!_typeBoom.IsHoofdfase(s))
-                        {
-                            <label class="vink" title="Een verplichte stap moet af zijn voordat de fase klaar kan">
-                                <input type="checkbox" checked="@s.Moet" @onchange="e => ZetStap(s, () => { s.Verplicht = e.Value is bool b && b; if (!s.Verplicht) s.Soort = OpbouwSoort.Opbouw; })" /> verplicht
-                            </label>
-                        }
-                    </span>
-                    <span class="opb-boomdocs">
-                        <button class="klein" title="Documenten met uitleg" @onclick="() => ToonStapDocs(s)">📎 @s.AantalDocumenten</button>
-                        <button class="klein" disabled="@(!_boomAan)" title="Een item onder dit item toevoegen (dit wordt dan een fase of subfase)" @onclick="() => NieuwItem(s)">+ onder</button>
-                    </span>
-                    <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStap(s)">✕</button>
-                </div>
-                @if (_stapDocs == s.Id)
-                {
-                    <div class="opb-docs opb-docsregel" @key="@($"{s.Id}-docs")">
-                        @foreach (var d in _stapDocumenten)
-                        {
-                            <span class="opb-doc">
-                                <a href="@("bestand/" + d.FileStoreId)" target="_blank" rel="noopener">@d.Bestandsnaam</a>
-                                <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⬇</a>
-                                <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderStapDoc(d)">✕</button>
-                            </span>
-                        }
-                        <InputFile OnChange="e => UploadStapDoc(s, e)" multiple />
-                    </div>
-                }
-                @if (groep)
-                {
-                    @BoomTak(_typeBoom.Kinderen(s), diepte + 1)
-                }
-            }
-        </div>
-    };
-
-    /// <summary>Nieuw item: onder een ander item (dat wordt dan een fase of subfase), of op het bovenste niveau.</summary>
-    private async Task NieuwItem(OpbouwStap? onder)
-    {
-        if (_naamId is null) return;
+        if (_naamId is null || !Opbouw.Beschikbaar) return;
         try
         {
-            await Opbouw.BewaarStapAsync(new OpbouwStap
-            {
-                ProductNameId = _naamId.Value, ParentId = onder?.Id,
-                Naam = onder is null ? "(nieuwe fase of stap)" : "(nieuwe stap)"
-            }, Ik.WerknemerId);
-            await LaadOpbouw();
+            _stappen = await Opbouw.GetStappenAsync(_naamId.Value, _productId);
+            _typeBoom = new OpbouwBoom(_stappen);
         }
-        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+        catch (Exception ex) { Toon("Opbouw laden mislukt: " + ex.Message, true); }
     }
 
     /// <summary>Na een vinkje of statuswissel in de OpbouwLijst: historie en exemplaar verversen.</summary>
@@ -2515,118 +2437,6 @@
         }
         catch { }
         StateHasChanged();
-    }
-
-    private async Task ZetStap(OpbouwStap s, Action wijzig)
-    {
-        wijzig();
-        try { await Opbouw.BewaarStapAsync(s, Ik.WerknemerId); Toon("Opgeslagen.", false); }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
-    }
-
-    /// <summary>Een item omhoog/omlaag tussen de items met dezelfde ouder.</summary>
-    private async Task VerschuifItem(OpbouwStap item, int richting)
-    {
-        var lijst = _typeBoom.Broers(item).ToList();
-        var index = lijst.IndexOf(item);
-        var nieuw = index + richting;
-        if (index < 0 || nieuw < 0 || nieuw >= lijst.Count) return;
-        (lijst[index], lijst[nieuw]) = (lijst[nieuw], lijst[index]);
-        try { await Opbouw.ZetVolgordeAsync(lijst.Select(s => s.Id).ToList()); await LaadOpbouw(); }
-        catch (Exception ex) { Toon("Volgorde opslaan mislukt: " + ex.Message, true); }
-    }
-
-    /// <summary>Inspringen: het item komt achteraan onder het item dat er direct boven staat.</summary>
-    private async Task Inspringen(OpbouwStap item)
-    {
-        var broers = _typeBoom.Broers(item).ToList();
-        var index = broers.IndexOf(item);
-        if (index <= 0) return;
-        var ouder = broers[index - 1];
-        try
-        {
-            var kinderen = _typeBoom.Kinderen(ouder).Select(k => k.Id).Append(item.Id).ToList();
-            item.ParentId = ouder.Id;
-            await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
-            await Opbouw.ZetVolgordeAsync(kinderen);
-            await LaadOpbouw();
-        }
-        catch (Exception ex) { Toon("Inspringen mislukt: " + ex.Message, true); await LaadOpbouw(); }
-    }
-
-    /// <summary>Uitspringen: het item komt een niveau hoger, direct na de (sub)fase waar het onder hing.</summary>
-    private async Task Uitspringen(OpbouwStap item)
-    {
-        if (_typeBoom.Ouder(item) is not { } ouder) return;
-        try
-        {
-            var niveau = _typeBoom.Broers(ouder).Select(k => k.Id).ToList();
-            niveau.Insert(niveau.IndexOf(ouder.Id) + 1, item.Id);
-            item.ParentId = ouder.ParentId;
-            await Opbouw.BewaarStapAsync(item, Ik.WerknemerId);
-            await Opbouw.ZetVolgordeAsync(niveau);
-            await LaadOpbouw();
-        }
-        catch (Exception ex) { Toon("Uitspringen mislukt: " + ex.Message, true); await LaadOpbouw(); }
-    }
-
-    private async Task VerwijderStap(OpbouwStap s)
-    {
-        var eronder = _typeBoom.Nakomelingen(s).ToList();
-        var vraag = eronder.Count > 0
-            ? $"'{s.Naam}' verwijderen, met de {eronder.Count} item(s) die eronder hangen? De vinkjes van bestaande exemplaren gaan mee."
-            : $"'{s.Naam}' verwijderen? De vinkjes van bestaande exemplaren voor dit item gaan mee.";
-        if (!await Bevestig(vraag)) return;
-        try
-        {
-            foreach (var item in eronder.Prepend(s))
-                foreach (var d in await WnRepo.GetBestandenAsync(OpbouwStore.Stap, item.Id)) { try { await Store.VerwijderAsync(d.FileStoreId); } catch { } }
-            await Opbouw.VerwijderStapAsync(s.Id);
-            await LaadOpbouw();
-        }
-        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
-    }
-
-    private async Task ToonStapDocs(OpbouwStap s)
-    {
-        if (_stapDocs == s.Id) { _stapDocs = null; return; }
-        _stapDocs = s.Id;
-        try { _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id); } catch { _stapDocumenten = new(); }
-    }
-
-    private async Task UploadStapDoc(OpbouwStap s, InputFileChangeEventArgs e)
-    {
-        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad).", true); return; }
-        var gelukt = 0;
-        foreach (var bestand in e.GetMultipleFiles(10))
-        {
-            try
-            {
-                await using var stroom = bestand.OpenReadStream(50 * 1024 * 1024);
-                await Store.ToevoegenAsync(stroom, bestand.Name, OpbouwStore.Stap, s.Id, Ik.WerknemerId ?? 0);
-                gelukt++;
-            }
-            catch (Exception ex) { Toon($"'{bestand.Name}' toevoegen mislukt: {ex.Message}", true); }
-        }
-        _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, s.Id);
-        s.AantalDocumenten = _stapDocumenten.Count;
-        if (gelukt > 0) Toon($"{gelukt} document(en) bij '{s.Naam}'.", false);
-    }
-
-    private async Task VerwijderStapDoc(Bestand d)
-    {
-        if (!await Bevestig($"'{d.Bestandsnaam}' verwijderen?")) return;
-        try
-        {
-            await Store.VerwijderAsync(d.FileStoreId);
-            if (_stapDocs is int id)
-            {
-                _stapDocumenten = await WnRepo.GetBestandenAsync(OpbouwStore.Stap, id);
-                var s = _stappen.FirstOrDefault(x => x.Id == id);
-                if (s is not null) s.AantalDocumenten = _stapDocumenten.Count;
-            }
-        }
-        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
     }
 
     private async Task LaadSamenstelling(bool boomOpnieuw = false)
