@@ -11,6 +11,8 @@
 @inject IArtikelRepository Artikelen
 @inject IPakbonRepository Pakbonnen
 @inject PakbonPdfService PakbonPdf
+@inject IInkoopBevestigingRepository BevestigingRepo
+@inject InkoopBevestigingOphaler BevestigingOphaler
 
 <div class="page">
     <header class="topbar">
@@ -83,6 +85,11 @@
                         <button class="klein" @onclick="OpenNieuw">+ Nieuwe bestelling</button>
                         <button class="klein" title="Zoeken door de regels van alle bestellingen (artikelnummer, omschrijving, MDE-nummer)"
                                 @onclick="OpenZoekRegels">🔍 In regels…</button>
+                        @if (BevestigingRepo.Beschikbaar)
+                        {
+                            <button class="klein" title="Orderbevestigingen uit de inkooppostbus: wat vanzelf bij een bestelling is gezet, en wat je zelf moet toewijzen"
+                                    @onclick="() => _bevestigingenOpen = true">📥 Bevestigingen@(_bevestigingenTeDoen > 0 ? $" ({_bevestigingenTeDoen})" : "")</button>
+                        }
                         <label class="vink" title="Bestellingen met status Cancel ook in de lijst">
                             <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde tonen
                         </label>
@@ -609,6 +616,8 @@
 
 @* de gegevens van het artikel achter een orderregel *@
 <ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
+<InkoopBevestigingenPaneel Open="_bevestigingenOpen" Sluiten="() => _bevestigingenOpen = false"
+                           OpOrder="NaarOrderUitBevestiging" OpGewijzigd="TelBevestigingen" />
 
 @code {
     private List<BestelRegel> _lijst = new();
@@ -744,6 +753,7 @@
             catch { }
 
             await Laad();
+            await TelBevestigingen();
             if (OrderParam is int teOpenen) await OpenOrder(teOpenen);
         }
         catch (Exception ex) { Toon("Ophalen mislukt: " + ex.Message, true); }
@@ -1171,6 +1181,22 @@
     }
 
     /// <summary>Een bestelling openen die (nog) niet in de lijst staat, bv. vanuit de bel.</summary>
+    // ---- orderbevestigingen uit de inkooppostbus (Components/InkoopBevestigingenPaneel.razor) ----
+    private bool _bevestigingenOpen;
+    private int _bevestigingenTeDoen;          // berichten die niet vanzelf gekoppeld konden worden
+
+    private async Task TelBevestigingen()
+    {
+        try { _bevestigingenTeDoen = BevestigingRepo.Beschikbaar ? await BevestigingRepo.AantalOpenAsync() : 0; }
+        catch { _bevestigingenTeDoen = 0; }
+    }
+
+    private async Task NaarOrderUitBevestiging(int orderId)
+    {
+        _bevestigingenOpen = false;
+        await OpenOrder(orderId);
+    }
+
     private async Task OpenOrder(int id)
     {
         var b = _lijst.FirstOrDefault(x => x.Id == id);

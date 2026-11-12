@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Bestellingen** — Nieuw: orderbevestigingen uit de inkooppostbus komen vanzelf bij de bestelling. De app kijkt op de achtergrond in inkoop@, zoekt in elk binnengekomen bericht een PO-nummer (PO-12345) en zet de PDF op het tabblad Documenten van die bestelling. Onder de knop "📥 Bevestigingen" staat wat er gekoppeld is, en wat niet vanzelf lukte kun je daar met de hand aan een bestelling hangen of negeren. (Moet eerst worden aangezet.)
 - **Projecten** — Verbeterd: projectdocumenten krijgen een eigen plek in de opslag, zodat een project en een PO klant met hetzelfde nummer elkaars bestanden niet meer kunnen zien. De bestaande documenten gaan mee (na het script).
 - **Artikelen** — Verbeterd: het venster dat je krijgt met het vergrootglas bij een artikel (bijvoorbeeld in Bestellingen) toont de foto nu groot over de hele breedte, en het lege vlak onderaan is weg. Een klik op de foto opent hem op ware grootte.
 - **Projecten** — Nieuw: tabblad Documenten bij een project, zoals in Access. De documenten die daar al bij een project stonden, staan er meteen; toevoegen kan door te slepen of te kiezen, en een klik op de naam toont het document.

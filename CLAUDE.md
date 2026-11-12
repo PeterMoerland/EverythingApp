@@ -2526,6 +2526,41 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Orderbevestigingen uit de inkooppostbus (12-11-2026)
+
+Wens gebruiker: wat vroeger een VB-programmaatje deed (de inkoopbox scannen op "PO-xxxxx" en de orderbevestiging als
+document bij de bestelling zetten). Besluiten: postbus `inkoop@mde-automation.nl`, **alleen koppelen** (niets
+uitlezen), de eerste keer drie maanden terug en daarna bijhouden, simpel houden. Script (gebruiker):
+`InkoopBevestigingen_MariaDB.sql`. Staat standaard **uit**: aanzetten in appsettings, sectie `InkoopBevestigingen`
+(`Aan`, `Postbus`, `Minuten` 15, `Vanaf` leeg = drie maanden terug, `Label` "EverythingApp/Bevestiging").
+
+- **`Services/InkoopBevestigingOphaler.cs`** (BackgroundService, zelfde opzet als `FactuurInboxOphaler`; MailService
+  is scoped, dus per ronde een scope). Gmail-zoekopdracht: `-label:"…" -in:sent -in:drafts -in:spam -in:trash
+  after:<vanaf>`: alles wat binnenkwam, ook als het al in een map staat, maar niet onze eigen bestelmail (daar staat
+  het PO-nummer ook in). Per ronde hoogstens 6 × 50 berichten; de eerste drie maanden komen dus over meerdere rondes.
+  Elk bekeken bericht krijgt het label; er wordt niets verwijderd of verplaatst.
+- **PO-nummer** (`PoHerkenning`): "PO" + hooguit drie scheidingstekens + 4 tot 6 cijfers (PO-18544, PO 18544,
+  PO18544, P.O. 18544, PO#18544, po_18544), niet midden in een woord en niet het begin van een langer getal
+  (PO 4500087158 is van de leverancier); **een los getal zonder PO telt niet**. Eerst het onderwerp, dan de namen van
+  de bijlagen, dan de tekst: de eerste plek die iets oplevert telt. De bestelling moet bestaan en in de tijd passen
+  (aangemaakt hooguit 400 dagen vóór en 2 dagen na de mail).
+- **Koppelen**: alle PDF's van het bericht (ook een PDF in de tekst zelf) naar FileStore soort 4
+  (`BestelVelden.StoreTypeOrder`, MasterID = Order-id), dus op Bestellingen ▸ Documenten; "Door" is leeg (de service).
+  Een bestand dat er met dezelfde naam al staat komt er niet nog eens bij. Meerdere PO-nummers in één bericht: bij
+  elke bestelling. De bestelling zelf (status, leverdatum) verandert niet.
+- **Tabel `InkoopBevestigingen`** (een regel per bericht dat ertoe doet; ook het vangnet tegen dubbel verwerken):
+  uitkomst `gekoppeld`, `geenpo` (wel een PDF, geen PO-nummer), `onbekend` (PO-nummer dat niet bestaat, met PDF),
+  `geenbijlage` (bestelling gevonden, geen PDF), `genegeerd`. Een bericht zonder PO-nummer én zonder PDF wordt niet
+  vastgelegd.
+- **Overzicht**: Bestellingen ▸ knop **📥 Bevestigingen (n)** (`Components/InkoopBevestigingenPaneel.razor`; n = wat je
+  zelf moet bekijken: `geenpo` en `onbekend`). Daar: PO-nummer typen + Koppelen (`KoppelMetDeHandAsync` haalt het
+  bericht opnieuw op), Negeren, ↻ Nu ophalen, de stand van de laatste ronde, en een link naar de bestelling.
+- Getest: `PoHerkenning` met 21 voorbeelden (scratchpad `d13toets`); het overzicht lokaal met
+  `InkoopBevestigingen__Geheugen=true` (voorbeeldregels): tellen, filter, Negeren, link naar de bestelling.
+  **Niet getest**: alles wat de postbus raakt (lokaal is `Google:ServiceAccountJson` leeg): de zoekopdracht, het
+  label, de bijlagen ophalen, opslaan in de filestore, met de hand koppelen; de echte tabel en het script; en of
+  inkoop@ een echte gebruiker is (een groep kan het serviceaccount niet openen).
+
 ## Artikelvenster: grote foto, geen leeg vlak (12-11-2026)
 
 Melding gebruiker (vergrootglas bij een artikel in Bestellingen): de foto was klein en het venster had een groot leeg

@@ -1,0 +1,182 @@
+@inject IInkoopBevestigingRepository Repo
+@inject InkoopBevestigingOphaler Ophaler
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+@* Orderbevestigingen uit de inkooppostbus (Bestellingen ▸ 📥 Bevestigingen; wens gebruiker 12-11-2026). De service
+   (Services/InkoopBevestigingOphaler.cs) hangt PDF's uit berichten met een PO-nummer vanzelf aan de bestelling. Hier
+   staat wat hij deed, en vooral wat niet vanzelf lukte: een bericht met een PDF maar zonder PO-nummer, of met een
+   PO-nummer dat niet bestaat. Zo'n bericht wijs je met de hand toe (PO-nummer typen) of je negeert het. *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay" @onclick="() => Sluiten.InvokeAsync()">
+        <div class="bev-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>📥 Orderbevestigingen uit @(Ophaler.Postbus.Length > 0 ? Ophaler.Postbus : "de inkooppostbus")</h2>
+                <button class="klein" @onclick="() => Sluiten.InvokeAsync()">✕</button>
+            </header>
+            <div class="bev-inhoud">
+                <div class="tl-balk bev-balk">
+                    <label class="vink">
+                        <input type="checkbox" checked="@_alleenOpen" @onchange="e => ZetAlleenOpen(e.Value is true)" />
+                        Alleen wat ik zelf moet bekijken
+                    </label>
+                    <button class="klein" disabled="@(!Ophaler.Aan)" @onclick="NuOphalen" title="Nu in de postbus kijken, in plaats van op de volgende ronde te wachten">↻ Nu ophalen</button>
+                    <span class="uitleg @(Ophaler.StandFout ? "fout-tekst" : "")">
+                        @Ophaler.Stand@(Ophaler.LaatsteKeer is { } keer ? $" ({keer:HH:mm})" : "")
+                    </span>
+                </div>
+                @if (!_tabel)
+                {
+                    <div class="melding fout">De tabel <code>InkoopBevestigingen</code> ontbreekt nog: voer <code>InkoopBevestigingen_MariaDB.sql</code> uit.</div>
+                }
+                @if (_fout is not null) { <p class="uitleg fout-tekst">@_fout</p> }
+
+                <table class="kiezer-tabel bev-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:8rem">Ontvangen</th>
+                            <th style="width:14rem">Van</th>
+                            <th>Onderwerp</th>
+                            <th style="width:8rem">Uitkomst</th>
+                            <th style="width:19rem">Bestelling</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _lijst)
+                        {
+                            <tr @key="b.Id">
+                                <td>@(b.Ontvangen?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
+                                <td title="@b.Van">@Kort(b.Van)</td>
+                                <td>
+                                    @b.Onderwerp
+                                    @if (b.Melding.Length > 0) { <div class="todo-toel">@b.Melding</div> }
+                                </td>
+                                <td><span class="stand-chip @Kleur(b.Uitkomst)">@BevestigingUitkomst.Tekst(b.Uitkomst)</span></td>
+                                <td>
+                                    @if (b.Open)
+                                    {
+                                        <span class="bev-toewijzen">
+                                            <input class="smal" inputmode="numeric" placeholder="PO-nummer" value="@(_po.GetValueOrDefault(b.Id) ?? "")" disabled="@_bezig"
+                                                   @oninput="e => _po[b.Id] = (string?)e.Value ?? string.Empty" @onkeydown="e => Toets(b, e)" />
+                                            <button class="klein primair" disabled="@(_bezig || PoVan(b) is null)" @onclick="() => Koppel(b)"
+                                                    title="De PDF's van dit bericht bij deze bestelling zetten">Koppelen</button>
+                                            <button class="klein" disabled="@_bezig" @onclick="() => Negeer(b)" title="Dit bericht hoort nergens bij (offerte, factuur, reclame)">Negeren</button>
+                                        </span>
+                                    }
+                                    else if (b.OrderId is int order)
+                                    {
+                                        <button class="todo-link" title="Naar deze bestelling" @onclick="() => OpOrder.InvokeAsync(order)">PO-@order</button>
+                                        @if (b.Bestanden > 0) { <span class="uitleg"> · @b.Bestanden PDF@(b.Bestanden == 1 ? "" : "'s")</span> }
+                                        @if (b.VerwerktDoor.Length > 0) { <span class="uitleg"> · @b.VerwerktDoor</span> }
+                                    }
+                                    else if (b.VerwerktDoor.Length > 0)
+                                    {
+                                        <span class="uitleg">@b.VerwerktDoor</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (_lijst.Count == 0)
+                        {
+                            <tr><td colspan="5" class="kiezer-info">@(_alleenOpen ? "Niets om zelf te bekijken." : "Nog geen berichten verwerkt.")</td></tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="uitleg">
+                    De service zoekt in elk binnengekomen bericht naar een PO-nummer (PO-12345) in het onderwerp, de naam van een bijlage of
+                    de tekst, en zet de PDF's bij die bestelling op het tabblad Documenten. Er wordt niets uit de postbus verwijderd.
+                </p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback Sluiten { get; set; }
+    /// <summary>Naar een bestelling (het venster gaat dicht).</summary>
+    [Parameter] public EventCallback<int> OpOrder { get; set; }
+    /// <summary>Er is iets toegewezen of genegeerd (de aanroeper telt opnieuw).</summary>
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private bool _tabel = true, _alleenOpen = true, _bezig, _wasOpen;
+    private string? _fout;
+    private List<InkoopBevestiging> _lijst = new();
+    private readonly Dictionary<int, string?> _po = new();
+
+    protected override void OnInitialized() => Ophaler.Bijgewerkt += OpBijgewerkt;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen) await Laad();
+        _wasOpen = Open;
+    }
+
+    private void OpBijgewerkt() => _ = InvokeAsync(async () => { if (Open) { await Laad(); StateHasChanged(); } });
+
+    private async Task Laad()
+    {
+        try
+        {
+            _tabel = Repo.Beschikbaar && await Repo.TabelAanwezigAsync();
+            _lijst = _tabel ? await Repo.LijstAsync(_alleenOpen, 150) : new();
+        }
+        catch (Exception ex) { _fout = "Laden mislukt: " + ex.Message; }
+    }
+
+    private async Task ZetAlleenOpen(bool aan) { _alleenOpen = aan; await Laad(); }
+
+    private void NuOphalen() { _fout = null; Ophaler.NuOphalen(); }
+
+    private static string Kort(string van)
+    {
+        var haak = van.IndexOf('<');
+        var naam = haak > 0 ? van[..haak].Trim().Trim('"') : van;
+        return naam.Length > 0 ? naam : van;
+    }
+
+    private static string Kleur(string uitkomst) => uitkomst switch
+    {
+        BevestigingUitkomst.Gekoppeld => "s-groen",
+        BevestigingUitkomst.GeenPo or BevestigingUitkomst.Onbekend => "s-oranje",
+        _ => "s-grijs",
+    };
+
+    /// <summary>Het getypte PO-nummer ("18544" of "PO-18544"); null als het geen nummer is.</summary>
+    private int? PoVan(InkoopBevestiging b)
+    {
+        var tekst = new string((_po.GetValueOrDefault(b.Id) ?? "").Where(char.IsDigit).ToArray());
+        return int.TryParse(tekst, out var n) && n > 0 ? n : null;
+    }
+
+    private async Task Toets(InkoopBevestiging b, KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && PoVan(b) is not null) await Koppel(b);
+    }
+
+    private async Task Koppel(InkoopBevestiging b)
+    {
+        if (PoVan(b) is not int order || _bezig) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            var melding = await Ophaler.KoppelMetDeHandAsync(b.Id, order, Ik.WerknemerId);
+            if (melding.Length > 0) _fout = melding;
+            else { _po.Remove(b.Id); await Laad(); await OpGewijzigd.InvokeAsync(); }
+        }
+        catch (Exception ex) { _fout = "Koppelen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Negeer(InkoopBevestiging b)
+    {
+        _bezig = true; _fout = null;
+        try { await Ophaler.NegeerAsync(b.Id, Ik.WerknemerId); await Laad(); await OpGewijzigd.InvokeAsync(); }
+        catch (Exception ex) { _fout = "Negeren mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    public void Dispose() => Ophaler.Bijgewerkt -= OpBijgewerkt;
+}

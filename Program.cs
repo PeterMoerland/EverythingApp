@@ -140,6 +140,7 @@ if (liveDb)
     builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
+    builder.Services.AddSingleton<IInkoopBevestigingRepository>(_ => new MySqlInkoopBevestigingRepository(cs!));   // orderbevestigingen uit inkoop@
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
     builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
@@ -232,6 +233,7 @@ else
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
+    builder.Services.AddSingleton<IInkoopBevestigingRepository, GeenInkoopBevestigingRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
     builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
@@ -287,6 +289,9 @@ builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit ww
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
 if (builder.Configuration.GetValue<bool>("ProductTodo:Geheugen"))
     builder.Services.AddSingleton<IProductTodoRepository, GeheugenProductTodoRepository>();
+// Alleen om het overzicht van orderbevestigingen lokaal te bekijken zonder de tabel: InkoopBevestigingen__Geheugen=true
+if (builder.Configuration.GetValue<bool>("InkoopBevestigingen:Geheugen"))
+    builder.Services.AddSingleton<IInkoopBevestigingRepository, GeheugenInkoopBevestigingRepository>();
 // Alleen om de projectfoto's lokaal te proberen zonder de tabel ProjectFotos: ProjectFotos__Geheugen=true
 // (werkorders en projecten zoeken gaat echt, alleen lezen; de foto's blijven in het geheugen)
 if (builder.Configuration.GetValue<bool>("ProjectFotos:Geheugen"))
@@ -352,6 +357,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AiAnalyseService>(
 // Factuurinbox: de postbus invoice@ op de achtergrond lezen (sectie "FactuurInbox"); bonnetjes komen via MDE mobiel.
 builder.Services.AddSingleton<FactuurInboxOphaler>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<FactuurInboxOphaler>());
+// Orderbevestigingen: de inkooppostbus op de achtergrond lezen en PDF's met een PO-nummer bij de bestelling zetten
+builder.Services.AddSingleton<InkoopBevestigingOphaler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<InkoopBevestigingOphaler>());
 
 // Rabobank Business Account Insight: elk uur de bankafschriften ophalen (sectie
 // "Rabobank" in appsettings.json). In de sandbox wordt er nooit iets weggeschreven.
