@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 12-11-2026
+
+- **Menu** — Verbeterd: de grijze tegels "in Access" zijn weg; je ziet alleen nog wat in de app werkt. See Electrical en Energie (nog zonder schermen) staan daardoor ook niet meer in het menu.
+
 ## 11-11-2026
 
 - **Banktransacties** — Nieuw: de export van iBanFirst importeren (euro-, dollar- en pondrekening). Bedragen in dollar en pond staan in de lijst met $ of £ in plaats van €.

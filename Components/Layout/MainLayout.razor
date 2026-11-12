@@ -364,8 +364,9 @@
         // Een module met een eigen adres heeft geen tegels om aan af te lezen
         if (!string.IsNullOrWhiteSpace(m.Url)) return true;
 
+        // alleen tegels met een scherm in de app tellen (de "in Access"-tegels zijn weg, 12-11-2026)
         return m.Groepen.SelectMany(g => g.Items)
-                        .Any(i => i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop));
+                        .Any(i => i.Klaar && (i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop)));
     }
 
     // ===== Gebouwbeheer als zwevend venster =====

@@ -22,7 +22,6 @@ else
                 }
                 @_module.Naam
             </h1>
-            <span class="weeklabel">@Gemigreerd van @Totaal schermen gemigreerd</span>
         </header>
 
         @* Financiën: vragen stellen aan de AI (Components/AiVraagInvoer.razor) *@
@@ -59,23 +58,10 @@ else
                         <div class="groep-items">
                             @foreach (var item in items)
                             {
-                                @if (item.Klaar)
-                                {
-                                    <a class="tegel klaar" href="@item.Url.TrimStart('/')">
-                                        <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
-                                        <span class="tegel-tekst"><span class="tegel-label">@Afbreekbaar(item.Label)</span></span>
-                                    </a>
-                                }
-                                else
-                                {
-                                    <span class="tegel nog-niet" title="Nog niet gemigreerd — gebruik hiervoor voorlopig Access">
-                                        <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
-                                        <span class="tegel-tekst">
-                                            <span class="tegel-label">@Afbreekbaar(item.Label)</span>
-                                            <span class="tegel-status">in Access</span>
-                                        </span>
-                                    </span>
-                                }
+                                <a class="tegel klaar" href="@item.Url.TrimStart('/')">
+                                    <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
+                                    <span class="tegel-tekst"><span class="tegel-label">@Afbreekbaar(item.Label)</span></span>
+                                </a>
                             }
                         </div>
                     </section>
@@ -83,10 +69,6 @@ else
             }
         </div>
 
-        <footer class="voet">
-            Grijze knoppen zijn nog niet gemigreerd; daarvoor gebruik je voorlopig Access.
-            Beide werken op dezelfde database.
-        </footer>
     </div>
 }
 
@@ -114,14 +96,17 @@ else
         _boven = Menu.Boven(Sleutel);
     }
 
+    // Alleen tegels met een scherm in de app (besluit gebruiker 12-11-2026): de grijze "in Access"-tegels zijn weg; ze staan
+    // nog in Menu.cs (zonder Url) en worden pas gebouwd als daar behoefte aan is.
     // Zolang er geen rechten in de database staan, alles laten zien.
     // Directie ziet ook de tegels met het recht Financial (de schermen zelf laten Directie al toe).
     private bool Zichtbaar(MenuItem item)
+        => item.Klaar && Mag(item);
+
+    private bool Mag(MenuItem item)
         => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
            || (item.Recht == "Budgetverantwoordelijke" && Ik.Mag("Directie"))    // welkomstscherm: ook Directie
            || (item.Recht == "Fusion" && Ik.MagFusion)
            || (item.Recht == "Verkoop" && Ik.MagVerkoop);                        // Verkooporders: ook Directie                          // Fusion: ook Directie
 
-    private int Totaal => _module?.Groepen.SelectMany(g => g.Items).Count(Zichtbaar) ?? 0;
-    private int Gemigreerd => _module?.Groepen.SelectMany(g => g.Items).Count(i => Zichtbaar(i) && i.Klaar) ?? 0;
 }
