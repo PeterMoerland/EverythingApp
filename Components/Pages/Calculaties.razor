@@ -293,6 +293,30 @@
                         <button class="klein" disabled="@_bezig" @onclick="() => Maak(_kopieVan)">Kopie maken</button>
                     </div>
                 }
+
+                @* een calculatie die buiten de app in de calculatieboom is gemaakt (JSON-export; wens gebruiker 12-11-2026) *@
+                <p class="uitleg" style="margin-top:.8rem">Of importeer een calculatie die buiten de app is gemaakt (het JSON-bestand uit de calculatieboom):</p>
+                <div class="btngroup">
+                    <label class="bestandknop" @key="_importRonde">
+                        Kies het JSON-bestand…
+                        <InputFile OnChange="KiesImport" accept=".json,application/json" disabled="@_bezig" />
+                    </label>
+                </div>
+                @if (_import is { } imp)
+                {
+                    <div class="calc-import">
+                        <b>@(imp.Naam.Length > 0 ? imp.Naam : imp.Bestand)</b>
+                        <span>@imp.Groepen groepen · @imp.Regels regels · @imp.Uren.ToString("N0", Nl) uur · kostprijs @imp.Kost.ToString("C0", Nl) · verkoop @imp.Verkoop.ToString("C0", Nl)</span>
+                        @if (imp.OnbekendeActiviteiten > 0)
+                        {
+                            <span class="uitleg">Let op: @imp.OnbekendeActiviteiten urenregel(s) hebben een activiteit die de app niet kent; kies die na het importeren opnieuw.</span>
+                        }
+                        <div class="btngroup">
+                            <button class="primair" disabled="@_bezig" @onclick="Importeer">Importeren bij @_offerte.OfferteNr</button>
+                            <button class="klein" @onclick="() => _import = null">Annuleren</button>
+                        </div>
+                    </div>
+                }
             }
         </section>
     }
@@ -520,6 +544,61 @@
             Toon(kopieVan is null ? "Lege calculatie gemaakt." : "Calculatie gemaakt als kopie.", false);
         }
         catch (Exception ex) { Toon("Maken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- importeren: een calculatie die buiten de app in de calculatieboom is gemaakt (JSON-export) ----
+    private sealed record ImportVoorstel(string Bestand, string Naam, string Data, int Groepen, int Regels,
+                                         decimal Kost, decimal Verkoop, decimal Uren, int OnbekendeActiviteiten);
+    private ImportVoorstel? _import;
+    private int _importRonde;      // vers invoerveld, zodat hetzelfde bestand nogmaals kan
+
+    /// <summary>Bestand lezen en nakijken; nog niets opslaan (eerst de samenvatting, dan Importeren).</summary>
+    private async Task KiesImport(InputFileChangeEventArgs e)
+    {
+        _import = null;
+        try
+        {
+            using var geheugen = new MemoryStream();
+            await e.File.OpenReadStream(maxAllowedSize: 8_000_000).CopyToAsync(geheugen);
+            var tekst = System.Text.Encoding.UTF8.GetString(geheugen.ToArray()).TrimStart('\uFEFF');
+            var (data, naam, fout) = CalculatieData.UitExport(tekst);
+            if (data is null) { Toon(fout ?? "Dit bestand is niet te importeren.", true); return; }
+
+            var (kost, verkoop, uren) = CalculatieData.Totalen(data);
+            var boom = System.Text.Json.Nodes.JsonNode.Parse(data)!;
+            var regels = boom["regels"]!.AsArray();
+            // urenregels met een activiteit die de app niet kent (de boom toont die dan zonder activiteit)
+            var bekend = new HashSet<int>();
+            try { bekend = (await Repo.TarievenAsync()).Select(t => t.ActiviteitId).ToHashSet(); } catch { }
+            var onbekend = 0;
+            if (bekend.Count > 0)
+                foreach (var r in regels)
+                {
+                    if (r?["soort"] is not System.Text.Json.Nodes.JsonValue s || !s.TryGetValue<string>(out var soort) || soort != "uur") continue;
+                    if (r["act"] is not System.Text.Json.Nodes.JsonValue a || !a.TryGetValue<int>(out var act) || !bekend.Contains(act)) onbekend++;
+                }
+            _import = new ImportVoorstel(e.File.Name, naam, data, boom["groepen"]!.AsArray().Count, regels.Count, kost, verkoop, uren, onbekend);
+        }
+        catch (Exception ex) { Toon("Bestand lezen mislukt: " + ex.Message, true); }
+        finally { _importRonde++; }
+    }
+
+    private async Task Importeer()
+    {
+        if (OfferteId is not int id || !MagMaken || _import is not { } imp) return;
+        _bezig = true;
+        try
+        {
+            await Repo.MaakAsync(id, imp.Data, Ik.WerknemerId);
+            // de totalen voor de lijst meteen goed zetten (de boom rekent ze pas uit bij het eerste opslaan)
+            try { await Repo.BewaarAsync(id, 1, imp.Data, imp.Kost, imp.Verkoop, imp.Uren, Ik.WerknemerId); } catch { }
+            _import = null;
+            _boomVersie++;
+            await LaadOfferte(id);
+            Toon($"Calculatie geïmporteerd{(imp.Naam.Length > 0 ? $": {imp.Naam}" : "")} ({imp.Groepen} groepen, {imp.Regels} regels).", false);
+        }
+        catch (Exception ex) { Toon("Importeren mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
     }
 

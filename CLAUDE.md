@@ -2323,3 +2323,16 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
   de regel niet weghalen; failed-blokkade met oplossing en foto's; todo's per fase; TEST laten vervallen), de blokken
   van Programmeren en testen naar de fases, serienummers/buislengte invullen ín een fase, deel 4
   (serienummercontrole bij node-adressen), deel 5 (tabblad Info, alleen lezen).
+
+## Calculaties: importeren uit de calculatieboom (12-11-2026, verzoek Edwin)
+
+Een offline calculatie (artifact Calculatieboom, export `{"soort":"mde-calculatieboom","versie":1,"calculatie":{id, meta,
+inst, groepen, regels, bevroren}}`) heeft dezelfde opbouw als `Calculaties.Data` (`inst`, `groepen`, `regels`; groep met
+`aantal`, `notes`). `CalculatieData.UitExport` (Services/ICalculatieRepository.cs) haalt die drie eruit (een bestand met
+alleen de boom mag ook), controleert nummers en groepverwijzingen en geeft de naam uit `meta`. `CalculatieData.Totalen`
+rekent kost/verkoop/uren zoals `bereken()` in calculatieboom.html (groepsaantal, `keer`, uitsplitsing, eigen opslag),
+zodat de lijst meteen klopt (`MaakAsync`, dan `BewaarAsync` met versie 1). Pagina Calculaties, blok "Nog geen
+calculatie": bestand kiezen → samenvatting → Importeren. Alleen bij een offerte zonder calculatie; een bestaande
+vervangen en exporteren uit de app zijn niet gebouwd. Getest: bestand van Edwin (M-Pede casepacker cel, 9 groepen, 24
+regels, kost 645.894,90, verkoop 1.024.389,31, 3.750 uur; met de hand nagerekend), foute bestanden, en de hele import
+lokaal met `Calculaties__Geheugen=true`. Niet getest tegen de echte tabel.

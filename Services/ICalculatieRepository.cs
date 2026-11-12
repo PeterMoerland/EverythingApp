@@ -90,6 +90,108 @@ public static class CalculatieData
             foreach (var x in a) Strip(x);
     }
 
+    /// <summary>
+    /// Een calculatie die offline in de calculatieboom is gemaakt en als JSON is geëxporteerd (wens gebruiker 12-11-2026,
+    /// bestand van Edwin): <c>{"soort":"mde-calculatieboom","versie":1,"calculatie":{meta, inst, groepen, regels}}</c>. De
+    /// app bewaart alleen inst, groepen en regels; een bestand met alleen die drie mag ook. Geeft de boom zoals de app hem
+    /// opslaat en de naam uit het bestand, of de reden waarom het niet kan.
+    /// </summary>
+    public static (string? Data, string Naam, string? Fout) UitExport(string json)
+    {
+        if (json.Length > 8_000_000) return (null, "", "Het bestand is te groot.");
+        JsonObject? bron;
+        try { bron = JsonNode.Parse(json, documentOptions: new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip }) as JsonObject; }
+        catch (Exception ex) { return (null, "", "Dit is geen geldig JSON-bestand: " + ex.Message); }
+        if (bron is null) return (null, "", "Dit is geen calculatie uit de calculatieboom.");
+
+        var soort = bron["soort"] is JsonValue sv && sv.TryGetValue<string>(out var st) ? st : "";
+        if (soort.Length > 0 && soort != "mde-calculatieboom") return (null, "", $"Dit bestand is van de soort '{soort}', geen calculatieboom.");
+        var calc = bron["calculatie"] as JsonObject ?? bron;
+        if (calc["groepen"] is not JsonArray groepen || calc["regels"] is not JsonArray regels)
+            return (null, "", "Dit is geen calculatie uit de calculatieboom (groepen en regels ontbreken).");
+
+        // de opbouw moet kloppen: elke groep een eigen nummer, elke regel in een bestaande groep
+        var ids = new HashSet<long>();
+        foreach (var g in groepen)
+        {
+            if (g is not JsonObject go || !Heel(go["id"], out var id)) return (null, "", "Een groep in het bestand heeft geen nummer (id).");
+            if (!ids.Add(id)) return (null, "", $"Groep {id} staat twee keer in het bestand.");
+        }
+        var regelIds = new HashSet<long>();
+        foreach (var r in regels)
+        {
+            if (r is not JsonObject ro || !Heel(ro["id"], out var id)) return (null, "", "Een regel in het bestand heeft geen nummer (id).");
+            if (!regelIds.Add(id) || ids.Contains(id)) return (null, "", $"Nummer {id} komt twee keer voor in het bestand.");
+            if (!Heel(ro["groep"], out var groep) || !ids.Contains(groep)) return (null, "", $"Regel {id} hoort bij een groep die niet in het bestand staat.");
+        }
+
+        var uit = new JsonObject
+        {
+            ["inst"] = (calc["inst"] as JsonObject)?.DeepClone() ?? JsonNode.Parse(Leeg)!["inst"]!.DeepClone(),
+            ["groepen"] = groepen.DeepClone(),
+            ["regels"] = regels.DeepClone(),
+        };
+        var naam = calc["meta"]?["naam"] is JsonValue nv && nv.TryGetValue<string>(out var n) ? n.Trim() : "";
+        return (uit.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }), naam, null);
+    }
+
+    private static bool Heel(JsonNode? n, out long waarde)
+    {
+        waarde = 0;
+        try { if (n is JsonValue v) { waarde = (long)v.GetValue<decimal>(); return true; } } catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// Kostprijs, verkoop en uren van een boom, zoals de boompagina ze uitrekent (bereken() in calculatieboom.html): per
+    /// regel aantal × kostprijs × het aantal van de groep en de groepen erboven (of het eigen "keer"); een uitsplitsing
+    /// levert bij uren het aantal en bij materiaal de kostprijs; verkoop = (kost + overhead) × (1 + marge), of met een
+    /// eigen percentage kost × (1 + eigen). Voor de lijst, bij importeren (de boom zelf rekent pas bij opslaan).
+    /// </summary>
+    public static (decimal Kost, decimal Verkoop, decimal Uren) Totalen(string json)
+    {
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonObject o || o["groepen"] is not JsonArray groepen || o["regels"] is not JsonArray regels) return (0, 0, 0);
+            static decimal? G(JsonNode? n) { try { return n is JsonValue v ? v.GetValue<decimal>() : null; } catch { return null; } }
+            var inst = o["inst"] as JsonObject;
+            decimal Inst(string k, decimal standaard) => G(inst?[k]) ?? standaard;
+            decimal ohUur = Inst("ohUur", 22), ohMat = Inst("ohMat", 22), mUur = Inst("mUur", 30), mMat = Inst("mMat", 30);
+
+            var groep = groepen.OfType<JsonObject>().Where(g => G(g["id"]) is not null).ToDictionary(g => (long)G(g["id"])!.Value);
+            decimal Factor(long id)
+            {
+                var f = 1m;
+                for (var n = 0; n < 20 && groep.TryGetValue(id, out var g); n++)
+                {
+                    f *= G(g["aantal"]) ?? 1;
+                    if (G(g["ouder"]) is not decimal ouder) break;
+                    id = (long)ouder;
+                }
+                return f;
+            }
+
+            decimal kost = 0, verkoop = 0, uren = 0;
+            foreach (var r in regels.OfType<JsonObject>())
+            {
+                if (G(r["groep"]) is not decimal gid || !groep.ContainsKey((long)gid)) continue;
+                var uur = r["soort"] is JsonValue sv && sv.TryGetValue<string>(out var soort) && soort == "uur";
+                decimal? detail = r["detail"] is JsonArray d ? d.OfType<JsonObject>().Sum(x => (G(x["aantal"]) ?? 0) * (G(x["waarde"]) ?? 0)) : null;
+                var aantal = (detail is not null && uur ? detail : G(r["aantal"])) ?? 0;
+                var prijs = (detail is not null && !uur ? detail : G(r["kost"])) ?? 0;
+                var keer = G(r["keer"]) ?? Factor((long)gid);
+                var k = aantal * prijs * keer;
+                var v = G(r["eigen"]) is decimal eigen
+                    ? k * (1 + eigen / 100)
+                    : (k + k * (uur ? ohUur : ohMat) / 100) * (1 + (uur ? mUur : mMat) / 100);
+                kost += k; verkoop += v;
+                if (uur) uren += aantal * keer;
+            }
+            return (kost, verkoop, uren);
+        }
+        catch { return (0, 0, 0); }
+    }
+
     /// <summary>Kopie voor een andere offerte: niet bevroren, notities en uitsplitsingen gaan mee.</summary>
     public static string Kopie(string json)
     {
