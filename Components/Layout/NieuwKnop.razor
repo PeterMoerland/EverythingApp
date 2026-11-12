@@ -3,8 +3,9 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-@* Knopje "Nieuw" in de bovenbalk (wens gebruiker 11-11-2026): alleen zichtbaar als CHANGELOG.md iets heeft van na je vorige
-   bezoek aan Wat is er nieuw (of als je die pagina nog nooit opende). De browser onthoudt het (mde-nieuw-gezien). *@
+@* Knopje "Nieuw" in de bovenbalk (wens gebruiker 11-11-2026): alleen zichtbaar als CHANGELOG.md regels heeft die je nog
+   niet zag (of als je de pagina Wat is er nieuw nog nooit opende). Per regel bijgehouden, dus het komt terug bij elke
+   publicatie met iets nieuws, ook meerdere keren op een dag (12-11-2026). De browser onthoudt het (Changelog.OpslagGezien). *@
 
 @if (_toon)
 {
@@ -32,10 +33,12 @@
         try
         {
             var hier = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
-            if (Log.Nieuwste is DateOnly n && !hier.Equals("nieuw", StringComparison.OrdinalIgnoreCase))
+            if (Log.Nieuwste is not null && !hier.Equals("nieuw", StringComparison.OrdinalIgnoreCase))
             {
-                var waarde = await JS.InvokeAsync<string?>("mdeOpslag.lees", "mde-nieuw-gezien");
-                toon = !DateOnly.TryParse(waarde, System.Globalization.CultureInfo.InvariantCulture, out var gezien) || n > gezien;
+                var gezien = await JS.InvokeAsync<string?>("mdeOpslag.lees", Changelog.OpslagGezien);
+                var oud = string.IsNullOrWhiteSpace(gezien) ? await JS.InvokeAsync<string?>("mdeOpslag.lees", Changelog.OpslagGezienOud) : null;
+                var (nieuw, eersteKeer) = Log.NieuwVoor(gezien, oud);
+                toon = eersteKeer || nieuw.Count > 0;
             }
         }
         catch { toon = false; }

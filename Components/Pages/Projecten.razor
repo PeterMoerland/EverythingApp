@@ -2,6 +2,8 @@
 @inject IProjectRepository Repo
 @inject IPOKlantRepository PoRepo
 @inject IBestelRepository BestelRepo
+@inject IOfferteRepository OfferteRepo
+@inject ICalculatieRepository CalculatieRepo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -192,6 +194,10 @@
                                     @onclick="() => _tabProject = tab.Naam">@tab.Naam</button>
                         }
                         <button class="@(_tabProject == TeamTab ? "actief" : "")" @onclick="() => _tabProject = TeamTab">@TeamTab</button>
+                        @if (OfferteRepo.Beschikbaar)
+                        {
+                            <button class="@(_tabProject == OfferteTab ? "actief" : "")" @onclick="() => _tabProject = OfferteTab">@OfferteTab@(_offertes.Count > 0 ? $" ({_offertes.Count})" : "")</button>
+                        }
                         @if (MagBudget)
                         {
                             @foreach (var tab in BudgetTabs)
@@ -207,6 +213,52 @@
                             {
                                 <ProjectTeam @key="teamProject" ProjectId="teamProject" Werknemers="Werknemers"
                                              ProjectleiderId="ProjectleiderId()" />
+                            }
+                            else if (_tabProject == OfferteTab)
+                            {
+                                @* de offertes van dit project, met een link naar de offerte en de calculatie (wens gebruiker 12-11-2026) *@
+                                @if (_offertes.Count == 0)
+                                {
+                                    <p class="uitleg">Dit project heeft nog geen offertes. Een offerte maak je in <a href="projecten/offertes">Projecten ▸ Offertes</a>.</p>
+                                }
+                                else
+                                {
+                                    <table class="kiezer-tabel pr-offertes">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:8.5rem">Offerte</th><th>Omschrijving</th><th style="width:7.5rem">Status</th>
+                                                <th style="width:6.5rem">Datum</th><th style="width:10rem">Door</th><th style="width:8rem" class="r">Totaal</th>
+                                                <th style="width:13rem"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var o in _offertes)
+                                            {
+                                                <tr @key="o.Id">
+                                                    <td><a href="projecten/offertes/@o.Id" title="Offerte openen"><b>@o.OfferteNr</b></a></td>
+                                                    <td>@o.Omschrijving</td>
+                                                    <td><span class="stand-chip @OfferteStatus.Kleur(o.Status)">@OfferteStatus.Naam(o.Status)</span></td>
+                                                    <td>@(o.AanmaakDatum?.ToString("dd-MM-yyyy") ?? "")</td>
+                                                    <td>@o.Maker</td>
+                                                    <td class="r">@Geld(o.Totaal)</td>
+                                                    <td class="pr-offerteknoppen">
+                                                        <a class="knop klein" href="projecten/offertes/@o.Id">Openen</a>
+                                                        <a class="knop klein" href="projecten/calculaties/@o.Id"
+                                                           title="@(_offerteCalculaties.TryGetValue(o.Id, out var oc) ? $"Calculatie ({(oc.Status == 1 ? "bevroren" : "concept")}, verkoop {Geld(oc.Verkoop)}) openen" : "Nog geen calculatie; openen om er een te maken")">
+                                                            🧮 @(_offerteCalculaties.ContainsKey(o.Id) ? "Calculatie" : "Calculatie maken")
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                        @if (_offertes.Count > 1)
+                                        {
+                                            <tfoot>
+                                                <tr><td colspan="5"><b>Totaal van @_offertes.Count offertes</b></td><td class="r"><b>@Geld(_offertes.Sum(o => o.Totaal))</b></td><td></td></tr>
+                                            </tfoot>
+                                        }
+                                    </table>
+                                }
                             }
                             else if (MagBudget && BudgetTabs.Contains(_tabProject) && _projectId is int budgetProject)
                             {
@@ -572,6 +624,25 @@
 
         await LaadWerkorders();
         await LaadPos(p.Id);
+        await LaadOffertes(p.Id);
+    }
+
+    // ---- offertes van dit project (tabblad Offertes; openen in Projecten ▸ Offertes en ▸ Calculaties) ----
+    private const string OfferteTab = "Offertes";
+    private List<OfferteRegel> _offertes = new();
+    private Dictionary<int, CalculatieRegel> _offerteCalculaties = new();
+
+    private async Task LaadOffertes(int projectId)
+    {
+        _offertes = new(); _offerteCalculaties = new();
+        if (!OfferteRepo.Beschikbaar) { if (_tabProject == OfferteTab) _tabProject = ProjectVelden.ProjectTabs[0].Naam; return; }
+        try
+        {
+            _offertes = await OfferteRepo.VanProjectAsync(projectId);
+            if (_offertes.Count > 0 && CalculatieRepo.Beschikbaar && await CalculatieRepo.TabelAanwezigAsync())
+                _offerteCalculaties = await CalculatieRepo.VoorOffertesAsync(_offertes.Select(o => o.Id).ToList());
+        }
+        catch { /* zonder offertes werkt het project gewoon */ }
     }
 
     // ---- PO klant bij dit project (link naar Financiën ▸ PO klant) ----

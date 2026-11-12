@@ -2,8 +2,9 @@
 @inject Changelog Log
 @inject IJSRuntime JS
 
-@* Wat is er nieuw (wens gebruiker 11-11-2026): CHANGELOG.md per dag, ook voor collega's. Wat er sinds je vorige bezoek
-   bij kwam krijgt het label "nieuw"; dat onthoudt de browser (mde-nieuw-gezien), net als het knopje in de bovenbalk. *@
+@* Wat is er nieuw (wens gebruiker 11-11-2026): CHANGELOG.md per dag, ook voor collega's. Elke regel die er sinds je vorige
+   bezoek bij kwam krijgt het label "nieuw"; dat onthoudt de browser per regel (Changelog.OpslagGezien), net als het knopje
+   in de bovenbalk. *@
 
 <PageTitle>Wat is er nieuw — MDE</PageTitle>
 
@@ -40,7 +41,7 @@
             <section class="nw-dag">
                 <h2>
                     @Hoofdletter(dag.Datum.ToString("dddd d MMMM yyyy", Nl))
-                    @if (_gezien is DateOnly g && dag.Datum > g) { <span class="nw-nieuw">nieuw</span> }
+                    @if (dag.Regels.Any(r => _nieuw.Contains(r.Sleutel))) { <span class="nw-nieuw">nieuw</span> }
                 </h2>
                 <ul>
                     @foreach (var r in dag.Regels)
@@ -49,6 +50,7 @@
                             <span class="nw-onderdeel">@r.Onderdeel</span>
                             @if (r.Soort.Length > 0) { <span class="nw-soort nw-@r.Soort.ToLowerInvariant()">@r.Soort</span> }
                             <span>@Hoofdletter(r.Tekst)</span>
+                            @if (_nieuw.Contains(r.Sleutel)) { <span class="nw-regelnieuw">nieuw</span> }
                         </li>
                     }
                 </ul>
@@ -58,10 +60,9 @@
 </div>
 
 @code {
-    private const string Sleutel = "mde-nieuw-gezien";
     private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
     private string _onderdeel = "", _zoek = "";
-    private DateOnly? _gezien;
+    private HashSet<string> _nieuw = new();      // de regels die er sinds het vorige bezoek bij kwamen
 
     private static string Hoofdletter(string s) => s.Length == 0 ? s : char.ToUpper(s[0], Nl) + s[1..];
 
@@ -90,10 +91,11 @@
         if (!eerste) return;
         try
         {
-            var waarde = await JS.InvokeAsync<string?>("mdeOpslag.lees", Sleutel);
+            var gezien = await JS.InvokeAsync<string?>("mdeOpslag.lees", Changelog.OpslagGezien);
+            var oud = string.IsNullOrWhiteSpace(gezien) ? await JS.InvokeAsync<string?>("mdeOpslag.lees", Changelog.OpslagGezienOud) : null;
             // eerste keer op deze pagina: niets als "nieuw" markeren, anders staat alles erop
-            _gezien = DateOnly.TryParse(waarde, System.Globalization.CultureInfo.InvariantCulture, out var g) ? g : DateOnly.MaxValue;
-            if (Log.Nieuwste is DateOnly n) await JS.InvokeVoidAsync("mdeOpslag.schrijf", Sleutel, n.ToString("yyyy-MM-dd"));
+            _nieuw = Log.NieuwVoor(gezien, oud).Nieuw;
+            await JS.InvokeVoidAsync("mdeOpslag.schrijf", Changelog.OpslagGezien, Log.AllesGezien());
             StateHasChanged();
         }
         catch { /* zonder opslag gewoon zonder labels */ }

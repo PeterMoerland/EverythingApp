@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 12-11-2026
 
+- **Projecten** — Nieuw: tabblad Offertes bij een project, met de offertes van dat project (status, datum, maker, bedrag) en knoppen om de offerte of de calculatie te openen.
+- **Algemeen** — Verbeterd: 🆕 Nieuw verschijnt nu bij elke publicatie met iets nieuws, ook als dat vaker op één dag is; op de pagina Wat is er nieuw staat het label "nieuw" bij precies de regels die je nog niet zag.
 - **Calculaties** — Nieuw: een calculatie die buiten de app in de calculatieboom is gemaakt (JSON-bestand) importeren bij een offerte die nog geen calculatie heeft; je ziet eerst een samenvatting met uren, kostprijs en verkoop (verzoek van Edwin).
 - **Producten** — Nieuw: opbouw in fases (voorstel van Sjoerd). Bij een MPR-robot werk je acht fases van boven naar beneden af: afgeronde fases zijn ingeklapt, alleen in de actieve fase kun je afvinken en latere fases staan op slot. Een fase rond je af met "Fase klaar" of sla je over. De eindcheck is de laatste fase.
 - **Producten** — Nieuw: elke regel in de historie krijgt de fase waarin hij viel; je kunt op fase filteren en de fase achteraf aanpassen.
