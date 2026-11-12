@@ -2,12 +2,12 @@
 @inject IJSRuntime JS
 
 @* De mobiele schil: geen zijbalk, geen zoekpalet — alleen een smalle kopbalk
-   met het logo (terug naar het mobiele startscherm) en de themaknop.
+   met het logo van de grote app (terug naar het mobiele startscherm) en de themaknop.
    Welke functies mobiel beschikbaar zijn bepaalt Pages/Mobiel.razor. *@
 
 <div class="mobiel-schil">
     <header class="mobiel-top">
-        <a class="mobiel-logo" href="mobiel" title="Mobiel startscherm">MDE</a>
+        <a class="mobiel-logo" href="mobiel" title="Mobiel startscherm"><img src="logo-mde.png" alt="MDE Automation" /></a>
         <span class="mobiel-vulling"></span>
         <button class="themaknop" @onclick="WisselThema"
                 title="@(_donker ? "Naar lichte weergave" : "Naar donkere weergave")">

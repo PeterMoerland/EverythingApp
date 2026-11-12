@@ -1047,6 +1047,7 @@ html[data-thema="donker"] .tegel.nog-niet .tegel-icoon { background: rgba(255,25
 /* de factuur en de bijlagen: slepen of klikken */
 .factuur-sleep { margin-bottom: .6rem; padding: 1rem; }
 .factuur-sleep.actief { border-style: solid; }
+.factuur-telefoon { margin: -.2rem 0 .6rem; }
 
 .factuur-bestanden { display: flex; flex-direction: column; gap: .3rem;
                      padding: .6rem .7rem; margin-bottom: .8rem; background: #f7f9fc;
@@ -1155,8 +1156,11 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
 .mobiel-top { display: flex; align-items: center; gap: .8rem; padding: .55rem .9rem;
               background: #fff; border-bottom: 1px solid #ddd;
               position: sticky; top: 0; z-index: 5; }
-.mobiel-logo { font-weight: 700; font-size: 1.1rem; color: var(--merk-rood);
+.mobiel-logo { display: block; font-weight: 700; font-size: 1.1rem; color: var(--merk-rood);
                text-decoration: none; letter-spacing: .5px; }
+/* het logo van de grote app (wwwroot/logo-mde.png); in donker op een wit vlakje, de letters MDE zijn zwart */
+.mobiel-logo img { display: block; height: 2.2rem; width: auto; }
+html[data-thema="donker"] .mobiel-logo { background: #fff; border-radius: 6px; padding: .2rem .4rem; }
 .mobiel-vulling { flex: 1; }
 .mobiel-inhoud { flex: 1; padding: .9rem .9rem 1.4rem; }
 .mobiel-kop { margin: .2rem 0 .9rem; font-size: 1.25rem; }
@@ -1167,6 +1171,9 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
                 text-decoration: none; touch-action: manipulation; }
 .mobiel-tegel:active { background: var(--selected); }
 .mobiel-tegel .ikoon { font-size: 2rem; }
+.mobiel-tegel small { font-size: .78rem; font-weight: 400; color: #667; text-align: center; line-height: 1.25; }
+.mobiel-pad { display: inline-block; margin: 0 0 .5rem; padding: .25rem .1rem; color: var(--accent); text-decoration: none; font-size: 1rem; }
+html[data-thema="donker"] .mobiel-tegel small { color: var(--dt2); }
 .mobiel-voet { margin-top: 1.6rem; display: flex; flex-direction: column;
                align-items: flex-start; gap: .7rem; }
 .mobiel-klein { font-size: .85em; color: #667; }

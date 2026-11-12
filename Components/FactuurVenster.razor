@@ -495,6 +495,14 @@
                                        accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.docx,.doc,.csv,.xml,.zip"
                                        disabled="@(_lezen || _uploadBezig)" @key="_uploadRonde" />
                         </div>
+                        @* Een papieren factuur: de telefoon als camera (wens gebruiker 12-11-2026). De foto komt als bestand in
+                           de lijst hieronder en wordt uitgelezen zoals een PDF. *@
+                        @if (MagInvoeren)
+                        {
+                            <div class="factuur-telefoon">
+                                <FotoVak AlleenTelefoon="true" Titel="@FotoTitel" OpNieuweFoto="FotoVanTelefoon" />
+                            </div>
+                        }
 
                         @* Eén lijst: wat al bewaard is én wat net gekozen is. Klikken
                            op een regel zet dat bestand groot in het voorbeeld eronder. *@
@@ -1721,7 +1729,30 @@
         }
 
         _uploadRonde++;
+        await NaToevoegen(nieuw, erbij, fouten);
+    }
 
+    /// <summary>Waar een foto van de telefoon voor is (staat op de telefoon).</summary>
+    private string FotoTitel => string.IsNullOrWhiteSpace(_factuur.Factuurnummer) ? "Inkomende factuur" : $"Inkomende factuur {_factuur.Factuurnummer}";
+
+    /// <summary>
+    /// Een foto van de telefoon (FotoVak, via de FotoBrug): komt als bestand in de lijst, net als een gekozen bestand, en
+    /// wordt uitgelezen als de factuur nog leeg is. De naam begint met "factuur", zodat hij als de factuur zelf telt.
+    /// </summary>
+    private async Task FotoVanTelefoon(FotoStuk foto)
+    {
+        if (!MagInvoeren) return;
+        var basis = "factuur " + Path.GetFileNameWithoutExtension(foto.Naam);
+        var naam = basis + ".jpg";
+        for (var n = 2; _gekozen.Any(b => b.Naam.Equals(naam, StringComparison.OrdinalIgnoreCase)); n++) naam = $"{basis} ({n}).jpg";
+        var gb = new GekozenBestand { Naam = naam, Inhoud = foto.Inhoud };
+        _gekozen.Add(gb);
+        await NaToevoegen(new List<GekozenBestand> { gb }, 1, new List<string>());
+    }
+
+    /// <summary>Na het toevoegen van bestanden (gekozen, gesleept of van de telefoon): bewaren, in beeld zetten, uitlezen.</summary>
+    private async Task NaToevoegen(List<GekozenBestand> nieuw, int erbij, List<string> fouten)
+    {
         // Staat de factuur al in de database? Dan hangen de bestanden er meteen
         // aan; het voorbeeld pakt het bewaarde document dan vanzelf op. Eerst
         // een geheugen-voorbeeld maken zou de bytes voor niets naar de browser

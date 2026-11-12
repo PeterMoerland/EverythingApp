@@ -6,23 +6,29 @@
 @* Foto's verzamelen bij iets wat je op de pc invult (bv. een fout in de opbouw): kiezen vanaf de pc, of met de telefoon
    als camera (wens gebruiker 12-11-2026). "📱 Met telefoon" opent een vraag in de FotoBrug en toont een QR-code; op de
    telefoon (MDE mobiel ▸ Foto, of de QR-code scannen) maak je de foto en die staat hier meteen. De foto's blijven in
-   het geheugen (lijst Fotos van de aanroeper) tot die ze opslaat; dit vak slaat zelf niets op. *@
+   het geheugen (lijst Fotos van de aanroeper) tot die ze opslaat; dit vak slaat zelf niets op.
+
+   AlleenTelefoon (bv. het factuurvenster, dat zijn eigen bestandenlijst heeft): alleen de knop en de QR-code, zonder
+   miniaturen en zonder "Kies foto". Met OpNieuweFoto krijgt de aanroeper elke foto meteen, in plaats van in Fotos. *@
 
 <div class="fotovak">
     <div class="fotovak-rij">
-        @foreach (var f in Fotos)
+        @if (!AlleenTelefoon)
         {
-            <span class="fotovak-foto" @key="f">
-                <img src="@f.Voorbeeld" alt="@f.Naam" title="@f.Naam" />
-                <button type="button" class="fotovak-weg" title="Deze foto weghalen" @onclick="() => Weg(f)">✕</button>
-            </span>
+            @foreach (var f in Fotos)
+            {
+                <span class="fotovak-foto" @key="f">
+                    <img src="@f.Voorbeeld" alt="@f.Naam" title="@f.Naam" />
+                    <button type="button" class="fotovak-weg" title="Deze foto weghalen" @onclick="() => Weg(f)">✕</button>
+                </span>
+            }
+            <label class="klein fotovak-knop" title="Een of meer foto's van deze pc kiezen">
+                📎 Kies foto…
+                <InputFile @key="_invoer" OnChange="Gekozen" accept="image/*" multiple class="bon-verborgen" />
+            </label>
         }
-        <label class="klein fotovak-knop" title="Een of meer foto's van deze pc kiezen">
-            📎 Kies foto…
-            <InputFile @key="_invoer" OnChange="Gekozen" accept="image/*" multiple class="bon-verborgen" />
-        </label>
         <button type="button" class="klein @(_vraag is not null ? "actief" : "")" @onclick="WisselTelefoon"
-                title="Je telefoon als camera gebruiken: de foto staat meteen hier">📱 Met telefoon</button>
+                title="Je telefoon als camera gebruiken: de foto staat meteen hier">📱 @(AlleenTelefoon ? "Foto met telefoon" : "Met telefoon")</button>
         @if (_bezig) { <span class="uitleg">foto verwerken…</span> }
     </div>
     @if (_vraag is not null)
@@ -55,8 +61,12 @@
 </div>
 
 @code {
-    /// <summary>De foto's; de aanroeper houdt de lijst vast en slaat ze op.</summary>
-    [Parameter, EditorRequired] public List<FotoStuk> Fotos { get; set; } = new();
+    /// <summary>De foto's; de aanroeper houdt de lijst vast en slaat ze op. (Niet nodig met OpNieuweFoto.)</summary>
+    [Parameter] public List<FotoStuk> Fotos { get; set; } = new();
+    /// <summary>Alleen de knop "Foto met telefoon" en de QR-code; geen miniaturen en geen "Kies foto".</summary>
+    [Parameter] public bool AlleenTelefoon { get; set; }
+    /// <summary>Elke foto meteen doorgeven aan de aanroeper, in plaats van hem in Fotos te zetten.</summary>
+    [Parameter] public EventCallback<FotoStuk> OpNieuweFoto { get; set; }
     /// <summary>Waar de foto's voor zijn (staat op de telefoon), bv. "Fout bij MPR-1 · 32".</summary>
     [Parameter] public string Titel { get; set; } = "Foto";
     [Parameter] public EventCallback OpGewijzigd { get; set; }
@@ -119,14 +129,32 @@
     private Task OpVerbonden(string wie) => InvokeAsync(() => { _verbonden = Wie(wie); StateHasChanged(); });
     private static string Wie(string naam) => naam.Trim().Length > 0 ? naam.Trim() : "een collega";
 
-    private Task OpFoto(FotoStuk foto, string wie) => InvokeAsync(async () =>
+    private Task OpFoto(FotoStuk foto, string wie)
     {
-        Fotos.Add(foto);
-        _ontvangen++;
-        if (_verbonden.Length == 0) _verbonden = Wie(wie);
-        StateHasChanged();
-        await OpGewijzigd.InvokeAsync();
-    });
+        // Niet wachten tot de aanroeper klaar is (een factuur wordt meteen uitgelezen, dat duurt seconden): de telefoon
+        // mag door naar de volgende foto zodra deze hier is aangekomen.
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _ontvangen++;
+                if (_verbonden.Length == 0) _verbonden = Wie(wie);
+                if (OpNieuweFoto.HasDelegate)
+                {
+                    StateHasChanged();
+                    await OpNieuweFoto.InvokeAsync(foto);
+                }
+                else
+                {
+                    Fotos.Add(foto);
+                    StateHasChanged();
+                    await OpGewijzigd.InvokeAsync();
+                }
+            }
+            catch (Exception ex) { _fout = "De foto verwerken mislukte: " + ex.Message; StateHasChanged(); }
+        });
+        return Task.CompletedTask;
+    }
 
     public void Dispose() => SluitTelefoon();
 }

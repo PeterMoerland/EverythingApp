@@ -2482,6 +2482,16 @@ geen script nodig); Fout melden en de todo's per fase verschijnen pas daarna (`H
   nieuwe vraag op de pc verschijnt vanzelf). Foto in de browser verkleind (2000 px, voorbeeld 360 px) zoals MobielBon.
   De aanroepen van de brug komen binnen op de verbinding van de telefoon: FotoVak gaat eerst naar zijn eigen scherm
   (`InvokeAsync`). Herbruikbaar voor andere schermen die foto's willen.
+  **Ook in het factuurvenster** (wens gebruiker 12-11-2026, na de geslaagde test met de fout-foto):
+  `<FotoVak AlleenTelefoon="true" OpNieuweFoto="FotoVanTelefoon" />` onder het sleepvak (alleen met `MagInvoeren`).
+  `AlleenTelefoon` = alleen de knop "📱 Foto met telefoon" en de QR-code; `OpNieuweFoto` geeft elke foto meteen door
+  in plaats van hem in `Fotos` te zetten. `FactuurVenster.FotoVanTelefoon` maakt er een `GekozenBestand` van met de
+  naam "factuur foto <datum tijd>.jpg" (telt zo als de factuur zelf) en loopt dezelfde weg als een gekozen bestand
+  (`NaToevoegen`, afgesplitst uit `BestandenGekozen`: bewaren bij een bestaande factuur, in beeld, uitlezen als de
+  factuur nog leeg is). FotoVak wacht niet op de aanroeper: de telefoon mag door zodra de foto is aangekomen, ook als
+  het uitlezen nog loopt. Getest lokaal met een tweede tabblad als telefoon en een getekende proeffactuur: foto in de
+  lijst en het voorbeeld, 5 velden uitgelezen via Bedrock, telefoon klaar in ruim 2 s; niets opgeslagen. Niet getest:
+  een echte telefoon, een tweede foto (bijlage), en een bestaande factuur (dan wordt de foto direct opgeslagen).
 - **Todo's per fase**: `ProductTodo.FaseStapId`/`Fase` ("4 · Kalibratie", zelfde subquery als de historie),
   `MaakAsync(..., faseStapId)`, `ZetFaseAsync`, `KopieerAsync` neemt de fase mee (doelen zijn van hetzelfde type). In
   `OpbouwLijst` staan de punten van een fase onder de stappen (chip "todo"), met "＋ Todo voor deze fase" in elke
@@ -2503,6 +2513,18 @@ geen script nodig); Fout melden en de todo's per fase verschijnen pas daarna (`H
   ook bij bezoekverslag 7 staan. Op 12-11-2026 stonden er geen bestanden met 330 of 331 (lezend gecontroleerd), dus er
   is niets verhuisd. 331 komt in `FileStoreType` met `ProductOpbouwDeel3_MariaDB.sql`; **zonder dat script faalt een
   document toevoegen bij een opbouwstap op de foreign key**. Niet getest (zou in de filestore schrijven).
+
+## MDE mobiel: menu in twee lagen en het echte logo (12-11-2026)
+
+Wens gebruiker. `Components/Pages/Mobiel.razor` heeft drie adressen: `/mobiel` (startscherm: Gebouwbeheer, Bestellen,
+Foto, Bonnetje), `/mobiel/gebouwbeheer` (Verlichting, Zonwering, Compressor, Alarm) en `/mobiel/bestellen` (Scannen naar
+batch, `scannen?van=mobiel`). Welk menu er staat komt uit het adres (`Menu`); het is één pagina zonder parameters, dus
+Blazor tekent hem bij wisselen van adres **niet vanzelf opnieuw**: de pagina luistert naar `Nav.LocationChanged` (zonder
+dat bleef het startscherm staan onder het nieuwe adres). Een nieuwe functie = één tegel in het juiste menu; een tegel
+kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovenaan `a.mobiel-pad` terug naar hun menu
+(licht/zonwering/compressor/alarm → Gebouwbeheer; bon/foto → Menu); Scannen toont met `?van=mobiel` "‹ Bestellen" in
+plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
+op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
 ## Calculaties: importeren uit de calculatieboom (12-11-2026, verzoek Edwin)
 

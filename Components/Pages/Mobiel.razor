@@ -1,46 +1,101 @@
 @page "/mobiel"
+@page "/mobiel/gebouwbeheer"
+@page "/mobiel/bestellen"
 @layout MobielLayout
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@implements IDisposable
 
-@* Het mobiele startscherm: alleen de functies die op een telefoon zinvol
-   zijn, als grote tegels. Komt er een functie bij, dan is dat hier één
-   tegel extra (en zo nodig een /mobiel/...-pagina met het paneel erin). *@
+@* Het mobiele startscherm: alleen de functies die op een telefoon zinvol zijn, als grote tegels, in een menu met
+   twee lagen (wens gebruiker 12-11-2026): Gebouwbeheer en Bestellen openen een eigen menu, Foto en Bonnetje gaan
+   direct naar hun pagina. Komt er een functie bij, dan is dat hier één tegel extra in het juiste menu (en zo nodig
+   een /mobiel/...-pagina met het paneel erin). De pagina's zelf hebben bovenaan een link terug naar hun menu
+   (class mobiel-pad). *@
 
-<PageTitle>MDE mobiel</PageTitle>
+<PageTitle>@(Menu is null ? "MDE mobiel" : Titel + " — MDE")</PageTitle>
 
-<h2 class="mobiel-kop">Waar wil je heen?</h2>
+@if (Menu == "gebouwbeheer")
+{
+    <a class="mobiel-pad" href="mobiel">‹ Menu</a>
+    <h2 class="mobiel-kop">🏢 Gebouwbeheer</h2>
+    <div class="mobiel-tegels">
+        <a class="mobiel-tegel" href="mobiel/licht">
+            <span class="ikoon">💡</span>Verlichting
+        </a>
+        <a class="mobiel-tegel" href="mobiel/zonwering">
+            <span class="ikoon">⛅</span>Zonwering
+        </a>
+        <a class="mobiel-tegel" href="mobiel/compressor">
+            <span class="ikoon">💨</span>Compressor
+        </a>
+        <a class="mobiel-tegel" href="mobiel/alarm">
+            <span class="ikoon">🚨</span>Alarm
+        </a>
+    </div>
+}
+else if (Menu == "bestellen")
+{
+    <a class="mobiel-pad" href="mobiel">‹ Menu</a>
+    <h2 class="mobiel-kop">🛒 Bestellen</h2>
+    <div class="mobiel-tegels">
+        <a class="mobiel-tegel" href="scannen?van=mobiel">
+            <span class="ikoon">📦</span>Scannen naar batch
+            <small>artikelen scannen voor de bestelbatch</small>
+        </a>
+    </div>
+}
+else
+{
+    <h2 class="mobiel-kop">Waar wil je heen?</h2>
+    <div class="mobiel-tegels">
+        <a class="mobiel-tegel" href="mobiel/gebouwbeheer">
+            <span class="ikoon">🏢</span>Gebouwbeheer
+            <small>verlichting, zonwering, compressor, alarm</small>
+        </a>
+        <a class="mobiel-tegel" href="mobiel/bestellen">
+            <span class="ikoon">🛒</span>Bestellen
+            <small>scannen naar batch</small>
+        </a>
+        <a class="mobiel-tegel" href="mobiel/foto">
+            <span class="ikoon">📷</span>Foto
+            <small>foto's maken voor de grote app</small>
+        </a>
+        <a class="mobiel-tegel" href="mobiel/bon">
+            <span class="ikoon">🧾</span>Bonnetje
+            <small>een bon of factuur scannen</small>
+        </a>
+    </div>
 
-<div class="mobiel-tegels">
-    <a class="mobiel-tegel" href="mobiel/licht">
-        <span class="ikoon">💡</span>Verlichting
-    </a>
-    <a class="mobiel-tegel" href="mobiel/zonwering">
-        <span class="ikoon">⛅</span>Zonwering
-    </a>
-    <a class="mobiel-tegel" href="mobiel/compressor">
-        <span class="ikoon">💨</span>Compressor
-    </a>
-    <a class="mobiel-tegel" href="mobiel/alarm">
-        <span class="ikoon">🚨</span>Alarm
-    </a>
-    <a class="mobiel-tegel" href="scannen">
-        <span class="ikoon">📦</span>Scannen
-    </a>
-    <a class="mobiel-tegel" href="mobiel/bon">
-        <span class="ikoon">🧾</span>Bonnetje
-    </a>
-    <a class="mobiel-tegel" href="mobiel/foto">
-        <span class="ikoon">📷</span>Foto
-    </a>
-</div>
-
-<div class="mobiel-voet">
-    <span class="mobiel-klein">Meer functies komen hier later bij.</span>
-    <button class="knopje" @onclick="VolledigeApp">Volledige app gebruiken</button>
-</div>
+    <div class="mobiel-voet">
+        <span class="mobiel-klein">Meer functies komen hier later bij.</span>
+        <button class="knopje" @onclick="VolledigeApp">Volledige app gebruiken</button>
+    </div>
+}
 
 @code {
+    /// <summary>Welk menu: null = het startscherm, anders "gebouwbeheer" of "bestellen" (uit het adres).</summary>
+    private string? Menu
+    {
+        get
+        {
+            var pad = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+            return pad switch
+            {
+                "mobiel/gebouwbeheer" => "gebouwbeheer",
+                "mobiel/bestellen" => "bestellen",
+                _ => null,
+            };
+        }
+    }
+
+    private string Titel => Menu == "gebouwbeheer" ? "Gebouwbeheer" : "Bestellen";
+
+    // De drie adressen zijn dezelfde pagina zonder parameters: bij wisselen van menu tekent Blazor hem niet vanzelf
+    // opnieuw. Daarom zelf luisteren naar het adres.
+    protected override void OnInitialized() => Nav.LocationChanged += AdresGewijzigd;
+    private void AdresGewijzigd(object? bron, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Nav.LocationChanged -= AdresGewijzigd;
+
     /// <summary>
     /// Wie het mobiele startscherm opent (de knop 📱 Mobiel of zelf /mobiel), kiest daarmee voor mobiel: zo opent de app op
     /// dit toestel voortaan weer hier.
