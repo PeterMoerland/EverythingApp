@@ -1374,6 +1374,15 @@ button.doc-naam { display: block; width: 100%; overflow: hidden; text-overflow: 
 html[data-thema="donker"] .doc-tegel { background: var(--d2, #2a3340); border-color: #4a5566; }
 html[data-thema="donker"] .doc-mini { background: #1f2630; }
 html[data-thema="donker"] .doc-ext, html[data-thema="donker"] .doc-voet .doc-wanneer { color: #a9b3c0; }
+/* Bestellingen > tab Facturen > Prijzen bijwerken uit de factuur (FactuurPrijzenVenster) */
+.pk-venster.fp-venster { width: min(88rem, 97vw); }
+.fp-kies { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.fp-kies select { min-width: 18rem; max-width: 100%; }
+.fp-kop { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem 1rem; }
+.fp-tabel .fp-duurder { color: #b3261e; font-weight: 600; }
+.fp-tabel .fp-goedkoper { color: #1e7a34; font-weight: 600; }
+html[data-thema="donker"] .fp-tabel .fp-duurder { color: #ff8a80; }
+html[data-thema="donker"] .fp-tabel .fp-goedkoper { color: #7fd493; }
 /* Bestellingen: telefoonnummers in het blok Leverancier */
 .zij-bel { display: flex; flex-wrap: wrap; gap: .1rem .9rem; }
 .zij-bel a { white-space: nowrap; text-decoration: none; font-weight: 600; }

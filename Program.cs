@@ -351,6 +351,8 @@ builder.Services.AddSingleton<BedrockClient>();
 builder.Services.AddSingleton<FinancieleAiTools>();
 builder.Services.AddSingleton<AlgemeneAiTools>();
 builder.Services.AddSingleton<BestelregelLezer>();
+// prijzen van bestelregels uit de gekoppelde factuur (Bestellingen ▸ tab Facturen ▸ Prijzen bijwerken)
+builder.Services.AddSingleton<FactuurPrijsLezer>();
 builder.Services.AddSingleton<RelatieLezer>();
 builder.Services.AddSingleton<AiSignaal>();
 builder.Services.AddSingleton<AiAnalyseService>();

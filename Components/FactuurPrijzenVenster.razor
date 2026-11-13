@@ -1,0 +1,299 @@
+@inject IBestelRepository Repo
+@inject FactuurPrijsLezer Lezer
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+
+@* ============================================================================
+   Bestellingen ▸ tab Facturen ▸ Prijzen bijwerken uit de factuur (wens gebruiker 13-11-2026). De AI (Bedrock,
+   Services/FactuurPrijsLezer.cs) leest een gekoppelde factuur en zoekt bij elke bestelregel de prijs op de factuur.
+   Eerst een vergelijking per regel (prijs nu, prijs op de factuur, verschil); de gebruiker kiest wat er bijgewerkt
+   wordt. Opslaan: IBestelRepository.PrijzenBijwerkenAsync (alleen prijs, korting en regeltotaal; met een logregel).
+   Aantallen, omschrijvingen en regels die niet op de factuur staan blijven zoals ze zijn.
+   ============================================================================ *@
+
+@if (Open)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="kiezer pk-venster fp-venster" @onclick:stopPropagation @onkeydown="Toets" role="dialog" aria-modal="true" aria-label="Prijzen uit de factuur">
+            <div class="kiezer-kop">
+                <b>✨ Prijzen bijwerken uit de factuur — PO-@OrderId</b>
+                <span style="flex:1"></span>
+                <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+            </div>
+
+            <div class="pk-inhoud">
+                @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+
+                @if (Bestanden.Count == 0)
+                {
+                    <p class="uitleg">Bij de gekoppelde facturen staat geen PDF of afbeelding die gelezen kan worden.</p>
+                }
+                else if (_fase == Fase.Kiezen)
+                {
+                    <p class="uitleg">
+                        De AI leest de factuur en zoekt bij elke bestelregel de prijs op. Je ziet eerst een vergelijking; er
+                        verandert pas iets als je op Prijzen bijwerken drukt.
+                    </p>
+                    <div class="fp-kies">
+                        <label>Factuur</label>
+                        <select value="@_gekozen" @onchange="e => _gekozen = int.TryParse((string?)e.Value, out var g) ? g : 0">
+                            @foreach (var b in Bestanden)
+                            {
+                                <option value="@b.Bestand.FileStoreId">@Naam(b.Factuur) — @b.Bestand.Bestandsnaam</option>
+                            }
+                        </select>
+                        <button class="primair" disabled="@(!Lezer.Beschikbaar)" @onclick="Lees"
+                                title="@(Lezer.Beschikbaar ? "" : "Bedrock is niet ingesteld")">✨ Factuur lezen</button>
+                    </div>
+                }
+                else if (_fase == Fase.Lezen)
+                {
+                    <p class="uitleg"><span class="draaier"></span> De AI leest de factuur en zoekt de regels erbij… (kan een halve minuut duren)</p>
+                }
+                else if (_uitkomst is { } u)
+                {
+                    <div class="fp-kop">
+                        <span>Factuur <b>@(u.Factuurnummer.Length > 0 ? u.Factuurnummer : Naam(GekozenBestand?.Factuur))</b></span>
+                        <span class="uitleg">@_rijen.Count(r => r.Factuur is not null) van @_rijen.Count bestelregels gevonden op de factuur</span>
+                        @if (u.Valuta != "EUR") { <span class="sv-let">Let op: de factuur is in @u.Valuta, niet in euro's. Er is niets aangevinkt.</span> }
+                        @if (u.InclBtw) { <span class="sv-let">Let op: de AI denkt dat de regelprijzen inclusief btw zijn. Er is niets aangevinkt.</span> }
+                    </div>
+                    @foreach (var o in u.Opmerkingen) { <div class="uitleg">AI: @o</div> }
+
+                    <div class="pk-tabelvak">
+                        <table class="kiezer-tabel pk-tabel fp-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:2rem"><input type="checkbox" checked="@(Kiesbaar.Any() && Kiesbaar.All(x => x.Mee))" @onchange="AllesMee" title="Alles aan/uit" /></th>
+                                    <th style="width:9.5rem">Artikelcode</th>
+                                    <th>Bestelregel</th>
+                                    <th class="r" style="width:4.2rem">Aantal</th>
+                                    <th class="r" style="width:8rem" title="Wat er nu op de bestelling staat: stuksprijs, met de korting eronder">Prijs nu</th>
+                                    <th class="r" style="width:8rem" title="Wat er op de factuur staat: stuksprijs, met de korting eronder">Op de factuur</th>
+                                    <th class="r" style="width:7.5rem" title="Verschil in de netto prijs per stuk, en wat dat op de hele regel scheelt">Verschil</th>
+                                    <th style="width:17rem">Regel op de factuur</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rij in _rijen)
+                                {
+                                    var x = rij.Regel;
+                                    var f = rij.Factuur;
+                                    <tr @key="x.Id" class="@(rij.Bijgewerkt ? "pk-klaar" : f is null || rij.Gelijk ? "pk-uit" : "")">
+                                        <td>
+                                            @if (f?.Stuksprijs is not null && !rij.Gelijk)
+                                            {
+                                                <input type="checkbox" checked="@rij.Mee" disabled="@(rij.Bijgewerkt || _bezig)" @onchange="e => rij.Mee = e.Value is true" />
+                                            }
+                                        </td>
+                                        <td>@x.Artikelcode</td>
+                                        <td>@x.Omschrijving</td>
+                                        <td class="r">
+                                            @x.Aantal.ToString("0.###", Nl)
+                                            @if (f?.Aantal is double fa && Math.Abs(fa - x.Aantal) > 0.0005)
+                                            {
+                                                <small class="sv-let" title="Op de factuur staat een ander aantal (deellevering?). Het aantal op de bestelling verandert niet.">factuur: @fa.ToString("0.###", Nl)</small>
+                                            }
+                                        </td>
+                                        <td class="r">
+                                            @(x.Prijs is decimal p ? Geld(p) : x.Schatprijs is decimal s ? Geld(s) + " (schatting)" : "—")
+                                            @if (x.Korting is decimal k && k != 0) { <small>−@((k * 100m).ToString("0.##", Nl))%</small> }
+                                        </td>
+                                        <td class="r">
+                                            @if (f is null) { <span class="uitleg">niet op de factuur</span> }
+                                            else if (f.Stuksprijs is decimal fp)
+                                            {
+                                                <b>@Geld(fp)</b>
+                                                @if (f.KortingProcent is decimal fk) { <small>−@fk.ToString("0.##", Nl)%</small> }
+                                            }
+                                            else { <span class="sv-let">prijs niet gelezen</span> }
+                                        </td>
+                                        <td class="r">
+                                            @if (rij.Gelijk) { <span class="uitleg">gelijk</span> }
+                                            else if (rij.Verschil is decimal v)
+                                            {
+                                                <span class="@(v > 0 ? "fp-duurder" : "fp-goedkoper")">@(v > 0 ? "+" : "−")@Geld(Math.Abs(v))</span>
+                                                <small title="Op de hele regel (aantal van de bestelling)">@(v > 0 ? "+" : "−")@Geld(Math.Abs(v * (decimal)x.Aantal)) op de regel</small>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (f is not null)
+                                            {
+                                                <span title="@f.Factuurregel">@f.Factuurregel</span>
+                                                @if (!f.Zeker) { <small class="sv-let">⚠ de AI twijfelt of dit dezelfde regel is</small> }
+                                                @if (f.Klopt == false) { <small class="sv-let" title="Aantal × prijs (min korting) komt niet uit op het regelbedrag van de factuur">⚠ rekent niet rond met het regelbedrag (@(f.Regeltotaal is decimal t ? Geld(t) : ""))</small> }
+                                                @if (f.Opmerking.Trim().Length > 0) { <small>@f.Opmerking.Trim()</small> }
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (u.Overig.Count > 0)
+                    {
+                        <div class="uitleg">
+                            <b>Wel op de factuur, niet op de bestelling:</b>
+                            @string.Join("; ", u.Overig.Select(o => o.Omschrijving + (o.Bedrag is decimal b ? " (" + Geld(b) + ")" : "")))
+                        </div>
+                    }
+                    <p class="uitleg">
+                        Aangevinkt is wat afwijkt en waar de AI zeker van is. Controleer het met de factuur; alleen prijs en korting
+                        van de aangevinkte regels worden bijgewerkt, de aantallen blijven zoals ze zijn.
+                    </p>
+                    @foreach (var v in _verslag) { <div class="melding ok">@v</div> }
+                }
+            </div>
+
+            <div class="kiezer-voet">
+                @if (_fase == Fase.Vergelijken)
+                {
+                    @if (Bestanden.Count > 1) { <button class="klein" disabled="@_bezig" @onclick="AndereFactuur">← Andere factuur</button> }
+                    <span style="flex:1"></span>
+                    <button class="klein" disabled="@_bezig" @onclick="Sluit">@(_verslag.Count > 0 ? "Sluiten" : "Annuleren")</button>
+                    <button class="primair" disabled="@(_bezig || AantalMee == 0)" @onclick="Bijwerken">
+                        @(_bezig ? "Bezig…" : $"Prijzen bijwerken ({AantalMee})")
+                    </button>
+                }
+                else
+                {
+                    <span style="flex:1"></span>
+                    <button class="klein" @onclick="Sluit">Annuleren</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int? OrderId { get; set; }
+    /// <summary>De gekoppelde facturen van de bestelling, met hun bestanden.</summary>
+    [Parameter] public List<BestelFactuur> Facturen { get; set; } = new();
+    [Parameter] public List<Orderregel> Regels { get; set; } = new();
+    [Parameter] public EventCallback OpBijgewerkt { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private enum Fase { Kiezen, Lezen, Vergelijken }
+
+    private sealed class Rij
+    {
+        public Orderregel Regel = null!;
+        public FactuurPrijsRegel? Factuur;
+        public bool Mee, Bijgewerkt;
+
+        /// <summary>Netto per stuk zoals het nu op de bestelling staat (zonder echte prijs: de schatting).</summary>
+        public decimal? NettoNu => (Regel.Prijs ?? Regel.Schatprijs) is decimal p ? p * (1 - (Regel.Korting ?? 0)) : null;
+        /// <summary>Netto per stuk op de factuur min wat er nu staat.</summary>
+        public decimal? Verschil => Factuur?.Netto is decimal n ? n - (NettoNu ?? 0) : null;
+        /// <summary>Er staat al een echte prijs en die komt netto op hetzelfde uit: niets te doen.</summary>
+        public bool Gelijk => Regel.Prijs is not null && Verschil is decimal v && Math.Abs(v) < 0.005m;
+    }
+
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private Fase _fase;
+    private bool _wasOpen, _bezig;
+    private int _gekozen;
+    private string? _fout;
+    private FactuurPrijzen? _uitkomst;
+    private List<Rij> _rijen = new();
+    private List<string> _verslag = new();
+
+    /// <summary>De bestanden die gelezen kunnen worden (PDF of afbeelding), per factuur.</summary>
+    private List<(BestelFactuur Factuur, Bestand Bestand)> Bestanden
+        => Facturen.SelectMany(f => f.Bestanden.Where(b => FactuurPrijsLezer.MediaSoort(b.Bestandsnaam) is not null).Select(b => (f, b))).ToList();
+
+    private (BestelFactuur Factuur, Bestand Bestand)? GekozenBestand
+        => Bestanden.Where(b => b.Bestand.FileStoreId == _gekozen).Select(b => ((BestelFactuur, Bestand)?)b).FirstOrDefault();
+
+    private IEnumerable<Rij> Kiesbaar => _rijen.Where(r => r.Factuur?.Stuksprijs is not null && !r.Gelijk && !r.Bijgewerkt);
+    private int AantalMee => Kiesbaar.Count(r => r.Mee);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var net = Open && !_wasOpen;
+        _wasOpen = Open;
+        if (!net) return;
+        _fase = Fase.Kiezen; _fout = null; _uitkomst = null; _rijen = new(); _verslag = new(); _bezig = false;
+        var b = Bestanden;
+        _gekozen = b.Count > 0 ? b[0].Bestand.FileStoreId : 0;
+        if (b.Count == 1 && Lezer.Beschikbaar) await Lees();       // één factuur: meteen lezen
+    }
+
+    private static string Naam(BestelFactuur? f) => f is null ? "" : f.Factuurnummer.Length > 0 ? f.Factuurnummer : "factuur #" + f.FactuurId;
+    private static string Geld(decimal d) => d.ToString(Math.Round(d, 2) == d ? "N2" : "0.00##", Nl);
+
+    private async Task Lees()
+    {
+        if (GekozenBestand is not { } keuze) return;
+        _fout = null;
+        _fase = Fase.Lezen;
+        StateHasChanged();
+        try
+        {
+            var soort = FactuurPrijsLezer.MediaSoort(keuze.Bestand.Bestandsnaam)!;
+            var gevonden = await Store.ZoekAsync(keuze.Bestand.FileStoreId);
+            if (gevonden is null || !File.Exists(gevonden.Value.Pad)) { _fout = "Het bestand van de factuur is niet gevonden in de filestore."; _fase = Fase.Kiezen; return; }
+            var inhoud = await File.ReadAllBytesAsync(gevonden.Value.Pad);
+
+            var (uit, fout) = await Lezer.LeesAsync(inhoud, soort, Regels);
+            if (uit is null) { _fout = fout; _fase = Fase.Kiezen; return; }
+
+            _uitkomst = uit;
+            var veilig = uit.Valuta == "EUR" && !uit.InclBtw;
+            _rijen = Regels.Select(r =>
+            {
+                var rij = new Rij { Regel = r, Factuur = uit.Regels.FirstOrDefault(f => f.RegelId == r.Id) };
+                // vanzelf aan: afwijkend, de AI is zeker, en aantal × prijs rekent rond met het regelbedrag (of er valt niets na te rekenen)
+                rij.Mee = veilig && rij.Factuur is { Stuksprijs: not null, Zeker: true } f && f.Klopt != false && !rij.Gelijk;
+                return rij;
+            }).ToList();
+            _verslag = new();
+            _fase = Fase.Vergelijken;
+        }
+        catch (Exception ex) { _fout = "Factuur lezen mislukt: " + ex.Message; _fase = Fase.Kiezen; }
+    }
+
+    private void AndereFactuur() { _fase = Fase.Kiezen; _fout = null; _uitkomst = null; _rijen = new(); }
+
+    private void AllesMee(ChangeEventArgs e) { foreach (var r in Kiesbaar) r.Mee = e.Value is true; }
+
+    private async Task Bijwerken()
+    {
+        if (OrderId is not int order || _bezig) return;
+        var mee = Kiesbaar.Where(r => r.Mee).ToList();
+        if (mee.Count == 0) return;
+        _bezig = true; _fout = null;
+        try
+        {
+            var factuur = _uitkomst?.Factuurnummer is { Length: > 0 } nr ? nr : Naam(GekozenBestand?.Factuur);
+            var n = await Repo.PrijzenBijwerkenAsync(order,
+                mee.Select(r => (r.Regel.Id, Math.Round(r.Factuur!.Stuksprijs!.Value, 4),
+                                 r.Factuur.KortingProcent is decimal k ? Math.Round(k / 100m, 4) : (decimal?)null)).ToList(),
+                Ik.WerknemerId, factuur);
+            foreach (var r in mee)
+            {
+                // het scherm meteen laten kloppen (de pagina laadt de regels daarna opnieuw)
+                r.Regel.Prijs = Math.Round(r.Factuur!.Stuksprijs!.Value, 4);
+                r.Regel.Korting = r.Factuur.KortingProcent is decimal k ? Math.Round(k / 100m, 4) : null;
+                r.Bijgewerkt = true; r.Mee = false;
+            }
+            _verslag.Add($"✔ {n} regel{(n == 1 ? "" : "s")} bijgewerkt met de prijs van factuur {factuur}.");
+            await OpBijgewerkt.InvokeAsync();
+        }
+        catch (Exception ex) { _fout = "Bijwerken mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Toets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await Sluit();
+    }
+
+    private async Task Sluit()
+    {
+        if (_bezig) return;
+        await OpGesloten.InvokeAsync();
+    }
+}

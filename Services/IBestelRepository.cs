@@ -87,6 +87,12 @@ public interface IBestelRepository
     /// </summary>
     Task<List<BestelRegel>> ZoekVoorImportAsync(string? zoek, int max);
     Task<int> BewaarRegelAsync(Orderregel regel);
+    /// <summary>
+    /// Prijzen van bestelregels bijwerken uit een factuur (Bestellingen ▸ tab Facturen ▸ Prijzen bijwerken): per regel
+    /// alleen stuksprijs, korting (breuk; null = geen) en het regeltotaal, in één transactie, met één regel in
+    /// Log_Orderchanges (groep Prijs) waarin oud en nieuw staan. Geeft het aantal bijgewerkte regels.
+    /// </summary>
+    Task<int> PrijzenBijwerkenAsync(int orderId, IReadOnlyList<(int RegelId, decimal Prijs, decimal? Korting)> regels, int? door, string factuur);
     Task VerwijderRegelAsync(int orderitemId);
 
     // --- keuzelijsten ---
@@ -158,6 +164,8 @@ public class GeenBestelRepository : IBestelRepository
     public Task<List<Orderregel>> GetRegelsAsync(int orderId) => Task.FromResult(new List<Orderregel>());
     public Task<List<BestelRegel>> ZoekVoorImportAsync(string? zoek, int max) => Task.FromResult(new List<BestelRegel>());
     public Task<int> BewaarRegelAsync(Orderregel regel) => Task.FromResult(0);
+    public Task<int> PrijzenBijwerkenAsync(int orderId, IReadOnlyList<(int RegelId, decimal Prijs, decimal? Korting)> regels, int? door, string factuur)
+        => Task.FromResult(0);
     public Task VerwijderRegelAsync(int orderitemId) => Task.CompletedTask;
     public Task<List<Keuze>> GetLeveranciersAsync() => Task.FromResult(new List<Keuze>());
     public Task<(List<int> Leveranciers, List<int> Werkorders)> RecentGebruiktAsync(int werknemerId, int max)
@@ -1002,6 +1010,57 @@ public class MySqlBestelRepository : IBestelRepository
 
         await cmd.ExecuteNonQueryAsync();
         return regel.Id == 0 ? (int)cmd.LastInsertedId : regel.Id;
+    }
+
+    public async Task<int> PrijzenBijwerkenAsync(int orderId, IReadOnlyList<(int RegelId, decimal Prijs, decimal? Korting)> regels,
+                                                 int? door, string factuur)
+    {
+        if (regels.Count == 0) return 0;
+        var nl = new System.Globalization.CultureInfo("nl-NL");
+        var wat = new List<string>();
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        foreach (var (regelId, prijs, korting) in regels)
+        {
+            double aantal; decimal? oud; string code;
+            await using (var cmd = new MySqlCommand(
+                "SELECT COALESCE(`Quantity ordered`, 0), `Grossprice per VE`, COALESCE(`Partnumber`, ''), COALESCE(`Description`, '') " +
+                "  FROM `Orderitems` WHERE `Orderitem-id` = @r AND `Order-id` = @o FOR UPDATE", cn, tx))
+            {
+                cmd.Parameters.AddWithValue("@r", regelId);
+                cmd.Parameters.AddWithValue("@o", orderId);
+                await using var r = await cmd.ExecuteReaderAsync();
+                if (!await r.ReadAsync()) continue;                       // regel intussen weg, of van een andere bestelling
+                aantal = Convert.ToDouble(r.GetValue(0));
+                oud = r.IsDBNull(1) ? null : Convert.ToDecimal(r.GetValue(1));
+                code = r.GetString(2).Trim() is { Length: > 0 } c ? c : r.GetString(3).Trim();
+            }
+            await using (var cmd = new MySqlCommand(
+                "UPDATE `Orderitems` SET `Grossprice per VE` = @p, `Discount` = @k, `Totalprice` = @t " +
+                " WHERE `Orderitem-id` = @r AND `Order-id` = @o", cn, tx))
+            {
+                cmd.Parameters.AddWithValue("@p", prijs);
+                cmd.Parameters.AddWithValue("@k", (object?)korting ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@t", Orderregel.Bereken(aantal, prijs, korting));   // zelfde som als BewaarRegelAsync
+                cmd.Parameters.AddWithValue("@r", regelId);
+                cmd.Parameters.AddWithValue("@o", orderId);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            wat.Add($"{(code.Length > 30 ? code[..30] : code)}: {(oud is decimal o ? o.ToString("0.00##", nl) : "geen prijs")} -> {prijs.ToString("0.00##", nl)}" +
+                    (korting is decimal k && k != 0 ? $" (-{(k * 100m).ToString("0.##", nl)}%)" : ""));
+        }
+        if (wat.Count > 0)
+        {
+            var tekst = $"Prijzen bijgewerkt uit factuur {factuur} ({wat.Count} regel(s)): " + string.Join("; ", wat);
+            await using var log = new MySqlCommand(
+                "INSERT INTO `Log_Orderchanges` (`Order-ID`, `Toegevoegd`, `LogTekst`, `Groep`, `Door`) VALUES (@o, NOW(), @t, 'Prijs', @d)", cn, tx);
+            log.Parameters.AddWithValue("@o", orderId);
+            log.Parameters.AddWithValue("@t", tekst.Length > 500 ? tekst[..497] + "..." : tekst);
+            log.Parameters.AddWithValue("@d", (object?)door ?? DBNull.Value);
+            await log.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+        return wat.Count;
     }
 
     public async Task VerwijderRegelAsync(int orderitemId)

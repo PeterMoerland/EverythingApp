@@ -2526,6 +2526,34 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Bestellingen: prijzen bijwerken uit de factuur, met AI (13-11-2026)
+
+Wens gebruiker: de prijzen van een bestelling kunnen bijwerken aan de hand van de factuur die al binnen is, met een
+knop en de AI. Geen script, geen instelling (Bedrock moet ingesteld zijn, zoals voor de andere AI-onderdelen).
+
+- **Knop** ✨ *Prijzen bijwerken uit de factuur…* onderaan de tab Facturen (`Bestellingen.razor`, uit als Bedrock niet
+  is ingesteld of er geen regels zijn) -> **`Components/FactuurPrijzenVenster.razor`**. Eén leesbaar bestand (PDF of
+  afbeelding) bij de gekoppelde facturen: meteen lezen; meer: eerst kiezen (ook "← Andere factuur" na afloop).
+- **`Services/FactuurPrijsLezer.cs`** (singleton): `BedrockClient.LeesBeeldAsync` met de factuur én de bestelregels als
+  JSON (regel_id, artikelcode, omschrijving, MDE-nummer, aantal, prijs, korting). De AI koppelt zelf (de leverancier
+  gebruikt vaak eigen nummers) en geeft per regel_id: factuurregel, aantal, stuksprijs (bruto, ex btw), prijs_per (bv.
+  100), korting_procent, regeltotaal, zeker; plus "niet_op_bestelling" (vracht, toeslagen) en opmerkingen. `Ontleed`
+  (los te toetsen, scratchpad `d22toets`): onbekende en dubbele regel_id's vallen weg, prijs wordt gedeeld door
+  prijs_per, korting 0 = geen. `FactuurPrijsRegel.Klopt` = aantal × netto ≈ regeltotaal.
+- **Vergelijking**: per bestelregel prijs nu (met korting), op de factuur, verschil netto per stuk en op de regel.
+  Vanzelf aangevinkt = wijkt af, AI zeker, rekent rond (of niets na te rekenen), factuur in EUR en niet incl. btw.
+  "Gelijk" (er staat al een echte prijs en netto scheelt minder dan een halve cent) en "niet op de factuur" zijn grijs.
+  Een ander aantal op de factuur wordt genoemd; het aantal op de bestelling verandert niet.
+- **Opslaan**: `IBestelRepository.PrijzenBijwerkenAsync(orderId, regels, door, factuur)`: één transactie, per regel
+  alleen `Grossprice per VE`, `Discount` (breuk, null = geen) en `Totalprice` (`Orderregel.Bereken`), en één regel in
+  Log_Orderchanges (groep `Prijs`) met oud -> nieuw per regel (afgekapt op 500 tekens). Daarna laadt het scherm de
+  regels en de lijst opnieuw. Mag in elke status (de factuur komt na het bestellen) en door iedereen die regels mag
+  bewerken; de prijs bij het artikel zelf wordt niet aangepast.
+- Getest: `d22toets` (alles ok); lokaal op een echte bestelling met twee facturen: kiezen, lezen via Bedrock (de AI
+  vond de juiste regel, zag korting 50% tegenover 65% op de bestelling, +171,90, en meldde dat de andere regel niet op
+  deze factuur staat), de vergelijking. **Niet getest**: het opslaan zelf en de logregel (stond in de test uit), een
+  factuur met prijs per 100, in een andere valuta of als afbeelding, en een bestelling met veel regels.
+
 ## Bestellingen: tab Facturen, gereed melden, miniaturen en telefoonnummers (13-11-2026)
 
 Vier wensen van de gebruiker op één dag, allemaal in `Components/Pages/Bestellingen.razor`. Geen script, geen instelling.

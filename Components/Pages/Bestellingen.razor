@@ -15,6 +15,7 @@
 @inject InkoopBevestigingOphaler BevestigingOphaler
 @inject IOntvangstRepository Ontvangst
 @inject GeleverdMelding GeleverdMelder
+@inject FactuurPrijsLezer PrijsLezer
 
 <div class="page">
     <header class="topbar">
@@ -370,6 +371,13 @@
                                     Besteld @Bedrag(_regels.Sum(r => r.Regeltotaal)), gefactureerd op deze bestelling @Bedrag(_facturen.Sum(f => f.Gekoppeld)) (ex btw).
                                     Klik op een factuur om hem te bekijken.
                                 </p>
+                                @* de prijzen van de regels gelijk maken aan de factuur: de AI leest de factuur, je ziet eerst de vergelijking *@
+                                <div>
+                                    <button class="klein" disabled="@(!PrijsLezer.Beschikbaar || _regels.Count == 0)" @onclick="() => _prijzenOpen = true"
+                                            title="@(!PrijsLezer.Beschikbaar ? "Bedrock is niet ingesteld" : _regels.Count == 0 ? "Er staan geen regels op deze bestelling" : "De AI leest de factuur en zoekt bij elke bestelregel de prijs op. Je ziet eerst de vergelijking; daarna kies je wat er wordt bijgewerkt.")">
+                                        ✨ Prijzen bijwerken uit de factuur…
+                                    </button>
+                                </div>
                             }
                         </div>
                     }
@@ -589,6 +597,8 @@
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                     <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                        OpToegevoegd="NaPlakken" OpGesloten="() => _schermOpen = false" />
+                    <FactuurPrijzenVenster Open="_prijzenOpen" OrderId="_orderId" Facturen="_facturen" Regels="_regels"
+                                           OpBijgewerkt="PrijzenBijgewerkt" OpGesloten="() => _prijzenOpen = false" />
                     @if (_pakbonUrl is not null)
                     {
                         <div class="cmdk-overlay midden" @onclick="SluitPakbonPdf">
@@ -1023,6 +1033,7 @@
         _bestelling = b;
         _status = b.Status;
         _laadteller++;          // een klik annuleert een lopende toetsenbordronde
+        _prijzenOpen = false;
         await WachtOpOpslaan();
 
         try { _velden = await Repo.GetVeldenAsync(b.Id); }
@@ -2139,6 +2150,16 @@
     }
 
     private static string FactuurNaam(BestelFactuur f) => f.Factuurnummer.Length > 0 ? f.Factuurnummer : "factuur #" + f.FactuurId;
+
+    /// <summary>Prijzen bijwerken uit de factuur (Components/FactuurPrijzenVenster.razor) staat open.</summary>
+    private bool _prijzenOpen;
+
+    /// <summary>Na het bijwerken: de regels en het totaal in de lijst opnieuw ophalen.</summary>
+    private async Task PrijzenBijgewerkt()
+    {
+        await LaadRegels();
+        await Laad();
+    }
 
     /// <summary>De gekoppelde factuur waar het bestand in het voorbeeldvenster bij hoort (null bij een gewoon document).</summary>
     private BestelFactuur? VoorbeeldFactuur()
