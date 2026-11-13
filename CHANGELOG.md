@@ -7,6 +7,11 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Kabelconfigurator** — Nieuw: knop **Artikelnummer aanmaken…** bij een kabel. In een tussenvenster vul je artikelcode, omschrijving, merk, fabrikantcode en groep in (al voorgesteld uit de kabel); het nieuwe artikelnummer komt bij de kabel en op de aanvraagtekening.
+- **Kabelconfigurator** — Verbeterd: de aanvraagtekening is nu van MDE (logo, onze gegevens, ons artikelnummer en onze naam van de kabel). De naam en het nummer van LDZY staan er niet meer op, zodat je hetzelfde formulier bij elke kabelmaker kunt aanvragen.
+- **Kabelconfigurator** — Nieuw: onder het veld AWG staat de doorsnede en een richtwaarde voor de maximale stroom per ader, ook voor het aantal aders dat bij elkaar ligt.
+- **PDF maken** — Opgelost: met een nieuwere versie van Edge kon het maken van een PDF (factuur, offerte, orderbevestiging, pakbon) mislukken met "Edge heeft geen PDF gemaakt". De app wacht nu tot het bestand er echt staat.
+- **Uitgaande facturen** — Nieuw: twee knopjes onder Documenten, **📄 Factuur** en **📎 Bijlage**, om de factuur en de urenbijlage meteen te bekijken. Bij een verstuurde factuur zie je de PDF die de klant kreeg; bij een nog niet verstuurde een voorbeeld van hoe hij nu wordt.
 - **Kabelconfigurator** — Nieuw: vinkje **Aders vastlijmen aan de connector** (kaart Kabel), voor de hele kabel. Op de tekening komt het als eis voor LDZY en als gele markering bij de connectoren.
 - **Kabelconfigurator** — Opgelost: opslaan overschreef steeds de geopende kabel, waardoor je geen tweede configuratie kon bewaren. Er zijn nu twee knoppen: **Wijzigingen opslaan** (werkt de geopende kabel bij) en **Opslaan als nieuwe kabel** (bewaart hem ernaast, onder een eigen naam).
 - **Kabelconfigurator** — Nieuw: bij Draad kies je of er een kabel (alle aders in één mantel) of losse aders tussen de connectoren zit. Bij losse aders vervallen mantel, afscherming en krimpkous, en de tekening toont de aders los naast elkaar.

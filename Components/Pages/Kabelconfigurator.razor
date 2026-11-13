@@ -4,10 +4,13 @@
 @inject IKabelRepository Repo
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IWebHostEnvironment Omgeving
+@inject IArtikelRepository Artikelen
 
-@* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): een kabel op maat samenstellen voor de kabelleverancier LDZY
-   (DongGuan LDZY Electronics). Links het formulier, rechts de tekening (Services/KabelTekening.cs) in de opmaak van de
-   tekeningen van LDZY; het LDZY-nummer (W2464-08-G020007) rekent zichzelf uit (Models/Kabel.cs, KabelNummer).
+@* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): een kabel op maat samenstellen en aanvragen bij een kabelmaker.
+   Links het formulier, rechts de aanvraagtekening van MDE (Services/KabelTekening.cs): zonder gegevens van een
+   leverancier, zodat hetzelfde formulier overal aangevraagd kan worden. Het nummer volgens het schema van LDZY
+   (W2464-08-G020007, Models/Kabel.cs, KabelNummer) staat alleen nog ter info in het scherm.
    Opslaan in de tabel Kabelconfiguraties (Kabelconfiguraties_MariaDB.sql) als JSON; zonder tabel werkt het scherm als
    rekenblad. Afdrukken (PDF via de printdialoog), SVG bewaren en de spec als tekst kopiëren gaan via wwwroot/kabel.js.
    Eerste proefopzet: nog geen koppeling met Artikelen of een bestelling. *@
@@ -17,13 +20,15 @@
 <div class="page kabel-pagina">
     <header class="topbar">
         <h1>🔌 Kabelconfigurator</h1>
-        <span class="weeklabel">LDZY-nummer <b>@K.LeveranciersNummer</b></span>
+        @if (K.EigenNummer.Trim().Length > 0)
+        {
+            <span class="weeklabel">MDE-nummer <b>@K.EigenNummer.Trim()</b></span>
+        }
     </header>
 
     <p class="uitleg">
-        Stel een kabel op maat samen voor de kabelleverancier LDZY. Rechts groeit de tekening mee, in de opmaak die LDZY zelf
-        gebruikt; die stuur je als PDF of SVG mee met de aanvraag. De laatste twee cijfers van het nummer (het volgnummer) geeft
-        LDZY pas bij hun eigen tekening ter goedkeuring; tot die tijd staat er xx.
+        Stel een kabel op maat samen. Rechts groeit de aanvraagtekening van MDE mee; die stuur je als PDF of SVG naar de
+        kabelmaker waar je aanvraagt. Er staan geen gegevens van een leverancier op, dus hetzelfde formulier kan naar meerdere.
     </p>
 
     @if (_melding is not null)
@@ -54,7 +59,7 @@
                         <option value="0">— nieuw, nog niet opgeslagen —</option>
                         @foreach (var o in _lijst)
                         {
-                            <option value="@o.Id">@o.Naam · @o.LeveranciersNummer</option>
+                            <option value="@o.Id">@o.Naam</option>
                         }
                     </select>
                 }
@@ -66,9 +71,9 @@
                     </p>
                 }
                 <div class="kabel-knoppen">
-                    <button class="klein" title="Begin met de kabel die LDZY al levert (tekening W2464-08-G020007)" @onclick="NieuwVoorbeeld">+ Nieuw (voorbeeld LDZY)</button>
+                    <button class="klein" title="Begin met een ingevuld voorbeeld: UL2464 4 paar afgeschermd, 2x Molex Pico-Lock 8P, 200 mm" @onclick="NieuwVoorbeeld">+ Nieuw (voorbeeld)</button>
                     <button class="klein" @onclick="NieuwLeeg">+ Nieuw (leeg)</button>
-                    <button class="klein" disabled="@(K.Id == 0)" title="Een losse kopie van deze kabel, zonder volgnummer" @onclick="Kopie">Kopie</button>
+                    <button class="klein" disabled="@(K.Id == 0)" title="Een losse kopie van deze kabel om verder aan te passen" @onclick="Kopie">Kopie</button>
                     <button class="klein rood" disabled="@(K.Id == 0 || _bezig)" @onclick="Verwijder">Verwijderen</button>
                 </div>
             </section>
@@ -81,12 +86,28 @@
                     <label>Eigen artikelnummer <input @bind="K.EigenNummer" placeholder="nog geen" /></label>
                     <label>Lengte (mm) <input type="number" min="10" max="9999" @bind="K.Lengte" /></label>
                     <label>Tolerantie lengte (± mm) <input type="number" min="0" @bind="K.LengteTolerantie" /></label>
-                    <label>Volgnummer van LDZY <input type="number" min="0" max="99" @bind="K.Volgnummer" title="0 = nog niet bekend (xx)" /></label>
-                    <label>Leverancier <input @bind="K.Leverancier" /></label>
                     <label class="vink" title="Trekontlasting: de aders worden bij de ingang van elke connector vastgelijmd. Komt als eis en als gele markering op de tekening.">
                         <input type="checkbox" @bind="K.AdersLijmen" /> Aders vastlijmen aan de connector (geldt voor elke kant met een connector)
                     </label>
                 </div>
+                @* een eigen artikel voor deze kabel (wens gebruiker 13-11-2026): tussenvenster, daarna staat het nummer op de tekening *@
+                <div class="kabel-knoppen">
+                    <button class="klein" disabled="@(!Artikelen.Beschikbaar || K.EigenNummer.Trim().Length > 0)" @onclick="OpenArtikel"
+                            title="@(!Artikelen.Beschikbaar ? "Werkt alleen met de live database" : K.EigenNummer.Trim().Length > 0 ? "Deze kabel heeft al een artikelnummer" : "Een nieuw artikel in Artikelen aanmaken voor deze kabel; het nummer komt op de aanvraagtekening")">＋ Artikelnummer aanmaken…</button>
+                    @if (ArtikelNummer is int artNr)
+                    {
+                        <a class="knopje" href="@("artikelen?nr=" + artNr)" target="_blank" rel="noopener" title="Dit artikel openen bij Artikelen, in een nieuw venster">Artikel #@artNr openen ↗</a>
+                    }
+                </div>
+                @* alleen ter info voor wie bij LDZY bestelt; staat niet op de tekening *@
+                <details class="kabel-ldzy">
+                    <summary>Nummer volgens het schema van LDZY: @K.LeveranciersNummer</summary>
+                    <p class="uitleg">
+                        Alleen ter info als je bij LDZY bestelt; het staat niet op de aanvraagtekening. De laatste twee cijfers geeft
+                        LDZY zelf uit bij hun tekening ter goedkeuring.
+                        <label>Volgnummer van LDZY <input type="number" min="0" max="99" @bind="K.Volgnummer" title="0 = nog niet bekend (xx)" /></label>
+                    </p>
+                </details>
             </section>
 
             <section class="kabel-kaart">
@@ -100,7 +121,10 @@
                         </select>
                     </label>
                     <label>Type <input @bind="K.DraadType" placeholder="@(K.IsLosseAders ? "UL1007" : "UL2464")" /></label>
-                    <label>AWG <input type="number" min="10" max="40" @bind="K.Awg" /></label>
+                    <label>AWG <input type="number" min="10" max="40" @bind="K.Awg" />
+                        @* richtwaarde voor de stroom per ader bij deze draaddikte (Models/Kabel.cs, KabelStroom) *@
+                        <span class="kabel-hint" title="Richtwaarde voor een losse koperen ader in vrije lucht (tabel chassis wiring). Meer aders bij elkaar worden warmer; daarvoor geldt de waarde erachter. De isolatie, de omgevingstemperatuur en vooral de connector (vaak 1 tot 3 A per contact) kunnen lager begrenzen.">@StroomHint</span>
+                    </label>
                     <label>Opbouw ader <input @bind="K.Draadopbouw" placeholder="7/0.12" title="aantal draadjes / diameter in mm" /></label>
                     @if (!K.IsLosseAders)
                     {
@@ -159,11 +183,11 @@
                                 <select value="@SteekLetter(e)" @onchange="ev => ZetSteek(e, ev)">
                                     @if (SteekLetter(e) == "?")
                                     {
-                                        <option value="?">? — @e.Steek.ToString("0.##", Nl) mm (niet in het schema van LDZY)</option>
+                                        <option value="?">@e.Steek.ToString("0.##", Nl) mm</option>
                                     }
                                     @foreach (var st in KabelNummer.Steken)
                                     {
-                                        <option value="@st.Letter">@st.Letter — @st.Steek.ToString("0.##", Nl) mm</option>
+                                        <option value="@st.Letter">@st.Steek.ToString("0.##", Nl) mm</option>
                                     }
                                 </select>
                             </label>
@@ -281,6 +305,67 @@
     </div>
 </div>
 
+@* ---------- artikelnummer aanmaken (tussenvenster, zoals Artikel toevoegen bij Artikelen) ---------- *@
+@if (_artOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="fusion-kijker ec-venster verplaatsbaar art-nieuw">
+            <div class="sleepkop fusion-kijker-kop">
+                <b>Artikelnummer aanmaken voor deze kabel</b>
+                <span style="flex:1"></span>
+                <button class="klein" @onclick="() => _artOpen = false">✕ Sluiten</button>
+            </div>
+            <div class="fusion-kijker-inhoud">
+                <p class="uitleg">
+                    Er komt een nieuw artikel in Artikelen. Het nummer wordt het eigen artikelnummer van deze kabel en staat daarna op de
+                    aanvraagtekening (MDE PART NO). Pas de gegevens hieronder aan waar nodig.
+                </p>
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld">
+                        <label>Artikelcode MDE *</label>
+                        <input value="@_artCode" maxlength="100" @oninput="e => _artCode = (string?)e.Value ?? string.Empty" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Omschrijving NL</label>
+                        <textarea rows="3" value="@_artOms" @oninput="e => _artOms = (string?)e.Value ?? string.Empty"></textarea>
+                    </div>
+                    <div class="wn-veld">
+                        <label>Merk</label>
+                        <MerkKiezer @bind-Waarde="_artMerk" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Fabrikantcode</label>
+                        <input value="@_artFab" maxlength="100" placeholder="bv. het nummer van de kabelmaker, als dat er al is"
+                               @oninput="e => _artFab = (string?)e.Value ?? string.Empty" />
+                    </div>
+                    <div class="wn-veld">
+                        <label>Artikelgroep</label>
+                        <div class="prod-artikel">
+                            <span class="stand-chip s-blauw">@(_artGroep?.Pad ?? "— geen —")</span>
+                            <button class="klein" @onclick="() => _artGroepOpen = true" title="Door de groepen bladeren">🗂 Kiezen</button>
+                            @if (_artGroep is not null)
+                            {
+                                <button class="klein" @onclick="() => _artGroep = null">✕</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+                @if (_artFout is not null)
+                {
+                    <p class="uitleg fout-tekst">@_artFout</p>
+                }
+                <div class="btngroup">
+                    <button class="primair" disabled="@(_artBezig || _artCode.Trim().Length == 0)" @onclick="MaakArtikel">@(_artBezig ? "Bezig…" : "Artikel aanmaken")</button>
+                    <button class="klein" disabled="@_artBezig" @onclick="() => _artOpen = false">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<GroepenKiezer Open="_artGroepOpen" Titel="In welke groep hoort deze kabel?" Filteren="false" ToonWissen="false" Gekozen="@null"
+               OpKeuze="ArtGroepGekozen" OpSluiten="() => _artGroepOpen = false" />
+
 @code {
     private KabelSpec K = KabelSpec.Voorbeeld();
     private List<KabelOverzicht> _lijst = new();
@@ -291,7 +376,35 @@
     private static readonly CultureInfo Nl = CultureInfo.GetCultureInfo("nl-NL");
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private string Svg => KabelTekening.Maak(K, Door);
+    /// <summary>De tekening voor het scherm: het logo als adres (klein, de browser haalt het zelf op).</summary>
+    private string Svg => KabelTekening.Maak(K, Door, logo: "logo-mde.png");
+
+    /// <summary>De tekening voor afdrukken en het SVG-bestand: het logo zit erin (data-URI), zodat het bestand op zichzelf staat.</summary>
+    private string SvgLos => KabelTekening.Maak(K, Door, logo: LogoData());
+
+    private static string? _logoData;
+    private string? LogoData()
+    {
+        if (_logoData is not null) return _logoData.Length > 0 ? _logoData : null;
+        try { _logoData = "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"))); }
+        catch { _logoData = ""; }
+        return _logoData.Length > 0 ? _logoData : null;
+    }
+
+    /// <summary>Hint onder het veld AWG: doorsnede en de richtwaarde voor de stroom per ader, ook met dit aantal aders bij elkaar.</summary>
+    private string StroomHint
+    {
+        get
+        {
+            if (KabelStroom.MaxPerAder(K.Awg) is not double amp || KabelStroom.Doorsnede(K.Awg) is not double mm2)
+                return "geen richtwaarde voor deze AWG (tabel loopt van 10 t/m 32)";
+            static string A(double a) => a.ToString(a < 10 ? "0.##" : "0", Nl);
+            var n = K.Aders.Count;
+            var factor = KabelStroom.Bundelfactor(n);
+            return $"{mm2.ToString(mm2 < 1 ? "0.###" : "0.##", Nl)} mm² · max. ca. {A(amp)} A per ader"
+                 + (factor < 1 ? $"; met {n} aders bij elkaar ca. {A(Math.Round(amp * factor, 2))} A" : "");
+        }
+    }
     private string Door => Ik.Naam is { Length: > 0 } n ? n : "MDE";
     private bool KanOpslaan => Repo.Beschikbaar && _tabel && !_bezig && K.Naam.Trim().Length > 0;
     private string OpslaanTip => !Repo.Beschikbaar ? "Opslaan werkt alleen met de live database"
@@ -367,8 +480,8 @@
             if (nieuw) { K.Id = 0; K.GemaaktOp = null; K.GemaaktDoor = ""; }
             await Repo.BewaarAsync(K, Ik.WerknemerId, Door);
             _lijst = await Repo.LijstAsync();
-            Toon(nieuw ? $"Opgeslagen als nieuwe kabel: {naam} ({K.LeveranciersNummer}). Er staan nu {_lijst.Count} kabels."
-                       : $"Wijzigingen opgeslagen in {naam} ({K.LeveranciersNummer}).", false);
+            Toon(nieuw ? $"Opgeslagen als nieuwe kabel: {naam}. Er staan nu {_lijst.Count} kabels."
+                       : $"Wijzigingen opgeslagen in {naam}.", false);
         }
         catch (Exception ex)
         {
@@ -399,12 +512,12 @@
 
     private async Task Afdrukken()
     {
-        var gelukt = await JS.InvokeAsync<bool>("mdeKabel.afdrukken", Svg, K.LeveranciersNummer + " " + K.Naam);
+        var gelukt = await JS.InvokeAsync<bool>("mdeKabel.afdrukken", SvgLos, Bestandsnaam());
         if (!gelukt) Toon("Afdrukken lukte niet in deze browser. Bewaar de tekening als SVG en druk die af.", true);
     }
 
     private async Task DownloadSvg()
-        => await JS.InvokeVoidAsync("mdeKabel.download", Bestandsnaam() + ".svg", Svg);
+        => await JS.InvokeVoidAsync("mdeKabel.download", Bestandsnaam() + ".svg", SvgLos);
 
     private string? _specTekst;
 
@@ -421,7 +534,9 @@
 
     private string Bestandsnaam()
     {
-        var naam = K.LeveranciersNummer + (K.Naam.Trim().Length > 0 ? " " + K.Naam.Trim() : "");
+        // ons eigen nummer en onze naam; geen nummer van een leverancier
+        var naam = string.Join(" ", new[] { K.EigenNummer.Trim(), K.Naam.Trim() }.Where(t => t.Length > 0));
+        if (naam.Length == 0) naam = "Kabel";
         foreach (var c in Path.GetInvalidFileNameChars()) naam = naam.Replace(c, '-');
         return naam;
     }
@@ -442,4 +557,71 @@
     }
 
     private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    // ---- artikelnummer aanmaken ----
+    private bool _artOpen, _artBezig, _artGroepOpen;
+    private string _artCode = "", _artOms = "", _artFab = "";
+    private int? _artMerk;
+    private Groepknoop? _artGroep;
+    private string? _artFout;
+
+    /// <summary>Het artikel van deze kabel: het aangemaakte, of een met de hand ingevuld nummer dat alleen uit cijfers bestaat.</summary>
+    private int? ArtikelNummer => K.ArtikelId ?? (int.TryParse(K.EigenNummer.Trim(), out var n) && n > 0 ? n : null);
+
+    private void OpenArtikel()
+    {
+        if (K.EigenNummer.Trim().Length > 0) return;
+        var naam = K.Naam.Trim();
+        _artCode = naam.Length > 100 ? naam[..100] : naam;
+        _artOms = OmschrijvingNl();
+        _artFab = ""; _artFout = null;          // merk en groep blijven staan voor de volgende kabel
+        _artOpen = true;
+    }
+
+    private void ArtGroepGekozen(Groepknoop? knoop)
+    {
+        if (knoop is not null) _artGroep = knoop;
+        _artGroepOpen = false;
+    }
+
+    /// <summary>Voorstel voor de omschrijving van het artikel, in het Nederlands, uit de gegevens van de kabel.</summary>
+    private string OmschrijvingNl()
+    {
+        static string Eind(KabelEind e) => !e.IsConnector ? "open eind"
+            : string.Join(" ", new[] { e.Familie.Trim(), e.Pinnen + "P", e.Housing.Trim().Length > 0 ? "(" + e.Housing.Trim() + ")" : "" }.Where(t => t.Length > 0));
+        var aders = K.Aders.Count + (K.Aders.Count == 1 ? " ader" : " aders") + (K.Paren > 0 ? $" ({K.Paren} paar getwist)" : "");
+        var soort = K.IsLosseAders ? "Losse aders" : "Kabel";
+        var scherm = K.IsLosseAders ? "" : K.Afscherming == KabelAfscherming.Geen ? ", niet afgeschermd" : ", afgeschermd";
+        return $"{soort} {K.DraadType} {K.Awg}AWG, {aders}{scherm}, {K.Lengte} mm. P1: {Eind(K.P1)}. P2: {Eind(K.P2)}.".Replace("  ", " ");
+    }
+
+    /// <summary>
+    /// Maakt het artikel (zelfde functie als Artikel toevoegen bij Artikelen) en zet het nummer bij de kabel. Is de kabel
+    /// al opgeslagen, dan wordt hij meteen bijgewerkt, zodat nummer en kabel bij elkaar blijven.
+    /// </summary>
+    private async Task MaakArtikel()
+    {
+        if (_artBezig || _artCode.Trim().Length == 0) return;
+        _artBezig = true; _artFout = null;
+        try
+        {
+            var id = await Artikelen.NieuwArtikelAsync(_artCode, _artOms, _artMerk, _artFab, _artGroep?.Id, Ik.WerknemerId);
+            K.ArtikelId = id;
+            K.EigenNummer = id.ToString();
+            _artOpen = false;
+            if (K.Id != 0 && KanOpslaan)
+            {
+                try
+                {
+                    await Repo.BewaarAsync(K, Ik.WerknemerId, Door);
+                    _lijst = await Repo.LijstAsync();
+                    Toon($"Artikel #{id} aangemaakt en bij de kabel bewaard.", false);
+                }
+                catch (Exception ex) { Toon($"Artikel #{id} is aangemaakt, maar de kabel bijwerken mislukte: {ex.Message} Sla de kabel zelf nog op.", true); }
+            }
+            else Toon($"Artikel #{id} aangemaakt. Sla de kabel op, dan blijft het nummer erbij bewaard.", false);
+        }
+        catch (Exception ex) { _artFout = ex.Message; }
+        finally { _artBezig = false; }
+    }
 }

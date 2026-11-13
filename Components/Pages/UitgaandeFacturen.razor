@@ -4,6 +4,7 @@
 @inject IWerknemerRepository WnRepo
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
+@inject FactuurPdfService FactuurPdf
 
 @* Overgezet van het Access-formulier FacturenUitgaand (fase 1: overzicht).
    Nieuw, aanpassen, uren importeren, versturen en de betalingscheck volgen;
@@ -303,6 +304,16 @@
                             </div>
                         }
                     </ZijBlok>
+
+                    @* de factuur en de bijlage meteen bekijken, zonder het verstuurvenster (wens gebruiker 13-11-2026):
+                       verstuurd = de bewaarde PDF (wat de klant kreeg), anders ter plekke gemaakt *@
+                    <div class="btngroup factuur-voorbeeldknoppen">
+                        <button class="klein" disabled="@_pdfBezig" @onclick="() => ToonFactuurPdf(false)"
+                                title="@(_gekozen.Verstuurd ? "De factuur bekijken zoals hij verstuurd is" : "Een voorbeeld van de factuur zoals hij nu zou worden (nog niet verstuurd)")">📄 Factuur</button>
+                        <button class="klein" disabled="@_pdfBezig" @onclick="() => ToonFactuurPdf(true)"
+                                title="De bijlage met de urenspecificatie bekijken">📎 Bijlage</button>
+                        @if (_pdfBezig) { <span class="uitleg"><span class="draaier"></span> PDF maken…</span> }
+                    </div>
                 }
             </aside>
         </div>
@@ -325,6 +336,9 @@
 @* een PDF groot in beeld *@
 <BestandVoorbeeld Id="_voorbeeld?.FileStoreId" Naam="@(_voorbeeld?.Bestandsnaam ?? "")"
                   Sluiten="() => _voorbeeld = null" />
+
+@* een net gemaakte PDF (factuur of bijlage die nog niet in de filestore staat) *@
+<PdfVoorbeeld Inhoud="_pdfInhoud" Naam="@_pdfNaam" Toelichting="@_pdfToelichting" Sluiten="() => _pdfInhoud = null" />
 
 @* nieuw en aanpassen *@
 <VerkoopFactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" />
@@ -470,6 +484,7 @@
         _betalingen = new();
         _factuurBetalingen = new();
         _documenten = new();
+        _pdfInhoud = null;
         if (f is null) return;
 
         try { _items = await Repo.GetItemsAsync(f.Id); } catch { }
@@ -719,4 +734,46 @@
     }
 
     private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    // ---- factuur en bijlage bekijken (knopjes onder Documenten) ----
+    private byte[]? _pdfInhoud;
+    private string _pdfNaam = "", _pdfToelichting = "";
+    private bool _pdfBezig;
+
+    /// <summary>
+    /// Toont de factuur of de bijlage (urenspecificatie). Is de factuur verstuurd en staat de PDF in de filestore, dan
+    /// die (wat de klant kreeg; de bijlage herken je aan _Attach in de naam). Anders wordt hij ter plekke gemaakt met
+    /// dezelfde code als het verstuurvenster (FactuurPdfService); er wordt niets opgeslagen.
+    /// </summary>
+    private async Task ToonFactuurPdf(bool bijlage)
+    {
+        if (_gekozen is not { } f || _pdfBezig) return;
+        if (f.Verstuurd)
+        {
+            var bewaard = _documenten
+                .Where(d => d.Bestandsnaam.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+                            && d.Bestandsnaam.Contains("_Attach", StringComparison.OrdinalIgnoreCase) == bijlage)
+                .OrderByDescending(d => d.FileStoreId).FirstOrDefault();
+            if (bewaard is not null) { _voorbeeld = bewaard; return; }
+        }
+
+        _pdfBezig = true;
+        _melding = null;
+        try
+        {
+            var g = await FactuurPdf.LaadAsync(f.Id);
+            if (bijlage && g.Uren.Count == 0)
+            {
+                Toon($"Factuur {f.Factuurnummer} heeft geen bijlage: er staan geen uren op.", false);
+                return;
+            }
+            var pdf = await FactuurPdf.NaarPdfAsync(bijlage ? FactuurPdf.BijlageHtml(g) : FactuurPdf.FactuurHtml(g));
+            if (_gekozen?.Id != f.Id) return;          // intussen een andere factuur gekozen
+            _pdfNaam = FactuurPdfService.Bestandsnaam(g.Factuur, bijlage);
+            _pdfToelichting = f.Verstuurd ? "opnieuw gemaakt; de verstuurde PDF staat niet in de filestore" : "voorbeeld, nog niet verstuurd";
+            _pdfInhoud = pdf;
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _pdfBezig = false; }
+    }
 }

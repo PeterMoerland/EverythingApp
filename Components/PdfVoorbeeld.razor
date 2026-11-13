@@ -1,0 +1,70 @@
+@* Toont een PDF die net gemaakt is (nog niet in de filestore) groot in beeld, zoals BestandVoorbeeld dat doet voor
+   een opgeslagen bestand. De bytes gaan als blob naar de browser (window.mdeBlob in App.razor).
+
+   Gebruik: <PdfVoorbeeld Inhoud="_pdf" Naam="@_pdfNaam" Sluiten="() => _pdf = null" />
+   en zet Inhoud op de bytes om het venster te openen; null = dicht. *@
+
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (Inhoud is not null)
+{
+    <div class="cmdk-overlay voorbeeld-laag" @onclick="Dicht">
+        <div class="voorbeeldvenster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>@Naam @if (Toelichting.Length > 0) { <span class="zij-extra">@Toelichting</span> }</h2>
+                <span class="btngroup">
+                    @if (_url.Length > 0)
+                    {
+                        <a class="knopje" href="@_url" download="@Naam" title="Downloaden">⭳ Downloaden</a>
+                    }
+                    <button class="klein" @onclick="Dicht">✕</button>
+                </span>
+            </header>
+            <div class="voorbeeld-inhoud">
+                @if (_url.Length > 0)
+                {
+                    <iframe class="pdf-venster" src="@_url" title="@Naam"></iframe>
+                }
+                else
+                {
+                    <p class="uitleg">De PDF kon niet getoond worden in deze browser.</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De PDF; null betekent: venster dicht.</summary>
+    [Parameter] public byte[]? Inhoud { get; set; }
+    [Parameter] public string Naam { get; set; } = "";
+    /// <summary>Korte tekst achter de naam, bv. "voorbeeld, nog niet verstuurd".</summary>
+    [Parameter] public string Toelichting { get; set; } = "";
+    [Parameter] public EventCallback Sluiten { get; set; }
+
+    private byte[]? _getoond;
+    private string _url = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ReferenceEquals(Inhoud, _getoond)) return;
+        _getoond = Inhoud;
+        await WisUrl();
+        if (Inhoud is null) return;
+        try { _url = await JS.InvokeAsync<string>("mdeBlob.maak", Inhoud, "application/pdf"); }
+        catch { _url = ""; }
+    }
+
+    private async Task WisUrl()
+    {
+        if (_url.Length == 0) return;
+        var url = _url;
+        _url = "";
+        try { await JS.InvokeVoidAsync("mdeBlob.weg", url); } catch { }
+    }
+
+    private Task Dicht() => Sluiten.InvokeAsync();
+
+    public async ValueTask DisposeAsync() => await WisUrl();
+}

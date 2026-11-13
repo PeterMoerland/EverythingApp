@@ -438,17 +438,46 @@ public class FactuurPdfService
                 throw new InvalidOperationException("Edge deed er langer dan een minuut over; geen PDF gemaakt.");
             }
 
-            if (!File.Exists(uitvoer) || new FileInfo(uitvoer).Length == 0)
+            // Het gestarte proces kan klaar zijn vóórdat de PDF er staat: nieuwere Edge-versies (gezien bij 157,
+            // 13-11-2026) geven het werk door aan een achtergrondproces en sluiten zelf meteen af met code 0. Daarom
+            // wachten tot het bestand er is en niet meer groeit, in plaats van direct na het afsluiten te kijken.
+            var inhoud = await WachtOpPdfAsync(uitvoer, TimeSpan.FromSeconds(30), stop);
+            if (inhoud is null)
             {
                 var fout = await proces.StandardError.ReadToEndAsync();
                 _log.LogWarning("Edge maakte geen PDF (exit {Code}): {Fout}", proces.ExitCode, fout);
                 throw new InvalidOperationException("Edge heeft geen PDF gemaakt.");
             }
-            return await File.ReadAllBytesAsync(uitvoer, stop);
+            return inhoud;
         }
         finally
         {
             try { Directory.Delete(map, true); } catch { /* Edge kan het profiel nog even vasthouden */ }
+        }
+    }
+
+    /// <summary>
+    /// Wacht tot de PDF er staat, niet meer groeit en te lezen is; null als dat binnen de wachttijd niet lukt.
+    /// Staat hij er al (het gewone geval), dan kost dit één korte controle.
+    /// </summary>
+    private static async Task<byte[]?> WachtOpPdfAsync(string pad, TimeSpan hoogstens, CancellationToken stop)
+    {
+        var tot = DateTime.UtcNow + hoogstens;
+        long vorige = -1;
+        while (true)
+        {
+            var info = new FileInfo(pad);
+            if (info.Exists && info.Length > 0)
+            {
+                if (info.Length == vorige)
+                {
+                    try { return await File.ReadAllBytesAsync(pad, stop); }
+                    catch (IOException) { /* Edge schrijft nog: zo opnieuw */ }
+                }
+                vorige = info.Length;
+            }
+            if (DateTime.UtcNow >= tot) return null;
+            await Task.Delay(200, stop);
         }
     }
 

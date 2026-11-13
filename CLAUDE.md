@@ -2213,6 +2213,30 @@ hier zitten.
   kabel**; met Id **Wijzigingen opslaan** (UPDATE) en **＋ Opslaan als nieuwe kabel** (Id naar 0, INSERT). Een nieuwe kabel
   moet een naam hebben die nog niet bestaat (melding, niets opgeslagen). De kaart Opgeslagen kabels zegt hoeveel er
   staan en legt de twee knoppen uit. **Niet getest**: het opslaan zelf (schrijft naar de database).
+- **Artikelnummer aanmaken voor een kabel** (wens gebruiker, later op 13-11): knop in de kaart Kabel (uit als er al
+  een eigen nummer staat) opent een tussenvenster in de opzet van Artikel toevoegen bij Artikelen: Artikelcode MDE
+  (voorstel: de naam van de kabel), Omschrijving NL (voorstel uit de kabel, `OmschrijvingNl`), Merk (`MerkKiezer`),
+  Fabrikantcode en Artikelgroep (`GroepenKiezer`). **Artikel aanmaken** = `IArtikelRepository.NieuwArtikelAsync`
+  (weigert een code die al bestaat); het nieuwe ArtikelID komt in `KabelSpec.ArtikelId` en `EigenNummer` en dus als MDE
+  PART NO op de tekening. Een al opgeslagen kabel wordt meteen bijgewerkt (`ArtikelID` staat nu ook in de kolom van
+  `Kabelconfiguraties`); een nieuwe kabel moet nog opgeslagen worden (melding). Link "Artikel #n openen ↗" =
+  `artikelen?nr=<id>`. Een kopie van een kabel krijgt geen nummer mee. Net als bij Artikelen geen apart recht voor
+  aanmaken. **Niet getest**: het aanmaken zelf (schrijft naar Artikelen); het venster en de voorstellen wel bekeken.
+- **Aanvraagkader van MDE, zonder leverancier** (wens gebruiker, later op 13-11: "supplier data kan weg, we willen deze
+  formulieren ook elders kunnen aanvragen"). Van de tekening af: SUPPLIER DongGuan LDZY, PART NO volgens LDZY en het blok
+  "Part number (LDZY scheme)". Erop: titelblok met het MDE-logo, naam, adres en website, DOCUMENT "Cable assembly
+  specification · request for quotation", **MDE PART NO** (Eigen artikelnummer, anders t.b.d.) en als TITLE onze naam
+  van de kabel plus de technische titel. Eisen staan nu rechts (waar de nummeruitleg stond), bestelgegevens eronder.
+  `KabelTekening.Maak(..., logo)`: op het scherm `logo-mde.png` als adres, voor afdrukken en het SVG-bestand een
+  data-URI (`SvgLos`, het bestand staat dan op zichzelf). Spec-tekst en bestandsnaam ook zonder LDZY. In het scherm:
+  kop toont het MDE-nummer, de keuzelijst Steek toont millimeters (geen LDZY-letters meer), de velden Leverancier en
+  Volgnummer zijn uit de kaart Kabel; het nummer volgens het schema van LDZY (`KabelNummer`) staat alleen nog ter info
+  in een inklapregel onder de kaart Kabel (en in de kolom LeveranciersNummer van de tabel).
+- **Stroom per ader bij de AWG** (wens gebruiker, later op 13-11): `KabelStroom` (Models/Kabel.cs): doorsnede uit de
+  AWG-formule, stroom uit de tabel "chassis wiring" (AWG 10-32: 55/41/32/22/16/11/7/3,5/2,2/1,4/0,86/0,53 A; oneven =
+  meetkundig gemiddelde van de buren), en bundelfactoren naar het aantal aders (4-6 80%, 7-9 70%, 10-20 50% …). Hint
+  onder het veld AWG (`StroomHint`), met een wolkje dat zegt dat het een richtwaarde is en dat isolatie, temperatuur
+  en de connector lager kunnen begrenzen. Alleen in het scherm, niet op de tekening.
 - **Aders vastlijmen** (wens gebruiker, later op 13-11: "als globale instelling"; opgevat als één instelling per kabel,
   voor elke kant met een connector): `KabelSpec.AdersLijmen`, vinkje in de kaart Kabel. Tekening: gele markering met
   GLUE bij de aderingang van elke connector, en een extra genummerde eis (`KabelTekening.LijmTekst`, ook in de
@@ -2771,6 +2795,25 @@ openen in een nieuw venster. (Een herinnering in de bel of iets bij het koppelen
   **Niet getest**: de eigen lijst en "n van jou" onder de tegel (lokaal geen ingelogde werknemer), en de weergave
   zonder het recht Financial/Directie.
 - De lijst bevat ook oude rommel (Aanmaken vanaf 2018, In bestelling vanaf 2019): opruimen is annuleren of doorzetten.
+
+## Uitgaande facturen: factuur en bijlage bekijken (13-11-2026)
+
+Wens gebruiker: in Uitgaande facturen de factuur en de bijlage als voorbeeld zien, met twee knopjes. Onder het blok
+Documenten in het zijpaneel: **📄 Factuur** en **📎 Bijlage** (`UitgaandeFacturen.razor`, `ToonFactuurPdf(bijlage)`).
+- Verstuurd en de PDF staat in de filestore (soort 5): die wordt getoond in het gewone `BestandVoorbeeld` (de bijlage =
+  de nieuwste PDF met `_Attach` in de naam, de factuur = de nieuwste zonder). Dat is wat de klant kreeg.
+- Anders (nog niet verstuurd, of de PDF ontbreekt): ter plekke gemaakt met `FactuurPdfService` (`LaadAsync`,
+  `FactuurHtml`/`BijlageHtml`, `NaarPdfAsync`), dezelfde code als het verstuurvenster; er wordt niets opgeslagen. Getoond
+  in het nieuwe **`Components/PdfVoorbeeld.razor`** (bytes als blob via `mdeBlob`, met Downloaden), met achter de naam
+  "voorbeeld, nog niet verstuurd". Geen uren op de factuur = melding dat er geen bijlage is.
+- Getest lokaal op de echte gegevens (alleen lezen): een niet-verstuurde factuur (factuur en bijlage gemaakt en
+  getoond) en een verstuurde (bewaarde PDF). **Niet getest**: Downloaden uit het voorbeeld van een gemaakte PDF.
+- **Edge sluit af voordat de PDF er staat** (gevonden bij deze test, Edge 157 op de ontwikkel-pc): `msedge.exe
+  --headless=new --print-to-pdf` gaf meteen exitcode 0 en de PDF verscheen pas een paar tellen later (een
+  achtergrondproces maakt hem af). `FactuurPdfService.NaarPdfAsync` keek direct na het afsluiten en gaf dan "Edge heeft
+  geen PDF gemaakt". Nu `WachtOpPdfAsync`: wachten (hooguit 30 s) tot het bestand er is, niet meer groeit en te lezen
+  is. Geldt voor alles wat via deze functie gaat: facturen, offertes, orderbevestigingen, pakbonnen en verzendlabels.
+  Op de server was het (nog) niet gemeld; daar kan een oudere Edge draaien.
 
 ## Te laat betaald: dagelijkse melding en overzicht (13-11-2026)
 

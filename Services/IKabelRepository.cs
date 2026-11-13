@@ -93,7 +93,7 @@ public class MySqlKabelRepository : IKabelRepository
         k.GewijzigdOp = nu;
         k.GewijzigdDoor = doorNaam;
         const string velden = "`Naam` = @naam, `Leverancier` = @lev, `LeveranciersNummer` = @nr, `Spec` = @spec, " +
-                              "`GewijzigdOp` = @nu, `GewijzigdDoor` = @door";
+                              "`ArtikelID` = @art, `GewijzigdOp` = @nu, `GewijzigdDoor` = @door";
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(k.Id == 0
             ? $"INSERT INTO `Kabelconfiguraties` SET {velden}, `GemaaktOp` = @nu, `GemaaktDoor` = @door"
@@ -103,6 +103,7 @@ public class MySqlKabelRepository : IKabelRepository
         cmd.Parameters.AddWithValue("@lev", k.Leverancier.Trim());
         cmd.Parameters.AddWithValue("@nr", k.LeveranciersNummer);
         cmd.Parameters.AddWithValue("@spec", k.NaarJson());
+        cmd.Parameters.AddWithValue("@art", (object?)k.ArtikelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@nu", nu);
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         if (k.Id != 0) cmd.Parameters.AddWithValue("@id", k.Id);

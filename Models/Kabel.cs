@@ -102,6 +102,9 @@ public class KabelSpec
     public int Volgnummer { get; set; }
     /// <summary>Ons eigen artikelnummer, als dat er al is.</summary>
     public string EigenNummer { get; set; } = "";
+    /// <summary>Het artikel in Artikelen dat voor deze kabel is aangemaakt (knop Artikelnummer aanmaken); null = geen
+    /// of met de hand ingevuld. Staat ook in de kolom ArtikelID van de tabel.</summary>
+    public int? ArtikelId { get; set; }
     public int Lengte { get; set; } = 200;
     public int LengteTolerantie { get; set; } = 10;
     public int Aantal { get; set; } = 10;
@@ -215,6 +218,7 @@ public class KabelSpec
     {
         var k = UitJson(NaarJson()) ?? new KabelSpec();
         k.Id = 0; k.Volgnummer = 0; k.GemaaktOp = null; k.GemaaktDoor = ""; k.GewijzigdOp = null; k.GewijzigdDoor = "";
+        k.EigenNummer = ""; k.ArtikelId = null;        // een kopie is een andere kabel: die krijgt een eigen artikelnummer
         k.Naam = Naam.Length > 0 ? Naam + " (kopie)" : "";
         return k;
     }
@@ -310,6 +314,45 @@ public static class KabelNummer
             (Volgcode(k), k.Volgnummer > 0 ? "serial number, assigned by LDZY" : "serial number, to be assigned by LDZY"),
         };
     }
+}
+
+/// <summary>
+/// Richtwaarden bij een draaddikte in AWG, voor de hint naast het veld AWG in de kabelconfigurator (wens gebruiker
+/// 13-11-2026). De stroom is de gangbare tabel "chassis wiring" (losse koperen ader in vrije lucht, korte bedrading);
+/// meer aders bij elkaar worden warmer, daarvoor de gebruikelijke bundelfactoren (4-6 aders 80%, 7-9 70%, 10-20 50%,
+/// 21-30 45%, 31-40 40%, meer 35%). Het zijn richtwaarden: de isolatie, de omgevingstemperatuur en vooral de
+/// connector (vaak 1 tot 3 A per contact) kunnen lager begrenzen. Komt niet op de tekening.
+/// </summary>
+public static class KabelStroom
+{
+    private static readonly (int Awg, double Ampere)[] Tabel =
+    {
+        (10, 55), (12, 41), (14, 32), (16, 22), (18, 16), (20, 11), (22, 7), (24, 3.5), (26, 2.2), (28, 1.4), (30, 0.86), (32, 0.53),
+    };
+
+    /// <summary>Koperdoorsnede in mm² (de AWG-formule: diameter = 0,127 mm x 92^((36 - AWG) / 39)).</summary>
+    public static double? Doorsnede(int awg)
+    {
+        if (awg is < 0 or > 40) return null;
+        var d = 0.127 * Math.Pow(92, (36 - awg) / 39.0);
+        return Math.PI / 4 * d * d;
+    }
+
+    /// <summary>Richtwaarde voor de stroom door één losse ader, in ampère; null buiten AWG 10-32. Een oneven AWG krijgt
+    /// het meetkundig gemiddelde van zijn buren.</summary>
+    public static double? MaxPerAder(int awg)
+    {
+        foreach (var (a, amp) in Tabel) if (a == awg) return amp;
+        var dikker = Tabel.Where(t => t.Awg == awg - 1).Select(t => (double?)t.Ampere).FirstOrDefault();
+        var dunner = Tabel.Where(t => t.Awg == awg + 1).Select(t => (double?)t.Ampere).FirstOrDefault();
+        return dikker is double x && dunner is double y ? Math.Sqrt(x * y) : null;
+    }
+
+    /// <summary>Welk deel van de stroom overblijft als er zoveel stroomvoerende aders bij elkaar liggen.</summary>
+    public static double Bundelfactor(int aders) => aders switch
+    {
+        <= 3 => 1.0, <= 6 => 0.8, <= 9 => 0.7, <= 20 => 0.5, <= 30 => 0.45, <= 40 => 0.4, _ => 0.35,
+    };
 }
 
 /// <summary>Aderkleuren: Nederlandse naam in het scherm, kleur en Engelse naam op de tekening.</summary>

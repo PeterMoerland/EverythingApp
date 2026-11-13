@@ -5,9 +5,11 @@ using EverythingApp.Models;
 namespace EverythingApp.Services;
 
 /// <summary>
-/// Tekent een <see cref="KabelSpec"/> als SVG in de opmaak van de tekeningen van LDZY: schets met maten, Wiring Table,
-/// stuklijst, eisen, uitleg van het nummer en een titelblok. Engels op de tekening (voor de leverancier), Nederlands in
-/// het scherm. Staat bewust in een .cs en niet in een .razor: de letterlijke SVG-tekst-tag mag daar niet in @code staan
+/// Tekent een <see cref="KabelSpec"/> als SVG: een aanvraagtekening van MDE (schets met maten, Wiring Table, stuklijst,
+/// eisen, bestelgegevens en een titelblok met het MDE-logo). Zonder gegevens van een leverancier (besluit gebruiker
+/// 13-11-2026: hetzelfde formulier moet bij elke kabelmaker aangevraagd kunnen worden; de eerste opzet had het nummer en
+/// de naam van LDZY erop). De indeling van schets en tabellen volgt nog de tekeningen van LDZY. Engels op de tekening
+/// (voor de leverancier), Nederlands in het scherm. Staat bewust in een .cs en niet in een .razor: de letterlijke SVG-tekst-tag mag daar niet in @code staan
 /// (CLAUDE.md, Razor-valkuilen). De schets is schematisch, niet op schaal (zoals bij LDZY zelf).
 /// <see cref="SpecTekst"/> geeft dezelfde inhoud als platte tekst, voor in een e-mail.
 /// </summary>
@@ -17,7 +19,9 @@ public static class KabelTekening
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private const string Maatkleur = "#b0177b";   // maten in magenta, zoals op de tekening van LDZY
 
-    public static string Maak(KabelSpec k, string getekendDoor, DateTime? datum = null)
+    /// <param name="logo">Adres of data-URI van het MDE-logo voor het titelblok; null = zonder logo. Op het scherm het
+    /// adres (logo-mde.png), voor afdrukken en het SVG-bestand een data-URI: dan zit het plaatje in het bestand zelf.</param>
+    public static string Maak(KabelSpec k, string getekendDoor, DateTime? datum = null, string? logo = null)
     {
         var s = new Svg(Breedte, Hoogte);
         s.Raw("<defs><marker id=\"kabelpijl\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" " +
@@ -27,11 +31,10 @@ public static class KabelTekening
         Schets(s, k);
         const double onder = 345;
         WiringTable(s, k, 20, onder, 440);
-        var bomOnder = Stuklijst(s, k, 480, onder, 420);
-        Eisen(s, k, 480, bomOnder + 18, 420);
-        NummerUitleg(s, k, 920, onder, 460);
-        Bestelinfo(s, k, 920, 600, 460);
-        Titelblok(s, k, getekendDoor, datum ?? DateTime.Today);
+        Stuklijst(s, k, 480, onder, 420);
+        var eisenOnder = Eisen(s, k, 920, onder, 460);
+        Bestelinfo(s, k, 920, eisenOnder + 22, 460);
+        Titelblok(s, k, getekendDoor, datum ?? DateTime.Today, logo);
         return s.ToString();
     }
 
@@ -286,47 +289,25 @@ public static class KabelTekening
         return r;
     }
 
-    private static void Eisen(Svg s, KabelSpec k, double x, double y, double w)
+    /// <returns>De onderkant van de lijst.</returns>
+    private static double Eisen(Svg s, KabelSpec k, double x, double y, double w)
     {
+        const double grens = 690;                   // daaronder komen de bestelgegevens nog
         s.Text(x, y + 12, "Requirements", 13, "start", "font-weight=\"600\"");
         var yy = y + 30;
         var nr = 1;
-        foreach (var eis in k.Eisen.Where(e => e.Trim().Length > 0))
+        var regels = k.Eisen.Where(e => e.Trim().Length > 0).Select(e => e.Trim()).ToList();
+        regels.AddRange(new[] { ("P1", k.P1), ("P2", k.P2) }.Where(x => !x.Item2.IsConnector).Select(x => $"{x.Item1}: {OpenEindTekst(k, x.Item2)}."));
+        if (LijmTekst(k) is { } lijm) regels.Add(lijm);
+        foreach (var eis in regels)
         {
-            var lijnen = Wrap(eis.Trim(), 66).ToList();
+            var lijnen = Wrap(eis, 74).ToList();
+            if (yy + 13 * lijnen.Count > grens) break;
             for (var i = 0; i < lijnen.Count; i++) { s.Text(x, yy, (i == 0 ? nr + ". " : "    ") + lijnen[i], 11); yy += 13; }
             yy += 2;
             nr++;
-            if (yy > 748) return;
         }
-        foreach (var (naam, eind) in new[] { ("P1", k.P1), ("P2", k.P2) })
-            if (!eind.IsConnector && yy < 748) { s.Text(x, yy, $"{nr++}. {naam}: {OpenEindTekst(k, eind)}.", 11); yy += 15; }
-        if (LijmTekst(k) is { } lijm)
-        {
-            var lijnen = Wrap(lijm, 66).ToList();
-            for (var i = 0; i < lijnen.Count && yy < 748; i++) { s.Text(x, yy, (i == 0 ? nr + ". " : "    ") + lijnen[i], 11); yy += 13; }
-        }
-    }
-
-    private static readonly string[] Cirkels = { "①", "②", "③", "④", "⑤", "⑥" };
-
-    private static void NummerUitleg(Svg s, KabelSpec k, double x, double y, double w)
-    {
-        s.Text(x, y + 12, "Part number (LDZY scheme)", 13, "start", "font-weight=\"600\"");
-        var delen = KabelNummer.Delen(k);
-        var cx = x + 4;
-        var basis = y + 52;
-        for (var i = 0; i < delen.Length; i++)
-        {
-            var breedte = delen[i].Deel.Length * 15 + 6;
-            s.Text(cx + breedte / 2, basis, delen[i].Deel, 24, "middle", "font-weight=\"600\"");
-            s.Line(cx + 2, basis + 5, cx + breedte - 2, basis + 5, "#111", 1);
-            s.Text(cx + breedte / 2, basis + 22, Cirkels[i], 13, "middle");
-            cx += breedte + 8;
-        }
-        var yy = basis + 46;
-        for (var i = 0; i < delen.Length; i++)
-            foreach (var l in Wrap($"{Cirkels[i]} {delen[i].Deel.TrimStart('-')} = {delen[i].Uitleg}", 74)) { s.Text(x, yy, l, 11); yy += 14; }
+        return yy;
     }
 
     private static void Bestelinfo(Svg s, KabelSpec k, double x, double y, double w)
@@ -336,14 +317,19 @@ public static class KabelTekening
         var regels = new List<string>
         {
             $"Quantity: {k.Aantal} pcs",
-            $"Customer part no.: {(k.EigenNummer.Trim().Length > 0 ? k.EigenNummer.Trim() : "-")}",
+            $"MDE part no.: {(k.EigenNummer.Trim().Length > 0 ? k.EigenNummer.Trim() : "-")}",
             $"Length: {k.Lengte} ±{k.LengteTolerantie} mm",
         };
         regels.AddRange(Wrap("Remarks: " + (k.Opmerkingen.Trim().Length > 0 ? k.Opmerkingen.Trim() : "-"), 74));
         foreach (var l in regels) { s.Text(x, yy, l, 11); yy += 14; if (yy > 748) break; }
     }
 
-    private static void Titelblok(Svg s, KabelSpec k, string door, DateTime datum)
+    // De gegevens van MDE in het titelblok (de aanvrager); geen leverancier.
+    private const string MdeNaam = "MDE Automation B.V.";
+    private const string MdeAdres = "Slabbecoornweg 48 · 4691 RZ Tholen · The Netherlands";
+    private const string MdeWeb = "www.mde-automation.nl · info@mde-automation.nl";
+
+    private static void Titelblok(Svg s, KabelSpec k, string door, DateTime datum, string? logo)
     {
         const double top = 760, bottom = 890, x0 = 10, x1 = 1390;
         s.Line(x0, top, x1, top, "#111", 1.5);
@@ -355,19 +341,29 @@ public static class KabelTekening
         if (k.HeeftKous(k.P1) || k.HeeftKous(k.P2)) s.Text(30, top + 62, "Sleeve position and length: ±5 mm", 12);
         s.Text(30, top + 80, "Drawing not to scale.", 12);
         s.Text(30, top + 110, "RoHS / lead-free", 12, "start", "font-weight=\"600\"");
-        // midden: klant en leverancier
-        s.Text(345, top + 24, "CUSTOMER", 10, "start", "fill=\"#555\"");
-        s.Text(345, top + 46, "MDE Automation", 18, "start", "font-weight=\"600\"");
-        s.Text(345, top + 72, "SUPPLIER", 10, "start", "fill=\"#555\"");
-        s.Text(345, top + 90, "DongGuan LDZY Electronics Co., Ltd.", 13);
-        s.Text(345, top + 118, $"Drawn: {door}   Date: {datum:yyyy-MM-dd}   (MDE cable configurator)", 11);
-        // rechts: nummer en titel
-        s.Text(875, top + 20, "PART NO", 10, "start", "fill=\"#555\"");
-        s.Text(875, top + 48, k.LeveranciersNummer, 26, "start", "font-weight=\"600\"");
+        // midden: MDE als aanvrager, met het logo
+        var tekstX = 345.0;
+        if (!string.IsNullOrWhiteSpace(logo))
+        {
+            s.Image(logo, 345, top + 10, 112, 50);
+            tekstX = 470;
+        }
+        s.Text(tekstX, top + 28, MdeNaam, 17, "start", "font-weight=\"600\"");
+        s.Text(tekstX, top + 44, MdeAdres, 11);
+        s.Text(tekstX, top + 58, MdeWeb, 11);
+        s.Line(330, top + 70, 860, top + 70, "#111", .8);
+        s.Text(345, top + 86, "DOCUMENT", 10, "start", "fill=\"#555\"");
+        s.Text(345, top + 102, "Cable assembly specification · request for quotation", 13, "start", "font-weight=\"600\"");
+        s.Text(345, top + 120, $"Drawn: {door}   Date: {datum:yyyy-MM-dd}", 11);
+        // rechts: ons nummer en de titel
+        s.Text(875, top + 20, "MDE PART NO", 10, "start", "fill=\"#555\"");
+        s.Text(875, top + 48, k.EigenNummer.Trim().Length > 0 ? k.EigenNummer.Trim() : "t.b.d.", 26, "start", "font-weight=\"600\"");
         s.Line(860, top + 58, x1, top + 58, "#111", .8);
         s.Text(875, top + 72, "TITLE", 10, "start", "fill=\"#555\"");
-        var titel = Wrap(Titel(k), 78).Take(3).ToList();
-        for (var i = 0; i < titel.Count; i++) s.Text(875, top + 85 + 12 * i, titel[i], 11);
+        var regels = new List<(string Tekst, bool Vet)>();
+        if (k.Naam.Trim().Length > 0) regels.Add((Wrap(k.Naam.Trim(), 78).First(), true));
+        regels.AddRange(Wrap(Titel(k), 78).Take(3 - regels.Count).Select(t => (t, false)));
+        for (var i = 0; i < regels.Count; i++) s.Text(875, top + 85 + 12 * i, regels[i].Tekst, 11, "start", regels[i].Vet ? "font-weight=\"600\"" : null);
         s.Line(860, top + 112, x1, top + 112, "#111", .8);
         foreach (var cx in new[] { 992.0, 1124, 1256 }) s.Line(cx, top + 112, cx, bottom, "#111", .8);
         s.Text(926, top + 125, "UNIT  mm", 11, "middle");
@@ -411,8 +407,9 @@ public static class KabelTekening
     public static string SpecTekst(KabelSpec k)
     {
         var b = new StringBuilder();
-        b.AppendLine("Cable assembly request - MDE Automation");
-        b.AppendLine($"Part no. (LDZY scheme): {k.LeveranciersNummer}");
+        b.AppendLine("Cable assembly - request for quotation - " + MdeNaam);
+        b.AppendLine($"MDE part no.: {(k.EigenNummer.Trim().Length > 0 ? k.EigenNummer.Trim() : "t.b.d.")}");
+        if (k.Naam.Trim().Length > 0) b.AppendLine($"Description: {k.Naam.Trim()}");
         b.AppendLine($"Title: {Titel(k)}");
         b.AppendLine($"Quantity: {k.Aantal} pcs");
         b.AppendLine($"Length: {k.Lengte} +/-{k.LengteTolerantie} mm");
@@ -497,6 +494,10 @@ public static class KabelTekening
             => _b.Append($"<text x=\"{F(x)}\" y=\"{F(y)}\" font-size=\"{F(grootte)}\" text-anchor=\"{anker}\"")
                  .Append(extra is null ? "" : " " + extra)
                  .Append('>').Append(E(t)).Append("</text>");
+
+        /// <summary>Een plaatje (adres of data-URI), passend gemaakt binnen het vak, links uitgelijnd.</summary>
+        public void Image(string href, double x, double y, double w, double h)
+            => _b.Append($"<image href=\"{E(href)}\" x=\"{F(x)}\" y=\"{F(y)}\" width=\"{F(w)}\" height=\"{F(h)}\" preserveAspectRatio=\"xMinYMid meet\"/>");
 
         public override string ToString() => _b + "</svg>";
 
