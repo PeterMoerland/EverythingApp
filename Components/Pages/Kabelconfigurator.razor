@@ -6,13 +6,15 @@
 @inject IJSRuntime JS
 @inject IWebHostEnvironment Omgeving
 @inject IArtikelRepository Artikelen
+@inject FactuurPdfService PdfMaker
 
 @* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): een kabel op maat samenstellen en aanvragen bij een kabelmaker.
    Links het formulier, rechts de aanvraagtekening van MDE (Services/KabelTekening.cs): zonder gegevens van een
    leverancier, zodat hetzelfde formulier overal aangevraagd kan worden. Het nummer volgens het schema van LDZY
    (W2464-08-G020007, Models/Kabel.cs, KabelNummer) staat alleen nog ter info in het scherm.
    Opslaan in de tabel Kabelconfiguraties (Kabelconfiguraties_MariaDB.sql) als JSON; zonder tabel werkt het scherm als
-   rekenblad. Afdrukken (PDF via de printdialoog), SVG bewaren en de spec als tekst kopiëren gaan via wwwroot/kabel.js.
+   rekenblad. De tekening gaat als PDF-bestand naar de gebruiker (knop PDF: de server maakt hem met Edge, zoals de
+   factuur; wwwroot/kabel.js doet het downloaden en het kopiëren van de spec als tekst).
    Eerste proefopzet: nog geen koppeling met Artikelen of een bestelling. *@
 
 <PageTitle>Kabelconfigurator — MDE</PageTitle>
@@ -27,7 +29,7 @@
     </header>
 
     <p class="uitleg">
-        Stel een kabel op maat samen. Rechts groeit de aanvraagtekening van MDE mee; die stuur je als PDF of SVG naar de
+        Stel een kabel op maat samen. Rechts groeit de aanvraagtekening van MDE mee; die stuur je als PDF naar de
         kabelmaker waar je aanvraagt. Er staan geen gegevens van een leverancier op, dus hetzelfde formulier kan naar meerdere.
     </p>
 
@@ -285,8 +287,7 @@
                     <button disabled="@(!KanOpslaan)" @onclick="() => Bewaar(true)"
                             title="@(KanOpslaan ? "Een nieuwe kabel bewaren naast de bestaande; geef hem eerst een eigen naam" : OpslaanTip)">＋ Opslaan als nieuwe kabel</button>
                 }
-                <button title="Opent de printdialoog met de tekening (A4 liggend); kies daar Opslaan als PDF" @onclick="Afdrukken">🖨 Afdrukken / PDF</button>
-                <button title="De tekening als SVG-bestand bewaren" @onclick="DownloadSvg">⬇ SVG</button>
+                <button disabled="@_pdfBezig" title="De aanvraagtekening als PDF-bestand downloaden (A4 liggend), om mee te sturen met de aanvraag" @onclick="DownloadPdf">@(_pdfBezig ? "PDF maken…" : "⬇ PDF")</button>
                 <button title="De specificatie als tekst op het klembord, voor in een e-mail aan LDZY" @onclick="KopieerSpec">📋 Spec kopiëren</button>
                 @if (K.GewijzigdOp is { } gw)
                 {
@@ -379,7 +380,7 @@
     /// <summary>De tekening voor het scherm: het logo als adres (klein, de browser haalt het zelf op).</summary>
     private string Svg => KabelTekening.Maak(K, Door, logo: "logo-mde.png");
 
-    /// <summary>De tekening voor afdrukken en het SVG-bestand: het logo zit erin (data-URI), zodat het bestand op zichzelf staat.</summary>
+    /// <summary>De tekening voor de PDF: het logo zit erin (data-URI), zodat de pagina op zichzelf staat.</summary>
     private string SvgLos => KabelTekening.Maak(K, Door, logo: LogoData());
 
     private static string? _logoData;
@@ -510,14 +511,29 @@
         finally { _bezig = false; }
     }
 
-    private async Task Afdrukken()
-    {
-        var gelukt = await JS.InvokeAsync<bool>("mdeKabel.afdrukken", SvgLos, Bestandsnaam());
-        if (!gelukt) Toon("Afdrukken lukte niet in deze browser. Bewaar de tekening als SVG en druk die af.", true);
-    }
+    private bool _pdfBezig;
 
-    private async Task DownloadSvg()
-        => await JS.InvokeVoidAsync("mdeKabel.download", Bestandsnaam() + ".svg", SvgLos);
+    /// <summary>
+    /// De aanvraagtekening als PDF-bestand (wens gebruiker 13-11-2026; verving de knoppen Afdrukken en SVG). De server
+    /// zet de tekening op een A4 liggend en laat Edge er een PDF van maken (FactuurPdfService.NaarPdfAsync, dezelfde
+    /// route als de factuur); de browser krijgt het bestand als download.
+    /// </summary>
+    private async Task DownloadPdf()
+    {
+        if (_pdfBezig) return;
+        _pdfBezig = true; _melding = null;
+        try
+        {
+            var html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + System.Net.WebUtility.HtmlEncode(Bestandsnaam()) + "</title>" +
+                       "<style>@page { size: A4 landscape; margin: 8mm; } html, body { margin: 0; background: #fff; } " +
+                       "svg { width: 100%; height: auto; display: block; }</style></head><body>" + SvgLos + "</body></html>";
+            var pdf = await PdfMaker.NaarPdfAsync(html);
+            var gelukt = await JS.InvokeAsync<bool>("mdeKabel.downloadBestand", Bestandsnaam() + ".pdf", pdf, "application/pdf");
+            if (!gelukt) Toon("De PDF is gemaakt, maar de browser wilde hem niet downloaden.", true);
+        }
+        catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
+        finally { _pdfBezig = false; }
+    }
 
     private string? _specTekst;
 

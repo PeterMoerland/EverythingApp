@@ -2213,6 +2213,11 @@ hier zitten.
   kabel**; met Id **Wijzigingen opslaan** (UPDATE) en **＋ Opslaan als nieuwe kabel** (Id naar 0, INSERT). Een nieuwe kabel
   moet een naam hebben die nog niet bestaat (melding, niets opgeslagen). De kaart Opgeslagen kabels zegt hoeveel er
   staan en legt de twee knoppen uit. **Niet getest**: het opslaan zelf (schrijft naar de database).
+- **Tekening als PDF** (wens gebruiker, later op 13-11: "liever PDF; SVG en Afdrukken kunnen weg"): één knop **⬇ PDF**.
+  `DownloadPdf` zet de SVG (met het logo als data-URI, `SvgLos`) in een HTML-pagina A4 liggend, laat
+  `FactuurPdfService.NaarPdfAsync` (Edge) er een PDF van maken en geeft die als download
+  (`mdeKabel.downloadBestand` in wwwroot/kabel.js; `afdrukken` en de SVG-download zijn daar weg). Bestandsnaam = eigen
+  nummer + naam + .pdf.
 - **Artikelnummer aanmaken voor een kabel** (wens gebruiker, later op 13-11): knop in de kaart Kabel (uit als er al
   een eigen nummer staat) opent een tussenvenster in de opzet van Artikel toevoegen bij Artikelen: Artikelcode MDE
   (voorstel: de naam van de kabel), Omschrijving NL (voorstel uit de kabel, `OmschrijvingNl`), Merk (`MerkKiezer`),
@@ -2251,7 +2256,8 @@ hier zitten.
   categorieletter gebruikt is niet bekend. Getest lokaal: schakelen, tekening met connector en met open eind.
 - **Connectortypes uit een eigen tabel** (wens gebruiker, later op 13-11): tabel `KabelConnectoren`
   (**`KabelConnectoren_MariaDB.sql`, zelf draaien**; zet de 59 types van de gebruiker erin: JST GH 1,25 mm 2-12P (GHR-xxV-S, contact SSHL-002T-P0.2), JST PH 2,0 mm 2-8P
-  (PHR-x, contact SPH-002T-P0.5S), JST XH 2,5 mm 2-8P (XHP-x, contact SXH-001T-P0.6), Molex Pico-Lock
+  (PHR-x, contact SPH-002T-P0.5S), JST XH 2,5 mm 2-8P (XHP-x, contact SXH-001T-P0.6), Molex Mini-SPOX 2,5 mm 2-8P
+  (serie 5264, housing 50-37-50x3, terminal 08-70-1039; later op 13-11 toegevoegd, het aantal is daarmee 66), Molex Pico-Lock
   1,5 mm 2-12P (504051-xx01, terminal 504052-0098), Pico-Lock 2,0 mm 2-6P (205341-02xx; **bestaat niet boven 6 pinnen**,
   terminal 205342-5128 of -5028), Pico-Clasp enkelrijig 1,0 mm 2-15P (501330-xx00, terminal 501334-0100) en dubbelrijig
   20/30/40/50P (501189-xx10; terminal uit de 501193-serie, uitvoering nog niet gekozen). Nummers nagezocht bij

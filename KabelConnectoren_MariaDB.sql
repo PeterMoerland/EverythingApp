@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS `KabelConnectoren` (
 --  JST GH, 1,25 mm, 2 t/m 12 pinnen: housing GHR-xxV-S, contact SSHL-002T-P0.2.
 --  JST PH, 2,0 mm, 2 t/m 8 pinnen: housing PHR-x, contact SPH-002T-P0.5S.
 --  JST XH, 2,5 mm, 2 t/m 8 pinnen: housing XHP-x, contact SXH-001T-P0.6.
+--  Molex Mini-SPOX (serie 5264), 2,5 mm, 2 t/m 8 pinnen: housing 50-37-50x3
+--    (bv. 50375043 = 4 pinnen), terminal 08-70-1039 uit de serie 5263 (op rol;
+--    08-70-1040 is dezelfde los in een zak). Van 5, 7 en 8 pinnen is het nummer
+--    afgeleid uit de reeks: staat in de opmerking. Toegevoegd 13-11-2026, later
+--    dan de rest: draai het script nog eens, dan komen alleen deze erbij.
 --  Molex Pico-Lock 1,5 mm, 2 t/m 12 pinnen: housing 504051-xx01, terminal
 --    504052-0098. De 8-polige is de connector van de kabel die LDZY al levert.
 --  Molex Pico-Lock 2,0 mm: housing 205341-02xx. Die bestaat alleen met 2 t/m 6
@@ -107,6 +112,13 @@ SELECT n.`Familie`, n.`Pinnen`, n.`Steek`, n.`Housing`, n.`Terminal`, n.`Opmerki
   UNION ALL SELECT 'JST XH', 6, '2.5', 'XHP-6', 'SXH-001T-P0.6', 'AWG 22-28'
   UNION ALL SELECT 'JST XH', 7, '2.5', 'XHP-7', 'SXH-001T-P0.6', 'AWG 22-28'
   UNION ALL SELECT 'JST XH', 8, '2.5', 'XHP-8', 'SXH-001T-P0.6', 'AWG 22-28'
+  UNION ALL SELECT 'Molex Mini-SPOX', 2, '2.5', '50375023', '08701039', 'AWG 22-28; frictieslot'
+  UNION ALL SELECT 'Molex Mini-SPOX', 3, '2.5', '50375033', '08701039', 'AWG 22-28; frictieslot'
+  UNION ALL SELECT 'Molex Mini-SPOX', 4, '2.5', '50375043', '08701039', 'AWG 22-28; frictieslot'
+  UNION ALL SELECT 'Molex Mini-SPOX', 5, '2.5', '50375053', '08701039', 'AWG 22-28; nummer volgens de reeks, nog nakijken'
+  UNION ALL SELECT 'Molex Mini-SPOX', 6, '2.5', '50375063', '08701039', 'AWG 22-28; frictieslot'
+  UNION ALL SELECT 'Molex Mini-SPOX', 7, '2.5', '50375073', '08701039', 'AWG 22-28; nummer volgens de reeks, nog nakijken'
+  UNION ALL SELECT 'Molex Mini-SPOX', 8, '2.5', '50375083', '08701039', 'AWG 22-28; nummer volgens de reeks, nog nakijken'
        ) n
  WHERE NOT EXISTS (SELECT 1 FROM `KabelConnectoren` k WHERE k.`Housing` = n.`Housing`);
 

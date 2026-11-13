@@ -193,7 +193,8 @@ public static class KabelTekening
         var rowH = n == 0 ? 22 : Math.Min(22, 360.0 / n);
         var h = 30 + rowH * Math.Max(n, 1) + 6;
         s.Rect(x, top, w, h, "none", "#111");
-        double cP1 = x + 36, lijnA = x + 80, lijnB = x + 280, cP2 = x + 324, cKleur = x + 366;
+        // de kleurkolom heeft ruimte nodig voor "yellow (pair 4)": anders loopt de tekst over de rand van de tabel
+        double cP1 = x + 36, lijnA = x + 76, lijnB = x + 246, cP2 = x + 284, cKleur = x + 318;
         s.Text(cP1, top + 19, k.P1.IsConnector ? "P1" : "P1 (open)", 13, "middle", "font-weight=\"600\"");
         s.Text(cP2, top + 19, k.P2.IsConnector ? "P2" : "P2 (open)", 13, "middle", "font-weight=\"600\"");
         s.Text(cKleur, top + 19, "Colour", 13, "start", "font-weight=\"600\"");
@@ -202,7 +203,7 @@ public static class KabelTekening
         var paren = k.Aders.Where(a => a.Paar is not null).GroupBy(a => a.Paar!.Value).Where(g => g.Count() == 2)
                      .Select(g => (A: k.Aders.IndexOf(g.First()), B: k.Aders.IndexOf(g.Last()))).ToList();
         var inPaar = new HashSet<int>(paren.SelectMany(p => new[] { p.A, p.B }));
-        double kruisA = x + 165, kruisB = x + 195;
+        double kruisA = x + 146, kruisB = x + 176;
         for (var i = 0; i < n; i++)
         {
             var a = k.Aders[i];

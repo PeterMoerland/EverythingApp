@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Kabelconfigurator** — Verbeterd: de aanvraagtekening download je nu als PDF (knop ⬇ PDF). De knoppen Afdrukken en SVG zijn weg.
+- **Kabelconfigurator** — Nieuw: Molex Mini-SPOX (2,5 mm, 2 t/m 8 pinnen) in de lijst van connectortypes. Draai KabelConnectoren_MariaDB.sql nog een keer om ze erbij te krijgen.
 - **Kabelconfigurator** — Nieuw: knop **Artikelnummer aanmaken…** bij een kabel. In een tussenvenster vul je artikelcode, omschrijving, merk, fabrikantcode en groep in (al voorgesteld uit de kabel); het nieuwe artikelnummer komt bij de kabel en op de aanvraagtekening.
 - **Kabelconfigurator** — Verbeterd: de aanvraagtekening is nu van MDE (logo, onze gegevens, ons artikelnummer en onze naam van de kabel). De naam en het nummer van LDZY staan er niet meer op, zodat je hetzelfde formulier bij elke kabelmaker kunt aanvragen.
 - **Kabelconfigurator** — Nieuw: onder het veld AWG staat de doorsnede en een richtwaarde voor de maximale stroom per ader, ook voor het aantal aders dat bij elkaar ligt.
