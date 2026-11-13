@@ -2175,7 +2175,7 @@ hier zitten.
   mantelkleur, `P1`/`P2` als `KabelEind` — connector: familie, steek, pinnen, housing, terminal; of open eind: strip,
   afwerking; elk met krimpkous — `Aders` (kleur, pin P1, pin P2, paar), `Eisen` (Engels), opmerkingen).
   `KabelSpec.Voorbeeld()` is de kabel die LDZY al levert (hun tekening W2464-08-G020007): UL2464 28AWG 4 paar
-  folie+vlecht, OD 4,2, 2x housing 5040510801 (Micro-Lock Plus 1,5 mm, 8P), terminals 5040520098, rode krimpkous
+  folie+vlecht, OD 4,2, 2x housing 5040510801 (Molex Pico-Lock 1,5 mm, 8P; de proefopzet noemde hem per abuis Micro-Lock Plus), terminals 5040520098, rode krimpkous
   25 mm op 25 mm van de connector, 1:1, kleuren wit/zwart/groen/zwart/rood/zwart/geel/zwart. `Leeg()` = 2 aders, P2 open.
 - **Nummer** `KabelNummer`: het schema van LDZY `W` `2464` `-08` `-G` `0200` `07` = categorie, draadtype (de cijfers uit
   DraadType), pinnen (hoogste van beide kanten), steekletter (A 0,5 … P 5,08 in `Steken`; `?` bij een steek buiten de
@@ -2207,8 +2207,27 @@ hier zitten.
   daarna opnieuw gebouwd, het scherm licht en donker bekeken (de tekening blijft wit), en Verwijderen vraagt nu met de
   bevestigvraag van de app (`mdeBevestig`). Bron van het voorbeeld en het nummerschema: de LDZY-tekening
   W2464-08-G020007 (PDF, 22-07-2026, rev A; stond in Downloads van de gebruiker, niet in de repo).
+- **Connectortypes uit een eigen tabel** (wens gebruiker, later op 13-11): tabel `KabelConnectoren`
+  (**`KabelConnectoren_MariaDB.sql`, zelf draaien**; zet de 59 types van de gebruiker erin: JST GH 1,25 mm 2-12P (GHR-xxV-S, contact SSHL-002T-P0.2), JST PH 2,0 mm 2-8P
+  (PHR-x, contact SPH-002T-P0.5S), JST XH 2,5 mm 2-8P (XHP-x, contact SXH-001T-P0.6), Molex Pico-Lock
+  1,5 mm 2-12P (504051-xx01, terminal 504052-0098), Pico-Lock 2,0 mm 2-6P (205341-02xx; **bestaat niet boven 6 pinnen**,
+  terminal 205342-5128 of -5028), Pico-Clasp enkelrijig 1,0 mm 2-15P (501330-xx00, terminal 501334-0100) en dubbelrijig
+  20/30/40/50P (501189-xx10; terminal uit de 501193-serie, uitvoering nog niet gekozen). Nummers nagezocht bij
+  distributeurs via zoekresultaten (molex.com was niet bereikbaar); Pico-Clasp 6, 10, 11 en 13 pinnen zijn uit de reeks
+  afgeleid en staan zo in de opmerking. Het script zet ook de naam Micro-Lock Plus recht in de al opgeslagen
+  voorbeeldkabel): een regel per housing met
+  Familie, Pinnen, Steek (tekst, zodat "1,5" en "1.5" allebei mogen; `KabelConnector.LeesSteek`), Housing, Terminal,
+  Opmerking, Actief. Onderhouden als gewone beheertabel (`BeheerTabellen`, sleutel `kabel-connectoren`,
+  `/beheer/tabel/kabel-connectoren`; link "Connectortypes beheren ↗" in de kaart P1 en een menu-item voor het zoekpalet).
+  `IKabelRepository.ConnectorenAsync` geeft de actieve types (lege lijst als de tabel er niet is). In de configurator
+  staat dan bij een connector de keuzelijst **Type uit onze lijst**: kiezen = `KabelConnector.ZetOp` (familie, steek,
+  pinnen, housing, terminal); de velden blijven vrij aan te passen, en "— zelf invullen —" is wat er staat als de
+  housing bij geen type hoort (`PastOp`). Een steek buiten het schema van LDZY toont in de keuzelijst Steek en in het
+  nummer een `?`. De gebruiker levert de lijst van gebruikte types nog aan. Getest lokaal met voorbeeldtypes (kiezen
+  vult in, nummer en tekening volgen); het beheerscherm zonder tabel meldt dat de tabel ontbreekt. **Niet getest**: met
+  de echte tabel (lezen, en regels toevoegen via het beheerscherm).
 - **Nog niet** (volgende stappen, nog niet besloten): een MDE-artikel of bestelregel uit een kabel maken, de PDF in de
-  filestore, een catalogus van connectors/draadtypen van LDZY (nu vrije tekst), richtprijs/MOQ. Open vragen aan LDZY:
+  filestore, een lijst van draadtypen (nu vrije tekst), richtprijs/MOQ. Open vragen aan LDZY:
   welke families en draden ze standaard voeren, of ze onze spec als bestelbasis nemen, minimumaantallen.
 
 ## Sonos: volume (okt 2026)
@@ -2692,6 +2711,9 @@ Vier wensen van de gebruiker op één dag, allemaal in `Components/Pages/Bestell
   PDF-tekenaar op de server), de rest alleen de bestandssoort (Word/Excel zouden bij het openen van de tab allemaal
   door LibreOffice moeten). Klik = voorbeeldvenster. Het vlak (`tabvlak`, ook om de tab Facturen) is minimaal 22rem
   hoog, zodat de regels lager blijven staan.
+- **PO-nummer kopiëren** (wens gebruiker, later op 13-11): knopje ⧉ naast de titel (`po-kopieer`, `KopieerNummer`) zet
+  "PO-<id>" op het klembord via `window.mdeKopieer` (App.razor) en toont anderhalve seconde een vinkje. Lokaal getest:
+  het klembord bevatte daarna het nummer.
 - **Telefoon in het blok Leverancier**: `IBestelRepository.LeverancierBereikAsync` -> `LeverancierBereik`
   (Relations.telephone / telephone_mobile, en Contacts.Telefoon / Mobiel per contact); getoond als `tel:`-link onder de
   leverancier en onder de gekozen contactpersoon. Geladen in `LaadStandaard`.

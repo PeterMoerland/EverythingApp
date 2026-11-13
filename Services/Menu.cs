@@ -186,7 +186,9 @@ public static class Menu
                 // Met een eigen adres, anders verbergt het menu hem (een onderdeel zonder werkend scherm is onzichtbaar).
                 new MenuModule("kabelconfigurator", "Kabelconfigurator", "cable",
                     new MenuGroep("Kabels",
-                        new MenuItem("Kabelconfigurator", "/tools/kabelconfigurator", Icoon: "cable")))
+                        new MenuItem("Kabelconfigurator", "/tools/kabelconfigurator", Icoon: "cable"),
+                        // de eigen lijst van connectortypes (algemene beheertabel); ook te openen vanuit de configurator
+                        new MenuItem("Connectortypes (kabels)", "/beheer/tabel/kabel-connectoren", Icoon: "plug-zap")))
                 { Url = "/tools/kabelconfigurator" },
 
                 new MenuModule("fusion", "Fusion", "cpu",

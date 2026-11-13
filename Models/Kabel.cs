@@ -18,7 +18,7 @@ public enum KabelAfscherming { Geen, Folie, Vlecht, FolieEnVlecht }
 public class KabelEind
 {
     public KabelEindSoort Soort { get; set; } = KabelEindSoort.Connector;
-    /// <summary>Connectorfamilie, bv. "Molex Micro-Lock Plus"; alleen tekst op de tekening.</summary>
+    /// <summary>Connectorfamilie, bv. "Molex Pico-Lock"; alleen tekst op de tekening.</summary>
     public string Familie { get; set; } = "";
     /// <summary>Steek in mm; bepaalt de letter in het LDZY-nummer (<see cref="KabelNummer.Steken"/>).</summary>
     public double Steek { get; set; } = 1.5;
@@ -39,6 +39,44 @@ public class KabelEind
     [JsonIgnore] public bool IsConnector => Soort == KabelEindSoort.Connector;
 
     public KabelEind Kopie() => (KabelEind)MemberwiseClone();
+}
+
+/// <summary>
+/// Een connectortype uit de eigen lijst (tabel KabelConnectoren, KabelConnectoren_MariaDB.sql): een regel per housing.
+/// Kiezen in de configurator vult familie, steek, pinnen, housing en terminal van een kabeleind in.
+/// </summary>
+public record KabelConnector(int Id, string Familie, int Pinnen, double Steek, string Housing, string Terminal, string Opmerking)
+{
+    /// <summary>Tekst in de keuzelijst: familie, pinnen, steek en het housingnummer.</summary>
+    public string Weergave
+        => string.Join(" · ", new[]
+        {
+            Familie.Length > 0 ? Familie : "(geen familie)",
+            Pinnen > 0 ? Pinnen + "P" : "",
+            Steek > 0 ? Steek.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("nl-NL")) + " mm" : "",
+            Housing,
+        }.Where(t => t.Length > 0));
+
+    /// <summary>De steek staat als tekst in de tabel; komma en punt mogen allebei ("1,5" of "1.5").</summary>
+    public static double LeesSteek(string? tekst)
+        => double.TryParse((tekst ?? "").Trim().Replace(',', '.').Replace("mm", "", StringComparison.OrdinalIgnoreCase).Trim(),
+                           System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) && s > 0 ? s : 0;
+
+    /// <summary>Is dit het type van dit kabeleind? Zelfde housingnummer, of (zonder nummer) zelfde familie en pinnen.</summary>
+    public bool PastOp(KabelEind e)
+        => Housing.Length > 0
+            ? string.Equals(Housing, e.Housing.Trim(), StringComparison.OrdinalIgnoreCase)
+            : string.Equals(Familie, e.Familie.Trim(), StringComparison.OrdinalIgnoreCase) && Pinnen == e.Pinnen;
+
+    public void ZetOp(KabelEind e)
+    {
+        e.Soort = KabelEindSoort.Connector;
+        e.Familie = Familie;
+        if (Steek > 0) e.Steek = Steek;
+        if (Pinnen > 0) e.Pinnen = Pinnen;
+        e.Housing = Housing;
+        e.Terminal = Terminal;
+    }
 }
 
 /// <summary>Een ader: kleur, op welke pin hij aan elke kant zit en met welke ader hij getwist is.</summary>
@@ -165,17 +203,18 @@ public class KabelSpec
         return k;
     }
 
-    /// <summary>De kabel die LDZY al levert: tekening W2464-08-G020007 (UL2464 28AWG 4 paar afgeschermd, 2x Micro-Lock Plus 8P, 200 mm).</summary>
+    /// <summary>De kabel die LDZY al levert: tekening W2464-08-G020007 (UL2464 28AWG 4 paar afgeschermd, 2x Molex Pico-Lock 8P, 200 mm).
+    /// Housing 5040510801 is een Pico-Lock (1,5 mm); de eerste proefopzet noemde hem per abuis Micro-Lock Plus.</summary>
     public static KabelSpec Voorbeeld()
     {
         var k = new KabelSpec
         {
-            Naam = "UL2464 4 paar afgeschermd, 2x Micro-Lock Plus 8P, 200 mm",
+            Naam = "UL2464 4 paar afgeschermd, 2x Pico-Lock 8P, 200 mm",
             Volgnummer = 7,
             Lengte = 200, LengteTolerantie = 10, Aantal = 10,
             DraadType = "UL2464", Awg = 28, Draadopbouw = "7/0.12",
             Afscherming = KabelAfscherming.FolieEnVlecht, Buitendiameter = 4.2, Mantelkleur = "zwart",
-            P1 = new KabelEind { Familie = "Molex Micro-Lock Plus", Steek = 1.5, Pinnen = 8, Housing = "5040510801", Terminal = "5040520098" },
+            P1 = new KabelEind { Familie = "Molex Pico-Lock", Steek = 1.5, Pinnen = 8, Housing = "5040510801", Terminal = "5040520098" },
             Eisen = StandaardEisen.ToList(),
         };
         k.P2 = k.P1.Kopie();

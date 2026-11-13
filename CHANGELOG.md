@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Bestellingen** — Nieuw: knopje ⧉ naast de titel van een bestelling zet het nummer (PO-12345) op het klembord.
+- **Kabelconfigurator** — Nieuw: de connectortypes die we gebruiken staan in een eigen lijst. Kies bij P1 of P2 een type uit de lijst en familie, steek, pinnen, housing en terminal worden ingevuld; zelf invullen kan nog steeds. De lijst onderhoud je via de link Connectortypes beheren. Werkt na het script KabelConnectoren_MariaDB.sql.
 - **Tools** — Nieuw: **Kabelconfigurator** (Tools ▸ Kabelconfigurator), eerste proefopzet. Stel een kabel op maat samen voor de kabelleverancier LDZY: connector of open eind aan elke kant, draad, lengte, krimpkous, bedrading met kleuren en getwiste paren. De tekening in de opmaak van LDZY (maten, Wiring Table, stuklijst, eisen, nummer) groeit mee en is af te drukken als PDF of te bewaren als SVG; de spec is als tekst te kopiëren voor de e-mail. Het LDZY-nummer (W2464-08-G020007) rekent zichzelf uit. Opslaan kan na het script Kabelconfiguraties_MariaDB.sql. Nog geen koppeling met Artikelen of een bestelling.
 - **Menu** — Nieuw: Tools ▸ Kabelconfigurator. De plek staat er; de configurator zelf moet nog gebouwd worden.
 - **Omroep** — Nieuw: gesproken meldingen op de Sonos-speakers (Beheer ▸ Omroep). Typ een tekst en laat hem meteen horen op de speakers die je kiest, of zet meldingen op vaste dagen en tijden in de tabel, zoals vrijdag om 9:00 "Hebben jullie allemaal een broodje besteld?". De muziek gaat even zachter en daarna vanzelf verder. Voor Beheer en Directie.

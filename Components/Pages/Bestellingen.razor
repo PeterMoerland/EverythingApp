@@ -20,6 +20,13 @@
 <div class="page">
     <header class="topbar">
         <h1>@Titel</h1>
+        @* het PO-nummer naar het klembord, om in een mail of bij de leverancier te plakken (wens gebruiker 13-11-2026) *@
+        @if (_orderId is int kopieerId)
+        {
+            <button class="klein po-kopieer" title="@($"PO-{kopieerId} naar het klembord kopiëren")" @onclick="KopieerNummer">
+                @(_nummerGekopieerd ? "✔" : "⧉")
+            </button>
+        }
         <span class="weeklabel">
             @if (_orderId is not null)
             {
@@ -813,6 +820,22 @@
 
     private string? _melding;
     private bool _fout;
+
+    /// <summary>Net gekopieerd: het knopje toont even een vinkje.</summary>
+    private bool _nummerGekopieerd;
+
+    /// <summary>Zet "PO-12345" op het klembord (window.mdeKopieer in App.razor; werkt ook zonder https).</summary>
+    private async Task KopieerNummer()
+    {
+        if (_orderId is not int id) return;
+        var gelukt = false;
+        try { gelukt = await JS.InvokeAsync<bool>("mdeKopieer", $"PO-{id}"); } catch { }
+        if (!gelukt) { Toon("Kopiëren naar het klembord lukte niet in deze browser.", true); return; }
+        _nummerGekopieerd = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _nummerGekopieerd = false;
+    }
 
     private string Titel => _bestelling is null ? "Bestellingen"
                           : $"{_bestelling.Nummer} · {_bestelling.Leverancier}";

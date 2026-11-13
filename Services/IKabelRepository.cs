@@ -20,6 +20,9 @@ public interface IKabelRepository
     /// <summary>Nieuw (Id 0) of wijzigen; geeft het Id.</summary>
     Task<int> BewaarAsync(KabelSpec k, int? door, string doorNaam);
     Task VerwijderAsync(int id);
+    /// <summary>De actieve connectortypes uit de tabel KabelConnectoren (KabelConnectoren_MariaDB.sql), op familie en
+    /// pinnen. Bestaat de tabel nog niet, dan een lege lijst: de configurator werkt dan met vrije tekst.</summary>
+    Task<List<KabelConnector>> ConnectorenAsync();
 }
 
 public class GeenKabelRepository : IKabelRepository
@@ -30,6 +33,7 @@ public class GeenKabelRepository : IKabelRepository
     public Task<KabelSpec?> GetAsync(int id) => Task.FromResult<KabelSpec?>(null);
     public Task<int> BewaarAsync(KabelSpec k, int? door, string doorNaam) => Task.FromResult(0);
     public Task VerwijderAsync(int id) => Task.CompletedTask;
+    public Task<List<KabelConnector>> ConnectorenAsync() => Task.FromResult(new List<KabelConnector>());
 }
 
 public class MySqlKabelRepository : IKabelRepository
@@ -113,5 +117,24 @@ public class MySqlKabelRepository : IKabelRepository
         await using var cmd = new MySqlCommand("DELETE FROM `Kabelconfiguraties` WHERE `KabelID` = @id", cn);
         cmd.Parameters.AddWithValue("@id", id);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<KabelConnector>> ConnectorenAsync()
+    {
+        var lijst = new List<KabelConnector>();
+        await using var cn = await OpenAsync();
+        await using (var bestaat = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'KabelConnectoren'", cn))
+            if (Convert.ToInt64(await bestaat.ExecuteScalarAsync()) == 0) return lijst;
+        await using var cmd = new MySqlCommand(
+            "SELECT `KabelConnectorID`, COALESCE(`Familie`, ''), COALESCE(`Pinnen`, 0), COALESCE(`Steek`, ''), " +
+            "       COALESCE(`Housing`, ''), COALESCE(`Terminal`, ''), COALESCE(`Opmerking`, '') " +
+            "  FROM `KabelConnectoren` WHERE COALESCE(`Actief`, 1) <> 0 " +
+            " ORDER BY `Familie`, `Steek`, `Pinnen`, `Housing`", cn);      // per familie eerst de steek (Pico-Lock 1,5 en 2,0), dan de pinnen
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new KabelConnector(r.GetInt32(0), r.GetString(1).Trim(), Convert.ToInt32(r.GetValue(2)),
+                                         KabelConnector.LeesSteek(r.GetString(3)), r.GetString(4).Trim(), r.GetString(5).Trim(), r.GetString(6).Trim()));
+        return lijst;
     }
 }

@@ -101,7 +101,13 @@
             @foreach (var (naam, e) in Einden)
             {
                 <section class="kabel-kaart">
-                    <h3 class="wn-kop">@naam</h3>
+                    <h3 class="wn-kop">@naam
+                        @if (naam == "P1")
+                        {
+                            <a class="kabel-beheerlink" href="beheer/tabel/kabel-connectoren" target="_blank" rel="noopener"
+                               title="De lijst van connectortypes die we gebruiken, in een nieuw venster. Ververs daarna dit scherm.">Connectortypes beheren ↗</a>
+                        }
+                    </h3>
                     <div class="kabel-velden">
                         <label>Soort
                             <select @bind="e.Soort">
@@ -111,9 +117,26 @@
                         </label>
                         @if (e.IsConnector)
                         {
-                            <label>Familie <input @bind="e.Familie" placeholder="bv. Molex Micro-Lock Plus" /></label>
+                            @* de eigen lijst van connectortypes (tabel KabelConnectoren): kiezen vult de velden hieronder in *@
+                            @if (_connectoren.Count > 0)
+                            {
+                                <label class="breed">Type uit onze lijst
+                                    <select value="@GekozenType(e)" @onchange="ev => KiesType(e, ev)">
+                                        <option value="0">— zelf invullen —</option>
+                                        @foreach (var c in _connectoren)
+                                        {
+                                            <option value="@c.Id" title="@c.Opmerking">@c.Weergave</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                            <label>Familie <input @bind="e.Familie" placeholder="bv. Molex Pico-Lock" /></label>
                             <label>Steek
                                 <select value="@SteekLetter(e)" @onchange="ev => ZetSteek(e, ev)">
+                                    @if (SteekLetter(e) == "?")
+                                    {
+                                        <option value="?">? — @e.Steek.ToString("0.##", Nl) mm (niet in het schema van LDZY)</option>
+                                    }
                                     @foreach (var st in KabelNummer.Steken)
                                     {
                                         <option value="@st.Letter">@st.Letter — @st.Steek.ToString("0.##", Nl) mm</option>
@@ -222,6 +245,8 @@
 @code {
     private KabelSpec K = KabelSpec.Voorbeeld();
     private List<KabelOverzicht> _lijst = new();
+    /// <summary>De eigen connectortypes (tabel KabelConnectoren); leeg als de tabel er nog niet is.</summary>
+    private List<KabelConnector> _connectoren = new();
     private bool _tabel, _bezig, _meldingFout;
     private string? _melding;
     private static readonly CultureInfo Nl = CultureInfo.GetCultureInfo("nl-NL");
@@ -252,6 +277,16 @@
             if (_tabel) _lijst = await Repo.LijstAsync();
         }
         catch (Exception ex) { Toon("Opgeslagen kabels ophalen mislukt: " + ex.Message, true); }
+        try { _connectoren = await Repo.ConnectorenAsync(); }
+        catch { _connectoren = new(); }        // zonder lijst werkt het scherm met vrije tekst
+    }
+
+    /// <summary>Het type uit de lijst dat bij dit kabeleind hoort (zelfde housing), of 0 = zelf ingevuld.</summary>
+    private int GekozenType(KabelEind e) => _connectoren.FirstOrDefault(c => c.PastOp(e))?.Id ?? 0;
+
+    private void KiesType(KabelEind e, ChangeEventArgs ev)
+    {
+        if (int.TryParse(ev.Value?.ToString(), out var id) && _connectoren.FirstOrDefault(c => c.Id == id) is { } c) c.ZetOp(e);
     }
 
     private void NieuwVoorbeeld() { K = KabelSpec.Voorbeeld(); _melding = null; }
@@ -338,7 +373,8 @@
         if (int.TryParse((string?)e.Value, out var n)) K.ZetAantalAders(n);
     }
 
-    private static string SteekLetter(KabelEind e) => KabelNummer.Steekletter(e.Steek)?.ToString() ?? "G";
+    /// <summary>De steekletter van LDZY, of "?" als de steek niet in hun schema staat (kan uit de connectorlijst komen).</summary>
+    private static string SteekLetter(KabelEind e) => KabelNummer.Steekletter(e.Steek)?.ToString() ?? "?";
 
     private static void ZetSteek(KabelEind e, ChangeEventArgs ev)
     {

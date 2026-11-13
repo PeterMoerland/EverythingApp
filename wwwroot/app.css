@@ -1401,6 +1401,8 @@ html[data-thema="donker"] .omroep-chip.aan { background: var(--accent); border-c
 .fp-tabel .fp-goedkoper { color: #1e7a34; font-weight: 600; }
 html[data-thema="donker"] .fp-tabel .fp-duurder { color: #ff8a80; }
 html[data-thema="donker"] .fp-tabel .fp-goedkoper { color: #7fd493; }
+/* Bestellingen: knopje naast de titel om het PO-nummer te kopiëren */
+.po-kopieer { padding: .1rem .45rem; margin-left: -.35rem; min-width: 1.9rem; line-height: 1.3; }
 /* Bestellingen: telefoonnummers in het blok Leverancier */
 .zij-bel { display: flex; flex-wrap: wrap; gap: .1rem .9rem; }
 .zij-bel a { white-space: nowrap; text-decoration: none; font-weight: 600; }
@@ -4874,6 +4876,8 @@ html[data-thema="donker"] .onderhoud-balk.bijna, html[data-thema="donker"] .onde
 .kabel-formulier { display: flex; flex-direction: column; gap: .7rem; }
 .kabel-kaart { background: #fff; border: 1px solid #dfe4ea; border-radius: 8px; padding: .7rem .9rem .8rem; }
 .kabel-kaart h3 { margin: 0 0 .5rem; }
+.kabel-beheerlink { float: right; font-size: .8em; font-weight: 400; text-decoration: none; }
+.kabel-beheerlink:hover { text-decoration: underline; }
 .kabel-kaart .uitleg { margin: .3rem 0 0; font-size: .9em; }
 .kabel-keuze { width: 100%; margin-bottom: .3rem; }
 .kabel-velden { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem .8rem; }

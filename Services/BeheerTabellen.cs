@@ -93,6 +93,23 @@ public static class BeheerTabellen
             "Tabel uit ProjectTeam_MariaDB.sql.",
             SorteerOp: "Volgorde"),
 
+        new("kabel-connectoren", "Connectortypes (kabels)", "KabelConnectoren", "KabelConnectorID",
+            new BeheerVeld[]
+            {
+                new("Familie", "Familie", VeldType.Tekst, Breed: true),
+                new("Pinnen", "Pinnen", VeldType.Getal),
+                new("Steek (mm)", "Steek"),
+                new("Housing", "Housing"),
+                new("Terminal", "Terminal"),
+                new("Opmerking", "Opmerking", VeldType.Tekst, Breed: true),
+                new("Actief", "Actief", VeldType.JaNee),
+            },
+            Array.Empty<Verwijzing>(),
+            "De connectortypes die we gebruiken, als keuzelijst in de kabelconfigurator (Tools ▸ Kabelconfigurator). " +
+            "Een regel per housing: familie, aantal pinnen, steek in mm (bv. 1,5) en de fabrikantnummers van housing en " +
+            "terminal. Niet actief = niet meer in de keuzelijst; kabels die hem al gebruiken blijven zoals ze zijn. " +
+            "Tabel uit KabelConnectoren_MariaDB.sql."),
+
         new("pastypes", "Pastypes", "PasType", "PasTypeID",
             new BeheerVeld[]
             {
