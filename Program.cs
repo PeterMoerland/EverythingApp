@@ -142,6 +142,7 @@ if (liveDb)
     builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
     builder.Services.AddSingleton<IInkoopBevestigingRepository>(_ => new MySqlInkoopBevestigingRepository(cs!));   // orderbevestigingen uit inkoop@
     builder.Services.AddSingleton<IOmroepRepository>(_ => new MySqlOmroepRepository(cs!));   // meldingen op vaste tijden op de Sonos-speakers
+    builder.Services.AddSingleton<IKabelRepository>(_ => new MySqlKabelRepository(cs!));   // kabels op maat voor LDZY (Tools ▸ Kabelconfigurator)
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
     builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
@@ -236,6 +237,7 @@ else
     builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
     builder.Services.AddSingleton<IInkoopBevestigingRepository, GeenInkoopBevestigingRepository>();
     builder.Services.AddSingleton<IOmroepRepository, GeenOmroepRepository>();
+    builder.Services.AddSingleton<IKabelRepository, GeenKabelRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
     builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();

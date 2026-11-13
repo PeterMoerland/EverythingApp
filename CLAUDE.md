@@ -2165,6 +2165,52 @@ gekozen); geluidsproef alleen op Edwin&Peter, zacht.
   worden, dus de speaker kon het geluid niet ophalen), of de stem op de server staat en in de Windows-service werkt,
   of de speakers poort 5010 op de server bereiken, de tijdklok, het opslaan in de tabel, en hoe een stereopaar klinkt.
 
+## Kabelconfigurator (13-11-2026)
+
+Tools ▸ Kabelconfigurator (`Components/Pages/Kabelconfigurator.razor`, wens gebruiker 13-11-2026): een kabel op maat
+samenstellen voor de kabelleverancier LDZY (DongGuan LDZY Electronics). Eerste proefopzet; vervangt de placeholder van
+eerder die dag. Besluit gebruiker: in de webapp (niet in de Inventor-add-in), omdat bestellen, artikelen en de filestore
+hier zitten.
+- **Model** `Models/Kabel.cs`: `KabelSpec` (naam, aantal, lengte ± tolerantie, draad: type/AWG/opbouw/afscherming/OD/
+  mantelkleur, `P1`/`P2` als `KabelEind` — connector: familie, steek, pinnen, housing, terminal; of open eind: strip,
+  afwerking; elk met krimpkous — `Aders` (kleur, pin P1, pin P2, paar), `Eisen` (Engels), opmerkingen).
+  `KabelSpec.Voorbeeld()` is de kabel die LDZY al levert (hun tekening W2464-08-G020007): UL2464 28AWG 4 paar
+  folie+vlecht, OD 4,2, 2x housing 5040510801 (Micro-Lock Plus 1,5 mm, 8P), terminals 5040520098, rode krimpkous
+  25 mm op 25 mm van de connector, 1:1, kleuren wit/zwart/groen/zwart/rood/zwart/geel/zwart. `Leeg()` = 2 aders, P2 open.
+- **Nummer** `KabelNummer`: het schema van LDZY `W` `2464` `-08` `-G` `0200` `07` = categorie, draadtype (de cijfers uit
+  DraadType), pinnen (hoogste van beide kanten), steekletter (A 0,5 … P 5,08 in `Steken`; `?` bij een steek buiten de
+  tabel, `X` zonder connector), lengte (4 cijfers), volgnummer (geeft LDZY zelf; 0 = `xx`). P1 bepaalt de steek, tenzij
+  alleen P2 een connector is.
+- **Tekening** `Services/KabelTekening.cs`: SVG 1400x900 in de opmaak van LDZY, Engels: schets (schematisch, niet op
+  schaal) met maten in magenta en aders in kleur (met een grijs randje, anders is wit onzichtbaar), Wiring Table (kruis =
+  getwist paar, NC = niet aangesloten), Bill of Materials (housing/terminal één regel als beide kanten gelijk zijn;
+  terminals = aangesloten pinnen), Requirements, uitleg van het nummer, Order information, titelblok (CUSTOMER MDE
+  Automation, SUPPLIER LDZY, PART NO, TITLE, UNIT/SCALE/REV/SHEET). Staat in een .cs omdat de letterlijke SVG-tekst-tag
+  niet in een .razor-@code mag. `SpecTekst` = dezelfde inhoud als platte tekst (knop Spec kopiëren).
+- **Opslag** `Services/IKabelRepository.cs`, tabel `Kabelconfiguraties` (`Kabelconfiguraties_MariaDB.sql`, op verzoek
+  van de gebruiker op 13-11-2026 op de database gedraaid): de spec als JSON (camelCase, enums als tekst) met naam en LDZY-nummer ernaast; `TabelAanwezigAsync` zoals
+  Omroep. Zonder tabel werkt het scherm, alleen Opslaan niet (knop uit, uitleg in de kaart). Kolom `ArtikelID` staat er
+  alvast voor een koppeling met Artikelen (nog niet gebruikt).
+- **Scherm**: kaarten links (Opgeslagen kabels, Kabel, Draad, P1, P2, Bedrading, Eisen en opmerkingen), tekening rechts
+  (sticky; onder 1100 px eronder). De SVG wordt bij elke render opnieuw gemaakt (`Svg`), dus elke wijziging is meteen te
+  zien. Knoppen 1:1, Omgekeerd, Paren, Geen paren, aantal aders, ✕ per ader. Buitendiameter met `@bind:culture`
+  invariant (de app draait nl-NL, een number-input wil een punt). Steek is een keuzelijst van letters (`ZetSteek`).
+- **wwwroot/kabel.js** (`mdeKabel`): `afdrukken` zet de SVG in een onzichtbaar iframe en roept daar `print()` (A4
+  liggend; Opslaan als PDF) — een iframe en geen `window.open`, want dat blokkeerde de pop-upblokkering in de test.
+  `download` = SVG-bestand "<nummer> <naam>.svg". `kopieer` = klembord; lukt dat niet (geen klembordtoegang), dan toont
+  het scherm de tekst in een tekstvak om zelf te kopiëren.
+- **Getest** (lokaal, 13-11-2026): bouwt, scherm en tekening in de browser bekeken (ook op 2x), tekening volgt het
+  formulier (P1/P2 open eind, Omgekeerd), opslaan en weer laden met de echte tabel (de voorbeeldkabel staat erin als
+  KabelID 1, GemaaktDoor NULL want lokaal niet ingelogd). **Niet getest**: de printdialoog uit het iframe en het
+  klembord in een gewone browser (in de ingebouwde browser faalt het klembord: venster zonder focus), de SVG-download,
+  Kopie en Verwijderen. Gebouwd door een tweede Claude-sessie als proef en later op 13-11 overgenomen door de hoofdsessie:
+  daarna opnieuw gebouwd, het scherm licht en donker bekeken (de tekening blijft wit), en Verwijderen vraagt nu met de
+  bevestigvraag van de app (`mdeBevestig`). Bron van het voorbeeld en het nummerschema: de LDZY-tekening
+  W2464-08-G020007 (PDF, 22-07-2026, rev A; stond in Downloads van de gebruiker, niet in de repo).
+- **Nog niet** (volgende stappen, nog niet besloten): een MDE-artikel of bestelregel uit een kabel maken, de PDF in de
+  filestore, een catalogus van connectors/draadtypen van LDZY (nu vrije tekst), richtprijs/MOQ. Open vragen aan LDZY:
+  welke families en draden ze standaard voeren, of ze onze spec als bestelbasis nemen, minimumaantallen.
+
 ## Sonos: volume (okt 2026)
 
 Gebouwbeheer ▸ Sonos (`/gebouw/sonos`, pagina `SonosVolume.razor`: de naam `Sonos` botst met de geïnjecteerde

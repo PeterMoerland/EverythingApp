@@ -182,7 +182,7 @@ public static class Menu
                     new MenuGroep("Onderhoud",
                         new MenuItem("Nog in te vullen", Icoon: "circle-help"))),
 
-                // wens gebruiker 13-11-2026: alvast een plek in het menu; wat de configurator moet doen is nog niet bepaald.
+                // kabels op maat samenstellen voor de kabelleverancier LDZY (wens gebruiker 13-11-2026).
                 // Met een eigen adres, anders verbergt het menu hem (een onderdeel zonder werkend scherm is onzichtbaar).
                 new MenuModule("kabelconfigurator", "Kabelconfigurator", "cable",
                     new MenuGroep("Kabels",

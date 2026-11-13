@@ -1,19 +1,351 @@
 @page "/tools/kabelconfigurator"
+@using System.Globalization
+@using EverythingApp.Models
+@inject IKabelRepository Repo
 @inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
 
-@* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): alvast een plek in het menu. Wat de configurator moet doen
-   (wat stel je samen, wat komt eruit, waar komen de onderdelen vandaan) is nog niet bepaald; tot dan staat hier
-   alleen deze uitleg. Het menu toont een onderdeel pas als het een eigen pagina heeft (MainLayout.ModuleZichtbaar). *@
+@* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): een kabel op maat samenstellen voor de kabelleverancier LDZY
+   (DongGuan LDZY Electronics). Links het formulier, rechts de tekening (Services/KabelTekening.cs) in de opmaak van de
+   tekeningen van LDZY; het LDZY-nummer (W2464-08-G020007) rekent zichzelf uit (Models/Kabel.cs, KabelNummer).
+   Opslaan in de tabel Kabelconfiguraties (Kabelconfiguraties_MariaDB.sql) als JSON; zonder tabel werkt het scherm als
+   rekenblad. Afdrukken (PDF via de printdialoog), SVG bewaren en de spec als tekst kopiëren gaan via wwwroot/kabel.js.
+   Eerste proefopzet: nog geen koppeling met Artikelen of een bestelling. *@
 
 <PageTitle>Kabelconfigurator — MDE</PageTitle>
 
-<div class="page">
-    <header class="topbar"><h1>Kabelconfigurator</h1></header>
-    <section class="module-placeholder">
-        <p>Hier komt de kabelconfigurator. Hij is nog niet gebouwd: eerst moet vaststaan wat je ermee samenstelt en wat eruit komt.</p>
-    </section>
+<div class="page kabel-pagina">
+    <header class="topbar">
+        <h1>🔌 Kabelconfigurator</h1>
+        <span class="weeklabel">LDZY-nummer <b>@K.LeveranciersNummer</b></span>
+    </header>
+
+    <p class="uitleg">
+        Stel een kabel op maat samen voor de kabelleverancier LDZY. Rechts groeit de tekening mee, in de opmaak die LDZY zelf
+        gebruikt; die stuur je als PDF of SVG mee met de aanvraag. De laatste twee cijfers van het nummer (het volgnummer) geeft
+        LDZY pas bij hun eigen tekening ter goedkeuring; tot die tijd staat er xx.
+    </p>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_meldingFout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    <datalist id="kabel-kleuren">
+        @foreach (var n in KabelKleuren.Namen) { <option value="@n"></option> }
+    </datalist>
+
+    <div class="kabel-opmaak">
+        <div class="kabel-formulier">
+
+            <section class="kabel-kaart">
+                <h3 class="wn-kop">Opgeslagen kabels</h3>
+                @if (!Repo.Beschikbaar)
+                {
+                    <p class="uitleg">Opslaan werkt alleen met de live database; samenstellen en tekenen kan wel.</p>
+                }
+                else if (!_tabel)
+                {
+                    <p class="uitleg">De tabel Kabelconfiguraties bestaat nog niet (Kabelconfiguraties_MariaDB.sql); samenstellen en tekenen kan wel.</p>
+                }
+                else
+                {
+                    <select class="kabel-keuze" value="@K.Id" @onchange="LaadGekozen">
+                        <option value="0">— nieuw, nog niet opgeslagen —</option>
+                        @foreach (var o in _lijst)
+                        {
+                            <option value="@o.Id">@o.Naam · @o.LeveranciersNummer</option>
+                        }
+                    </select>
+                }
+                <div class="kabel-knoppen">
+                    <button class="klein" title="Begin met de kabel die LDZY al levert (tekening W2464-08-G020007)" @onclick="NieuwVoorbeeld">+ Nieuw (voorbeeld LDZY)</button>
+                    <button class="klein" @onclick="NieuwLeeg">+ Nieuw (leeg)</button>
+                    <button class="klein" disabled="@(K.Id == 0)" title="Een losse kopie van deze kabel, zonder volgnummer" @onclick="Kopie">Kopie</button>
+                    <button class="klein rood" disabled="@(K.Id == 0 || _bezig)" @onclick="Verwijder">Verwijderen</button>
+                </div>
+            </section>
+
+            <section class="kabel-kaart">
+                <h3 class="wn-kop">Kabel</h3>
+                <div class="kabel-velden">
+                    <label class="breed">Naam (voor onszelf) <input @bind="K.Naam" placeholder="bv. Encoderkabel servo, 300 mm" /></label>
+                    <label>Aantal te bestellen <input type="number" min="1" @bind="K.Aantal" /></label>
+                    <label>Eigen artikelnummer <input @bind="K.EigenNummer" placeholder="nog geen" /></label>
+                    <label>Lengte (mm) <input type="number" min="10" max="9999" @bind="K.Lengte" /></label>
+                    <label>Tolerantie lengte (± mm) <input type="number" min="0" @bind="K.LengteTolerantie" /></label>
+                    <label>Volgnummer van LDZY <input type="number" min="0" max="99" @bind="K.Volgnummer" title="0 = nog niet bekend (xx)" /></label>
+                    <label>Leverancier <input @bind="K.Leverancier" /></label>
+                </div>
+            </section>
+
+            <section class="kabel-kaart">
+                <h3 class="wn-kop">Draad</h3>
+                <div class="kabel-velden">
+                    <label>Type <input @bind="K.DraadType" placeholder="UL2464" /></label>
+                    <label>AWG <input type="number" min="10" max="40" @bind="K.Awg" /></label>
+                    <label>Opbouw ader <input @bind="K.Draadopbouw" placeholder="7/0.12" title="aantal draadjes / diameter in mm" /></label>
+                    <label>Afscherming
+                        <select @bind="K.Afscherming">
+                            <option value="@KabelAfscherming.Geen">geen</option>
+                            <option value="@KabelAfscherming.Folie">folie</option>
+                            <option value="@KabelAfscherming.Vlecht">vlecht</option>
+                            <option value="@KabelAfscherming.FolieEnVlecht">folie + vlecht</option>
+                        </select>
+                    </label>
+                    <label>Buitendiameter (mm) <input type="number" step="0.1" min="1" @bind="K.Buitendiameter" @bind:culture="Inv" /></label>
+                    <label>Kleur mantel <input @bind="K.Mantelkleur" list="kabel-kleuren" /></label>
+                </div>
+            </section>
+
+            @foreach (var (naam, e) in Einden)
+            {
+                <section class="kabel-kaart">
+                    <h3 class="wn-kop">@naam</h3>
+                    <div class="kabel-velden">
+                        <label>Soort
+                            <select @bind="e.Soort">
+                                <option value="@KabelEindSoort.Connector">connector</option>
+                                <option value="@KabelEindSoort.OpenEind">open eind</option>
+                            </select>
+                        </label>
+                        @if (e.IsConnector)
+                        {
+                            <label>Familie <input @bind="e.Familie" placeholder="bv. Molex Micro-Lock Plus" /></label>
+                            <label>Steek
+                                <select value="@SteekLetter(e)" @onchange="ev => ZetSteek(e, ev)">
+                                    @foreach (var st in KabelNummer.Steken)
+                                    {
+                                        <option value="@st.Letter">@st.Letter — @st.Steek.ToString("0.##", Nl) mm</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Pinnen <input type="number" min="1" max="60" @bind="e.Pinnen" /></label>
+                            <label>Housing (fabrikantnummer) <input @bind="e.Housing" placeholder="bv. 5040510801" /></label>
+                            <label>Terminal (fabrikantnummer) <input @bind="e.Terminal" placeholder="bv. 5040520098" /></label>
+                        }
+                        else
+                        {
+                            <label>Mantel strippen (mm) <input type="number" min="0" @bind="e.StripLengte" /></label>
+                            <label>Afwerking aders
+                                <select @bind="e.Afwerking">
+                                    <option value="vertind">vertind</option>
+                                    <option value="adereindhuls">adereindhuls</option>
+                                    <option value="blank">blank (alleen gestript)</option>
+                                </select>
+                            </label>
+                        }
+                        <label class="vink"><input type="checkbox" @bind="e.Krimpkous" /> Krimpkous aan deze kant</label>
+                        @if (e.Krimpkous)
+                        {
+                            <label>Kleur krimpkous <input @bind="e.KrimpkousKleur" list="kabel-kleuren" /></label>
+                            <label>Lengte krimpkous (mm) <input type="number" min="1" @bind="e.KrimpkousLengte" /></label>
+                            <label>Afstand tot het eind (mm) <input type="number" min="0" @bind="e.KrimpkousAfstand" /></label>
+                        }
+                    </div>
+                </section>
+            }
+
+            <section class="kabel-kaart">
+                <h3 class="wn-kop">Bedrading</h3>
+                <div class="kabel-knoppen">
+                    <label class="kabel-aantal">Aders <input type="number" min="1" max="60" value="@K.Aders.Count" @onchange="ZetAders" /></label>
+                    <button class="klein" title="P1 pin n naar P2 pin n" @onclick="K.PinnenEenOpEen">1 : 1</button>
+                    <button class="klein" title="P1 pin 1 naar de laatste pin van P2 (gespiegeld)" @onclick="K.PinnenOmgekeerd">Omgekeerd</button>
+                    <button class="klein" title="Getwiste paren 1-2, 3-4, …" @onclick="K.ParenAutomatisch">Paren</button>
+                    <button class="klein" @onclick="K.ParenWissen">Geen paren</button>
+                </div>
+                <table class="kiezer-tabel kabel-aders">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Kleur</th>
+                            <th>Pin P1</th>
+                            <th>Pin P2</th>
+                            <th title="Aders met hetzelfde paarnummer zijn getwist">Paar</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in K.Aders)
+                        {
+                            <tr @key="a">
+                                <td class="c">@a.Nummer</td>
+                                <td class="kleur"><span class="kabel-staal" style="background:@KabelKleuren.Hex(a.Kleur)"></span><input @bind="a.Kleur" list="kabel-kleuren" placeholder="kleur" /></td>
+                                <td><input type="number" min="1" @bind="a.PinP1" disabled="@(!K.P1.IsConnector)" placeholder="NC" /></td>
+                                <td><input type="number" min="1" @bind="a.PinP2" disabled="@(!K.P2.IsConnector)" placeholder="NC" /></td>
+                                <td><input type="number" min="1" @bind="a.Paar" placeholder="los" /></td>
+                                <td><button class="klein" title="Deze ader weghalen" @onclick="() => K.VerwijderAder(a)">✕</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="uitleg">Leeg bij Pin = niet aangesloten (NC). Paar: aders met hetzelfde nummer zijn getwist en komen zo in de Wiring Table.</p>
+            </section>
+
+            <section class="kabel-kaart">
+                <h3 class="wn-kop">Eisen en opmerkingen</h3>
+                <div class="kabel-velden">
+                    <label class="breed">Eisen voor de leverancier (Engels, een per regel; komen zo op de tekening)
+                        <textarea rows="5" @bind="EisenTekst"></textarea>
+                    </label>
+                    <label class="breed">Opmerkingen bij de bestelling (Engels)
+                        <textarea rows="2" @bind="K.Opmerkingen" placeholder="bv. please send your drawing for approval before production"></textarea>
+                    </label>
+                </div>
+            </section>
+        </div>
+
+        <div class="kabel-rechts">
+            <div class="kabel-knoppen">
+                <button class="primair" disabled="@(!KanOpslaan)" title="@OpslaanTip" @onclick="Opslaan">💾 Opslaan</button>
+                <button title="Opent de printdialoog met de tekening (A4 liggend); kies daar Opslaan als PDF" @onclick="Afdrukken">🖨 Afdrukken / PDF</button>
+                <button title="De tekening als SVG-bestand bewaren" @onclick="DownloadSvg">⬇ SVG</button>
+                <button title="De specificatie als tekst op het klembord, voor in een e-mail aan LDZY" @onclick="KopieerSpec">📋 Spec kopiëren</button>
+                @if (K.GewijzigdOp is { } gw)
+                {
+                    <span class="uitleg kabel-stand">opgeslagen @gw.ToString("d-M-yyyy HH:mm")@(K.GewijzigdDoor.Length > 0 ? " door " + K.GewijzigdDoor : "")</span>
+                }
+            </div>
+            @if (_specTekst is not null)
+            {
+                <div class="kabel-spectekst">
+                    <textarea readonly rows="12" @onclick="SelecteerSpec">@_specTekst</textarea>
+                    <button class="klein" @onclick="() => _specTekst = null">Sluiten</button>
+                </div>
+            }
+            <div class="kabel-tekening">@((MarkupString)Svg)</div>
+        </div>
+    </div>
 </div>
 
 @code {
-    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+    private KabelSpec K = KabelSpec.Voorbeeld();
+    private List<KabelOverzicht> _lijst = new();
+    private bool _tabel, _bezig, _meldingFout;
+    private string? _melding;
+    private static readonly CultureInfo Nl = CultureInfo.GetCultureInfo("nl-NL");
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    private string Svg => KabelTekening.Maak(K, Door);
+    private string Door => Ik.Naam is { Length: > 0 } n ? n : "MDE";
+    private bool KanOpslaan => Repo.Beschikbaar && _tabel && !_bezig && K.Naam.Trim().Length > 0;
+    private string OpslaanTip => !Repo.Beschikbaar ? "Opslaan werkt alleen met de live database"
+                               : !_tabel ? "Opslaan kan pas als de tabel Kabelconfiguraties bestaat"
+                               : K.Naam.Trim().Length == 0 ? "Geef de kabel eerst een naam" : "Bewaren in de database";
+    private IEnumerable<(string Naam, KabelEind Eind)> Einden => new[] { ("P1", K.P1), ("P2", K.P2) };
+
+    /// <summary>De eisen als tekstvak: een regel per eis.</summary>
+    private string EisenTekst
+    {
+        get => string.Join(Environment.NewLine, K.Eisen);
+        set => K.Eisen = (value ?? "").Split('\n').Select(r => r.TrimEnd('\r').Trim()).Where(r => r.Length > 0).ToList();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            if (_tabel) _lijst = await Repo.LijstAsync();
+        }
+        catch (Exception ex) { Toon("Opgeslagen kabels ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void NieuwVoorbeeld() { K = KabelSpec.Voorbeeld(); _melding = null; }
+    private void NieuwLeeg() { K = KabelSpec.Leeg(); _melding = null; }
+    private void Kopie() { K = K.Kopie(); Toon("Kopie gemaakt; sla hem op onder een eigen naam.", false); }
+
+    private async Task LaadGekozen(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var id) || id == 0) { NieuwVoorbeeld(); return; }
+        try
+        {
+            var k = await Repo.GetAsync(id);
+            if (k is null) { Toon("Deze kabel is niet (meer) te lezen.", true); return; }
+            K = k;
+            _melding = null;
+        }
+        catch (Exception ex) { Toon("Kabel ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Opslaan()
+    {
+        if (!KanOpslaan) return;
+        _bezig = true;
+        try
+        {
+            await Repo.BewaarAsync(K, Ik.WerknemerId, Door);
+            _lijst = await Repo.LijstAsync();
+            Toon($"Opgeslagen als {K.Naam.Trim()} ({K.LeveranciersNummer}).", false);
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder()
+    {
+        if (K.Id == 0) return;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Kabel \"{K.Naam}\" verwijderen? Dat kan niet ongedaan gemaakt worden."); }
+        catch { ja = false; }
+        if (!ja) return;
+        _bezig = true;
+        try
+        {
+            await Repo.VerwijderAsync(K.Id);
+            _lijst = await Repo.LijstAsync();
+            NieuwVoorbeeld();
+            Toon("Verwijderd.", false);
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Afdrukken()
+    {
+        var gelukt = await JS.InvokeAsync<bool>("mdeKabel.afdrukken", Svg, K.LeveranciersNummer + " " + K.Naam);
+        if (!gelukt) Toon("Afdrukken lukte niet in deze browser. Bewaar de tekening als SVG en druk die af.", true);
+    }
+
+    private async Task DownloadSvg()
+        => await JS.InvokeVoidAsync("mdeKabel.download", Bestandsnaam() + ".svg", Svg);
+
+    private string? _specTekst;
+
+    /// <summary>Spec naar het klembord; lukt dat niet (browser zonder klembordtoegang), dan komt de tekst in beeld om zelf te kopiëren.</summary>
+    private async Task KopieerSpec()
+    {
+        var tekst = KabelTekening.SpecTekst(K);
+        var gelukt = await JS.InvokeAsync<bool>("mdeKabel.kopieer", tekst);
+        _specTekst = gelukt ? null : tekst;
+        Toon(gelukt ? "De spec staat als tekst op het klembord." : "Kopiëren naar het klembord lukte niet; de tekst staat hieronder om zelf te kopiëren.", !gelukt);
+    }
+
+    private async Task SelecteerSpec() => await JS.InvokeVoidAsync("mdeKabel.selecteer", "kabel-spectekst");
+
+    private string Bestandsnaam()
+    {
+        var naam = K.LeveranciersNummer + (K.Naam.Trim().Length > 0 ? " " + K.Naam.Trim() : "");
+        foreach (var c in Path.GetInvalidFileNameChars()) naam = naam.Replace(c, '-');
+        return naam;
+    }
+
+    private void ZetAders(ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var n)) K.ZetAantalAders(n);
+    }
+
+    private static string SteekLetter(KabelEind e) => KabelNummer.Steekletter(e.Steek)?.ToString() ?? "G";
+
+    private static void ZetSteek(KabelEind e, ChangeEventArgs ev)
+    {
+        var letter = ((string?)ev.Value ?? "").Trim();
+        foreach (var (l, st) in KabelNummer.Steken)
+            if (l.ToString() == letter) { e.Steek = st; return; }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
 }
