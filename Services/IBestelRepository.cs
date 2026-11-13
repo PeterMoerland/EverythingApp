@@ -56,6 +56,12 @@ public interface IBestelRepository
     /// <summary>Bestellingen die op deze werknemer wachten: Goedkeuring PM als projectverantwoordelijke, en bij
     /// <paramref name="directie"/> ook Goedkeuring Directie.</summary>
     Task<List<TeKeurenOrder>> TeKeurenAsync(int werknemerId, bool directie);
+
+    /// <summary>Bestellingen die langer dan <paramref name="dagen"/> dagen op Aanmaken (0) of In bestelling (3) staan:
+    /// van één besteller (Created by), of van iedereen (null). Nieuwste eerst.</summary>
+    Task<List<HangendeBestelling>> NietDoorgezetAsync(int dagen, int? bestellerId);
+    /// <summary>Hoeveel dat er zijn voor één besteller (voor de tegel).</summary>
+    Task<int> AantalNietDoorgezetAsync(int dagen, int bestellerId);
     Task ZetMeldingBijLeveringAsync(int orderId, int werknemerId);
     /// <summary>Een regel onder de interne opmerking (Orders.Remark) zetten, bv. de reden van afkeuren.</summary>
     Task VoegOpmerkingToeAsync(int orderId, string regel);
@@ -135,6 +141,8 @@ public class GeenBestelRepository : IBestelRepository
     public Task<Goedkeurder?> GoedkeurderAsync(int werknemerId) => Task.FromResult<Goedkeurder?>(null);
     public Task VoegToeslagToeAsync(int orderId, string omschrijving, decimal bedrag, string neededBy) => Task.CompletedTask;
     public Task<List<TeKeurenOrder>> TeKeurenAsync(int werknemerId, bool directie) => Task.FromResult(new List<TeKeurenOrder>());
+    public Task<List<HangendeBestelling>> NietDoorgezetAsync(int dagen, int? bestellerId) => Task.FromResult(new List<HangendeBestelling>());
+    public Task<int> AantalNietDoorgezetAsync(int dagen, int bestellerId) => Task.FromResult(0);
     public Task ZetMeldingBijLeveringAsync(int orderId, int werknemerId) => Task.CompletedTask;
     public Task VoegOpmerkingToeAsync(int orderId, string regel) => Task.CompletedTask;
     public Task<BestelMailGegevens?> BestelMailAsync(int orderId, int? afzenderId, int eigenRelatieId) => Task.FromResult<BestelMailGegevens?>(null);
@@ -527,6 +535,57 @@ public class MySqlBestelRepository : IBestelRepository
         cmd.Parameters.AddWithValue("@b", bedrag);
         cmd.Parameters.AddWithValue("@guid", Guid.NewGuid().ToString("N"));
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---- niet doorgezet (Bestellingen ▸ Niet doorgezet) ----
+    /// <summary>Sinds wanneer een bestelling in zijn status staat: Aanmaken sinds het aanmaken; In bestelling sinds de
+    /// laatste stap ervoor (de datumvelden worden gezet bij het verlaten van een stap, zie BestelVelden.StatusVelden).</summary>
+    private const string SindsSql = "CASE WHEN COALESCE(o.`Status`, 0) = 3 THEN COALESCE(o.`Approved2 date`, o.`Approved1 date`, o.`Request date`, o.`Creation date`) ELSE o.`Creation date` END";
+    private const string NietDoorgezetWaar =
+        " COALESCE(o.`Status`, 0) IN (0, 3) AND DATEDIFF(CURDATE(), " + SindsSql + ") > @dagen ";
+
+    public async Task<List<HangendeBestelling>> NietDoorgezetAsync(int dagen, int? bestellerId)
+    {
+        var gemaild = (await KolommenAsync()).Contains("MailAangemaakt") ? "o.`MailAangemaakt` IS NOT NULL" : "0";
+        var lijst = new List<HangendeBestelling>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT o.`Order-id`, COALESCE(r.`name`, ''), COALESCE(o.`Description`, ''), COALESCE(o.`Status`, 0), " +
+            "       COALESCE(st.`Omschrijving`, ''), o.`Creation date`, " + SindsSql + ", " +
+            "       DATEDIFF(CURDATE(), " + SindsSql + "), " +
+            "       COALESCE((SELECT SUM(i.`Totalprice`) FROM `Orderitems` i WHERE i.`Order-id` = o.`Order-id`), 0), " +
+            "       o.`Created by`, COALESCE(wn.`NaamVoluit`, ''), " +
+            "       (SELECT COUNT(*) FROM `Orderitems` i WHERE i.`Order-id` = o.`Order-id`), " +
+            "       (SELECT COUNT(*) FROM `Facturen_Orders_Link` l WHERE l.`OrderID` = o.`Order-id`), " + gemaild +
+            "  FROM `Orders` o " +
+            "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
+            "  LEFT JOIN `OrderState` st ON st.`Id` = o.`Status` " +
+            "  LEFT JOIN `Werknemers` wn ON wn.`Werknemer-id` = o.`Created by` " +
+            " WHERE" + NietDoorgezetWaar + (bestellerId is not null ? " AND o.`Created by` = @wie " : "") +
+            " ORDER BY o.`Order-id` DESC LIMIT 2000", cn);
+        cmd.Parameters.AddWithValue("@dagen", dagen);
+        if (bestellerId is not null) cmd.Parameters.AddWithValue("@wie", bestellerId.Value);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+            lijst.Add(new HangendeBestelling(
+                rd.GetInt32(0), rd.GetString(1), rd.GetString(2), Convert.ToInt32(rd.GetValue(3)), rd.GetString(4),
+                rd.IsDBNull(5) ? null : Convert.ToDateTime(rd.GetValue(5)),
+                rd.IsDBNull(6) ? null : Convert.ToDateTime(rd.GetValue(6)),
+                rd.IsDBNull(7) ? 0 : Convert.ToInt32(rd.GetValue(7)),
+                Convert.ToDecimal(rd.GetValue(8)),
+                rd.IsDBNull(9) ? null : Convert.ToInt32(rd.GetValue(9)), rd.GetString(10),
+                Convert.ToInt32(rd.GetValue(11)), Convert.ToInt32(rd.GetValue(12)), Convert.ToInt32(rd.GetValue(13)) != 0));
+        return lijst;
+    }
+
+    public async Task<int> AantalNietDoorgezetAsync(int dagen, int bestellerId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM `Orders` o WHERE" + NietDoorgezetWaar + " AND o.`Created by` = @wie", cn);
+        cmd.Parameters.AddWithValue("@dagen", dagen);
+        cmd.Parameters.AddWithValue("@wie", bestellerId);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 
     public async Task<List<TeKeurenOrder>> TeKeurenAsync(int werknemerId, bool directie)

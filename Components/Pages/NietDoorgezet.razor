@@ -1,0 +1,170 @@
+@page "/bestellingen/niet-doorgezet"
+@using System.Globalization
+@inject IBestelRepository Repo
+@inject HuidigeGebruiker Ik
+
+@* Niet doorgezette bestellingen (verzoek 13-11-2026: voorkomen dat bestellingen blijven hangen, waardoor er geen
+   factuur aan gekoppeld kan worden). Een persoonlijke lijst: je eigen bestellingen die langer dan
+   BestelFlow.NietDoorgezetDagen (14) dagen op Aanmaken of In bestelling staan. Financial en Directie kunnen ook
+   iedereen of één collega kiezen. Het PO-nummer opent de bestelling in een nieuw venster. Alleen lezen.
+   Tegel: Bestellingen ▸ Inkoop ▸ Niet doorgezet (met het eigen aantal eronder, Components/Pages/Module.razor). *@
+
+<PageTitle>Niet doorgezet — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Niet doorgezette bestellingen</h1>
+        @if (_geladen)
+        {
+            <span class="weeklabel">@Zichtbaar.Count bestelling@(Zichtbaar.Count == 1 ? "" : "en") · @Bedrag(Zichtbaar.Sum(b => b.Totaal))</span>
+        }
+        @if (MagAlles && _geladen)
+        {
+            <select value="@_keuze" @onchange="e => _keuze = (string?)e.Value ?? Ikzelf" title="Van wie">
+                @if (Ik.WerknemerId is not null)
+                {
+                    <option value="@Ikzelf">Mijn bestellingen (@_alles.Count(b => b.BestellerId == Ik.WerknemerId))</option>
+                }
+                <option value="@Iedereen">Iedereen (@_alles.Count)</option>
+                @foreach (var p in Personen)
+                {
+                    <option value="@p.Id">@p.Naam (@p.Aantal)</option>
+                }
+            </select>
+        }
+        @if (Repo.Beschikbaar)
+        {
+            <button class="klein" disabled="@_laden" @onclick="Laad" title="Opnieuw ophalen">↻ Vernieuwen</button>
+        }
+    </header>
+
+    @if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else if (!MagAlles && Ik.WerknemerId is null)
+    {
+        <section class="module-placeholder"><p>Je account is niet aan een werknemer gekoppeld; daardoor is er geen eigen lijst.</p></section>
+    }
+    else
+    {
+        <p class="uitleg">
+            Bestellingen die langer dan @BestelFlow.NietDoorgezetDagen dagen op <b>Aanmaken</b> of <b>In bestelling</b> staan.
+            Is er besteld? Zet de bestelling dan door met Volgende, anders kan er geen factuur aan gekoppeld worden.
+            Niet meer nodig? Annuleer hem. Klik op een PO-nummer om de bestelling in een nieuw venster te openen.
+        </p>
+        @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+        @if (_laden) { <p class="uitleg"><span class="draaier"></span> Ophalen…</p> }
+
+        @if (_geladen && Zichtbaar.Count == 0)
+        {
+            <section class="module-placeholder"><p>✔ Niets blijven hangen.</p></section>
+        }
+        else if (_geladen)
+        {
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel telaat-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:6.4rem">Bestelling</th>
+                            <th style="width:6.4rem">Aangemaakt</th>
+                            <th style="width:8.6rem">Status</th>
+                            <th style="width:5rem" class="r" title="Dagen in deze status">Dagen</th>
+                            <th style="width:16rem;padding-left:.9rem">Leverancier</th>
+                            <th>Omschrijving</th>
+                            <th style="width:8.4rem" class="r">Bedrag</th>
+                            <th style="width:14rem" title="Aanwijzing dat er wel besteld is">Let op</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var g in Groepen)
+                        {
+                            <tr class="telaat-klant" @key="@("g" + g.Naam)">
+                                <td colspan="6">@g.Naam <span class="uitleg">· @g.Regels.Count bestelling@(g.Regels.Count == 1 ? "" : "en")</span></td>
+                                <td class="r">@Bedrag(g.Regels.Sum(b => b.Totaal))</td>
+                                <td></td>
+                            </tr>
+                            @foreach (var b in g.Regels)
+                            {
+                                <tr @key="b.Id">
+                                    <td>
+                                        <a href="@("bestellingen?order=" + b.Id)" target="_blank" rel="noopener"
+                                           title="Deze bestelling openen in een nieuw venster">PO-@b.Id</a>
+                                    </td>
+                                    <td>@(b.Aangemaakt?.ToString("dd-MM-yyyy") ?? "")</td>
+                                    <td><span class="stand-chip @(b.Status == BestelFlow.InBestelling ? "s-oranje" : "s-grijs")">@b.StatusNaam</span></td>
+                                    <td class="r @(b.Dagen > 60 ? "telaat-erg" : "")">@b.Dagen</td>
+                                    <td class="omschrijving" style="padding-left:.9rem" title="@b.Leverancier">@b.Leverancier</td>
+                                    <td class="omschrijving" title="@b.Omschrijving">@b.Omschrijving</td>
+                                    <td class="r">@(b.Totaal != 0 ? Bedrag(b.Totaal) : "")</td>
+                                    <td>@LetOp(b)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const string Ikzelf = "ik", Iedereen = "alle";
+    private static readonly CultureInfo Nl = new("nl-NL");
+
+    private sealed record Groep(string Naam, List<HangendeBestelling> Regels);
+    private sealed record Persoon(int Id, string Naam, int Aantal);
+
+    /// <summary>Wat er opgehaald is: voor Financial/Directie alles, voor de rest alleen de eigen bestellingen.</summary>
+    private List<HangendeBestelling> _alles = new();
+    private string _keuze = Ikzelf;
+    private bool _laden, _geladen;
+    private string? _fout;
+
+    /// <summary>Wie achter anderen aan mag: dezelfde mensen die de bestellingen ook financieel volgen.</summary>
+    private bool MagAlles => Ik.MagFinancien;
+
+    private List<HangendeBestelling> Zichtbaar => !MagAlles || _keuze == Ikzelf ? _alles.Where(b => b.BestellerId == Ik.WerknemerId).ToList()
+        : _keuze == Iedereen ? _alles
+        : int.TryParse(_keuze, out var id) ? _alles.Where(b => b.BestellerId == id).ToList() : _alles;
+
+    private List<Persoon> Personen => _alles.Where(b => b.BestellerId is not null)
+        .GroupBy(b => b.BestellerId!.Value)
+        .Select(g => new Persoon(g.Key, g.First().Besteller.Length > 0 ? g.First().Besteller : "werknemer " + g.Key, g.Count()))
+        .OrderBy(p => p.Naam).ToList();
+
+    /// <summary>Iedereen: per besteller (meeste bovenaan). Eén persoon: per status, In bestelling eerst.</summary>
+    private List<Groep> Groepen => MagAlles && _keuze == Iedereen
+        ? Zichtbaar.GroupBy(b => b.Besteller.Length > 0 ? b.Besteller : "(geen besteller)")
+                   .Select(g => new Groep(g.Key, g.ToList())).OrderByDescending(g => g.Regels.Count).ThenBy(g => g.Naam).ToList()
+        : Zichtbaar.GroupBy(b => (b.Status, b.StatusNaam)).OrderByDescending(g => g.Key.Status)
+                   .Select(g => new Groep(g.Key.StatusNaam.Length > 0 ? g.Key.StatusNaam : "Status " + g.Key.Status, g.ToList())).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Ik.WerknemerId is null) _keuze = Iedereen;
+        if (Repo.Beschikbaar && (MagAlles || Ik.WerknemerId is not null)) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laden = true; _fout = null;
+        StateHasChanged();
+        try
+        {
+            _alles = await Repo.NietDoorgezetAsync(BestelFlow.NietDoorgezetDagen, MagAlles ? null : Ik.WerknemerId);
+            _geladen = true;
+        }
+        catch (Exception ex) { _fout = "Ophalen mislukt: " + ex.Message; }
+        _laden = false;
+    }
+
+    private static string Bedrag(decimal waarde) => waarde.ToString("C2", Nl);
+
+    /// <summary>Een aanwijzing dat de bestelling wel de deur uit is: er hangt al een factuur aan, of hij is gemaild.</summary>
+    private static string LetOp(HangendeBestelling b)
+        => b.Facturen > 0 ? (b.Facturen == 1 ? "er is al een factuur" : $"er zijn al {b.Facturen} facturen")
+         : b.Gemaild ? "al gemaild aan de leverancier"
+         : b.Regels == 0 ? "geen regels" : "";
+}

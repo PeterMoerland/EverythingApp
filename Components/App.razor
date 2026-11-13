@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=402" />
+    <link rel="stylesheet" href="app.css?v=405" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -678,6 +678,8 @@
         // Geeft een Promise<bool> terug; Enter = ja, Esc = nee.
         // mdeMelding(tekst, kop): zelfde dialoog met alleen een OK-knop (bv. 'STO niet vrijgegeven').
         window.mdeMelding = function (tekst, kop) { return window.mdeBevestig(tekst, { kop: kop || '⚠ Let op', alleenOk: true }); };
+        // mdeGelukt(tekst, kop): hetzelfde met een groene rand, voor 'het is gelukt' (bv. factuur verstuurd). Wacht niet op OK.
+        window.mdeGelukt = function (tekst, kop) { window.mdeBevestig(tekst, { kop: kop || '✔ Gelukt', alleenOk: true, goed: true }); };
         window.mdeBevestig = function (tekst, opties) {
             opties = opties || {};
             return new Promise(function (klaar) {
@@ -687,7 +689,7 @@
                 achter.id = 'mde-bevestig';
                 achter.className = 'bevestig-achter';
                 var box = document.createElement('div');
-                box.className = 'bevestig-box';
+                box.className = opties.goed ? 'bevestig-box goed' : 'bevestig-box';
                 box.setAttribute('role', 'dialog');
                 var kop = document.createElement('div');
                 kop.className = 'bevestig-kop';

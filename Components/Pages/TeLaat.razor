@@ -1,0 +1,189 @@
+@page "/financien/te-laat"
+@using System.Globalization
+@inject IVerkoopFactuurRepository Repo
+@inject IFactuurBetalingRepository Betalingen
+@inject IWerknemerRepository WnRepo
+@inject HuidigeGebruiker Ik
+
+@* Te laat betaald (wens gebruiker 13-11-2026): de uitgaande facturen die verstuurd zijn, niet betaald en over de
+   vervaldatum, per klant. Voor Financial en Directie; zij krijgen op werkdagen één keer per dag een melding in de bel
+   (Services/TeLaatFacturen.cs, TeLaatWaker) die deze pagina in een nieuw venster opent. Het factuurnummer opent de
+   factuur in Uitgaande facturen (nieuw venster), 📄 de PDF uit de filestore (soort 5). Alleen lezen. *@
+
+<PageTitle>Te laat betaald — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Te laat betaald</h1>
+        @if (_geladen)
+        {
+            <span class="weeklabel">
+                @_lijst.Count factu@(_lijst.Count == 1 ? "ur" : "ren") · @Bedrag(_lijst.Sum(t => t.Open)) open · @Groepen.Count klant@(Groepen.Count == 1 ? "" : "en")
+            </span>
+        }
+        @if (Ik.MagFinancien && Repo.Beschikbaar)
+        {
+            <button class="klein" disabled="@_laden" @onclick="Laad" title="Opnieuw ophalen">↻ Vernieuwen</button>
+        }
+    </header>
+
+    @if (!Ik.MagFinancien)
+    {
+        <section class="module-placeholder"><p>Dit overzicht is voor wie het recht Financial of Directie heeft.</p></section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <section class="module-placeholder"><p>Dit scherm werkt alleen met de live database.</p></section>
+    }
+    else
+    {
+        <p class="uitleg">
+            Facturen aan klanten die verstuurd zijn, nog niet betaald en over de vervaldatum (zonder oninbaar)@(_geladen ? $"; stand van {_stand:HH:mm}" : "").
+            Klik op een factuurnummer om de factuur in een nieuw venster te openen; 📄 opent de PDF.
+        </p>
+        @if (_fout is not null) { <div class="melding fout">@_fout</div> }
+        @if (_laden) { <p class="uitleg"><span class="draaier"></span> Ophalen…</p> }
+
+        @if (_geladen && _lijst.Count == 0)
+        {
+            <section class="module-placeholder"><p>✔ Er is geen enkele factuur te laat.</p></section>
+        }
+        else if (_geladen)
+        {
+            <div class="regels-omhulsel">
+                <table class="kiezer-tabel banktabel telaat-tabel">
+                    <thead>
+                        <tr>
+                            <th style="width:7rem">Factuurnr</th>
+                            <th style="width:6rem">Datum</th>
+                            <th style="width:6rem">Vervallen</th>
+                            <th style="width:5.4rem" class="r" title="Dagen over de vervaldatum">Dagen</th>
+                            <th style="width:3.6rem" class="c">BV</th>
+                            <th>Omschrijving</th>
+                            <th style="width:8.6rem" class="r">Incl. btw</th>
+                            <th style="width:8.6rem" class="r" title="Al binnen op deze factuur (deelbetalingen)">Ontvangen</th>
+                            <th style="width:8.6rem" class="r">Open</th>
+                            <th style="width:2.6rem" class="c" title="De PDF van de factuur">PDF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var g in Groepen)
+                        {
+                            <tr class="telaat-klant" @key="@("k" + g.Klant)">
+                                <td colspan="6">@g.Klant <span class="uitleg">· @g.Facturen.Count factu@(g.Facturen.Count == 1 ? "ur" : "ren") · langst @g.Facturen.Max(t => t.Dagen) dagen</span></td>
+                                <td class="r">@Bedrag(g.Facturen.Sum(t => t.Factuur.BedragInclBtw))</td>
+                                <td class="r">@(g.Facturen.Sum(t => t.Ontvangen) is var o && o != 0 ? Bedrag(o) : "")</td>
+                                <td class="r">@Bedrag(g.Open)</td>
+                                <td></td>
+                            </tr>
+                            @foreach (var t in g.Facturen)
+                            {
+                                var f = t.Factuur;
+                                <tr @key="f.Id">
+                                    <td>
+                                        <a href="@("financien/uitgaande-facturen?factuur=" + Uri.EscapeDataString(f.Factuurnummer))" target="_blank" rel="noopener"
+                                           title="Deze factuur openen in een nieuw venster">@f.Factuurnummer</a>
+                                    </td>
+                                    <td>@Dag(f.Factuurdatum)</td>
+                                    <td>@Dag(t.Vervaldatum)</td>
+                                    <td class="r @(t.Dagen > 30 ? "telaat-erg" : "")">@t.Dagen</td>
+                                    <td class="c">@f.Administratie</td>
+                                    <td class="omschrijving" title="@f.Omschrijving">
+                                        @if (Herinnering(f) is { Length: > 0 } h) { <b>@h · </b> }
+                                        @f.Omschrijving
+                                    </td>
+                                    <td class="r @(f.IsCreditnota ? "factuur-credit" : "")">@Bedrag(f.BedragInclBtw)</td>
+                                    <td class="r">@(t.Ontvangen != 0 ? Bedrag(t.Ontvangen) : "")</td>
+                                    <td class="r">@Bedrag(t.Open)</td>
+                                    <td class="c">
+                                        @if (_pdf.TryGetValue(f.Id, out var pdf))
+                                        {
+                                            <a href="@("bestand/" + pdf)" target="_blank" rel="noopener" title="De PDF openen in een nieuw venster">📄</a>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        <tr class="telaat-totaal">
+                            <td colspan="6">Totaal</td>
+                            <td class="r">@Bedrag(_lijst.Sum(t => t.Factuur.BedragInclBtw))</td>
+                            <td class="r">@(_lijst.Sum(t => t.Ontvangen) is var ot && ot != 0 ? Bedrag(ot) : "")</td>
+                            <td class="r">@Bedrag(_lijst.Sum(t => t.Open))</td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int StoreTypeVerkoopfactuur = 5;
+    private static readonly CultureInfo Nl = new("nl-NL");
+
+    private sealed record Groep(string Klant, List<TeLaatFactuur> Facturen)
+    {
+        public decimal Open => Facturen.Sum(t => t.Open);
+    }
+
+    private List<TeLaatFactuur> _lijst = new();
+    /// <summary>Per klant, de klant met het meeste open bovenaan; binnen de klant de oudste factuur eerst.</summary>
+    private List<Groep> Groepen = new();
+    /// <summary>Per factuur de PDF in de filestore (FileStoreID), als die er is.</summary>
+    private readonly Dictionary<int, int> _pdf = new();
+    private bool _laden, _geladen;
+    private string? _fout;
+    private DateTime _stand;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Ik.MagFinancien && Repo.Beschikbaar) await Laad();
+    }
+
+    private async Task Laad()
+    {
+        _laden = true; _fout = null;
+        StateHasChanged();
+        try
+        {
+            _lijst = await TeLaatFacturen.LaadAsync(Repo, Betalingen);
+            Groepen = _lijst.GroupBy(t => t.Factuur.Klant, StringComparer.OrdinalIgnoreCase)
+                            .Select(g => new Groep(g.Key.Length > 0 ? g.Key : "(geen klant)", g.OrderByDescending(t => t.Dagen).ToList()))
+                            .OrderByDescending(g => g.Open).ThenBy(g => g.Klant)
+                            .ToList();
+            _stand = DateTime.Now;
+            _geladen = true;
+        }
+        catch (Exception ex) { _fout = "Ophalen mislukt: " + ex.Message; }
+        _laden = false;
+        StateHasChanged();
+
+        // De PDF's erbij zoeken mag even duren: de lijst staat er al.
+        _pdf.Clear();
+        if (!WnRepo.Beschikbaar) return;
+        foreach (var t in _lijst)
+        {
+            try
+            {
+                var pdfs = (await WnRepo.GetBestandenAsync(StoreTypeVerkoopfactuur, t.Factuur.Id))
+                    .Where(b => b.Bestandsnaam.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)).ToList();
+                // De factuur zelf heet <nummer>_Invoice.PDF; een bijlage (uren) <nummer>_Attach.PDF.
+                var kies = pdfs.Where(b => b.Bestandsnaam.Contains("_Invoice", StringComparison.OrdinalIgnoreCase))
+                               .OrderByDescending(b => b.FileStoreId).FirstOrDefault()
+                           ?? pdfs.OrderByDescending(b => b.FileStoreId).FirstOrDefault();
+                if (kies is not null) _pdf[t.Factuur.Id] = kies.FileStoreId;
+            }
+            catch { }
+        }
+    }
+
+    private static string Bedrag(decimal waarde) => waarde.ToString("C2", Nl);
+    private static string Dag(DateTime? datum) => datum?.ToString("dd-MM-yyyy") ?? "";
+
+    private static string Herinnering(VerkoopFactuurRegel f) => f.Herinnering switch
+    {
+        1 => "1e herinnering", 2 => "2e herinnering", 3 => "3e herinnering", 4 => "Proforma", _ => "",
+    };
+}

@@ -292,7 +292,7 @@
         }
 
         // De mail is weg: vanaf hier niet meer afbreken, maar wel melden wat misging.
-        await Afronden("Verstuurd naar " + _aan + ".");
+        await Afronden($"Factuur {_g.Factuur.Factuurnummer} is verstuurd", "De mail is verstuurd naar " + _aan + ".");
     }
 
     private async Task AlleenOpslaan()
@@ -300,11 +300,12 @@
         if (_g is null || !MagInvoeren) return;
         if (!await Vraag($"Factuur {_g.Factuur.Factuurnummer} niet mailen, maar wel de PDF's bewaren en op verstuurd zetten?"))
             return;
-        await Afronden("Opgeslagen als verstuurd.");
+        await Afronden($"Factuur {_g.Factuur.Factuurnummer} is opgeslagen", "Niet gemaild; de PDF's zijn bewaard en de factuur staat op verstuurd.");
     }
 
-    /// <summary>PDF's bewaren, factuur op verstuurd en uren op gefactureerd. Elke stap meldt zelf zijn fout.</summary>
-    private async Task Afronden(string gelukt)
+    /// <summary>PDF's bewaren, factuur op verstuurd en uren op gefactureerd. Elke stap meldt zelf zijn fout.
+    /// Daarna gaat het venster dicht en zegt een melding met OK dat het gelukt is (wens Edwin, 13-11-2026).</summary>
+    private async Task Afronden(string kop, string gelukt)
     {
         var fouten = new List<string>();
         var f = _g!.Factuur;
@@ -340,17 +341,18 @@
 
         _bezig = "";
         _klaar = true;
-        if (fouten.Count == 0)
-        {
-            Toon(gelukt, false);
-            await Task.Delay(800);
-            await Sluit();
-        }
-        else
-        {
+        if (fouten.Count > 0)
             Log.LogWarning("Factuur {Nr} afronden: {Fouten}", f.Factuurnummer, string.Join(" | ", fouten));
-            Toon(gelukt + " Maar: " + string.Join(" ", fouten), true);
+
+        // Het venster gaat hoe dan ook dicht: de mail is weg, en een open venster nodigt uit tot nog eens versturen.
+        // Wat bij het bewaren misging staat in de melding (oranje in plaats van groen), en in het logboek.
+        await Sluit();
+        try
+        {
+            if (fouten.Count == 0) await JS.InvokeVoidAsync("mdeGelukt", gelukt, "✔ " + kop);
+            else await JS.InvokeVoidAsync("mdeMelding", gelukt + "\n\nMaar niet alles is gelukt:\n" + string.Join("\n", fouten), "⚠ " + kop + ", maar let op");
         }
+        catch { /* de melding is een extraatje; wacht iemand langer dan een minuut met OK, dan verloopt de aanroep */ }
     }
 
     private async Task Sluit()

@@ -372,7 +372,8 @@
         if (_open) await Laad();
     }
 
-    private static string? Link(Melding m) => m.OrderId is not int oid || m.Soort == "bericht" ? null : m.Soort switch
+    private static string? Link(Melding m) => m.Soort == TeLaatFacturen.Soort ? TeLaatFacturen.Pagina      // het overzicht, in een nieuw venster
+        : m.OrderId is not int oid || m.Soort == "bericht" ? null : m.Soort switch
     {
         "analyse" => $"ai?vraag={oid}",           // OrderId = de vraag (Vragen aan AI)
         "verbeter" => $"verbeterverzoeken?verzoek={oid}",
@@ -382,7 +383,7 @@
 
     private static string Icoon(Melding m) => m.Soort switch
     {
-        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "verzekering" => "🛡️", "goedgekeurd" => "✅", _ => "•",
+        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "verzekering" => "🛡️", "goedgekeurd" => "✅", "telaat" => "⏰", _ => "•",
     };
 
     private static string Onder(Melding m)

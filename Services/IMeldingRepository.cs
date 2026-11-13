@@ -33,6 +33,11 @@ public interface IMeldingRepository
     Task<bool> TabelAanwezigAsync();
     Task<List<Melding>> OngelezenAsync(int werknemerId);
     Task MaakAsync(int werknemerId, string soort, int? orderId, string tekst);
+    /// <summary>Is er vandaag al een melding van deze soort gemaakt (voor wie dan ook)? Voor meldingen die de service
+    /// één keer per dag maakt (te late facturen), zodat een herstart ze niet nog eens stuurt.</summary>
+    Task<bool> VandaagGemaaktAsync(string soort);
+    /// <summary>Werknemers in dienst met minstens één van deze rechten (kolommen van Werknemers: Financial, Directie, ...).</summary>
+    Task<List<int>> WerknemersMetRechtAsync(params string[] rechten);
     Task GelezenAsync(int meldingId, int werknemerId);
     Task AllesGelezenAsync(int werknemerId);
 
@@ -56,6 +61,8 @@ public class GeenMeldingRepository : IMeldingRepository
     public Task<bool> TabelAanwezigAsync() => Task.FromResult(false);
     public Task<List<Melding>> OngelezenAsync(int werknemerId) => Task.FromResult(new List<Melding>());
     public Task MaakAsync(int werknemerId, string soort, int? orderId, string tekst) => Task.CompletedTask;
+    public Task<bool> VandaagGemaaktAsync(string soort) => Task.FromResult(false);
+    public Task<List<int>> WerknemersMetRechtAsync(params string[] rechten) => Task.FromResult(new List<int>());
     public Task GelezenAsync(int meldingId, int werknemerId) => Task.CompletedTask;
     public Task AllesGelezenAsync(int werknemerId) => Task.CompletedTask;
     public Task<List<Melding>> AlleAsync(int werknemerId, int max = 200) => Task.FromResult(new List<Melding>());
@@ -106,6 +113,31 @@ public class MySqlMeldingRepository : IMeldingRepository
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new Melding(r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2), r.GetString(3), r.GetDateTime(4)));
+        return lijst;
+    }
+
+    public async Task<bool> VandaagGemaaktAsync(string soort)
+    {
+        if (!await TabelAanwezigAsync()) return false;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM `Meldingen` WHERE `Soort` = @s AND `Aangemaakt` >= CURDATE()", cn);
+        cmd.Parameters.AddWithValue("@s", soort);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    public async Task<List<int>> WerknemersMetRechtAsync(params string[] rechten)
+    {
+        // De namen komen uit de code, niet van een gebruiker; toch alleen letters toelaten.
+        var kolommen = rechten.Where(r => r.Length > 0 && r.All(char.IsLetter)).Distinct().ToList();
+        var lijst = new List<int>();
+        if (kolommen.Count == 0) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `Werknemer-id` FROM `Werknemers` WHERE COALESCE(`Uit dienst`, 0) = 0 AND (" +
+            string.Join(" OR ", kolommen.Select(k => $"COALESCE(`{k}`, 0) <> 0")) + ")", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(r.GetInt32(0));
         return lijst;
     }
 

@@ -5,6 +5,13 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 13-11-2026
+
+- **Bestellingen** — Nieuw: tegel **Niet doorgezet**: je eigen bestellingen die langer dan twee weken op Aanmaken of In bestelling staan. Zo blijft een bestelling niet hangen (en kan de factuur er straks aan gekoppeld worden). Onder de tegel staat hoeveel het er van jou zijn; in de lijst zie je of er al een factuur aan hangt, en met een klik op het PO-nummer open je de bestelling in een nieuw venster. Financial en Directie kunnen ook de lijst van iedereen of van één collega bekijken.
+- **Menu** — Verbeterd: de tegel Verkooporders staat nu bij Projecten (onder Offertes en calculaties) in plaats van bij Bestellingen.
+- **Financiën** — Nieuw: overzicht **Te laat betaald** (Financiën ▸ Te laat betaald): alle facturen aan klanten die verstuurd zijn, nog niet betaald en over de vervaldatum, per klant met wat er nog openstaat. Klik op een factuurnummer om de factuur in een nieuw venster te openen; 📄 opent de PDF. Wie het recht Financial of Directie heeft krijgt op werkdagen één keer per dag (vanaf 7 uur) een melding in de bel met het aantal en het bedrag; klikken opent het overzicht in een nieuw venster.
+- **Uitgaande facturen** — Verbeterd: na het versturen van een factuur gaat het venster meteen dicht en komt er een groene melding "Factuur … is verstuurd" met een OK-knop, zodat je zeker weet dat het gelukt is. Ging er bij het bewaren iets mis, dan staat dat in de melding. (Wens van Edwin.)
+
 ## 12-11-2026
 
 - **Bestellingen** — Nieuw: orderbevestigingen uit de inkooppostbus komen vanzelf bij de bestelling. De app kijkt op de achtergrond in inkoop@, zoekt in elk binnengekomen bericht een PO-nummer (PO-12345) en zet de PDF op het tabblad Documenten van die bestelling. Onder de knop "📥 Bevestigingen" staat wat er gekoppeld is, en wat niet vanzelf lukte kun je daar met de hand aan een bestelling hangen of negeren. (Moet eerst worden aangezet.)

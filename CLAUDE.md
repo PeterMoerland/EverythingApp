@@ -2526,6 +2526,79 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Bestellingen: lijst Niet doorgezet, en Verkooporders naar Projecten (13-11-2026)
+
+Verzoek (via de gebruiker): een extra controle zodat bestellingen niet op "bestellen" blijven staan, waardoor er geen
+factuur aan gekoppeld kan worden. Gemeten (alleen lezen): 108 bestellingen langer dan 14 dagen op **Aanmaken**
+(status 0; staan niet in de keuzelijst bij het koppelen van een factuur, alleen via zoeken) en 70 op **In bestelling**
+(status 3; koppelen lukt daar wel, 26 van de 37 uit 2026 hebben al een factuur, maar er is nooit op Volgende gedrukt;
+bijna niets is via de app gemaild, dus de vraag "Nu op Besteld zetten?" komt zelden). Besluit gebruiker: een
+**persoonlijke lijst** van wat langer dan twee weken op een van beide staat, als **tegel bij Bestellingen**, PO's te
+openen in een nieuw venster. (Een herinnering in de bel of iets bij het koppelen zelf is voorgesteld, niet gekozen.)
+
+- `IBestelRepository.NietDoorgezetAsync(dagen, bestellerId?)` en `AantalNietDoorgezetAsync` -> `HangendeBestelling`
+  (Models/Bestelling.cs). Status 0 of 3, besteller = `Created by`. "Sinds" = bij Aanmaken de aanmaakdatum, bij In
+  bestelling `Approved2 date` ?? `Approved1 date` ?? `Request date` ?? aanmaakdatum (die velden worden gezet bij het
+  verlaten van een stap). Erbij: aantal regels, aantal gekoppelde facturen (`Facturen_Orders_Link`), gemaild
+  (`MailAangemaakt`). Grens: `BestelFlow.NietDoorgezetDagen` = 14.
+- **Pagina `Components/Pages/NietDoorgezet.razor`** (`/bestellingen/niet-doorgezet`): eigen bestellingen per status (In
+  bestelling eerst), kolom "Let op" (er is al een factuur / al gemaild / geen regels), dagen rood boven 60.
+  `Ik.MagFinancien` krijgt een keuzelijst: Mijn bestellingen, Iedereen (per besteller, meeste bovenaan) of één collega.
+  PO-nummer = `bestellingen?order=<id>` in een nieuw venster. Alleen lezen. Opmaak van Te laat betaald (`telaat-tabel`).
+- **Tegel**: `Menu.cs` Bestellingen ▸ Inkoop ▸ **Niet doorgezet**. `Module.razor` kan nu een regel onder een tegel
+  tonen (`_onder`, adres -> tekst, klasse `tegel-sub`): bij Bestellingen "n van jou" als de ingelogde werknemer er
+  heeft (één telling per keer dat de modulepagina opent).
+- **Verkooporders** staat nu in het menu bij Projecten ▸ Offertes en calculaties (wens gebruiker); de groep Verkoop
+  bij Bestellingen is weg. Het adres blijft `/bestellingen/verkooporders`.
+- Getest lokaal op de echte gegevens (alleen lezen, testpatch voor rechten): Iedereen (178 bestellingen, 22
+  bestellers), één collega (per status), de link naar de bestelling, de tegels bij Bestellingen en Projecten.
+  **Niet getest**: de eigen lijst en "n van jou" onder de tegel (lokaal geen ingelogde werknemer), en de weergave
+  zonder het recht Financial/Directie.
+- De lijst bevat ook oude rommel (Aanmaken vanaf 2018, In bestelling vanaf 2019): opruimen is annuleren of doorzetten.
+
+## Te laat betaald: dagelijkse melding en overzicht (13-11-2026)
+
+Wens gebruiker: één keer per dag voor Directie en Finance een overzicht van facturen die nog niet betaald zijn (te
+laat), en ze in een nieuw venster kunnen openen. Besluiten (gevraagd): **uitgaande** facturen, en als **melding in de
+bel** (geen mail). Geen script en geen eigen tabel.
+
+- **`Services/TeLaatFacturen.cs`**: `TeLaatFacturen.LaadAsync` = dezelfde facturen als de knop "Te laat" op Uitgaande
+  facturen (verstuurd, niet betaald, `Overdue > 0`) zonder oninbaar (`VerkoopFactuurRegel.TeLaat`), met wat er al binnen
+  is (`IFactuurBetalingRepository.OntvangenAsync`) -> `TeLaatFactuur` (Open, Vervaldatum, Dagen). `Meldtekst` en
+  `MoetNu` (werkdag, vanaf het uur, nog niet gedaan vandaag) zijn los te toetsen (scratchpad `d15toets`).
+- **`TeLaatWaker`** (BackgroundService, kijkt elke 10 minuten): maakt de melding (Soort `telaat`, OrderID = aantal
+  facturen) voor iedereen in dienst met Financial of Directie (`IMeldingRepository.WerknemersMetRechtAsync`, nieuw) en
+  geeft `MeldingSignaal`. Niets te laat = geen melding. "Vandaag al gedaan" volgt uit de tabel Meldingen
+  (`VandaagGemaaktAsync`, nieuw: een melding van die soort sinds middernacht, van wie dan ook), dus een herstart
+  stuurt niet opnieuw. Instellingen `TeLaatFacturen:Aan` en `:Uur` (7); de sectie mag ontbreken. **In Development
+  staat hij standaard uit**, anders zet een lokale testversie meldingen in de echte database.
+- **Bel** (`MeldingBel`): `telaat` -> link `financien/te-laat` (nieuw venster, zoals de andere meldingen), icoon ⏰.
+- **Pagina `Components/Pages/TeLaat.razor`** (`/financien/te-laat`, menu Financiën ▸ Facturen ▸ Te laat betaald; alleen
+  `Ik.MagFinancien`): per klant (meeste open bovenaan), per factuur datum, vervaldatum, dagen (rood boven 30), BV,
+  omschrijving (met herinnering/proforma), incl. btw, ontvangen, open; totaalregel. Factuurnummer =
+  `financien/uitgaande-facturen?factuur=<nummer>` in een nieuw venster; 📄 = `bestand/<id>` (filestore soort 5: de
+  nieuwste PDF met `_Invoice` in de naam, anders de nieuwste PDF; per factuur opgezocht nadat de lijst er staat).
+- **Uitgaande facturen**: `?factuur=<nummer>` (`FactuurUitUrl`) opent zonder datumfilter met het nummer in het zoekvak
+  en die factuur gekozen in het zijpaneel.
+- Getest: de rekenregels (`d15toets`, alles ok); lokaal de pagina op de echte gegevens (alleen lezen: 26 facturen,
+  7 klanten, licht en donker), de link naar een factuur, de PDF-links; de twee nieuwe leesvragen op de database (4
+  ontvangers). **Niet getest**: de waker zelf (het maken van de meldingen, het moment), de melding in de bel en het
+  openen daarvandaan (lokaal geen ingelogde werknemer), het menu-item met een echt recht.
+- Opgevallen in de gegevens: 13 van de 26 zijn facturen aan MDE Holding B.V. uit 2023 (management fee, ruim 1000
+  dagen); die staan nooit op betaald. Niet uitgesloten: dat is een keuze van de gebruiker.
+
+## Factuur versturen: venster dicht en een melding met OK (13-11-2026)
+
+Wens Edwin: na het mailen van een factuur een pop-up dat het gelukt is, met OK, en het venster meteen dicht.
+`FactuurVersturenVenster.Afronden(kop, gelukt)` sluit nu altijd (`Sluit()`) en roept daarna `mdeGelukt` aan (nieuw in
+`App.razor`: dezelfde dialoog als `mdeBevestig`/`mdeMelding` met optie `goed` = groen, klasse `bevestig-box goed`; wacht
+niet op OK). Voorheen: een groene regel in het venster, 0,8 s, dan dicht; en bij een fout bij het bewaren bleef het
+venster open (met de knop Mail versturen nog actief, dus kans op een tweede mail). Nu ook dan dicht, met de oranje
+`mdeMelding` "…, maar let op" en wat er misging (ook in het logboek). Geldt ook voor "Alleen opslaan als verstuurd"
+en voor het versturen vanuit Verkooporders (zelfde venster). De orderbevestiging (`OrderbevestigingVenster`) is niet
+aangepast. Getest lokaal met een tijdelijke patch (bewaren en op verstuurd zetten overgeslagen) via Alleen opslaan:
+venster dicht, groene melding, OK. **Niet getest**: een echte mail, en de melding bij een fout.
+
 ## Orderbevestigingen uit de inkooppostbus (12-11-2026)
 
 Wens gebruiker: wat vroeger een VB-programmaatje deed (de inkoopbox scannen op "PO-xxxxx" en de orderbevestiging als

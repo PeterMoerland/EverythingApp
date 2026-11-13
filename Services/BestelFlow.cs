@@ -20,6 +20,9 @@ namespace EverythingApp.Services;
 /// </summary>
 public static class BestelFlow
 {
+    /// <summary>Na zoveel dagen op Aanmaken of In bestelling staat een bestelling in de lijst Niet doorgezet.</summary>
+    public const int NietDoorgezetDagen = 14;
+
     public const int Aanmaken = 0, GoedkeuringPm = 1, GoedkeuringDirectie = 2, InBestelling = 3, WachtOpLevering = 4, Gereed = 6;
 
     /// <summary>Waar een bestelling heen gaat als de besteller op Volgende drukt.</summary>

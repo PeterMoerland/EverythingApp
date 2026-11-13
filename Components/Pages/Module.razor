@@ -1,6 +1,7 @@
 @page "/module/{Sleutel}"
 @inject HuidigeGebruiker Ik
 @inject SnelIconen Iconen
+@inject IBestelRepository Bestel
 
 @if (_module is null)
 {
@@ -60,7 +61,10 @@ else
                             {
                                 <a class="tegel klaar" href="@item.Url.TrimStart('/')">
                                     <span class="tegel-icoon">@Svg(item.Icoon ?? _module.Icoon)</span>
-                                    <span class="tegel-tekst"><span class="tegel-label">@Afbreekbaar(item.Label)</span></span>
+                                    <span class="tegel-tekst">
+                                        <span class="tegel-label">@Afbreekbaar(item.Label)</span>
+                                        @if (_onder.TryGetValue(item.Url, out var onderregel)) { <span class="tegel-sub">@onderregel</span> }
+                                    </span>
                                 </a>
                             }
                         </div>
@@ -94,7 +98,21 @@ else
         await Ik.ZorgGeladenAsync();
         _module = Menu.Zoek(Sleutel);
         _boven = Menu.Boven(Sleutel);
+
+        // Een regel onder een tegel (adres -> tekst). Nu alleen: hoeveel eigen bestellingen zijn blijven hangen.
+        _onder.Clear();
+        if (_module?.Sleutel == "bestellingen" && Bestel.Beschikbaar && Ik.WerknemerId is int ik)
+        {
+            try
+            {
+                var n = await Bestel.AantalNietDoorgezetAsync(BestelFlow.NietDoorgezetDagen, ik);
+                if (n > 0) _onder["/bestellingen/niet-doorgezet"] = n + " van jou";
+            }
+            catch { /* de tegel werkt ook zonder aantal */ }
+        }
     }
+
+    private readonly Dictionary<string, string> _onder = new();
 
     // Alleen tegels met een scherm in de app (besluit gebruiker 12-11-2026): de grijze "in Access"-tegels zijn weg; ze staan
     // nog in Menu.cs (zonder Url) en worden pas gebouwd als daar behoefte aan is.

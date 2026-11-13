@@ -338,6 +338,9 @@
 @code {
     private const int StoreTypeVerkoopfactuur = 5;     // zoals in Access: filestore-soort 5
 
+    /// <summary>?factuur=2026123: open op die ene factuur (link uit het overzicht Te laat betaald), wat de datum ook is.</summary>
+    [SupplyParameterFromQuery(Name = "factuur")] public string? FactuurUitUrl { get; set; }
+
     private readonly VerkoopFactuurFilter _filter = new();
     private List<VerkoopFactuurRegel> _lijst = new();
     private List<Administratie> _administraties = new();
@@ -425,6 +428,15 @@
 
         try { _administraties = await Repo.GetAdministratiesAsync(); } catch { }
         try { _facturerend = await Repo.GetFacturerendeBvsAsync(); } catch { }
+
+        if (FactuurUitUrl?.Trim() is { Length: > 0 } nummer)
+        {
+            FiltersLeeg();
+            _filter.Zoek = nummer;
+            await Laad();
+            if (_lijst.FirstOrDefault(f => f.Factuurnummer == nummer) is { } gevraagd) await Kies(gevraagd);
+            return;
+        }
 
         // Access opende op het lopende kwartaal.
         DitKwartaalZonderLaden();

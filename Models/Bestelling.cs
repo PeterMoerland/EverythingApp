@@ -5,6 +5,13 @@
 public record BestelRegel(int Id, string Nummer, string Leverancier, string Omschrijving,
                           int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal, string Bv = "", string Besteller = "");
 
+/// <summary>Een bestelling die te lang op Aanmaken of In bestelling staat (Bestellingen ▸ Niet doorgezet).</summary>
+/// <param name="Sinds">Sinds wanneer in deze status (Aanmaken: aangemaakt; In bestelling: de laatste goedkeuring of aanvraag).</param>
+/// <param name="Facturen">Aantal al gekoppelde inkomende facturen: dan is er zeker besteld.</param>
+public record HangendeBestelling(int Id, string Leverancier, string Omschrijving, int Status, string StatusNaam,
+                            DateTime? Aangemaakt, DateTime? Sinds, int Dagen, decimal Totaal,
+                            int? BestellerId, string Besteller, int Regels, int Facturen, bool Gemaild);
+
 /// <summary>Eén treffer bij het zoeken door de bestelregels (Bestellingen ▸ Zoeken in regels).</summary>
 public record BestelregelTreffer(int OrderId, string Leverancier, string OrderOmschrijving, int Status, string StatusNaam,
                                  DateTime? Besteld, int RegelId, double Aantal, string Artikelcode, string Omschrijving,

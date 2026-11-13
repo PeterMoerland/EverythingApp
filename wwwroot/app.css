@@ -1353,6 +1353,19 @@ html[data-thema="donker"] .info-slot.aan { background: #3a3014; border-color: #a
 .foto-voor b { font-size: 1.05rem; }
 .foto-verstuurd { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .6rem 0; }
 .foto-verstuurd img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+/* regel onder een tegel (bv. "3 van jou" bij Niet doorgezet) */
+.tegel-sub { font-size: .82em; font-weight: 600; color: #c25e00; }
+html[data-thema="donker"] .tegel-sub { color: #ffb366; }
+/* te laat betaald (Financiën > Te laat betaald); ook gebruikt door Bestellingen > Niet doorgezet */
+.telaat-tabel .telaat-klant td { background: #eef2f7; font-weight: 600; border-top: 2px solid #c9d3e0; }
+.telaat-tabel .telaat-klant .uitleg { font-weight: 400; }
+.telaat-tabel .telaat-totaal td { font-weight: 700; border-top: 2px solid #8a97a8; }
+.telaat-tabel .telaat-erg { color: #c62828; font-weight: 700; }
+.telaat-tabel tr:not(.telaat-klant) td:nth-child(-n+4), .telaat-tabel td.r { white-space: nowrap; }
+.telaat-tabel a { text-decoration: none; }
+.telaat-tabel a:hover { text-decoration: underline; }
+html[data-thema="donker"] .telaat-tabel .telaat-klant td { background: var(--d2, #2a3340); border-top-color: #4a5566; }
+html[data-thema="donker"] .telaat-tabel .telaat-erg { color: #ff8a80; }
 /* orderbevestigingen uit de inkooppostbus (InkoopBevestigingenPaneel) */
 .bev-venster { background: #fff; border-radius: 8px; width: min(78rem, 96vw); max-height: 86vh; align-self: flex-start;
                display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
@@ -2508,6 +2521,12 @@ html[data-thema="donker"] .banktotalen { box-shadow: 0 2px 12px rgba(0,0,0,.45);
 .bevestig-ja { background: #c62828; color: #fff; }
 .bevestig-ja:hover { background: #a81e1e; }
 .bevestig-ja:focus { outline: 3px solid #f9c74f; outline-offset: 1px; }
+/* 'het is gelukt' (mdeGelukt): dezelfde dialoog in het groen */
+.bevestig-box.goed { border-color: #2e7d32; }
+.bevestig-box.goed .bevestig-kop { background: #2e7d32; }
+.bevestig-box.goed .bevestig-knoppen { background: #eef7ee; }
+.bevestig-box.goed .bevestig-ja { background: #2e7d32; }
+.bevestig-box.goed .bevestig-ja:hover { background: #256528; }
 
 /* ---- Samenstelling volgens stuklijst (SamenstellingKiezer) ---- */
 .sam-tabel td { vertical-align: top; }

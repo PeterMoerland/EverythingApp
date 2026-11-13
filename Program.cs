@@ -340,6 +340,8 @@ builder.Services.AddSingleton<Changelog>();      // CHANGELOG.md voor Wat is er 
 builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>());
 // herinnering in de bel vóór de opzegdatum van een verzekering (Financiën > Verzekeringen)
 builder.Services.AddHostedService<VerzekeringWaker>();
+// één keer per werkdag een melding in de bel van Financial en Directie over te laat betaalde facturen (Financiën > Te laat betaald)
+builder.Services.AddHostedService<TeLaatWaker>();
 builder.Services.AddSingleton<VerzekeringBron>();
 builder.Services.AddSingleton<FactuurLezer>();
 
