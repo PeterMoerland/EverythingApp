@@ -141,6 +141,7 @@ if (liveDb)
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
     builder.Services.AddSingleton<IInkoopBevestigingRepository>(_ => new MySqlInkoopBevestigingRepository(cs!));   // orderbevestigingen uit inkoop@
+    builder.Services.AddSingleton<IOmroepRepository>(_ => new MySqlOmroepRepository(cs!));   // meldingen op vaste tijden op de Sonos-speakers
     builder.Services.AddSingleton<IAiVraagRepository>(_ => new MySqlAiVraagRepository(cs!));
     builder.Services.AddSingleton<INacalculatieRepository>(_ => new MySqlNacalculatieRepository(cs!));
     builder.Services.AddSingleton<IOntvangstRepository>(_ => new MySqlOntvangstRepository(cs!));
@@ -234,6 +235,7 @@ else
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
     builder.Services.AddSingleton<IInkoopBevestigingRepository, GeenInkoopBevestigingRepository>();
+    builder.Services.AddSingleton<IOmroepRepository, GeenOmroepRepository>();
     builder.Services.AddSingleton<IAiVraagRepository, GeenAiVraagRepository>();
     builder.Services.AddSingleton<INacalculatieRepository, GeenNacalculatieRepository>();
     builder.Services.AddSingleton<IOntvangstRepository, GeenOntvangstRepository>();
@@ -391,6 +393,13 @@ builder.Services.AddSingleton<NdaDocumentService>();
 // Typeplaatje voor de laser (SVG + PDF)
 builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<SonosService>();
+// Omroep op de Sonos-speakers (Beheer > Omroep): Windows-stem op de server, geluid klaarzetten, en de tijdklok voor
+// de meldingen op vaste tijden (tabel OmroepMeldingen). Services/OmroepService.cs, WindowsStem.cs.
+builder.Services.AddSingleton<WindowsStem>();
+builder.Services.AddSingleton<OmroepGeluid>();
+builder.Services.AddSingleton<OmroepService>();
+builder.Services.AddSingleton<OmroepWaker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OmroepWaker>());
 builder.Services.AddSingleton<MeldingSignaal>();
 builder.Services.AddSingleton<BelCentrale>();        // videobellen op het intranet (Components/Layout/Videobellen.razor)
 builder.Services.AddSingleton<FotoBrug>();           // de telefoon als camera voor een scherm op de pc (Components/FotoVak.razor, /mobiel/foto)
@@ -1043,6 +1052,11 @@ var rabobankTerug = app.MapGet("/rabobank/terug", async (HttpContext ctx, string
                                              $"<p><a class=\"knop\" href=\"{terug}\">Terug</a></p>"), "text/html");
 });
 if (loginAan) { rabobankKoppel.RequireAuthorization(); rabobankTerug.RequireAuthorization(); }
+
+// Het geluid van een omroep (Services/OmroepService.cs): de Sonos-speakers halen het hier zelf op. Zonder inloggen,
+// want een speaker kan niet aanmelden; de code is willekeurig en een kwartier geldig, en het is alleen het geluid.
+app.MapGet("/omroep/geluid/{code}.wav", (string code, OmroepGeluid geluid) =>
+    geluid.Haal(code) is { } wav ? Results.File(wav, "audio/wav", enableRangeProcessing: true) : Results.NotFound());
 
 // Albumhoes van wat een Sonos-speaker speelt (SonosPaneel). Via de server: de speaker geeft een pad op zichzelf.
 app.MapGet("/sonos/hoes/{uuid}", async (string uuid, SonosService sonos) =>

@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Menu** — Nieuw: Tools ▸ Kabelconfigurator. De plek staat er; de configurator zelf moet nog gebouwd worden.
+- **Omroep** — Nieuw: gesproken meldingen op de Sonos-speakers (Beheer ▸ Omroep). Typ een tekst en laat hem meteen horen op de speakers die je kiest, of zet meldingen op vaste dagen en tijden in de tabel, zoals vrijdag om 9:00 "Hebben jullie allemaal een broodje besteld?". De muziek gaat even zachter en daarna vanzelf verder. Voor Beheer en Directie.
 - **Bestellingen** — Verbeterd: Prijzen bijwerken uit de factuur werkt nu ook als de leverancier onze nummers niet op de factuur zet (bv. alleen "3D print part"). De regels worden dan gekoppeld op volgorde en aantal, met een waarschuwing om het na te kijken. En je kunt bij elke bestelregel zelf de regel van de factuur kiezen of verbeteren.
 - **Broodjes** — Verbeterd: de vrijdaglijst van het Kaeswienkeltje sluit nu om 9:30 (was 10:00); daarna telefonisch.
 - **Bestellingen** — Nieuw: **Prijzen bijwerken uit de factuur** (tab Facturen, knop ✨). De AI leest de gekoppelde factuur en zoekt bij elke bestelregel de prijs op. Je ziet eerst per regel wat er nu staat, wat er op de factuur staat en het verschil; daarna kies je welke regels worden bijgewerkt. Alleen prijs en korting veranderen, de aantallen niet. Wat de AI niet zeker weet of wat niet rond rekent staat niet vanzelf aangevinkt.

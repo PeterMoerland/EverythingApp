@@ -35,6 +35,14 @@ public class SonosService
     private const string AvPad = "/MediaRenderer/AVTransport/Control";
 
     private readonly HttpClient _http;
+    /// <summary>Voor de meldingsfunctie (https op poort 1443): de speakers hebben een eigen, zelf ondertekend certificaat.
+    /// Alleen gebruikt voor adressen uit de eigen speakerlijst (Controleer).</summary>
+    private readonly HttpClient _httpsSpeaker = new(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+    }) { Timeout = TimeSpan.FromSeconds(6) };
+    /// <summary>De algemeen bekende sleutel van de lokale Sonos-API (dezelfde die o.a. Home Assistant gebruikt); geen geheim.</summary>
+    private const string LokaleApiSleutel = "123e4567-e89b-12d3-a456-426655440000";
     private readonly ILogger<SonosService> _log;
     private readonly string[] _adressen;
 
@@ -119,6 +127,35 @@ public class SonosService
         }
         try { await SoapAsync(hoofd, AvPad, AvTransport, "Pause", "<InstanceID>0</InstanceID>"); }
         catch (InvalidOperationException) { await SoapAsync(hoofd, AvPad, AvTransport, "Stop", "<InstanceID>0</InstanceID>"); }
+    }
+
+    /// <summary>
+    /// Een korte melding over de muziek heen (Sonos "audioClip", lokale API op https-poort 1443): de speaker haalt het
+    /// geluid op bij <paramref name="streamUrl"/>, zet de muziek even zachter en gaat daarna vanzelf verder. Per speaker;
+    /// werkt op speakers met de eigenschap AUDIO_CLIP (alle vijf bij MDE, nagevraagd 13-11-2026).
+    /// </summary>
+    public async Task MeldingAsync(string adres, string uuid, string streamUrl, int volume)
+    {
+        Controleer(adres);
+        var body = new System.Text.Json.Nodes.JsonObject
+        {
+            ["name"] = "MDE omroep",
+            ["appId"] = "nl.mde-automation.everythingapp",
+            ["clipType"] = "CUSTOM",
+            ["streamUrl"] = streamUrl,
+            ["volume"] = Math.Clamp(volume, 1, 100),
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"https://{adres}:1443/api/v1/players/{uuid}/audioClip")
+        {
+            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("X-Sonos-Api-Key", LokaleApiSleutel);
+        using var antw = await _httpsSpeaker.SendAsync(req);
+        if (!antw.IsSuccessStatusCode)
+        {
+            var tekst = await antw.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"de speaker gaf {(int)antw.StatusCode}" + (tekst.Length > 0 ? ": " + (tekst.Length > 120 ? tekst[..120] : tekst) : ""));
+        }
     }
 
     public async Task ZetGedemptAsync(string adres, bool gedempt)

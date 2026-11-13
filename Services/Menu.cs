@@ -182,6 +182,13 @@ public static class Menu
                     new MenuGroep("Onderhoud",
                         new MenuItem("Nog in te vullen", Icoon: "circle-help"))),
 
+                // wens gebruiker 13-11-2026: alvast een plek in het menu; wat de configurator moet doen is nog niet bepaald.
+                // Met een eigen adres, anders verbergt het menu hem (een onderdeel zonder werkend scherm is onzichtbaar).
+                new MenuModule("kabelconfigurator", "Kabelconfigurator", "cable",
+                    new MenuGroep("Kabels",
+                        new MenuItem("Kabelconfigurator", "/tools/kabelconfigurator", Icoon: "cable")))
+                { Url = "/tools/kabelconfigurator" },
+
                 new MenuModule("fusion", "Fusion", "cpu",
                     new MenuGroep("Bewerkingen",
                         new MenuItem("Converteer naar CAM", "/tools/fusion-cam", "Fusion", Icoon: "drill")),
@@ -257,7 +264,9 @@ public static class Menu
                 new MenuItem("Tariefsoorten", Icoon: "euro")),   // staat voorlopig vast
             new MenuGroep("Instellingen",
                 new MenuItem("Algemene instellingen", "/beheer/instellingen", Icoon: "settings"),
-                new MenuItem("Labelprinter (deze pc)", "/beheer/labelprinter", Icoon: "printer")),
+                new MenuItem("Labelprinter (deze pc)", "/beheer/labelprinter", Icoon: "printer"),
+                // gesproken meldingen op de Sonos-speakers: nu (PA) en op vaste tijden (wens gebruiker 13-11-2026)
+                new MenuItem("Omroep (Sonos)", "/beheer/omroep", Icoon: "bell-ring")),
             new MenuGroep("Verbeteren",
                 new MenuItem("Verbeterverzoeken (💡)", "/verbeterverzoeken", Icoon: "lightbulb"),
                 new MenuItem("Wat is er nieuw", "/nieuw", Icoon: "star")),

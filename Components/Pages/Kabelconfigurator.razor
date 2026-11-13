@@ -1,0 +1,19 @@
+@page "/tools/kabelconfigurator"
+@inject HuidigeGebruiker Ik
+
+@* Tools ▸ Kabelconfigurator (wens gebruiker 13-11-2026): alvast een plek in het menu. Wat de configurator moet doen
+   (wat stel je samen, wat komt eruit, waar komen de onderdelen vandaan) is nog niet bepaald; tot dan staat hier
+   alleen deze uitleg. Het menu toont een onderdeel pas als het een eigen pagina heeft (MainLayout.ModuleZichtbaar). *@
+
+<PageTitle>Kabelconfigurator — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar"><h1>Kabelconfigurator</h1></header>
+    <section class="module-placeholder">
+        <p>Hier komt de kabelconfigurator. Hij is nog niet gebouwd: eerst moet vaststaan wat je ermee samenstelt en wat eruit komt.</p>
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Ik.ZorgGeladenAsync();
+}

@@ -2124,6 +2124,47 @@ Artikelen is daarheen verhuisd). Recht om te wijzigen: `Voorraadbeheer` of `Dire
   `VoorraadPerMagazijn` (deels: plekfilter en Dragers), `VoorraadOrders`, `MateriaalInboeken`, `Report_VoorraadStand`.
 - Niet getest: alle schrijfacties (aanmaken, wijzigen, verplaatsen, inhoud, types, in-/uitboeken, corrigeren) en het printen.
 
+## Omroep op de Sonos-speakers (13-11-2026)
+
+Wens gebruiker: een gesproken tekst op alle Sonos-speakers; vrijdag 9:00 "Hebben jullie allemaal een broodje
+besteld?", een tabel met meer meldingen op vaste tijden, en vanaf het beheerscherm direct omroepen (PA). Besluiten
+(gevraagd): de stem is de **Windows-stem op de server** (niets verlaat het netwerk; Amazon Polly is voorgesteld, niet
+gekozen); geluidsproef alleen op Edwin&Peter, zacht.
+
+- **Stem** (`Services/WindowsStem.cs`): de Nederlandse stem (Microsoft Frank) is een OneCore-stem; System.Speech ziet
+  die niet. De oude SAPI-COM-objecten wel, als je `SpObjectTokenCategory.SetId` de categorie
+  `HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices` geeft. Late binding (`Type.GetTypeFromProgID`, `InvokeMember`; Voice
+  en AudioOutputStream zijn putref), op een eigen STA-draad, naar een `SpMemoryStream` (22,05 kHz, 16 bit, mono).
+  Kiest `Omroep:Stem` (stukje van de naam) of de eerste Nederlandse (taalcode 413/813). **De stem moet op de server
+  staan** (Instellingen ▸ Tijd en taal ▸ Spraak ▸ Stemmen toevoegen ▸ Nederlands); het beheerscherm zegt welke stem
+  gevonden is.
+- **Afspelen**: `SonosService.MeldingAsync` = Sonos "audioClip" van de lokale API (`https://<speaker>:1443/api/v1/
+  players/<uuid>/audioClip`, kop `X-Sonos-Api-Key` met de algemeen bekende sleutel, zelf ondertekend certificaat dus
+  een eigen HttpClient zonder certificaatcontrole, alleen voor adressen uit de speakerlijst). `clipType` CUSTOM met
+  `streamUrl` en `volume`: de muziek gaat zachter en daarna vanzelf verder. Per zichtbare speaker (van een stereopaar
+  dus alleen de hoofdspeaker). Nagevraagd 13-11 (`/players/local/info`, capability AUDIO_CLIP): alle vijf toen bekende
+  speakers kunnen het; er is intussen een zesde ("WP elektrisch").
+- **`Services/OmroepService.cs`**: `Wav` (kop, stilte, ding-dong van twee uitstervende tonen), `OmroepGeluid`
+  (het bestand een kwartier op `/omroep/geluid/<code>.wav`, **zonder inloggen**: een speaker kan niet aanmelden; de
+  code is willekeurig), `OmroepService.OmroepAsync(tekst, speakers, volume, toon, door)` (logt wie wat omriep) en
+  `OmroepWaker` (BackgroundService, elke 15 s; `OmroepRegels.MoetNu`: dag, tijd bereikt en hooguit 10 minuten geleden,
+  vandaag nog niet gedaan; zet `LaatstGedaan` vóór het omroepen). **In Development staat de tijdklok uit**
+  (`Omroep:Aan`). Het adres waar de speaker het geluid haalt: `Omroep:Adres`, anders zelf bepaald (eigen IP-adres op de
+  route naar de speaker + de poort waarop de app luistert). **De speakers moeten die poort op de server kunnen
+  bereiken** (firewall); anders `Omroep:Adres` invullen.
+- **Tabel `OmroepMeldingen`** (**`Omroep_MariaDB.sql`, zelf draaien**; zet de vrijdagmelding van 9:00 er meteen in):
+  Tekst, Dagen ('5' = vrijdag, '12345' = werkdagen), Tijd, Speakers (uuid's; leeg = alle), Volume (leeg = standaard,
+  `Omroep:Volume` 25), Toon, Actief, LaatstGedaan/LaatsteUitkomst. `Services/IOmroepRepository.cs` (Geen / MySql).
+- **Pagina `Components/Pages/Omroep.razor`** (`/beheer/omroep`, menu Beheer ▸ Instellingen ▸ Omroep (Sonos); Beheer of
+  Directie): boven **Nu omroepen** (tekst, speakers als knopjes, volume, toon vooraf; werkt ook zonder tabel), onder
+  **Op vaste tijden** (per regel aan/uit, dagen, tijd, tekst, speakers, volume, toon, ▶ proef, ✕; elke wijziging direct
+  opgeslagen; een nieuwe regel begint uit).
+- Getest: `d25toets` (tijdregels, taalcodes, de stem maakt op de ontwikkel-pc een WAV van 9,6 s; alles ok); de pagina
+  lokaal bekeken met voorbeeldregels; de meldingsfunctie zelf met de ingebouwde Sonos-toon op Edwin&Peter (de speaker
+  antwoordde 200). **Niet getest**: de hele keten met onze eigen WAV (de test-app mocht niet op het netwerk gezet
+  worden, dus de speaker kon het geluid niet ophalen), of de stem op de server staat en in de Windows-service werkt,
+  of de speakers poort 5010 op de server bereiken, de tijdklok, het opslaan in de tabel, en hoe een stereopaar klinkt.
+
 ## Sonos: volume (okt 2026)
 
 Gebouwbeheer ▸ Sonos (`/gebouw/sonos`, pagina `SonosVolume.razor`: de naam `Sonos` botst met de geïnjecteerde

@@ -1,0 +1,251 @@
+@page "/beheer/omroep"
+@inject OmroepService Dienst
+@inject OmroepWaker Waker
+@inject WindowsStem Stem
+@inject SonosService Sonos
+@inject IOmroepRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Beheer ▸ Omroep (wens gebruiker 13-11-2026): een gesproken tekst op de Sonos-speakers. Boven: nu omroepen (PA),
+   werkt ook zonder tabel. Onder: meldingen op vaste tijden (tabel OmroepMeldingen, Omroep_MariaDB.sql), die de
+   tijdklok (Services/OmroepService.cs, OmroepWaker) afspeelt. De stem is de Windows-stem op de server
+   (Services/WindowsStem.cs). Alleen Beheer of Directie. *@
+
+<PageTitle>Omroep — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar"><h1>📢 Omroep</h1></header>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Alleen voor het recht Beheer of Directie.</p></section>
+    }
+    else if (!Dienst.Ingesteld)
+    {
+        <section class="module-placeholder"><p>Sonos is niet ingesteld (appsettings, Sonos:Adressen).</p></section>
+    }
+    else
+    {
+        <p class="uitleg">
+            Een gesproken tekst op de Sonos-speakers. De muziek gaat even zachter en daarna vanzelf verder.
+            @if (_stem is { } st) { <text>Stem: <b>@st.Naam</b>@(st.Nederlands ? "" : " (geen Nederlandse stem!)").</text> }
+            else if (_stemFout is not null) { <span class="sv-let">@_stemFout</span> }
+        </p>
+        @if (_melding is not null) { <div class="melding @(_meldingFout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div> }
+
+        @* ---------- nu omroepen ---------- *@
+        <section class="omroep-blok">
+            <h3 class="wn-kop">Nu omroepen</h3>
+            <textarea rows="2" maxlength="500" placeholder="Wat moet er gezegd worden?" value="@_tekst"
+                      @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+            <div class="omroep-keuzes">
+                <span class="omroep-speakers">
+                    @foreach (var s in _speakers)
+                    {
+                        <button class="omroep-chip @(Gekozen(s) ? "aan" : "")" disabled="@(!s.Bereikbaar)"
+                                title="@(s.Bereikbaar ? "Aan of uit voor deze omroep" : "Deze speaker is niet bereikbaar")"
+                                @onclick="() => Wissel(s)">@s.Naam</button>
+                    }
+                    @if (_speakers.Count == 0 && _geladen) { <span class="uitleg">Geen speakers gevonden.</span> }
+                </span>
+                <label class="omroep-volume" title="Hoe hard de melding klinkt (los van het volume van de muziek)">
+                    Volume <input type="range" min="5" max="70" step="1" value="@_volume" @oninput="e => _volume = int.TryParse((string?)e.Value, out var v) ? v : _volume" /> @_volume
+                </label>
+                <label class="vink"><input type="checkbox" checked="@_toon" @onchange="e => _toon = e.Value is true" /> Toon vooraf</label>
+                <button class="primair" disabled="@(_bezig || _tekst.Trim().Length == 0 || !_speakers.Any(Gekozen))" @onclick="NuOmroepen">
+                    @(_bezig ? "Bezig…" : "📢 Omroepen")
+                </button>
+            </div>
+        </section>
+
+        @* ---------- op vaste tijden ---------- *@
+        <section class="omroep-blok">
+            <h3 class="wn-kop">Op vaste tijden</h3>
+            @if (!Repo.Beschikbaar)
+            {
+                <p class="uitleg">Dit deel werkt alleen met de live database.</p>
+            }
+            else if (!_tabel)
+            {
+                <p class="uitleg">De tabel voor de tijdmeldingen bestaat nog niet. Draai <b>Omroep_MariaDB.sql</b> en ververs dit scherm.</p>
+            }
+            else
+            {
+                @if (!Waker.Aan)
+                {
+                    <p class="sv-let">De tijdklok staat uit op deze computer (appsettings, Omroep:Aan); de meldingen hieronder klinken dan niet vanzelf.</p>
+                }
+                <div class="regels-omhulsel">
+                    <table class="kiezer-tabel omroep-tabel">
+                        <thead>
+                            <tr>
+                                <th style="width:3rem" class="c">Aan</th>
+                                <th style="width:18.5rem">Dagen</th>
+                                <th style="width:6.5rem">Tijd</th>
+                                <th>Tekst</th>
+                                <th style="width:16rem" title="Geen enkele gekozen = alle speakers">Speakers</th>
+                                <th style="width:5rem" title="Volume van de melding; leeg = standaard (@Dienst.StandaardVolume)">Volume</th>
+                                <th style="width:3.4rem" class="c" title="Eerst een ding-dong">Toon</th>
+                                <th style="width:11rem">Laatst</th>
+                                <th style="width:6.5rem"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var m in _lijst)
+                            {
+                                <tr @key="m.Id" class="@(m.Actief ? "" : "omroep-uit")">
+                                    <td class="c"><input type="checkbox" checked="@m.Actief" @onchange="e => Wijzig(m, () => m.Actief = e.Value is true)" /></td>
+                                    <td>
+                                        @for (var d = 1; d <= 7; d++)
+                                        {
+                                            var dag = d;
+                                            <button class="omroep-chip dag @(m.OpDag(dag) ? "aan" : "")" @onclick="() => WisselDag(m, dag)">@OmroepRegels.Dagnamen[dag - 1]</button>
+                                        }
+                                    </td>
+                                    <td><input type="time" value="@m.Tijd.ToString("HH:mm")" @onchange="e => Wijzig(m, () => { if (TimeOnly.TryParse((string?)e.Value, out var t)) m.Tijd = t; })" /></td>
+                                    <td><input class="omroep-tekst" maxlength="500" value="@m.Tekst" placeholder="Wat moet er gezegd worden?" @onchange="e => Wijzig(m, () => m.Tekst = (string?)e.Value ?? string.Empty)" /></td>
+                                    <td>
+                                        @foreach (var s in _speakers)
+                                        {
+                                            <button class="omroep-chip @(m.SpeakerLijst.Contains(s.Uuid) ? "aan" : "")" @onclick="() => WisselSpeaker(m, s)">@s.Naam</button>
+                                        }
+                                        @if (m.SpeakerLijst.Count == 0) { <span class="uitleg">alle</span> }
+                                    </td>
+                                    <td><input class="r" style="width:3.6rem" inputmode="numeric" value="@m.Volume" placeholder="@Dienst.StandaardVolume"
+                                               @onchange="e => Wijzig(m, () => m.Volume = int.TryParse((string?)e.Value, out var v) && v > 0 ? Math.Clamp(v, 1, 100) : null)" /></td>
+                                    <td class="c"><input type="checkbox" checked="@m.Toon" @onchange="e => Wijzig(m, () => m.Toon = e.Value is true)" /></td>
+                                    <td class="uitleg" title="@m.LaatsteUitkomst">@(m.LaatstGedaan?.ToString("dd-MM HH:mm") ?? "nog niet")</td>
+                                    <td class="c">
+                                        <button class="klein" disabled="@(_bezig || m.Tekst.Trim().Length == 0)" title="Nu laten horen, op de speakers en het volume van deze regel" @onclick="() => Proef(m)">▶</button>
+                                        <button class="klein rood" title="Deze melding verwijderen" @onclick="() => Verwijder(m)">✕</button>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_lijst.Count == 0)
+                            {
+                                <tr><td colspan="9" class="kiezer-info">Nog geen meldingen.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div><button class="klein" @onclick="Nieuw">+ Melding</button></div>
+                <p class="uitleg">
+                    Een wijziging wordt meteen opgeslagen. De tijdklok kijkt elke 15 seconden; een melding klinkt dus hooguit een kwart
+                    minuut na de ingestelde tijd. Was de app op dat moment even uit, dan klinkt hij alsnog als dat binnen tien minuten is.
+                </p>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private List<SonosSpeaker> _speakers = new();
+    private HashSet<string> _uit = new();          // speakers die bij "Nu omroepen" uit staan (standaard alles aan)
+    private List<OmroepMelding> _lijst = new();
+    private StemInfo? _stem;
+    private string? _stemFout, _melding;
+    private bool _meldingFout, _bezig, _geladen, _tabel, _toon = true;
+    private string _tekst = "";
+    private int _volume;
+
+    private bool Mag => Ik.Mag("Beheer") || Ik.Mag("Directie") || !Ik.Ingelogd;
+    private string Door => Ik.Naam is { Length: > 0 } n ? n : "onbekend";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        _volume = Dienst.StandaardVolume;
+        if (!Mag || !Dienst.Ingesteld) return;
+        try { _stem = await Stem.GekozenAsync(); if (_stem is null) _stemFout = "Er is geen Nederlandse Windows-stem op de server gevonden (Instellingen ▸ Tijd en taal ▸ Spraak ▸ Stemmen toevoegen)."; }
+        catch (Exception ex) { _stemFout = "De Windows-stem is niet bruikbaar: " + ex.Message; }
+        try { _speakers = await Sonos.SpeakersAsync(); }
+        catch (Exception ex) { Toon("Speakers ophalen mislukt: " + ex.Message, true); }
+        await LaadLijst();
+        _geladen = true;
+    }
+
+    private async Task LaadLijst()
+    {
+        if (!Repo.Beschikbaar) return;
+        try
+        {
+            _tabel = await Repo.TabelAanwezigAsync();
+            _lijst = _tabel ? await Repo.LijstAsync() : new();
+        }
+        catch (Exception ex) { Toon("Meldingen ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    // ---- nu omroepen ----
+    private bool Gekozen(SonosSpeaker s) => s.Bereikbaar && !_uit.Contains(s.Uuid);
+    private void Wissel(SonosSpeaker s) { if (!_uit.Remove(s.Uuid)) _uit.Add(s.Uuid); }
+
+    private async Task NuOmroepen()
+    {
+        if (_bezig) return;
+        _bezig = true; _melding = null;
+        try
+        {
+            var uit = await Dienst.OmroepAsync(_tekst, _speakers.Where(Gekozen).Select(s => s.Uuid).ToList(), _volume, _toon, Door);
+            Toon(uit.Tekst, !uit.Gelukt);
+        }
+        catch (Exception ex) { Toon("Omroepen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    // ---- op vaste tijden ----
+    private async Task Nieuw()
+    {
+        try
+        {
+            var m = new OmroepMelding { Dagen = "12345", Tijd = new TimeOnly(9, 0), Actief = false };   // eerst invullen, dan aanzetten
+            m.Id = await Repo.BewaarAsync(m, Ik.WerknemerId);
+            _lijst.Add(m);
+        }
+        catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Wijzig(OmroepMelding m, Action wijziging)
+    {
+        wijziging();
+        try { await Repo.BewaarAsync(m, Ik.WerknemerId); _melding = null; }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private Task WisselDag(OmroepMelding m, int dag) => Wijzig(m, () =>
+    {
+        var teken = (char)('0' + dag);
+        m.Dagen = m.Dagen.Contains(teken) ? m.Dagen.Replace(teken.ToString(), "") : new string((m.Dagen + teken).OrderBy(c => c).ToArray());
+    });
+
+    private Task WisselSpeaker(OmroepMelding m, SonosSpeaker s) => Wijzig(m, () =>
+    {
+        var lijst = m.SpeakerLijst;
+        if (!lijst.Remove(s.Uuid)) lijst.Add(s.Uuid);
+        m.Speakers = string.Join(",", lijst);
+    });
+
+    private async Task Proef(OmroepMelding m)
+    {
+        if (_bezig) return;
+        _bezig = true; _melding = null;
+        try
+        {
+            var uit = await Dienst.OmroepAsync(m.Tekst, m.SpeakerLijst, m.Volume, m.Toon, Door + " (proef)");
+            Toon(uit.Tekst, !uit.Gelukt);
+        }
+        catch (Exception ex) { Toon("Omroepen mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder(OmroepMelding m)
+    {
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"De melding van {m.Tijd:HH:mm} verwijderen?"); } catch { ja = true; }
+        if (!ja) return;
+        try { await Repo.VerwijderAsync(m.Id); _lijst.Remove(m); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, true); }
+    }
+}

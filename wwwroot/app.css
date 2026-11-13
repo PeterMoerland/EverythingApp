@@ -1374,6 +1374,23 @@ button.doc-naam { display: block; width: 100%; overflow: hidden; text-overflow: 
 html[data-thema="donker"] .doc-tegel { background: var(--d2, #2a3340); border-color: #4a5566; }
 html[data-thema="donker"] .doc-mini { background: #1f2630; }
 html[data-thema="donker"] .doc-ext, html[data-thema="donker"] .doc-voet .doc-wanneer { color: #a9b3c0; }
+/* Beheer > Omroep (Sonos): nu omroepen en meldingen op vaste tijden */
+.omroep-blok { margin: 0 0 1.4rem; display: flex; flex-direction: column; gap: .5rem; }
+.omroep-blok textarea { width: 100%; max-width: 60rem; box-sizing: border-box; font: inherit; }
+.omroep-keuzes { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.2rem; }
+.omroep-speakers { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
+.omroep-volume { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+.omroep-chip { padding: .12rem .55rem; border: 1px solid #c3c9d1; border-radius: 99px; background: #fff; color: #556; font-size: .86em; cursor: pointer; }
+.omroep-chip.aan { background: var(--accent); border-color: var(--accent); color: #fff; }
+.omroep-chip:disabled { opacity: .45; cursor: default; }
+.omroep-chip.dag { padding: .12rem .4rem; min-width: 2rem; }
+.omroep-tabel td { vertical-align: middle; }
+.omroep-tabel td:nth-child(2) { white-space: nowrap; }
+.omroep-tabel input.omroep-tekst { width: 100%; box-sizing: border-box; }
+.omroep-tabel tr.omroep-uit td { opacity: .6; }
+.omroep-tabel td .omroep-chip { margin: .08rem .1rem .08rem 0; }
+html[data-thema="donker"] .omroep-chip { background: var(--d2, #2a3340); border-color: #4a5566; color: #c9d2dd; }
+html[data-thema="donker"] .omroep-chip.aan { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* Bestellingen > tab Facturen > Prijzen bijwerken uit de factuur (FactuurPrijzenVenster) */
 .pk-venster.fp-venster { width: min(88rem, 97vw); }
 .fp-kies { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
