@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Zoeken** — Verbeterd (punt van Peter Verschuure): na een klik op Zoeken (of Ctrl+K) staat de cursor meteen in het zoekveld, zodat je direct kunt typen.
 - **Bestellingen** — Verbeterd (punt van Tim): bij Importeren ▸ Uit andere bestelling ga je met **← Terug naar de zoekresultaten** terug naar je zoekopdracht, zonder opnieuw te zoeken; de bestelling die je net bekeek is geel gemarkeerd. Ook na Annuleren blijft de laatste zoekopdracht staan als je het venster opnieuw opent.
 - **Bestellingen** — Opgelost: een prijs met een punt (2.02) werd € 202,00. Een punt telt nu als komma: 2.02 en 2,02 zijn allebei € 2,02 (1.250 blijft twaalfhonderdvijftig). Geldt ook voor aantal en korting, voor de prijs bij Artikelen, de getalvelden in formulieren en de algemene instellingen.
 - **Kabelconfigurator** — Verbeterd: de aanvraagtekening download je nu als PDF (knop ⬇ PDF). De knoppen Afdrukken en SVG zijn weg.

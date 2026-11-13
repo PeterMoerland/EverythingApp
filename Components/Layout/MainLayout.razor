@@ -233,7 +233,9 @@
 {
     <div class="cmdk-overlay" @onclick="Sluit">
         <div class="cmdk" @onclick:stopPropagation>
-            <input placeholder="Zoek een pagina, werkorder of werknemer…"
+            @* de cursor staat meteen in het zoekveld (punt van Peter Verschuure, 13-11-2026): autofocus werkt alleen bij het
+               laden van een pagina, niet voor een veld dat Blazor later toevoegt; daarom FocusAsync na het tekenen *@
+            <input @ref="_zoekVak" placeholder="Zoek een pagina, werkorder of werknemer…"
                    value="@_zoek" @oninput="ZoekInput" @onkeydown="Toets" autofocus />
             <div class="cmdk-lijst">
                 @foreach (var groep in Resultaten().GroupBy(r => r.Categorie))
@@ -290,6 +292,12 @@
 
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
+        // zoekvenster net geopend: de cursor in het zoekveld, zodat je meteen kunt typen
+        if (_zoekFocus && _open)
+        {
+            _zoekFocus = false;
+            try { await _zoekVak.FocusAsync(); } catch { /* niet erg: dan eerst in het veld klikken */ }
+        }
         if (!eerste) return;
         // Werkplek met een startpagina (Beheer ▸ Werkplekken): wie de app op de beginpagina opent, komt daar terecht
         if (Ik.Werkplek is { Startpagina.Length: > 0 } wp && Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Length == 0
@@ -467,7 +475,11 @@
     private void KioskSync() => _kiosk = false;
 
     // ===== zoekpalet =====
-    private void Open() { _open = true; _zoek = ""; }
+    private void Open() { _open = true; _zoek = ""; _zoekFocus = true; }
+
+    /// <summary>Het zoekveld van het zoekvenster, en of de cursor er na het tekenen in moet.</summary>
+    private ElementReference _zoekVak;
+    private bool _zoekFocus;
     private void Sluit() { _open = false; }
     private void ZoekInput(ChangeEventArgs e) => _zoek = (string?)e.Value ?? "";
 
