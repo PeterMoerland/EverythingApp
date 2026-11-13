@@ -923,7 +923,9 @@ onderling"); MDE betaalt; prijzen in beeld (later misschien beperken); vrijdag t
 bruikbaar voor een klantbezoek (losse lijst).
 - Tabellen `BroodjesAssortiment`, `BroodjesLijsten`, `BroodjesBestellingen` (**`Broodjes_MariaDB.sql`, zelf draaien**),
   `Services/IBroodjesRepository.cs` (Geen / Geheugen via `Broodjes__Geheugen=true` / MySql) met `BroodjesRegels`
-  (vrijdag van de week; za/zo = volgende week; sluitingstijd 11:00).
+  (vrijdag van de week; za/zo = volgende week; sluitingstijd 11:00). **Sluitingstijd nu 9:30**
+  (`BroodjesRegels.Sluitingstijd`; 10:00 sinds 6-11-2026, 9:30 sinds 13-11-2026, wens gebruiker). De tijd wordt bij het
+  aanmaken van de vrijdaglijst in `BroodjesLijsten.SluitOp` gezet: een lijst die al bestond houdt zijn oude tijd.
 - **Assortiment** (`Services/BroodjesAssortimentService.cs`): hun webshop is WooCommerce, de openbare Store API
   (`/wp-json/wc/store/v1/products?per_page=100&page=N`, header X-WP-TotalPages) geeft naam, prijs (in centen,
   `currency_minor_unit`), categorieën (HTML-entiteiten en zachte afbreekstreepjes), korte omschrijving, voorraad. Alleen
@@ -2549,6 +2551,20 @@ knop en de AI. Geen script, geen instelling (Bedrock moet ingesteld zijn, zoals 
   Log_Orderchanges (groep `Prijs`) met oud -> nieuw per regel (afgekapt op 500 tekens). Daarna laadt het scherm de
   regels en de lijst opnieuw. Mag in elke status (de factuur komt na het bestellen) en door iedereen die regels mag
   bewerken; de prijs bij het artikel zelf wordt niet aangepast.
+- **Zelf koppelen en koppelen op volgorde** (later op 13-11, na de eerste echte poging van de gebruiker op PO-17536,
+  WoTech: de factuur noemt alleen "3D print part" met eigen itemnummers, in dezelfde volgorde en aantallen als de
+  bestelling; de AI vond niets). Nu geeft de AI **alle** factuurregels terug (`FactuurRegelGelezen`: Nr, Tekst, aantal,
+  prijs, RegelId of null, Koppeling "nummer"/"omschrijving", Zeker); vracht en correcties blijven ongekoppeld
+  (creditregels zijn niet `Bruikbaar` en worden in `Ontleed` altijd ontkoppeld, ook als er een artikelnummer van ons
+  in staat). Wat de AI niet koppelt, koppelt het programma zelf: **`FactuurPrijsLezer.KoppelOpVolgorde`** geeft de nog
+  open bestelregels, in volgorde, elk de eerstvolgende vrije bruikbare factuurregel met hetzelfde aantal; alleen als
+  ze zo allemaal een regel vinden (anders niets). De AI zelf is gevraagd dat niet te doen (in de test weigerde hij het
+  ook met de opdracht erbij). Zulke regels (`OpVolgorde`) krijgen een oranje waarschuwing en staan **niet** vanzelf aan.
+  In het venster heeft elke bestelregel een keuzelijst **Regel op de factuur** met alle bruikbare factuurregels
+  (`KiesRegel`): zelf gekozen = aangevinkt als de prijs afwijkt; een factuurregel hoort bij hooguit één bestelregel
+  (hij gaat bij de andere weg). Onder de tabel staat wat op de factuur staat en nergens aan gekoppeld is.
+  Getest: `d22toets` (ontleden en zes gevallen van koppelen op volgorde) en lokaal op PO-17536 (4 van 4 op volgorde,
+  de twee correctieregels ongekoppeld, zelf een andere regel kiezen).
 - Getest: `d22toets` (alles ok); lokaal op een echte bestelling met twee facturen: kiezen, lezen via Bedrock (de AI
   vond de juiste regel, zag korting 50% tegenover 65% op de bestelling, +171,90, en meldde dat de andere regel niet op
   deze factuur staat), de vergelijking. **Niet getest**: het opslaan zelf en de logregel (stond in de test uit), een

@@ -5,7 +5,7 @@ namespace EverythingApp.Services;
 // =====================================================================================================================
 //  Broodjes bestellen bij het Kaeswienkeltje (Tholen), wens gebruiker 24-10-2026: 🥖 in de bovenbalk op donderdag en
 //  vrijdag, pagina /broodjes. Iedereen mag voor iedereen bestellen en de lijst mailen; MDE betaalt. De vrijdaglijst sluit
-//  vrijdag 10:00 (daarna telefonisch). Losse lijsten voor bijvoorbeeld een klantbezoek. Broodjes_MariaDB.sql.
+//  vrijdag 9:30 (daarna telefonisch). Losse lijsten voor bijvoorbeeld een klantbezoek. Broodjes_MariaDB.sql.
 // =====================================================================================================================
 
 public class BroodjeArtikel
@@ -59,7 +59,7 @@ public static class BroodjesRegels
     public const string Telefoon = "0166 603 018";
     public const string StandaardMail = "info@kaeswienkeltje.nl";
     /// <summary>Tot wanneer de vrijdaglijst openstaat (daarna telefonisch).</summary>
-    public static readonly TimeOnly Sluitingstijd = new(10, 0);   // was 11:00; 10:00 sinds 6-11-2026 (wens gebruiker)
+    public static readonly TimeOnly Sluitingstijd = new(9, 30);   // was 11:00; 10:00 sinds 6-11-2026; 9:30 sinds 13-11-2026 (wens gebruiker)
 
     /// <summary>De vrijdag van deze week (maandag t/m zondag); op zaterdag en zondag die van volgende week.</summary>
     public static DateOnly VrijdagVan(DateOnly d)
@@ -83,7 +83,7 @@ public interface IBroodjesRepository
     /// <summary>Het assortiment van de webshop overnemen: nieuw erbij, bestaand bijgewerkt (eigen Verborgen blijft), wat weg is niet meer leverbaar.</summary>
     Task<(int Nieuw, int Bijgewerkt, int Weg)> BewaarAssortimentAsync(IReadOnlyList<BroodjeArtikel> vanSite);
 
-    /// <summary>De vrijdaglijst van die vrijdag; bestaat hij nog niet, dan aangemaakt (sluit om BroodjesRegels.Sluitingstijd, 10:00).</summary>
+    /// <summary>De vrijdaglijst van die vrijdag; bestaat hij nog niet, dan aangemaakt (sluit om BroodjesRegels.Sluitingstijd, 9:30).</summary>
     Task<BroodjesLijst> VrijdagLijstAsync(DateOnly vrijdag, int? door);
     /// <summary>Lijsten van de afgelopen <paramref name="dagenTerug"/> dagen en later, nieuwste eerst.</summary>
     Task<List<BroodjesLijst>> RecenteLijstenAsync(int dagenTerug = 7);

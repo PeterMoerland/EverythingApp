@@ -5,9 +5,11 @@
 
 @* ============================================================================
    Bestellingen ▸ tab Facturen ▸ Prijzen bijwerken uit de factuur (wens gebruiker 13-11-2026). De AI (Bedrock,
-   Services/FactuurPrijsLezer.cs) leest een gekoppelde factuur en zoekt bij elke bestelregel de prijs op de factuur.
-   Eerst een vergelijking per regel (prijs nu, prijs op de factuur, verschil); de gebruiker kiest wat er bijgewerkt
-   wordt. Opslaan: IBestelRepository.PrijzenBijwerkenAsync (alleen prijs, korting en regeltotaal; met een logregel).
+   Services/FactuurPrijsLezer.cs) leest alle regels van een gekoppelde factuur en koppelt ze aan de bestelregels: op
+   nummer, op omschrijving, of (als de factuur niets herkenbaars noemt, bv. alleen "3D print part") op volgorde en
+   aantal. Per bestelregel kan de gebruiker de factuurregel zelf kiezen of verbeteren (keuzelijst). Eerst een
+   vergelijking (prijs nu, prijs op de factuur, verschil); de gebruiker kiest wat er bijgewerkt wordt.
+   Opslaan: IBestelRepository.PrijzenBijwerkenAsync (alleen prijs, korting en regeltotaal; met een logregel).
    Aantallen, omschrijvingen en regels die niet op de factuur staan blijven zoals ze zijn.
    ============================================================================ *@
 
@@ -54,10 +56,17 @@
                 {
                     <div class="fp-kop">
                         <span>Factuur <b>@(u.Factuurnummer.Length > 0 ? u.Factuurnummer : Naam(GekozenBestand?.Factuur))</b></span>
-                        <span class="uitleg">@_rijen.Count(r => r.Factuur is not null) van @_rijen.Count bestelregels gevonden op de factuur</span>
+                        <span class="uitleg">@_rijen.Count(r => r.Factuur is not null) van @_rijen.Count bestelregels gekoppeld aan een regel op de factuur</span>
                         @if (u.Valuta != "EUR") { <span class="sv-let">Let op: de factuur is in @u.Valuta, niet in euro's. Er is niets aangevinkt.</span> }
                         @if (u.InclBtw) { <span class="sv-let">Let op: de AI denkt dat de regelprijzen inclusief btw zijn. Er is niets aangevinkt.</span> }
                     </div>
+                    @if (_rijen.Any(r => r.Factuur is { OpVolgorde: true } && !r.Zelf && !r.Bijgewerkt))
+                    {
+                        <div class="sv-let">
+                            ⚠ De factuur noemt bij (een deel van) de regels geen herkenbaar artikelnummer of omschrijving. Die zijn gekoppeld op
+                            <b>volgorde en aantal</b>; kijk of dat klopt en vink ze dan aan. Bij Regel op de factuur kun je zelf een andere regel kiezen.
+                        </div>
+                    }
                     @foreach (var o in u.Opmerkingen) { <div class="uitleg">AI: @o</div> }
 
                     <div class="pk-tabelvak">
@@ -65,13 +74,13 @@
                             <thead>
                                 <tr>
                                     <th style="width:2rem"><input type="checkbox" checked="@(Kiesbaar.Any() && Kiesbaar.All(x => x.Mee))" @onchange="AllesMee" title="Alles aan/uit" /></th>
-                                    <th style="width:9.5rem">Artikelcode</th>
+                                    <th style="width:8.5rem">Artikelcode</th>
                                     <th>Bestelregel</th>
                                     <th class="r" style="width:4.2rem">Aantal</th>
-                                    <th class="r" style="width:8rem" title="Wat er nu op de bestelling staat: stuksprijs, met de korting eronder">Prijs nu</th>
-                                    <th class="r" style="width:8rem" title="Wat er op de factuur staat: stuksprijs, met de korting eronder">Op de factuur</th>
+                                    <th class="r" style="width:7.5rem" title="Wat er nu op de bestelling staat: stuksprijs, met de korting eronder">Prijs nu</th>
+                                    <th class="r" style="width:7.5rem" title="Wat er op de factuur staat: stuksprijs, met de korting eronder">Op de factuur</th>
                                     <th class="r" style="width:7.5rem" title="Verschil in de netto prijs per stuk, en wat dat op de hele regel scheelt">Verschil</th>
-                                    <th style="width:17rem">Regel op de factuur</th>
+                                    <th style="width:24rem" title="De regel van de factuur die bij deze bestelregel hoort. De AI doet een voorstel; je kunt zelf een andere kiezen.">Regel op de factuur</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -81,7 +90,7 @@
                                     var f = rij.Factuur;
                                     <tr @key="x.Id" class="@(rij.Bijgewerkt ? "pk-klaar" : f is null || rij.Gelijk ? "pk-uit" : "")">
                                         <td>
-                                            @if (f?.Stuksprijs is not null && !rij.Gelijk)
+                                            @if (f is not null && !rij.Gelijk)
                                             {
                                                 <input type="checkbox" checked="@rij.Mee" disabled="@(rij.Bijgewerkt || _bezig)" @onchange="e => rij.Mee = e.Value is true" />
                                             }
@@ -100,13 +109,11 @@
                                             @if (x.Korting is decimal k && k != 0) { <small>−@((k * 100m).ToString("0.##", Nl))%</small> }
                                         </td>
                                         <td class="r">
-                                            @if (f is null) { <span class="uitleg">niet op de factuur</span> }
-                                            else if (f.Stuksprijs is decimal fp)
+                                            @if (f?.Stuksprijs is decimal fp)
                                             {
                                                 <b>@Geld(fp)</b>
                                                 @if (f.KortingProcent is decimal fk) { <small>−@fk.ToString("0.##", Nl)%</small> }
                                             }
-                                            else { <span class="sv-let">prijs niet gelezen</span> }
                                         </td>
                                         <td class="r">
                                             @if (rij.Gelijk) { <span class="uitleg">gelijk</span> }
@@ -117,12 +124,25 @@
                                             }
                                         </td>
                                         <td>
+                                            <select class="fp-regelkeuze" value="@(f?.Nr ?? 0)" disabled="@(rij.Bijgewerkt || _bezig)"
+                                                    title="@(f?.Tekst ?? "Kies de regel van de factuur die bij deze bestelregel hoort")"
+                                                    @onchange="e => KiesRegel(rij, e)">
+                                                <option value="0">— niet op de factuur —</option>
+                                                @foreach (var l in u.Regels.Where(l => l.Bruikbaar))
+                                                {
+                                                    <option value="@l.Nr">@Keuzetekst(l)</option>
+                                                }
+                                            </select>
                                             @if (f is not null)
                                             {
-                                                <span title="@f.Factuurregel">@f.Factuurregel</span>
-                                                @if (!f.Zeker) { <small class="sv-let">⚠ de AI twijfelt of dit dezelfde regel is</small> }
+                                                @if (rij.Zelf) { <small>zelf gekozen</small> }
+                                                else
+                                                {
+                                                    @if (f.OpVolgorde) { <small class="sv-let">⚠ gekoppeld op volgorde en aantal: controleer</small> }
+                                                    @if (!f.Zeker) { <small class="sv-let">⚠ de AI twijfelt of dit dezelfde regel is</small> }
+                                                    @if (f.Opmerking.Trim().Length > 0) { <small>@f.Opmerking.Trim()</small> }
+                                                }
                                                 @if (f.Klopt == false) { <small class="sv-let" title="Aantal × prijs (min korting) komt niet uit op het regelbedrag van de factuur">⚠ rekent niet rond met het regelbedrag (@(f.Regeltotaal is decimal t ? Geld(t) : ""))</small> }
-                                                @if (f.Opmerking.Trim().Length > 0) { <small>@f.Opmerking.Trim()</small> }
                                             }
                                         </td>
                                     </tr>
@@ -131,16 +151,16 @@
                         </table>
                     </div>
 
-                    @if (u.Overig.Count > 0)
+                    @if (NietGekoppeld.Count > 0)
                     {
                         <div class="uitleg">
-                            <b>Wel op de factuur, niet op de bestelling:</b>
-                            @string.Join("; ", u.Overig.Select(o => o.Omschrijving + (o.Bedrag is decimal b ? " (" + Geld(b) + ")" : "")))
+                            <b>Op de factuur, niet gekoppeld aan een bestelregel:</b>
+                            @string.Join("; ", NietGekoppeld.Select(l => l.Nr + ". " + Kort(l.Tekst, 70) + (l.Regeltotaal is decimal b ? " (" + Geld(b) + ")" : "")))
                         </div>
                     }
                     <p class="uitleg">
-                        Aangevinkt is wat afwijkt en waar de AI zeker van is. Controleer het met de factuur; alleen prijs en korting
-                        van de aangevinkte regels worden bijgewerkt, de aantallen blijven zoals ze zijn.
+                        Vanzelf aangevinkt is wat afwijkt en waar de AI zeker van is (gekoppeld op nummer of omschrijving). Controleer het
+                        met de factuur; alleen prijs en korting van de aangevinkte regels worden bijgewerkt, de aantallen blijven zoals ze zijn.
                     </p>
                     @foreach (var v in _verslag) { <div class="melding ok">@v</div> }
                 }
@@ -180,15 +200,18 @@
     private sealed class Rij
     {
         public Orderregel Regel = null!;
-        public FactuurPrijsRegel? Factuur;
+        /// <summary>De factuurregel die bij deze bestelregel hoort: het voorstel van de AI, of zelf gekozen.</summary>
+        public FactuurRegelGelezen? Factuur;
+        /// <summary>De gebruiker heeft de factuurregel zelf gekozen (dan gelden de twijfels van de AI niet meer).</summary>
+        public bool Zelf;
         public bool Mee, Bijgewerkt;
 
         /// <summary>Netto per stuk zoals het nu op de bestelling staat (zonder echte prijs: de schatting).</summary>
         public decimal? NettoNu => (Regel.Prijs ?? Regel.Schatprijs) is decimal p ? p * (1 - (Regel.Korting ?? 0)) : null;
         /// <summary>Netto per stuk op de factuur min wat er nu staat.</summary>
         public decimal? Verschil => Factuur?.Netto is decimal n ? n - (NettoNu ?? 0) : null;
-        /// <summary>Er staat al een echte prijs en die komt netto op hetzelfde uit: niets te doen.</summary>
-        public bool Gelijk => Regel.Prijs is not null && Verschil is decimal v && Math.Abs(v) < 0.005m;
+        /// <summary>Er staat al een echte prijs (niet nul) en die komt netto op hetzelfde uit: niets te doen.</summary>
+        public bool Gelijk => Regel.Prijs is decimal p && p != 0 && Verschil is decimal v && Math.Abs(v) < 0.005m;
     }
 
     private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
@@ -207,8 +230,12 @@
     private (BestelFactuur Factuur, Bestand Bestand)? GekozenBestand
         => Bestanden.Where(b => b.Bestand.FileStoreId == _gekozen).Select(b => ((BestelFactuur, Bestand)?)b).FirstOrDefault();
 
-    private IEnumerable<Rij> Kiesbaar => _rijen.Where(r => r.Factuur?.Stuksprijs is not null && !r.Gelijk && !r.Bijgewerkt);
+    private IEnumerable<Rij> Kiesbaar => _rijen.Where(r => r.Factuur is not null && !r.Gelijk && !r.Bijgewerkt);
     private int AantalMee => Kiesbaar.Count(r => r.Mee);
+
+    /// <summary>Factuurregels die (nu) bij geen enkele bestelregel horen: vracht, correcties, of nog niet gekozen.</summary>
+    private List<FactuurRegelGelezen> NietGekoppeld
+        => _uitkomst is null ? new() : _uitkomst.Regels.Where(l => !_rijen.Any(r => r.Factuur?.Nr == l.Nr)).ToList();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -223,6 +250,17 @@
 
     private static string Naam(BestelFactuur? f) => f is null ? "" : f.Factuurnummer.Length > 0 ? f.Factuurnummer : "factuur #" + f.FactuurId;
     private static string Geld(decimal d) => d.ToString(Math.Round(d, 2) == d ? "N2" : "0.00##", Nl);
+    private static string Kort(string s, int max) => s.Length > max ? s[..(max - 1)] + "…" : s;
+
+    /// <summary>Een factuurregel in de keuzelijst: nummer, tekst, aantal × prijs.</summary>
+    private static string Keuzetekst(FactuurRegelGelezen l)
+        => $"{l.Nr}. {Kort(l.Tekst, 60)}"
+         + (l.Aantal is double a ? $" · {a.ToString("0.###", Nl)} ×" : " ·")
+         + (l.Stuksprijs is decimal p ? " " + Geld(p) : "")
+         + (l.KortingProcent is decimal k ? $" −{k.ToString("0.##", Nl)}%" : "");
+
+    /// <summary>Mogen de prijzen van deze factuur vanzelf aangevinkt worden? Niet bij een andere valuta of prijzen incl. btw.</summary>
+    private bool Veilig => _uitkomst is { Valuta: "EUR", InclBtw: false };
 
     private async Task Lees()
     {
@@ -241,12 +279,12 @@
             if (uit is null) { _fout = fout; _fase = Fase.Kiezen; return; }
 
             _uitkomst = uit;
-            var veilig = uit.Valuta == "EUR" && !uit.InclBtw;
             _rijen = Regels.Select(r =>
             {
                 var rij = new Rij { Regel = r, Factuur = uit.Regels.FirstOrDefault(f => f.RegelId == r.Id) };
-                // vanzelf aan: afwijkend, de AI is zeker, en aantal × prijs rekent rond met het regelbedrag (of er valt niets na te rekenen)
-                rij.Mee = veilig && rij.Factuur is { Stuksprijs: not null, Zeker: true } f && f.Klopt != false && !rij.Gelijk;
+                // vanzelf aan: afwijkend, de AI is zeker (niet alleen op volgorde), en aantal × prijs rekent rond met het
+                // regelbedrag (of er valt niets na te rekenen)
+                rij.Mee = Veilig && rij.Factuur is { Zeker: true, OpVolgorde: false } f && f.Klopt != false && !rij.Gelijk;
                 return rij;
             }).ToList();
             _verslag = new();
@@ -259,10 +297,26 @@
 
     private void AllesMee(ChangeEventArgs e) { foreach (var r in Kiesbaar) r.Mee = e.Value is true; }
 
+    /// <summary>
+    /// De gebruiker kiest zelf de factuurregel bij een bestelregel (of "niet op de factuur"). Een factuurregel hoort bij
+    /// hooguit één bestelregel: stond hij al bij een andere, dan gaat hij daar weg. Zelf gekozen = vanzelf aangevinkt
+    /// als de prijs afwijkt.
+    /// </summary>
+    private void KiesRegel(Rij rij, ChangeEventArgs e)
+    {
+        var nr = int.TryParse(e.Value?.ToString(), out var n) ? n : 0;
+        var regel = _uitkomst?.Regels.FirstOrDefault(l => l.Nr == nr && l.Bruikbaar);
+        if (regel is not null)
+            foreach (var ander in _rijen.Where(a => a != rij && !a.Bijgewerkt && a.Factuur?.Nr == regel.Nr)) { ander.Factuur = null; ander.Mee = false; }
+        rij.Factuur = regel;
+        rij.Zelf = regel is not null;
+        rij.Mee = regel is not null && !rij.Gelijk;
+    }
+
     private async Task Bijwerken()
     {
         if (OrderId is not int order || _bezig) return;
-        var mee = Kiesbaar.Where(r => r.Mee).ToList();
+        var mee = Kiesbaar.Where(r => r.Mee && r.Factuur?.Stuksprijs is not null).ToList();
         if (mee.Count == 0) return;
         _bezig = true; _fout = null;
         try
