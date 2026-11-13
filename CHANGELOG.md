@@ -7,7 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
-- **Bestellingen** — Nieuw: tab **Facturen** bij een bestelling: de facturen van de leverancier die eraan gekoppeld zijn, met datum, bedrag en of ze betaald zijn. Klik op het bestand om de factuur te bekijken (↗ opent hem in een nieuw venster). Iedereen kan dit zien; koppelen blijft bij Financiën.
+- **Bestellingen** — Nieuw: tab **Facturen** bij een bestelling: de facturen van de leverancier die eraan gekoppeld zijn, als tegels met een miniatuur, het factuurnummer, de datum, het bedrag en of hij betaald is. Klik op een factuur om hem te bekijken (alleen een voorbeeld; aanpassen en koppelen blijft bij Financiën). Iedereen kan dit zien. Directie en Finance hebben in dat voorbeeld een knop om door te klikken naar de factuur bij Inkomende facturen.
 - **Bestellingen** — Nieuw: een bestelling die op Wacht op levering staat kun je nu in het bestelscherm **gereed melden** (knop Gereed ▸). Net als in Access komt de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is: Ja boekt wat nog openstaat als geleverd, Nee zet de bestelling alleen op Gereed, Annuleren doet niets. Je ziet eerst welke regels nog openstaan.
 - **Bestellingen** — Verbeterd: de tab Documenten toont de bestanden als tegels met een miniatuur (PDF en afbeelding in het klein), en het vlak is hoger, zodat de bestelregels niet meer omhoog springen.
 - **Bestellingen** — Nieuw: in het blokje Leverancier staat het telefoonnummer van de leverancier en van de contactpersoon, om erachteraan te bellen (klik om te bellen).

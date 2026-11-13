@@ -299,22 +299,7 @@
                                     @foreach (var d in _documenten)
                                     {
                                         <div class="doc-tegel" @key="d.FileStoreId">
-                                            <div class="doc-mini" role="button" tabindex="0" title="@("Bekijken: " + d.Bestandsnaam)"
-                                                 @onclick="() => ToonVoorbeeld(d)">
-                                                @switch (MiniSoort(d.Bestandsnaam))
-                                                {
-                                                    case "afbeelding":
-                                                        <img src="@BekijkUrl(d.FileStoreId)" alt="" loading="lazy" />
-                                                        break;
-                                                    case "pdf":
-                                                        <iframe src="@(BekijkUrl(d.FileStoreId) + "#toolbar=0&navpanes=0&scrollbar=0&view=FitH")"
-                                                                loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-                                                        break;
-                                                    default:
-                                                        <span class="doc-ext">@Extensie(d.Bestandsnaam)</span>
-                                                        break;
-                                                }
-                                            </div>
+                                            @Mini(d)
                                             <button class="bestandnaam doc-naam" title="@d.Bestandsnaam"
                                                     @onclick="() => ToonVoorbeeld(d)">@d.Bestandsnaam</button>
                                             <div class="doc-voet">
@@ -340,79 +325,52 @@
                     }
                     else if (_tab == "Facturen")
                     {
+                        @* per factuurbestand een tegel met een miniatuur; klikken toont alleen het voorbeeld. Bewust geen link naar
+                           Financiën of een nieuw venster (wens gebruiker 13-11-2026): vanuit Bestellingen kijk je alleen. *@
                         <div class="tabvlak">
-                        @if (_facturen.Count == 0)
-                        {
-                            <p class="uitleg">Er is nog geen factuur aan deze bestelling gekoppeld.</p>
-                        }
-                        else
-                        {
-                            <table class="kiezer-tabel bestel-facturen">
-                                <thead>
-                                    <tr>
-                                        <th style="width:11rem">Factuurnummer</th>
-                                        <th style="width:6.6rem">Datum</th>
-                                        <th>Omschrijving</th>
-                                        <th style="width:8.4rem" class="r" title="Het deel van de factuur dat aan deze bestelling hangt (ex btw)">Op deze bestelling</th>
-                                        <th style="width:8.4rem" class="r" title="Het hele factuurbedrag, ex btw">Factuur ex btw</th>
-                                        <th style="width:5.6rem" class="c">Betaald</th>
-                                        <th style="width:17rem">Bestand</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                            @if (_facturen.Count == 0)
+                            {
+                                <p class="uitleg">Er is nog geen factuur aan deze bestelling gekoppeld.</p>
+                            }
+                            else
+                            {
+                                <div class="doc-tegels">
                                     @foreach (var f in _facturen)
                                     {
-                                        <tr @key="f.FactuurId">
-                                            <td>
-                                                @if (Ik.MagFinancien)
-                                                {
-                                                    <a href="@("financien/facturen?factuur=" + f.FactuurId)" target="_blank" rel="noopener"
-                                                       title="Deze factuur openen bij Inkomende facturen, in een nieuw venster">@FactuurNaam(f)</a>
-                                                }
-                                                else
-                                                {
-                                                    @FactuurNaam(f)
-                                                }
-                                            </td>
-                                            <td>@(f.Factuurdatum?.ToString("dd-MM-yyyy") ?? "")</td>
-                                            <td class="omschrijving" title="@f.Omschrijving">@f.Omschrijving</td>
-                                            <td class="r">@Bedrag(f.Gekoppeld)</td>
-                                            <td class="r">@Bedrag(f.BedragExBtw)</td>
-                                            <td class="c" title="@(f.Betaald ? "Betaald" : f.Goedgekeurd ? "Goedgekeurd, nog niet betaald" : "Nog niet goedgekeurd")">@(f.Betaald ? "✔" : "")</td>
-                                            <td>
-                                                @foreach (var d in f.Bestanden)
-                                                {
-                                                    <div class="bestel-factuur-bestand" @key="d.FileStoreId">
-                                                        <button class="bestandnaam" title="Bekijken"
-                                                                @onclick="() => ToonVoorbeeld(d)">📄 @d.Bestandsnaam</button>
-                                                        <a href="@BekijkUrl(d.FileStoreId)" target="_blank" rel="noopener"
-                                                           title="Openen in een nieuw venster">↗</a>
-                                                    </div>
-                                                }
-                                                @if (f.Bestanden.Count == 0)
-                                                {
-                                                    <span class="uitleg">geen bestand</span>
-                                                }
-                                            </td>
-                                        </tr>
+                                        @foreach (var d in f.Bestanden)
+                                        {
+                                            <div class="doc-tegel" @key="d.FileStoreId">
+                                                @Mini(d)
+                                                <button class="bestandnaam doc-naam" title="@("Factuur " + FactuurNaam(f) + " bekijken (" + d.Bestandsnaam + ")")"
+                                                        @onclick="() => ToonVoorbeeld(d)"><b>@FactuurNaam(f)</b></button>
+                                                <div class="doc-voet">
+                                                    <span class="doc-wanneer" title="@FactuurUitleg(f)">
+                                                        @(f.Factuurdatum?.ToString("dd-MM-yyyy") ?? "") · @Bedrag(f.Gekoppeld)
+                                                    </span>
+                                                    <span class="stand-chip @(f.Betaald ? "s-groen" : "s-grijs")">@(f.Betaald ? "betaald" : "open")</span>
+                                                </div>
+                                            </div>
+                                        }
+                                        @if (f.Bestanden.Count == 0)
+                                        {
+                                            <div class="doc-tegel" @key="@("f" + f.FactuurId)">
+                                                <div class="doc-mini leeg"><span class="uitleg">geen bestand</span></div>
+                                                <span class="doc-naam"><b>@FactuurNaam(f)</b></span>
+                                                <div class="doc-voet">
+                                                    <span class="doc-wanneer" title="@FactuurUitleg(f)">
+                                                        @(f.Factuurdatum?.ToString("dd-MM-yyyy") ?? "") · @Bedrag(f.Gekoppeld)
+                                                    </span>
+                                                    <span class="stand-chip @(f.Betaald ? "s-groen" : "s-grijs")">@(f.Betaald ? "betaald" : "open")</span>
+                                                </div>
+                                            </div>
+                                        }
                                     }
-                                </tbody>
-                                @if (_facturen.Count > 1)
-                                {
-                                    <tfoot>
-                                        <tr>
-                                            <td colspan="3" class="r"><b>Samen</b></td>
-                                            <td class="r"><b>@Bedrag(_facturen.Sum(f => f.Gekoppeld))</b></td>
-                                            <td colspan="3"></td>
-                                        </tr>
-                                    </tfoot>
-                                }
-                            </table>
-                            <p class="uitleg">
-                                Besteld @Bedrag(_regels.Sum(r => r.Regeltotaal)), gefactureerd op deze bestelling @Bedrag(_facturen.Sum(f => f.Gekoppeld)) (ex btw).
-                                Klik op een bestand om de factuur te bekijken; ↗ opent hem in een nieuw venster.
-                            </p>
-                        }
+                                </div>
+                                <p class="uitleg">
+                                    Besteld @Bedrag(_regels.Sum(r => r.Regeltotaal)), gefactureerd op deze bestelling @Bedrag(_facturen.Sum(f => f.Gekoppeld)) (ex btw).
+                                    Klik op een factuur om hem te bekijken.
+                                </p>
+                            }
                         </div>
                     }
                     else
@@ -786,7 +744,16 @@
 
 @* voorbeeld van één bestand: 3D, PDF, Word/Excel of afbeelding *@
 <BestandVoorbeeld Id="_voorbeeld?.FileStoreId" Naam="@(_voorbeeld?.Bestandsnaam ?? "")"
-                  Sluiten="SluitVoorbeeld" />
+                  Sluiten="SluitVoorbeeld">
+    <Knoppen>
+        @* het voorbeeld van een gekoppelde factuur: Directie en Finance kunnen door naar Inkomende facturen (wens gebruiker 13-11-2026) *@
+        @if (Ik.MagFinancien && VoorbeeldFactuur() is { } vf)
+        {
+            <a class="knopje" href="@("financien/facturen?factuur=" + vf.FactuurId)" target="_blank" rel="noopener"
+               title="@("Factuur " + FactuurNaam(vf) + " openen bij Inkomende facturen, in een nieuw venster")">🧾 Inkomende facturen ↗</a>
+        }
+    </Knoppen>
+</BestandVoorbeeld>
 
 @* de gegevens van het artikel achter een orderregel *@
 <ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
@@ -2111,6 +2078,27 @@
         return n.EndsWith(".jpg") || n.EndsWith(".jpeg") || n.EndsWith(".png") || n.EndsWith(".gif") || n.EndsWith(".webp") ? "afbeelding" : "";
     }
 
+    /// <summary>De miniatuur van één bestand (tabs Documenten en Facturen); klikken opent het voorbeeldvenster.</summary>
+    private RenderFragment Mini(Bestand d) => __builder =>
+    {
+        <div class="doc-mini" role="button" tabindex="0" title="@("Bekijken: " + d.Bestandsnaam)"
+             @onclick="() => ToonVoorbeeld(d)">
+            @switch (MiniSoort(d.Bestandsnaam))
+            {
+                case "afbeelding":
+                    <img src="@BekijkUrl(d.FileStoreId)" alt="" loading="lazy" />
+                    break;
+                case "pdf":
+                    <iframe src="@(BekijkUrl(d.FileStoreId) + "#toolbar=0&navpanes=0&scrollbar=0&view=FitH")"
+                            loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
+                    break;
+                default:
+                    <span class="doc-ext">@Extensie(d.Bestandsnaam)</span>
+                    break;
+            }
+        </div>
+    };
+
     private static string Extensie(string naam)
         => System.IO.Path.GetExtension(naam ?? "").TrimStart('.') is { Length: > 0 and <= 5 } e ? e.ToUpperInvariant() : "bestand";
 
@@ -2151,6 +2139,16 @@
     }
 
     private static string FactuurNaam(BestelFactuur f) => f.Factuurnummer.Length > 0 ? f.Factuurnummer : "factuur #" + f.FactuurId;
+
+    /// <summary>De gekoppelde factuur waar het bestand in het voorbeeldvenster bij hoort (null bij een gewoon document).</summary>
+    private BestelFactuur? VoorbeeldFactuur()
+        => _voorbeeld is { } v ? _facturen.FirstOrDefault(f => f.Bestanden.Any(b => b.FileStoreId == v.FileStoreId)) : null;
+
+    /// <summary>Wolkje bij een factuurtegel: wat er op deze bestelling staat, het hele factuurbedrag en de stand.</summary>
+    private static string FactuurUitleg(BestelFactuur f)
+        => $"Op deze bestelling {Bedrag(f.Gekoppeld)} (ex btw); de hele factuur {Bedrag(f.BedragExBtw)} ex btw. "
+         + (f.Betaald ? "Betaald." : f.Goedgekeurd ? "Goedgekeurd, nog niet betaald." : "Nog niet goedgekeurd.")
+         + (f.Omschrijving.Length > 0 ? " " + f.Omschrijving : "");
 
     private async Task LaadDocumenten()
     {

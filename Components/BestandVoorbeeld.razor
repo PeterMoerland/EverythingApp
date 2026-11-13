@@ -14,6 +14,7 @@
             <header class="bijlagekop">
                 <h2>@Naam</h2>
                 <span class="btngroup">
+                    @Knoppen
                     <a class="knopje" href="@("bestand/" + bestandId + "/download")"
                        title="Downloaden">⭳ Downloaden</a>
                     <button class="klein" @onclick="Dicht">✕</button>
@@ -56,6 +57,9 @@
     [Parameter] public string Naam { get; set; } = "";
 
     [Parameter] public EventCallback Sluiten { get; set; }
+
+    /// <summary>Extra knoppen in de kop, vóór Downloaden (bv. doorklikken naar de factuur waar dit bestand bij hoort).</summary>
+    [Parameter] public RenderFragment? Knoppen { get; set; }
 
     private const string _viewerId = "viewer3d-voorbeeld";
     private int? _getoond;

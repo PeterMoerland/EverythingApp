@@ -2534,10 +2534,17 @@ Vier wensen van de gebruiker op één dag, allemaal in `Components/Pages/Bestell
   (besluit gebruiker). `IBestelRepository.FacturenAsync(orderId)` -> `BestelFactuur` (Facturen_Orders_Link +
   FacturenInkomend, per factuur één regel met de gekoppelde bedragen opgeteld); de bestanden per factuur via
   `WnRepo.GetBestandenAsync(1, factuurId)` (filestore soort 1). Bestand = het gewone voorbeeldvenster, ↗ = `bestand/<id>`
-  in een nieuw venster (soort 1 mocht iedereen die aangemeld is al openen, `MagBestand` in Program.cs). Alleen
-  `Ik.MagFinancien` krijgt het factuurnummer als link `financien/facturen?factuur=<id>` (nieuw venster); daarvoor opent
-  `Facturen.razor` met `?factuur=<id>` (`FactuurParam`) meteen het factuurvenster, ook buiten de periode van de lijst.
+  in een nieuw venster (soort 1 mocht iedereen die aangemeld is al openen, `MagBestand` in Program.cs).
   Geladen bij het kiezen van een bestelling (`LaadFacturen`), dus het aantal staat in de tab.
+  **Later dezelfde dag (wens gebruiker): alleen een voorbeeld, met miniaturen.** De tabel is vervangen door dezelfde
+  tegels als de tab Documenten (`Mini(d)`, één tegel per factuurbestand: miniatuur, factuurnummer, datum, bedrag op deze
+  bestelling, chip betaald/open; een factuur zonder bestand krijgt een lege tegel). Klikken opent alleen het
+  voorbeeldvenster; de link naar Inkomende facturen in de tegel en de ↗ naar een nieuw venster zijn **bewust weg**:
+  vanuit Bestellingen kijk je alleen. Wel (wens gebruiker, daarna): in het voorbeeldvenster van een factuur krijgt
+  `Ik.MagFinancien` (Directie en Finance) de knop **🧾 Inkomende facturen ↗** = `financien/facturen?factuur=<id>` in
+  een nieuw venster (`Facturen.razor`, `FactuurParam`: opent meteen het factuurvenster, ook buiten de periode van de
+  lijst). Daarvoor heeft `BestandVoorbeeld` een optionele `Knoppen` (RenderFragment, in de kop vóór Downloaden);
+  `VoorbeeldFactuur()` zoekt de factuur bij het getoonde bestand.
 - **Gereed melden** (Access: Order main form, Volgende bij status 4): knop **Gereed ▸** bij Wacht op levering
   (`BestelFlow.MagNiet` blokkeert status 4 niet meer; `HeeftKnoppen` t/m status 4). Volgende opent een venster met de
   vraag uit Access "Wil je alle geleverde aantallen aanpassen aan wat besteld is?" en de regels die nog openstaan

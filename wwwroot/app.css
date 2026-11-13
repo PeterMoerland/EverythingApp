@@ -1381,11 +1381,11 @@ html[data-thema="donker"] .doc-ext, html[data-thema="donker"] .doc-voet .doc-wan
 /* Bestellingen: gereed melden (de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is) */
 .gereed-venster { width: min(46rem, 94vw); }
 .gereed-regels { max-height: 40vh; overflow: auto; }
-/* Bestellingen > tab Facturen: de bestanden van een gekoppelde factuur */
-.bestel-facturen td:nth-child(2), .bestel-facturen td.r { white-space: nowrap; }
-.bestel-factuur-bestand { display: flex; gap: .4rem; align-items: baseline; }
-.bestel-factuur-bestand button.bestandnaam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.bestel-factuur-bestand a { text-decoration: none; }
+/* Bestellingen > tab Facturen: dezelfde tegels als Documenten; een factuur zonder bestand is niet aan te klikken */
+.doc-mini.leeg { cursor: default; }
+.doc-mini.leeg:hover { outline: none; }
+span.doc-naam { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9em; }
+.doc-voet .stand-chip { font-size: .78em; white-space: nowrap; }
 /* regel onder een tegel (bv. "3 van jou" bij Niet doorgezet) */
 .tegel-sub { font-size: .82em; font-weight: 600; color: #c25e00; }
 html[data-thema="donker"] .tegel-sub { color: #ffb366; }
