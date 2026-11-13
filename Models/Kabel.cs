@@ -14,6 +14,9 @@ public enum KabelEindSoort { Connector, OpenEind }
 
 public enum KabelAfscherming { Geen, Folie, Vlecht, FolieEnVlecht }
 
+/// <summary>Wat er tussen de uiteinden zit: een kabel (alle aders in één mantel) of losse aders zonder mantel.</summary>
+public enum KabelUitvoering { Kabel, LosseAders }
+
 /// <summary>Een kant van de kabel (P1 of P2): een connector of een open eind.</summary>
 public class KabelEind
 {
@@ -103,6 +106,14 @@ public class KabelSpec
     public int LengteTolerantie { get; set; } = 10;
     public int Aantal { get; set; } = 10;
 
+    /// <summary>Kabel (aders in één mantel) of losse aders. Losse aders hebben geen mantel, afscherming of krimpkous;
+    /// DraadType/AWG/opbouw gelden dan per ader (bv. UL1007 24AWG). Ontbreekt in oudere opgeslagen kabels: dan Kabel.</summary>
+    public KabelUitvoering Uitvoering { get; set; } = KabelUitvoering.Kabel;
+
+    /// <summary>De aders vastlijmen aan de connector (trekontlasting), aan elke kant waar een connector zit. Eén instelling
+    /// voor de hele kabel (wens gebruiker 13-11-2026); komt als eis en als gele markering op de tekening.</summary>
+    public bool AdersLijmen { get; set; }
+
     public string DraadType { get; set; } = "UL2464";
     public int Awg { get; set; } = 28;
     /// <summary>Opbouw van een ader, bv. 7/0.12 (7 draadjes van 0,12 mm).</summary>
@@ -124,6 +135,11 @@ public class KabelSpec
     public string GewijzigdDoor { get; set; } = "";
 
     [JsonIgnore] public string LeveranciersNummer => KabelNummer.Maak(this);
+
+    [JsonIgnore] public bool IsLosseAders => Uitvoering == KabelUitvoering.LosseAders;
+
+    /// <summary>Komt er aan deze kant een krimpkous? Alleen om een kabel; om losse aders niet.</summary>
+    public bool HeeftKous(KabelEind e) => e.Krimpkous && !IsLosseAders;
 
     /// <summary>Aantal getwiste paren (paarnummers met precies twee aders).</summary>
     [JsonIgnore] public int Paren => Aders.Where(a => a.Paar is not null).GroupBy(a => a.Paar).Count(g => g.Count() == 2);

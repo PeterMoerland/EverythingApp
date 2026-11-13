@@ -2207,6 +2207,24 @@ hier zitten.
   daarna opnieuw gebouwd, het scherm licht en donker bekeken (de tekening blijft wit), en Verwijderen vraagt nu met de
   bevestigvraag van de app (`mdeBevestig`). Bron van het voorbeeld en het nummerschema: de LDZY-tekening
   W2464-08-G020007 (PDF, 22-07-2026, rev A; stond in Downloads van de gebruiker, niet in de repo).
+- **Opslaan: bijwerken of als nieuwe** (melding gebruiker 13-11: "opslaan werkt anders dan ik verwacht"; in de tabel
+  stond maar één kabel, telkens bijgewerkt). De ene knop Opslaan deed een UPDATE zodra de kabel een Id had, ook als de
+  gebruiker er intussen een andere kabel van had gemaakt. Nu `Bewaar(nieuw)`: zonder Id alleen **Opslaan als nieuwe
+  kabel**; met Id **Wijzigingen opslaan** (UPDATE) en **＋ Opslaan als nieuwe kabel** (Id naar 0, INSERT). Een nieuwe kabel
+  moet een naam hebben die nog niet bestaat (melding, niets opgeslagen). De kaart Opgeslagen kabels zegt hoeveel er
+  staan en legt de twee knoppen uit. **Niet getest**: het opslaan zelf (schrijft naar de database).
+- **Aders vastlijmen** (wens gebruiker, later op 13-11: "als globale instelling"; opgevat als één instelling per kabel,
+  voor elke kant met een connector): `KabelSpec.AdersLijmen`, vinkje in de kaart Kabel. Tekening: gele markering met
+  GLUE bij de aderingang van elke connector, en een extra genummerde eis (`KabelTekening.LijmTekst`, ook in de
+  spec-tekst). Welke lijm staat er niet bij; dat kan in het vak Eisen.
+- **Kabel of losse aders** (wens gebruiker, later op 13-11): `KabelSpec.Uitvoering` (`KabelUitvoering.Kabel` /
+  `LosseAders`; ontbreekt in oudere JSON = Kabel). Keuzelijst bovenaan de kaart Draad; bij losse aders zijn afscherming,
+  buitendiameter, mantelkleur en krimpkous weg uit het scherm (`KabelSpec.HeeftKous` = krimpkous aan én geen losse aders;
+  de opgeslagen krimpkousvelden blijven staan, dus terugschakelen naar kabel geeft ze terug). Tekening: in plaats van de
+  mantel loopt elke ader als eigen gekleurde lijn van P1 naar P2 (`KabelTekening.BundelY`), stuklijstregel Wire wordt
+  "single wires, no jacket" met het aantal aders als Q'TY, geen Sleeve-regel, titel "n single wires", open eind
+  "strip wires n mm". Het LDZY-nummer blijft W + de cijfers van het draadtype; of LDZY voor losse aders een andere
+  categorieletter gebruikt is niet bekend. Getest lokaal: schakelen, tekening met connector en met open eind.
 - **Connectortypes uit een eigen tabel** (wens gebruiker, later op 13-11): tabel `KabelConnectoren`
   (**`KabelConnectoren_MariaDB.sql`, zelf draaien**; zet de 59 types van de gebruiker erin: JST GH 1,25 mm 2-12P (GHR-xxV-S, contact SSHL-002T-P0.2), JST PH 2,0 mm 2-8P
   (PHR-x, contact SPH-002T-P0.5S), JST XH 2,5 mm 2-8P (XHP-x, contact SXH-001T-P0.6), Molex Pico-Lock

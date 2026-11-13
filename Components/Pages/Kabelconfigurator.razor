@@ -50,13 +50,20 @@
                 }
                 else
                 {
-                    <select class="kabel-keuze" value="@K.Id" @onchange="LaadGekozen">
+                    <select class="kabel-keuze" value="@K.Id" @onchange="LaadGekozen" title="Een opgeslagen kabel openen">
                         <option value="0">— nieuw, nog niet opgeslagen —</option>
                         @foreach (var o in _lijst)
                         {
                             <option value="@o.Id">@o.Naam · @o.LeveranciersNummer</option>
                         }
                     </select>
+                }
+                @if (_tabel && Repo.Beschikbaar)
+                {
+                    <p class="uitleg">
+                        @(_lijst.Count == 0 ? "Nog geen opgeslagen kabels." : _lijst.Count == 1 ? "1 opgeslagen kabel." : _lijst.Count + " opgeslagen kabels.")
+                        Een kabel die je opent en aanpast, bewaar je met <b>Wijzigingen opslaan</b>; wil je er een tweede naast, kies dan <b>Opslaan als nieuwe kabel</b>.
+                    </p>
                 }
                 <div class="kabel-knoppen">
                     <button class="klein" title="Begin met de kabel die LDZY al levert (tekening W2464-08-G020007)" @onclick="NieuwVoorbeeld">+ Nieuw (voorbeeld LDZY)</button>
@@ -76,26 +83,43 @@
                     <label>Tolerantie lengte (± mm) <input type="number" min="0" @bind="K.LengteTolerantie" /></label>
                     <label>Volgnummer van LDZY <input type="number" min="0" max="99" @bind="K.Volgnummer" title="0 = nog niet bekend (xx)" /></label>
                     <label>Leverancier <input @bind="K.Leverancier" /></label>
+                    <label class="vink" title="Trekontlasting: de aders worden bij de ingang van elke connector vastgelijmd. Komt als eis en als gele markering op de tekening.">
+                        <input type="checkbox" @bind="K.AdersLijmen" /> Aders vastlijmen aan de connector (geldt voor elke kant met een connector)
+                    </label>
                 </div>
             </section>
 
             <section class="kabel-kaart">
                 <h3 class="wn-kop">Draad</h3>
                 <div class="kabel-velden">
-                    <label>Type <input @bind="K.DraadType" placeholder="UL2464" /></label>
-                    <label>AWG <input type="number" min="10" max="40" @bind="K.Awg" /></label>
-                    <label>Opbouw ader <input @bind="K.Draadopbouw" placeholder="7/0.12" title="aantal draadjes / diameter in mm" /></label>
-                    <label>Afscherming
-                        <select @bind="K.Afscherming">
-                            <option value="@KabelAfscherming.Geen">geen</option>
-                            <option value="@KabelAfscherming.Folie">folie</option>
-                            <option value="@KabelAfscherming.Vlecht">vlecht</option>
-                            <option value="@KabelAfscherming.FolieEnVlecht">folie + vlecht</option>
+                    @* kabel of losse aders tussen de uiteinden (wens gebruiker 13-11-2026) *@
+                    <label class="breed">Uitvoering
+                        <select @bind="K.Uitvoering">
+                            <option value="@KabelUitvoering.Kabel">kabel (alle aders in één mantel)</option>
+                            <option value="@KabelUitvoering.LosseAders">losse aders (geen mantel)</option>
                         </select>
                     </label>
-                    <label>Buitendiameter (mm) <input type="number" step="0.1" min="1" @bind="K.Buitendiameter" @bind:culture="Inv" /></label>
-                    <label>Kleur mantel <input @bind="K.Mantelkleur" list="kabel-kleuren" /></label>
+                    <label>Type <input @bind="K.DraadType" placeholder="@(K.IsLosseAders ? "UL1007" : "UL2464")" /></label>
+                    <label>AWG <input type="number" min="10" max="40" @bind="K.Awg" /></label>
+                    <label>Opbouw ader <input @bind="K.Draadopbouw" placeholder="7/0.12" title="aantal draadjes / diameter in mm" /></label>
+                    @if (!K.IsLosseAders)
+                    {
+                        <label>Afscherming
+                            <select @bind="K.Afscherming">
+                                <option value="@KabelAfscherming.Geen">geen</option>
+                                <option value="@KabelAfscherming.Folie">folie</option>
+                                <option value="@KabelAfscherming.Vlecht">vlecht</option>
+                                <option value="@KabelAfscherming.FolieEnVlecht">folie + vlecht</option>
+                            </select>
+                        </label>
+                        <label>Buitendiameter (mm) <input type="number" step="0.1" min="1" @bind="K.Buitendiameter" @bind:culture="Inv" /></label>
+                        <label>Kleur mantel <input @bind="K.Mantelkleur" list="kabel-kleuren" /></label>
+                    }
                 </div>
+                @if (K.IsLosseAders)
+                {
+                    <p class="uitleg">Losse aders: type, AWG en opbouw gelden per ader; de kleuren staan bij Bedrading. Mantel, afscherming en krimpkous vervallen.</p>
+                }
             </section>
 
             @foreach (var (naam, e) in Einden)
@@ -149,7 +173,7 @@
                         }
                         else
                         {
-                            <label>Mantel strippen (mm) <input type="number" min="0" @bind="e.StripLengte" /></label>
+                            <label>@(K.IsLosseAders ? "Aders strippen (mm)" : "Mantel strippen (mm)") <input type="number" min="0" @bind="e.StripLengte" /></label>
                             <label>Afwerking aders
                                 <select @bind="e.Afwerking">
                                     <option value="vertind">vertind</option>
@@ -158,8 +182,11 @@
                                 </select>
                             </label>
                         }
-                        <label class="vink"><input type="checkbox" @bind="e.Krimpkous" /> Krimpkous aan deze kant</label>
-                        @if (e.Krimpkous)
+                        @if (!K.IsLosseAders)
+                        {
+                            <label class="vink"><input type="checkbox" @bind="e.Krimpkous" /> Krimpkous aan deze kant</label>
+                        }
+                        @if (K.HeeftKous(e))
                         {
                             <label>Kleur krimpkous <input @bind="e.KrimpkousKleur" list="kabel-kleuren" /></label>
                             <label>Lengte krimpkous (mm) <input type="number" min="1" @bind="e.KrimpkousLengte" /></label>
@@ -221,7 +248,19 @@
 
         <div class="kabel-rechts">
             <div class="kabel-knoppen">
-                <button class="primair" disabled="@(!KanOpslaan)" title="@OpslaanTip" @onclick="Opslaan">💾 Opslaan</button>
+                @* Opslaan werkte de geopende kabel bij, ook als je er een andere van had gemaakt (zo raakte de gebruiker
+                   op 13-11-2026 configuraties kwijt). Daarom twee knoppen die zeggen wat ze doen. *@
+                @if (K.Id == 0)
+                {
+                    <button class="primair" disabled="@(!KanOpslaan)" title="@OpslaanTip" @onclick="() => Bewaar(true)">💾 Opslaan als nieuwe kabel</button>
+                }
+                else
+                {
+                    <button class="primair" disabled="@(!KanOpslaan)" @onclick="() => Bewaar(false)"
+                            title="@(KanOpslaan ? "De opgeslagen kabel bijwerken met wat er nu op het scherm staat" : OpslaanTip)">💾 Wijzigingen opslaan</button>
+                    <button disabled="@(!KanOpslaan)" @onclick="() => Bewaar(true)"
+                            title="@(KanOpslaan ? "Een nieuwe kabel bewaren naast de bestaande; geef hem eerst een eigen naam" : OpslaanTip)">＋ Opslaan als nieuwe kabel</button>
+                }
                 <button title="Opent de printdialoog met de tekening (A4 liggend); kies daar Opslaan als PDF" @onclick="Afdrukken">🖨 Afdrukken / PDF</button>
                 <button title="De tekening als SVG-bestand bewaren" @onclick="DownloadSvg">⬇ SVG</button>
                 <button title="De specificatie als tekst op het klembord, voor in een e-mail aan LDZY" @onclick="KopieerSpec">📋 Spec kopiëren</button>
@@ -306,17 +345,36 @@
         catch (Exception ex) { Toon("Kabel ophalen mislukt: " + ex.Message, true); }
     }
 
-    private async Task Opslaan()
+    /// <summary>
+    /// Bewaart de kabel. <paramref name="nieuw"/> = als nieuwe kabel naast de bestaande (ook als er een geopend is);
+    /// anders wordt de geopende kabel bijgewerkt. Een nieuwe kabel moet een naam hebben die nog niet bestaat, anders
+    /// staan er twee met dezelfde naam in de keuzelijst.
+    /// </summary>
+    private async Task Bewaar(bool nieuw)
     {
         if (!KanOpslaan) return;
+        nieuw |= K.Id == 0;
+        var naam = K.Naam.Trim();
+        if (nieuw && _lijst.Any(o => string.Equals(o.Naam.Trim(), naam, StringComparison.OrdinalIgnoreCase)))
+        {
+            Toon($"Er staat al een kabel met de naam \"{naam}\". Geef deze kabel een eigen naam (kaart Kabel) en sla hem dan op.", true);
+            return;
+        }
         _bezig = true;
+        var wasId = K.Id;
         try
         {
+            if (nieuw) { K.Id = 0; K.GemaaktOp = null; K.GemaaktDoor = ""; }
             await Repo.BewaarAsync(K, Ik.WerknemerId, Door);
             _lijst = await Repo.LijstAsync();
-            Toon($"Opgeslagen als {K.Naam.Trim()} ({K.LeveranciersNummer}).", false);
+            Toon(nieuw ? $"Opgeslagen als nieuwe kabel: {naam} ({K.LeveranciersNummer}). Er staan nu {_lijst.Count} kabels."
+                       : $"Wijzigingen opgeslagen in {naam} ({K.LeveranciersNummer}).", false);
         }
-        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        catch (Exception ex)
+        {
+            if (K.Id == 0) K.Id = wasId;         // mislukt: de geopende kabel blijft de geopende
+            Toon("Opslaan mislukt: " + ex.Message, true);
+        }
         finally { _bezig = false; }
     }
 

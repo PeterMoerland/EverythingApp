@@ -43,21 +43,44 @@ public static class KabelTekening
         const double p1X = 130, p2X = 1270;         // buitenkant van de uiteinden
         const double kousB = 70;                    // breedte van een krimpkousblok
         const double kousL = 330, kousR = 1000;     // linkerrand van het linker- en rechterblok
-        var mantelX0 = k.P1.Krimpkous ? kousL + kousB : kousL;
-        var mantelX1 = k.P2.Krimpkous ? kousR : kousR + kousB;
-        var mantel = KabelKleuren.Hex(k.Mantelkleur);
-        if (mantel == KabelKleuren.Hex("zwart")) mantel = "#4a4a4a";
-        s.Rect(mantelX0, cy - 8, mantelX1 - mantelX0, 16, mantel, "#111");
+        var mantelX0 = k.HeeftKous(k.P1) ? kousL + kousB : kousL;
+        var mantelX1 = k.HeeftKous(k.P2) ? kousR : kousR + kousB;
+        if (k.IsLosseAders)
+        {
+            // losse aders: elke ader als eigen lijn van de ene kant naar de andere, naast elkaar in een bundel
+            for (var i = 0; i < k.Aders.Count; i++)
+            {
+                var y = BundelY(k, i, cy);
+                s.Line(mantelX0, y, mantelX1, y, "#777", 3.2);
+                s.Line(mantelX0, y, mantelX1, y, KabelKleuren.Hex(k.Aders[i].Kleur), 2);
+            }
+        }
+        else
+        {
+            var mantel = KabelKleuren.Hex(k.Mantelkleur);
+            if (mantel == KabelKleuren.Hex("zwart")) mantel = "#4a4a4a";
+            s.Rect(mantelX0, cy - 8, mantelX1 - mantelX0, 16, mantel, "#111");
+        }
         // totale lengte
         s.Line(p1X, cy - 135, p1X, cy - 80, "#111", .7);
         s.Line(p2X, cy - 135, p2X, cy - 80, "#111", .7);
         DimH(s, p1X, p2X, cy - 128, $"{k.Lengte}±{k.LengteTolerantie} MM", 16);
         Eind(s, k, k.P1, true, p1X, cy, kousL, kousB, "P1");
         Eind(s, k, k.P2, false, p2X, cy, kousR, kousB, "P2");
-        // aanwijzer A: de kabel
-        s.Line(700, cy + 8, 760, cy + 70, "#111", .8);
+        // aanwijzer A: de kabel (of de bundel losse aders)
+        s.Line(700, k.IsLosseAders ? BundelY(k, k.Aders.Count - 1, cy) + 2 : cy + 8, 760, cy + 70, "#111", .8);
         s.Line(760, cy + 70, 800, cy + 70, "#111", .8);
         s.Text(806, cy + 75, "A", 16);
+    }
+
+    /// <summary>De hoogte van ader <paramref name="index"/> in het rechte stuk: bij een kabel de hartlijn (alle aders komen
+    /// uit de mantel), bij losse aders een eigen baan in de bundel (hooguit 64 hoog, anders dichter op elkaar).</summary>
+    private static double BundelY(KabelSpec k, int index, double cy)
+    {
+        if (!k.IsLosseAders) return cy;
+        var n = Math.Max(1, k.Aders.Count);
+        var stap = Math.Min(7.0, 64.0 / n);
+        return cy + (index - (n - 1) / 2.0) * stap;
     }
 
     /// <param name="links">P1 (links) of P2 (rechts).</param>
@@ -71,6 +94,7 @@ public static class KabelTekening
         var kousNaar = links ? kousX : kousX + kousB;        // rand van het kousblok aan de connectorkant
         var kousVan = links ? kousX + kousB : kousX;         // rand aan de kabelkant
         s.Text(buitenX - r * 55, cy + 7, naam, 20, "middle");
+        var kous = k.HeeftKous(e);
 
         if (e.IsConnector)
         {
@@ -80,25 +104,33 @@ public static class KabelTekening
             var pinY = new double[n];
             for (var i = 0; i < n; i++) pinY[i] = cy - h / 2 + 10 + (i + 0.5) * (h - 20) / n;
             // aders van de kous naar de pinnen (eerst, zodat de connector eroverheen ligt)
-            foreach (var a in k.Aders)
+            for (var ai = 0; ai < k.Aders.Count; ai++)
             {
+                var a = k.Aders[ai];
                 var pin = links ? a.PinP1 : a.PinP2;
                 if (pin is not int p || p < 1 || p > n) continue;
                 var idx = links ? n - p : p - 1;
-                s.Line(kousNaar, cy, binnenX, pinY[idx], "#777", 3.2);     // randje, anders is een witte ader onzichtbaar
-                s.Line(kousNaar, cy, binnenX, pinY[idx], KabelKleuren.Hex(a.Kleur), 2);
+                var vanY = BundelY(k, ai, cy);
+                s.Line(kousNaar, vanY, binnenX, pinY[idx], "#777", 3.2);     // randje, anders is een witte ader onzichtbaar
+                s.Line(kousNaar, vanY, binnenX, pinY[idx], KabelKleuren.Hex(a.Kleur), 2);
             }
             s.Rect(bodyX, cy - h / 2, body, h, "#fff", "#111", 1.5, 4);
             s.Rect(bodyX + (links ? 6 : body - 14), cy - h / 2 + 6, 8, h - 12, "#fff", "#111", .8);   // vergrendelnok
             for (var i = 0; i < n; i++) s.Rect(links ? binnenX - 14 : binnenX + 4, pinY[i] - 3.5, 10, 7, "#fff", "#111", .8);
             s.Text(buitenX - r * 8, pinY[0] + 4, (links ? n : 1).ToString(), 11, links ? "end" : "start");
             if (n > 1) s.Text(buitenX - r * 8, pinY[n - 1] + 4, (links ? 1 : n).ToString(), 11, links ? "end" : "start");
+            if (k.AdersLijmen)
+            {
+                // lijm bij de ingang van de aders (over de aders heen getekend)
+                s.Rect(links ? binnenX : binnenX - 13, cy - h / 2 + 7, 13, h - 14, "#f2c94c", "#8a6d00", .8, 4);
+                s.Text(binnenX + r * 6.5, cy - h / 2 - 5, "GLUE", 10, "middle", "fill=\"#8a6d00\" font-weight=\"600\"");
+            }
             // aanwijzer B,C: housing en terminal
             var ax = bodyX + body / 2;
             s.Line(ax, cy + h / 2, ax + r * 30, cy + h / 2 + 40, "#111", .8);
             s.Line(ax + r * 30, cy + h / 2 + 40, ax + r * 55, cy + h / 2 + 40, "#111", .8);
             s.Text(ax + r * 42, cy + h / 2 + 58, "B,C", 15, "middle");
-            if (e.Krimpkous)
+            if (kous)
             {
                 // afstand connector -> kous, boven de kabel
                 s.Line(binnenX, cy - h / 2, binnenX, cy - 95, "#111", .7);
@@ -115,13 +147,13 @@ public static class KabelTekening
             {
                 var y = cy - h / 2 + 5 + (i + 0.5) * (h - 10) / n;
                 var kleur = i < k.Aders.Count ? KabelKleuren.Hex(k.Aders[i].Kleur) : "#888";
-                s.Line(kousNaar, cy, tipX + r * 22, y, "#777", 3.2);
-                s.Line(kousNaar, cy, tipX + r * 22, y, kleur, 2);
+                s.Line(kousNaar, BundelY(k, i, cy), tipX + r * 22, y, "#777", 3.2);
+                s.Line(kousNaar, BundelY(k, i, cy), tipX + r * 22, y, kleur, 2);
                 s.Line(tipX + r * 22, y, tipX, y, "#8c8c8c", 3.5);
                 if (i == 0 || i == n - 1) s.Text(buitenX - r * 8, y + 4, (i + 1).ToString(), 11, links ? "end" : "start");
             }
             s.Text(buitenX + r * 60, cy + h / 2 + 24, $"strip {e.StripLengte} mm, {Afwerking(e)}", 11, "middle");
-            if (e.Krimpkous)
+            if (kous)
             {
                 s.Line(kousNaar, cy - 13, kousNaar, cy - 95, "#111", .7);
                 s.Line(buitenX, cy - h / 2, buitenX, cy - 95, "#111", .7);
@@ -129,7 +161,7 @@ public static class KabelTekening
             }
         }
 
-        if (e.Krimpkous)
+        if (kous)
         {
             s.Rect(kousX, cy - 13, kousB, 26, KabelKleuren.Hex(e.KrimpkousKleur), "#111");
             s.Line(kousX, cy + 13, kousX, cy + 50, "#111", .7);
@@ -222,9 +254,18 @@ public static class KabelTekening
     {
         var r = new List<(string, string, string)>();
         var paren = k.Paren;
-        var draad = $"{k.DraadType} {k.Awg}AWG {k.Draadopbouw} x {k.Aders.Count}C" + (paren > 0 ? $" ({paren} twisted pairs)" : "") +
-                    $", {AfschermingTekst(k.Afscherming)}, OD {F(k.Buitendiameter)} mm, {KabelKleuren.Engels(k.Mantelkleur)} jacket";
-        r.Add(("Wire", draad, "1 PCS"));
+        if (k.IsLosseAders)
+        {
+            var los = $"{k.DraadType} {k.Awg}AWG {k.Draadopbouw} single wires, no jacket" + (paren > 0 ? $" ({paren} twisted pairs)" : "") +
+                      ", colours according to wiring table";
+            r.Add(("Wire", los, $"{k.Aders.Count} PCS"));
+        }
+        else
+        {
+            var draad = $"{k.DraadType} {k.Awg}AWG {k.Draadopbouw} x {k.Aders.Count}C" + (paren > 0 ? $" ({paren} twisted pairs)" : "") +
+                        $", {AfschermingTekst(k.Afscherming)}, OD {F(k.Buitendiameter)} mm, {KabelKleuren.Engels(k.Mantelkleur)} jacket";
+            r.Add(("Wire", draad, "1 PCS"));
+        }
         var einden = new[] { (Naam: "P1", Eind: k.P1), (Naam: "P2", Eind: k.P2) }.Where(x => x.Eind.IsConnector).ToList();
         // housings en terminals: een regel voor beide kanten als ze dezelfde hebben
         foreach (var groep in einden.GroupBy(x => (x.Eind.Housing.Trim(), x.Eind.Familie.Trim(), x.Eind.Steek, x.Eind.Pinnen)))
@@ -240,7 +281,7 @@ public static class KabelTekening
             var namen = string.Join("+", groep.Select(g => g.Naam));
             r.Add(($"Terminal {namen}", $"{Nummer(groep.Key)} crimp terminal (original)", $"{stuks} PCS"));
         }
-        foreach (var g in new[] { k.P1, k.P2 }.Where(e => e.Krimpkous).GroupBy(e => (e.KrimpkousKleur.Trim(), e.KrimpkousLengte)))
+        foreach (var g in new[] { k.P1, k.P2 }.Where(k.HeeftKous).GroupBy(e => (e.KrimpkousKleur.Trim(), e.KrimpkousLengte)))
             r.Add(("Sleeve", $"Heat shrink tube {KabelKleuren.Engels(g.Key.Item1)}, L={g.Key.KrimpkousLengte} mm, for OD {F(k.Buitendiameter)} mm cable", $"{g.Count()} PCS"));
         return r;
     }
@@ -259,7 +300,12 @@ public static class KabelTekening
             if (yy > 748) return;
         }
         foreach (var (naam, eind) in new[] { ("P1", k.P1), ("P2", k.P2) })
-            if (!eind.IsConnector && yy < 748) { s.Text(x, yy, $"{nr++}. {naam}: open end, strip jacket {eind.StripLengte} mm, wires {Afwerking(eind)}.", 11); yy += 15; }
+            if (!eind.IsConnector && yy < 748) { s.Text(x, yy, $"{nr++}. {naam}: {OpenEindTekst(k, eind)}.", 11); yy += 15; }
+        if (LijmTekst(k) is { } lijm)
+        {
+            var lijnen = Wrap(lijm, 66).ToList();
+            for (var i = 0; i < lijnen.Count && yy < 748; i++) { s.Text(x, yy, (i == 0 ? nr + ". " : "    ") + lijnen[i], 11); yy += 13; }
+        }
     }
 
     private static readonly string[] Cirkels = { "①", "②", "③", "④", "⑤", "⑥" };
@@ -305,8 +351,8 @@ public static class KabelTekening
         s.Line(860, top, 860, bottom, "#111", 1);
         // links: toleranties
         s.Text(170, top + 20, "GENERAL TOLERANCE (unless noted)", 11, "middle", "font-weight=\"600\"");
-        s.Text(30, top + 44, $"Cable length: ±{k.LengteTolerantie} mm", 12);
-        s.Text(30, top + 62, "Sleeve position and length: ±5 mm", 12);
+        s.Text(30, top + 44, $"{(k.IsLosseAders ? "Wire" : "Cable")} length: ±{k.LengteTolerantie} mm", 12);
+        if (k.HeeftKous(k.P1) || k.HeeftKous(k.P2)) s.Text(30, top + 62, "Sleeve position and length: ±5 mm", 12);
         s.Text(30, top + 80, "Drawing not to scale.", 12);
         s.Text(30, top + 110, "RoHS / lead-free", 12, "start", "font-weight=\"600\"");
         // midden: klant en leverancier
@@ -333,8 +379,25 @@ public static class KabelTekening
     // ---------------------------------------------------------------- teksten
 
     public static string Titel(KabelSpec k)
-        => $"{k.DraadType} {k.Awg}AWG {k.Aders.Count}C" + (k.Paren > 0 ? $" ({k.Paren}P)" : "") +
-           $" {(k.Afscherming == KabelAfscherming.Geen ? "unshielded" : "shielded")}, P1: {EindTekst(k.P1)}, P2: {EindTekst(k.P2)}, L={k.Lengte} mm";
+        => $"{k.DraadType} {k.Awg}AWG " +
+           (k.IsLosseAders ? $"{k.Aders.Count} single wires" + (k.Paren > 0 ? $" ({k.Paren}P)" : "")
+                           : $"{k.Aders.Count}C" + (k.Paren > 0 ? $" ({k.Paren}P)" : "") + $" {(k.Afscherming == KabelAfscherming.Geen ? "unshielded" : "shielded")}") +
+           $", P1: {EindTekst(k.P1)}, P2: {EindTekst(k.P2)}, L={k.Lengte} mm";
+
+    /// <summary>De eis "aders vastlijmen", voor de kanten met een connector; null als de optie uit staat of er geen connector is.</summary>
+    private static string? LijmTekst(KabelSpec k)
+    {
+        if (!k.AdersLijmen) return null;
+        var kanten = new[] { ("P1", k.P1), ("P2", k.P2) }.Where(x => x.Item2.IsConnector).Select(x => x.Item1).ToList();
+        return kanten.Count == 0 ? null
+            : $"Fix the wires to the connector housing with glue at the wire entry of {string.Join(" and ", kanten)} (strain relief). " +
+              "The glue must not reach the contact area.";
+    }
+
+    /// <summary>Een open eind in woorden: bij een kabel gaat de mantel eraf, bij losse aders de isolatie van elke ader.</summary>
+    private static string OpenEindTekst(KabelSpec k, KabelEind e)
+        => k.IsLosseAders ? $"open end, strip wires {e.StripLengte} mm, {Afwerking(e)}"
+                          : $"open end, strip jacket {e.StripLengte} mm, wires {Afwerking(e)}";
 
     private static string EindTekst(KabelEind e)
     {
@@ -358,8 +421,8 @@ public static class KabelTekening
         {
             b.Append(naam).Append(": ");
             if (e.IsConnector) b.Append($"{e.Familie.Trim()} {F(e.Steek)} mm pitch, {e.Pinnen} circuits, housing {Nummer(e.Housing)}, terminal {Nummer(e.Terminal)}".Trim());
-            else b.Append($"open end, strip jacket {e.StripLengte} mm, wires {Afwerking(e)}");
-            if (e.Krimpkous) b.Append($"; {KabelKleuren.Engels(e.KrimpkousKleur)} heat shrink tube L={e.KrimpkousLengte} mm at {e.KrimpkousAfstand} mm from the end");
+            else b.Append(OpenEindTekst(k, e));
+            if (k.HeeftKous(e)) b.Append($"; {KabelKleuren.Engels(e.KrimpkousKleur)} heat shrink tube L={e.KrimpkousLengte} mm at {e.KrimpkousAfstand} mm from the end");
             b.AppendLine();
         }
         b.AppendLine("Wiring (wire: P1 pin - P2 pin - colour - pair):");
@@ -368,6 +431,7 @@ public static class KabelTekening
         b.AppendLine("Requirements:");
         var nr = 1;
         foreach (var eis in k.Eisen.Where(e => e.Trim().Length > 0)) b.AppendLine($"  {nr++}. {eis.Trim()}");
+        if (LijmTekst(k) is { } lijm) b.AppendLine($"  {nr++}. {lijm}");
         if (k.Opmerkingen.Trim().Length > 0) b.AppendLine("Remarks: " + k.Opmerkingen.Trim());
         return b.ToString();
     }

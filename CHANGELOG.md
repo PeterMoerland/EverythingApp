@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Kabelconfigurator** — Nieuw: vinkje **Aders vastlijmen aan de connector** (kaart Kabel), voor de hele kabel. Op de tekening komt het als eis voor LDZY en als gele markering bij de connectoren.
+- **Kabelconfigurator** — Opgelost: opslaan overschreef steeds de geopende kabel, waardoor je geen tweede configuratie kon bewaren. Er zijn nu twee knoppen: **Wijzigingen opslaan** (werkt de geopende kabel bij) en **Opslaan als nieuwe kabel** (bewaart hem ernaast, onder een eigen naam).
+- **Kabelconfigurator** — Nieuw: bij Draad kies je of er een kabel (alle aders in één mantel) of losse aders tussen de connectoren zit. Bij losse aders vervallen mantel, afscherming en krimpkous, en de tekening toont de aders los naast elkaar.
 - **Bestellingen** — Nieuw: knopje ⧉ naast de titel van een bestelling zet het nummer (PO-12345) op het klembord.
 - **Kabelconfigurator** — Nieuw: de connectortypes die we gebruiken staan in een eigen lijst. Kies bij P1 of P2 een type uit de lijst en familie, steek, pinnen, housing en terminal worden ingevuld; zelf invullen kan nog steeds. De lijst onderhoud je via de link Connectortypes beheren. Werkt na het script KabelConnectoren_MariaDB.sql.
 - **Tools** — Nieuw: **Kabelconfigurator** (Tools ▸ Kabelconfigurator), eerste proefopzet. Stel een kabel op maat samen voor de kabelleverancier LDZY: connector of open eind aan elke kant, draad, lengte, krimpkous, bedrading met kleuren en getwiste paren. De tekening in de opmaak van LDZY (maten, Wiring Table, stuklijst, eisen, nummer) groeit mee en is af te drukken als PDF of te bewaren als SVG; de spec is als tekst te kopiëren voor de e-mail. Het LDZY-nummer (W2464-08-G020007) rekent zichzelf uit. Opslaan kan na het script Kabelconfiguraties_MariaDB.sql. Nog geen koppeling met Artikelen of een bestelling.
