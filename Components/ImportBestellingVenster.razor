@@ -45,7 +45,8 @@
                                 <tbody>
                                     @foreach (var o in _orders)
                                     {
-                                        <tr class="ib-klik" @onclick="() => Kies(o)">
+                                        <tr class="ib-klik @(o.Id == _laatstBekeken ? "ib-bekeken" : "")" @onclick="() => Kies(o)"
+                                            title="@(o.Id == _laatstBekeken ? "Deze had je net bekeken" : "")">
                                             <td>@o.Nummer</td><td>@o.Leverancier</td><td>@o.Besteller</td><td>@o.Omschrijving</td><td>@o.StatusNaam</td>
                                             <td>@(o.Aangemaakt?.ToString("dd-MM-yyyy") ?? "")</td><td class="r">@o.Totaal.ToString("C2", Nl)</td>
                                         </tr>
@@ -57,12 +58,19 @@
                 }
                 else
                 {
+                    @* terug naar de lijst van de vorige zoekopdracht (punt van Tim, 13-11-2026): de zoektekst en de resultaten
+                       blijven staan, dus niet opnieuw zoeken *@
+                    <div class="ib-terug">
+                        <button class="klein" disabled="@_bezig" @onclick="AndereBestelling"
+                                title="Terug naar de zoekresultaten@(_zoek.Trim().Length > 0 ? $" voor \"{_zoek.Trim()}\"" : "") om een andere bestelling te kiezen">
+                            ← Terug naar de zoekresultaten@(_zoek.Trim().Length > 0 ? $" ({_zoek.Trim()})" : "")
+                        </button>
+                    </div>
                     <div class="ib-opties">
                         <label class="vink"><input type="checkbox" checked="@_zonderPrijs" @onchange="e => _zonderPrijs = e.Value is true" /> Prijzen niet overnemen (andere leverancier)</label>
                         <label class="vink"><input type="checkbox" checked="@_herkomst" @onchange="e => _herkomst = e.Value is true" /> "uit @_bron.Nummer" in de opmerking</label>
                         <label class="ib-voor">Tekst vóór de omschrijving
                             <input placeholder="bijv. Anodiseren: " maxlength="60" value="@_voor" @oninput="e => _voor = (string?)e.Value ?? string.Empty" /></label>
-                        <button class="link" @onclick="AndereBestelling">andere bestelling kiezen</button>
                     </div>
                     @* welke bijlagen mee (wens gebruiker 11-11-2026): per bestandssoort, met het aantal *@
                     <div class="ib-opties">
@@ -127,6 +135,10 @@
                 <div class="pk-voet">
                     <span class="zij-extra">@_melding</span>
                     <span style="flex:1"></span>
+                    @if (!_klaar)
+                    {
+                        <button class="klein" disabled="@_bezig" @onclick="AndereBestelling" title="Terug naar de zoekresultaten">← Andere bestelling</button>
+                    }
                     <button class="klein" disabled="@_bezig" @onclick="Sluit">@(_klaar ? "Sluiten" : "Annuleren")</button>
                     @if (!_klaar)
                     {
@@ -179,7 +191,8 @@
     {
         if (Open && !_wasOpen)
         {
-            _bron = null; _regels = new(); _fout = null; _melding = null; _klaar = false; _zoek = ""; _voor = "";
+            // de laatste zoekopdracht blijft staan (ook na Annuleren): opnieuw openen geeft dezelfde lijst
+            _bron = null; _regels = new(); _fout = null; _melding = null; _klaar = false; _voor = "";
             _zonderPrijs = true; _herkomst = true;
             await Zoek();
         }
@@ -231,7 +244,11 @@
         finally { _bezig = false; }
     }
 
-    private void AndereBestelling() { _bron = null; _regels = new(); _klaar = false; _melding = null; }
+    /// <summary>Terug naar de lijst: zoektekst en resultaten blijven staan; de bestelling die je net bekeek is gemarkeerd.</summary>
+    private void AndereBestelling() { _laatstBekeken = _bron?.Id; _bron = null; _regels = new(); _klaar = false; _melding = null; }
+
+    /// <summary>De bestelling die als laatste geopend was, om hem in de lijst te markeren.</summary>
+    private int? _laatstBekeken;
 
     private static void ZetAantal(Rij rij, ChangeEventArgs e)
     {

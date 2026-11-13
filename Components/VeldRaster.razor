@@ -121,9 +121,8 @@
     {
         if (string.IsNullOrWhiteSpace(tekst)) return Zet(kolom, null);
 
-        var schoon = tekst.Trim().Replace(".", "").Replace(',', '.');
-        if (decimal.TryParse(schoon, System.Globalization.NumberStyles.Number,
-                             System.Globalization.CultureInfo.InvariantCulture, out var getal))
+        // komma en punt als decimaalteken (Services/Bedragen.cs); voorheen ging elke punt eruit: 2.02 werd 202
+        if (Bedragen.Lees(tekst) is decimal getal)
             return Zet(kolom, getal);
 
         return Zet(kolom, tekst.Trim());   // onleesbaar: laat de database het weigeren

@@ -2802,6 +2802,26 @@ openen in een nieuw venster. (Een herinnering in de bel of iets bij het koppelen
   zonder het recht Financial/Directie.
 - De lijst bevat ook oude rommel (Aanmaken vanaf 2018, In bestelling vanaf 2019): opruimen is annuleren of doorzetten.
 
+## Importeren uit andere bestelling: terug naar de zoekresultaten (13-11-2026)
+
+Punt van Tim: na het kiezen van een bestelling in Importeren ▸ Uit andere bestelling waren er alleen Annuleren (venster
+dicht) of de kleine link "andere bestelling kiezen"; hij moest dan opnieuw zoeken. Nu in `ImportBestellingVenster.razor`:
+knop **← Terug naar de zoekresultaten (zoektekst)** boven de opties en **← Andere bestelling** in de voet naast
+Annuleren (`AndereBestelling`: zoektekst `_zoek` en lijst `_orders` blijven staan); de net bekeken bestelling krijgt in
+de lijst een gele regel (`_laatstBekeken`, klasse `ib-bekeken`). Opnieuw openen van het venster wist de zoektekst niet
+meer (zolang de pagina openstaat). De oude link is weg.
+
+## Punt als decimaalteken in invoervelden (13-11-2026)
+
+Melding gebruiker: in een bestelregel werd een prijs 2.02 opgeslagen als € 202,00. Oorzaak: `Schoon` in
+Bestellingen.razor haalde elke punt weg (Nederlands: punt = duizendtal). Hetzelfde zat in Artikelen (prijs invoeren),
+`VeldRaster.ZetGetal` (getalvelden in formulieren, o.a. de kop van een bestelling) en `Instellingen.BewaarGetal`. Nu
+gaan die allemaal via **`Services/Bedragen.cs` (`Bedragen.Lees`)**: beide tekens aanwezig = het laatste is het
+decimaalteken; alleen een komma = decimaal; alleen een punt = decimaal, **behalve** als het een duizendtal lijkt
+(precies drie cijfers achter elke punt en een getal ervoor van 1-3 cijfers dat niet 0 is: "1.250", "12.500.000"). Dus
+2.02, 12.5 en 0.125 zijn decimaal; 1.250 is 1250. Twee punten = altijd duizendtal. Getoetst met een rekenproef
+(scratchpad `d35toets`). Nieuwe invoervelden: gebruik `Bedragen.Lees`, niet zelf punten weghalen.
+
 ## Uitgaande facturen: factuur en bijlage bekijken (13-11-2026)
 
 Wens gebruiker: in Uitgaande facturen de factuur en de bijlage als voorbeeld zien, met twee knopjes. Onder het blok

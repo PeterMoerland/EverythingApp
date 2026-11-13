@@ -358,11 +358,7 @@
 
     private async Task BewaarGetal(string kolom, ChangeEventArgs e)
     {
-        var tekst = ((string?)e.Value ?? "").Replace(".", "").Replace(',', '.').Trim();
-        object? waarde = null;
-        if (tekst.Length > 0 && decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
-                                                 System.Globalization.CultureInfo.InvariantCulture, out var v))
-            waarde = v;
+        object? waarde = Bedragen.Lees((string?)e.Value ?? "");   // komma en punt (Services/Bedragen.cs)
 
         try
         {

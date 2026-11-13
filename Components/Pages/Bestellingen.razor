@@ -1688,14 +1688,16 @@
         await BewaarRegel(regel);
     }
 
-    /// <summary>Nederlandse invoer: punt is duizendtal, komma is decimaal.</summary>
-    private static string Schoon(object? waarde)
-        => ((string?)waarde ?? "").Replace("€", "").Replace(" ", "").Replace(" ", "").Replace(".", "").Replace(',', '.').Trim();
+    /// <summary>
+    /// Een getal uit een invoerveld: komma én punt als decimaalteken ("2,02" en "2.02" zijn allebei € 2,02), een punt
+    /// als duizendtal alleen bij "1.250" (Services/Bedragen.cs). Tot 13-11-2026 ging elke punt eruit, waardoor 2.02
+    /// € 202,00 werd (melding gebruiker).
+    /// </summary>
+    private static decimal? LeesGetal(object? waarde) => Bedragen.Lees((string?)waarde ?? "");
 
     private async Task ZetGetal(Orderregel regel, Action<double> zet, ChangeEventArgs e)
     {
-        zet(double.TryParse(Schoon(e.Value), System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0);
+        zet((double)(LeesGetal(e.Value) ?? 0));
         await BewaarRegel(regel);
     }
 
@@ -1704,20 +1706,13 @@
     /// </summary>
     private async Task ZetKorting(Orderregel regel, ChangeEventArgs e)
     {
-        var tekst = Schoon(e.Value);
-        if (string.IsNullOrWhiteSpace(tekst)) regel.KortingProcent = null;
-        else regel.KortingProcent = decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
-                                                     System.Globalization.CultureInfo.InvariantCulture,
-                                                     out var v) ? v : null;
+        regel.KortingProcent = LeesGetal(e.Value);
         await BewaarRegel(regel);
     }
 
     private async Task ZetBedrag(Orderregel regel, Action<decimal?> zet, ChangeEventArgs e)
     {
-        var tekst = Schoon(e.Value);
-        if (string.IsNullOrWhiteSpace(tekst)) zet(null);
-        else zet(decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
-                                  System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null);
+        zet(LeesGetal(e.Value));
         await BewaarRegel(regel);
     }
 

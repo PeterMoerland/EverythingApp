@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 13-11-2026
 
+- **Bestellingen** — Verbeterd (punt van Tim): bij Importeren ▸ Uit andere bestelling ga je met **← Terug naar de zoekresultaten** terug naar je zoekopdracht, zonder opnieuw te zoeken; de bestelling die je net bekeek is geel gemarkeerd. Ook na Annuleren blijft de laatste zoekopdracht staan als je het venster opnieuw opent.
+- **Bestellingen** — Opgelost: een prijs met een punt (2.02) werd € 202,00. Een punt telt nu als komma: 2.02 en 2,02 zijn allebei € 2,02 (1.250 blijft twaalfhonderdvijftig). Geldt ook voor aantal en korting, voor de prijs bij Artikelen, de getalvelden in formulieren en de algemene instellingen.
 - **Kabelconfigurator** — Verbeterd: de aanvraagtekening download je nu als PDF (knop ⬇ PDF). De knoppen Afdrukken en SVG zijn weg.
 - **Kabelconfigurator** — Nieuw: Molex Mini-SPOX (2,5 mm, 2 t/m 8 pinnen) in de lijst van connectortypes. Draai KabelConnectoren_MariaDB.sql nog een keer om ze erbij te krijgen.
 - **Kabelconfigurator** — Nieuw: knop **Artikelnummer aanmaken…** bij een kabel. In een tussenvenster vul je artikelcode, omschrijving, merk, fabrikantcode en groep in (al voorgesteld uit de kabel); het nieuwe artikelnummer komt bij de kabel en op de aanvraagtekening.

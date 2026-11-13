@@ -1183,10 +1183,8 @@
     private static decimal? AlLees(string? tekst)
     {
         var t = (tekst ?? "").Replace("€", "").Replace("%", "").Replace("\u00a0", "").Replace(" ", "").Trim();
-        if (t.Length == 0) return 0;
-        if (t.Contains(',')) t = t.Replace(".", "").Replace(',', '.');
-        return decimal.TryParse(t, System.Globalization.NumberStyles.Number | System.Globalization.NumberStyles.AllowLeadingSign,
-                                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (t.Replace("€", "").Replace("%", "").Trim().Length == 0) return 0;
+        return Bedragen.Lees(t);              // komma en punt (Services/Bedragen.cs)
     }
 
     private async Task LaadLeveranciers(int artikelId)
@@ -1751,9 +1749,7 @@
 
     private decimal Ingevoerd()
     {
-        var tekst = _prijsInvoer.Replace(".", "").Replace(',', '.').Trim();
-        return decimal.TryParse(tekst, System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+        return Bedragen.Lees(_prijsInvoer) ?? 0;   // "2.02" en "2,02" zijn allebei € 2,02 (Services/Bedragen.cs)
     }
 
     private decimal Verkoop() => Math.Round(Ingevoerd() * (1 + _toeslag / 100m), 2);

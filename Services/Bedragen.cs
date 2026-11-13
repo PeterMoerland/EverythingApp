@@ -24,10 +24,13 @@ public static class Bedragen
         else if (komma >= 0) s = s.Replace(',', '.');
         else if (punt >= 0)
         {
-            // Alleen een punt: decimaalteken als er twee cijfers achter staan
-            // ("12.50"), anders een duizendtalscheiding ("1.250").
-            var achter = s.Length - punt - 1;
-            if (achter == 3 && punt > 0) s = s.Replace(".", "");
+            // Alleen een punt: decimaalteken ("2.02", "12.5", "0.125"), behalve als het er
+            // uitziet als een duizendtalscheiding: precies drie cijfers achter elke punt en
+            // een getal ervoor dat niet 0 is ("1.250", "12.500.000").
+            var delen = s.TrimStart('-', '+').Split('.');
+            var duizendtal = delen.Length >= 2 && delen.Skip(1).All(d => d.Length == 3)
+                             && delen[0].Length is >= 1 and <= 3 && delen[0].TrimStart('0').Length > 0;
+            if (duizendtal || delen.Length > 2) s = s.Replace(".", "");
         }
 
         return decimal.TryParse(s,
