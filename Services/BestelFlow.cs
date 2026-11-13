@@ -46,7 +46,6 @@ public static class BestelFlow
             GoedkeuringPm when !(ik.Directie || info.PmId == ik.Id)
                 => $"Deze bestelling wacht op goedkeuring door {(info.PmNaam.Length > 0 ? info.PmNaam : "de projectmanager")}.",
             GoedkeuringDirectie when !ik.Directie => "Deze bestelling wacht op goedkeuring door de Directie.",
-            WachtOpLevering => "Levering registreren staat nog in Access.",
             > WachtOpLevering => "Er is geen volgende stap.",
             _ => null,
         };
@@ -63,7 +62,7 @@ public static class BestelFlow
         GoedkeuringPm => $"Wacht op goedkeuring door {(info.PmNaam.Length > 0 ? info.PmNaam : "de projectmanager")}.",
         GoedkeuringDirectie => "Wacht op goedkeuring door de Directie.",
         InBestelling => "Goedgekeurd. Na het bestellen bij de leverancier: Volgende.",
-        WachtOpLevering => "Wacht op levering.",
+        WachtOpLevering => "Wacht op levering. Binnen? Teken af bij Ontvangst, of meld de bestelling hier gereed.",
         _ => "",
     };
 }

@@ -40,6 +40,14 @@ public interface IOntvangstRepository
     Task<OntvangstUitkomst> AftekenenAsync(int orderId, string pakbon, string opmerking, int door, IReadOnlyList<(int RegelId, double Aantal)> regels);
     Task<GeleverdMailGegevens?> GeleverdMailAsync(int orderId, int ontvanger);
     /// <summary>
+    /// Gereed melden vanuit Bestellingen (Access: Volgende bij Wacht op levering, met de vraag "Wil je alle geleverde
+    /// aantallen aanpassen aan wat besteld is?"). Met <paramref name="aantallenGelijk"/> wordt per regel wat nog openstaat
+    /// als geleverd geboekt (OrderItemsDelivered, pakbon 999 zoals Access; geen voorraadmutatie, die maakte Access hier
+    /// ook niet). Daarna status Gereed, Delivered date/by en een logregel; AllesIsGeleverd alleen als er niets meer
+    /// openstaat. Toeslag- en correctieregels tellen niet mee. Uitkomst: Regels = bijgeboekt, Compleet = niets meer open.
+    /// </summary>
+    Task<OntvangstUitkomst> GereedMeldenAsync(int orderId, int door, bool aantallenGelijk);
+    /// <summary>
     /// Oude bestellingen opruimen (Directie): status Gereed, Delivered date/by en een logregel, zonder leveringen te
     /// registreren (er komt dus geen voorraadmutatie en AllesIsGeleverd blijft zoals het was). Alleen status 4/5.
     /// </summary>
@@ -55,6 +63,8 @@ public class GeenOntvangstRepository : IOntvangstRepository
     public Task<OntvangstUitkomst> AftekenenAsync(int orderId, string pakbon, string opmerking, int door, IReadOnlyList<(int RegelId, double Aantal)> regels)
         => Task.FromResult(new OntvangstUitkomst(0, false, null, false));
     public Task<GeleverdMailGegevens?> GeleverdMailAsync(int orderId, int ontvanger) => Task.FromResult<GeleverdMailGegevens?>(null);
+    public Task<OntvangstUitkomst> GereedMeldenAsync(int orderId, int door, bool aantallenGelijk)
+        => Task.FromResult(new OntvangstUitkomst(0, false, null, false));
     public Task<int> OpruimenAsync(IReadOnlyCollection<int> orderIds, int door) => Task.FromResult(0);
 }
 
@@ -247,6 +257,87 @@ public class MySqlOntvangstRepository : IOntvangstRepository
         }
         await tx.CommitAsync();
         return new OntvangstUitkomst(mee.Count, compleet, notifyTo ?? besteller, mailGevraagd);
+    }
+
+    /// <summary>Pakbonnummer bij "geleverd gelijk aan besteld", zoals Access (Order main form, Volgende bij status 4).</summary>
+    public const string PakbonGelijkGemaakt = "999";
+
+    public async Task<OntvangstUitkomst> GereedMeldenAsync(int orderId, int door, bool aantallenGelijk)
+    {
+        // telt wat er per te leveren regel nog openstaat (toeslag en correctie hoeven niet geleverd te worden)
+        const string openSql =
+            "SELECT i.`Orderitem-id`, COALESCE(i.`Quantity ordered`, 0) - COALESCE((SELECT SUM(d.`Quantity delivered`) " +
+            "         FROM `OrderItemsDelivered` d WHERE d.`OrderItem-id` = i.`Orderitem-id`), 0) AS NogOpen " +
+            "  FROM `Orderitems` i " +
+            " WHERE i.`Order-id` = @o AND COALESCE(i.`Toeslag`, 0) = 0 AND COALESCE(i.`Correction`, 0) = 0 " +
+            "HAVING NogOpen > 0";
+
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+
+        int? besteller = null, notifyTo = null; var mailGevraagd = false; var status = 0;
+        await using (var cmd = new MySqlCommand(
+            "SELECT o.`Created by`, o.`NotifyTo`, COALESCE(o.`Notify_when_delivered`, 0), COALESCE(o.`Status`, 0) " +
+            "  FROM `Orders` o WHERE o.`Order-id` = @id FOR UPDATE", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", orderId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) throw new InvalidOperationException($"PO-{orderId} niet gevonden.");
+            int? N(int i) => r.IsDBNull(i) || Convert.ToInt64(r.GetValue(i)) == 0 ? null : Convert.ToInt32(r.GetValue(i));
+            besteller = N(0); notifyTo = N(1); mailGevraagd = Convert.ToInt64(r.GetValue(2)) != 0;
+            status = Convert.ToInt32(r.GetValue(3));
+        }
+        if (status != 4) throw new InvalidOperationException($"PO-{orderId} wacht niet (meer) op levering.");
+
+        async Task<List<(int RegelId, double Open)>> OpenRegels()
+        {
+            var lijst = new List<(int, double)>();
+            await using var cmd = new MySqlCommand(openSql, cn, tx);
+            cmd.Parameters.AddWithValue("@o", orderId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) lijst.Add((r.GetInt32(0), Convert.ToDouble(r.GetValue(1))));
+            return lijst;
+        }
+
+        var geboekt = 0;
+        if (aantallenGelijk)
+            foreach (var (regelId, open) in await OpenRegels())
+            {
+                await using var cmd = new MySqlCommand(
+                    "INSERT INTO `OrderItemsDelivered` (`OrderItem-id`, `Order-id`, `Quantity delivered`, `Pakbonnummer`, " +
+                    "                                   `Pakbon signed at`, `Pakbon signed by`, `Remark`) " +
+                    "VALUES (@r, @o, @n, @p, NOW(), @d, 'Gereed gemeld: gelijk aan besteld')", cn, tx);
+                cmd.Parameters.AddWithValue("@r", regelId);
+                cmd.Parameters.AddWithValue("@o", orderId);
+                cmd.Parameters.AddWithValue("@n", open);
+                cmd.Parameters.AddWithValue("@p", PakbonGelijkGemaakt);
+                cmd.Parameters.AddWithValue("@d", door);
+                await cmd.ExecuteNonQueryAsync();
+                geboekt++;
+            }
+
+        var compleet = (await OpenRegels()).Count == 0;
+        await using (var cmd = new MySqlCommand(
+            "UPDATE `Orders` SET `Status` = 6, `Delivered date` = NOW(), `Delivered by` = @d" +
+            (compleet ? ", `AllesIsGeleverd` = 1" : "") + " WHERE `Order-id` = @o", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@d", door);
+            cmd.Parameters.AddWithValue("@o", orderId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await using (var cmd = new MySqlCommand(
+            "INSERT INTO `Log_Orderchanges` (`Order-ID`, `Toegevoegd`, `LogTekst`, `Groep`, `Door`) " +
+            "VALUES (@o, NOW(), @t, 'Status', @d)", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@o", orderId);
+            cmd.Parameters.AddWithValue("@d", door);
+            cmd.Parameters.AddWithValue("@t", "Status: 6 door gereed melden; " +
+                (geboekt > 0 ? $"geleverde aantallen gelijk gemaakt aan besteld ({geboekt} regel(s), pakbon {PakbonGelijkGemaakt})."
+                 : compleet ? "alles was al geleverd." : "geleverde aantallen niet aangepast."));
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+        return new OntvangstUitkomst(geboekt, compleet, notifyTo ?? besteller, mailGevraagd);
     }
 
     public async Task<int> OpruimenAsync(IReadOnlyCollection<int> orderIds, int door)

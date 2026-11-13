@@ -530,6 +530,8 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<HuidigeGebruiker>();
 // Opnieuw aanmelden bij Google midden in een actie (GoogleHerstelVenster in de layouts).
 builder.Services.AddScoped<GoogleHerstel>();
+// melding (en mail) "PO-… is compleet geleverd": Ontvangst en het gereed melden in Bestellingen
+builder.Services.AddScoped<GeleverdMelding>();
 
 var app = builder.Build();
 

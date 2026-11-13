@@ -496,7 +496,11 @@
         DitKwartaalZonderLaden();
         await Laad();
         await StartInbox();
+        // ?factuur=<id> (link vanuit Bestellingen ▸ tab Facturen): die factuur meteen openen, ook als hij buiten de periode valt
+        if (FactuurParam is int open && open > 0) _bewerkId = open;
     }
+
+    [SupplyParameterFromQuery(Name = "factuur")] public int? FactuurParam { get; set; }
 
     private async Task Laad()
     {

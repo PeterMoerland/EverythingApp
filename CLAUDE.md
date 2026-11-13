@@ -2526,6 +2526,44 @@ kan een regel uitleg hebben (`<small>`). De onderliggende pagina's hebben bovena
 plaats van "‹ Batch". `MobielLayout`: linksboven `wwwroot/logo-mde.png` (zoals de zijbalk van de grote app), in donker
 op een wit vlakje omdat de letters MDE zwart zijn. Lokaal bekeken op telefoonformaat, licht en donker.
 
+## Bestellingen: tab Facturen, gereed melden, miniaturen en telefoonnummers (13-11-2026)
+
+Vier wensen van de gebruiker op één dag, allemaal in `Components/Pages/Bestellingen.razor`. Geen script, geen instelling.
+
+- **Tab Facturen (n)** naast Documenten: de inkomende facturen die aan de bestelling gekoppeld zijn, **voor iedereen**
+  (besluit gebruiker). `IBestelRepository.FacturenAsync(orderId)` -> `BestelFactuur` (Facturen_Orders_Link +
+  FacturenInkomend, per factuur één regel met de gekoppelde bedragen opgeteld); de bestanden per factuur via
+  `WnRepo.GetBestandenAsync(1, factuurId)` (filestore soort 1). Bestand = het gewone voorbeeldvenster, ↗ = `bestand/<id>`
+  in een nieuw venster (soort 1 mocht iedereen die aangemeld is al openen, `MagBestand` in Program.cs). Alleen
+  `Ik.MagFinancien` krijgt het factuurnummer als link `financien/facturen?factuur=<id>` (nieuw venster); daarvoor opent
+  `Facturen.razor` met `?factuur=<id>` (`FactuurParam`) meteen het factuurvenster, ook buiten de periode van de lijst.
+  Geladen bij het kiezen van een bestelling (`LaadFacturen`), dus het aantal staat in de tab.
+- **Gereed melden** (Access: Order main form, Volgende bij status 4): knop **Gereed ▸** bij Wacht op levering
+  (`BestelFlow.MagNiet` blokkeert status 4 niet meer; `HeeftKnoppen` t/m status 4). Volgende opent een venster met de
+  vraag uit Access "Wil je alle geleverde aantallen aanpassen aan wat besteld is?" en de regels die nog openstaan
+  (`IOntvangstRepository.RegelsAsync`, zonder toeslag/correctie): **Ja** / **Nee, alleen gereed melden** / Annuleren;
+  staat er niets open, dan alleen "Gereed melden". `IOntvangstRepository.GereedMeldenAsync(orderId, door, gelijk)`, één
+  transactie: bij Ja per open regel een rij in OrderItemsDelivered (pakbon **999** zoals Access, daar staan er al ruim
+  29.000 van; Remark "Gereed gemeld: gelijk aan besteld"), dan Status 6, Delivered date/by, `AllesIsGeleverd` alleen als
+  er niets meer openstaat, en een regel in Log_Orderchanges. **Geen voorraadmutatie** (Access maakte die hier ook niet;
+  Ontvangst wel). Alleen vanuit status 4. Is de bestelling daarna compleet en is de besteller/NotifyTo iemand anders,
+  dan de melding in de bel en (als gevraagd) de mail: `Services/GeleverdMelding.cs` (nieuw, scoped), waar de code uit
+  `Ontvangst.razor` (`MeldCompleet`) naartoe is verhuisd; Ontvangst gebruikt hem nu ook.
+- **Tab Documenten**: tegels (`doc-tegels`) met een miniatuur in plaats van een tabel: afbeelding = het bestand zelf,
+  PDF = een verkleind `iframe` op `bestand/<id>#toolbar=0&view=FitH` (de bovenkant van de eerste pagina; er is geen
+  PDF-tekenaar op de server), de rest alleen de bestandssoort (Word/Excel zouden bij het openen van de tab allemaal
+  door LibreOffice moeten). Klik = voorbeeldvenster. Het vlak (`tabvlak`, ook om de tab Facturen) is minimaal 22rem
+  hoog, zodat de regels lager blijven staan.
+- **Telefoon in het blok Leverancier**: `IBestelRepository.LeverancierBereikAsync` -> `LeverancierBereik`
+  (Relations.telephone / telephone_mobile, en Contacts.Telefoon / Mobiel per contact); getoond als `tel:`-link onder de
+  leverancier en onder de gekozen contactpersoon. Geladen in `LaadStandaard`.
+- Getest lokaal op de echte gegevens (alleen lezen, testpatches): tab Facturen (2 facturen, bestanden, licht en donker),
+  de link naar Inkomende facturen, de miniaturen (13 PDF's; ze verschijnen na een paar tellen), het gereed-venster met
+  22 open regels (het schrijven stond in de test uit), de leesvraag van de open regels op de database, het
+  telefoonnummer met bel-link. **Niet getest**: het gereed melden zelf (boeken, status, logregel), de melding en mail
+  daarna, Ontvangst na het verhuizen van de mailcode, een afbeelding of Word-bestand als tegel, en de tab Facturen
+  zonder het recht Financial (factuurnummer zonder link).
+
 ## Bestellingen: lijst Niet doorgezet, en Verkooporders naar Projecten (13-11-2026)
 
 Verzoek (via de gebruiker): een extra controle zodat bestellingen niet op "bestellen" blijven staan, waardoor er geen

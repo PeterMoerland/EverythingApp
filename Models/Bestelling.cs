@@ -5,6 +5,19 @@
 public record BestelRegel(int Id, string Nummer, string Leverancier, string Omschrijving,
                           int Status, string StatusNaam, DateTime? Aangemaakt, decimal Totaal, string Bv = "", string Besteller = "");
 
+/// <summary>Telefoonnummers van een leverancier (Relations) en van zijn contactpersonen (Contacts), voor het blok
+/// Leverancier in het bestelscherm: handig om achter een bestelling aan te bellen.</summary>
+public record LeverancierBereik(string Telefoon, string Mobiel, Dictionary<int, (string Telefoon, string Mobiel)> Contacten);
+
+/// <summary>Een inkomende factuur die aan een bestelling gekoppeld is (Bestellingen ▸ tab Facturen).</summary>
+/// <param name="Gekoppeld">Het deel van de factuur dat aan deze bestelling hangt (ex btw).</param>
+public record BestelFactuur(int FactuurId, string Factuurnummer, DateTime? Factuurdatum, string Omschrijving,
+                            decimal Gekoppeld, decimal BedragExBtw, decimal Btw, bool Goedgekeurd, bool Betaald)
+{
+    /// <summary>De bestanden bij de factuur (filestore soort 1), door het scherm erbij gezocht.</summary>
+    public List<Bestand> Bestanden { get; set; } = new();
+}
+
 /// <summary>Een bestelling die te lang op Aanmaken of In bestelling staat (Bestellingen ▸ Niet doorgezet).</summary>
 /// <param name="Sinds">Sinds wanneer in deze status (Aanmaken: aangemaakt; In bestelling: de laatste goedkeuring of aanvraag).</param>
 /// <param name="Facturen">Aantal al gekoppelde inkomende facturen: dan is er zeker besteld.</param>

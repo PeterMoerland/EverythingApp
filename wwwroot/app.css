@@ -1353,6 +1353,39 @@ html[data-thema="donker"] .info-slot.aan { background: #3a3014; border-color: #a
 .foto-voor b { font-size: 1.05rem; }
 .foto-verstuurd { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .6rem 0; }
 .foto-verstuurd img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+/* Bestellingen: het vlak van de tabs Documenten en Facturen; vaste minimale hoogte, zodat de regels eronder lager blijven */
+.tabvlak { min-height: 22rem; }
+/* Bestellingen > tab Documenten: tegels met een miniatuur */
+.doc-tegels { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 13.5rem)); gap: .7rem; margin-bottom: .7rem; }
+.doc-tegel { display: flex; flex-direction: column; gap: .3rem; min-width: 0; padding: .4rem; border: 1px solid #d5d9df;
+             border-radius: 8px; background: #fff; }
+.doc-mini { position: relative; height: 11rem; overflow: hidden; border-radius: 5px; background: #eef1f4; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; }
+.doc-mini:hover { outline: 2px solid var(--accent); }
+.doc-mini img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* een PDF in het klein: het kader 2,5 keer zo groot en dan verkleind, zodat de bovenkant van de eerste pagina past */
+.doc-mini iframe { position: absolute; top: 0; left: 0; width: 250%; height: 250%; transform: scale(.4); transform-origin: 0 0;
+                   border: 0; background: #fff; pointer-events: none; }
+.doc-ext { font-weight: 700; font-size: 1.25rem; letter-spacing: .04em; color: #6b7480; }
+button.doc-naam { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9em; }
+.doc-voet { display: flex; align-items: center; gap: .3rem; }
+.doc-voet .doc-wanneer { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78em; color: #6b7480; }
+.doc-voet .knopje, .doc-voet button { padding: .1rem .4rem; }
+html[data-thema="donker"] .doc-tegel { background: var(--d2, #2a3340); border-color: #4a5566; }
+html[data-thema="donker"] .doc-mini { background: #1f2630; }
+html[data-thema="donker"] .doc-ext, html[data-thema="donker"] .doc-voet .doc-wanneer { color: #a9b3c0; }
+/* Bestellingen: telefoonnummers in het blok Leverancier */
+.zij-bel { display: flex; flex-wrap: wrap; gap: .1rem .9rem; }
+.zij-bel a { white-space: nowrap; text-decoration: none; font-weight: 600; }
+.zij-bel a:hover { text-decoration: underline; }
+/* Bestellingen: gereed melden (de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is) */
+.gereed-venster { width: min(46rem, 94vw); }
+.gereed-regels { max-height: 40vh; overflow: auto; }
+/* Bestellingen > tab Facturen: de bestanden van een gekoppelde factuur */
+.bestel-facturen td:nth-child(2), .bestel-facturen td.r { white-space: nowrap; }
+.bestel-factuur-bestand { display: flex; gap: .4rem; align-items: baseline; }
+.bestel-factuur-bestand button.bestandnaam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bestel-factuur-bestand a { text-decoration: none; }
 /* regel onder een tegel (bv. "3 van jou" bij Niet doorgezet) */
 .tegel-sub { font-size: .82em; font-weight: 600; color: #c25e00; }
 html[data-thema="donker"] .tegel-sub { color: #ffb366; }

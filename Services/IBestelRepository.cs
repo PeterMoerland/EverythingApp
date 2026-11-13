@@ -57,6 +57,10 @@ public interface IBestelRepository
     /// <paramref name="directie"/> ook Goedkeuring Directie.</summary>
     Task<List<TeKeurenOrder>> TeKeurenAsync(int werknemerId, bool directie);
 
+    /// <summary>De inkomende facturen die aan deze bestelling gekoppeld zijn (Facturen_Orders_Link), oudste eerst.
+    /// Een factuur die twee keer aan dezelfde bestelling hangt staat er één keer in, met de bedragen opgeteld.</summary>
+    Task<List<BestelFactuur>> FacturenAsync(int orderId);
+
     /// <summary>Bestellingen die langer dan <paramref name="dagen"/> dagen op Aanmaken (0) of In bestelling (3) staan:
     /// van één besteller (Created by), of van iedereen (null). Nieuwste eerst.</summary>
     Task<List<HangendeBestelling>> NietDoorgezetAsync(int dagen, int? bestellerId);
@@ -92,6 +96,8 @@ public interface IBestelRepository
 
     // ---- standaardwaarden van de leverancier (FillInDefaults_Order in Access) ----
     Task<LeverancierStandaard?> LeverancierStandaardAsync(int leverancierId);
+    /// <summary>Telefoon en mobiel van de leverancier en van zijn contactpersonen (alleen lezen).</summary>
+    Task<LeverancierBereik?> LeverancierBereikAsync(int leverancierId);
     /// <summary>
     /// Zet de standaardwaarden op een bestelling: contactpersoon, taal, leverdatum (alleen als die leeg is) en het
     /// afleveradres: <paramref name="afleverenBijStandaard"/> = het standaard afleveradres van de leverancier, anders leeg.
@@ -141,6 +147,7 @@ public class GeenBestelRepository : IBestelRepository
     public Task<Goedkeurder?> GoedkeurderAsync(int werknemerId) => Task.FromResult<Goedkeurder?>(null);
     public Task VoegToeslagToeAsync(int orderId, string omschrijving, decimal bedrag, string neededBy) => Task.CompletedTask;
     public Task<List<TeKeurenOrder>> TeKeurenAsync(int werknemerId, bool directie) => Task.FromResult(new List<TeKeurenOrder>());
+    public Task<List<BestelFactuur>> FacturenAsync(int orderId) => Task.FromResult(new List<BestelFactuur>());
     public Task<List<HangendeBestelling>> NietDoorgezetAsync(int dagen, int? bestellerId) => Task.FromResult(new List<HangendeBestelling>());
     public Task<int> AantalNietDoorgezetAsync(int dagen, int bestellerId) => Task.FromResult(0);
     public Task ZetMeldingBijLeveringAsync(int orderId, int werknemerId) => Task.CompletedTask;
@@ -156,6 +163,7 @@ public class GeenBestelRepository : IBestelRepository
     public Task<(List<int> Leveranciers, List<int> Werkorders)> RecentGebruiktAsync(int werknemerId, int max)
         => Task.FromResult((new List<int>(), new List<int>()));
     public Task<LeverancierStandaard?> LeverancierStandaardAsync(int leverancierId) => Task.FromResult<LeverancierStandaard?>(null);
+    public Task<LeverancierBereik?> LeverancierBereikAsync(int leverancierId) => Task.FromResult<LeverancierBereik?>(null);
     public Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard) => Task.CompletedTask;
     public Task<PlakArtikel?> ZoekPlakArtikelAsync(string nummer, int? leverancierId) => Task.FromResult<PlakArtikel?>(null);
     public Task<PlakLeverancier> PlakLeverancierAsync(int? leverancierId) => Task.FromResult(PlakLeverancier.Geen);
@@ -535,6 +543,31 @@ public class MySqlBestelRepository : IBestelRepository
         cmd.Parameters.AddWithValue("@b", bedrag);
         cmd.Parameters.AddWithValue("@guid", Guid.NewGuid().ToString("N"));
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---- gekoppelde facturen (Bestellingen ▸ tab Facturen) ----
+    public async Task<List<BestelFactuur>> FacturenAsync(int orderId)
+    {
+        var lijst = new List<BestelFactuur>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT f.`FacturenInkomend-ID`, COALESCE(f.`FactuurNummer`, ''), f.`DatumFactuur`, COALESCE(f.`Omschrijving`, ''), " +
+            "       COALESCE(SUM(l.`Bedrag`), 0), COALESCE(f.`BedragExBTW`, 0), COALESCE(f.`BTW`, 0), " +
+            "       COALESCE(f.`Goedgekeurd`, 0), COALESCE(f.`Betaald`, 0) " +
+            "  FROM `Facturen_Orders_Link` l " +
+            "  JOIN `FacturenInkomend` f ON f.`FacturenInkomend-ID` = l.`FactuurID` " +
+            " WHERE l.`OrderID` = @id " +
+            " GROUP BY f.`FacturenInkomend-ID`, f.`FactuurNummer`, f.`DatumFactuur`, f.`Omschrijving`, f.`BedragExBTW`, f.`BTW`, " +
+            "          f.`Goedgekeurd`, f.`Betaald` " +
+            " ORDER BY f.`DatumFactuur`, f.`FacturenInkomend-ID`", cn);
+        cmd.Parameters.AddWithValue("@id", orderId);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+            lijst.Add(new BestelFactuur(
+                rd.GetInt32(0), rd.GetString(1), rd.IsDBNull(2) ? null : Convert.ToDateTime(rd.GetValue(2)), rd.GetString(3),
+                Convert.ToDecimal(rd.GetValue(4)), Convert.ToDecimal(rd.GetValue(5)), Convert.ToDecimal(rd.GetValue(6)),
+                Convert.ToInt64(rd.GetValue(7)) != 0, Convert.ToInt64(rd.GetValue(8)) != 0));
+        return lijst;
     }
 
     // ---- niet doorgezet (Bestellingen ▸ Niet doorgezet) ----
@@ -1105,6 +1138,30 @@ public class MySqlBestelRepository : IBestelRepository
         return new LeverancierStandaard(N(0), r.IsDBNull(1) ? null : Convert.ToInt32(r.GetValue(1)), Convert.ToInt32(r.GetValue(2)),
                                         N(3), r.GetValue(4).ToString() ?? "", r.GetValue(5).ToString() ?? "", N(6),
                                         cc && ccAdres.Length > 0 && ccAdres != "0", ccAdres);
+    }
+
+    public async Task<LeverancierBereik?> LeverancierBereikAsync(int leverancierId)
+    {
+        await using var cn = await OpenAsync();
+        string tel, mobiel;
+        await using (var cmd = new MySqlCommand(
+            "SELECT COALESCE(`telephone`, ''), COALESCE(`telephone_mobile`, '') FROM `Relations` WHERE `id_supplier` = @l LIMIT 1", cn))
+        {
+            cmd.Parameters.AddWithValue("@l", leverancierId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return null;
+            tel = r.GetString(0).Trim(); mobiel = r.GetString(1).Trim();
+        }
+        var contacten = new Dictionary<int, (string, string)>();
+        await using (var cmd = new MySqlCommand(
+            "SELECT `ID_contact`, COALESCE(`Telefoon`, ''), COALESCE(`Mobiel`, '') FROM `Contacts` WHERE `id_supplier` = @l", cn))
+        {
+            cmd.Parameters.AddWithValue("@l", leverancierId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                contacten[r.GetInt32(0)] = (r.GetString(1).Trim(), r.GetString(2).Trim());
+        }
+        return new LeverancierBereik(tel, mobiel, contacten);
     }
 
     public async Task VulStandaardAsync(int orderId, LeverancierStandaard s, bool afleverenBijStandaard)

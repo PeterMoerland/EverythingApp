@@ -13,6 +13,8 @@
 @inject PakbonPdfService PakbonPdf
 @inject IInkoopBevestigingRepository BevestigingRepo
 @inject InkoopBevestigingOphaler BevestigingOphaler
+@inject IOntvangstRepository Ontvangst
+@inject GeleverdMelding GeleverdMelder
 
 <div class="page">
     <header class="topbar">
@@ -156,11 +158,11 @@
                                 {
                                     <button class="klein" @onclick="() => _mailOrder = _orderId" title="De bestelling naar de leverancier mailen (PO-)">✉ Bestelling versturen…</button>
                                 }
-                                @if (fl.Status <= BestelFlow.InBestelling)
+                                @if (fl.Status <= BestelFlow.WachtOpLevering)
                                 {
                                     <button class="primair" disabled="@(_volgendeBezig || BestelFlow.MagNiet(fl, _ik) is not null)"
-                                            title="@(BestelFlow.MagNiet(fl, _ik) ?? "")" @onclick="Volgende">
-                                        @(fl.Status == BestelFlow.InBestelling ? "Besteld ▸" : "Volgende ▸")
+                                            title="@(BestelFlow.MagNiet(fl, _ik) ?? (fl.Status == BestelFlow.WachtOpLevering ? "De bestelling is binnen: op Gereed zetten (met de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is)" : ""))" @onclick="Volgende">
+                                        @(fl.Status == BestelFlow.InBestelling ? "Besteld ▸" : fl.Status == BestelFlow.WachtOpLevering ? "Gereed ▸" : "Volgende ▸")
                                     </button>
                                 }
                                 @if (BestelFlow.MagAfkeuren(fl, _ik))
@@ -204,6 +206,70 @@
                         </div>
                     }
 
+                    @* gereed melden (Volgende bij Wacht op levering): de vraag uit Access of de geleverde aantallen gelijk
+                       moeten worden aan wat besteld is. Ja / Nee / Annuleren. *@
+                    @if (_gereedOrder is not null && _gereedOrder == _orderId)
+                    {
+                        <div class="cmdk-overlay midden" @onclick="() => _gereedOrder = null">
+                            <div class="kiezer gereed-venster" @onclick:stopPropagation role="dialog" aria-label="Gereed melden">
+                                <div class="kiezer-kop"><b>PO-@_orderId gereed melden</b></div>
+                                <div class="afkeur-inhoud">
+                                    @if (_gereedRegels.Count == 0)
+                                    {
+                                        <p>Alles van deze bestelling is al als geleverd geboekt. De bestelling op <b>Gereed</b> zetten?</p>
+                                    }
+                                    else
+                                    {
+                                        <p><b>Wil je alle geleverde aantallen aanpassen aan wat besteld is?</b></p>
+                                        <p class="uitleg">
+                                            Van @_gereedRegels.Count regel@(_gereedRegels.Count == 1 ? "" : "s") is nog niet alles als geleverd geboekt.
+                                            <b>Ja</b>: wat hieronder openstaat wordt als geleverd geboekt (pakbon @MySqlOntvangstRepository.PakbonGelijkGemaakt, zoals in Access) en de bestelling gaat op Gereed.
+                                            <b>Nee</b>: de bestelling gaat op Gereed en de aantallen blijven zoals ze zijn.
+                                        </p>
+                                        <div class="gereed-regels">
+                                            <table class="kiezer-tabel">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="width:9rem">Artikelcode</th>
+                                                        <th>Omschrijving</th>
+                                                        <th style="width:4.6rem" class="r">Besteld</th>
+                                                        <th style="width:4.6rem" class="r">Geleverd</th>
+                                                        <th style="width:4.6rem" class="r">Open</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var r in _gereedRegels)
+                                                    {
+                                                        <tr @key="r.RegelId">
+                                                            <td class="omschrijving" title="@r.Artikel">@r.Artikel</td>
+                                                            <td class="omschrijving" title="@r.Omschrijving">@r.Omschrijving</td>
+                                                            <td class="r">@r.Besteld.ToString("0.##")</td>
+                                                            <td class="r">@(r.Geleverd != 0 ? r.Geleverd.ToString("0.##") : "")</td>
+                                                            <td class="r"><b>@r.Open.ToString("0.##")</b></td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="kiezer-voet">
+                                    <span style="flex:1"></span>
+                                    <button class="klein" disabled="@_volgendeBezig" @onclick="() => _gereedOrder = null">Annuleren</button>
+                                    @if (_gereedRegels.Count == 0)
+                                    {
+                                        <button class="primair" disabled="@_volgendeBezig" @onclick="() => GereedMelden(false)">Gereed melden</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="klein" disabled="@_volgendeBezig" @onclick="() => GereedMelden(false)">Nee, alleen gereed melden</button>
+                                        <button class="primair" disabled="@_volgendeBezig" @onclick="() => GereedMelden(true)">Ja, aanpassen en gereed melden</button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     <div class="wn-tabs">
                         @foreach (var tab in BestelVelden.Tabs)
                         {
@@ -212,48 +278,141 @@
                         }
                         <button class="@("Documenten" == _tab ? "actief" : "")"
                                 @onclick="KiesDocumenten">Documenten (@_documenten.Count)</button>
+                        @* de inkomende facturen die aan deze bestelling gekoppeld zijn; voor iedereen (wens gebruiker 13-11-2026) *@
+                        <button class="@("Facturen" == _tab ? "actief" : "")"
+                                title="De facturen van de leverancier die aan deze bestelling gekoppeld zijn"
+                                @onclick="KiesFacturen">Facturen (@_facturen.Count)</button>
                     </div>
 
                     @if (_tab == "Documenten")
                     {
-                        <table class="kiezer-tabel">
-                            <thead>
-                                <tr>
-                                    <th>Bestand</th>
-                                    <th style="width:10rem">Toegevoegd</th>
-                                    <th style="width:11rem">Door</th>
-                                    <th style="width:6rem"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var d in _documenten)
-                                {
-                                    <tr @key="d.FileStoreId">
-                                        <td>
-                                            <button class="bestandnaam" title="Bekijken"
+                        @* tegels met een miniatuur (wens gebruiker 13-11-2026): afbeeldingen en PDF's in het klein, de rest met de
+                           bestandssoort. Het vlak heeft een vaste minimale hoogte, zodat de regels eronder niet omhoog springen. *@
+                        <div class="tabvlak">
+                            @if (_documenten.Count == 0)
+                            {
+                                <p class="uitleg">Nog geen documenten.</p>
+                            }
+                            else
+                            {
+                                <div class="doc-tegels">
+                                    @foreach (var d in _documenten)
+                                    {
+                                        <div class="doc-tegel" @key="d.FileStoreId">
+                                            <div class="doc-mini" role="button" tabindex="0" title="@("Bekijken: " + d.Bestandsnaam)"
+                                                 @onclick="() => ToonVoorbeeld(d)">
+                                                @switch (MiniSoort(d.Bestandsnaam))
+                                                {
+                                                    case "afbeelding":
+                                                        <img src="@BekijkUrl(d.FileStoreId)" alt="" loading="lazy" />
+                                                        break;
+                                                    case "pdf":
+                                                        <iframe src="@(BekijkUrl(d.FileStoreId) + "#toolbar=0&navpanes=0&scrollbar=0&view=FitH")"
+                                                                loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
+                                                        break;
+                                                    default:
+                                                        <span class="doc-ext">@Extensie(d.Bestandsnaam)</span>
+                                                        break;
+                                                }
+                                            </div>
+                                            <button class="bestandnaam doc-naam" title="@d.Bestandsnaam"
                                                     @onclick="() => ToonVoorbeeld(d)">@d.Bestandsnaam</button>
-                                        </td>
-                                        <td>@(d.Toegevoegd?.ToString("dd-MM-yyyy HH:mm") ?? "")</td>
-                                        <td>@d.ToegevoegdDoor</td>
-                                        <td class="c">
-                                            <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⭳</a>
-                                            <button class="klein rood" @onclick="() => VerwijderDocument(d)">✕</button>
-                                        </td>
-                                    </tr>
-                                }
-                                @if (_documenten.Count == 0)
-                                {
-                                    <tr><td colspan="4" class="kiezer-info">Nog geen documenten.</td></tr>
-                                }
-                            </tbody>
-                        </table>
+                                            <div class="doc-voet">
+                                                <span class="doc-wanneer" title="@(d.ToegevoegdDoor + (d.Toegevoegd is DateTime t ? " · " + t.ToString("dd-MM-yyyy HH:mm") : ""))">
+                                                    @(d.Toegevoegd?.ToString("dd-MM-yyyy") ?? "") @d.ToegevoegdDoor
+                                                </span>
+                                                <a class="knopje" href="@DownloadUrl(d.FileStoreId)" title="Downloaden">⭳</a>
+                                                <button class="klein rood" title="Verwijderen" @onclick="() => VerwijderDocument(d)">✕</button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
 
-                        <div class="sleepzone @(_sleepActief ? "actief" : "")"
-                             @ondragenter="() => _sleepActief = true"
-                             @ondragleave="() => _sleepActief = false"
-                             @ondragover:preventDefault="true">
-                            <span>Sleep hier een bestand, of klik om te kiezen</span>
-                            <InputFile OnChange="BestandenGekozen" multiple />
+                            <div class="sleepzone @(_sleepActief ? "actief" : "")"
+                                 @ondragenter="() => _sleepActief = true"
+                                 @ondragleave="() => _sleepActief = false"
+                                 @ondragover:preventDefault="true">
+                                <span>Sleep hier een bestand, of klik om te kiezen</span>
+                                <InputFile OnChange="BestandenGekozen" multiple />
+                            </div>
+                        </div>
+                    }
+                    else if (_tab == "Facturen")
+                    {
+                        <div class="tabvlak">
+                        @if (_facturen.Count == 0)
+                        {
+                            <p class="uitleg">Er is nog geen factuur aan deze bestelling gekoppeld.</p>
+                        }
+                        else
+                        {
+                            <table class="kiezer-tabel bestel-facturen">
+                                <thead>
+                                    <tr>
+                                        <th style="width:11rem">Factuurnummer</th>
+                                        <th style="width:6.6rem">Datum</th>
+                                        <th>Omschrijving</th>
+                                        <th style="width:8.4rem" class="r" title="Het deel van de factuur dat aan deze bestelling hangt (ex btw)">Op deze bestelling</th>
+                                        <th style="width:8.4rem" class="r" title="Het hele factuurbedrag, ex btw">Factuur ex btw</th>
+                                        <th style="width:5.6rem" class="c">Betaald</th>
+                                        <th style="width:17rem">Bestand</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var f in _facturen)
+                                    {
+                                        <tr @key="f.FactuurId">
+                                            <td>
+                                                @if (Ik.MagFinancien)
+                                                {
+                                                    <a href="@("financien/facturen?factuur=" + f.FactuurId)" target="_blank" rel="noopener"
+                                                       title="Deze factuur openen bij Inkomende facturen, in een nieuw venster">@FactuurNaam(f)</a>
+                                                }
+                                                else
+                                                {
+                                                    @FactuurNaam(f)
+                                                }
+                                            </td>
+                                            <td>@(f.Factuurdatum?.ToString("dd-MM-yyyy") ?? "")</td>
+                                            <td class="omschrijving" title="@f.Omschrijving">@f.Omschrijving</td>
+                                            <td class="r">@Bedrag(f.Gekoppeld)</td>
+                                            <td class="r">@Bedrag(f.BedragExBtw)</td>
+                                            <td class="c" title="@(f.Betaald ? "Betaald" : f.Goedgekeurd ? "Goedgekeurd, nog niet betaald" : "Nog niet goedgekeurd")">@(f.Betaald ? "✔" : "")</td>
+                                            <td>
+                                                @foreach (var d in f.Bestanden)
+                                                {
+                                                    <div class="bestel-factuur-bestand" @key="d.FileStoreId">
+                                                        <button class="bestandnaam" title="Bekijken"
+                                                                @onclick="() => ToonVoorbeeld(d)">📄 @d.Bestandsnaam</button>
+                                                        <a href="@BekijkUrl(d.FileStoreId)" target="_blank" rel="noopener"
+                                                           title="Openen in een nieuw venster">↗</a>
+                                                    </div>
+                                                }
+                                                @if (f.Bestanden.Count == 0)
+                                                {
+                                                    <span class="uitleg">geen bestand</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                @if (_facturen.Count > 1)
+                                {
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan="3" class="r"><b>Samen</b></td>
+                                            <td class="r"><b>@Bedrag(_facturen.Sum(f => f.Gekoppeld))</b></td>
+                                            <td colspan="3"></td>
+                                        </tr>
+                                    </tfoot>
+                                }
+                            </table>
+                            <p class="uitleg">
+                                Besteld @Bedrag(_regels.Sum(r => r.Regeltotaal)), gefactureerd op deze bestelling @Bedrag(_facturen.Sum(f => f.Gekoppeld)) (ex btw).
+                                Klik op een bestand om de factuur te bekijken; ↗ opent hem in een nieuw venster.
+                            </p>
+                        }
                         </div>
                     }
                     else
@@ -285,7 +444,22 @@
                                          LeegTekst="Nog geen leverancier gekozen.">
                                     <div class="zij-regel">
                                         <span class="zij-naam">@LeverancierNaam()</span>
+                                        @* telefoonnummers om erachteraan te bellen (wens gebruiker 13-11-2026): van de leverancier en van de contactpersoon *@
+                                        @if (_levBereik is { } lb && (lb.Telefoon.Length > 0 || lb.Mobiel.Length > 0))
+                                        {
+                                            <span class="zij-extra zij-bel">
+                                                @Bel(lb.Telefoon, "☎", "Telefoon van de leverancier")
+                                                @Bel(lb.Mobiel, "📱", "Mobiel nummer van de leverancier")
+                                            </span>
+                                        }
                                         <span class="zij-extra">@ContactNaam()</span>
+                                        @if (ContactBereik() is { } cb && (cb.Telefoon.Length > 0 || cb.Mobiel.Length > 0))
+                                        {
+                                            <span class="zij-extra zij-bel">
+                                                @Bel(cb.Telefoon, "☎", "Telefoon van de contactpersoon")
+                                                @Bel(cb.Mobiel, "📱", "Mobiel nummer van de contactpersoon")
+                                            </span>
+                                        }
                                         @if (_levStandaard is { Cc: true } cc)
                                         {
                                             <span class="zij-extra" title="Relaties: CC bij bestelling. Access vroeg dit bij het versturen van de bestelling.">CC bij bestelling: @cc.CcAdres</span>
@@ -784,6 +958,7 @@
         _velden = new(StringComparer.OrdinalIgnoreCase);
         _regels = new();
         _documenten = new();
+        _facturen = new();
         _tab = "Algemeen";
     }
 
@@ -861,6 +1036,7 @@
         _status = gekozen.Status;
         _regels = new();
         _documenten = new();
+        _facturen = new();
         StateHasChanged();
 
         try { await JS.InvokeVoidAsync("mdeLijst.naarActief", "bestellijst"); } catch { }
@@ -892,6 +1068,7 @@
         await LaadFlow();
         await LaadRegels();
         await LaadDocumenten();
+        await LaadFacturen();
     }
 
     /// <summary>
@@ -987,11 +1164,32 @@
     private async Task LaadStandaard()
     {
         _levStandaard = null;
+        _levBereik = null;
         if (Nummer("Supplier") is int lev)
         {
             try { _levStandaard = await Repo.LeverancierStandaardAsync(lev); } catch { }
+            try { _levBereik = await Repo.LeverancierBereikAsync(lev); } catch { }
         }
     }
+
+    /// <summary>Telefoonnummers van de leverancier en zijn contactpersonen, voor het blok Leverancier rechts.</summary>
+    private LeverancierBereik? _levBereik;
+
+    /// <summary>De nummers van de contactpersoon die op deze bestelling gekozen is.</summary>
+    private (string Telefoon, string Mobiel)? ContactBereik()
+        => _levBereik is { } b && Nummer("Contact") is int c && b.Contacten.TryGetValue(c, out var nrs) ? nrs : null;
+
+    /// <summary>Een telefoonnummer als bel-link (tel:), of niets als het leeg is.</summary>
+    private static RenderFragment Bel(string nummer, string teken, string titel) => b =>
+    {
+        if (nummer.Length == 0) return;
+        var kaal = new string(nummer.Where(ch => char.IsDigit(ch) || ch == '+').ToArray());
+        b.OpenElement(0, "a");
+        b.AddAttribute(1, "href", "tel:" + kaal);
+        b.AddAttribute(2, "title", titel + ": klik om te bellen");
+        b.AddContent(3, teken + " " + nummer);
+        b.CloseElement();
+    };
 
     private async Task LaadRegels()
     {
@@ -1164,7 +1362,7 @@
         => _statussen.Where(s => s.Id == _statusFilter || !s.Omschrijving.Trim().Equals("ERROR", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Staat er links in de statusbalk een knop (Volgende/Besteld of Afkeuren)?</summary>
-    private bool HeeftKnoppen => _flow is { } f && (f.Status <= BestelFlow.InBestelling || BestelFlow.MagAfkeuren(f, _ik));
+    private bool HeeftKnoppen => _flow is { } f && (f.Status <= BestelFlow.WachtOpLevering || BestelFlow.MagAfkeuren(f, _ik));
 
     /// <summary>De statuslampjes; ERROR alleen als de bestelling daar echt op staat (wens gebruiker).</summary>
     private IEnumerable<Bestelstatus> Lampjes
@@ -1287,6 +1485,12 @@
                         await Repo.ZetStatusAsync(id, BestelFlow.WachtOpLevering, BestelFlow.Gereed, ik.Id);
                     Toon(info.DirectGeleverd ? "Besteld en meteen geleverd (gereed)." : "Besteld; wacht op levering.", false);
                     break;
+
+                case BestelFlow.WachtOpLevering:
+                    // zoals Access: eerst de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is
+                    _gereedRegels = (await Ontvangst.RegelsAsync(id)).Where(r => !r.Toeslag && r.Open > 0).ToList();
+                    _gereedOrder = id;
+                    return;
             }
 
             _velden = await Repo.GetVeldenAsync(id);
@@ -1296,6 +1500,38 @@
             Signaal.Geef();
         }
         catch (Exception ex) { Toon("Doorzetten mislukt: " + ex.Message, true); }
+        finally { _volgendeBezig = false; }
+    }
+
+    // ---- gereed melden (Volgende bij Wacht op levering; Access: Order main form, Case 4) ----
+    private int? _gereedOrder;
+    private List<OntvangstRegel> _gereedRegels = new();
+
+    /// <summary>Zet de bestelling op Gereed; met <paramref name="gelijk"/> wordt eerst wat openstaat als geleverd geboekt.</summary>
+    private async Task GereedMelden(bool gelijk)
+    {
+        if (_gereedOrder is not int id || id != _orderId || _ik is not { } ik || _volgendeBezig) return;
+        _volgendeBezig = true;
+        try
+        {
+            var uit = await Ontvangst.GereedMeldenAsync(id, ik.Id, gelijk);
+            _gereedOrder = null;
+            var tekst = uit.Regels > 0
+                ? $"PO-{id} staat op Gereed; {uit.Regels} regel{(uit.Regels == 1 ? "" : "s")} als geleverd geboekt."
+                : $"PO-{id} staat op Gereed.";
+            // compleet: wie erom vroeg hoort het (melding in de bel, en de mail als die gevraagd is); niet als je het zelf bent
+            if (uit.Compleet && uit.Ontvanger is int wie && wie != ik.Id)
+                tekst += await GeleverdMelder.MeldAsync(id, _flow?.Leverancier ?? "", uit, ik.Naam);
+
+            _velden = await Repo.GetVeldenAsync(id);
+            _status = Convert.ToInt32(_velden.TryGetValue("Status", out var st) && st is not null ? st : _status);
+            await LaadFlow();
+            await LaadRegels();
+            await Laad();
+            Signaal.Geef();
+            Toon(tekst, false);
+        }
+        catch (Exception ex) { Toon("Gereed melden mislukt: " + ex.Message, true); }
         finally { _volgendeBezig = false; }
     }
 
@@ -1866,11 +2102,55 @@
     // ================================================================
     //  Documenten
     // ================================================================
+    /// <summary>Wat er als miniatuur van een document te tonen is: de afbeelding zelf, de eerste pagina van een PDF, of
+    /// alleen de bestandssoort (Word en Excel zouden eerst omgezet moeten worden; dat gebeurt pas bij Bekijken).</summary>
+    private static string MiniSoort(string naam)
+    {
+        var n = (naam ?? "").ToLowerInvariant();
+        if (n.EndsWith(".pdf")) return "pdf";
+        return n.EndsWith(".jpg") || n.EndsWith(".jpeg") || n.EndsWith(".png") || n.EndsWith(".gif") || n.EndsWith(".webp") ? "afbeelding" : "";
+    }
+
+    private static string Extensie(string naam)
+        => System.IO.Path.GetExtension(naam ?? "").TrimStart('.') is { Length: > 0 and <= 5 } e ? e.ToUpperInvariant() : "bestand";
+
     private async Task KiesDocumenten()
     {
         _tab = "Documenten";
         await LaadDocumenten();
     }
+
+    // ================================================================
+    //  Facturen: de inkomende facturen die aan deze bestelling gekoppeld zijn, met hun bestanden. Alleen lezen en voor
+    //  iedereen (wens gebruiker 13-11-2026); koppelen blijft bij Financiën ▸ Inkomende facturen.
+    // ================================================================
+    /// <summary>Filestore-soort van een inkomende factuur (MasterID = FacturenInkomend-ID), zoals in Facturen.razor.</summary>
+    private const int StoreTypeFactuur = 1;
+    private List<BestelFactuur> _facturen = new();
+
+    private async Task KiesFacturen()
+    {
+        _tab = "Facturen";
+        await LaadFacturen();
+    }
+
+    private async Task LaadFacturen()
+    {
+        if (_orderId is not int id || !Repo.Beschikbaar) { _facturen = new(); return; }
+        try
+        {
+            var lijst = await Repo.FacturenAsync(id);
+            if (WnRepo.Beschikbaar)
+                foreach (var f in lijst)
+                {
+                    try { f.Bestanden = await WnRepo.GetBestandenAsync(StoreTypeFactuur, f.FactuurId); } catch { }
+                }
+            if (_orderId == id) _facturen = lijst;      // intussen een andere bestelling gekozen: niet overschrijven
+        }
+        catch { _facturen = new(); }
+    }
+
+    private static string FactuurNaam(BestelFactuur f) => f.Factuurnummer.Length > 0 ? f.Factuurnummer : "factuur #" + f.FactuurId;
 
     private async Task LaadDocumenten()
     {

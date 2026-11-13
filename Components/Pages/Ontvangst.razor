@@ -9,6 +9,7 @@
 @inject HuidigeGebruiker Ik
 @inject IWebHostEnvironment Omgeving
 @inject IJSRuntime JS
+@inject GeleverdMelding Melder
 
 @* Materiaal inboeken: geleverde goederen aftekenen (Access Orders_incoming_goods + _signoff + MateriaalGeleverd).
    Besluit gebruiker (16-10-2026): de hele pakbon in één keer (per regel "nu geleverd", vooraf ingevuld met wat open
@@ -298,34 +299,10 @@
         finally { _bezig = false; }
     }
 
-    /// <summary>Compleet: melding in de bel van de besteller (of NotifyTo), en de mail als die gevraagd is.</summary>
-    private async Task<string> MeldCompleet(OntvangstOrder o, OntvangstUitkomst uit)
-    {
-        if (uit.Ontvanger is not int wie) return "";
-        var extra = "";
-        try
-        {
-            await Meldingen.MaakAsync(wie, "geleverd", o.OrderId, $"PO-{o.OrderId} ({o.Leverancier}) is compleet geleverd.");
-            Signaal.Geef();
-        }
-        catch { }
-        if (!uit.MailGevraagd) return extra;
-        try
-        {
-            var g = await Repo.GeleverdMailAsync(o.OrderId, wie);
-            var postbus = Ik.IsWerkplek ? Postbussen.Werkplek(Ik) : Ik.Email.Length > 0 ? MailService.Eigen(Ik.Email) : null;
-            if (g is null || g.MailOntvanger.Length == 0) return " Geen mailadres bekend van de besteller; alleen een melding in de app.";
-            if (postbus is null) return " Mail niet verstuurd (geen afzender op deze pc); wel een melding in de app.";
-            var door = _personen.FirstOrDefault(p => p.Id == _door)?.Naam ?? "";
-            var logo = await File.ReadAllBytesAsync(Path.Combine(Omgeving.WebRootPath, "logo-mde.png"));
-            await Herstel.VoerUitAsync(() => Post.VerstuurAsync(postbus, g.MailOntvanger, BestelMail.GeleverdOnderwerp(g),
-                "<html><body>" + BestelMail.GeleverdHtml(g, door, "cid:" + BestelMail.LogoCid) + "</body></html>",
-                null, null, html: true, ingebed: new[] { (BestelMail.LogoCid, "logo-mde.png", logo) }));
-            extra = $" {g.NaamOntvanger} krijgt een mail en een melding.";
-        }
-        catch (Exception ex) { extra = " Mail versturen mislukt: " + ex.Message; }
-        return extra;
-    }
+    /// <summary>Compleet: melding in de bel van de besteller (of NotifyTo), en de mail als die gevraagd is
+    /// (Services/GeleverdMelding.cs, ook gebruikt door het gereed melden in Bestellingen).</summary>
+    private Task<string> MeldCompleet(OntvangstOrder o, OntvangstUitkomst uit)
+        => Melder.MeldAsync(o.OrderId, o.Leverancier, uit, _personen.FirstOrDefault(p => p.Id == _door)?.Naam ?? "");
 
     // ---- oude bestellingen opruimen (Directie) ----
     private bool _opruimOpen;
