@@ -2494,6 +2494,11 @@ item instelbaar**; een hoofdfase afronden met de **knop Fase klaar**.
   boomscript zelf, alles wat schrijft (afvinken, Fase klaar, Overslaan, in-/uitspringen, verwijderen), de fase in
   nieuwe historieregels.
 - Het voorstel is hiermee af: deel 3, 4 en 5 en "Programmeren en testen in de fases" staan hieronder.
+- **Nummers in de bewerker** (wens gebruiker 14-11-2026: "ik zie de 1, 2, 3 alleen als er een kind aan een ouder hangt"):
+  `OpbouwBoomBewerker` zet nu bij elk item op het bovenste niveau een nummer (`Wortels.IndexOf + 1`). Een hoofdfase houdt
+  het gevulde bolletje; een gewone stap in een type zonder fases krijgt een licht omlijnd bolletje (`boomb-nr-stap`), met
+  in het wolkje dat de items hoofdfases worden zodra er iets onder een item hangt. Alleen de bewerker; het afvinken bij
+  een exemplaar en `FaseNummer` (alleen voor hoofdfases) zijn ongewijzigd. Lokaal bekeken op type 34 (zonder fases) en 31.
 
 ## Programmeren en testen in de fases (12-11-2026)
 

@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 14-11-2026
+
+- **Producten** — Verbeterd: in de opbouw staat bij elk item op het bovenste niveau een nummer (1, 2, 3 …), ook als er nog niets onder een item hangt. Een gewone stap krijgt een licht bolletje, een hoofdfase het gevulde.
+
 ## 13-11-2026
 
 - **Zoeken** — Verbeterd (punt van Peter Verschuure): na een klik op Zoeken (of Ctrl+K) staat de cursor meteen in het zoekveld, zodat je direct kunt typen.

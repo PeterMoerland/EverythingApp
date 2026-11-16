@@ -151,9 +151,12 @@
                     {
                         <span class="boomb-pijl"></span>
                     }
-                    @if (hoofd)
+                    @* elk item op het bovenste niveau krijgt een nummer (wens gebruiker 14-11-2026); eerst alleen een hoofdfase,
+                       dus pas als ergens iets onder een item hing. Een gewone stap (type zonder fases) krijgt een licht bolletje. *@
+                    @if (Boom.Ouder(s) is null)
                     {
-                        <span class="boomb-nr" title="@(groep ? "Hoofdfase" : "Hoofdfase zonder stappen")">@Boom.FaseNummer(s)</span>
+                        <span class="boomb-nr @(hoofd ? "" : "boomb-nr-stap")"
+                              title="@(hoofd ? (groep ? "Hoofdfase" : "Hoofdfase zonder stappen") : "Stap op het bovenste niveau. Zet je ergens iets onder een item, dan worden deze items de hoofdfases.")">@(Boom.Wortels.IndexOf(s) + 1)</span>
                     }
                     else if (!groep)
                     {
