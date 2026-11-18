@@ -326,6 +326,8 @@ if (builder.Configuration.GetValue<bool>("Verkoop:Geheugen"))
         string.IsNullOrWhiteSpace(cs) ? null : new MySqlVerkoopOrderRepository(cs, sp.GetRequiredService<IProjectRepository>())));
 builder.Services.AddSingleton<OrderbevestigingPdfService>();
 builder.Services.AddSingleton<InkoopOrderPdfService>();
+// Calculaties: slim zoeken in de artikellijst bij een materiaalregel (alleen lezen; zonder database geen treffers)
+builder.Services.AddSingleton(new ArtikelPrijsZoeker(cs));
 builder.Services.AddSingleton<VerkoopBestellen>();
 builder.Services.AddSingleton<VerkoopAfhandeling>();
 // Broodjes (Kaeswienkeltje, /broodjes) lokaal testen zonder de tabellen: Broodjes__Geheugen=true
@@ -831,6 +833,19 @@ calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository r
         magOntdooien = ik.Mag("Directie"),
         gebruiker = ik.Naam,
         gewijzigd = wanneer,
+    });
+});
+// Artikel zoeken bij een materiaalregel (wens gebruiker 18-11-2026): de tekst van de regel, ook in losse delen; met de
+// kostprijs. termen = waarop gezocht is (de boom markeert ze in de treffers).
+calcApi.MapGet("/artikelen", async (string? q, int? max, ArtikelPrijsZoeker zoeker) =>
+{
+    var tekst = (q ?? "").Trim();
+    var treffers = await zoeker.ZoekAsync(tekst, max ?? 8);
+    return Results.Json(new
+    {
+        termen = ArtikelPrijsZoeker.Termen(tekst.TrimStart('#')),
+        treffers = treffers.Select(t => new { id = t.Id, code = t.Code, fabrikantcode = t.Fabrikantcode, omschrijving = t.Omschrijving, merk = t.Merk,
+                                              kostprijs = t.Kostprijs, bron = t.Bron, leverancier = t.Leverancier, termen = t.Termen, van = t.VanTermen }),
     });
 });
 calcApi.MapPut("/{offerteId:int}", async (int offerteId, HttpRequest req, ICalculatieRepository repo, HuidigeGebruiker ik) =>

@@ -327,6 +327,40 @@ Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het proj
   Werkmaatschappij meteen (ook gebruikt door het verkoopproject van een VO; de losse UPDATE is weg). Lokaal bekeken:
   AUTO 1502 van 1506 open projecten, MPR nog 0; niet aangemaakt.
 
+## Calculaties: artikel zoeken bij een materiaalregel (18-11-2026)
+
+Wens gebruiker: bij "Materiaal / overig" in de artikellijst zoeken om de prijs op te halen; slim zoeken (losse delen van
+de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik = uitgebreid zoekvenster.
+- **Server**: `Services/ArtikelPrijsZoeker.cs` (singleton met de connection string, alleen lezen) en
+  `GET /calculaties/api/artikelen?q=…&max=…` (Program.cs, in de groep `calcApi`) -> `{ termen, treffers: [{ id, code,
+  fabrikantcode, omschrijving, merk, kostprijs, bron, leverancier, termen, van }] }`.
+  `Termen(tekst)`: splitsen op spatie, `- _ / \ , ; + ( ) [ ] : |`, delen van minstens 2 tekens, hooguit 6 (de langste);
+  een komma tussen cijfers splitst niet ("3x1,5") en zo'n term vergelijkt met komma = punt (`REPLACE(kolom, ',', '.')`).
+  Een artikel hoeft maar **een** term te raken (code, fabrikantcode, omschrijving, merk `Brands.Name`, of het MDE-nummer),
+  of de tekst zonder leestekens (`Compact`, "nxpf0630" vindt NX-PF0630). Volgorde op punten in SQL: hele tekst = code
+  1000, alle termen 500, code begint ermee 300, in de code 200, compact 150, in de omschrijving 100 (alleen als de code
+  hem niet heeft, anders wint een kit die het artikel noemt), per term in de code 30 en per geraakte term 10; daarna de
+  kortste code. Maakdelen doen mee. Ca. 0,2-0,6 s op 54.000 artikelen (vier termen 1,6 s).
+- **Prijs** = `Artikelen.VastgesteldeKostprijs` (26.590 artikelen); is die 0, dan de duurste leverancier zoals de Access-
+  query Artikel_MaxInkoopprijs (`bron` = "leverancier", 159 artikelen; in het venster met een *). Geen prijs = melding,
+  de kostprijs van de regel blijft staan.
+- **Boom** (`wwwroot/calculatieboom.html`, blok "artikel zoeken bij een materiaalregel"; `BoomAdres` staat op `v=2`):
+  typen in de omschrijving van een regel met soort `mat` -> na 250 ms `.artlijst` onder (of boven) het veld, 8 treffers,
+  termen gemarkeerd; ↑ ↓ + Enter of klik kiest (keydown in de capture-fase, vóór de gewone Enter = volgende regel; zonder
+  gekozen treffer doet Enter wat hij altijd deed), Esc sluit. Dubbelklik op de omschrijving, de link onderin de lijst of
+  ⋯ ▸ "Artikel zoeken in de artikellijst…" = `openArtVenster` (overlay `.artachter`, 100 treffers, kolommen MDE, code met
+  fabrikantcode, omschrijving met "2 van 3 termen", merk, leverancier, kostprijs; toetsen blijven in het venster).
+  `kiesArtikel`: `r.kost` = prijs (niet bij een uitsplitsing Σ: dan een melding), leeg aantal wordt 1, `r.oms` =
+  "code · omschrijving" als het vinkje "Naam van de regel vervangen…" aan staat (localStorage `calc-art-naam`, standaard
+  aan; een lege naam wordt altijd ingevuld), en `r.art = { id, code, prijs, op }` voor de tooltip op de kostprijs
+  (`artTitel`: uit welk artikel, wanneer, en of de regel er nu van afwijkt). `art` zit in de kern (bevroren = vast).
+- Niet gedaan: zoeken in de detailregels van een uitsplitsing, en prijzen later in één keer verversen (`r.art.id` is
+  daarvoor wel bewaard).
+- Getest: de zoeker tegen de echte artikellijst (scratchpad-console `artzoek2`: NX102, NX-PF0630, NA5-7W001B-V1,
+  G2RV-ST500 24VDC, "nxpf0630", "kabel 3x1,5"); lokaal met `Calculaties__Geheugen=true` en rechten tijdelijk open
+  (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
+  donker thema, een bevroren calculatie (velden staan dan uit), twee gebruikers.
+
 ## Calculaties, stap 1 (10-11-2026)
 
 Het voorbeeld "Calculatieboom FIT Clean" (claude.ai-artifact, goed ontvangen door collega's) in de app. Besluiten gebruiker:

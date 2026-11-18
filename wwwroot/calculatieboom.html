@@ -205,6 +205,46 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
 .act.over { background: var(--fout-zacht); color: var(--fout); border-color: var(--fout); }
 .act.zonder { background: var(--let-zacht); color: var(--let); border-style: dashed; }
 .getal.over { color: var(--fout); }
+/* artikel zoeken bij een materiaalregel: lijst onder het veld en het uitgebreide venster */
+mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding: 0 1px; }
+.artlijst { position: fixed; z-index: 42; background: var(--vlak); border: 1px solid var(--lijn); border-radius: 8px; box-shadow: var(--schaduw);
+  padding: 4px; width: min(52rem, calc(100vw - 16px)); max-height: 24rem; overflow: auto; }
+.artlijst .art { display: grid; grid-template-columns: 12rem minmax(0, 1fr) 7rem 6.5rem; gap: 10px; width: 100%; border: none; background: none;
+  text-align: left; padding: 5px 8px; border-radius: 5px; align-items: baseline; }
+.artlijst .art:hover, .artlijst .art.actief { background: var(--accent-zacht); }
+.artlijst .art span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artlijst .code { font-weight: 600; }
+.artlijst .merk { color: var(--zacht); font-size: 12.5px; }
+.artlijst .prijs, .artvenster .prijs { text-align: right; font-family: var(--f-getal); white-space: nowrap; }
+.artlijst .geen, .artvenster .geen { color: var(--zacht); font-family: var(--f-tekst); font-size: 12.5px; }
+.artlijst .leeg { padding: 8px; color: var(--zacht); }
+.artlijst .voet { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid var(--lijn); margin-top: 4px;
+  padding: 5px 8px 2px; color: var(--zacht); font-size: 12px; }
+.artlijst .voet button { border: none; background: none; color: var(--accent); padding: 2px 4px; border-radius: 4px; font-size: 12.5px; }
+.artlijst .voet button:hover { background: var(--accent-zacht); }
+.artachter { position: fixed; inset: 0; z-index: 60; background: rgba(15, 25, 40, .45); display: grid; place-items: start center; padding: 5vh 12px 12px; }
+.artvenster { width: min(72rem, 100%); max-height: 88vh; display: flex; flex-direction: column; gap: 8px; background: var(--vlak); border: 1px solid var(--lijn);
+  border-radius: 10px; box-shadow: var(--schaduw); padding: 14px 16px; }
+.artvenster .kop { display: flex; align-items: baseline; gap: 10px; }
+.artvenster .kop b { font-family: var(--f-kop); font-size: 17px; }
+.artvenster .kop .voor { color: var(--zacht); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artvenster .zoek { width: 100%; border: 1px solid var(--lijn); border-radius: 7px; padding: 8px 10px; background: var(--vlak); font-size: 15px; }
+.artvenster .zoek:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.artvenster .uitleg { color: var(--zacht); font-size: 12.5px; }
+.artvenster .lijst { overflow: auto; border: 1px solid var(--lijn); border-radius: 7px; min-height: 12rem; flex: 1; }
+.artvenster table { width: 100%; border-collapse: collapse; }
+.artvenster th { position: sticky; top: 0; background: var(--vlak-2); text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--zacht); padding: 6px 8px; border-bottom: 1px solid var(--lijn); white-space: nowrap; }
+.artvenster td { padding: 5px 8px; border-bottom: 1px solid var(--lijn); vertical-align: top; }
+.artvenster th.r, .artvenster td.r { text-align: right; }
+.artvenster tbody tr { cursor: pointer; }
+.artvenster tbody tr:hover, .artvenster tbody tr.actief { background: var(--accent-zacht); }
+.artvenster td.code { font-weight: 600; white-space: nowrap; }
+.artvenster td.nr { color: var(--zacht); font-family: var(--f-getal); }
+.artvenster td small { display: block; font-weight: 400; color: var(--zacht); font-size: 12px; }
+.artvenster td small.deel { display: inline; margin-left: 6px; }
+.artvenster .voet { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--zacht); font-size: 12.5px; }
+.artvenster .voet label { display: inline-flex; gap: 6px; align-items: center; color: var(--tekst); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -288,6 +328,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
 </div>
 <div id="sleeplijn"></div><div id="sleeplabel"></div>
 <div id="menuplek"></div>
+<div id="artplek"></div>
 
 
 <script>
@@ -675,7 +716,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     const n = r.notes?.[veld], f = r.formules?.[veld];
     const isSom = !!r.detail && ((veld === 'aantal' && r.soort === 'uur') || (veld === 'kost' && r.soort !== 'uur'));
     const waarde = isSom ? detailSom(r) : r[veld];
-    const titel = [isSom ? 'Optelling van de uitsplitsing (Σ)' : f ? `Rekensom: =${f}` : '', noteTitel(n)].filter(Boolean).join('\n');
+    const titel = [isSom ? 'Optelling van de uitsplitsing (Σ)' : f ? `Rekensom: =${f}` : '', noteTitel(n), artTitel(r, veld)].filter(Boolean).join('\n');
     const uit = dis || (veld === 'kost' && r.auto) || isSom;
     return `<td class="${n ? 'notitie' : ''}"><input class="cel r${f && !isSom ? ' formule' : ''}${isSom ? ' som' : ''}" data-veld="${veld}"
       value="${waarde === null || waarde === undefined ? '' : (veld === 'kost' ? euro2 : getalFmt).format(waarde)}" ${veld === 'eigen' ? 'placeholder="—"' : veld === 'keer' ? `placeholder="${getalFmt.format(groepFactor(r.groep))}"` : ''}
@@ -732,7 +773,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
           <td class="greepcel">${greep('r', r.id)}</td>
           <td class="${r.notes?.oms ? 'notitie' : ''}"><div class="naamcel" style="padding-left:${(d + 1) * 22 + (r.detail ? 0 : 20)}px">${r.detail
               ? `<button class="sigma" type="button" data-actie="detailklap" data-r="${r.id}" aria-expanded="${!!r.detailOpen}" title="${r.detailOpen ? 'Uitsplitsing verbergen' : 'Uitsplitsing tonen'}">Σ</button>` : ''}<input class="cel" data-veld="oms" value="${esc(r.oms)}"
-              placeholder="${r.soort === 'uur' ? 'deel (verplicht, hierop wordt geboekt)' : 'omschrijving'}" ${r.notes?.oms ? `title="${esc(noteTitel(r.notes.oms))}"` : ''} ${dis}></div></td>
+              placeholder="${r.soort === 'uur' ? 'deel (verplicht, hierop wordt geboekt)' : 'omschrijving, of typ om een artikel te zoeken (dubbelklik = zoekvenster)'}" ${r.soort === 'mat' ? 'autocomplete="off"' : ''} ${r.notes?.oms ? `title="${esc(noteTitel(r.notes.oms))}"` : ''} ${dis}></div></td>
           <td><select class="cel" data-veld="act" ${dis}>${actOpties(r)}</select></td>
           ${veldCel(r, 'aantal', dis)}
           <td class="eenh">${r.soort === 'uur' ? 'uur' : 'st'}</td>
@@ -1047,6 +1088,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     return [
       { tekst: '+ Regel eronder', toets: 'Ctrl+Enter', doe: () => voegToe('regelNa') },
       { tekst: 'Dupliceren', doe: () => { const n = { ...structuredClone(r), id: volgId++, auto: false }; s.regels.splice(s.regels.indexOf(r) + 1, 0, n); gekozen = { t: 'r', id: n.id }; flitsId = 'r' + n.id; bewaar(); render(); } },
+      ...(r.soort === 'mat' ? [{ tekst: 'Artikel zoeken in de artikellijst…', toets: 'dubbelklik', doe: () => openArtVenster(id, r.oms) }] : []),
       '-',
       { tekst: '⇤ Naar de groep erboven', toets: 'Alt+Shift+←', uit: !kanPromoveren(), doe: promoveer },
       { tekst: '⇥ Naar de eerste subgroep', toets: 'Alt+Shift+→', uit: !kanDegraderen(), doe: degradeer },
@@ -1198,7 +1240,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     const tr = el.closest('tr[data-r]');
     if (!tr || !el.dataset.veld || el.tagName === 'SELECT') return;
     const r = regelVan(Number(tr.dataset.r)), v = el.dataset.veld;
-    if (v === 'oms') r.oms = el.value;
+    if (v === 'oms') { r.oms = el.value; if (r.soort === 'mat') artVraag(el, r); }
     else {
       const n = reken(el.value); el.setAttribute('aria-invalid', Number.isNaN(n));
       if (!Number.isNaN(n)) {
@@ -1280,7 +1322,7 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
       if (el.value.trim() === '') { r[v] = null; if (r.formules) delete r.formules[v]; }
       const f = r.formules?.[v];
       el.classList.toggle('formule', !!f);
-      el.title = [f ? `Rekensom: =${f}` : '', noteTitel(r.notes?.[v])].filter(Boolean).join('\n');
+      el.title = [f ? `Rekensom: =${f}` : '', noteTitel(r.notes?.[v]), artTitel(r, v)].filter(Boolean).join('\n');
       bewaar(); werkGetallenBij();
     }
   });
@@ -1314,6 +1356,193 @@ tr.detailkop td { font-size: 11px; color: var(--zacht); text-transform: uppercas
     if (e.altKey && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); degradeer(); return; }
     if (e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); schuif(e.key === 'ArrowUp' ? -1 : 1); }
   });
+
+  // ---------------------------------------------------------------- artikel zoeken bij een materiaalregel
+  // Typen in de omschrijving van een materiaalregel zoekt in de artikellijst van de app (calculaties/api/artikelen): de
+  // tekst ook in losse delen (NX-PF0630 = NX en PF0630); wat het best past staat bovenaan. Kiezen zet de kostprijs (en,
+  // als het vinkje in het venster aan staat, de naam). Dubbelklik op de omschrijving = het uitgebreide zoekvenster.
+  const ART_API = 'calculaties/api/artikelen';
+  let art = null;    // de lijst onder het veld: { rid, el, q, termen, treffers, i }
+  let artV = null;   // het uitgebreide venster: { rid, termen, treffers, i, teller, wacht }
+  let artTeller = 0, artWacht = null;
+  const artNaamAan = () => { try { return localStorage.getItem('calc-art-naam') !== '0'; } catch (e) { return true; } };
+  async function zoekArtikelen(q, max) {
+    const r = await fetch(`${ART_API}?q=${encodeURIComponent(q)}&max=${max}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (!r.ok) throw new Error('Zoeken in de artikellijst is niet gelukt.');
+    return await r.json();
+  }
+  /** De zoektermen in een tekst markeren. */
+  function markeer(tekst, termen) {
+    const t = (termen ?? []).filter(x => x && x.length >= 2).sort((a, b) => b.length - a.length).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (!t.length) return esc(tekst);
+    return String(tekst ?? '').split(new RegExp(`(${t.join('|')})`, 'gi')).map((d, i) => i % 2 ? `<mark>${esc(d)}</mark>` : esc(d)).join('');
+  }
+  const artPrijs = a => a.kostprijs > 0 ? '€ ' + euro2.format(a.kostprijs) : '<span class="geen">geen prijs</span>';
+  /** Waar de kostprijs van een regel vandaan komt (tooltip op het veld Kostprijs). */
+  function artTitel(r, veld) {
+    if (veld !== 'kost' || !r.art) return '';
+    const zelfde = r.art.prijs > 0 && r.kost !== null && Math.abs((r.kost ?? 0) - r.art.prijs) < 0.005;
+    return `Artikellijst: ${r.art.code} (MDE ${r.art.id})${r.art.prijs > 0 ? ' € ' + euro2.format(r.art.prijs) : ', geen prijs bekend'}, opgehaald ${r.art.op}`
+      + (r.art.prijs > 0 && !zelfde ? '\nDe kostprijs van de regel wijkt daar nu van af.' : '');
+  }
+  function kiesArtikel(rid, a) {
+    const r = regelVan(rid); if (!r || !a || RO()) return;
+    if (artNaamAan() || !schoon(r.oms)) r.oms = schoon(a.omschrijving && a.omschrijving.toLowerCase() !== a.code.toLowerCase() ? `${a.code} · ${a.omschrijving}` : a.code);
+    if (r.aantal === null || r.aantal === undefined) r.aantal = 1;
+    r.art = { id: a.id, code: a.code, prijs: a.kostprijs, op: new Date().toLocaleDateString('nl-NL') };
+    const prijs = a.kostprijs > 0;
+    if (!prijs) meld(`Van ${a.code} is in de artikellijst geen kostprijs bekend; vul hem zelf in.`, true);
+    else if (r.detail) meld(`De kostprijs van deze regel is een uitsplitsing (Σ) en is niet aangepast. ${a.code} kost € ${euro2.format(a.kostprijs)}.`, true);
+    else { r.kost = a.kostprijs; if (r.formules) delete r.formules.kost; }
+    gekozen = { t: 'r', id: r.id }; flitsId = 'r' + r.id; bewaar(); render();
+    const naar = document.querySelector(`tr[data-r="${r.id}"] [data-veld="${prijs ? 'aantal' : 'kost'}"]`);
+    naar?.focus(); naar?.select?.();
+  }
+
+  // ---- de lijst onder het veld ----
+  function sluitArt() { clearTimeout(artWacht); artTeller++; art = null; $('artplek').querySelector('.artlijst')?.remove(); }
+  function artVraag(el, r) {
+    clearTimeout(artWacht);
+    const q = schoon(el.value), mijn = ++artTeller;
+    if (q.length < 2) { sluitArt(); return; }
+    artWacht = setTimeout(async () => {
+      try {
+        const uit = await zoekArtikelen(q, 8);
+        if (mijn !== artTeller || document.activeElement !== el) return;
+        art = { rid: r.id, el, q, termen: uit.termen ?? [], treffers: uit.treffers ?? [], i: -1 };
+        tekenArt();
+      } catch (e) { if (mijn === artTeller) sluitArt(); }
+    }, 250);
+  }
+  function tekenArt() {
+    const plek = $('artplek'); plek.querySelector('.artlijst')?.remove();
+    if (!art) return;
+    const lijst = document.createElement('div');
+    lijst.className = 'artlijst'; lijst.setAttribute('role', 'listbox'); lijst.setAttribute('aria-label', 'Artikelen uit de artikellijst');
+    lijst.innerHTML = (art.treffers.length
+      ? art.treffers.map((a, i) => `<button type="button" class="art ${i === art.i ? 'actief' : ''}" role="option" aria-selected="${i === art.i}" data-ai="${i}"
+          title="${esc(a.omschrijving)}${a.leverancier ? '\n' + esc(a.leverancier) : ''}"><span class="code">${markeer(a.code, art.termen)}</span><span class="oms">${markeer(a.omschrijving, art.termen)}</span>
+          <span class="merk">${esc(a.merk)}</span><span class="prijs">${artPrijs(a)}</span></button>`).join('')
+      : '<div class="leeg">Niets gevonden in de artikellijst.</div>')
+      + `<div class="voet"><span>${art.treffers.length ? '↑ ↓ en Enter kiest een artikel en zet de kostprijs · Esc sluit' : ''}</span><button type="button" data-ai="meer">Uitgebreid zoeken… (dubbelklik)</button></div>`;
+    plek.appendChild(lijst);
+    const k = art.el.getBoundingClientRect(), h = lijst.offsetHeight;
+    lijst.style.left = `${Math.max(8, Math.min(k.left, innerWidth - lijst.offsetWidth - 8))}px`;
+    lijst.style.top = `${k.bottom + h + 8 > innerHeight && k.top - h - 4 > 0 ? k.top - h - 4 : k.bottom + 3}px`;
+    lijst.querySelector('.actief')?.scrollIntoView({ block: 'nearest' });
+    lijst.addEventListener('pointerdown', e => e.preventDefault());   // de cursor blijft in het veld
+    lijst.addEventListener('click', e => {
+      const b = e.target.closest('[data-ai]'); if (!b || !art) return;
+      const rid = art.rid, q = art.el.value;
+      if (b.dataset.ai === 'meer') { sluitArt(); openArtVenster(rid, q); return; }
+      const a = art.treffers[Number(b.dataset.ai)]; sluitArt(); kiesArtikel(rid, a);
+    });
+  }
+  // pijltjes, Enter en Esc in het veld zolang de lijst open staat (vóór de gewone Enter = volgende regel)
+  body.addEventListener('keydown', e => {
+    if (!art || e.target !== art.el || e.altKey) return;
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && art.treffers.length) {
+      e.preventDefault(); e.stopPropagation();
+      const n = art.treffers.length;
+      art.i = e.key === 'ArrowDown' ? (art.i + 1) % n : (art.i <= 0 ? n - 1 : art.i - 1);
+      tekenArt();
+    } else if (e.key === 'Enter' && !e.ctrlKey && art.i >= 0) {
+      e.preventDefault(); e.stopPropagation();
+      const a = art.treffers[art.i], rid = art.rid; sluitArt(); kiesArtikel(rid, a);
+    } else if (e.key === 'Escape') { e.stopPropagation(); sluitArt(); }
+  }, true);
+  body.addEventListener('focusout', e => { if (art && e.target === art.el) sluitArt(); });
+  addEventListener('scroll', e => { if (art && !e.target.closest?.('.artlijst')) sluitArt(); }, true);
+  addEventListener('resize', () => { if (art) sluitArt(); });
+  // dubbelklik op de omschrijving van een materiaalregel: het uitgebreide zoekvenster
+  body.addEventListener('dblclick', e => {
+    const el = e.target.closest('input[data-veld="oms"]'), tr = el?.closest('tr[data-r]'); if (!tr || RO()) return;
+    const r = regelVan(Number(tr.dataset.r)); if (r?.soort !== 'mat') return;
+    e.preventDefault(); openArtVenster(r.id, el.value);
+  });
+
+  // ---- het uitgebreide venster ----
+  const ART_MAX = 100;
+  function sluitArtVenster(terug) {
+    if (!artV) return;
+    clearTimeout(artV.wacht); const rid = artV.rid; artV = null;
+    $('artplek').querySelector('.artachter')?.remove();
+    if (terug) document.querySelector(`tr[data-r="${rid}"] [data-veld="oms"]`)?.focus();
+  }
+  function tekenArtVenster() {
+    if (!artV) return;
+    const t = artV.termen, ster = artV.treffers.some(a => a.bron === 'leverancier');
+    $('artBody').innerHTML = artV.treffers.map((a, i) => `<tr data-vi="${i}" class="${i === artV.i ? 'actief' : ''}">
+      <td class="r nr">${a.id}</td>
+      <td class="code">${markeer(a.code, t)}${a.fabrikantcode && a.fabrikantcode.toLowerCase() !== a.code.toLowerCase() ? `<small>${markeer(a.fabrikantcode, t)}</small>` : ''}</td>
+      <td>${markeer(a.omschrijving, t)}${a.van > 1 && a.termen < a.van ? `<small class="deel">${a.termen} van ${a.van} termen</small>` : ''}</td>
+      <td>${markeer(a.merk, t)}</td><td>${esc(a.leverancier)}</td>
+      <td class="r prijs"${a.bron === 'leverancier' ? ' title="Geen vastgestelde kostprijs: dit is de inkoopprijs bij de duurste leverancier"' : ''}>${artPrijs(a)}${a.bron === 'leverancier' ? ' *' : ''}</td></tr>`).join('');
+    const n = artV.treffers.length;
+    $('artStand').textContent = artV.bezig ? 'Zoeken…' : artV.fout ? artV.fout : !artV.gezocht ? 'Typ minstens twee tekens.'
+      : n === 0 ? 'Niets gevonden.' : `${n} artikel${n === 1 ? '' : 'en'}${n >= ART_MAX ? ' (de eerste ' + ART_MAX + '; zoek specifieker)' : ''}${ster ? ' · * = inkoopprijs leverancier' : ''} · klik of Enter kiest`;
+    $('artBody').querySelector('.actief')?.scrollIntoView({ block: 'nearest' });
+  }
+  function artVZoek(direct) {
+    if (!artV) return;
+    clearTimeout(artV.wacht);
+    const q = schoon($('artZoek').value), mijn = ++artV.teller;
+    if (q.length < 2) { Object.assign(artV, { treffers: [], termen: [], i: -1, bezig: false, fout: '', gezocht: false }); tekenArtVenster(); return; }
+    artV.wacht = setTimeout(async () => {
+      artV.bezig = true; tekenArtVenster();
+      try {
+        const uit = await zoekArtikelen(q, ART_MAX);
+        if (!artV || mijn !== artV.teller) return;
+        Object.assign(artV, { treffers: uit.treffers ?? [], termen: uit.termen ?? [], i: (uit.treffers ?? []).length ? 0 : -1, bezig: false, fout: '', gezocht: true });
+      } catch (e) { if (!artV || mijn !== artV.teller) return; Object.assign(artV, { treffers: [], i: -1, bezig: false, fout: e.message, gezocht: true }); }
+      tekenArtVenster();
+    }, direct ? 0 : 300);
+  }
+  function openArtVenster(rid, q) {
+    const r = regelVan(rid); if (!r || RO()) return;
+    sluitArt(); sluitMenu(); sluitArtVenster(false);
+    artV = { rid, termen: [], treffers: [], i: -1, teller: 0, wacht: null, bezig: false, fout: '', gezocht: false };
+    const achter = document.createElement('div');
+    achter.className = 'artachter';
+    achter.innerHTML = `<div class="artvenster" role="dialog" aria-modal="true" aria-label="Artikel zoeken in de artikellijst">
+      <div class="kop"><b>Artikel zoeken</b><span class="voor">${schoon(r.oms) ? 'voor de regel “' + esc(schoon(r.oms)) + '”' : ''}</span><span style="flex:1"></span>
+        <button class="knop klein" type="button" data-av="sluit" aria-label="Sluiten">✕</button></div>
+      <input id="artZoek" class="zoek" type="search" autocomplete="off" spellcheck="false" placeholder="Artikelcode, fabrikantcode, omschrijving, merk of MDE-nummer…">
+      <div class="uitleg">Losse delen (gescheiden door spaties of streepjes) tellen als aparte zoektermen. Een artikel hoeft ze niet allemaal te hebben; wat het best past staat bovenaan.</div>
+      <div class="lijst"><table><thead><tr><th class="r">MDE</th><th>Artikelcode</th><th>Omschrijving</th><th>Merk</th><th>Leverancier</th><th class="r">Kostprijs</th></tr></thead>
+        <tbody id="artBody"></tbody></table></div>
+      <div class="voet"><label title="Uit: alleen de kostprijs wordt overgenomen en de naam van de regel blijft zoals hij is (een lege naam wordt wel ingevuld)">
+        <input type="checkbox" id="artNaam" ${artNaamAan() ? 'checked' : ''}> Naam van de regel vervangen door artikelcode en omschrijving</label>
+        <span style="flex:1"></span><span id="artStand" role="status"></span></div></div>`;
+    $('artplek').appendChild(achter);
+    const zoek = $('artZoek');
+    // een eerder gekozen artikel heet "code · omschrijving": dan alleen op de code zoeken
+    zoek.value = schoon(q).split(' · ')[0]; zoek.focus(); zoek.select();
+    zoek.addEventListener('input', () => artVZoek(false));
+    $('artNaam').addEventListener('change', e => { try { localStorage.setItem('calc-art-naam', e.target.checked ? '1' : '0'); } catch (x) { } });
+    achter.addEventListener('pointerdown', e => { if (e.target === achter) sluitArtVenster(true); });
+    achter.addEventListener('click', e => {
+      if (e.target.closest('[data-av="sluit"]')) { sluitArtVenster(true); return; }
+      const tr = e.target.closest('tr[data-vi]'); if (!tr || !artV) return;
+      const a = artV.treffers[Number(tr.dataset.vi)], id = artV.rid; sluitArtVenster(false); kiesArtikel(id, a);
+    });
+    // toetsen blijven in het venster (anders doen de sneltoetsen van de boom mee)
+    achter.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); sluitArtVenster(true); return; }
+      if (!artV || e.target.id === 'artNaam') return;
+      const n = artV.treffers.length;
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n) {
+        e.preventDefault();
+        artV.i = e.key === 'ArrowDown' ? Math.min(n - 1, artV.i + 1) : Math.max(0, artV.i - 1);
+        tekenArtVenster();
+      } else if (e.key === 'Enter' && artV.i >= 0 && !artV.bezig) {
+        e.preventDefault();
+        const a = artV.treffers[artV.i], id = artV.rid; sluitArtVenster(false); kiesArtikel(id, a);
+      }
+    });
+    artVZoek(true);
+  }
 
   // ---------------------------------------------------------------- overige knoppen
   function maakKloppend() {

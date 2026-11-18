@@ -379,7 +379,7 @@
     private bool MagTarieven => Ik.MagFinancien;
     private string OfferteLink => $"projecten/offertes/{OfferteId}";
     // ?v= = versie van de boompagina (cache), &n= = opnieuw laden na maken
-    private string BoomAdres => $"calculatieboom.html?offerte={OfferteId}&v=1&n={_boomVersie}";
+    private string BoomAdres => $"calculatieboom.html?offerte={OfferteId}&v=2&n={_boomVersie}";
 
     protected override async Task OnParametersSetAsync()
     {
