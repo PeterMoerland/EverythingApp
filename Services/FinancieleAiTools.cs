@@ -19,15 +19,16 @@ public class FinancieleAiTools
     private readonly IVerkoopFactuurRepository _verkoop;
     private readonly IFactuurRepository _inkoop;
     private readonly IBankRepository _bank;
+    private readonly RelatieNamen _namen;
     private readonly string? _cs;
 
     public const int MaxRijen = 200;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     public FinancieleAiTools(ILiquiditeitRepository liq, IVasteLastenRepository vaste, IVerkoopFactuurRepository verkoop,
-                             IFactuurRepository inkoop, IBankRepository bank, IConfiguration config)
+                             IFactuurRepository inkoop, IBankRepository bank, RelatieNamen namen, IConfiguration config)
     {
-        _liq = liq; _vaste = vaste; _verkoop = verkoop; _inkoop = inkoop; _bank = bank;
+        _liq = liq; _vaste = vaste; _verkoop = verkoop; _inkoop = inkoop; _bank = bank; _namen = namen;
         _cs = config.GetConnectionString("MDE");
     }
 
@@ -211,18 +212,26 @@ public class FinancieleAiTools
     private async Task Verkoop(AiGegevens g, JsonObject i)
     {
         var (van, tot) = LeesPeriode(i);
-        var filter = new VerkoopFactuurFilter
+        // de naam slim zoeken (RelatieNamen): "VA Imaging" vindt ook "VA-Imaging"; per gevonden naam een keer zoeken
+        var naam = await _namen.ZoekAsync(Tekst(i, "klant"));
+        var lijst = new List<VerkoopFactuurRegel>();
+        foreach (var patroon in naam?.Patronen ?? new[] { "" })
         {
-            Van = van, Tot = tot, Klant = Tekst(i, "klant") ?? "",
-            Betaald = Waar(i, "alleen_open") ? Drieluik.Nee : Drieluik.Alles,
-        };
-        var lijst = (await _verkoop.ZoekAsync(filter, 5000)).Where(f => !f.IsProforma).ToList();
-        g.Titel = $"Verkoopfacturen {D(van)} t/m {D(tot)}" + (filter.Klant.Length > 0 ? $", klant '{filter.Klant}'" : "") + (Waar(i, "alleen_open") ? ", alleen open" : "");
+            var filter = new VerkoopFactuurFilter
+            {
+                Van = van, Tot = tot, Klant = patroon,
+                Betaald = Waar(i, "alleen_open") ? Drieluik.Nee : Drieluik.Alles,
+            };
+            lijst.AddRange((await _verkoop.ZoekAsync(filter, 5000)).Where(f => !f.IsProforma));
+        }
+        if (naam?.Patronen.Count > 1) lijst = lijst.DistinctBy(f => f.Id).OrderByDescending(f => f.Factuurdatum).ToList();
+        g.Titel = $"Verkoopfacturen {D(van)} t/m {D(tot)}" + (naam is not null ? $", klant {naam.Titel}" : "") + (Waar(i, "alleen_open") ? ", alleen open" : "");
         g.Kolommen = new() { "Nummer", "Datum", "Klant", "BV", "Ex btw", "Incl btw", "Verstuurd", "Betaald", "Dagen te laat", "Omschrijving" };
         foreach (var f in lijst)
             g.Rijen.Add(new() { f.Factuurnummer, D(f.Factuurdatum), f.Klant, f.Administratie, B(f.BedragExBtw), B(f.BedragInclBtw),
                                 JN(f.Verstuurd), JN(f.Betaald), f.Betaald ? "" : f.Overdue.ToString(Inv), f.Omschrijving });
-        g.Opmerking = $"Totaal {lijst.Count} facturen: ex btw {B(lijst.Sum(f => f.BedragExBtw))}, incl btw {B(lijst.Sum(f => f.BedragInclBtw))}; " +
+        g.Opmerking = (naam?.Noot("klant") ?? "") +
+                      $"Totaal {lijst.Count} facturen: ex btw {B(lijst.Sum(f => f.BedragExBtw))}, incl btw {B(lijst.Sum(f => f.BedragInclBtw))}; " +
                       $"open (niet betaald) incl btw {B(lijst.Where(f => !f.Betaald).Sum(f => f.BedragInclBtw))}.";
         if (lijst.Count >= 5000) g.Opmerking += " Let op: meer dan 5000 facturen, totalen onvolledig; kies een kortere periode.";
         Afkappen(g, lijst.Count);
@@ -232,18 +241,25 @@ public class FinancieleAiTools
     private async Task Inkoop(AiGegevens g, JsonObject i)
     {
         var (van, tot) = LeesPeriode(i);
-        var filter = new FactuurFilter
+        var naam = await _namen.ZoekAsync(Tekst(i, "leverancier"));
+        var lijst = new List<FactuurRegel>();
+        foreach (var patroon in naam?.Patronen ?? new[] { "" })
         {
-            Van = van, Tot = tot, Bedrijf = Tekst(i, "leverancier") ?? "",
-            Betaald = Waar(i, "alleen_open") ? Drieluik.Nee : Drieluik.Alles,
-        };
-        var lijst = await _inkoop.ZoekAsync(filter, 5000);
-        g.Titel = $"Inkoopfacturen {D(van)} t/m {D(tot)}" + (filter.Bedrijf.Length > 0 ? $", leverancier '{filter.Bedrijf}'" : "") + (Waar(i, "alleen_open") ? ", alleen open" : "");
+            var filter = new FactuurFilter
+            {
+                Van = van, Tot = tot, Bedrijf = patroon,
+                Betaald = Waar(i, "alleen_open") ? Drieluik.Nee : Drieluik.Alles,
+            };
+            lijst.AddRange(await _inkoop.ZoekAsync(filter, 5000));
+        }
+        if (naam?.Patronen.Count > 1) lijst = lijst.DistinctBy(f => f.Id).OrderByDescending(f => f.Factuurdatum).ToList();
+        g.Titel = $"Inkoopfacturen {D(van)} t/m {D(tot)}" + (naam is not null ? $", leverancier {naam.Titel}" : "") + (Waar(i, "alleen_open") ? ", alleen open" : "");
         g.Kolommen = new() { "Nummer", "Datum", "Leverancier", "BV", "Ex btw", "Btw", "Totaal", "Betaald", "Dagen te laat", "Omschrijving" };
         foreach (var f in lijst)
             g.Rijen.Add(new() { f.Factuurnummer, D(f.Factuurdatum), f.Bedrijf, f.Administratie, B(f.BedragExBtw), B(f.Btw), B(f.Totaal),
                                 JN(f.Betaald), f.Betaald ? "" : f.Overdue.ToString(Inv), f.Omschrijving });
-        g.Opmerking = $"Totaal {lijst.Count} facturen: ex btw {B(lijst.Sum(f => f.BedragExBtw))}, incl btw {B(lijst.Sum(f => f.Totaal))}; " +
+        g.Opmerking = (naam?.Noot("leverancier") ?? "") +
+                      $"Totaal {lijst.Count} facturen: ex btw {B(lijst.Sum(f => f.BedragExBtw))}, incl btw {B(lijst.Sum(f => f.Totaal))}; " +
                       $"open incl btw {B(lijst.Where(f => !f.Betaald).Sum(f => f.Totaal))}.";
         if (lijst.Count >= 5000) g.Opmerking += " Let op: meer dan 5000 facturen, totalen onvolledig; kies een kortere periode.";
         Afkappen(g, lijst.Count);
@@ -255,7 +271,7 @@ public class FinancieleAiTools
         var (van, tot) = LeesPeriode(i);
         var perKlant = Waar(i, "per_klant");
         var intern = Waar(i, "met_intern");
-        var klant = Tekst(i, "klant");
+        var klant = await _namen.ZoekAsync(Tekst(i, "klant"));
         var bv = Tekst(i, "bv");
         var sql =
             "SELECT DATE_FORMAT(f.`Date invoice`, '%Y-%m') AS maand, " + (perKlant ? "COALESCE(k.`name`, '?')" : "''") + " AS klant, " +
@@ -266,13 +282,14 @@ public class FinancieleAiTools
             " WHERE f.`Date invoice` >= @van AND f.`Date invoice` < @tot " +
             "   AND COALESCE(f.`Betalingsherinnering`, 0) <> 4 " +
             (intern ? "" : " AND COALESCE(k.`Werkmaatschappij`, 0) = 0 AND COALESCE(k.`MDEBV`, 0) = 0 ") +
-            (klant is null ? "" : " AND k.`name` LIKE @klant ") +
+            (klant is null ? "" : " AND " + RelatieNamen.Voorwaarde("k.`name`", "klant", klant) + " ") +
             (bv is null ? "" : " AND b.`Afkorting` LIKE @bv ") +
             " GROUP BY maand, klant, bv ORDER BY maand, SUM(f.`Total ex`) DESC LIMIT 1000";
-        g.Titel = $"Omzet ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perKlant ? ", per klant" : "") + (klant is null ? "" : $", klant '{klant}'") + (bv is null ? "" : $", BV {bv}");
+        g.Titel = $"Omzet ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perKlant ? ", per klant" : "") + (klant is null ? "" : $", klant {klant.Titel}") + (bv is null ? "" : $", BV {bv}");
         g.Kolommen = perKlant ? new() { "Maand", "Klant", "BV", "Omzet ex btw", "Facturen" } : new() { "Maand", "Omzet ex btw", "Facturen", "Cumulatief" };
         var totaal = await Groepeer(g, sql.Replace("AS bv,", "AS bv_,").Replace("GROUP BY maand, klant, bv", perKlant ? "GROUP BY maand, klant, bv_" : "GROUP BY maand"),
                                     van, tot, klant, bv, perKlant);
+        g.Opmerking = (klant?.Noot("klant") ?? "") + g.Opmerking;
         g.Opmerking += $"Totaal omzet ex btw over de hele opgevraagde periode ({D(van)} t/m {D(tot)}): {B(totaal)}. Zonder proforma's; creditnota's tellen negatief mee. " +
                       (intern ? "Inclusief facturen aan eigen BV's." : "Zonder facturen aan eigen BV's (interne doorbelasting).");
     }
@@ -282,7 +299,7 @@ public class FinancieleAiTools
         var (van, tot) = LeesPeriode(i);
         var perLev = Waar(i, "per_leverancier");
         var intern = Waar(i, "met_intern");
-        var lev = Tekst(i, "leverancier");
+        var lev = await _namen.ZoekAsync(Tekst(i, "leverancier"));
         var bv = Tekst(i, "bv");
         var sql =
             "SELECT DATE_FORMAT(f.`DatumFactuur`, '%Y-%m') AS maand, " + (perLev ? "COALESCE(l.`name`, '?')" : "''") + " AS lev, " +
@@ -292,18 +309,19 @@ public class FinancieleAiTools
             "  LEFT JOIN `Relations` b ON b.`id_supplier` = f.`Admin` " +
             " WHERE f.`DatumFactuur` >= @van AND f.`DatumFactuur` < @tot " +
             (intern ? "" : " AND COALESCE(l.`Werkmaatschappij`, 0) = 0 AND COALESCE(l.`MDEBV`, 0) = 0 ") +
-            (lev is null ? "" : " AND l.`name` LIKE @klant ") +
+            (lev is null ? "" : " AND " + RelatieNamen.Voorwaarde("l.`name`", "klant", lev) + " ") +
             (bv is null ? "" : " AND b.`Afkorting` LIKE @bv ") +
             " GROUP BY maand, lev, bv ORDER BY maand, SUM(f.`BedragExBTW`) DESC LIMIT 1000";
-        g.Titel = $"Inkoopkosten ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perLev ? ", per leverancier" : "") + (lev is null ? "" : $", leverancier '{lev}'") + (bv is null ? "" : $", BV {bv}");
+        g.Titel = $"Inkoopkosten ex btw per maand {D(van)} t/m {D(tot)}" + (intern ? ", inclusief eigen BV's" : "") + (perLev ? ", per leverancier" : "") + (lev is null ? "" : $", leverancier {lev.Titel}") + (bv is null ? "" : $", BV {bv}");
         g.Kolommen = perLev ? new() { "Maand", "Leverancier", "BV", "Kosten ex btw", "Facturen" } : new() { "Maand", "Kosten ex btw", "Facturen", "Cumulatief" };
         var totaal = await Groepeer(g, sql.Replace("AS bv,", "AS bv_,").Replace("GROUP BY maand, lev, bv", perLev ? "GROUP BY maand, lev, bv_" : "GROUP BY maand"),
                                     van, tot, lev, bv, perLev);
+        g.Opmerking = (lev?.Noot("leverancier") ?? "") + g.Opmerking;
         g.Opmerking += $"Totaal inkoopkosten ex btw over de hele opgevraagde periode ({D(van)} t/m {D(tot)}): {B(totaal)}. Alleen wat als inkomende factuur is ingevoerd (geen salarissen of bankkosten). " +
                       (intern ? "Inclusief facturen van eigen BV's." : "Zonder facturen van eigen BV's (interne doorbelasting).");
     }
 
-    private async Task<decimal> Groepeer(AiGegevens g, string sql, DateOnly van, DateOnly tot, string? naam, string? bv, bool metNaam)
+    private async Task<decimal> Groepeer(AiGegevens g, string sql, DateOnly van, DateOnly tot, NaamTreffer? naam, string? bv, bool metNaam)
     {
         if (string.IsNullOrEmpty(_cs)) throw new InvalidOperationException("Geen database.");
         await using var cn = new MySqlConnection(_cs);
@@ -311,7 +329,7 @@ public class FinancieleAiTools
         await using var cmd = new MySqlCommand(sql, cn);
         cmd.Parameters.AddWithValue("@van", van.ToDateTime(TimeOnly.MinValue));
         cmd.Parameters.AddWithValue("@tot", tot.AddDays(1).ToDateTime(TimeOnly.MinValue));
-        if (naam is not null) cmd.Parameters.AddWithValue("@klant", "%" + naam + "%");
+        if (naam is not null) RelatieNamen.Vul(cmd, "klant", naam);
         if (bv is not null) cmd.Parameters.AddWithValue("@bv", bv + "%");
         decimal totaal = 0;
         var aantal = 0;

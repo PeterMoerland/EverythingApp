@@ -15,6 +15,7 @@ public class AlgemeneAiTools
     private readonly IVoorraadRepository _voorraad;
     private readonly IProductTodoRepository _todos;
     private readonly INacalculatieRepository _nacalc;
+    private readonly RelatieNamen _namen;
     private readonly string? _cs;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private const int MaxRijen = FinancieleAiTools.MaxRijen;
@@ -22,9 +23,9 @@ public class AlgemeneAiTools
     /// <summary>Alleen met Financial/Directie (en niet op een werkplek).</summary>
     public static readonly HashSet<string> Financieel = new() { "nacalculatie_project" };
 
-    public AlgemeneAiTools(IVoorraadRepository voorraad, IProductTodoRepository todos, INacalculatieRepository nacalc, IConfiguration config)
+    public AlgemeneAiTools(IVoorraadRepository voorraad, IProductTodoRepository todos, INacalculatieRepository nacalc, RelatieNamen namen, IConfiguration config)
     {
-        _voorraad = voorraad; _todos = todos; _nacalc = nacalc;
+        _voorraad = voorraad; _todos = todos; _nacalc = nacalc; _namen = namen;
         _cs = config.GetConnectionString("MDE");
     }
 
@@ -186,11 +187,11 @@ public class AlgemeneAiTools
     // ---- projecten ----
     private async Task Projecten(AiGegevens g, JsonObject i)
     {
-        var zoek = Tekst(i, "zoek"); var klant = Tekst(i, "klant");
+        var zoek = Tekst(i, "zoek"); var klant = await _namen.ZoekAsync(Tekst(i, "klant"));   // naam slim gezocht (RelatieNamen)
         var status = (Tekst(i, "status") ?? "open").ToLowerInvariant();
         var waar = new List<string>();
         if (zoek is not null) waar.Add("(CAST(p.`Projectnumber` AS CHAR) LIKE @zoek OR p.`Projectdescription` LIKE @zoek)");
-        if (klant is not null) waar.Add("r.`name` LIKE @klant");
+        if (klant is not null) waar.Add(RelatieNamen.Voorwaarde("r.`name`", "klant", klant));
         var st = status switch { "pending" => 2, "gesloten" => 3, "alle" => 0, _ => 1 };
         if (st != 0) waar.Add("p.`ProjectStatus` = " + st);
         await using var cn = await OpenAsync();
@@ -202,13 +203,13 @@ public class AlgemeneAiTools
             (waar.Count == 0 ? "" : " WHERE " + string.Join(" AND ", waar)) +
             " ORDER BY p.`Projectnumber` DESC LIMIT 1000", cn);
         if (zoek is not null) cmd.Parameters.AddWithValue("@zoek", "%" + zoek + "%");
-        if (klant is not null) cmd.Parameters.AddWithValue("@klant", "%" + klant + "%");
-        g.Titel = "Projecten" + (zoek is null ? "" : $" '{zoek}'") + (klant is null ? "" : $", klant '{klant}'") + $", status {status}";
+        if (klant is not null) RelatieNamen.Vul(cmd, "klant", klant);
+        g.Titel = "Projecten" + (zoek is null ? "" : $" '{zoek}'") + (klant is null ? "" : $", klant {klant.Titel}") + $", status {status}";
         g.Kolommen = new() { "Project", "Omschrijving", "Klant", "Status", "Projectleider", "Werkorders" };
         var n = 0;
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) { n++; g.Rijen.Add(new() { S(r, 0), S(r, 1), S(r, 2), StatusProject(S(r, 3)), S(r, 4), S(r, 5) }); }
-        g.Opmerking = $"{n} projecten gevonden.";
+        g.Opmerking = (klant?.Noot("klant") ?? "") + $"{n} projecten gevonden.";
         Afkappen(g, n);
     }
 
@@ -306,7 +307,7 @@ public class AlgemeneAiTools
     // ---- bestellingen ----
     private async Task Bestellingen(AiGegevens g, JsonObject i)
     {
-        var project = Tekst(i, "project"); var lev = Tekst(i, "leverancier");
+        var project = Tekst(i, "project"); var lev = await _namen.ZoekAsync(Tekst(i, "leverancier"));
         var status = (Tekst(i, "status") ?? "open").ToLowerInvariant();
         var (van, tot) = Periode2(i, new DateOnly(DateTime.Today.Year - 1, 1, 1));
         var waar = new List<string> { "COALESCE(o.`Creation date`, o.`Ordered date`) >= @van", "COALESCE(o.`Creation date`, o.`Ordered date`) < @tot" };
@@ -317,7 +318,7 @@ public class AlgemeneAiTools
             _ => "COALESCE(o.`Status`, 0) < 6",
         });
         if (project is not null) waar.Add("CAST(v.`ProjectNumber` AS CHAR) = @project");
-        if (lev is not null) waar.Add("l.`name` LIKE @lev");
+        if (lev is not null) waar.Add(RelatieNamen.Voorwaarde("l.`name`", "lev", lev));
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT o.`Order-id`, COALESCE(o.`Ordered date`, o.`Creation date`), COALESCE(l.`name`, ''), COALESCE(st.`Omschrijving`, ''), " +
@@ -332,8 +333,8 @@ public class AlgemeneAiTools
         cmd.Parameters.AddWithValue("@van", van.ToDateTime(TimeOnly.MinValue));
         cmd.Parameters.AddWithValue("@tot", tot.AddDays(1).ToDateTime(TimeOnly.MinValue));
         if (project is not null) cmd.Parameters.AddWithValue("@project", project);
-        if (lev is not null) cmd.Parameters.AddWithValue("@lev", "%" + lev + "%");
-        g.Titel = $"Bestellingen {D(van)} t/m {D(tot)}, status {status}" + (project is null ? "" : $", project {project}") + (lev is null ? "" : $", leverancier '{lev}'");
+        if (lev is not null) RelatieNamen.Vul(cmd, "lev", lev);
+        g.Titel = $"Bestellingen {D(van)} t/m {D(tot)}, status {status}" + (project is null ? "" : $", project {project}") + (lev is null ? "" : $", leverancier {lev.Titel}");
         g.Kolommen = new() { "PO", "Datum", "Leverancier", "Status", "Door", "Werkorder", "Omschrijving", "Totaal ex btw" };
         decimal totaal = 0; var n = 0;
         await using var r = await cmd.ExecuteReaderAsync();
@@ -342,7 +343,7 @@ public class AlgemeneAiTools
             n++; totaal += M(r, 7);
             g.Rijen.Add(new() { "PO-" + S(r, 0), D(r.IsDBNull(1) ? null : r.GetDateTime(1)), S(r, 2), S(r, 3), S(r, 4), S(r, 5), S(r, 6), B(M(r, 7)) });
         }
-        g.Opmerking = $"{n} bestellingen, samen {B(totaal)} ex btw.";
+        g.Opmerking = (lev?.Noot("leverancier") ?? "") + $"{n} bestellingen, samen {B(totaal)} ex btw.";
         Afkappen(g, n);
     }
 

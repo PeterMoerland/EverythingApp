@@ -355,6 +355,7 @@ builder.Services.AddSingleton<FactuurLezer>();
 // Vragen aan AI (Financiën): Amazon Bedrock (sectie "Bedrock" in appsettings.json), opvragingen in
 // FinancieleAiTools, wachtrij voor 'Mag wachten' (daluren, Flex-tarief) in AiAnalyseService.
 builder.Services.AddSingleton<BedrockClient>();
+builder.Services.AddSingleton<RelatieNamen>();
 builder.Services.AddSingleton<FinancieleAiTools>();
 builder.Services.AddSingleton<AlgemeneAiTools>();
 builder.Services.AddSingleton<BestelregelLezer>();

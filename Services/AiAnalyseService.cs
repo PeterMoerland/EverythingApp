@@ -144,6 +144,9 @@ public class AiAnalyseService : BackgroundService
         Regels:
         - Haal elk getal op met de beschikbare opvragingen; verzin nooit cijfers. Kun je iets niet opvragen, zeg dat dan duidelijk.
         - Vraag gericht op (periode, klant, leverancier) in plaats van alles.
+        - Een naam van een klant of leverancier wordt ruim gezocht (zonder streepjes en spaties, ook met een tikfout). Staat in
+          de opmerking dat op een andere naam gezocht is, noem die naam dan. Staat er dat de naam niet gevonden is, zeg dat
+          en geef de namen die in de buurt komen; concludeer dan niet dat er geen facturen, bestellingen of projecten zijn.
         - Noem bij elk getal waar het vandaan komt (welke opvraging en periode) en of het in- of exclusief btw is.
         - Gebruik de totalen uit de opmerking of de kolom Cumulatief van een opvraging; tel NOOIT zelf regels op. Heb je een
           totaal nodig dat er niet staat, vraag de gegevens dan opnieuw op met een indeling die dat totaal geeft.

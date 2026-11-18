@@ -1145,7 +1145,7 @@ las alleen onze eigen JSON met SDO's; dit bestand is de **Export** uit ISMC/Mosr
   afwijkende waarden, een alleen-lezen object, een object dat niet bestaat, een geweigerde waarde, een waarde die niet
   blijft staan; laden, nog eens laden, vergelijken, verkeerde productcode, JSON, onbekend bestand). **Niet getest op
   de echte ISMC**: of alle objecten via EtherCAT (SDO) te schrijven zijn zoals via USB, de lengtes, en of 0x2602 = 1
-  echt opslaat. Agent 1.27.0 is nog niet gebouwd of gepubliceerd.
+  echt opslaat. Agent 1.27.0 is gebouwd (18-11-2026, `MdeAgent\uitvoer\MdeAgent-setup-1.27.0.exe`); publiceren doet de gebruiker.
 
 ## Testrecepten op CoE-drives en "bit" (agent 1.26.0, 18-11-2026)
 
@@ -1780,6 +1780,39 @@ materiaal + uren); de rekenregels staan nu in `NacalcData` (`Inkoop`, `Materiaal
 `TotaalKosten`), Nacalculatie.razor gebruikt dezelfde. Boven 100% wordt 100% met een melding; uren zonder
 kostprijstarief worden genoemd. Lokaal getest met project 218183 (kosten € 155.775,79 van € 248.940 = 62,6%), met
 opslaan tijdelijk uitgezet en de rechten tijdelijk open; teruggezet.
+
+## Vragen aan AI: slim zoeken op de naam van klant of leverancier (18-11-2026)
+
+Wens gebruiker: "wat geven we per jaar uit aan VA imaging?" gaf 0 regels (de relatie heet "VA-Imaging"), en het model
+concludeerde dat er geen facturen waren. De opvragingen zochten letterlijk `name LIKE '%…%'`.
+- **`Services/RelatieNamen.cs`** (singleton; alle namen uit `Relations`, tien minuten onthouden): `ZoekAsync(gevraagd)`
+  -> `NaamTreffer` (`Letterlijk`, `Lijkt`, `Suggesties`, `Afgekapt`, `Patronen`, `Titel`, `Noot(soort)`).
+  `Zoek(gevraagd, namen)` is puur (los te toetsen), in deze volgorde, en **alleen verder als de vorige stap niets vond**:
+  1. letterlijk (de naam bevat de tekst): zoals het was;
+  2. zonder spaties, streepjes, leestekens en accenten (`Kaal`): "VA Imaging" = "VA-Imaging", "bolcom" = "bol.com b.v.",
+     "Wurth" = "Würth";
+  3. de losse woorden in willekeurige volgorde (rechtsvormen bv/nv/gmbh … tellen niet; een woord moet aan het begin van
+     een woord in de naam staan, of vanaf 4 tekens ergens in de naam);
+  4. een tikfout per woord: een woord dat in geen enkele naam voorkomt wordt het woord uit de namen dat er het meest op
+     lijkt (zelfde beginletter, 1 teken anders, vanaf 8 tekens 2; bij gelijke afstand het woord dat het vaakst voorkomt)
+     en dan opnieuw stap 1-3. Zo wordt "Omrom" het patroon "omron" (alle Omron-relaties, net als letterlijk);
+  5. de hele tekst met een tikfout of aan elkaar ("Kaas winkeltje" = "Kaeswienkeltje"): vergeleken met een even lang
+     stuk van de naam dat aan het begin van een woord begint, met dezelfde beginletter;
+  6. niets: de vijf namen die het dichtst in de buurt komen als `Suggesties`.
+  Hooguit 8 namen (`MaxNamen`); meer = `Afgekapt` en de noot vraagt om een preciezere naam.
+- **Waarom zo streng in stap 4 en 5**: de eerste versie schoof een venster over de hele naam; "Omrom" vond toen ook
+  "Habicom Rotterdam", "RS components" vond "Conveyor Components" en "Ericsons" een bedrijf met "…ery Cons…" erin.
+  Daarom alleen aan het begin van een woord en met dezelfde beginletter.
+- **Aangesloten** op alle opvragingen met een naamfilter: `FinancieleAiTools` (verkoopfacturen, inkoopfacturen: per
+  patroon een keer `ZoekAsync` van de repository, ontdubbeld op Id; omzet_per_maand, kosten_per_maand:
+  `RelatieNamen.Voorwaarde`/`Vul` in de eigen SQL) en `AlgemeneAiTools` (projecten op klant, bestellingen op
+  leverancier). De titel zegt `'VA-Imaging' (gevraagd: 'VA Imaging')`; `Noot` komt vooraan in de opmerking, zodat het
+  model de gebruikte naam noemt, of bij niets zegt dat de naam niet gevonden is. De systeemopdracht
+  (`AiAnalyseService.Systeem`) heeft daar een regel over. Niet aangesloten: uren op medewerker (Werknemers) en de
+  vrije zoektekst bij banktransacties, projecten en voorraad.
+- Getoetst tegen de echte relatielijst en de echte facturen (scratchpad-console `ainaamtoets`, alleen lezen): "VA
+  Imaging" geeft dezelfde 22 facturen / € 96.598,47 als "VA-Imaging"; "Omrom Electronics" 177 facturen; "RS components"
+  en "Ericsons" niets (met of zonder suggesties). **Niet getest**: een echte vraag via het model (kost een aanroep).
 
 ## Vragen aan AI: privé, delen met de directie, wissen (22-10-2026)
 
