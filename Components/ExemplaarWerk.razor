@@ -741,7 +741,15 @@
                                 <button class="prod-mde-waarde @(aan ? "aan" : "") @(BuitenGrens(naam) ? "buiten" : "")" title="@((aan ? "Uit de grafiek halen" : "In de grafiek zetten") + GrensTekst(naam))"
                                         @onclick="() => WisselMdeLijn(naam)">
                                     <span class="prod-mde-kleur" style="@(aan ? $"background:{kleur}" : "")"></span>
-                                    <span>@naam</span><b>@(kv.Value ?? "—")</b>
+                                    <span>@naam</span>
+                                    @if (_mdeBits.Contains(naam) && kv.Value is "0" or "1")
+                                    {
+                                        <b class="prod-mde-bit @(kv.Value == "1" ? "hoog" : "")">@(kv.Value == "1" ? "aan" : "uit")</b>
+                                    }
+                                    else
+                                    {
+                                        <b>@(kv.Value ?? "—")</b>
+                                    }
                                 </button>
                             }
                             @if (_mdeReeks.Count > 0) { <div class="prod-mde-tijd"><span>Tijd</span><b>@_mdeReeks[^1].T.ToString("0.0") s · @_mdeReeks.Count metingen</b></div> }
@@ -3251,6 +3259,7 @@
     // ---- grenzen (min/max van monitor-objecten) en bediening (HMI-stap in een recept) ----
     private Dictionary<string, (double? Min, double? Max)> _mdeGrenzen = new();
     private Dictionary<string, string> _mdeGeschreven = new();      // laatst geschreven waarde per bedienelement (van de agent)
+    private HashSet<string> _mdeBits = new();                       // monitor-objecten met "bit": lampje aan/uit in plaats van een getal
     private Dictionary<int, string> _bedienInvoer = new();
 
     private bool BuitenGrens(string naam)
@@ -3484,8 +3493,8 @@
             if (objecten.ValueKind != JsonValueKind.Array || objecten.GetArrayLength() == 0) { Toon("Geef een lijst objecten op.", true); return; }
         }
         catch (Exception ex) { Toon("De objectenlijst is geen geldige JSON: " + ex.Message, true); return; }
-        _mdeWaarden = new(); _mdeReeks = new(); _mdeGrenzen = DriveRecept.GrenzenUit(objecten);
-        var body = JsonSerializer.Serialize(new { positie = pos, objecten, seconden = _monitorSeconden });
+        _mdeWaarden = new(); _mdeReeks = new(); _mdeGrenzen = DriveRecept.GrenzenUit(objecten); _mdeBits = DriveRecept.BitNamenUit(objecten);
+        var body = JsonSerializer.Serialize(new { positie = pos, objecten, seconden = _monitorSeconden, eis_mde = p is null || IsMde(p) });
         await VoerTaakUit("mde.monitor", body, $"Monitoring — slave {pos}{(p is null ? "" : $" ({p.Naam})")}", _monitorSeconden + 60,
             res => Task.FromResult(res.ValueKind == JsonValueKind.Object ? $"{Getal(res, "metingen")} metingen" : "klaar"), live: MdeLive);
     }
@@ -3531,9 +3540,13 @@
         JsonElement stappen;
         try { stappen = JsonDocument.Parse(r.StappenVoorAgent()).RootElement.Clone(); }
         catch (Exception ex) { Toon("Het recept is geen geldige JSON: " + ex.Message, true); return; }
-        var body = JsonSerializer.Serialize(new { positie = p.Positie, naam = r.Naam, stappen });
+        // Een recept voor een CoE-drive (eRob, ISMC …): de agent eiste een MDE-slave en stopte dan meteen ("geen
+        // MDE-slave"); en zo'n drive blijft in PRE-OP met SDO's (procesdata/OP alleen voor de eigen MDE-slaves, die
+        // hun uitgangen alleen uit de procesdata nemen). Wens gebruiker 18-11-2026, ISMC-recept met in- en uitgangen.
+        var mdeSlave = IsMde(p);
+        var body = JsonSerializer.Serialize(new { positie = p.Positie, naam = r.Naam, stappen, eis_mde = mdeSlave, procesdata = mdeSlave });
         var titel = ReceptTitel(rc);
-        _mdeGrenzen = r.Grenzen(); _mdeGeschreven = new(); _bedienInvoer = new();
+        _mdeGrenzen = r.Grenzen(); _mdeBits = r.BitNamen(); _mdeGeschreven = new(); _bedienInvoer = new();
         // een bediening-stap wacht op de gebruiker (standaard tot een uur, max. 4 uur): de app moet zolang blijven volgen
         var maxSeconden = r.Stappen.Contains("\"bediening\"", StringComparison.Ordinal) ? 4 * 3600 + 900 : 900;
         await VoerTaakUit("mde.test", body, titel, maxSeconden, async res =>

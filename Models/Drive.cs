@@ -195,6 +195,56 @@ public class DriveRecept
         return uit;
     }
 
+    /// <summary>Namen van de monitor-objecten met "bit" (één bit van een object, bv. een ingang in 0x60FD), ook binnen
+    /// herhaal-blokken: Test PCB toont die als lampje aan/uit in plaats van een getal (agent 1.26.0).</summary>
+    public HashSet<string> BitNamen()
+    {
+        var uit = new HashSet<string>();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(Stappen);
+            void Loop(System.Text.Json.JsonElement lijst)
+            {
+                if (lijst.ValueKind != System.Text.Json.JsonValueKind.Array) return;
+                foreach (var s in lijst.EnumerateArray())
+                {
+                    if (s.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    if (s.TryGetProperty("objecten", out var o)) uit.UnionWith(BitNamenUit(o));
+                    if (s.TryGetProperty("stappen", out var b)) Loop(b);
+                }
+            }
+            Loop(doc.RootElement);
+        }
+        catch { }
+        return uit;
+    }
+
+    /// <summary>Namen van de objecten met "bit" in een objectenlijst; zonder naam zoals de agent hem noemt
+    /// ("0x60FD:0 bit 2", mde._objnaam).</summary>
+    public static HashSet<string> BitNamenUit(System.Text.Json.JsonElement objecten)
+    {
+        var uit = new HashSet<string>();
+        if (objecten.ValueKind != System.Text.Json.JsonValueKind.Array) return uit;
+        foreach (var o in objecten.EnumerateArray())
+        {
+            if (o.ValueKind != System.Text.Json.JsonValueKind.Object || BedienStap.Getal(o, "bit") is not double bit) continue;
+            if (o.TryGetProperty("naam", out var n) && n.GetString() is { Length: > 0 } naam) { uit.Add(naam); continue; }
+            if (Objectnummer(o, "index") is long index)
+                uit.Add($"0x{index:X4}:{Objectnummer(o, "sub") ?? 0} bit {(int)bit}");
+        }
+        return uit;
+    }
+
+    private static long? Objectnummer(System.Text.Json.JsonElement o, string veld)
+    {
+        if (!o.TryGetProperty(veld, out var v)) return null;
+        if (v.ValueKind == System.Text.Json.JsonValueKind.Number) return v.GetInt64();
+        var t = (v.GetString() ?? "").Trim();
+        return t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? long.TryParse(t[2..], System.Globalization.NumberStyles.HexNumber, null, out var h) ? h : null
+            : long.TryParse(t, out var d) ? d : null;
+    }
+
     /// <summary>Grenzen uit een objectenlijst [{naam, min?, max?}, …] (monitor-stap of Meekijken).</summary>
     public static Dictionary<string, (double? Min, double? Max)> GrenzenUit(System.Text.Json.JsonElement objecten)
     {

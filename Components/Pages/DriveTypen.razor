@@ -399,15 +399,15 @@
     {
         ("autostart", "seconden (0)", "Het recept start vanzelf zodra je het in Test PCB opent, na de aftelling (max. 60 s; Annuleren kan). Alleen in het recept zelf, niet in een herhaal-blok; het is geen stap voor de agent."),
         ("identiteit", "vendor, productcode, revisie, firmware", "Vergelijkt de identiteit van de slave (0x1018, 0x100A)."),
-        ("lees", "index, sub, type, min / max of gelijk", "Leest een waarde en controleert de grenzen."),
+        ("lees", "index, sub, type, min / max of gelijk, bit", "Leest een waarde en controleert de grenzen. Met \"bit\": n alleen dat bit (0/1), bv. een ingang in 0x60FD."),
         ("schrijf", "index, sub, type, waarde", "Schrijft een waarde en leest hem terug."),
         ("wacht / pauze", "seconden", "Wacht; de monitor blijft meten."),
-        ("wacht_tot", "index, sub, type, gelijk / min / max, timeout (10 s)", "Wacht tot een waarde aan de grens voldoet (bv. druk onder 50 binnen 5 s)."),
+        ("wacht_tot", "index, sub, type, gelijk / min / max, timeout (10 s), bit", "Wacht tot een waarde aan de grens voldoet (bv. druk onder 50 binnen 5 s, of een ingang hoog met bit + gelijk 1)."),
         ("herhaal", "keer, stappen [ … ], stoppen", "Voert een blok stappen n keer uit."),
         ("beweging", "doel_index/sub, stand_index/sub, type, doel, tolerantie, timeout, controlword {index, sub, aan, uit}", "Stuurt naar een doel en wacht tot de stand binnen de tolerantie is."),
         ("doorgeefluik", "motor, register, verwacht of waarde (index 0x8000)", "Leest of schrijft een register van een seriële motor (Feetech)."),
-        ("monitor", "objecten [{index, sub, type, naam, min, max}]", "Vanaf deze stap leest de agent de objecten elke 0,2 s; Test PCB toont de waarden en een grafiek. min/max = grenslijn in de grafiek."),
-        ("bediening", "knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub, aan, uit}], invoer [{naam, index, sub, type, min, max}], seconden (3600)", "HMI: het recept wacht op de gebruiker, die met knoppen, schakelaars en invoervelden schrijft. Klaar = verder met de volgende stap."),
+        ("monitor", "objecten [{index, sub, type, naam, min, max, bit}]", "Vanaf deze stap leest de agent de objecten elke 0,2 s; Test PCB toont de waarden en een grafiek. min/max = grenslijn in de grafiek. Met \"bit\": n alleen dat bit, als lampje aan/uit (bv. zes ingangen uit 0x60FD)."),
+        ("bediening", "knoppen [{naam, index, sub, type, waarde}], schakelaars [{naam, index, sub, aan, uit, bit}], invoer [{naam, index, sub, type, min, max}], seconden (3600)", "HMI: het recept wacht op de gebruiker, die met knoppen, schakelaars en invoervelden schrijft. Klaar = verder met de volgende stap. Een schakelaar met \"bit\": n zet alleen dat bit van het object (type standaard UDINT), bv. DO0 = bit 16 van 0x60FE:1; na het recept gaan die bits weer uit (agent 1.26.0)."),
     };
 
     private string? _melding;

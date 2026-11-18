@@ -1,0 +1,23 @@
+[
+  {"stap": "schrijf", "naam": "DO0 functie = Remote DO", "index": "0x2803", "sub": 1, "type": "UINT", "waarde": 1},
+  {"stap": "schrijf", "naam": "DO1 functie = Remote DO", "index": "0x2803", "sub": 2, "type": "UINT", "waarde": 1},
+  {"stap": "schrijf", "naam": "DO2 functie = Remote DO", "index": "0x2803", "sub": 3, "type": "UINT", "waarde": 1},
+  {"stap": "schrijf", "naam": "DO3 functie = Remote DO", "index": "0x2803", "sub": 4, "type": "UINT", "waarde": 1},
+  {"stap": "schrijf", "naam": "Uitgangen vrijgeven (masker DO0..DO3)", "index": "0x60FE", "sub": 2, "type": "UDINT", "waarde": "0x000F0000"},
+  {"stap": "monitor", "objecten": [
+    {"naam": "DI0", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 0},
+    {"naam": "DI1", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 1},
+    {"naam": "DI2", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 2},
+    {"naam": "DI3", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 3},
+    {"naam": "DI4", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 4},
+    {"naam": "DI5", "index": "0x60FD", "sub": 0, "type": "UDINT", "bit": 5},
+    {"naam": "Uitgangen (0x60FE:1)", "index": "0x60FE", "sub": 1, "type": "UDINT"}
+  ]},
+  {"stap": "bediening", "naam": "In- en uitgangen testen", "seconden": 1800,
+   "schakelaars": [
+     {"naam": "DO0", "index": "0x60FE", "sub": 1, "type": "UDINT", "bit": 16},
+     {"naam": "DO1", "index": "0x60FE", "sub": 1, "type": "UDINT", "bit": 17},
+     {"naam": "DO2", "index": "0x60FE", "sub": 1, "type": "UDINT", "bit": 18},
+     {"naam": "DO3", "index": "0x60FE", "sub": 1, "type": "UDINT", "bit": 19}
+   ]}
+]

@@ -39,6 +39,11 @@ Taak mde.test           parameters: positie, stappen (lijst), naam. Een testrece
                                        type?, aan? (1), uit? (0)}], invoer [{naam, index, sub, type, min?, max?}],
                                        seconden (3600): de werker wacht op opdrachten van de app (HMI) en schrijft
                                        alleen wat in deze stap staat; Klaar = verder met de volgende stap
+                        "bit": n (agent 1.26.0) bij lees, wacht_tot, een monitor-object, een knop of een schakelaar:
+                        alleen dat bit van het object telt (0/1). Lezen geeft (waarde >> n) & 1; een knop of
+                        schakelaar leest het object, zet of wist alleen dat bit en schrijft het terug (type standaard
+                        UDINT), zodat bv. DO0..DO3 in 0x60FE:1 (bit 16..19) elk een eigen schakelaar kunnen zijn. Na
+                        het recept (ook bij Stop of een fout) worden de bits die zo aangezet zijn weer gewist.
                         Opdrachten via stdin (POST /jobs/<id>/invoer, één JSON per regel): {"knop": n},
                         {"schakelaar": n, "aan": true}, {"invoer": n, "waarde": w}, {"klaar": true}, {"stop": true}.
                         Stop = netjes stoppen (uitgangen uit), ook buiten een bediening-stap.
@@ -168,10 +173,75 @@ def _lees_waarde(d: _Drive, index: int, sub: int, typ: str):
     return ruw.split(b"\0")[0].decode("ascii", "replace") if typ == "STRING" else ruw.hex()
 
 
+def _bitnr(o: dict) -> int | None:
+    """"bit": n bij een object uit een stap: alleen dat bit telt (bv. een ingang in 0x60FD, een uitgang in 0x60FE:1)."""
+    b = o.get("bit")
+    if b in (None, ""):
+        return None
+    n = _int(b)
+    if not 0 <= n <= 63:
+        raise ValueError(f"bit {n} ligt buiten 0..63")
+    return n
+
+
+def _objnaam(o: dict) -> str:
+    index, sub, b = _int(o["index"]), _int(o.get("sub", 0)), _bitnr(o)
+    return o.get("naam") or f"0x{index:04X}:{sub}" + (f" bit {b}" if b is not None else "")
+
+
+def _lees_obj(d: _Drive, o: dict, cache: dict | None = None):
+    """Waarde van een object uit een stap (index, sub, type); met "bit" alleen dat bit (0 of 1). `cache` voorkomt
+    dat een object dat meerdere keren in de monitor staat (zes ingangen in 0x60FD) per meting vaker gelezen wordt."""
+    index, sub, typ = _int(o["index"]), _int(o.get("sub", 0)), (o.get("type") or "UINT").upper()
+    sleutel = (index, sub, typ)
+    if cache is not None and sleutel in cache:
+        w = cache[sleutel]
+    else:
+        w = _lees_waarde(d, index, sub, typ)
+        if cache is not None:
+            cache[sleutel] = w
+    b = _bitnr(o)
+    if b is not None and isinstance(w, int):
+        return (int(w) >> b) & 1
+    return w
+
+
+def _schrijf_bit(d: _Drive, el: dict, aan: bool, log) -> tuple[int, int]:
+    """Alleen bit `el["bit"]` van het object zetten of wissen: lezen, bit aanpassen, terugschrijven. Onthoudt welke
+    bits zo aangezet zijn (`d.bits`), zodat ze na het recept weer uit kunnen. Geeft (oud, nieuw)."""
+    index, sub, typ = _int(el["index"]), _int(el.get("sub", 0)), (el.get("type") or "UDINT").upper()
+    b = _bitnr(el)
+    if not hasattr(d, "bits") or d.bits is None:
+        d.bits = {}
+    _, masker, beeld = d.bits.get((index, sub), (typ, 0, 0))
+    try:
+        oud = int(d.lees(index, sub, typ))
+    except Exception as e:  # noqa: BLE001
+        oud = beeld                               # niet te lezen: uitgaan van wat wij zelf het laatst schreven
+        log(f"  » 0x{index:04X}:{sub} lezen mislukt ({fouttekst(e)}); verder met de laatst geschreven waarde 0x{oud:X}")
+    nieuw = oud | (1 << b) if aan else oud & ~(1 << b)
+    d.schrijf(index, sub, typ, nieuw)
+    d.bits[(index, sub)] = (typ, masker | (1 << b) if aan else masker, nieuw)
+    return oud, nieuw
+
+
+def _bits_uit(d: _Drive, log) -> None:
+    """Na het recept: de bits die een knop of schakelaar aanzette weer wissen (de rest van het object blijft)."""
+    for (index, sub), (typ, masker, _) in (getattr(d, "bits", None) or {}).items():
+        if not masker:
+            continue
+        try:
+            oud = int(d.lees(index, sub, typ))
+            if oud & masker:
+                d.schrijf(index, sub, typ, oud & ~masker)
+                log(f"Na afloop: 0x{index:04X}:{sub} bits 0x{masker:X} weer uit (0x{oud:X} → 0x{oud & ~masker:X}).")
+        except Exception as e:  # noqa: BLE001
+            log(f"Na afloop: 0x{index:04X}:{sub} uitzetten mislukt: {fouttekst(e)}")
+
+
 def _stap_lees(d: _Drive, s: dict, log) -> tuple[bool, str]:
-    index, sub, typ = _int(s["index"]), _int(s.get("sub", 0)), (s.get("type") or "UINT").upper()
-    w = _lees_waarde(d, index, sub, typ)
-    naam = s.get("naam") or f"0x{index:04X}:{sub}"
+    w = _lees_obj(d, s)
+    naam = _objnaam(s)
     log(f"  {naam} = {w}")
     if s.get("gelijk") not in (None, "") and not _hexgelijk(w, s["gelijk"]):
         return False, f"{naam} = {w}, verwacht {s['gelijk']}"
@@ -212,14 +282,14 @@ def _monitor_meet(d: _Drive, altijd: bool = False) -> dict | None:
         return None
     d.laatste_meting = nu
     waarden = {}
+    cache = {}
     for o in objs:
         try:
-            index, sub = _int(o["index"]), _int(o.get("sub", 0))
+            naam = _objnaam(o)
         except Exception:  # noqa: BLE001
             continue
-        naam = o.get("naam") or f"0x{index:04X}:{sub}"
         try:
-            waarden[naam] = _lees_waarde(d, index, sub, (o.get("type") or "UINT").upper())
+            waarden[naam] = _lees_obj(d, o, cache)
         except Exception:  # noqa: BLE001
             waarden[naam] = None
     uit = {"t": round(nu - getattr(d, "t0", nu), 2), "waarden": waarden}
@@ -270,14 +340,13 @@ def _voldoet(w, s: dict) -> bool:
 
 
 def _stap_wacht_tot(d: _Drive, s: dict, log) -> tuple[bool, str]:
-    index, sub, typ = _int(s["index"]), _int(s.get("sub", 0)), (s.get("type") or "UINT").upper()
     timeout = float(s.get("timeout") or 10)
-    naam = s.get("naam") or f"0x{index:04X}:{sub}"
+    naam = _objnaam(s)
     eis = ", ".join(f"{k} {s[k]}" for k in ("gelijk", "min", "max") if s.get(k) not in (None, ""))
     begin = time.time()
     w = None
     while time.time() - begin < timeout:
-        w = _lees_waarde(d, index, sub, typ)
+        w = _lees_obj(d, s)
         if _voldoet(w, s):
             log(f"  {naam} = {w} na {time.time() - begin:.1f} s")
             return True, f"{naam} = {w} na {time.time() - begin:.1f} s ({eis})"
@@ -425,6 +494,15 @@ def _stap_bediening(d: _Drive, s: dict, log) -> tuple[bool, str]:
             continue
         naam = el.get("naam") or f"0x{_int(el['index']):04X}:{_int(el.get('sub', 0))}"
         try:
+            if _bitnr(el) is not None and ("knop" in c or "schakelaar" in c):
+                # één bit van het object (bv. DO1 in 0x60FE:1): de andere bits blijven zoals ze zijn
+                aan = bool(c.get("aan")) if "schakelaar" in c else bool(_getal(waarde, "UDINT"))
+                oud, nieuw = _schrijf_bit(d, el, aan, log)
+                d.geschreven[naam] = 1 if aan else 0
+                n += 1
+                log(f"  » {naam} ← {'aan' if aan else 'uit'} (bit {_bitnr(el)}: 0x{oud:X} → 0x{nieuw:X})")
+                _monitor_meet(d, altijd=True)
+                continue
             typ = (el.get("type") or ("BOOL" if "schakelaar" in c else "UINT")).upper()
             w = _getal(waarde, typ)
             if el.get("min") not in (None, "") and w < float(el["min"]) or el.get("max") not in (None, "") and w > float(el["max"]):
@@ -707,7 +785,10 @@ class _PdoDrive:
 def _werker_test(d: _Drive, o: dict, log) -> dict:
     stappen = o.get("stappen") or []
     uit = []
-    geslaagd = _voer_stappen(d, stappen, log, uit)
+    try:
+        geslaagd = _voer_stappen(d, stappen, log, uit)
+    finally:
+        _bits_uit(d, log)                         # ook bij Stop of een fout: uitgangen die wij aanzetten weer uit
     mis = [u for u in uit if not u["geslaagd"]]
     samenvatting = f"{len(uit)} stappen gedaan" + (f", {len(mis)} mislukt: " + "; ".join(m["tekst"] for m in mis[:5]) if mis else ", alles goed")
     if _STOP.is_set():

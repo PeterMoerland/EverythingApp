@@ -1016,6 +1016,33 @@ Herstel van een drive met alleen een kapotte checksum: los aansluiten, Node-adre
 gewenste nummer opnieuw schrijven, spanning uit/aan. Werkt alleen als de ESC de EEPROM zelf beheert (geen emulatie).
 **22-10-2026: agent 1.20.2 uitgerold; beide Everests op deze manier hersteld en weer bereikbaar (gebruiker).**
 
+## Testrecepten op CoE-drives en "bit" (agent 1.26.0, 18-11-2026)
+
+Wens gebruiker: testrecept voor de nieuwe ISMC-drive (Mosrac "Diamond EtherCAT Drive", productcode 0x00009252, vendor
+0x00418108 volgens de ESI-kop; 0x1018:1 heeft in het ESI een andere standaardwaarde) met ingangen monitoren en uitgangen
+schakelen. Bronnen: ESI `OMR-DI-TP EtherCAT配置文件.xml` (Downloads gebruiker) en de Mosrac-handleidingen in
+`Z:\Projects\MDE\223159 Multipede\40. Software\Servo\Drive docs\Mosrac\` (tekst en plaatjes met pypdf in een venv in de
+scratchpad; poppler ontbreekt, dus Read op een PDF werkt niet). Feiten: **0x60FD** bit 0..5 = DI0..DI5, bit 6 = Z-puls;
+**0x60FE:1** bit 16..19 = DO0..DO3, alleen actief als dezelfde bits in **0x60FE:2** (masker) 1 zijn; DO-functie
+**0x2803:1..** (UINT): 0 unconfigure, **1 Remote DO**, 2 Fault, 3 Brake, 4 Goal to reach, 5 SVON, 6 Brake torque in place
+(plaatje uit de PC-softwarehandleiding). DI: 0x2702 = effective way (0 invalid, 1 low, 2 high, 3 rising, 4 falling), 0x2703
+= functie, 0x2704 = filtertijd. De DO "Effective output" (0 Invalid …) staat niet in het ESI (vermoedelijk 0x2802, niet
+bevestigd): schakelen de uitgangen niet, dan daar kijken.
+- **Was kapot:** `mde.test` eiste een MDE-slave (vendor 0x10E3) tenzij `eis_mde: false`, en de app stuurde dat niet mee:
+  een eRob/ISMC-recept stopte meteen. `ExemplaarWerk.StartRecept` stuurt nu `eis_mde` en `procesdata` = `IsMde(p)`: een
+  CoE-drive blijft in PRE-OP met SDO's (geen OP met nullen in de RxPDO). Meekijken stuurt `eis_mde` ook.
+- **"bit": n** (agent 1.26.0, `mde._bitnr/_lees_obj/_schrijf_bit/_bits_uit`) bij lees, wacht_tot, monitor-objecten,
+  knoppen en schakelaars: lezen = `(waarde >> n) & 1`; een knop/schakelaar leest het object, zet of wist alleen dat bit en
+  schrijft terug (type standaard UDINT; niet te lezen = de laatst zelf geschreven waarde). De monitor leest elk object maar
+  één keer per meting (zes DI's uit 0x60FD = één SDO). Na het recept (`_werker_test`, finally, ook bij Stop/fout) gaan
+  de bits die zo aangezet zijn weer uit; de rest van het object blijft. App: `DriveRecept.BitNamen`/`BitNamenUit` →
+  `_mdeBits`, lampje aan/uit (`prod-mde-bit`) in plaats van 0/1; uitleg in `DriveTypen.Bouwstenen`.
+- Voorbeeldrecept `MdeAgent/voorbeelden/ismc-recept-io.json`: 0x2803:1..4 = 1 (Remote DO, niet blijvend: geen 0x1010),
+  masker 0x60FE:2 = 0x000F0000, monitor DI0..DI5 + 0x60FE:1, bediening met vier schakelaars DO0..DO3 (bit 16..19).
+- Getest: droge proef agent (scratchpad `d38toets.py`: bits in monitor/lees/wacht_tot, vier schakelaars die elkaar niet
+  raken, na afloop en na Stop uit, 0x60FD één keer per meting) en het recept door `DriveRecept.Controleer`/`BitNamen`
+  (scratchpad `d38app`). **Niet getest**: op de echte ISMC, het lampje in de browser, de agent gebouwd/geïnstalleerd.
+
 ## Controllertypen: tabs, receptenlijst met editor (21-10-2026)
 
 - Rechts twee tabs: **Firmware** en **Testrecepten** (alleen bij SDO-slaves). Uitleg staat achter een **?**-knop
