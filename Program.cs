@@ -837,16 +837,25 @@ calcApi.MapGet("/{offerteId:int}", async (int offerteId, ICalculatieRepository r
 });
 // Artikel zoeken bij een materiaalregel (wens gebruiker 18-11-2026): de tekst van de regel, ook in losse delen; met de
 // kostprijs. termen = waarop gezocht is (de boom markeert ze in de treffers).
+static object ArtikelJson(ArtikelPrijsTreffer t) => new { id = t.Id, code = t.Code, fabrikantcode = t.Fabrikantcode, omschrijving = t.Omschrijving, merk = t.Merk,
+                                                          kostprijs = t.Kostprijs, bron = t.Bron, leverancier = t.Leverancier, termen = t.Termen, van = t.VanTermen };
 calcApi.MapGet("/artikelen", async (string? q, int? max, ArtikelPrijsZoeker zoeker) =>
 {
     var tekst = (q ?? "").Trim();
     var treffers = await zoeker.ZoekAsync(tekst, max ?? 8);
-    return Results.Json(new
-    {
-        termen = ArtikelPrijsZoeker.Termen(tekst.TrimStart('#')),
-        treffers = treffers.Select(t => new { id = t.Id, code = t.Code, fabrikantcode = t.Fabrikantcode, omschrijving = t.Omschrijving, merk = t.Merk,
-                                              kostprijs = t.Kostprijs, bron = t.Bron, leverancier = t.Leverancier, termen = t.Termen, van = t.VanTermen }),
-    });
+    return Results.Json(new { termen = ArtikelPrijsZoeker.Termen(tekst.TrimStart('#')), treffers = treffers.Select(ArtikelJson) });
+});
+// Een geplakte lijst met artikelcodes of omschrijvingen opzoeken (vraag Freek 18-11-2026, knop "Artikelen plakken…" in de
+// boom): per regel de beste vijf en of de eerste zeker is. De boom stuurt de lijst in stukjes (hooguit 25 per keer).
+calcApi.MapPost("/artikelen/lijst", async (HttpRequest req, ArtikelPrijsZoeker zoeker) =>
+{
+    System.Text.Json.Nodes.JsonNode? body;
+    try { body = await System.Text.Json.Nodes.JsonNode.ParseAsync(req.Body); } catch { body = null; }
+    if (body?["regels"] is not System.Text.Json.Nodes.JsonArray lijst) return Results.Json(new { fout = "Geen lijst ontvangen." }, statusCode: 400);
+    string Tekst(System.Text.Json.Nodes.JsonNode? n, string veld) { try { return n?[veld]?.GetValue<string>() ?? ""; } catch { return ""; } }
+    var regels = lijst.Take(25).Select(n => (Tekst(n, "tekst"), Tekst(n, "extra"))).ToList();
+    var uit = await zoeker.ZoekLijstAsync(regels, 5);
+    return Results.Json(new { regels = uit.Select(u => new { zeker = u.Zeker, treffers = u.Treffers.Select(ArtikelJson) }) });
 });
 calcApi.MapPut("/{offerteId:int}", async (int offerteId, HttpRequest req, ICalculatieRepository repo, HuidigeGebruiker ik) =>
 {

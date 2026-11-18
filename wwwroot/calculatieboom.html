@@ -245,6 +245,21 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
 .artvenster td small.deel { display: inline; margin-left: 6px; }
 .artvenster .voet { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--zacht); font-size: 12.5px; }
 .artvenster .voet label { display: inline-flex; gap: 6px; align-items: center; color: var(--tekst); font-size: 13px; }
+/* artikelen plakken: zelfde venster, met een plakvak en daarna de controlelijst */
+.artvenster.plak textarea { width: 100%; min-height: 15rem; flex: 1; border: 1px solid var(--lijn); border-radius: 7px; padding: 8px 10px; background: var(--vlak);
+  font-family: var(--f-getal); font-size: 12.5px; resize: vertical; }
+.artvenster.plak tbody tr { cursor: default; }
+.artvenster.plak tbody tr:hover { background: none; }
+.artvenster.plak tbody tr.uit { opacity: .45; }
+.artvenster.plak td { vertical-align: middle; }
+.artvenster.plak td.geplakt small { display: block; }
+.artvenster.plak select { width: 100%; max-width: 34rem; border: 1px solid var(--lijn); border-radius: 5px; padding: 3px 6px; background: var(--vlak); }
+.artvenster.plak input.aantal { width: 4.5rem; text-align: right; border: 1px solid var(--lijn); border-radius: 5px; padding: 3px 6px; background: var(--vlak); font-family: var(--f-getal); }
+.artvenster .stand { font-size: 11.5px; font-weight: 600; border-radius: 4px; padding: 1px 7px; white-space: nowrap; }
+.artvenster .stand.goed { background: var(--goed-zacht); color: var(--goed); }
+.artvenster .stand.let { background: var(--let-zacht); color: var(--let); }
+.artvenster .stand.niet { background: var(--vlak-3); color: var(--zacht); }
+.artvenster .knoppen { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -303,6 +318,7 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
       <button class="knop klein" type="button" id="knopNotities" title="Alle notities in deze calculatie">Notities<span class="teller" id="aantalNotities">0</span></button>
       <button class="knop klein" type="button" id="knopInklappen" title="Alleen de groepen tonen">Alleen groepen</button>
       <button class="knop klein" type="button" id="knopAlles" title="Alles uitklappen">Alles open</button>
+      <button class="knop klein" type="button" id="knopPlakArt" title="Een lijst met artikelcodes of omschrijvingen plakken; de kostprijzen komen uit de artikellijst">Artikelen plakken…</button>
       <button class="knop klein" type="button" id="knopPlak">Plakken uit Excel…</button>
     </div>
     <div class="boomvak" id="boomvak" style="margin-top:8px"><table>
@@ -689,7 +705,7 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     $('knopBevries').hidden = s.bevroren ? (!MAG_ONTDOOIEN || WERKORDERS.length > 0) : !MAG;
     for (const k of ['ohUur', 'ohMat', 'mUur', 'mMat']) { $(k).value = getalFmt.format(s.inst[k]); $(k).disabled = RO(); }
     $('doel').value = s.inst.doel ? euro2.format(s.inst.doel) : '';
-    for (const id of ['doel', 'knopDoel', 'knopPlak']) $(id).disabled = RO();
+    for (const id of ['doel', 'knopDoel', 'knopPlak', 'knopPlakArt']) $(id).disabled = RO();
     $('tabBoom').setAttribute('aria-selected', tab === 'boom'); $('tabWo').setAttribute('aria-selected', tab === 'wo');
     $('boom').hidden = tab !== 'boom'; $('wo').hidden = tab !== 'wo';
     if (gekozen && (gekozen.t === 'g' ? !groepVan(gekozen.id) : !regelVan(gekozen.id))) gekozen = null;
@@ -1378,6 +1394,8 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     return String(tekst ?? '').split(new RegExp(`(${t.join('|')})`, 'gi')).map((d, i) => i % 2 ? `<mark>${esc(d)}</mark>` : esc(d)).join('');
   }
   const artPrijs = a => a.kostprijs > 0 ? '€ ' + euro2.format(a.kostprijs) : '<span class="geen">geen prijs</span>';
+  /** De naam van een regel uit een artikel: "code · omschrijving". */
+  const artNaam = a => schoon(a.omschrijving && a.omschrijving.toLowerCase() !== a.code.toLowerCase() ? `${a.code} · ${a.omschrijving}` : a.code);
   /** Waar de kostprijs van een regel vandaan komt (tooltip op het veld Kostprijs). */
   function artTitel(r, veld) {
     if (veld !== 'kost' || !r.art) return '';
@@ -1387,7 +1405,7 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
   }
   function kiesArtikel(rid, a) {
     const r = regelVan(rid); if (!r || !a || RO()) return;
-    if (artNaamAan() || !schoon(r.oms)) r.oms = schoon(a.omschrijving && a.omschrijving.toLowerCase() !== a.code.toLowerCase() ? `${a.code} · ${a.omschrijving}` : a.code);
+    if (artNaamAan() || !schoon(r.oms)) r.oms = artNaam(a);
     if (r.aantal === null || r.aantal === undefined) r.aantal = 1;
     r.art = { id: a.id, code: a.code, prijs: a.kostprijs, op: new Date().toLocaleDateString('nl-NL') };
     const prijs = a.kostprijs > 0;
@@ -1543,6 +1561,160 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     });
     artVZoek(true);
   }
+
+  // ---------------------------------------------------------------- artikelen plakken (lijst met codes of omschrijvingen)
+  // Vraag Freek 18-11-2026: een lijst met artikelcodes/beschrijvingen in een calculatie plakken. Stap 1: plakken; stap 2:
+  // per regel wat de artikellijst ervan maakt (calculaties/api/artikelen/lijst), na te kijken en aan te passen; daarna
+  // komen het materiaalregels in de groep waar je staat, met de kostprijs.
+  const PLAK_MAX = 300;
+  let plakA = null;   // { stap, regels: [{ tekst, extra, aantal, treffers, zeker, keuze, mee }], bezig, klaar, run, fout, teveel }
+  const isKopRegel = c => c.every(x => /^(pos\.?|nr\.?|artikel(code|nr|nummer)?|code|type|typenummer|bestelnummer|omschrijving|beschrijving|description|naam|aantal|qty|quantity|stuks?|st\.?|merk|fabrikant)$/i.test(x));
+  /** Een geplakte regel -> { tekst (de code, of de hele regel), extra (de rest), aantal }. Null = lege regel of kopregel. */
+  function leesArtRegel(lijn) {
+    const cellen = lijn.split('\t').map(schoon).filter(Boolean);
+    if (!cellen.length || isKopRegel(cellen)) return null;
+    const isGetal = c => /^\d{1,5}([.,]\d+)?$/.test(c);
+    let aantal = null, tekst, extra = '';
+    if (cellen.length > 1) {   // kolommen uit Excel: een getal is het aantal, de eerste tekst de code, de rest de omschrijving
+      const woorden = cellen.filter(c => !isGetal(c)), getallen = cellen.filter(isGetal);
+      if (woorden.length) { tekst = woorden[0]; extra = woorden.slice(1).join(' '); if (getallen.length) aantal = leesGetal(getallen[0]); }
+      else { tekst = cellen[0]; aantal = leesGetal(cellen[1]); }
+    } else {                   // losse tekst: alleen een aantal als het erbij staat ("2x NX-PF0630", "NX-PF0630 2 st")
+      tekst = cellen[0];
+      let m = tekst.match(/^(\d{1,5}(?:[.,]\d+)?)\s*(?:x|×|st\.?|stuks?)\s+(.+)$/i);
+      if (m) { aantal = leesGetal(m[1]); tekst = m[2]; }
+      else if ((m = tekst.match(/^(.+?)\s+(?:(\d{1,5}(?:[.,]\d+)?)\s*(?:x|×|st\.?|stuks?)|[x×]\s*(\d{1,5}))$/i))) { aantal = leesGetal(m[2] ?? m[3]); tekst = m[1]; }
+    }
+    return { tekst, extra, aantal: aantal === null || Number.isNaN(aantal) || aantal <= 0 ? 1 : aantal, treffers: null, zeker: false, keuze: -1, mee: true };
+  }
+  function sluitPlakArt() { plakA = null; $('artplek').querySelector('.artachter.plakart')?.remove(); }
+  function plakDoel() { return gekozen?.t === 'g' ? groepVan(gekozen.id) : gekozen?.t === 'r' ? groepVan(regelVan(gekozen.id)?.groep) : null; }
+  function plakStand(x) {
+    if (x.treffers === null) return ['niet', 'zoeken…'];
+    if (!x.treffers.length) return ['niet', 'niet gevonden'];
+    if (x.keuze < 0) return ['let', 'geen artikel gekozen'];
+    return x.zeker && x.keuze === 0 ? ['goed', 'gevonden'] : ['let', 'kijk na'];
+  }
+  function tekenPlakArt() {
+    const v = $('artplek').querySelector('.plakart .artvenster'); if (!v || !plakA) return;
+    const g = plakDoel();
+    const waar = g ? `in de groep <b>${esc(g.naam)}</b>${gekozen?.t === 'r' ? ', onder de regel waar je staat' : ''}` : 'in een nieuwe groep <b>Geplakt</b> (klik eerst op een groep of regel om ze daar te zetten)';
+    if (plakA.stap === 1) {
+      v.innerHTML = `<div class="kop"><b>Artikelen plakken</b><span class="voor">een lijst met artikelcodes of omschrijvingen</span><span style="flex:1"></span>
+          <button class="knop klein" type="button" data-pa="sluit" aria-label="Sluiten">✕</button></div>
+        <div class="uitleg">Plak een lijst, <b>één artikel per regel</b>: de artikelcode, het typenummer of een omschrijving. Uit Excel mogen er kolommen bij staan:
+          een kolom met een getal is het aantal, de eerste tekstkolom wordt gezocht, de rest telt als omschrijving. In losse tekst mag het aantal erbij als
+          <code>2x NX-PF0630</code> of <code>NX-PF0630 2 st</code>. De regels komen ${waar}.</div>
+        <textarea id="plakArtTekst" spellcheck="false" placeholder="NX102-9000&#10;NX-PF0630&#9;2&#10;2x G2RV-ST500 24VDC&#10;Omron voeding 24V 240W"></textarea>
+        <div class="voet"><span>${plakA.fout ? esc(plakA.fout) : 'Hierna zie je per regel wat er gevonden is; er wordt nog niets toegevoegd.'}</span><span style="flex:1"></span>
+          <span class="knoppen"><button class="knop" type="button" data-pa="sluit">Annuleren</button><button class="knop primair" type="button" data-pa="zoek">Opzoeken</button></span></div>`;
+      const t = $('plakArtTekst'); t.value = plakA.tekst ?? ''; t.focus();
+      return;
+    }
+    const mee = plakA.regels.filter(x => x.mee), tel = soort => mee.filter(x => plakStand(x)[0] === soort && x.treffers !== null).length;
+    const totaal = mee.reduce((a, x) => a + (x.keuze >= 0 ? (x.treffers[x.keuze].kostprijs || 0) * x.aantal : 0), 0);
+    const opt = (x, a, i) => `<option value="${i}" ${x.keuze === i ? 'selected' : ''}>${esc(a.code)} · ${esc(a.omschrijving.length > 70 ? a.omschrijving.slice(0, 70) + '…' : a.omschrijving)}${a.kostprijs > 0 ? ' · € ' + euro2.format(a.kostprijs) : ' · geen prijs'}</option>`;
+    v.innerHTML = `<div class="kop"><b>Artikelen plakken</b><span class="voor">${plakA.bezig ? `opzoeken… ${plakA.klaar} van ${plakA.regels.length}` : `${plakA.regels.length} regel${plakA.regels.length === 1 ? '' : 's'} opgezocht`}</span><span style="flex:1"></span>
+        <button class="knop klein" type="button" data-pa="sluit" aria-label="Sluiten">✕</button></div>
+      <div class="uitleg">Kijk de regels met <span class="stand let">kijk na</span> na en kies zo nodig een ander artikel. Zonder artikel komt alleen de tekst in de calculatie, zonder kostprijs;
+        daar kun je later met een dubbelklik op de omschrijving alsnog zoeken.${plakA.teveel ? ` <b>Let op:</b> alleen de eerste ${PLAK_MAX} regels zijn overgenomen.` : ''}</div>
+      <div class="lijst"><table><thead><tr><th></th><th class="r">Aantal</th><th>Geplakt</th><th>Artikel uit de artikellijst</th><th class="r">Kostprijs</th><th></th></tr></thead>
+        <tbody>${plakA.regels.map((x, i) => { const [soort, tekst] = plakStand(x), a = x.keuze >= 0 ? x.treffers[x.keuze] : null; return `<tr data-pi="${i}" class="${x.mee ? '' : 'uit'}">
+          <td><input type="checkbox" data-pv="mee" ${x.mee ? 'checked' : ''} title="Deze regel toevoegen" aria-label="Deze regel toevoegen"></td>
+          <td class="r"><input class="aantal" data-pv="aantal" value="${getalFmt.format(x.aantal)}" inputmode="decimal" aria-label="Aantal"></td>
+          <td class="geplakt"><b>${esc(x.tekst)}</b>${x.extra ? `<small>${esc(x.extra)}</small>` : ''}</td>
+          <td>${x.treffers === null ? '' : x.treffers.length ? `<select data-pv="keuze" aria-label="Artikel">${x.treffers.map((t, k) => opt(x, t, k)).join('')}<option value="-1" ${x.keuze < 0 ? 'selected' : ''}>— geen artikel: alleen de tekst —</option></select>` : '<span class="geen">niets gevonden in de artikellijst</span>'}</td>
+          <td class="r prijs">${a ? artPrijs(a) : ''}</td>
+          <td><span class="stand ${soort}">${tekst}</span></td></tr>`; }).join('')}</tbody></table></div>
+      <div class="voet"><label title="Uit: de geplakte tekst blijft de naam van de regel"><input type="checkbox" id="plakArtNaam" ${artNaamAan() ? 'checked' : ''}> Naam = artikelcode en omschrijving</label>
+        <span>${tel('goed')} gevonden · ${tel('let')} nakijken · ${tel('niet')} niet gevonden · kostprijs samen € ${euro2.format(totaal)}</span><span style="flex:1"></span>
+        <span class="knoppen"><span>Komt ${waar}.</span><button class="knop" type="button" data-pa="terug" ${plakA.bezig ? 'disabled' : ''}>← Terug</button>
+          <button class="knop primair" type="button" data-pa="toe" ${plakA.bezig || !mee.length ? 'disabled' : ''}>${mee.length} regel${mee.length === 1 ? '' : 's'} toevoegen</button></span></div>`;
+  }
+  async function plakArtZoek() {
+    const tekst = $('plakArtTekst').value;
+    let regels = tekst.split(/\r?\n/).map(leesArtRegel).filter(Boolean);
+    if (!regels.length) { plakA.tekst = tekst; plakA.fout = 'Er staat nog geen regel om op te zoeken.'; tekenPlakArt(); return; }
+    const teveel = regels.length > PLAK_MAX; if (teveel) regels = regels.slice(0, PLAK_MAX);
+    const mijn = (plakA.run ?? 0) + 1;
+    plakA = { stap: 2, tekst, regels, bezig: true, klaar: 0, run: mijn, teveel, fout: '' };
+    tekenPlakArt();
+    try {
+      for (let i = 0; i < regels.length; i += 10) {
+        const deel = regels.slice(i, i + 10);
+        const r = await fetch(`${ART_API}/lijst`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ regels: deel.map(x => ({ tekst: x.tekst, extra: x.extra })) }) });
+        if (!plakA || plakA.run !== mijn) return;   // intussen gesloten of opnieuw begonnen
+        if (!r.ok) throw new Error('Opzoeken in de artikellijst is niet gelukt.');
+        const uit = await r.json();
+        if (!plakA || plakA.run !== mijn) return;
+        deel.forEach((x, k) => {
+          const u = uit.regels?.[k] ?? { treffers: [], zeker: false };
+          x.treffers = u.treffers ?? []; x.zeker = !!u.zeker;
+          // zeker = die; anders de beste alleen als hij alle zoektermen heeft (kijk na), en anders geen artikel
+          const eerste = x.treffers[0];
+          x.keuze = eerste && (x.zeker || eerste.termen >= eerste.van) ? 0 : -1;
+        });
+        plakA.klaar = Math.min(regels.length, i + 10); tekenPlakArt();
+      }
+    } catch (e) {
+      if (!plakA || plakA.run !== mijn) return;
+      plakA = { stap: 1, tekst, fout: e.message, run: mijn }; tekenPlakArt(); return;
+    }
+    plakA.bezig = false; tekenPlakArt();
+  }
+  function plakArtToe() {
+    const lijst = plakA.regels.filter(x => x.mee && x.treffers !== null); if (!lijst.length) return;
+    let g = plakDoel(), nieuw = false;
+    if (!g) {
+      g = s.groepen.find(x => x.naam.toLowerCase() === 'geplakt');
+      if (!g) { g = { id: volgId++, naam: 'Geplakt', ouder: null, wo: true, open: true }; s.groepen.push(g); nieuw = true; }
+    }
+    let na = gekozen?.t === 'r' ? gekozen.id : null, zonder = 0, eerste = null;
+    const op = new Date().toLocaleDateString('nl-NL'), naam = artNaamAan();
+    for (const x of lijst) {
+      const r = nieuweRegel(g.id, na); na = r.id; eerste ??= r.id;
+      const a = x.keuze >= 0 ? x.treffers[x.keuze] : null, geplakt = schoon([x.tekst, x.extra].filter(Boolean).join(' '));
+      r.soort = 'mat'; r.act = null; r.aantal = x.aantal;
+      r.oms = a && naam ? artNaam(a) : geplakt;
+      if (a) { r.art = { id: a.id, code: a.code, prijs: a.kostprijs, op }; if (a.kostprijs > 0) r.kost = a.kostprijs; else zonder++; } else zonder++;
+    }
+    sluitPlakArt();
+    meld(`${lijst.length} materiaalregel${lijst.length === 1 ? '' : 's'} toegevoegd in ${nieuw ? 'de nieuwe groep ' : ''}${g.naam}`
+      + (zonder ? `; ${zonder} zonder kostprijs (dubbelklik op de omschrijving om een artikel te zoeken, of vul de prijs zelf in).` : '.'), zonder > 0);
+    gekozen = { t: 'r', id: na }; flitsId = 'r' + eerste; bewaar(); render();
+  }
+  function openPlakArt() {
+    if (RO()) return;
+    sluitArt(); sluitMenu(); sluitArtVenster(false); sluitPlakArt();
+    plakA = { stap: 1, tekst: '', fout: '', run: 0 };
+    const achter = document.createElement('div');
+    achter.className = 'artachter plakart';
+    achter.innerHTML = '<div class="artvenster plak" role="dialog" aria-modal="true" aria-label="Artikelen plakken"></div>';
+    $('artplek').appendChild(achter);
+    achter.addEventListener('click', e => {
+      const k = e.target.closest('[data-pa]'); if (!k || !plakA) return;
+      if (k.dataset.pa === 'sluit') sluitPlakArt();
+      else if (k.dataset.pa === 'zoek') plakArtZoek();
+      else if (k.dataset.pa === 'terug') { plakA = { stap: 1, tekst: plakA.tekst, fout: '', run: (plakA.run ?? 0) + 1 }; tekenPlakArt(); }
+      else if (k.dataset.pa === 'toe') plakArtToe();
+    });
+    achter.addEventListener('change', e => {
+      if (e.target.id === 'plakArtNaam') { try { localStorage.setItem('calc-art-naam', e.target.checked ? '1' : '0'); } catch (x) { } return; }
+      const tr = e.target.closest('tr[data-pi]'), x = tr && plakA?.regels?.[Number(tr.dataset.pi)]; if (!x) return;
+      if (e.target.dataset.pv === 'mee') x.mee = e.target.checked;
+      else if (e.target.dataset.pv === 'keuze') x.keuze = Number(e.target.value);
+      else if (e.target.dataset.pv === 'aantal') { const n = leesGetal(e.target.value); if (n !== null && !Number.isNaN(n) && n > 0) x.aantal = n; }
+      tekenPlakArt();
+    });
+    // toetsen blijven in het venster; Ctrl+Enter = de knop van deze stap
+    achter.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); sluitPlakArt(); }
+      else if (e.key === 'Enter' && e.ctrlKey && plakA) { e.preventDefault(); if (plakA.stap === 1) plakArtZoek(); else if (!plakA.bezig) plakArtToe(); }
+    });
+    tekenPlakArt();
+  }
+  $('knopPlakArt').addEventListener('click', openPlakArt);
 
   // ---------------------------------------------------------------- overige knoppen
   function maakKloppend() {

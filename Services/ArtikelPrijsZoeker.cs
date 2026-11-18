@@ -51,6 +51,36 @@ public class ArtikelPrijsZoeker
     /// <summary>% en _ zijn in LIKE jokers: letterlijk zoeken.</summary>
     private static string Like(string s) => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
+    /// <summary>
+    /// Een geplakte lijst opzoeken (vraag Freek 18-11-2026): per regel de beste treffers. Tekst = de code (of de hele
+    /// regel), Extra = de rest van de regel; levert de code niets op, dan wordt op Extra gezocht. Zeker = precies een
+    /// artikel heeft deze code als eigen code (hoofdletters en leestekens tellen niet), of anders als fabrikantcode.
+    /// Een paar tegelijk, zodat een lange lijst niet regel voor regel wacht.
+    /// </summary>
+    public async Task<List<(List<ArtikelPrijsTreffer> Treffers, bool Zeker)>> ZoekLijstAsync(IReadOnlyList<(string Tekst, string Extra)> regels, int perRegel)
+    {
+        using var tegelijk = new SemaphoreSlim(6);
+        var taken = regels.Select(async r =>
+        {
+            await tegelijk.WaitAsync();
+            try
+            {
+                var tekst = (r.Tekst ?? "").Trim();
+                var treffers = await ZoekAsync(tekst, perRegel);
+                if (treffers.Count == 0 && !string.IsNullOrWhiteSpace(r.Extra)) treffers = await ZoekAsync(r.Extra, perRegel);
+                bool Zelfde(string code) => code.Equals(tekst, StringComparison.OrdinalIgnoreCase) ||
+                    (Compact(tekst).Length >= 3 && Compact(code).Equals(Compact(tekst), StringComparison.OrdinalIgnoreCase));
+                // zeker: precies een artikel heeft dit als eigen code; of geen enkel, en precies een als fabrikantcode
+                var eigen = treffers.Count(t => Zelfde(t.Code));
+                var zeker = treffers.Count > 0 && (eigen == 1 ? Zelfde(treffers[0].Code)
+                    : eigen == 0 && Zelfde(treffers[0].Fabrikantcode) && treffers.Count(t => Zelfde(t.Fabrikantcode)) == 1);
+                return (treffers, zeker);
+            }
+            finally { tegelijk.Release(); }
+        }).ToList();
+        return (await Task.WhenAll(taken)).ToList();
+    }
+
     public async Task<List<ArtikelPrijsTreffer>> ZoekAsync(string? tekst, int max)
     {
         var uit = new List<ArtikelPrijsTreffer>();
@@ -78,11 +108,14 @@ public class ArtikelPrijsZoeker
         var aantal = string.Join(" + ", raakt);
         var kaal = compact.Length >= 3 ? $"({Kaal(code)} LIKE @kaal OR {Kaal(fab)} LIKE @kaal)" : "0";
 
-        // Punten: de hele tekst als code > alle termen > begin van de code > ergens in de code > zonder streepjes gelijk >
+        // Punten: de hele tekst als eigen code (1000) of als fabrikantcode (950: er staan artikelen in met de fabrikantcode
+        // van een ander) > alle termen > begin van de code > ergens in de code > zonder streepjes gelijk >
         // in de omschrijving (alleen als de code hem niet heeft: anders wint een kit die het artikel noemt van het artikel
-        // zelf); daarna telt elke term (in de code zwaarder dan elders). Bij gelijke punten de kortste code eerst.
+        // zelf); daarna telt elke term (in de code zwaarder dan elders). Een artikel met "NIET MEER GEBRUIKEN" in de code
+        // zakt onder zijn opvolger. Bij gelijke punten de kortste code eerst.
         var punten =
-            $"(({code} = @heel OR {fab} = @heel) * 1000) + (({aantal}) = {termen.Count}) * 500 + " +
+            $"(({code} = @heel) * 1000) + (({fab} = @heel AND {code} <> @heel) * 950) + (({aantal}) = {termen.Count}) * 500 + " +
+            $"(({code} LIKE '%NIET MEER GEBRUIKEN%') * -300) + " +
             $"(({code} LIKE @begin OR {fab} LIKE @begin) * 300) + (({code} LIKE @in OR {fab} LIKE @in) * 200) + " +
             $"({kaal} * 150) + (({oms} LIKE @in AND NOT ({code} LIKE @in OR {fab} LIKE @in)) * 100) + " +
             string.Join(" + ", inCode.Select(c => $"({c} * 30)")) + $" + (({aantal}) * 10)";

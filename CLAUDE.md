@@ -356,6 +356,24 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
   (`artTitel`: uit welk artikel, wanneer, en of de regel er nu van afwijkt). `art` zit in de kern (bevroren = vast).
 - Niet gedaan: zoeken in de detailregels van een uitsplitsing, en prijzen later in één keer verversen (`r.art.id` is
   daarvoor wel bewaard).
+- **Artikelen plakken (vraag Freek, ook 18-11-2026):** knop "Artikelen plakken…" naast "Plakken uit Excel…"
+  (`openPlakArt`, zelfde overlay met klasse `.artvenster.plak`; `BoomAdres` nu `v=3`). Stap 1: plakvak. `leesArtRegel`:
+  met tabs = kolommen (een cel van 1-5 cijfers is het aantal, de eerste tekstcel wordt gezocht, de rest is `extra`);
+  zonder tabs de hele regel, een aantal alleen als het erbij staat ("2x …", "… 2 st", "… x2"); een kopregel
+  (`isKopRegel`) en lege regels vallen weg; hooguit 300 regels. Stap 2: `POST /calculaties/api/artikelen/lijst`
+  (`ArtikelPrijsZoeker.ZoekLijstAsync`, de boom stuurt 10 regels per keer, de server zoekt er 6 tegelijk, hooguit 25 per
+  verzoek; levert de code niets op, dan op `extra`) -> per regel de beste 5 en `zeker`. **Zeker** = precies een artikel
+  heeft de tekst als eigen code (hoofdletters/leestekens tellen niet), of geen enkel en precies een als fabrikantcode.
+  Voorkeuze in de boom: zeker = die ("gevonden"); niet zeker maar de beste heeft alle termen = die met "kijk na"; anders
+  "geen artikel" (keuzelijst met de 5 en "geen artikel: alleen de tekst"). Vinkje per regel, aantal aan te passen,
+  kostprijs samen onderin. `plakArtToe`: materiaalregels in de groep waar je staat (onder de gekozen regel, anders
+  onderaan de groep; niets gekozen = groep "Geplakt"), naam "code · omschrijving" of de geplakte tekst (zelfde vinkje
+  als het zoekvenster), `r.art` gezet; zonder artikel of prijs blijft de kostprijs leeg en zegt de melding hoeveel.
+- **Volgorde bijgesteld** na de plakproef: eigen code 1000, alleen fabrikantcode 950 (artikel 28019 MAS0504021R5 heeft
+  de fabrikantcode van 30670 MAS0504030R5), en `NIET MEER GEBRUIKEN` in de code = -300 (NX-OD5256 had drie artikelen).
+- Getest lokaal (geheugen, rechten tijdelijk open en teruggezet): 13 regels met kopregel, tabs, "2x", "5 st", een
+  omschrijving en een onbekende code; toevoegen in de nieuwe groep Geplakt; opslaan. Niet getest: een lijst van
+  honderden regels (duur), plakken onder een gekozen regel.
 - Getest: de zoeker tegen de echte artikellijst (scratchpad-console `artzoek2`: NX102, NX-PF0630, NA5-7W001B-V1,
   G2RV-ST500 24VDC, "nxpf0630", "kabel 3x1,5"); lokaal met `Calculaties__Geheugen=true` en rechten tijdelijk open
   (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
