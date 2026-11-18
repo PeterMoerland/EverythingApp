@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 18-11-2026
+
+- **Producten** — Verbeterd: bij Techniek ▸ Posities is de keuzelijst voor het controllertype smaller, staat ✎ bewerken ernaast in plaats van eronder en staat het ✕ er direct achter.
+
 ## 14-11-2026
 
 - **Producten** — Verbeterd: in de opbouw staat bij elk item op het bovenste niveau een nummer (1, 2, 3 …), ook als er nog niets onder een item hangt. Een gewone stap krijgt een licht bolletje, een hoofdfase het gevulde.

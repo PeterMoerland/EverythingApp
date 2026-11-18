@@ -1188,6 +1188,8 @@
                                                        @onchange="e => ZetPositie(p, () => p.Positie = int.TryParse((string?)e.Value, out var n) ? n : p.Positie)" /></td>
                                             <td><input value="@p.Naam" placeholder="bv. R-as" @onchange="e => ZetPositie(p, () => p.Naam = (string?)e.Value ?? string.Empty)" /></td>
                                             <td>
+                                                @* keuzelijst en ✎ bewerken naast elkaar (wens gebruiker 18-11-2026; bewerken stond eronder) *@
+                                                <div class="drv-type">
                                                 <select value="@(p.DriveTypeId?.ToString() ?? string.Empty)"
                                                         @onchange="e => ZetPositie(p, () => p.DriveTypeId = int.TryParse((string?)e.Value, out var t) ? t : null)">
                                                     <option value="">— niet controleren —</option>
@@ -1201,6 +1203,7 @@
                                                     @* directie: rechtstreeks naar het controllertype (firmware, en testrecepten bij een SDO-slave) *@
                                                     <a class="knopje drv-bewerk" href="@ControllertypeUrl(dt)" title="@($"{dt.Naam} bewerken: firmware" + (DriveProtocol.ViaSdo(dt.Protocol) ? " en testrecepten" : ""))">✎ bewerken</a>
                                                 }
+                                                </div>
                                             </td>
                                             <td class="c"><button class="klein rood" @onclick="() => VerwijderPositie(p)">✕</button></td>
                                         </tr>

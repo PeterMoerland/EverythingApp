@@ -3412,9 +3412,13 @@ html[data-thema="donker"] .prod-mde-waarden div, html[data-thema="donker"] .prod
 html[data-thema="donker"] .prod-mde-waarde.aan { background: #1b2f48; }
 
 /* ---- Producten > Techniek: parametersets (twee regels per set, past in de kaart) ---- */
-.drv-posities { width: 100%; table-layout: fixed; }
+/* niet over de hele breedte: dan stond het ✕ ver weg van de keuzelijst (wens gebruiker 18-11-2026) */
+.drv-posities { width: min(100%, 48rem); table-layout: fixed; }
 .drv-posities input, .drv-posities select { width: 100%; box-sizing: border-box; min-width: 0; }
 .drv-posities td.c { white-space: nowrap; }
+.drv-posities .drv-type { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.drv-posities .drv-type select { flex: 1 1 14rem; width: auto; }
+.drv-posities .drv-type .drv-bewerk { margin-left: 0; }
 .drv-params-wrap { overflow-x: auto; }
 .drv-params { width: 100%; min-width: 50rem; table-layout: fixed; }
 .drv-params input, .drv-params select { width: 100%; box-sizing: border-box; min-width: 0; }
