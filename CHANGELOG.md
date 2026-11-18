@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 18-11-2026
 
+- **Calculaties** — Opgelost: kies je bij een urenregel een andere activiteit (rol), dan verandert de kostprijs nu mee naar het tarief van die activiteit. Eerder bleef het tarief van de vorige activiteit staan. Had je zelf een andere kostprijs ingevuld, dan wordt die ook vervangen, met een melding waarin de oude prijs staat (melding van Freek).
 - **Uitgaande facturen** — Nieuw: knop "Genereer credit" bij een verstuurde factuur, in het paneel rechts en onderin het factuurvenster. Na een bevestiging maakt de app een creditfactuur met een eigen nummer: zelfde klant, BV, project, PO-nummer en regels, met het bedrag negatief en als omschrijving "Credit factuur <nummer>: …". De credit staat als concept in de lijst, zodat je hem nog kunt nakijken, aanpassen en versturen. De app waarschuwt als er al een credit voor die factuur lijkt te zijn (verzoek van Edwin).
 - **Uitgaande facturen** — Verbeterd: de btw van een creditfactuur is voortaan precies min de btw van de factuur. Met de oude regel uit Access kon dat een cent schelen. Credits van vóór vandaag blijven zoals ze zijn.
 - **PO klant** — Verbeterd: maak je vanuit een termijn van een PO een factuur (＋ Factuur), dan staat het project van de PO al op de factuur. Je hoeft het daar niet nog een keer te kiezen (verzoek van Edwin).

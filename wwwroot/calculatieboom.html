@@ -1328,9 +1328,22 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     const tr = el.closest('tr[data-r]'); if (!tr) return;
     const r = regelVan(Number(tr.dataset.r));
     if (el.dataset.veld === 'act') {
-      if (el.value === 'mat') { r.soort = 'mat'; r.act = null; }
-      else if (el.value === 'uur') { r.soort = 'uur'; r.act = null; }
-      else { r.soort = 'uur'; r.act = Number(el.value); const a = actVan(r.act); if (a && (r.kost === null || r.kost === 0)) r.kost = a.tarief; }
+      // Een andere activiteit = het tarief van die activiteit (melding Freek 18-11-2026: de kostprijs bleef op het tarief
+      // van de vorige activiteit staan; hij werd alleen ingevuld als het veld leeg was).
+      const wasUur = r.soort === 'uur', oud = wasUur ? actVan(r.act) : null, leeg = r.kost === null || r.kost === 0;
+      const wasTarief = !!oud && !leeg && Math.abs(r.kost - oud.tarief) < 0.005;   // de kostprijs was het tarief van de oude activiteit
+      const wis = () => { if (r.formules) delete r.formules.kost; };
+      if (el.value === 'mat') { r.soort = 'mat'; r.act = null; if (wasTarief) { r.kost = null; wis(); } }   // een uurtarief is geen materiaalprijs
+      else if (el.value === 'uur') { r.soort = 'uur'; r.act = null; }                                        // eigen tarief: blijft staan
+      else {
+        r.soort = 'uur'; r.act = Number(el.value); const a = actVan(r.act);
+        if (a && a.tarief > 0 && (leeg || Math.abs(r.kost - a.tarief) >= 0.005)) {
+          // een zelf ingevulde kostprijs (niet het oude tarief) gaat ook mee, maar niet stilletjes
+          if (wasUur && !leeg && !wasTarief)
+            meld(`De kostprijs van "${schoon(r.oms) || 'deze regel'}" was € ${euro2.format(r.kost)} en is nu € ${euro2.format(a.tarief)}, het tarief van ${a.naam}. Wil je de oude prijs houden, vul hem dan weer in.`, true);
+          r.kost = a.tarief; wis();
+        }
+      }
       bewaar(); render(); document.querySelector(`tr[data-r="${r.id}"] [data-veld="aantal"]`)?.focus(); return;
     }
     if (['aantal', 'keer', 'kost', 'eigen'].includes(el.dataset.veld)) {

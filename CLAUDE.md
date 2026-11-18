@@ -327,6 +327,17 @@ Script **`BestellingBv_MariaDB.sql`**: `Orders.BvID` (bestaande: BV van het proj
   Werkmaatschappij meteen (ook gebruikt door het verkoopproject van een VO; de losse UPDATE is weg). Lokaal bekeken:
   AUTO 1502 van 1506 open projecten, MPR nog 0; niet aangemaakt.
 
+## Calculaties: de kostprijs volgt de activiteit (18-11-2026)
+
+Melding Freek: bij het wisselen van rol (activiteit) veranderde de kostprijs niet. Oorzaak in `calculatieboom.html`
+(change-handler van `data-veld="act"`): het tarief werd alleen ingevuld als de kostprijs leeg of 0 was. Nu
+(`BoomAdres` `v=4`): een activiteit kiezen zet `r.kost` op het tarief van die activiteit (als dat > 0 is en afwijkt),
+en een rekensom op de kostprijs vervalt. Was de kostprijs bij een urenregel **zelf ingevuld** (niet het tarief van de
+vorige activiteit, of een eigen tarief zonder activiteit), dan gaat hij ook mee, met een melding die de oude prijs
+noemt. "Uren · zonder activiteit (eigen tarief)" laat de kostprijs staan; naar "Materiaal / overig" wist de kostprijs
+alleen als het nog het uurtarief was. Lokaal nagespeeld (geheugen, rechten tijdelijk open en teruggezet): negen
+wissels, waaronder eigen prijs 70, materiaal 115,98 naar een activiteit en eigen tarief 80.
+
 ## Calculaties: artikel zoeken bij een materiaalregel (18-11-2026)
 
 Wens gebruiker: bij "Materiaal / overig" in de artikellijst zoeken om de prijs op te halen; slim zoeken (losse delen van
