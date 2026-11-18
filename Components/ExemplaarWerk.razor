@@ -371,13 +371,15 @@
                     <button class="klein" disabled="@(!Mag || _taakBezig || !KanParameters(keuze, p))" @onclick="() => LaadParameters(p)"
                             title="@ParamTitel(p)"><span class="ico">⚙</span><span>Parameters laden</span></button>
                 }
+                @* Vergelijken: bij een CoE-drive (ISMC …) met de parameterlijst (.txt) van de fabrikant; een .json met SDO's
+                   kan dat niet (de agent zegt dat dan) *@
+                @if (MetParameters)
+                {
+                    <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
+                            title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven"><span class="ico">⇄</span><span>Vergelijken</span></button>
+                }
                 @if (!IsCoe(p))
                 {
-                    @if (MetParameters)
-                    {
-                        <button class="klein" disabled="@(_taakBezig || !KanParameters(keuze, p))" @onclick="() => VergelijkParameters(p)"
-                                title="Parameter compare: elk register uit de gekozen parameterset in de drive lezen en de verschillen tonen — er wordt niets geschreven"><span class="ico">⇄</span><span>Vergelijken</span></button>
-                    }
                     <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => LeesRegisters(p)"
                             title="Alle registers uit de dictionary van de drive lezen, ook de alleen-lezen statusregisters (duurt ½–2 minuten)"><span class="ico">📋</span><span>Alle registers…</span></button>
                     <button class="klein" disabled="@(_taakBezig || _agentUrl.Length == 0 || StroomlusFirmware(p.Positie) is null)" @onclick="() => OpenEncoder(p)"
@@ -2036,7 +2038,7 @@
     private bool IsMde(DrivePositie p) => ProtocolVan(p) == DriveProtocol.Mde;
 
     private string ParamTitel(DrivePositie p) => IsCoe(p)
-        ? "Parameterset (.json met SDO's) in de actuator schrijven, teruglezen en opslaan in EEPROM"
+        ? "Parameterset in de drive schrijven, teruglezen en opslaan in EEPROM: een .json met SDO's, of de parameterlijst (.txt) uit de software van de fabrikant (ISMC/Mosrac)"
         : "Parameterset (.xcf) in de drive schrijven en opslaan";
     private readonly Dictionary<int, string> _hoek = new();
     private int _hoekSnelheid = 10;
@@ -2725,11 +2727,31 @@
         if (IsCoe(p))
         {
             // eRob e.d.: JSON met SDO's; de agent schrijft, leest terug, bewaart (0x1010) en leest nog eens.
+            // ISMC/Mosrac (agent 1.27.0): de parameterlijst (.txt) uit de software van de fabrikant; de agent schrijft alleen
+            // wat anders is, slaat meetwaarden, commando's en kalibratie van het exemplaar over en bewaart met 0x2602.
             var coeBody = JsonSerializer.Serialize(new { positie = p.Positie, parameters = BestandUrl(ps.ParameterFileId.Value) });
-            await VoerTaakUit("coe.parameters", coeBody, $"Parameters '{naam}' → drive {p.Positie} ({p.Naam})", 200, async res =>
+            await VoerTaakUit("coe.parameters", coeBody, $"Parameters '{naam}' → drive {p.Positie} ({p.Naam})", 450, async res =>
             {
                 var afwijkingen = res.ValueKind == JsonValueKind.Object ? Getal(res, "afwijkingen") : 0;
                 var registers = res.ValueKind == JsonValueKind.Object ? Getal(res, "registers") : 0;
+                if (res.ValueKind == JsonValueKind.Object && res.TryGetProperty("geschreven", out _))
+                {
+                    // parameterlijst van de fabrikant
+                    var geschreven = Getal(res, "geschreven");
+                    var eigen = res.TryGetProperty("exemplaar", out var ex) && ex.ValueKind == JsonValueKind.Array ? ex.GetArrayLength() : 0;
+                    await ZetDriveBron(p.Positie, "parameters", naam);
+                    var fwLijst = Tekst(res, "firmware");
+                    if (fwLijst.Length > 0) { await ZetDriveBron(p.Positie, "firmware", fwLijst); await FirmwareBijgewerkt(p.Positie, fwLijst); }
+                    await HistorieVoor(p.Positie,
+                        $"Drive {p.Positie} ({p.Naam}): parameterlijst '{naam}' geladen ({registers} instellingen, {geschreven} gewijzigd, {afwijkingen} afwijkingen" +
+                        (eigen > 0 ? $", {eigen} van het exemplaar niet geschreven" : "") + ")" + Opm(),
+                        SoortId("Programmeren") ?? SoortId("Test"), Ik.WerknemerId, uitkomst: afwijkingen == 0);
+                    var slot = (eigen > 0 ? $"; {eigen} waarde(n) van het exemplaar (commutatie, nulpunt, adres) wijken af en zijn niet geschreven, zie het logboek" : "") +
+                               ". Zet de drive uit en weer aan; controleer daarna met Vergelijken of het opslaan gelukt is.";
+                    return afwijkingen == 0
+                        ? $"{registers} instellingen goed ({geschreven} gewijzigd) en opgeslagen" + slot
+                        : $"LET OP: {afwijkingen} afwijkingen ({geschreven} gewijzigd)" + slot;
+                }
                 await ZetDriveBron(p.Positie, "parameters", naam);
                 var fwGelezen = Tekst(res, "firmware");
                 if (fwGelezen.Length > 0) { await ZetDriveBron(p.Positie, "firmware", fwGelezen); await FirmwareBijgewerkt(p.Positie, fwGelezen); }
@@ -2851,16 +2873,20 @@
         var k = Keuze(p.Positie);
         var ps = _parametersets.FirstOrDefault(x => x.Id == k.ParametersId);
         var fw = _alleFirmwares.FirstOrDefault(f => f.Id == ps?.DriveFirmwareId);
-        if (ps?.ParameterFileId is null || fw?.DictionaryFileId is null) return;
+        // CoE-drive (ISMC …): de parameterlijst van de fabrikant, zonder dictionary (agent: coe.parameters met vergelijk)
+        var coe = IsCoe(p);
+        if (ps?.ParameterFileId is null || (!coe && fw?.DictionaryFileId is null)) return;
         var naam = ps.Omschrijving.Length > 0 ? ps.Omschrijving : ps.ParameterBestand;
         _pc = null; _pcZoek = "";
-        var body = JsonSerializer.Serialize(new
-        {
-            positie = p.Positie, parameters = BestandUrl(ps.ParameterFileId.Value), dictionary = BestandUrl(fw.DictionaryFileId.Value),
-            firmwareVersie = fw.Versie, vergelijk = true,
-        });
+        var body = coe
+            ? JsonSerializer.Serialize(new { positie = p.Positie, parameters = BestandUrl(ps.ParameterFileId.Value), vergelijk = true })
+            : JsonSerializer.Serialize(new
+            {
+                positie = p.Positie, parameters = BestandUrl(ps.ParameterFileId.Value), dictionary = BestandUrl(fw!.DictionaryFileId!.Value),
+                firmwareVersie = fw.Versie, vergelijk = true,
+            });
         _taakIsTest = false;
-        await VoerTaakUit("drives.parameters", body, $"Parameter compare '{naam}' ↔ drive {p.Positie} ({p.Naam})", 300, async res =>
+        await VoerTaakUit(coe ? "coe.parameters" : "drives.parameters", body, $"Parameter compare '{naam}' ↔ drive {p.Positie} ({p.Naam})", coe ? 450 : 300, async res =>
         {
             if (res.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("geen resultaat");
             var u = new PcUitslag

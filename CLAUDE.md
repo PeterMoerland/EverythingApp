@@ -1107,6 +1107,46 @@ Herstel van een drive met alleen een kapotte checksum: los aansluiten, Node-adre
 gewenste nummer opnieuw schrijven, spanning uit/aan. Werkt alleen als de ESC de EEPROM zelf beheert (geen emulatie).
 **22-10-2026: agent 1.20.2 uitgerold; beide Everests op deze manier hersteld en weer bereikbaar (gebruiker).**
 
+## ISMC/Mosrac: parameterlijst van de fabrikant inschieten (agent 1.27.0, 18-11-2026)
+
+Wens gebruiker: het inschieten (Test PCB ▸ Parameters laden) werkte niet met
+`Z:\Projects\MDE\223159 Multipede\40. Software\Servo\Parameters\Mosrac\MPRA-2_v0.0.1.txt`. Oorzaak: `coe.parameters`
+las alleen onze eigen JSON met SDO's; dit bestand is de **Export** uit ISMC/Mosrac Application Studio.
+- **Formaat**: kop `ID,Name,Vcur,Vdef,Vmin,Vmax`, dan regels `0xIIIISSSS,naam,waarde` (ID = index << 16 | subindex);
+  meerdere getallen op een regel = opvolgende subindexen (filters 0x200C..0x2011: 5 of 6 coëfficiënten, klopt met het
+  ESI); tekst (versies, naam) en lege waarden vallen weg; er zat één los NUL-teken in. Geen datatypes en geen
+  lezen/schrijven-kenmerk: het is een dump van alles wat de software toont (378 getallen in dit bestand).
+- **Agent** (`MdeAgent/mde_agent/taken/coe.py`, blok "Parameterlijst van de fabrikant"): `voer_uit` herkent het
+  bestand (`is_parameterlijst`, anders JSON zoals voorheen), `lees_parameterlijst` -> regels + kop (vendor en
+  productcode uit 0x1018, naam, firmware) en werker-opdracht `lijst` (`_werker_lijst`): per object **eerst lezen**
+  (geeft de lengte en de huidige waarde), **alleen schrijven wat anders is** in dezelfde lengte, teruglezen. Een lijst
+  met een andere productcode dan de drive wordt geweigerd. Drie groepen gaan niet mee (`_lijst_soort`):
+  `_LIJST_MEETWAARDE` (status, meetwaarden, identiteit, 0x2300-0x23FF; stil), `_LIJST_COMMANDO` (controlword,
+  doelwaarden, uitgangen 0x60FE, opslaan/fabrieksinstellingen 0x2601-0x2603, encoder wissen 0x2104, kalibratie starten
+  0x2101) en `_LIJST_EXEMPLAAR` (commutatie-offset 0x2102, 0x2121, 0x2423, hall-hoek 0x213E, 0x213A, nulpositie 0x211A,
+  home-offset 0x607C, 0x2410/0x2411, CAN-adres 0x2401, slave-adres 0x2425): **besluit van mij, aan de gebruiker gemeld**;
+  de waarde van een andere drive kan de motor verkeerd laten commuteren. Een afwijkende exemplaarwaarde staat in het
+  logboek en in `exemplaar` van het resultaat. Schrijven geweigerd met "alleen lezen" = overslaan (een meetwaarde die
+  niet in mijn lijst staat); andere aborts en een teruggelezen verschil = afwijking.
+- **Opslaan**: `LIJST_OPSLAAN` = 0x2602 "Save parameter to eeprom" = 1 (0x1010 staat niet in het ESI van deze drive);
+  altijd, ook als alles al gelijk was. **Aanname**: de waarde 1 en het gedrag daarna staan niet in de handleiding.
+  De handleiding zegt wel dat EEPROM-waarden pas gelden na uit- en inschakelen; daarom zegt de melding: drive uit en
+  aan, daarna Vergelijken.
+- **Vergelijken** (`vergelijk=true`, niets schrijven): zelfde resultaatvorm als de Ingenia-compare (`afwijkend`,
+  `alle` met id/dtype/verwacht/gelezen/gelijk), dus hetzelfde venster. Een alleen-lezen object dat niet in
+  `_LIJST_MEETWAARDE` staat en anders is, verschijnt hier wel als verschil (pas bij schrijven blijkt dat het niet kan).
+  Met een JSON-parameterset kan vergelijken niet (duidelijke melding).
+- **App**: `ExemplaarWerk.LaadParameters` (CoE: time-out 450 s; bij een lijst een eigen uitkomstregel met "gewijzigd"
+  en het aantal exemplaarwaarden) en `VergelijkParameters` (CoE-tak: `coe.parameters` zonder dictionary); de knop
+  Vergelijken staat nu ook bij CoE-drives. `Producten.razor`: de bestandskiezer van een parameterset neemt ook .txt.
+- De werkwijze van de afdeling (`MPRA Instellen.docx`, Joint 3): import, herstart, **Angle Verification**, download.
+  De commutatie wordt daar dus per exemplaar gekalibreerd; dat blijft na het inschieten nodig.
+- Getest **droog** (scratchpad `ismc_partoets.py` en `ismc_partoets2.py`: het echte bestand, een nagebootste drive met
+  afwijkende waarden, een alleen-lezen object, een object dat niet bestaat, een geweigerde waarde, een waarde die niet
+  blijft staan; laden, nog eens laden, vergelijken, verkeerde productcode, JSON, onbekend bestand). **Niet getest op
+  de echte ISMC**: of alle objecten via EtherCAT (SDO) te schrijven zijn zoals via USB, de lengtes, en of 0x2602 = 1
+  echt opslaat. Agent 1.27.0 is nog niet gebouwd of gepubliceerd.
+
 ## Testrecepten op CoE-drives en "bit" (agent 1.26.0, 18-11-2026)
 
 Wens gebruiker: testrecept voor de nieuwe ISMC-drive (Mosrac "Diamond EtherCAT Drive", productcode 0x00009252, vendor

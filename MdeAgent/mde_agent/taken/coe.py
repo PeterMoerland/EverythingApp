@@ -13,6 +13,12 @@ Taak coe.parameters
     en leest daarna nog eens terug. Resultaat: {"registers": n, "afwijkingen": m, "afwijkend": [...],
     "firmware": "…", "serienummer": "…"}.
 
+    Of (agent 1.27.0) de parameterlijst die de software van de fabrikant exporteert: Mosrac / ISMC Application
+    Studio ▸ Export, een .txt met regels "0xIIIISSSS,naam,waarde". Zie "Parameterlijst van de fabrikant" hieronder:
+    geen datatypes (lengte uit de drive), alleen schrijven wat anders is, meetwaarden/commando's/kalibratie van het
+    exemplaar niet, opslaan met 0x2602 = 1. Met vergelijk=true wordt er alleen gelezen. Resultaat ook
+    "geschreven", "gelijk", "exemplaar" (per exemplaar, niet geschreven, wel anders) en bij vergelijken "alle".
+
 Taak coe.hoek
     parameters: positie, graden (doelhoek, absoluut op de uitgaande as), snelheid (°/s, standaard 10),
                 versnelling (°/s², standaard 20), relatief (false), tolerantie (°, standaard 0.05),
@@ -201,6 +207,216 @@ def _werker_parameters(d: _Drive, opdracht: dict, log) -> dict:
                     pass
     ident = d.identiteit()
     return {"registers": n, "afwijkingen": len(afwijkend), "afwijkend": afwijkend, **ident}
+
+
+# ---------------------------------------------------------------------------
+#  Parameterlijst van de fabrikant: Mosrac / ISMC "Application Studio" ▸ Export (.txt)
+# ---------------------------------------------------------------------------
+#  Het bestand is een dump van alles wat de software toont, één regel per object:
+#      ID,Name,Vcur,Vdef,Vmin,Vmax          (alleen de eerste drie zijn gevuld)
+#      0x20000002,Velocity loop Kp,100      → index 0x2000, subindex 2
+#      0x200C0001,Measured speed filter,754762 754762 0 509525 0   → subindex 1 t/m 5
+#  Er staan geen datatypes in: de lengte komt uit de drive zelf (eerst lezen, dan in dezelfde lengte schrijven).
+#  Naast instellingen staan er meetwaarden, commando's en kalibratie van dat ene exemplaar in; die gaan niet mee.
+
+def is_parameterlijst(tekst: str) -> bool:
+    """Ziet dit eruit als een export van de fabrikant (regels '0xIIIISSSS,naam,waarde')?"""
+    import re
+    return len(re.findall(r"(?m)^0x[0-9A-Fa-f]{8},", tekst)) >= 5
+
+
+def lees_parameterlijst(tekst: str) -> tuple[list[dict], dict]:
+    """De regels als [{index, sub, naam, waarde}] (meerdere getallen op één regel = opvolgende subindexen) en wat
+    het bestand over zijn herkomst zegt: {"vendor", "productcode", "naam", "firmware"} (uit 0x1018, 0x1008, 0x100A)."""
+    regels, kop = [], {}
+    for lijn in tekst.replace("\0", "").splitlines():
+        delen = lijn.strip().split(",")
+        if len(delen) < 3 or not delen[0].lower().startswith("0x"):
+            continue
+        try:
+            nummer = int(delen[0], 16)
+        except ValueError:
+            continue
+        index, sub, naam, waarde = nummer >> 16, nummer & 0xFFFF, delen[1].strip(), delen[2].strip()
+        if index == 0x1008:
+            kop["naam"] = waarde
+        elif index == 0x100A:
+            kop["firmware"] = waarde
+        getallen = []
+        for stuk in waarde.split():
+            try:
+                getallen.append(int(stuk, 0))
+            except ValueError:
+                getallen = []
+                break
+        if not getallen:
+            continue                      # leeg of tekst (versie, naam): geen instelling
+        if index == 0x1018 and sub == 1:
+            kop["vendor"] = getallen[0]
+        elif index == 0x1018 and sub == 2:
+            kop["productcode"] = getallen[0]
+        for i, g in enumerate(getallen):
+            regels.append({"index": index, "sub": sub + i, "naam": naam + (f" [{i + 1}]" if len(getallen) > 1 else ""), "waarde": g})
+    return regels, kop
+
+
+# Wat in zo'n lijst staat maar geen instelling is. Meetwaarden en identiteit: stil overslaan.
+_LIJST_MEETWAARDE = {
+    0x1008, 0x1009, 0x100A, 0x1018, 0x1C32, 0x1C33,
+    0x603D, 0x603E, 0x603F, 0x6041, 0x6061, 0x6062, 0x6063, 0x6064, 0x6069, 0x606B, 0x606C, 0x6074, 0x6077, 0x6078,
+    0x60B9, 0x60BA, 0x60BB, 0x60F4, 0x60FC, 0x60FD, 0x6502,
+    0x2007, 0x2127, 0x241F, 0x240C, 0x2413, 0x2414, 0x2415, 0x2416, 0x2417, 0x2801,
+}
+# Commando's en procesdata (controlword, doelwaarden, uitgangen, opslaan/fabrieksinstellingen, encoder wissen,
+# kalibratie starten): horen niet in een parameterset.
+_LIJST_COMMANDO = {
+    0x1010, 0x6040, 0x6060, 0x6071, 0x607A, 0x60FF, 0x60B0, 0x60B1, 0x60B2, 0x60B8, 0x60FE,
+    0x2601, 0x2602, 0x2603, 0x2101, 0x2104, 0x211B,
+}
+# Hoort bij dit ene exemplaar (commutatie van déze motor met déze encoder, nulpunt, adres): de waarde van een andere
+# drive erin zetten kan de motor verkeerd laten commuteren. Niet schrijven; een verschil wordt wel gemeld.
+_LIJST_EXEMPLAAR = {
+    0x2102: "commutatie-offset", 0x2121: "commutatie gekalibreerd", 0x2423: "commutatie met de hand gekalibreerd",
+    0x213E: "hall-hoek", 0x213A: "gemeten fase-weerstand", 0x211A: "nulpositie", 0x607C: "home-offset",
+    0x2410: "encoder-beginwaarde", 0x2411: "encoder-beginwaarde", 0x2401: "CAN-adres", 0x2425: "slave-adres",
+}
+LIJST_OPSLAAN = 0x2602     # ISMC/Mosrac: "Save parameter to eeprom" (1 = opslaan); 0x1010 kent deze drive niet
+
+_ABORT_ALLEEN_LEZEN = {0x06010000, 0x06010002}
+_ABORT_BESTAAT_NIET = {0x06020000, 0x06090011}
+_ABORT_TEKST = {0x06090030: "waarde buiten bereik", 0x06090031: "waarde te groot", 0x06090032: "waarde te klein",
+                0x06070010: "lengte klopt niet", 0x08000020: "kan nu niet", 0x08000021: "kan nu niet (lokale besturing)",
+                0x08000022: "kan in deze toestand niet"}
+
+
+def _lijst_soort(index: int) -> str:
+    if index in _LIJST_MEETWAARDE or 0x2300 <= index <= 0x23FF:
+        return "meetwaarde"
+    if index in _LIJST_COMMANDO:
+        return "commando"
+    if index in _LIJST_EXEMPLAAR:
+        return "exemplaar"
+    return ""
+
+
+def _sdo_fout(e: Exception) -> tuple[int | None, str]:
+    code = getattr(e, "abort_code", None)
+    if isinstance(code, int):
+        return code, f"abort 0x{code:08X} {_ABORT_TEKST.get(code, getattr(e, 'desc', '') or '')}".strip()
+    return None, (str(e).strip() or type(e).__name__)
+
+
+def _werker_lijst(d: _Drive, o: dict, log) -> dict:
+    """Een parameterlijst zonder datatypes in de drive zetten (of alleen vergelijken): per object eerst lezen (dat geeft
+    de lengte en de huidige waarde), alleen schrijven wat anders is, teruglezen, en aan het eind opslaan."""
+    regels = o.get("lijst") or []
+    vergelijk = bool(o.get("vergelijk"))
+    kop = o.get("kop") or {}
+    # Een lijst van een ander type drive erin schieten kan nooit de bedoeling zijn.
+    if isinstance(kop.get("productcode"), int) and d.slave.id and kop["productcode"] != d.slave.id:
+        raise RuntimeError(f"Deze parameterlijst is van een andere drive (productcode 0x{kop['productcode']:08X}"
+                           f"{' ' + kop['naam'] if kop.get('naam') else ''}); op deze positie zit 0x{d.slave.id:08X}. Er is niets geschreven.")
+
+    geschreven = gelijk = meet = commando = lezen_mislukt = alleen_lezen = 0
+    afwijkend, alle, exemplaar = [], [], []
+    for r in regels:
+        index, sub, naam, waarde = int(r["index"]), int(r["sub"]), str(r.get("naam", "")), int(r["waarde"])
+        soort = _lijst_soort(index)
+        if soort == "meetwaarde":
+            meet += 1
+            continue
+        if soort == "commando":
+            commando += 1
+            continue
+        plek = f"0x{index:04X}:{sub}"
+        try:
+            ruw = bytes(d.slave.sdo_read(index, sub))
+        except Exception as e:  # noqa: BLE001
+            code, tekst = _sdo_fout(e)
+            lezen_mislukt += 1
+            log(f"  {plek} {naam}: niet te lezen ({'bestaat niet in deze drive' if code in _ABORT_BESTAAT_NIET else tekst}); overgeslagen.")
+            continue
+        n = len(ruw)
+        if n not in (1, 2, 4, 8):
+            lezen_mislukt += 1
+            continue
+        huidig = int.from_bytes(ruw, "little", signed=waarde < 0)
+        zelfde = (huidig - waarde) % (1 << (8 * n)) == 0
+        rij = {"id": f"{plek} {naam}".strip(), "dtype": f"{n * 8} bit", "verwacht": str(waarde), "gelezen": str(huidig), "gelijk": zelfde}
+
+        if soort == "exemplaar":
+            if not zelfde:
+                exemplaar.append({"index": plek, "naam": naam, "lijst": waarde, "drive": huidig, "wat": _LIJST_EXEMPLAAR[index]})
+            continue
+        alle.append(rij)
+        if zelfde:
+            gelijk += 1
+            continue
+        if vergelijk:
+            afwijkend.append(rij)
+            continue
+
+        try:
+            d.slave.sdo_write(index, sub, waarde.to_bytes(n, "little", signed=waarde < 0))
+        except OverflowError:
+            afwijkend.append({"index": plek, "naam": naam, "fout": f"{waarde} past niet in {n} byte(s)"})
+            log(f"  {plek} {naam}: FOUT {waarde} past niet in {n} byte(s)")
+            continue
+        except Exception as e:  # noqa: BLE001
+            code, tekst = _sdo_fout(e)
+            if code in _ABORT_ALLEEN_LEZEN:
+                alleen_lezen += 1          # een meetwaarde die de lijst toevallig ook bevat
+                log(f"  {plek} {naam}: alleen lezen (lijst {waarde}, drive {huidig}); overgeslagen.")
+            else:
+                afwijkend.append({"index": plek, "naam": naam, "fout": tekst})
+                log(f"  {plek} {naam}: FOUT bij schrijven van {waarde}: {tekst}")
+            continue
+        try:
+            terug = int.from_bytes(bytes(d.slave.sdo_read(index, sub))[:n], "little", signed=waarde < 0)
+        except Exception as e:  # noqa: BLE001
+            afwijkend.append({"index": plek, "naam": naam, "fout": "teruglezen mislukt: " + _sdo_fout(e)[1]})
+            continue
+        if (terug - waarde) % (1 << (8 * n)) != 0:
+            afwijkend.append({"index": plek, "naam": naam, "gewenst": waarde, "gelezen": terug})
+            log(f"  {plek} {naam}: geschreven {waarde}, gelezen {terug}  ← AFWIJKING")
+        else:
+            geschreven += 1
+            log(f"  {plek} {naam}: {huidig} → {waarde}")
+
+    for x in exemplaar:
+        log(f"  LET OP {x['index']} {x['naam']} ({x['wat']}) hoort bij dit exemplaar en is niet geschreven: lijst {x['lijst']}, drive {x['drive']}.")
+    log(f"{gelijk} al gelijk, {geschreven} geschreven, {len(afwijkend)} afwijkend; overgeslagen: {meet} meetwaarden, {commando} commando's, "
+        f"{alleen_lezen} alleen-lezen, {lezen_mislukt} niet te lezen.")
+
+    opgeslagen = None
+    if not vergelijk:
+        # Altijd opslaan, ook als alles al gelijk was: het kan in het werkgeheugen staan en nog niet in EEPROM.
+        log(f"Opslaan in EEPROM (0x{LIJST_OPSLAAN:04X} = 1) …")
+        try:
+            n = len(bytes(d.slave.sdo_read(LIJST_OPSLAAN, 0))) or 2
+            d.slave.sdo_write(LIJST_OPSLAAN, 0, (1).to_bytes(n, "little"))
+            einde, stand = time.time() + 5, 1
+            while time.time() < einde:
+                time.sleep(0.3)
+                try:
+                    stand = int.from_bytes(bytes(d.slave.sdo_read(LIJST_OPSLAAN, 0)), "little")
+                except Exception:  # noqa: BLE001
+                    continue
+                if stand != 1:
+                    break
+            opgeslagen = True
+            log("Opslaan gevraagd" + (" en door de drive afgemeld." if stand != 1 else "; de drive meldt het niet af.")
+                + " De instellingen gelden na uit- en weer inschakelen; vergelijk daarna nog eens om het opslaan te controleren.")
+        except Exception as e:  # noqa: BLE001
+            opgeslagen = False
+            afwijkend.append({"index": f"0x{LIJST_OPSLAAN:04X}:0", "naam": "Save parameter to eeprom", "fout": "opslaan mislukt: " + _sdo_fout(e)[1]})
+            log(f"LET OP: opslaan mislukt ({_sdo_fout(e)[1]}); de instellingen staan alleen in het werkgeheugen.")
+
+    ident = d.identiteit()
+    return {"registers": gelijk + geschreven, "geschreven": geschreven, "gelijk": gelijk, "afwijkingen": len(afwijkend),
+            "afwijkend": afwijkend, "alle": alle if vergelijk else [], "vergelijk": vergelijk, "exemplaar": exemplaar,
+            "overgeslagen": meet + commando + alleen_lezen + lezen_mislukt, "opgeslagen": opgeslagen,
+            "partnumber": kop.get("naam", ""), "xcfFirmware": kop.get("firmware", ""), **ident}
 
 
 def _werker_hoek(d: _Drive, o: dict, log) -> dict:
@@ -491,6 +707,8 @@ def werker(ifname: str, opdracht_json: str) -> dict:
         soort = o.get("wat")
         if soort == "parameters":
             uit = _werker_parameters(d, o, log)
+        elif soort == "lijst":
+            uit = _werker_lijst(d, o, log)
         elif soort == "hoek":
             uit = _werker_hoek(d, o, log)
         elif soort == "positie":
@@ -613,12 +831,46 @@ def _draai(inst: dict, job, opdracht: dict, timeout: int, werker_naam: str = "co
     return res
 
 
+def _lees_tekst(pad: str) -> str:
+    """Het parameterbestand als tekst: UTF-8 (met of zonder BOM), anders UTF-16 of Latin-1; losse NUL-tekens weg."""
+    with open(pad, "rb") as f:
+        ruw = f.read()
+    if ruw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return ruw.decode("utf-16", "replace")
+    for codering in ("utf-8-sig", "latin-1"):
+        try:
+            return ruw.decode(codering).replace("\0", "")
+        except UnicodeDecodeError:
+            continue
+    return ruw.decode("latin-1", "replace")
+
+
 def voer_uit(job, inst: dict, parameters: dict) -> None:
-    """coe.parameters"""
+    """coe.parameters: onze eigen JSON met SDO's, of de parameterlijst die de software van de fabrikant exporteert
+    (Mosrac/ISMC, .txt). vergelijk=true: alleen lezen en de verschillen teruggeven (alleen bij een parameterlijst)."""
     _hulp.ruim_werkmap_op()
     pad = _hulp.haal_firmware(parameters.get("parameters") or "", job, "parameters.json")
-    with open(pad, encoding="utf-8-sig") as f:
-        bestand = json.load(f)
+    tekst = _lees_tekst(pad)
+    vergelijk = str(parameters.get("vergelijk", "")).lower() in ("1", "true", "ja")
+    positie = int(parameters.get("positie") or 1)
+
+    if not tekst.lstrip().startswith("{"):
+        if not is_parameterlijst(tekst):
+            raise RuntimeError("Dit parameterbestand ken ik niet: verwacht wordt een JSON met SDO's, of de parameterlijst "
+                               "(ID,Name,Vcur …) die de Mosrac/ISMC-software exporteert.")
+        lijst, kop = lees_parameterlijst(tekst)
+        job.log(f"Parameterlijst van de fabrikant{' (' + kop['naam'] + ')' if kop.get('naam') else ''}: {len(lijst)} waarden; "
+                + ("alleen vergelijken, er wordt niets geschreven." if vergelijk else f"naar drive {positie}. Meetwaarden, commando's en "
+                   "kalibratie van het exemplaar (commutatie, nulpunt, adres) gaan niet mee."))
+        job.voortgang(10)
+        res = _draai(inst, job, {"wat": "lijst", "positie": positie, "lijst": lijst, "kop": kop, "vergelijk": vergelijk}, 400)
+        job.voortgang(100)
+        job.klaar(res)
+        return
+
+    bestand = json.loads(tekst)
+    if vergelijk:
+        raise RuntimeError("Vergelijken kan alleen met een parameterlijst van de fabrikant (.txt), niet met een JSON-parameterset.")
     regels = bestand.get("registers") or []
     job.log(f"Parameterset '{bestand.get('omschrijving') or bestand.get('model') or ''}': {len(regels)} registers naar drive {parameters.get('positie', 1)}.")
     job.voortgang(10)

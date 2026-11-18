@@ -1234,7 +1234,7 @@
                                         <th style="width:8rem">Positie</th>
                                         <th>Firmwareversie</th>
                                         <th style="width:11rem">Omschrijving</th>
-                                        <th title="De parameterset zelf: .xcf voor Ingenia-drives, .json (SDO's of Feetech-registers) voor eRob, MDE-slaves en servo's. Het firmwarebestand staat bij Controllertypen.">Parameterbestand (.xcf / .json)</th>
+                                        <th title="De parameterset zelf: .xcf voor Ingenia-drives, .json (SDO's of Feetech-registers) voor eRob, MDE-slaves en servo's, of de parameterlijst (.txt) uit de software van de fabrikant voor een ISMC/Mosrac-drive. Het firmwarebestand staat bij Controllertypen.">Parameterbestand (.xcf / .json)</th>
                                         <th style="width:7rem">Status</th>
                                         <th style="width:4rem"></th>
                                     </tr>
@@ -1244,7 +1244,7 @@
                                        positie in aanmaakvolgorde. Een andere positie kiezen verplaatst de regel naar zijn plek. *@
                                     @foreach (var ps in _parametersets.OrderBy(x => x.Positie).ThenBy(x => x.Id))
                                     {
-                                        var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json";
+                                        var extensie = _driveTypen.FirstOrDefault(t => t.Naam == ps.DriveTypeNaam)?.Protocol is null or DriveProtocol.EtherCat ? ".xcf" : ".json of .txt";
                                         <tr @key="ps.Id" class="drv-rij">
                                             <td>
                                                 <select value="@ps.Positie" @onchange="e => ZetParam(ps, () => ps.Positie = int.TryParse((string?)e.Value, out var n) ? n : ps.Positie)">
@@ -1271,12 +1271,12 @@
                                                     <button class="klein" title="Vervangen" @onclick="() => _drvVervang = ps.Id">↻</button>
                                                     @if (_drvVervang == ps.Id)
                                                     {
-                                                        <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                        <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json,.txt" />
                                                     }
                                                 }
                                                 else
                                                 {
-                                                    <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json" />
+                                                    <InputFile OnChange="e => UploadParam(ps, e)" accept=".xcf,.json,.txt" />
                                                     <small class="uitleg">@extensie</small>
                                                 }
                                             </td>
