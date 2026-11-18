@@ -1041,7 +1041,9 @@ bevestigd): schakelen de uitgangen niet, dan daar kijken.
   masker 0x60FE:2 = 0x000F0000, monitor DI0..DI5 + 0x60FE:1, bediening met vier schakelaars DO0..DO3 (bit 16..19).
 - Getest: droge proef agent (scratchpad `d38toets.py`: bits in monitor/lees/wacht_tot, vier schakelaars die elkaar niet
   raken, na afloop en na Stop uit, 0x60FD één keer per meting) en het recept door `DriveRecept.Controleer`/`BitNamen`
-  (scratchpad `d38app`). **Niet getest**: op de echte ISMC, het lampje in de browser, de agent gebouwd/geïnstalleerd.
+  (scratchpad `d38app`). Agent 1.26.0 gebouwd (installer in `MdeAgent\uitvoer`, niet via publiceer-z.bat op de share
+  gezet). **18-11-2026: de gebruiker meldt dat het werkt** op de echte ISMC (recept met Remote DO, lampjes en
+  schakelaars); 0x2802 bleek dus niet nodig.
 
 ## Controllertypen: tabs, receptenlijst met editor (21-10-2026)
 
@@ -1880,6 +1882,40 @@ de agent/hardware.
   Delivered date/by, logregel "opgeruimd, niet afgetekend". **Geen** leveringen of voorraadmutaties, AllesIsGeleverd
   ongewijzigd, geen mails/meldingen. Niet in de browser getest (lokaal geen Directie).
 
+## Bestellingen: officiële inkoopopdracht als PDF (18-11-2026)
+
+Wens gebruiker: de Access-knop "Genereer officiele order" (rapport `Orderdoc_Main` / `Orderdoc_Main_EN`; Access stuurde
+`PO-n.pdf` mee met de bestelmail als `Relations.GenereerOfficieleOrder` aan stond, nu alleen bij VA-Imaging), en de PDF
+ook bij de documenten van de bestelling.
+- `Services/InkoopOrderPdfService.cs`: `MaakAsync(BestelMailGegevens, aanhef)` (zelfde gegevens als de mail, dus
+  `IBestelRepository.BestelMailAsync`), `Html(...)` en `BewaarAsync(orderId, pdf, vervang, werknemerId)`. Opmaak en
+  afdruk van `FactuurPdfService` (`Begin`, `Meta`, `NaarPdfAsync` via Edge; kop, logo en kleur van de BV die bestelt,
+  `Orders.BvID`); afzender en leveranciersadres via `IVerkoopOrderRepository.AfzenderAsync` / `KlantAdresAsync`.
+- Inhoud zoals Access: leverancier met t.a.v., Onze referentie PO-n, datum (vandaag), aanhef, "Graag bestellen wij …",
+  regels (aantal met eenheid, artikel, [OC], omschrijving, leverdatum, prijs/st, korting, totaal), ordertotaal, melding
+  (Purchasenote), groet met naam, functie (`Werknemers_Functie` via `id_functie`), mail, mobiel en handtekening. Erbij:
+  afleveradres en factuuradres van een andere BV (zoals de mail). Weggelaten: de e-maildisclaimer.
+- **Voorwaarden** (Metaalunie) staan zoals in Access in de code; eigen tekst met
+  `Bestellingen:InkoopVoorwaarden` / `InkoopVoorwaardenEn` (een spatie = geen). Een verschil met Access, besluit
+  gebruiker 18-11-2026: "Uw inkoopvoorwaarden wijzen wij uitdrukkelijk van de hand" is "Uw verkoopvoorwaarden …"
+  geworden (op een inkooporder gaat het om de voorwaarden van de leverancier). De Engelse tekst is een eigen vertaling
+  ("… your terms and conditions of sale").
+- **Handtekening** = `Werknemers.Handtekening` (longblob, alleen bij werknemer 1, 3 en 23): een Access-OLE-object
+  "Afbeelding" met na "DIB\0" breedte, hoogte, lengte en dan de bitmap zonder bestandskop. `HandtekeningDataUri` zet er de
+  14 bytes "BM…" voor (ook bij BI_BITFIELDS, 3 maskers) en geeft een data-URI; Edge toont die .bmp gewoon.
+- **Waar**: knop "📄 Genereer officiële order" in de statusbalk bij In bestelling en bovenaan tab Documenten vanaf In
+  bestelling (`Bestellingen.razor` > `GenereerOfficieleOrder`: maken, bewaren, tab Documenten, voorbeeld openen). In
+  `BestelMailVenster` (alleen de bestelling, niet de aanvraag) een vinkje "Officiële inkoopopdracht meesturen" (standaard
+  = `BestelMailGegevens.OfficieleOrder`) met Bekijken (blob-url rechts in plaats van het mailvoorbeeld); bij versturen
+  los vooraan als bijlage (buiten de ZIP) en daarna bij de documenten.
+- **Bewaren** (FileStore StoreType 4): status <= In bestelling = over de vorige `PO-n.pdf` heen (concept); daarna een
+  versie ernaast (`PO-n (2).pdf`), zodat wat de leverancier kreeg blijft staan.
+- Getoetst: PDF van PO-15826 naast het Access-exemplaar (`C:\MDE_data\PO-15826.pdf`), NL en EN, met handtekening,
+  opmerking, afleveradres en OC-kolom (scratchpad-console `potoets`, alleen lezen); lokaal de knop en Bekijken in het
+  mailvenster. **Niet getest** (schrijft naar productie): `BewaarAsync` en het echte versturen met de PDF erbij.
+- Opgevallen: bij de eerste proef gaf Edge een keer "Edge heeft geen PDF gemaakt" (koude start op de ontwikkel-pc, daarna
+  niet meer); `FactuurPdfService` ongewijzigd gelaten.
+
 ## Bestellingen: mail aan de leverancier (16-10-2026)
 
 Vervangt `Mail_Click` + `Create_order_request_Mail` / `Create_order_Mail` (Access stelde een Outlook-mail samen).
@@ -1894,7 +1930,7 @@ srcdoc); Versturen via de eigen Gmail (`MailService.Eigen`), op een werkplek via
 - **Nieuwe opmaak** (wens gebruiker): inline-stijlen, blauwe tabelkop, zebra, logo als ingebed plaatje (`cid:logo-mde`,
   `wwwroot/logo-mde.png`; `MailService.VerstuurAsync(html: true, ingebed: …)` maakt multipart/related), adresregel van MDE
   uit Relations (`Bestellingen:EigenRelatieId`, standaard 5254). Weggelaten: lege prijskolommen in de aanvraag, de
-  voettekst-.htm's uit Google Drive, het "officiële order"-PDF (`GenereerOfficieleOrder`, maar 1 leverancier).
+  voettekst-.htm's uit Google Drive. Het "officiële order"-PDF is er sinds 18-11-2026 wel, zie de sectie hieronder.
 - Bijlagen = StoreType 3 van de regels (vinkje per bestand), grootte van schijf; ZIP (`PI-n.zip`/`PO-n.zip`) voorgesteld
   boven 20 MB, maximaal 24 MB (Gmail). "Verouderd" = bij hetzelfde artikel een nieuwere StoreType 2 met dezelfde naam
   (Access keek alleen naar de naam).

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 18-11-2026
 
+- **Bestellingen** — Nieuw: knop "📄 Genereer officiële order" (zoals in Access). Hij maakt van een bestelling die In bestelling staat (of verder is) het officiële orderdocument als PDF, PO-nummer.pdf, in de opmaak van onze facturen: leverancier met contactpersoon, de regels met prijs en korting, het ordertotaal, de melding op het orderformulier, het afleveradres, je naam, functie en handtekening, en de voorwaarden. De PDF komt bij Documenten van de bestelling. In "✉ Bestelling versturen…" staat een vinkje om hem mee te sturen, met Bekijken voor een voorbeeld; bij een leverancier met "Genereer automatisch inkoopopdracht" (Relaties) staat dat vinkje al aan (verzoek van Peter).
 - **Test PCB** — Opgelost: een testrecept voor een CoE-drive (eRob, ISMC …) stopte meteen met "geen MDE-slave". Zo'n recept loopt nu gewoon, met SDO's.
 - **Test PCB** — Nieuw (MDE Agent 1.26.0): in een testrecept kan een object een "bit" hebben. Zo zie je bijvoorbeeld de zes ingangen van een ISMC-drive als losse lampjes aan/uit, en zet elke schakelaar alleen zijn eigen uitgang. Na het recept, ook na Stop, gaan die uitgangen weer uit. Voorbeeldrecept voor de ISMC: `MdeAgent/voorbeelden/ismc-recept-io.json`.
 - **Controllertypen** — Verbeterd: het protocol "EtherCAT CoE / eRob (CiA402)" heet nu "EtherCAT CoE (CiA402: eRob, ISMC …)", want het geldt voor elke CiA402-drive op EtherCAT. Bestaande types blijven ongewijzigd.

@@ -164,7 +164,9 @@ public record BestelMailRegel(double Aantal, string Eenheid, string Artikel, str
 public record BestelMailBijlage(int FileStoreId, string Naam, string Regel, long Grootte, bool Verouderd);
 
 /// <summary>Wie de mail ondertekent (Werknemers; een niet-persoon valt terug op de besteller).</summary>
-public record BestelMailAfzender(string Naam, string Mobiel, string Mail);
+/// <param name="Functie">Werknemers_Functie (voor de officiële inkoopopdracht).</param>
+/// <param name="Id">Werknemer-id (voor de handtekening op de inkoopopdracht); 0 = onbekend.</param>
+public record BestelMailAfzender(string Naam, string Mobiel, string Mail, string Functie = "", int Id = 0);
 
 /// <summary>Alles voor de mail aan de leverancier.</summary>
 public record BestelMailGegevens(
@@ -176,4 +178,7 @@ public record BestelMailGegevens(
     List<BestelMailRegel> Regels, List<BestelMailBijlage> Bijlagen, BestelMailAfzender Afzender, string Bedrijfsregel,
     // BV die bestelt (wens gebruiker 10-11-2026): naam onder de ondertekening; Factuuradres alleen als het niet de
     // standaard-BV (MDE Automation) is, zodat de leverancier aan de juiste BV factureert.
-    string BvNaam = "MDE Automation B.V.", string Factuuradres = "");
+    string BvNaam = "MDE Automation B.V.", string Factuuradres = "",
+    // Officiële inkoopopdracht (PDF, Services/InkoopOrderPdfService): de BV voor kop en logo, en of deze leverancier
+    // hem standaard bij de bestelling krijgt (Relations.GenereerOfficieleOrder, zoals Access).
+    int BvId = 0, bool OfficieleOrder = false);

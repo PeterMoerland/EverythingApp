@@ -16,6 +16,8 @@
 @inject IOntvangstRepository Ontvangst
 @inject GeleverdMelding GeleverdMelder
 @inject FactuurPrijsLezer PrijsLezer
+@inject InkoopOrderPdfService Inkoop
+@inject IConfiguration Config
 
 <div class="page">
     <header class="topbar">
@@ -165,6 +167,7 @@
                                 else if (fl.Status == BestelFlow.InBestelling)
                                 {
                                     <button class="klein" @onclick="() => _mailOrder = _orderId" title="De bestelling naar de leverancier mailen (PO-)">✉ Bestelling versturen…</button>
+                                    <button class="klein" disabled="@_orderPdfBezig" @onclick="GenereerOfficieleOrder" title="@OrderPdfUitleg">@(_orderPdfBezig ? "PDF maken…" : "📄 Genereer officiële order")</button>
                                 }
                                 @if (fl.Status <= BestelFlow.WachtOpLevering)
                                 {
@@ -297,6 +300,13 @@
                         @* tegels met een miniatuur (wens gebruiker 13-11-2026): afbeeldingen en PDF's in het klein, de rest met de
                            bestandssoort. Het vlak heeft een vaste minimale hoogte, zodat de regels eronder niet omhoog springen. *@
                         <div class="tabvlak">
+                            @* het officiële orderdocument (Access: Orderdoc_Main); pas vanaf In bestelling, daarvoor is het nog een PI- *@
+                            @if (_flow is { } df && df.Status >= BestelFlow.InBestelling)
+                            {
+                                <div class="doc-knoppen">
+                                    <button class="klein" disabled="@_orderPdfBezig" @onclick="GenereerOfficieleOrder" title="@OrderPdfUitleg">@(_orderPdfBezig ? "PDF maken…" : "📄 Genereer officiële order")</button>
+                                </div>
+                            }
                             @if (_documenten.Count == 0)
                             {
                                 <p class="uitleg">Nog geen documenten.</p>
@@ -631,10 +641,6 @@
         </div>
     }
 
-    <footer class="voet">
-        Offertes aanvragen, het officiële orderformulier en het mailen naar de leverancier
-        volgen later; daarvoor gebruik je voorlopig Access.
-    </footer>
 </div>
 
 @* ===== bijlagen bij een orderregel ===== *@
@@ -2188,6 +2194,36 @@
         => $"Op deze bestelling {Bedrag(f.Gekoppeld)} (ex btw); de hele factuur {Bedrag(f.BedragExBtw)} ex btw. "
          + (f.Betaald ? "Betaald." : f.Goedgekeurd ? "Goedgekeurd, nog niet betaald." : "Nog niet goedgekeurd.")
          + (f.Omschrijving.Length > 0 ? " " + f.Omschrijving : "");
+
+    // ---- officiële inkoopopdracht (Access: rapport Orderdoc_Main; Services/InkoopOrderPdfService) ----
+    private bool _orderPdfBezig;
+    private const string OrderPdfUitleg = "Het officiële orderdocument voor de leverancier als PDF maken (PO-nummer.pdf); het komt bij Documenten. Meesturen kan ook in '✉ Bestelling versturen…'.";
+
+    /// <summary>De PDF maken, bij de documenten zetten en tonen. Zolang de bestelling nog niet besteld is over de vorige
+    /// heen (een concept); daarna komt er een versie naast, zodat wat de leverancier kreeg bewaard blijft.</summary>
+    private async Task GenereerOfficieleOrder()
+    {
+        if (_orderId is not int id || _orderPdfBezig) return;
+        if (!Store.Beschikbaar) { Toon("De filestore is niet ingesteld (Filestore:Pad in appsettings.json).", true); return; }
+        _orderPdfBezig = true;
+        try
+        {
+            var eigen = Config.GetValue<int?>("Bestellingen:EigenRelatieId") ?? 5254;
+            var g = await Repo.BestelMailAsync(id, Ik.WerknemerId, eigen);
+            if (g is null) { Toon("Bestelling niet gevonden.", true); return; }
+            if (g.Regels.Count == 0) { Toon("Er staan geen regels op deze bestelling.", true); return; }
+            var pdf = await Inkoop.MaakAsync(g, BestelMail.StandaardAanhef(g));
+            var nieuw = await Inkoop.BewaarAsync(id, pdf, g.Status <= BestelFlow.InBestelling, Ik.WerknemerId ?? 0);
+            if (_orderId != id) return;                  // intussen een andere bestelling gekozen
+            _tab = "Documenten";
+            await LaadDocumenten();
+            var doc = _documenten.FirstOrDefault(d => d.FileStoreId == nieuw);
+            if (doc is not null) ToonVoorbeeld(doc);
+            Toon($"{doc?.Bestandsnaam ?? InkoopOrderPdfService.Bestandsnaam(id)} staat bij de documenten.", false);
+        }
+        catch (Exception ex) { Toon("De officiële order maken is niet gelukt: " + ex.Message, true); }
+        finally { _orderPdfBezig = false; }
+    }
 
     private async Task LaadDocumenten()
     {

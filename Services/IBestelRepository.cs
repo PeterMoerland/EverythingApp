@@ -74,6 +74,8 @@ public interface IBestelRepository
     /// <param name="afzenderId">Wie verstuurt (ondertekening); een niet-persoon valt terug op de besteller.</param>
     /// <param name="eigenRelatieId">Relations-id van MDE zelf, voor de adresregel onder de mail.</param>
     Task<BestelMailGegevens?> BestelMailAsync(int orderId, int? afzenderId, int eigenRelatieId);
+    /// <summary>Werknemers.Handtekening (het plaatje onder de officiële inkoopopdracht); null = geen.</summary>
+    Task<byte[]?> HandtekeningAsync(int werknemerId);
     /// <summary>De aanhef van een contactpersoon opslaan (zoals Access vroeg als die leeg was).</summary>
     Task ZetAanhefAsync(int contactId, string aanhef);
     /// <summary>Na versturen: Orders.MailAangemaakt = nu, en een regel in Log_Orderchanges.</summary>
@@ -159,6 +161,7 @@ public class GeenBestelRepository : IBestelRepository
     public Task ZetMeldingBijLeveringAsync(int orderId, int werknemerId) => Task.CompletedTask;
     public Task VoegOpmerkingToeAsync(int orderId, string regel) => Task.CompletedTask;
     public Task<BestelMailGegevens?> BestelMailAsync(int orderId, int? afzenderId, int eigenRelatieId) => Task.FromResult<BestelMailGegevens?>(null);
+    public Task<byte[]?> HandtekeningAsync(int werknemerId) => Task.FromResult<byte[]?>(null);
     public Task ZetAanhefAsync(int contactId, string aanhef) => Task.CompletedTask;
     public Task MailVerstuurdAsync(int orderId, int? door, string logtekst) => Task.CompletedTask;
     public Task<List<Orderregel>> GetRegelsAsync(int orderId) => Task.FromResult(new List<Orderregel>());
@@ -677,13 +680,13 @@ public class MySqlBestelRepository : IBestelRepository
         // kop: bestelling, contactpersoon, leverancier, afleveradres
         int status = 0, taal = 0; int? contactId, levId, offerteContact, orderContact, afleverId, createdBy;
         string contactNaam, contactMail, aanhef, leverancier, ccAdres, opmerking, aflNaam, aflAdres, aflPostcode, aflPlaats, aflTav;
-        bool oc, cc;
+        bool oc, cc, officieel;
         await using (var cmd = new MySqlCommand(
             "SELECT o.`Status`, o.`Language`, o.`Contact`, COALESCE(c.`Naam`, ''), COALESCE(c.`mail`, ''), c.`Aanhef`, " +
             "       o.`Supplier`, COALESCE(r.`name`, ''), r.`GebruikOCcodes`, r.`OfferteContactID`, r.`OrderContact-id`, " +
             "       r.`CCbijBestelling`, COALESCE(r.`CCmailadressBijBestelling`, ''), COALESCE(o.`Purchasenote`, ''), " +
             "       o.`AfleverKlant-id`, COALESCE(a.`name`, ''), COALESCE(a.`address`, ''), COALESCE(a.`PO_box`, ''), COALESCE(a.`town`, ''), " +
-            "       COALESCE(t.`Naam`, ''), o.`Created by` " +
+            "       COALESCE(t.`Naam`, ''), o.`Created by`, r.`GenereerOfficieleOrder` " +
             "  FROM `Orders` o " +
             "  LEFT JOIN `Contacts` c ON c.`ID_contact` = o.`Contact` " +
             "  LEFT JOIN `Relations` r ON r.`id_supplier` = o.`Supplier` " +
@@ -700,7 +703,7 @@ public class MySqlBestelRepository : IBestelRepository
             levId = N(r, 6); leverancier = S(r, 7); oc = B(r, 8); offerteContact = N(r, 9); orderContact = N(r, 10);
             cc = B(r, 11); ccAdres = S(r, 12); opmerking = S(r, 13);
             afleverId = N(r, 14); aflNaam = S(r, 15); aflAdres = S(r, 16); aflPostcode = S(r, 17); aflPlaats = S(r, 18); aflTav = S(r, 19);
-            createdBy = N(r, 20);
+            createdBy = N(r, 20); officieel = B(r, 21);
         }
 
         // regels (Order_items), met eenheid en OC-code van het artikel
@@ -745,12 +748,14 @@ public class MySqlBestelRepository : IBestelRepository
         {
             await using var cmd = new MySqlCommand(
                 "SELECT COALESCE(`Persoon`, 0), COALESCE(`Voornaam`, ''), COALESCE(`Tussenvoegsel`, ''), COALESCE(`Achternaam`, ''), " +
-                "       COALESCE(`Mobiel`, ''), COALESCE(`Mail`, '') FROM `Werknemers` WHERE `Werknemer-id` = @id", cn);
+                "       COALESCE(`Mobiel`, ''), COALESCE(`Mail`, ''), " +
+                "       COALESCE((SELECT f.`Functie` FROM `Werknemers_Functie` f WHERE f.`id_functie` = `Werknemers`.`id_functie`), '') " +
+                "  FROM `Werknemers` WHERE `Werknemer-id` = @id", cn);
             cmd.Parameters.AddWithValue("@id", id);
             await using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync() || Convert.ToInt64(r.GetValue(0)) == 0) continue;
             var naam = string.Join(" ", new[] { S(r, 1), S(r, 2), S(r, 3) }.Where(x => x.Length > 0));
-            afzender = new BestelMailAfzender(naam, S(r, 4), S(r, 5));
+            afzender = new BestelMailAfzender(naam, S(r, 4), S(r, 5), S(r, 6), id);
             break;
         }
 
@@ -785,7 +790,16 @@ public class MySqlBestelRepository : IBestelRepository
 
         return new BestelMailGegevens(orderId, status, taal != 0, contactId, contactNaam, contactMail, aanhef,
             levId, leverancier, oc, offerteContact, orderContact, cc, ccAdres, opmerking,
-            afleverId, aflNaam, aflAdres, aflPostcode, aflPlaats, aflTav, regels, bijlagen, afzender, bedrijf, bvNaam, factuuradres);
+            afleverId, aflNaam, aflAdres, aflPostcode, aflPlaats, aflTav, regels, bijlagen, afzender, bedrijf, bvNaam, factuuradres,
+            bvId, officieel);
+    }
+
+    public async Task<byte[]?> HandtekeningAsync(int werknemerId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `Handtekening` FROM `Werknemers` WHERE `Werknemer-id` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", werknemerId);
+        return await cmd.ExecuteScalarAsync() as byte[];
     }
 
     public async Task ZetAanhefAsync(int contactId, string aanhef)

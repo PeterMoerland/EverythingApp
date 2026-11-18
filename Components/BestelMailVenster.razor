@@ -2,12 +2,16 @@
    Create_order_request_Mail / Create_order_Mail uit Access (dat stelde een Outlook-mail samen). Links Aan/CC/onderwerp/
    aanhef en de bijlagen, rechts het voorbeeld; Versturen gaat via je eigen Gmail (op een werkplek via de alias).
    Opbouw van de mail: Services/BestelMail.cs. Na versturen: Orders.MailAangemaakt en een regel in Log_Orderchanges.
+   Bij de bestelling kan de officiële inkoopopdracht mee (PO-n.pdf, Services/InkoopOrderPdfService; Access deed dat als
+   Relations.GenereerOfficieleOrder aan stond): vinkje bij de bijlagen, voorbeeld rechts, na versturen ook bij de
+   documenten van de bestelling (wens gebruiker 18-11-2026).
    OrderId: een getal = open, null = dicht. *@
 @inject IBestelRepository Repo
 @inject GoogleHerstel Herstel
 @inject FilestoreService Store
 @inject MailService Post
 @inject MailPostbussen Postbussen
+@inject InkoopOrderPdfService Inkoop
 @inject HuidigeGebruiker Ik
 @inject IConfiguration Config
 @inject IWebHostEnvironment Omgeving
@@ -87,6 +91,15 @@
                             </div>
 
                             <h4 class="bm-kop">Bijlagen <small>(@Mb(GekozenGrootte))</small></h4>
+                            @if (!BestelMail.IsAanvraag(_g))
+                            {
+                                <div class="bm-order">
+                                    <label class="vink" title="Het officiële orderdocument als PDF meesturen; het komt ook bij de documenten van de bestelling. Standaard aan bij een leverancier met 'Genereer automatisch inkoopopdracht' (Relaties).">
+                                        <input type="checkbox" checked="@_officieel" @onchange="OfficieelGewijzigd" />
+                                        📄 Officiële inkoopopdracht meesturen <small>@InkoopOrderPdfService.Bestandsnaam(_g.OrderId)</small></label>
+                                    <button class="klein" disabled="@(_pdfBezig || _bezig)" @onclick="ToonOrderPdf">@(_pdfBezig ? "PDF maken…" : "Bekijken")</button>
+                                </div>
+                            }
                             @if (_g.Bijlagen.Count == 0)
                             {
                                 <p class="uitleg">Geen bijlagen bij de regels.</p>
@@ -113,8 +126,17 @@
                             </div>
                         </div>
                         <div class="bm-voorbeeld">
-                            <div class="bm-voorbeeld-kop"><b>@_onderwerp</b><small>Zo ziet de leverancier de mail</small></div>
-                            <iframe srcdoc="@Voorbeeld" title="Voorbeeld van de mail"></iframe>
+                            @if (_pdfUrl.Length > 0)
+                            {
+                                <div class="bm-voorbeeld-kop"><b>@InkoopOrderPdfService.Bestandsnaam(_g.OrderId)</b>
+                                    <button class="klein" @onclick="SluitOrderPdf">← Terug naar de mail</button></div>
+                                <iframe src="@_pdfUrl" title="Officiële inkoopopdracht"></iframe>
+                            }
+                            else
+                            {
+                                <div class="bm-voorbeeld-kop"><b>@_onderwerp</b><small>Zo ziet de leverancier de mail</small></div>
+                                <iframe srcdoc="@Voorbeeld" title="Voorbeeld van de mail"></iframe>
+                            }
                         </div>
                     </div>
                 }
@@ -141,6 +163,41 @@
     private string _melding2 = "";
     private BestelMailGegevens? MetMelding => _g is null ? null : _g with { Opmerking = _melding2 };
     private HashSet<int> _gekozen = new();
+
+    // ---- officiële inkoopopdracht (PDF) ----
+    private bool _officieel, _pdfBezig;
+    /// <summary>Blob-url van het voorbeeld rechts; leeg = het voorbeeld van de mail.</summary>
+    private string _pdfUrl = "";
+
+    private async Task OfficieelGewijzigd(ChangeEventArgs e)
+    {
+        _officieel = e.Value is true;
+        if (!_officieel) await SluitOrderPdf();
+    }
+
+    /// <summary>De PDF maken met de aanhef en melding van nu, en rechts tonen in plaats van de mail.</summary>
+    private async Task ToonOrderPdf()
+    {
+        if (_g is null || _pdfBezig) return;
+        _pdfBezig = true;
+        _melding = null;
+        try
+        {
+            var pdf = await Inkoop.MaakAsync(MetMelding!, _aanhef);
+            await SluitOrderPdf();
+            _pdfUrl = await JS.InvokeAsync<string>("mdeBlob.maak", pdf, "application/pdf");
+        }
+        catch (Exception ex) { Toon("Inkoopopdracht maken mislukt: " + ex.Message, true); }
+        finally { _pdfBezig = false; }
+    }
+
+    private async Task SluitOrderPdf()
+    {
+        if (_pdfUrl.Length == 0) return;
+        var url = _pdfUrl;
+        _pdfUrl = "";
+        try { await JS.InvokeVoidAsync("mdeBlob.weg", url); } catch { }
+    }
 
     private string Titel => _g is null ? "Mail aan de leverancier"
         : BestelMail.IsAanvraag(_g) ? $"Offerte aanvragen · PI-{_g.OrderId} · {_g.Leverancier}" : $"Bestelling versturen · PO-{_g.OrderId} · {_g.Leverancier}";
@@ -175,7 +232,8 @@
     {
         if (OrderId == _geladenVoor) return;
         _geladenVoor = OrderId;
-        _g = null; _melding = null; _verstuurd = false; _bezig = false;
+        _g = null; _melding = null; _verstuurd = false; _bezig = false; _officieel = false;
+        await SluitOrderPdf();
         if (OrderId is not int id) return;
         _laden = true;
         try
@@ -193,6 +251,7 @@
             _aanhef = BestelMail.StandaardAanhef(_g);
             _aanhefOpslaan = true;
             _melding2 = _g.Opmerking;
+            _officieel = _g.OfficieleOrder && !BestelMail.IsAanvraag(_g);     // zoals Access: alleen bij de bestelling zelf
             _gekozen = _g.Bijlagen.Select(b => b.FileStoreId).ToHashSet();
             // FileStore.FileSize is vaak leeg: de echte grootte van schijf (voor het totaal en de ZIP-keuze)
             var metGrootte = new List<BestelMailBijlage>();
@@ -261,6 +320,13 @@
                     }
                 bijlagen = new() { (ZipNaam, ms.ToArray()) };
             }
+            // de officiële inkoopopdracht: los vooraan, ook als de rest in een ZIP zit (zoals Access)
+            byte[]? orderPdf = null;
+            if (_officieel && !BestelMail.IsAanvraag(_g))
+            {
+                orderPdf = await Inkoop.MaakAsync(MetMelding!, _aanhef);
+                bijlagen.Insert(0, (InkoopOrderPdfService.Bestandsnaam(_g.OrderId), orderPdf));
+            }
             var totaal = bijlagen.Sum(b => (long)b.Inhoud.Length);
             if (totaal > MaxBytes)
             {
@@ -288,9 +354,17 @@
             try
             {
                 await Repo.MailVerstuurdAsync(_g.OrderId, Ik.WerknemerId,
-                    $"{(BestelMail.IsAanvraag(_g) ? "Offerteaanvraag" : "Bestelling")} gemaild aan {_aan}{(_cc.Length > 0 ? " (cc " + _cc + ")" : "")}, {bijlagen.Count} bijlage(n)");
+                    $"{(BestelMail.IsAanvraag(_g) ? "Offerteaanvraag" : "Bestelling")} gemaild aan {_aan}{(_cc.Length > 0 ? " (cc " + _cc + ")" : "")}, {bijlagen.Count} bijlage(n)" +
+                    (orderPdf is not null ? ", met de officiële inkoopopdracht" : ""));
             }
             catch { }
+            // wat de leverancier kreeg ook bij de documenten van de bestelling (zolang hij nog niet besteld is over de vorige heen)
+            if (orderPdf is not null)
+            {
+                try { await Inkoop.BewaarAsync(_g.OrderId, orderPdf, _g.Status <= BestelFlow.InBestelling, Ik.WerknemerId ?? 0); }
+                catch (Exception ex) { Toon("De mail is verstuurd, maar de inkoopopdracht kon niet bij de documenten: " + ex.Message, true); }
+            }
+            await SluitOrderPdf();
             _verstuurd = true;
         }
         catch (Exception ex) { Toon("Versturen mislukt: " + ex.Message, true); }
@@ -301,6 +375,7 @@
     {
         _geladenVoor = null;
         _g = null;
+        await SluitOrderPdf();
         await OpGesloten.InvokeAsync(verstuurd);
     }
 
