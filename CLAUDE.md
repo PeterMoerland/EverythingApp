@@ -752,6 +752,34 @@ Products (5646) vervallen. MDE Vastgoed, MDE Patenten en M-Pede Robotics bestond
 - **Nog niet** (volgende stappen): welke BV een inkooporder doet (Orders heeft geen BV-kolom), inkomende facturen per
   eigen BV, en het doorfactureren van uren en materialen tussen BV's.
 
+## Uitgaande facturen: Genereer credit (18-11-2026)
+
+Verzoek Edwin: een verstuurde factuur met één knop crediteren; de credit komt in de lijst.
+- Een credit is hier een gewone factuur met een negatief totaal (`IsCreditnota`, PDF-titel "Creditfactuur"); er is geen
+  koppelkolom tussen credit en factuur. `Services/FactuurCreditService.cs` (singleton):
+  `MagNiet` (alleen een **verstuurde**, gewone factuur: geen proforma, geen credit), `Maak(origineel)` (puur, zonder
+  database), `VraagAsync` (bevestigingstekst, met waarschuwing als een creditfactuur van dezelfde klant het nummer al
+  in de omschrijving noemt, via `ZoekAsync` op het nummer), `MaakAsync` (maakt en bewaart met `BewaarAsync`, dus een
+  nieuw nummer in de transactie) en `Uitkomst` (`CreditUitkomst(Id, Nummer, Melding)`).
+- **De credit**: zelfde BV, klant, betalingstermijn, referentie, PO klant, project, btw verlegd en taal; datum vandaag;
+  niet verstuurd; omschrijving "Credit factuur <nr>: <omschrijving>" (Engels: "Credit note for invoice <nr>: …"),
+  opmerking "Credit van factuur <nr>.". Regels: tekstregel ongewijzigd; gewone regel **min het aantal**, zelfde prijs
+  en korting; **urenregel wordt een gewone regel** "<werkorder> · <omschrijving> · <naam> · <uurtype> · <n> uur" met
+  aantal -1 en het urenbedrag (een nieuwe regel zonder `Herkomst` reserveert geen uren: de uren blijven bij de
+  oorspronkelijke factuur gereserveerd, bewust); oude regel met alleen een totaal: -1 x totaal.
+- **Knop "Genereer credit"**: zijpaneel van `UitgaandeFacturen.razor` (naast Aanpassen/Versturen) en links onderin
+  `VerkoopFactuurVenster` (`_wasVerstuurd`; nieuwe parameter `CreditGemaakt`, zonder ontvanger een melding in het
+  venster). Eén bevestiging vooraf (het nummer is daarna vergeven). Daarna `NaCredit`: lijst verversen en de credit
+  kiezen; valt hij buiten het filter, dan gaat hij open in het venster.
+- **Btw van een credit** (`Models/VerkoopFactuur.cs`): Access kapte de btw naar beneden af, ook bij een negatief bedrag,
+  waardoor een credit vaak een cent "negatiever" werd dan de factuur (21 van de 48 bestaande credits hebben dat). Voor
+  een credit met factuurdatum vanaf `CreditSpiegeltVanaf` (18-11-2026) wordt nu naar nul afgekapt (`Spiegelt`), zodat
+  credit = min factuur. Oudere credits (allemaal verstuurd, laatste van 17-11-2026) houden de oude regel, zodat hun
+  bedragen en PDF gelijk blijven.
+- Getoetst zonder te schrijven (scratchpad-console `credittoets`: facturen 2026184 met uren, pakbonregel en artikelen,
+  2026224 en 2026222): regels en totalen precies gespiegeld. **Niet getest**: de knoppen zelf en het opslaan (schrijft
+  een factuur met een nieuw nummer in productie).
+
 ## Uitgaande facturen: deelbetalingen (FactuurBetalingen, 5-11-2026)
 
 Wens collega: een factuur deels betaald melden (Viscon betaalt 90%, houdt 10% in); onbetaald laten staan maakte
@@ -1849,6 +1877,11 @@ Gelezen meldingen werden al nooit gewist, dus de historie is er meteen. Gebouwd;
 de bel zelf niet in de browser bekeken (zonder login geen werknemer).
 
 ## PO klant: verplicht project, PO-bedrag als projectbudget (22-10-2026)
+
+**18-11-2026 (verzoek Edwin):** `POKlantVenster.MaakFactuur` geeft het project van de PO mee in het `FactuurVoorstel`
+(`ProjectId`, `Project`), zodat de nieuwe factuur meteen aan dat project hangt (`VerkoopFactuurVenster` nam die velden
+al over, bv. bij een verkooporder). Geldt voor ＋ Factuur bij een termijn; een bestaande factuur koppelen laat het
+project van die factuur ongemoeid. Gebouwd, niet in de app nagespeeld (de factuur opslaan schrijft naar productie).
 
 Wens gebruiker: bij een PO klant een verplicht **Project**; bij toevoegen gaat het projectbudget omhoog, bij wissen
 weer omlaag. Kolom `PO_Inkomend.Project-id` (**`PoProject_MariaDB.sql`, zelf draaien**; zonder kolom geen veld en

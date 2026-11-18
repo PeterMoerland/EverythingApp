@@ -193,9 +193,19 @@ public class VerkoopFactuur
     /// Access: Round(Int(totaal * 21) / 100, 2). Int kapt af naar beneden (ook bij
     /// een creditfactuur), dus geen gewone afronding. Zo blijven app en Access gelijk.
     /// </summary>
-    public decimal Btw => BtwVerlegd ? 0 : Math.Floor(Som * 21) / 100;
+    public decimal Btw => BtwVerlegd ? 0 : Spiegelt ? -(Math.Floor(-Som * 21) / 100) : Math.Floor(Som * 21) / 100;
 
-    public decimal BedragInclBtw => BtwVerlegd ? BedragExBtw : Math.Floor(Som * 121) / 100;
+    public decimal BedragInclBtw => BtwVerlegd ? BedragExBtw : Spiegelt ? -(Math.Floor(-Som * 121) / 100) : Math.Floor(Som * 121) / 100;
+
+    /// <summary>
+    /// Een creditfactuur met een factuurdatum vanaf deze dag kapt naar nul af in plaats van naar beneden, zodat een
+    /// credit precies min de factuur is (knop Genereer credit, 18-11-2026). Met de Access-regel kwam de btw van een
+    /// credit vaak een cent "negatiever" uit dan die van de factuur (2.376,66: btw 499,09 tegen -499,10). Oudere
+    /// credits (allemaal verstuurd, bedragen opgeslagen) houden de oude regel, zodat hun PDF gelijk blijft.
+    /// </summary>
+    public static readonly DateOnly CreditSpiegeltVanaf = new(2026, 11, 18);
+
+    private bool Spiegelt => Som < 0 && (Factuurdatum ?? DateOnly.FromDateTime(DateTime.Today)) >= CreditSpiegeltVanaf;
 }
 
 /// <summary>Wat een klant meebrengt naar een nieuwe factuur.</summary>

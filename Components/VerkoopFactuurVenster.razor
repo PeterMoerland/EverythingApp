@@ -6,6 +6,7 @@
 @inject IArtikelRepository Artikelen
 @inject IPakbonRepository Pakbonnen
 @inject IFactuurBetalingRepository Betalingen
+@inject FactuurCreditService Credit
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 
@@ -440,6 +441,12 @@
             <div class="bijlagevoet">
                 @if (MagInvoeren)
                 {
+                    @* een verstuurde factuur in één keer crediteren (verzoek Edwin 18-11-2026) *@
+                    @if (!_nieuw && !_bezig && FactuurCreditService.MagNiet(_wasVerstuurd, _f.BedragExBtw < 0, _f.Herinnering == 4) is null)
+                    {
+                        <button class="klein" style="float:left" disabled="@(_creditBezig || _bewaren)" title="Een creditfactuur maken van deze factuur: zelfde klant, project en regels, bedrag negatief. Hij komt als concept in Uitgaande facturen."
+                                @onclick="GenereerCredit">@(_creditBezig ? "Bezig…" : "Genereer credit")</button>
+                    }
                     <button class="klein" @onclick="Afbreken">Annuleren</button>
                     <button class="primair" disabled="@(_bewaren || _bezig)" @onclick="Bewaar">
                         @(_bewaren ? "Bezig…" : _nieuw ? "Factuur maken" : "Opslaan")
@@ -479,6 +486,10 @@
 
     /// <summary>Na opslaan: het id van de factuur (vóór Sluiten), zodat de aanroeper hem kan koppelen.</summary>
     [Parameter] public EventCallback<int> Bewaard { get; set; }
+
+    /// <summary>Er is vanuit dit venster een creditfactuur gemaakt (knop Genereer credit); de lijst kiest hem dan.
+    /// Zonder ontvanger blijft het venster open met een melding.</summary>
+    [Parameter] public EventCallback<CreditUitkomst> CreditGemaakt { get; set; }
 
     /// <summary>
     /// Mag invoeren ook zonder Financial/Directie. Alleen vanuit een verkooporder (recht Verkoop, besluit gebruiker
@@ -890,6 +901,32 @@
 
     /// <summary>Alles wat bewaard wordt, als tekst; zo zie je of er iets veranderd is.</summary>
     private string Vingerafdruk() => System.Text.Json.JsonSerializer.Serialize(_f);
+
+    // ---- crediteren (Services/FactuurCreditService): van de factuur zoals hij opgeslagen is ----
+    private bool _creditBezig;
+
+    private async Task GenereerCredit()
+    {
+        if (_creditBezig || _f.Id == 0 || !MagInvoeren) return;
+        _creditBezig = true;
+        try
+        {
+            var (vraag, fout) = await Credit.VraagAsync(_f.Id);
+            if (fout is not null) { Toon(fout, true); return; }
+            if (!await Vraag(vraag!)) return;
+            var (c, reden, verschil) = await Credit.MaakAsync(_f.Id, Ik.WerknemerId);
+            if (c is null) { Toon(reden ?? "Crediteren is niet gelukt.", true); return; }
+            var uit = FactuurCreditService.Uitkomst(c, verschil);
+            if (CreditGemaakt.HasDelegate)
+            {
+                _geladenVoor = -1;
+                await CreditGemaakt.InvokeAsync(uit);
+            }
+            else Toon(uit.Melding + " Hij staat in Uitgaande facturen.", false);
+        }
+        catch (Exception ex) { Toon("Crediteren is niet gelukt: " + ex.Message, true); }
+        finally { _creditBezig = false; }
+    }
 
     private async Task Afbreken()
     {

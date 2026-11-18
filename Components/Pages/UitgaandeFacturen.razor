@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 @inject FactuurPdfService FactuurPdf
+@inject FactuurCreditService Credit
 
 @* Overgezet van het Access-formulier FacturenUitgaand (fase 1: overzicht).
    Nieuw, aanpassen, uren importeren, versturen en de betalingscheck volgen;
@@ -249,6 +250,12 @@
                             {
                                 <button class="klein" @onclick="Wis">Wissen</button>
                             }
+                            @* een verstuurde factuur in één keer crediteren (verzoek Edwin 18-11-2026) *@
+                            @if (MagInvoeren && FactuurCreditService.MagNiet(_gekozen) is null)
+                            {
+                                <button class="klein" disabled="@_creditBezig" title="Een creditfactuur maken van deze factuur: zelfde klant, project en regels, bedrag negatief. Hij komt als concept in de lijst."
+                                        @onclick="GenereerCredit">@(_creditBezig ? "Bezig…" : "Genereer credit")</button>
+                            }
                         </div>
                     </ZijBlok>
 
@@ -341,7 +348,7 @@
 <PdfVoorbeeld Inhoud="_pdfInhoud" Naam="@_pdfNaam" Toelichting="@_pdfToelichting" Sluiten="() => _pdfInhoud = null" />
 
 @* nieuw en aanpassen *@
-<VerkoopFactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" />
+<VerkoopFactuurVenster FactuurId="_bewerkId" Sluiten="SluitVenster" CreditGemaakt="NaCredit" />
 
 @* PDF maken en versturen *@
 <FactuurVersturenVenster FactuurId="_versturenId" Sluiten="SluitVersturen" />
@@ -678,6 +685,37 @@
         await Laad();
         if (_gekozen is not null) await Kies(_gekozen);    // regels in het zijpaneel bijwerken
         Toon("Opgeslagen.", false);
+    }
+
+    // ---- crediteren (Services/FactuurCreditService) ----
+    private bool _creditBezig;
+
+    private async Task GenereerCredit()
+    {
+        if (_gekozen is not { } f || !MagInvoeren || _creditBezig) return;
+        _creditBezig = true;
+        try
+        {
+            var (vraag, fout) = await Credit.VraagAsync(f.Id);
+            if (fout is not null) { Toon(fout, true); return; }
+            if (!await Vraag(vraag!)) return;
+            var (c, reden, verschil) = await Credit.MaakAsync(f.Id, Ik.WerknemerId);
+            if (c is null) { Toon(reden ?? "Crediteren is niet gelukt.", true); return; }
+            await NaCredit(FactuurCreditService.Uitkomst(c, verschil));
+        }
+        catch (Exception ex) { Toon("Crediteren is niet gelukt: " + ex.Message, true); }
+        finally { _creditBezig = false; }
+    }
+
+    /// <summary>De nieuwe credit in de lijst kiezen; valt hij buiten het filter, dan gaat hij open in het venster.</summary>
+    private async Task NaCredit(CreditUitkomst u)
+    {
+        _bewerkId = null;
+        await Laad();
+        var nieuw = _lijst.FirstOrDefault(x => x.Id == u.Id);
+        if (nieuw is not null) await Kies(nieuw);
+        else _bewerkId = u.Id;
+        Toon(u.Melding + (nieuw is null ? " Hij valt buiten het filter van de lijst en staat daarom open." : ""), false);
     }
 
     // ---- versturen ----

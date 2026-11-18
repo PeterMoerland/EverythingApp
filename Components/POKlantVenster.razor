@@ -510,8 +510,10 @@
         if (_po.KlantId is null) { Toon("Kies eerst een klant.", true); return; }
         if (t.Omschrijving.Trim().Length == 0) { Toon("Geef de termijn eerst een omschrijving.", true); return; }
         _factuurVoor = t;
+        // het project van de PO gaat mee naar de factuur (verzoek Edwin 18-11-2026: anders koos je het daar nog een keer)
         _voorstel = new FactuurVoorstel(_po.BvId, _po.KlantId, _po.Klant, _po.PoNummer,
-                                        _po.Omschrijving.Length > 0 ? _po.Omschrijving : t.Omschrijving, t.Omschrijving, t.Bedrag);
+                                        _po.Omschrijving.Length > 0 ? _po.Omschrijving : t.Omschrijving, t.Omschrijving, t.Bedrag)
+            { ProjectId = _po.ProjectId, Project = _po.Project };
         _factuurOpen = 0;
     }
 

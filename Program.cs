@@ -382,6 +382,7 @@ builder.Services.AddScoped<UrenService>();
 builder.Services.AddSingleton<RecentPagesService>();
 builder.Services.AddSingleton<FilestoreService>();
 builder.Services.AddSingleton<FactuurPdfService>();
+builder.Services.AddSingleton<FactuurCreditService>();
 builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
 builder.Services.AddSingleton<DuurtestService>();
