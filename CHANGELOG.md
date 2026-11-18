@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 18-11-2026
 
+- **Controllertypen** — Verbeterd: het protocol "EtherCAT CoE / eRob (CiA402)" heet nu "EtherCAT CoE (CiA402: eRob, ISMC …)", want het geldt voor elke CiA402-drive op EtherCAT. Bestaande types blijven ongewijzigd.
 - **Producten** — Verbeterd: bij Techniek ▸ Posities is de keuzelijst voor het controllertype smaller, staat ✎ bewerken ernaast in plaats van eronder en staat het ✕ er direct achter.
 
 ## 14-11-2026

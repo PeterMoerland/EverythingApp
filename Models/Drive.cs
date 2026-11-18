@@ -321,7 +321,8 @@ public static class DriveProtocol
     public static readonly (string Code, string Naam, string CodeLabel, string ParamBestand)[] Alle =
     {
         (EtherCat, "EtherCAT (Ingenia/Novanta)", "Productcode (hex)", ".xcf"),
-        (Coe,      "EtherCAT CoE / eRob (CiA402)", "Productcode (hex, bv. 0x00029252)", ".json"),
+        // naam algemener gemaakt (wens gebruiker 18-11-2026, nieuwe ISMC-drive): geldt voor elke CiA402-drive, niet alleen eRob
+        (Coe,      "EtherCAT CoE (CiA402: eRob, ISMC …)", "Productcode (hex, bv. 0x00029252)", ".json"),
         (Mde,      "EtherCAT MDE-slave (M-Pede)",  "Productcode (hex, uit het ESI)", ".json"),
         (Feetech,  "Feetech serieel (STS/SMS)",  "Model (bv. STS3215)", ".json"),
         (Esp32,    "ESP32 (USB-UART, esptool)",  "Chip voor esptool (auto, esp32s3, esp32c3 …)", ""),
