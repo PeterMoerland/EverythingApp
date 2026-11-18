@@ -153,6 +153,15 @@ public static class Gebouw
     // ============================================================
     public const string CompressorDraaitTag = "HMI_CompressorStatus";
 
+    /// <summary>
+    /// De druk van de perslucht, in bar (LREAL; wens gebruiker 18-11-2026). Eerst opgegeven als
+    /// pLights.Compressor_BufferTankLevel, maar dat is een variabele ín het programma pLights en die is over EtherNet/IP
+    /// niet te lezen (een naam met een punt weigert libplctag bij een Omron met ErrorBadParam; alleen een globale
+    /// variabele met Network Publish "Publish Only" kan). De gebruiker koos daarna de globale HMI_SystemPressure.
+    /// Een andere naam kan in appsettings.json (Plc:CompressorDrukTag), zonder nieuwe versie.
+    /// </summary>
+    public const string CompressorDrukTag = "HMI_SystemPressure";
+
     public static readonly Knop[] Compressor =
     {
         new("Start overwerk", "HMI_CompressorStartOvertime", KnopSoort.Puls),

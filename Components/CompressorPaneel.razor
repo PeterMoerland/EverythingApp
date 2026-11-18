@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject IPlc Plc
+@inject IConfiguration Config
 
 @* De compressorbediening zelf, zonder paginakop — gedeeld door de
    desktop-pagina (/gebouw/compressor) en de mobiele pagina (/mobiel/compressor). *@
@@ -13,6 +14,12 @@
 
 <div class="compressor">
     <div class="signaal @(_draait ? "brandt" : "")" title="@(_draait ? "De compressor draait" : "De compressor staat stil")"></div>
+    @* de druk van de perslucht (LREAL in bar; welke variabele: Gebouw.CompressorDrukTag of Plc:CompressorDrukTag) *@
+    <div class="compressor-druk" title="@(_drukFout ?? "De druk van de perslucht, zoals de PLC hem meet")">
+        <span class="compressor-druk-waarde">@(_druk is double d ? d.ToString("0.0", Nl) : "–")</span>
+        <span class="compressor-druk-eenheid">bar</span>
+        <span class="compressor-druk-naam">systeemdruk@(_drukFout is not null ? " · geen meting" : "")</span>
+    </div>
     <p class="uitleg">
         Buiten werktijd slaat de compressor af. Met 'Start overwerk' blijft hij doorlopen;
         het lampje hierboven toont wat de PLC terugmeldt.
@@ -30,6 +37,12 @@
 
 @code {
     private bool _draait;
+    /// <summary>De druk in bar; null = (nog) geen meting. Een mislukte meting geeft geen melding bovenaan (dat zou
+    /// elke vijf seconden terugkomen): de reden staat in het wolkje bij de druk.</summary>
+    private double? _druk;
+    private string? _drukFout;
+    private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
+    private string DrukTag => Config["Plc:CompressorDrukTag"] is { Length: > 0 } eigen ? eigen.Trim() : Gebouw.CompressorDrukTag;
     private Timer? _klok;
     private string? _melding;
     private bool _fout;
@@ -49,6 +62,9 @@
     {
         try { _draait = await Plc.LeesAsync(Gebouw.CompressorDraaitTag); }
         catch (Exception ex) { Toon("Stand ophalen mislukt: " + ex.Message, true); }
+
+        try { _druk = await Plc.LeesGetalAsync(DrukTag); _drukFout = null; }
+        catch (Exception ex) { _druk = null; _drukFout = ex.Message; }
     }
 
     private async Task Klik(Knop knop)

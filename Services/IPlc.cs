@@ -22,6 +22,9 @@ public interface IPlc
     Task<Dictionary<string, bool>> LeesAsync(IEnumerable<string> tags);
     Task SchrijfAsync(string tag, bool waarde);
 
+    /// <summary>Een getal lezen (LREAL in de PLC), bv. de druk van het buffervat van de compressor.</summary>
+    Task<double> LeesGetalAsync(string tag);
+
     /// <summary>Even aan en weer uit — voor knoppen als Omhoog, Stop en Alles uit.</summary>
     Task PulsAsync(string tag, int milliseconden = 300);
 }
@@ -57,6 +60,10 @@ public class DemoPlc : IPlc
         _standen[tag] = waarde;
         return Task.CompletedTask;
     }
+
+    /// <summary>In de demo een getal dat rustig op en neer gaat (rond 7 bar), zodat het scherm iets laat zien.</summary>
+    public Task<double> LeesGetalAsync(string tag)
+        => Task.FromResult(Math.Round(7.0 + 0.8 * Math.Sin(DateTime.Now.TimeOfDay.TotalSeconds / 20), 2));
 
     /// <summary>
     /// In de demo doet een puls wat de PLC zou doen: de bijbehorende _Status-tag

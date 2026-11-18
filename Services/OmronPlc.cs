@@ -25,6 +25,9 @@ public class OmronPlc : IPlc
     // Eén tag-object per variabele hergebruiken: dat scheelt verbindingen opbouwen.
     private readonly ConcurrentDictionary<string, Tag<BoolPlcMapper, bool>> _tags = new(StringComparer.OrdinalIgnoreCase);
 
+    // Getallen (LREAL, 8 bytes) hebben een eigen soort tag-object.
+    private readonly ConcurrentDictionary<string, Tag<LrealPlcMapper, double>> _getallen = new(StringComparer.OrdinalIgnoreCase);
+
     public OmronPlc(IConfiguration config, ILogger<OmronPlc> log)
     {
         _adres = config["Plc:Adres"] ?? "";
@@ -54,6 +57,29 @@ public class OmronPlc : IPlc
         try
         {
             var t = Tag(tag);
+            await t.ReadAsync();
+            return t.Value;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Lezen van {Tag} mislukte", tag);
+            throw new InvalidOperationException(Uitleg(tag, ex));
+        }
+    }
+
+    public async Task<double> LeesGetalAsync(string tag)
+    {
+        try
+        {
+            var t = _getallen.GetOrAdd(tag, n => new Tag<LrealPlcMapper, double>
+            {
+                Name = n,
+                Gateway = _adres,
+                Path = "18," + _adres,
+                PlcType = PlcType.Omron,
+                Protocol = Protocol.ab_eip,
+                Timeout = TimeSpan.FromSeconds(_timeoutSeconden),
+            });
             await t.ReadAsync();
             return t.Value;
         }
@@ -142,6 +168,11 @@ public class OmronPlc : IPlc
             || melding.Contains("not found", StringComparison.OrdinalIgnoreCase))
             return $"De PLC kent de variabele '{tag}' niet. Staat hij op 'Publish Only' " +
                    "in de variabelentabel van Sysmac Studio?";
+
+        // Een naam met een punt (programma.variabele of structuur.lid) kan libplctag bij een Omron niet opvragen.
+        if (melding.Contains("ErrorBadParam", StringComparison.OrdinalIgnoreCase) && tag.Contains('.'))
+            return $"'{tag}' is zo niet te lezen: een variabele in een programma of een lid van een structuur kan niet " +
+                   "over EtherNet/IP. Maak een globale variabele met Network Publish 'Publish Only' en gebruik die naam.";
 
         if (melding.Contains("timeout", StringComparison.OrdinalIgnoreCase))
             return $"Geen antwoord van de PLC op {_adres} binnen {_timeoutSeconden} seconden. " +

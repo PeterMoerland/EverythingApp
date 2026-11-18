@@ -2455,6 +2455,25 @@ Mechanisch .6, Mancave .43 (+ .44), Fablab .215. Volume zetten getest door de ge
   `GetMediaInfo`, nummer uit `streamContent`; TV (`x-sonos-htastream`) en Line-in (`x-rincon-stream`) apart.
   Hoes via de server: `/sonos/hoes/{uuid}` (alleen bekende speakers, alleen image/*). Ververst elke 5 s.
 
+## Compressor: systeemdruk (18-11-2026)
+
+Wens gebruiker: de druk tonen op de compressorpagina (LREAL, in bar). Eerst opgegeven als
+`pLights.Compressor_BufferTankLevel` (niet te lezen, zie onder), daarna de globale **`HMI_SystemPressure`**.
+- `IPlc.LeesGetalAsync(tag)` (nieuw, tot nu toe las de koppeling alleen BOOL): `OmronPlc` met
+  `Tag<LrealPlcMapper, double>` (eigen cache `_getallen`), `DemoPlc` geeft een getal rond 7 dat op en neer gaat.
+  `Components/CompressorPaneel.razor` (desktop en `/mobiel/compressor`) leest hem elke 5 s samen met de status en toont
+  "6,3 bar · systeemdruk"; mislukt het lezen, dan "– bar · geen meting" met de reden in het wolkje (geen melding
+  bovenaan: die zou elke 5 s terugkomen).
+- **De opgegeven naam is niet te lezen** (proef vanaf de ontwikkel-pc tegen 172.16.3.3, alleen lezen; de status
+  `HMI_CompressorStatus` kwam wel door): `pLights.Compressor_BufferTankLevel` geeft bij libplctag `ErrorBadParam` (een
+  naam met een punt kan bij PlcType Omron niet), en `pLights` en `Compressor_BufferTankLevel` los geven
+  `ErrorNotFound`. `pLights` is dus een programma (of een niet-gepubliceerde structuur): alleen een **globale variabele
+  met Network Publish "Publish Only"** is over EtherNet/IP op te vragen, zoals de `HMI_`-variabelen.
+  `Gebouw.CompressorDrukTag` = `HMI_SystemPressure` (keuze gebruiker); een andere naam kan met `Plc:CompressorDrukTag`
+  in appsettings.json. `OmronPlc.Uitleg` zegt het bovenstaande bij een naam met een punt.
+- **Gelezen uit de echte PLC** (scratchpad-console `druktoets`, alleen lezen): `HMI_SystemPressure` is 8 bytes en gaf
+  met `LrealPlcMapper` 6,30 / 6,30 / 6,29 bar. De pagina zelf is alleen in de demostand bekeken.
+
 ## Gebouwbeheer als zwevend venster (okt 2026)
 
 Op verzoek: Gebouwbeheer is iets voor even tussendoor, dus het menu opent het als zwevend venster rechts boven
