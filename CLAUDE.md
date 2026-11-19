@@ -1615,6 +1615,123 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Facturen: nieuwe relatie aanmaken vanuit het factuurvenster (19-11-2026)
+
+Wens gebruiker: "ik scan een bon van Piet Puk en die staat nog niet in de relatietabel: via een pop-up toevoegen, met
+ingevuld wat al kan op basis van de bon of factuur". Geen nieuw venster gebouwd maar `RelatieUitScreenshot.razor`
+(Relaties ▸ ✨ Uit screenshot) hergebruikt, met vier nieuwe parameters:
+
+- `BronInhoud` + `BronSoort`: een bestand om meteen te lezen; de keuzestap (plakken of bestand kiezen) vervalt dan.
+  `Vooraf` (`RelatieUitBeeld`): wat de aanroeper al weet; vult aan wat de AI niet vond (naam, IBAN, BIC, btw-nummer;
+  een geldige IBAN gaat voor op een verkeerd gelezen) en is het formulier als er geen bestand is, Bedrock uit staat of
+  het lezen mislukt. `Kop`: eigen titel. `OnParametersSet` is `OnParametersSetAsync` geworden (zet `_wasOpen` vóór het
+  wachten); het deel na het lezen staat in `ToonFormulier` (land, BIC afleiden, bestaat hij al, is het MDE zelf).
+- `FactuurVenster.razor`: knop **+ nieuwe relatie** naast 🔍 zoeken en een link bij "Niets gevonden" (alleen met
+  `MagInvoeren`). `NieuweRelatie()` neemt het bestand uit het voorbeeld (`_keuzeLos`, anders het eerste leesbare in
+  `_gekozen`) en `Vooraf` uit `_gelezen` (wat de factuurlezer vond) of de zoektekst. `RelatieGekozen` kiest de relatie
+  via `KiesLeverancier` (met de aliasvraag als de naam op de factuur afwijkt) en draait `ControleerIban`. Het
+  relatievenster staat **buiten** het factuurvenster in de opmaak: dat is verplaatsbaar, en een vast venster binnen
+  een verschoven venster komt verkeerd te staan.
+- Een al opgeslagen factuur heeft zijn bestanden niet meer in het geheugen: dan opent het formulier met alleen de
+  naam, en kun je via "← Ander screenshot" alsnog iets laten lezen.
+- Het kost een extra aanroep van Bedrock per nieuwe relatie (de factuurlezer leest geen adres, KvK of contactgegevens).
+- **Getest:** het relatievenster met bron en gegevens vooraf, via een tijdelijke patch op de pagina Relaties en een
+  verzonnen bon (PNG): opent direct, leest alle velden, neemt de BIC van vooraf over, markeert een verkeerd gelezen
+  IBAN, Escape sluit zonder iets aan te maken. **Niet getest:** de knop en de afhandeling in het factuurvenster zelf
+  (Financiën is lokaal zonder aanmelding afgeschermd en die afscherming is niet opzijgezet), het echte Aanmaken, en
+  het pad zonder bestand.
+
+## Escape sluit het bovenste venster, op één plek geregeld (19-11-2026)
+
+Wens gebruiker: "pop-ups zouden met Escape (direct na openen) gesloten mogen worden; dit is nog niet overal". Oorzaak:
+van de ruim honderd vensters in `.cmdk-overlay` ving een deel Escape zelf in Blazor (`@onkeydown`), maar alleen met de
+cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost maar met een vangnet:
+`wwwroot/vensters.js` (geladen in `App.razor`).
+
+- Escape → 180 ms wachten of iets anders de toets afhandelt: verandert er iets binnen de bovenste `.cmdk-overlay`
+  (MutationObserver), is hij weg, of is de focus verplaatst, dan niets doen. Anders de **sluitknop in de kop**
+  aanklikken: een `button` met alleen `✕`/`×` (of `✕ Sluiten`), zonder titel of met een titel die met "Sluit" begint,
+  hoogstens 90 px onder de bovenkant van het venster. Zo telt een ✕ voor Wissen of een regel weghalen niet mee. Het is
+  dus precies een klik op ✕, met dezelfde controles van het venster. Geen sluitknop: `mousedown` + `click` op de
+  overlay nadoen (vensters die sluiten bij een klik ernaast). Een uitgeschakelde knop blijft uit.
+- Bovenste venster = hoogste z-index, bij gelijk de laatste in het document (`laag2`, `voorbeeld-laag`).
+- Cursor in een `select`: alleen `blur()`, de volgende Escape sluit (een open keuzelijst sluit zelf op Escape).
+- **Een nieuw venster doet dus vanzelf mee** als het in `.cmdk-overlay` staat en een `✕` in de kop heeft. Wil je dat
+  een venster niet met Escape sluit: geen ✕-knop in de kop en geen klik-ernaast.
+- Niet via dit vangnet: `mdeBevestig` (eigen Escape, in de capture-fase), het Activity board (`.ab-drawer`,
+  `.ab-modal`, `.ab-menu`), `.snel-modal` en het videovenster.
+- **Getest** in de browser: Nieuwe bestelling sluit met Escape direct na openen (cursor op de pagina), het zoekpalet
+  sluit nog gewoon, en met nagemaakte vensters de acht gevallen (kopknop naast een lagere ✕, alleen "Wissen ✕" +
+  klik-ernaast, "✕ Sluiten" met andere titel, eerst iets anders dat dichtklapt, keuzelijst, uitgeschakelde knop, twee
+  lagen, geen venster). **Niet getest:** de overige echte vensters een voor een (lokaal zonder aanmelding niet te
+  openen), vooral de productie- en testvensters in `ExemplaarWerk`, en een venster waarin voortdurend iets ververst
+  (dan slaat Escape die keer over).
+
+## Activity board: API voor Claude Code; bord loopt door (19-11-2026)
+
+- **API** (punt van Gerard: "een API zodat Claude het board extern kan manipuleren"; besluit gebruiker: Claude Code
+  binnen het netwerk, geen MCP, geen toegang van buiten). `Services/ActivityBoardApi.cs` (`MapActivityBoardApi`, in
+  `Program.cs` vlak voor `MapRazorComponents`), adressen onder `/api/activityboard`. Uitleg voor gebruikers:
+  `ActivityBoard-API.md`; skill voor Claude Code: `Skills/mde-activity-board/SKILL.md` (kopiëren naar
+  `%USERPROFILE%\.claude\skills\mde-activity-board\`).
+  - **Toegang:** geen Google-login. Kop `X-Sleutel` (of `Authorization: Bearer`), config `ActivityBoardApi:Sleutels`
+    = lijst van `{ Sleutel, WerknemerId }`. Sleutel korter dan 32 tekens telt niet; geen geldige regels of geen
+    database = 404 op alles. Vergelijken op SHA-256 in vaste tijd, 400 ms wachten bij een verkeerde sleutel. De
+    werknemer moet `Kiesbaar` zijn (in dienst, persoon), anders 403. Alles staat op naam van die werknemer
+    (`GemaaktDoor`, `GewijzigdDoor`); in het logboek komt de naam, nooit de sleutel.
+  - **Kan:** `GET /` (wie ben ik, statussen, velden, adressen), `/boards?zoek=`, `/boards/{id}` (`open`, `mijn`,
+    `status`, `tekst`), `/mijn?persoon=`, `/zoek?q=` (`open`, `board`, `overal`; hoogstens 100), `/personen`,
+    `/activiteiten/{id}`; `POST /boards/{id}/activiteiten` (object of lijst tot 50; eerst alles nalopen, dan pas
+    schrijven), `PATCH /activiteiten/{id}` (alleen genoemde velden; lijsten vervangen), `POST
+    /boards/{id}/onderwerpen` en `/types` (bestaande naam komt terug met `bestond: true`).
+  - **Kan bewust niet:** verwijderen, boards maken of koppelen, volgorde binnen een vak (slepen).
+  - **Zelfde regels als het scherm:** sluitdatum bij een klaar-status en weg bij terugzetten, nieuwe activiteit
+    onderaan haar vak (`Baan` = `Lane` van het scherm), melding in de bel voor wie wordt toegewezen (niet aan jezelf),
+    en `ActivityBoardLive.Meld` met een eigen bron-Guid zodat elk open board ververst.
+  - **Invoer:** status op code of naam, prioriteit op naam of 1-3, personen op id, hele naam, deel van de naam (als
+    dat er één oplevert) of "ik"; onderwerpen en types op naam of id **van dat board**. Een onbekend veld is een fout
+    (400 met de bekende velden), niet stil overslaan. Fouten als `{ "fout": "…" }` in gewone taal.
+  - **Valkuilen (gevonden bij het proberen):** een lambda met alleen `HttpContext` wordt als `RequestDelegate`
+    gebonden en gooit het `IResult` weg (lege 200, waarschuwing ASP0016): daarom `Route(...)`. En
+    `ReadFromJsonAsync<JsonElement>` neemt ongeldige UTF-8 aan en struikelt pas bij `GetString()` (500): `Body` leest
+    de bytes zelf, streng als UTF-8. Windows PowerShell 5 stuurt een tekst-body niet als UTF-8; de uitleg laat
+    `[Text.Encoding]::UTF8.GetBytes` zien.
+  - `/mijn` en `/zoek` laden elk board in zijn geheel (`LaadAsync`): goed bij tientallen boards, bij honderden hoort
+    daar een eigen query.
+  - **Getest** (lokaal, demo-modus zonder database, board in het geheugen, een testsleutel via omgevingsvariabelen;
+    curl en Windows PowerShell): alle adressen, de foutpaden (geen/verkeerde/te korte sleutel, onbekend veld,
+    onbekend onderwerp, naam die bij twee personen past, uit dienst, geen JSON, verkeerde codering, 51 in een keer,
+    fout in nummer 2 van een lijst = niets aangemaakt), 45 kaartjes in een keer, é en ö heen en terug, en dat een
+    open board in de browser de kaartjes toont zonder verversen. **Niet getest:** tegen de echte database, de melding
+    in de bel (in demo-modus is er geen meldingentabel), `Authorization: Bearer`, of de app `appsettings.json`
+    opnieuw inleest na het toevoegen van een sleutel, en de skill in een echte Claude Code-sessie.
+  - **Nog open (feedback Gerard, zelfde dag):** hij beschrijft het model uit Notion: statussen per board met eigen
+    namen, labelgroepen per board (Team, Type, Probleem …), versie, bijlagen en opmerkingen per kaartje, en een
+    eenmalige migratie van vier Notion-boards (294 kaartjes). Dat is een wijziging van het board zelf (tabellen en
+    scherm), niet van de API, en is **niet gebouwd**: het board heeft acht vaste statussen en twee vaste groepen
+    (Onderwerpen, Types). Voor een migratie ontbreekt in de API bovendien het zetten van aanmaak- en sluitdatum en
+    van de initiator. Wacht op een besluit van de gebruiker.
+- **Kaart openen: icoon, Enter, en meteen na aanmaken** (wens gebruiker, zelfde dag).
+  - `button.ab-kopen` in `.ab-ktitel` (float rechts, de titel loopt eromheen; `tabindex="-1"`, want Enter op de kaart
+    doet hetzelfde) roept `OpenPaneel(a)`. De sleep- en kiescode in `activityboard.js` slaat knoppen al over.
+  - Snel aanmaken in een vak: `SnelOpslaan(open)`. Enter en Klaar openen daarna de pop-up (`OpenPaneel` +
+    `_openNieuw = true`, zodat `Verlaten` meldt als de kaart met de filters niet te zien is); een klik ernaast
+    (`SnelBlur`) bewaart alleen. "+ Activiteit" opende de pop-up al.
+  - Enter: na een klik heeft de kaart de focus en opent `KaartToets` hem (dat werkte al). Nieuw is een vangnet in
+    `activityboard.js`: Enter met een gekozen kaart (`.gekozen`) terwijl de focus elders staat (body na het sluiten
+    van de pop-up of na verversen) roept `KaartDubbel`. Niet in een invoerveld, op een knop of met pop-up/menu open.
+  - **Getest** in de browser: alle drie. **Niet getest:** de tabellen (regels hebben geen icoon), aanraakscherm,
+    donker thema.
+- **Bord en tabellen lopen door** (wens gebruiker: "nu het board in een venster staat los van de menu's, geen
+  verticale scroll op het board zelf"). `app.css` onder `.ab-tabwrap`, alleen `@media screen and (min-width: 900px)`:
+  `#ab-wrap` en `.ab-tabwrap` hebben `max-height: none; overflow: visible`. Daardoor plakken `.ab-kolkop`, de `th` van
+  de tabellen en `.ab-totaal` aan `main.inhoud` (de kolomkoppen staan direct onder de bovenbalk). Is het bord of de
+  tabel breder dan het werkscherm, dan schuift het werkscherm opzij (gezien bij 1000 px breed: de tabel 491 px).
+  `activityboard.js`: slepen bij de rand schuift nu binnen de randen van `main.inhoud` in plaats van die van het
+  venster. Smaller dan 900 px: het oude eigen schuifvlak. **Getest** met 45 kaartjes op 1500x850: het bord is 2694 px
+  hoog zonder eigen schuifbalk, de koppen blijven staan, tabel idem. **Niet getest:** slepen met meeschuiven, de
+  totaalregel onder de tabel (was er niet in de proef), donker thema.
+
 ## Menu en bovenbalk blijven staan; statusnamen Voorstel en Geaccepteerd (19-11-2026)
 
 - **Alleen het werkscherm schuift** (wens gebruiker: "het menu links en boven altijd in beeld, alleen het werkscherm een

@@ -125,6 +125,11 @@
                                 }
                                 <button class="klein" title="Zoeken in de relaties"
                                         @onclick="() => _zoekOpen = !_zoekOpen">🔍 zoeken</button>
+                                @if (MagInvoeren)
+                                {
+                                    <button class="klein" title="Staat de leverancier nog niet bij Relaties? Maak hem hier aan; wat op de factuur of bon staat wordt alvast ingevuld"
+                                            @onclick="NieuweRelatie">+ nieuwe relatie</button>
+                                }
                             </div>
                         </div>
 
@@ -142,7 +147,13 @@
                                     }
                                     else if (_leveranciers.Count == 0 && _leverancierZoek.Trim().Length >= 2)
                                     {
-                                        <p class="zij-extra">Niets gevonden. Staat hij al bij Relaties?</p>
+                                        <p class="zij-extra">
+                                            Niets gevonden. Staat hij al bij Relaties?
+                                            @if (MagInvoeren)
+                                            {
+                                                <button class="todo-link" @onclick="NieuweRelatie">Nieuwe relatie toevoegen</button>
+                                            }
+                                        </p>
                                     }
 
                                     <div class="wn-namen kort">
@@ -625,6 +636,12 @@
             Sluiten="() => _koppelOpen = false"
             PoGekozen="PoGekozen"
             WerkorderGekozen="WerkorderGekozen" />
+
+@* Leverancier staat nog niet bij Relaties: aanmaken vanuit de factuur zelf (zie NieuweRelatie). Buiten het factuurvenster
+   gezet: dat is verplaatsbaar, en een vast venster binnen een verschoven venster komt verkeerd te staan. *@
+<RelatieUitScreenshot Open="_relatieNieuw" Kop="✨ Nieuwe leverancier uit deze factuur"
+                      BronInhoud="_relatieBron" BronSoort="@_relatieBronSoort" Vooraf="_relatieVooraf"
+                      OpGekozen="RelatieGekozen" OpGesloten="() => _relatieNieuw = false" />
 
 @code {
     private const int StoreTypeFactuur = 1;
@@ -1399,6 +1416,47 @@
             }
         }
         catch { _leveranciers = new(); }
+    }
+
+    // ---- nieuwe relatie vanuit de factuur (wens gebruiker 19-11-2026) ----
+    // "Ik scan een bon van Piet Puk en die staat nog niet bij Relaties": het venster van Relaties ▸ Uit screenshot, maar
+    // gestart met de factuur of bon die hier al in beeld staat. De AI leest naam, adres, KvK, btw-nummer en bank; wat het
+    // uitlezen van de factuur al opleverde (naam, IBAN, BIC, btw-nummer) vult aan en is het formulier als er geen
+    // leesbaar bestand is. Het venster controleert zelf of de relatie al bestaat.
+    private bool _relatieNieuw;
+    private byte[]? _relatieBron;
+    private string? _relatieBronSoort;
+    private RelatieUitBeeld? _relatieVooraf;
+
+    private void NieuweRelatie()
+    {
+        if (!MagInvoeren) return;
+        // het bestand dat in het voorbeeld staat, anders het eerste leesbare
+        var best = _keuzeLos is { IsLeesbaar: true } k ? k : _gekozen.FirstOrDefault(b => b.IsLeesbaar);
+        _relatieBron = best?.Inhoud;
+        _relatieBronSoort = best is null ? null : Path.GetExtension(best.Naam).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf", ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg",
+        };
+        _relatieVooraf = new RelatieUitBeeld
+        {
+            Naam = _gelezen?.Leverancier is { Length: > 0 } n ? n : _leverancierZoek.Trim(),
+            Iban = _gelezen?.Iban ?? "", Bic = _gelezen?.Bic ?? "", Btw = _gelezen?.BtwNummer ?? "",
+        };
+        _relatieNieuw = true;
+    }
+
+    private async Task RelatieGekozen((int Id, string Naam, bool Nieuw) r)
+    {
+        _relatieNieuw = false;
+        _relatieBron = null;
+        // de naam van de factuur in het zoekvak: wijkt die af van de gekozen naam, dan vraagt KiesLeverancier of hij
+        // dat verband mag onthouden
+        if (_gelezen?.Leverancier is { Length: > 0 } opFactuur) _leverancierZoek = opFactuur;
+        await KiesLeverancier(new Keuze(r.Id, r.Naam));
+        if (_gelezen is not null) ControleerIban(_gelezen);
+        Toon(r.Nieuw ? $"'{r.Naam}' is toegevoegd aan Relaties en gekozen als leverancier. Kijk de gegevens daar later nog na."
+                     : $"Bestaande relatie '{r.Naam}' gekozen als leverancier.", false);
     }
 
     private async Task KiesLeverancier(Keuze l)

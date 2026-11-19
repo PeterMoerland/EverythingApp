@@ -8,6 +8,11 @@
    contactpagina, e-mailhandtekening of visitekaartje (Services/RelatieLezer.cs, via Bedrock). Eerst een formulier om na
    te kijken, met een controle of de relatie al bestaat (KvK, btw-nummer, IBAN, naam) en op het IBAN-controlegetal.
    Plakken gaat via wwwroot/klembord.js (koppelPlakken / afbeelding), net als bij Bestellingen ▸ Uit screenshot.
+
+   Ook vanuit het factuurvenster (wens gebruiker 19-11-2026: "bij een nieuwe factuur een relatie kunnen toevoegen, met
+   ingevuld wat al op de bon of factuur staat"): met BronInhoud/BronSoort slaat het venster de keuzestap over en leest
+   het meteen dat bestand. Vooraf = wat de aanroeper al weet (naam, IBAN, BIC, btw-nummer): vult aan wat de AI niet
+   vond, en is het formulier als er geen bestand is of het lezen mislukt.
    ============================================================================ *@
 
 @if (Open)
@@ -15,7 +20,7 @@
     <div class="cmdk-overlay midden" @onclick="Sluit">
         <div class="kiezer pk-venster ru-venster" @onclick:stopPropagation @onkeydown="Toets" role="dialog" aria-modal="true" aria-label="Relatie uit screenshot">
             <div class="kiezer-kop">
-                <b>✨ Leverancier uit een screenshot of PDF</b>
+                <b>@(Kop ?? "✨ Leverancier uit een screenshot of PDF")</b>
                 <span style="flex:1"></span>
                 <button class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
             </div>
@@ -107,7 +112,10 @@
             <div class="kiezer-voet">
                 @if (_fase == Fase.Voorbeeld)
                 {
-                    <button class="klein" @onclick="Opnieuw">← Ander screenshot</button>
+                    @if (Lezer.Beschikbaar)
+                    {
+                        <button class="klein" title="Een ander screenshot of bestand laten lezen" @onclick="Opnieuw">← Ander screenshot</button>
+                    }
                     <span style="flex:1"></span>
                     <button class="primair" disabled="@(_bezig || (_r?.Naam.Trim().Length ?? 0) < 2)" @onclick="Aanmaken">
                         @(_bezig ? "Aanmaken…" : "Aanmaken")
@@ -128,6 +136,14 @@
     /// <summary>Aangemaakt of bestaande gekozen: Relaties opent die.</summary>
     [Parameter] public EventCallback<(int Id, string Naam, bool Nieuw)> OpGekozen { get; set; }
     [Parameter] public EventCallback OpGesloten { get; set; }
+    /// <summary>Een bestand om meteen te lezen (bv. de factuur uit het factuurvenster); dan geen keuzestap.</summary>
+    [Parameter] public byte[]? BronInhoud { get; set; }
+    /// <summary>Mediasoort van <see cref="BronInhoud"/>: application/pdf, image/png, image/jpeg of image/webp.</summary>
+    [Parameter] public string? BronSoort { get; set; }
+    /// <summary>Wat de aanroeper al weet; vult aan wat de AI niet vond en is het formulier als er niets te lezen valt.</summary>
+    [Parameter] public RelatieUitBeeld? Vooraf { get; set; }
+    /// <summary>Eigen titel in de kop.</summary>
+    [Parameter] public string? Kop { get; set; }
 
     private enum Fase { Kiezen, Lezen, Voorbeeld }
     private Fase _fase;
@@ -140,11 +156,21 @@
     private ElementReference _plakvak;
     private DotNetObjectReference<RelatieUitScreenshot>? _ref;
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        if (Open && !_wasOpen) Opnieuw();
-        _wasOpen = Open;
+        var nuOpen = Open && !_wasOpen;
+        _wasOpen = Open;      // voor het wachten hieronder: tijdens het lezen komen de parameters nog eens langs
+        if (!nuOpen) return;
+        Opnieuw();
+        if (BronInhoud is { Length: > 0 } inhoud && BronSoort is { Length: > 0 } soort && Lezer.Beschikbaar) await Lees(inhoud, soort);
+        else if (Vooraf is not null) await ToonFormulier(Kopie(Vooraf), null, "");
     }
+
+    private static RelatieUitBeeld Kopie(RelatieUitBeeld v) => new()
+    {
+        Naam = v.Naam, Adres = v.Adres, Postcode = v.Postcode, Plaats = v.Plaats, Land = v.Land, Telefoon = v.Telefoon,
+        Email = v.Email, Website = v.Website, Kvk = v.Kvk, Btw = v.Btw, Iban = v.Iban, Bic = v.Bic,
+    };
 
     private void Opnieuw()
     {
@@ -208,8 +234,31 @@
         _fase = Fase.Lezen;
         StateHasChanged();
         var (uit, fout) = await Lezer.LeesAsync(inhoud, soort);
-        if (uit is null) { _fout = fout; _fase = Fase.Kiezen; _koppelen = true; StateHasChanged(); return; }
+        if (!Open) return;      // intussen gesloten
+        if (uit is null)
+        {
+            // lezen mislukt: met gegevens vooraf toch het formulier (zelf invullen), anders terug naar de keuzestap
+            if (Vooraf is not null) { await ToonFormulier(Kopie(Vooraf), null, ""); _fout = fout + " Vul de gegevens zelf in, of probeer een ander screenshot."; }
+            else { _fout = fout; _fase = Fase.Kiezen; _koppelen = true; }
+            StateHasChanged();
+            return;
+        }
+        if (Vooraf is { } v)
+        {
+            // wat de aanroeper al wist en de AI nu niet vond
+            if (uit.Naam.Length == 0) uit.Naam = v.Naam;
+            // een IBAN waarvan het controlegetal klopt gaat voor op een verkeerd gelezen (bij de proef viel er een cijfer weg)
+            if (uit.Iban.Length == 0 || (!Bankgegevens.IbanGeldig(uit.Iban) && Bankgegevens.IbanGeldig(v.Iban))) uit.Iban = v.Iban;
+            if (uit.Bic.Length == 0) uit.Bic = v.Bic;
+            if (uit.Btw.Length == 0) uit.Btw = v.Btw;
+        }
+        await ToonFormulier(uit, inhoud, soort);
+    }
 
+    /// <summary>Het formulier om na te kijken, met de controles: land, IBAN, BIC, bestaat hij al, is het MDE zelf.</summary>
+    private async Task ToonFormulier(RelatieUitBeeld uit, byte[]? inhoud, string soort)
+    {
+        _fout = null;
         _r = uit;
         if (_landen.Count == 0) { try { _landen = await Repo.GetLandenAsync(); } catch { } }
         _landId = _landen.FirstOrDefault(l => l.Naam.Equals(uit.Land, StringComparison.OrdinalIgnoreCase))?.Id;
@@ -220,7 +269,7 @@
             uit.Iban = kort;
         }
         if (uit.Bic.Length == 0 && Bankgegevens.BicUitIban(uit.Iban) is { } bic) uit.Bic = bic;
-        _voorbeeldUrl = soort.StartsWith("image/") && inhoud.Length < 4_000_000 ? $"data:{soort};base64,{Convert.ToBase64String(inhoud)}" : null;
+        _voorbeeldUrl = inhoud is not null && soort.StartsWith("image/") && inhoud.Length < 4_000_000 ? $"data:{soort};base64,{Convert.ToBase64String(inhoud)}" : null;
         try { _dubbel = await Repo.MogelijkDezelfdeAsync(uit.Naam, uit.Kvk, uit.Btw, uit.Iban); } catch { _dubbel = new(); }
         // overeenkomst met een eigen BV (Werkmaatschappij/MDEBV) = de AI nam iets van MDE zelf over: die velden leegmaken
         foreach (var eigen in _dubbel.Where(d => d.Reden.StartsWith("EIGEN BV")).ToList())

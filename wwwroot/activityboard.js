@@ -87,6 +87,20 @@
         roep('KaartDubbel', parseInt(kaart.dataset.id));
     });
 
+    // Enter opent de gekozen kaart (rode rand), ook als de cursor er niet op staat: na een klik op een kaart heeft die de
+    // focus en regelt Blazor het zelf (KaartToets); dit is voor de keren dat de focus elders is (body na verversen, na
+    // het sluiten van een venster). Niet in een invoerveld, op een knop of met een pop-up, venster of menu open.
+    document.addEventListener('keydown', function (e) {
+        if (!doel || s || e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+        if (document.querySelector('.ab-drawer, .ab-modal, .ab-menu')) return;
+        const t = e.target;
+        if (t && t.closest && t.closest('input, textarea, select, button, a, [role="button"], [tabindex], [contenteditable="true"]')) return;
+        const k = document.querySelector('.page.ab .ab-kaart.gekozen[data-id], .page.ab tr.ab-rij.gekozen[data-id]');
+        if (!k) return;
+        e.preventDefault();
+        roep('KaartDubbel', parseInt(k.dataset.id));
+    });
+
     // Klik op een lege plek van het board (geen kaart, regel, knop of invoerveld): er is geen kaart meer gekozen.
     // Tijdens slepen heeft body de muis vast: dan is het doel body. Alleen melden als er iets gekozen is.
     document.addEventListener('click', function (e) {
@@ -205,7 +219,10 @@
             if (s.x < r.left + rand) wrap.scrollLeft -= stap; else if (s.x > r.right - rand) wrap.scrollLeft += stap;
             if (s.y < r.top + rand) wrap.scrollTop -= stap; else if (s.y > r.bottom - rand) wrap.scrollTop += stap;
         }
-        if (s.y < rand) paginaSchuif(-stap); else if (s.y > window.innerHeight - rand) paginaSchuif(stap);
+        // de randen van wat er schuift: het werkscherm (onder de bovenbalk), anders het venster
+        const m = document.querySelector('main.inhoud');
+        const mr = m && m.scrollHeight > m.clientHeight ? m.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+        if (s.y < mr.top + rand) paginaSchuif(-stap); else if (s.y > mr.bottom - rand) paginaSchuif(stap);
         beweeg();
         s.raf = requestAnimationFrame(autoScroll);
     }

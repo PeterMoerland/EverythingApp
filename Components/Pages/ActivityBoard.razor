@@ -366,7 +366,10 @@ else
                                 {
                                     <div class="ab-kaart @KaartKlasse(a)" tabindex="0" role="button" data-id="@a.Id" @key="a.Id" title="@OpenTip"
                                          @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
-                                        <div class="ab-ktitel">@a.Titel</div>
+                                        <div class="ab-ktitel">
+                                            @* knopje om de eigenschappen te openen (wens gebruiker 19-11-2026), naast dubbelklik en Enter; niet in de tabvolgorde, Enter op de kaart doet hetzelfde *@
+                                            <button type="button" class="ab-kopen" tabindex="-1" title="Eigenschappen openen" aria-label="Eigenschappen openen"
+                                                    @onclick="() => OpenPaneel(a)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" /></svg></button>@a.Titel</div>
                                         @if (a.Personen.Count > 0)
                                         {
                                             <div class="ab-wie">@foreach (var pid in a.Personen) { @PersoonHtml(pid) }</div>
@@ -390,7 +393,7 @@ else
                                                @oninput="e => sn.Titel = (string?)e.Value ?? string.Empty"
                                                @onkeydown="SnelToets" @onblur="SnelBlur" />
                                         <div class="ab-sn-voet"><span>Enter klaar · Esc annuleren</span>
-                                            <button type="button" class="ab-sn-ok" @onmousedown:preventDefault @onclick="SnelOpslaan">Klaar</button></div>
+                                            <button type="button" class="ab-sn-ok" @onmousedown:preventDefault @onclick="() => SnelOpslaan(open: true)">Klaar</button></div>
                                     </div>
                                 }
                                 else
@@ -1900,7 +1903,7 @@ else
     private static string LaneSleutel(string lane) => "lane-" + lane;
 
     // Een klik kiest de kaart (rode rand), dubbelklik, Enter of het rechtermuismenu opent de eigenschappen in een pop-up.
-    private const string OpenTip = "Dubbelklik om te openen · rechtermuisknop voor meer";
+    private const string OpenTip = "Dubbelklik of Enter om te openen · rechtermuisknop voor meer";
     private int? _kaartGekozen;
 
     [JSInvokable]
@@ -2001,7 +2004,7 @@ else
     private async Task SnelToets(KeyboardEventArgs e)
     {
         if (e.Key == "Escape") _snel = null;
-        else if (e.Key == "Enter") await SnelOpslaan();
+        else if (e.Key == "Enter") await SnelOpslaan(open: true);
     }
 
     private async Task SnelBlur()
@@ -2009,10 +2012,14 @@ else
         // klik buiten de editor slaat op (aanname A4); zonder titel gewoon dicht
         if (_snel is null) return;
         if (_snel.Titel.Trim().Length == 0) { _snel = null; return; }
-        await SnelOpslaan();
+        await SnelOpslaan(open: false);
     }
 
-    private async Task SnelOpslaan()
+    /// <summary>
+    /// De getypte kaart aanmaken. Met Enter of Klaar (<paramref name="open"/>) gaan daarna meteen de eigenschappen open
+    /// (wens gebruiker 19-11-2026); bij een klik ernaast niet, dan wilde je ergens anders heen.
+    /// </summary>
+    private async Task SnelOpslaan(bool open)
     {
         if (_snel is not { } sn || _data is null) return;
         var titel = sn.Titel.Trim();
@@ -2033,6 +2040,12 @@ else
         if (!await Bewaar(async () => a.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, a, Ik.WerknemerId))) return;
         _data.Activiteiten.Add(a);
         await MeldToewijzing(a, a.Personen, nieuw: true);
+        if (open)
+        {
+            OpenPaneel(a);
+            _openNieuw = true;      // bij het sluiten melden als hij met deze filters niet te zien is (Verlaten)
+            return;
+        }
         Toon(Zichtbaar(a) ? $"\"{a.Titel}\" toegevoegd" : "Activiteit toegevoegd, maar met deze filters niet zichtbaar.");
     }
 

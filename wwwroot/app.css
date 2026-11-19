@@ -3641,6 +3641,14 @@ html[data-thema="donker"] .plakregel td { background: #1c2a3d; border-top-color:
             box-shadow: 0 1px 2px rgba(15, 15, 15, .04); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; position: relative; }
 .ab-kaart:hover { border-color: #cfcfcd; box-shadow: 0 2px 6px rgba(15, 15, 15, .08); }
 .ab-ktitel { font-weight: 500; font-size: 13px; line-height: 1.38; color: var(--ab-ink); word-break: break-word; }
+/* knopje rechtsboven op de kaart om de eigenschappen te openen (naast dubbelklik en Enter); de titel loopt eromheen */
+.ab-kopen { float: right; width: 20px; height: 20px; margin: -3px -5px 0 4px; padding: 0; display: inline-flex; align-items: center;
+            justify-content: center; border: none; border-radius: 3px; background: none; color: var(--ab-muted); cursor: pointer; opacity: .45; }
+.ab-kopen svg { width: 13px; height: 13px; }
+.ab-kaart:hover .ab-kopen, .ab-kaart:focus .ab-kopen, .ab-kaart.gekozen .ab-kopen { opacity: 1; }
+.ab-kopen:hover { background: rgba(0, 0, 0, .07); color: var(--ab-ink); }
+html[data-thema="donker"] .ab-kopen:hover { background: rgba(255, 255, 255, .12); }
+.ab-ghost .ab-kopen { visibility: hidden; }
 .ab-wie { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 11.5px; }
 .ab-wie-tabel { margin: 0; }
 .ab-kmeta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
@@ -3674,6 +3682,13 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 
 /* tabellen */
 .ab-tabwrap { background: var(--ab-wit); border: 1px solid var(--ab-rand); overflow: auto; max-height: calc(100vh - 24px); }
+/* Op een breed scherm schuift het werkscherm zelf (zie .inhoud), dus het bord en de tabellen lopen gewoon door: geen eigen
+   schuifbalk meer, een tweede naast die van het werkscherm (wens gebruiker 19-11-2026). Met overflow: visible plakken de
+   kolomkoppen (.ab-kolkop, th) en de totaalregel aan het werkscherm en blijven ze dus in beeld. Is het bord breder dan het
+   werkscherm, dan schuift het werkscherm ook opzij. Smal scherm: zoals het was, met een eigen schuifvlak. */
+@media screen and (min-width: 900px) {
+    #ab-wrap, .ab-tabwrap { max-height: none; overflow: visible; }
+}
 .ab-tabel { width: 100%; border-collapse: collapse; }
 .ab-tabwrap .ab-tabel { min-width: 980px; }
 .ab-tabel th { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ab-muted); font-weight: 600; text-align: left;

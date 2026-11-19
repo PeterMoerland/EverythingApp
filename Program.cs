@@ -1526,6 +1526,13 @@ app.MapGet("/api/componenten", async (HttpContext ctx, IEcComponentRepository ec
     return Results.Ok(lijst);
 });
 
+// ---------------------------------------------------------------------------
+// Activity board van buiten de browser (Claude Code binnen het netwerk): /api/activityboard/…
+// Geen Google-login maar een sleutel per persoon in de kop X-Sleutel (config ActivityBoardApi:Sleutels;
+// geen sleutels = uit). Zie Services/ActivityBoardApi.cs en ActivityBoard-API.md.
+// ---------------------------------------------------------------------------
+app.MapActivityBoardApi();
+
 var componenten = app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

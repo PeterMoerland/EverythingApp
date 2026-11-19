@@ -7,6 +7,11 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Facturen** — Nieuw: staat de leverancier van een factuur of bon nog niet bij Relaties, dan maak je hem aan vanuit het factuurvenster met **+ nieuwe relatie** (naast 🔍 zoeken, en bij "Niets gevonden"). De AI leest naam, adres, KvK, btw-nummer en bankgegevens van de factuur die in beeld staat; je kijkt het na en klikt Aanmaken, waarna hij meteen als leverancier is gekozen. Bestaat de relatie al, dan stelt het venster die voor (verzoek van Peter).
+- **Algemeen** — Verbeterd: Escape sluit nu elk venster (pop-up) met een ✕ in de kop, ook direct na het openen als je er nog niet in geklikt hebt. Staat de cursor in een keuzelijst of klapt er eerst iets anders dicht, dan sluit de volgende Escape het venster (verzoek van Peter).
+- **Activity board** — Verbeterd: elk kaartje heeft rechtsboven een icoontje om de eigenschappen te openen. Typ je een nieuwe kaart in een vak en druk je op Enter (of Klaar), dan gaan de eigenschappen meteen open. Enter opent het gekozen kaartje nu altijd, ook als de cursor er niet meer op staat (verzoek van Peter).
+- **Activity board** — Nieuw: een API waarmee Claude Code binnen het MDE-netwerk het board kan lezen en bijwerken: boards en kaartjes zoeken, open kaartjes per persoon, kaartjes aanmaken (ook een hele lijst tegelijk) en wijzigen. Elke gebruiker krijgt een eigen sleutel; wat ermee gebeurt staat op zijn naam. Verwijderen kan alleen in de app. Uitleg in ActivityBoard-API.md (punt van Gerard).
+- **Activity board** — Verbeterd: het bord en de tabellen lopen nu gewoon door, zonder eigen schuifbalk; je schuift met het werkscherm en de kolomkoppen blijven bovenin staan (verzoek van Peter).
 - **Verbeterverzoeken** — Verbeterd: bij Tonen kun je nu ook alleen Nieuw, Gepland of Bezig kiezen (verzoek van Peter).
 - **Algemeen** — Verbeterd: het menu links en de balk bovenin blijven altijd in beeld. Alleen het werkscherm krijgt een schuifbalk als de pagina niet past; op een andere pagina begin je weer bovenaan (verzoek van Peter).
 - **Activity board** — Verbeterd: de kolommen Backlog en Next heten nu Voorstel en Geaccepteerd. Aan de kaarten zelf verandert niets (punt van Gerard).
