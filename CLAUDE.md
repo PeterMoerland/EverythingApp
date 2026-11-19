@@ -1641,6 +1641,25 @@ ingevuld wat al kan op basis van de bon of factuur". Geen nieuw venster gebouwd 
   (Financiën is lokaal zonder aanmelding afgeschermd en die afscherming is niet opzijgezet), het echte Aanmaken, en
   het pad zonder bestand.
 
+## Projecten: werkorders meteen bij een nieuw project (19-11-2026)
+
+Wens gebruiker: "bij het aanmaken van een project een lijstje van 5 werkorders; minimaal 1 aangevinkt; omschrijving
+verplicht op een aangevinkte; een vinkje Inkoop toegestaan dat het veld van de werkorder instelt".
+
+- `Projecten.razor`, blok Nieuw project: `_nieuwWo` (vijf `NieuweWo`: Aan, Oms, Inkoop). De eerste staat aan, Inkoop
+  staat overal aan (dat is ook de standaard van een losse nieuwe werkorder). Een omschrijving typen in een regel die
+  uit staat, vinkt hem aan.
+- `MaakProject` controleert eerst alles (omschrijving project, minstens één werkorder, omschrijving per aangevinkte;
+  het lege veld kleurt rood) en schrijft dan pas: `NieuwProjectAsync`, daarna per regel in volgorde
+  `NieuweWerkorderAsync` (nummers lopen dus gelijk op met het lijstje) en, als Inkoop uit staat,
+  `UpdateWerkorderVeldAsync(id, "InkoopToegestaan", 0)`. Geen transactie over het geheel: mislukt een werkorder, dan
+  bestaat het project al; het formulier sluit dan, het project wordt geopend en de melding zegt hoeveel werkorders er
+  wel zijn (zo wordt het project niet per ongeluk nog eens aangemaakt).
+- **Getest** in de browser: de vijf regels, en de drie controles (lege omschrijving project, lege omschrijving
+  werkorder met rood veld, geen werkorder aangevinkt); Annuleren, niets aangemaakt (1514 projecten voor en na).
+  **Niet getest:** het aanmaken zelf (zou een project in de echte database schrijven), dus ook niet of Inkoop
+  toegestaan = nee goed in de werkorder komt.
+
 ## Meldingen zelf aan of uit zetten: tabblad Meldingen bij Werknemers (19-11-2026)
 
 Wens gebruiker: "de optie om meldingen te krijgen op diverse gebieden, in een aparte tab onder Werknemers; de eerste

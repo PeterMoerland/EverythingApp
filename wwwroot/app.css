@@ -301,6 +301,13 @@ html[data-thema="donker"] .wo-deel.leeg { background: #3a2a14; border-color: #b0
               display: flex; flex-direction: column; gap: .35rem; }
 .nieuw-blok .wn-veld { grid-template-columns: 1fr; gap: .1rem; }
 .nieuw-blok label { color: #555; font-size: .85em; }
+/* nieuw project: het lijstje werkorders (vinkje, omschrijving, Inkoop toegestaan) */
+.nieuw-wo { display: flex; flex-direction: column; gap: .25rem; }
+.nieuw-wo-rij { display: flex; align-items: center; gap: .4rem; }
+.nieuw-wo-rij .nieuw-wo-oms { flex: 1 1 0; min-width: 0; width: auto; }      /* krimpt mee: het blok is smal */
+.nieuw-wo-rij .nieuw-wo-oms.fout { border-color: #c0392b; background: #fdf0ee; }
+.nieuw-wo-rij.uit .nieuw-wo-oms, .nieuw-wo-rij.uit .vink { opacity: .55; }
+.nieuw-wo-rij .vink { white-space: nowrap; flex: 0 0 auto; font-weight: 400; }
 .wn-tabs button.terug { margin-right: .4rem; }
 .smal-tabel { max-width: 20rem; }
 .alleen-lezen { color: #555; }

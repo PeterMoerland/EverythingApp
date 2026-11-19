@@ -102,8 +102,31 @@
                                 </select>
                             </div>
                         }
+                        @* Meteen de werkorders erbij (wens gebruiker 19-11-2026): vijf regels, minstens één aangevinkt, een
+                           aangevinkte regel heeft een omschrijving nodig. Het vinkje erachter zet Inkoop toegestaan van die werkorder. *@
+                        <div class="wn-veld">
+                            <label>Werkorders <span class="uitleg">(minstens één; vink aan wat je wilt aanmaken)</span></label>
+                            <div class="nieuw-wo">
+                                @for (var i = 0; i < _nieuwWo.Length; i++)
+                                {
+                                    var wo = _nieuwWo[i];
+                                    var nr = i + 1;
+                                    <div class="nieuw-wo-rij @(wo.Aan ? "" : "uit")" @key="nr">
+                                        <input type="checkbox" checked="@wo.Aan" title="Werkorder @nr aanmaken"
+                                               @onchange="e => wo.Aan = e.Value is true" />
+                                        <input class="nieuw-wo-oms @(wo.Aan && _nieuwWoFout && wo.Oms.Trim().Length == 0 ? "fout" : "")"
+                                               placeholder="Omschrijving werkorder @nr" value="@wo.Oms" maxlength="200"
+                                               @onchange="e => WoOmsGewijzigd(wo, e)" />
+                                        <label class="vink" title="Mag er op deze werkorder ingekocht worden? (veld Inkoop toegestaan van de werkorder)">
+                                            <input type="checkbox" checked="@wo.Inkoop" disabled="@(!wo.Aan)" @onchange="e => wo.Inkoop = e.Value is true" />
+                                            Inkoop toegestaan
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
                         <div class="btngroup">
-                            <button class="primair" @onclick="MaakProject">Aanmaken</button>
+                            <button class="primair" disabled="@_nieuwBezig" @onclick="MaakProject">Aanmaken</button>
                             <button class="klein" @onclick="SluitNieuwProject">Annuleren</button>
                         </div>
                     </div>
@@ -453,6 +476,11 @@
     // ---- nieuw project ----
     private bool _nieuwOpen;
     private string _nieuwNummer = "";
+    /// <summary>Een regel in het lijstje werkorders bij een nieuw project.</summary>
+    private sealed class NieuweWo { public bool Aan; public string Oms = ""; public bool Inkoop = true; }
+    private const int NieuwWoAantal = 5;
+    private NieuweWo[] _nieuwWo = Array.Empty<NieuweWo>();
+    private bool _nieuwWoFout, _nieuwBezig;
     private string _nieuwOms = "";
     private int? _nieuwKlant;
     private int? _nieuwBv;
@@ -786,12 +814,21 @@
                  : bvs.Any(b => b.Id == 5254) ? 5254 : bvs[0].Id;
         try { _nieuwNummer = (await Repo.VolgendProjectnummerAsync()).ToString(); }
         catch { _nieuwNummer = ""; }
+        // vijf regels, de eerste aangevinkt; Inkoop toegestaan staat aan, zoals bij een losse nieuwe werkorder
+        _nieuwWo = Enumerable.Range(0, NieuwWoAantal).Select(i => new NieuweWo { Aan = i == 0 }).ToArray();
+        _nieuwWoFout = false;
         _nieuwOpen = true;
     }
 
     private void SluitNieuwProject() => _nieuwOpen = false;
     private void NieuwNummerGewijzigd(ChangeEventArgs e) => _nieuwNummer = (string?)e.Value ?? "";
     private void NieuwOmsGewijzigd(ChangeEventArgs e) => _nieuwOms = (string?)e.Value ?? "";
+    /// <summary>Een omschrijving typen in een regel die nog uit staat, vinkt hem aan.</summary>
+    private static void WoOmsGewijzigd(NieuweWo wo, ChangeEventArgs e)
+    {
+        wo.Oms = (string?)e.Value ?? "";
+        if (wo.Oms.Trim().Length > 0) wo.Aan = true;
+    }
     private void NieuwKlantGewijzigd(ChangeEventArgs e)
         => _nieuwKlant = int.TryParse((string?)e.Value, out var v) ? v : null;
     private void NieuwBvGewijzigd(ChangeEventArgs e)
@@ -809,16 +846,52 @@
             Toon("Vul een omschrijving in.", true);
             return;
         }
+        var werkorders = _nieuwWo.Where(w => w.Aan).ToList();
+        if (werkorders.Count == 0)
+        {
+            Toon("Vink minstens één werkorder aan.", true);
+            return;
+        }
+        if (werkorders.Any(w => w.Oms.Trim().Length == 0))
+        {
+            _nieuwWoFout = true;
+            Toon("Vul bij elke aangevinkte werkorder een omschrijving in.", true);
+            return;
+        }
+        if (_nieuwBezig) return;
 
+        _nieuwBezig = true;
+        var id = 0;
+        var gemaakt = 0;
         try
         {
-            var id = await Repo.NieuwProjectAsync(nummer, _nieuwOms.Trim(), _nieuwKlant, Ik.WerknemerId, _nieuwBv);
+            id = await Repo.NieuwProjectAsync(nummer, _nieuwOms.Trim(), _nieuwKlant, Ik.WerknemerId, _nieuwBv);
+            // de werkorders in de volgorde van het lijstje (de nummering loopt dan gelijk op)
+            foreach (var wo in werkorders)
+            {
+                var werkbonId = await Repo.NieuweWerkorderAsync(id, wo.Oms.Trim(), Ik.WerknemerId);
+                gemaakt++;
+                // een nieuwe werkorder krijgt Inkoop toegestaan = ja; alleen uitzetten hoeft nog
+                if (!wo.Inkoop) await Repo.UpdateWerkorderVeldAsync(werkbonId, "InkoopToegestaan", 0);
+            }
             _nieuwOpen = false;
             await Laad();
             await KiesProject(new ProjectRegel(id, nummer, _nieuwOms.Trim()));
-            Toon($"Project {nummer} aangemaakt. Vul de gegevens aan.", false);
+            Toon($"Project {nummer} aangemaakt met {gemaakt} werkorder{(gemaakt == 1 ? "" : "s")}. Vul de gegevens aan.", false);
         }
-        catch (Exception ex) { Toon("Aanmaken mislukt: " + ex.Message, true); }
+        catch (Exception ex)
+        {
+            if (id == 0) Toon("Aanmaken mislukt: " + ex.Message, true);
+            else
+            {
+                // het project bestaat al: niet nog eens laten aanmaken, maar tonen wat er wel is
+                _nieuwOpen = false;
+                try { await Laad(); await KiesProject(new ProjectRegel(id, nummer, _nieuwOms.Trim())); } catch { }
+                Toon($"Project {nummer} is aangemaakt, maar niet alle werkorders ({gemaakt} van {werkorders.Count}): {ex.Message} "
+                   + "Kijk de werkorders na en vul aan wat ontbreekt.", true);
+            }
+        }
+        finally { _nieuwBezig = false; }
     }
 
     private async Task VerwijderProject()

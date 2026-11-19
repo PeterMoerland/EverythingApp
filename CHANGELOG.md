@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Projecten** — Nieuw: bij + Nieuw project maak je meteen de werkorders aan. Je krijgt vijf regels; vink aan wat je wilt (minstens één) en geef elke aangevinkte werkorder een omschrijving. Met het vinkje **Inkoop toegestaan** erachter stel je dat veld van de werkorder meteen in (verzoek van Peter).
 - **Werknemers** — Nieuw: op je eigen pagina staat het tabblad **Meldingen**, waar je zelf kiest waarover je een melding in de bel krijgt. De eerste keuze is **Activity board toewijzing** (een collega wijst je toe of maakt een activiteit voor je aan); die staat standaard aan (verzoek van Peter).
 - **Activity board** — Nieuw: elk kaartje toont rechtsonder zijn kaartnummer (bijvoorbeeld #412). Dat is het nummer waarmee je een kaartje aanwijst, ook via de API (verzoek van Peter).
 - **Activity board** — Verbeterd: een board wissen kan nu ook wie het board zelf heeft aangemaakt, niet alleen Directie. Het board van een collega wissen blijft voor Directie (punt van Gerard).
