@@ -2130,7 +2130,14 @@ ook bij de documenten van de bestelling.
 - **Handtekening** = `Werknemers.Handtekening` (longblob, alleen bij werknemer 1, 3 en 23): een Access-OLE-object
   "Afbeelding" met na "DIB\0" breedte, hoogte, lengte en dan de bitmap zonder bestandskop. `HandtekeningDataUri` zet er de
   14 bytes "BM…" voor (ook bij BI_BITFIELDS, 3 maskers) en geeft een data-URI; Edge toont die .bmp gewoon.
-- **Waar**: knop "📄 Genereer officiële order" in de statusbalk bij In bestelling en bovenaan tab Documenten vanaf In
+- **Knoppen in de statusbalk op een vaste plek** (wens gebruiker 19-11-2026: "zodat ze nooit verspringen"):
+  `.volgende-knoppen` is een raster met vier vakken van vaste breedte (11.4 / 7.5 / 6.4 / 13.4 rem, net breed genoeg voor
+  de langste tekst) en er staan altijd dezelfde vier knoppen: mail (Offerte aanvragen bij Aanmaken, anders Bestelling
+  versturen; aan bij Aanmaken en In bestelling), de volgende stap (uit na Wacht op levering), Afkeuren (uit zonder
+  `MagAfkeuren`) en Genereer officiële order (aan vanaf In bestelling, zoals op tab Documenten). Uit = grijs met de
+  reden in het wolkje; `HeeftKnoppen` is vervallen. Onder 1850px staan de statuslampjes onder de knoppen, onder 1350px
+  de knoppen twee aan twee. Lokaal nagemeten bij Aanmaken, In bestelling en Wacht op levering (zelfde x-posities).
+- **Waar**: knop "📄 Genereer officiële order" in de statusbalk vanaf In bestelling en bovenaan tab Documenten vanaf In
   bestelling (`Bestellingen.razor` > `GenereerOfficieleOrder`: maken, bewaren, tab Documenten, voorbeeld openen). In
   `BestelMailVenster` (alleen de bestelling, niet de aanvraag) een vinkje "Officiële inkoopopdracht meesturen" (standaard
   = `BestelMailGegevens.OfficieleOrder`) met Bekijken (blob-url rechts in plaats van het mailvoorbeeld); bij versturen

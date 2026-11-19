@@ -4085,8 +4085,16 @@ html[data-thema="donker"] .nb-vraag.open { background: #3a2f10; border-color: #7
 .status-rij.zonder-knop { grid-template-columns: minmax(0, 1fr); }
 .status-rij .statusbalk { margin-bottom: 0; gap: .25rem; }
 .status-rij .stap { font-size: .78rem; padding: .14rem .6rem; }
-.volgende-knoppen { display: flex; align-items: center; gap: .5rem; padding-right: 1.2rem; border-right: 1px solid #dde3ea; align-self: stretch; }
-.volgende-knoppen button.primair { min-width: 7.5rem; }
+/* vier knoppen in vakken van vaste breedte (mail, volgende stap, afkeuren, orderdocument): niets verspringt als de status
+   of de tekst op een knop verandert. Smaller scherm: de statuslampjes onder de knoppen, nog smaller: de knoppen twee aan twee. */
+.volgende-knoppen { display: grid; grid-template-columns: 11.4rem 7.5rem 6.4rem 13.4rem; align-items: center; gap: .5rem; padding-right: 1.2rem;
+                    border-right: 1px solid #dde3ea; align-self: stretch; }
+.volgende-knoppen button { width: 100%; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1850px) {
+    .status-rij { grid-template-columns: minmax(0, 1fr); }
+    .volgende-knoppen { border-right: none; padding-right: 0; justify-content: start; }
+}
+@media (max-width: 1350px) { .volgende-knoppen { grid-template-columns: repeat(2, minmax(0, 13.4rem)); } }
 .volgende-uitleg { grid-column: 1 / -1; color: #667; font-size: .85rem; }
 
 /* Bel in de bovenbalk (Components/Layout/MeldingBel.razor) */

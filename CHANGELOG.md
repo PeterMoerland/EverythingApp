@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Bestellingen** — Verbeterd: de knoppen boven een bestelling staan op een vaste plek en verspringen niet meer als de status verandert. Er staan altijd dezelfde vier: mailen, de volgende stap (Volgende / Besteld / Gereed), Afkeuren en Genereer officiële order. Wat in deze status niet kan, is grijs; het wolkje zegt waarom. Genereer officiële order kan in deze balk nu vanaf In bestelling, net als op het tabblad Documenten (verzoek van Peter).
 - **Activity board** — Verbeterd: het paneel van een activiteit sluit vanzelf als er geen kaart meer gekozen is: bij een klik op een lege plek van het board, en als je in een vak een nieuwe activiteit begint te typen. Knoppen, filters en de weergaven (Kanban, Alle activiteiten…) laten het paneel staan (verzoek van Peter).
 - **Activity board** — Verbeterd: het paneel van een activiteit staat op een breed scherm vast naast het bord, als een eigenschappenvenster. Het bord blijft gewoon bruikbaar; klik je op een andere kaart, dan toont het paneel meteen die kaart (eerst sluiten hoeft niet meer). De kaart die open staat heeft een rode rand. Op een smal scherm schuift het paneel nog over het bord (verzoek van Peter).
 - **Activity board** — Nieuw: rechtermuisknop op een kaart of een regel in de tabel geeft een menu: openen, status en prioriteit zetten, aan mij toewijzen, dupliceren en verwijderen (met Ongedaan maken) (verzoek van Peter).

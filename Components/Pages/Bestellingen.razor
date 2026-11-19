@@ -155,32 +155,37 @@
                     @* statusbalk: waar staat deze bestelling? Vrij springen alleen voor de Directie (rechtzetten);
                        de gewone weg is Volgende (Services/BestelFlow.cs). *@
                     @* Volgende (en Afkeuren) vóór de statuslampjes, met ruimte ertussen (wens gebruiker) *@
-                    <div class="status-rij @(HeeftKnoppen ? "" : "zonder-knop")">
-                        @if (_flow is { } fl && HeeftKnoppen)
+                    @* Vaste plekken (wens gebruiker 19-11-2026: "zodat ze nooit verspringen"): altijd dezelfde vier knoppen in
+                       vakken van vaste breedte (.volgende-knoppen is een raster). Wat in deze status of voor deze gebruiker niet
+                       kan, staat er grijs met in het wolkje waarom; de statuslampjes erachter blijven zo ook op hun plek. *@
+                    <div class="status-rij @(_flow is null ? "zonder-knop" : "")">
+                        @if (_flow is { } fl)
                         {
+                            var magVolgende = fl.Status <= BestelFlow.WachtOpLevering;
+                            var magAfkeuren = BestelFlow.MagAfkeuren(fl, _ik);
+                            var magOrderPdf = fl.Status >= BestelFlow.InBestelling;     // zelfde regel als op het tabblad Documenten
                             <div class="volgende-knoppen">
-                                @* mail aan de leverancier: offerte aanvragen bij Aanmaken, de bestelling bij In bestelling *@
+                                @* 1. mail aan de leverancier: offerte aanvragen bij Aanmaken, de bestelling bij In bestelling *@
                                 @if (fl.Status == BestelFlow.Aanmaken)
                                 {
                                     <button class="klein" @onclick="() => _mailOrder = _orderId" title="Prijs en levertijd vragen (PI-)">✉ Offerte aanvragen…</button>
                                 }
-                                else if (fl.Status == BestelFlow.InBestelling)
+                                else
                                 {
-                                    <button class="klein" @onclick="() => _mailOrder = _orderId" title="De bestelling naar de leverancier mailen (PO-)">✉ Bestelling versturen…</button>
-                                    <button class="klein" disabled="@_orderPdfBezig" @onclick="GenereerOfficieleOrder" title="@OrderPdfUitleg">@(_orderPdfBezig ? "PDF maken…" : "📄 Genereer officiële order")</button>
+                                    <button class="klein" disabled="@(fl.Status != BestelFlow.InBestelling)" @onclick="() => _mailOrder = _orderId"
+                                            title="@(fl.Status == BestelFlow.InBestelling ? "De bestelling naar de leverancier mailen (PO-)" : "Mailen kan bij Aanmaken (offerte aanvragen) en bij In bestelling (de bestelling versturen)")">✉ Bestelling versturen…</button>
                                 }
-                                @if (fl.Status <= BestelFlow.WachtOpLevering)
-                                {
-                                    <button class="primair" disabled="@(_volgendeBezig || BestelFlow.MagNiet(fl, _ik) is not null)"
-                                            title="@(BestelFlow.MagNiet(fl, _ik) ?? (fl.Status == BestelFlow.WachtOpLevering ? "De bestelling is binnen: op Gereed zetten (met de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is)" : ""))" @onclick="Volgende">
-                                        @(fl.Status == BestelFlow.InBestelling ? "Besteld ▸" : fl.Status == BestelFlow.WachtOpLevering ? "Gereed ▸" : "Volgende ▸")
-                                    </button>
-                                }
-                                @if (BestelFlow.MagAfkeuren(fl, _ik))
-                                {
-                                    <button class="klein rood" disabled="@_volgendeBezig" @onclick="OpenAfkeuren"
-                                            title="Terug naar Aanmaken, met een reden voor de besteller">Afkeuren…</button>
-                                }
+                                @* 2. de volgende stap *@
+                                <button class="primair" disabled="@(!magVolgende || _volgendeBezig || BestelFlow.MagNiet(fl, _ik) is not null)"
+                                        title="@(!magVolgende ? "Deze bestelling is afgerond: er is geen volgende stap" : BestelFlow.MagNiet(fl, _ik) ?? (fl.Status == BestelFlow.WachtOpLevering ? "De bestelling is binnen: op Gereed zetten (met de vraag of de geleverde aantallen gelijk moeten worden aan wat besteld is)" : ""))" @onclick="Volgende">
+                                    @(fl.Status == BestelFlow.InBestelling ? "Besteld ▸" : fl.Status == BestelFlow.WachtOpLevering ? "Gereed ▸" : "Volgende ▸")
+                                </button>
+                                @* 3. afkeuren (tijdens de goedkeuring, door wie mag goedkeuren) *@
+                                <button class="klein rood" disabled="@(!magAfkeuren || _volgendeBezig)" @onclick="OpenAfkeuren"
+                                        title="@(magAfkeuren ? "Terug naar Aanmaken, met een reden voor de besteller" : "Afkeuren kan tijdens de goedkeuring, door wie mag goedkeuren")">Afkeuren…</button>
+                                @* 4. het officiële orderdocument (PDF) *@
+                                <button class="klein" disabled="@(!magOrderPdf || _orderPdfBezig)" @onclick="GenereerOfficieleOrder"
+                                        title="@(magOrderPdf ? OrderPdfUitleg : "Het officiële orderdocument kan vanaf In bestelling; daarvoor is het nog een PI-")">@(_orderPdfBezig ? "PDF maken…" : "📄 Genereer officiële order")</button>
                             </div>
                         }
                         <div class="statusbalk">
@@ -1367,9 +1372,6 @@
     /// <summary>Statussen in de filter: zonder ERROR (wens gebruiker), behalve als daar nu op gefilterd wordt.</summary>
     private IEnumerable<Bestelstatus> FilterStatussen
         => _statussen.Where(s => s.Id == _statusFilter || !s.Omschrijving.Trim().Equals("ERROR", StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>Staat er links in de statusbalk een knop (Volgende/Besteld of Afkeuren)?</summary>
-    private bool HeeftKnoppen => _flow is { } f && (f.Status <= BestelFlow.WachtOpLevering || BestelFlow.MagAfkeuren(f, _ik));
 
     /// <summary>De statuslampjes; ERROR alleen als de bestelling daar echt op staat (wens gebruiker).</summary>
     private IEnumerable<Bestelstatus> Lampjes
