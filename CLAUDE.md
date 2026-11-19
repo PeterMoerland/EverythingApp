@@ -1615,6 +1615,27 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Activity board: benodigde tijd per activiteit (19-11-2026)
+
+Verzoek Edwin: per activiteit invoeren hoeveel tijd nodig is om hem uit te voeren. **Script
+`ActivityBoard_Tijd_MariaDB.sql`** (kolom `ActivityBoardActiviteiten.BenodigdeUren` DECIMAL(7,2) NULL; op 19-11-2026
+stond de kolom al in de database toen ik het naliep, dus het script is uitgevoerd). Zonder de kolom werkt het board
+door (`TijdAanwezigAsync`, alleen 'ja' onthouden; het veld zegt dan welk script nodig is, de tabelkolom valt weg).
+- **Bewaard in uren** (`Activiteit.BenodigdeUren`, null = niet ingevuld; 0 = leeg). `ActTijd` (Models/ActivityBoard.cs):
+  `Lees` begrijpt "1,5" / "1.5" (uren), "1:30", "1u30", "45m", "2u", "2d" (dag = `UrenPerDag` 8 uur, een aanname), hooguit
+  9999 uur; `Tekst` toont "45 min" onder het uur en anders "2,5 u"; `Invoer` = het getal voor het invoervak.
+- **Scherm**: veld Benodigde tijd onder Vervaldatum in het detailpaneel (`TijdGewijzigd`, via `ZetVeldAsync(…,
+  "BenodigdeUren", …)`); chip ⏱ op de kaart; som per statuskolom (wat zichtbaar is binnen de filters) en per baan
+  (alleen wat nog niet klaar is, "… open"); kolom "Tijd nodig" in de drie tabelweergaven met onderaan een regel
+  (totaal, nog open, aantal open activiteiten zonder tijd); kolom "Benodigde tijd (uur)" achteraan in de csv.
+- Valkuil: de `@key` van het invoervak bevat **niet** het id van de activiteit. Een nieuwe activiteit krijgt zijn id
+  pas als de titel bewaard is (bij het verlaten van de titel), en met het id in de sleutel werd het vak op dat moment
+  opnieuw gemaakt en verloor het de focus. De sleutel telt alleen op bij het openen van een paneel en als de invoer
+  niets verandert (onleesbaar, of "2u" bij 2), zodat er weer staat wat bewaard is.
+- Getest lokaal met `ActivityBoard__Geheugen=true` (invoer in alle vormen, foutmelding, kaart, sommen, tabel, donker) en
+  `LaadAsync` tegen de echte database met de kolom erin (alleen lezen). **Niet getest**: schrijven naar de echte
+  database (nieuwe activiteit met tijd, veld wijzigen) en de csv in Excel.
+
 ## Activity board wissen (24-10-2026)
 
 Wens gebruiker: een board kunnen wissen, alleen Directie. Knop **Board wissen…** in de kop van het board (naast Naar

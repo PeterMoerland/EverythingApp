@@ -82,6 +82,8 @@ public class Activiteit
     /// <summary>1 = Hoog, 2 = Gemiddeld, 3 = Laag, null = geen.</summary>
     public int? Prioriteit { get; set; }
     public DateTime? Vervaldatum { get; set; }
+    /// <summary>Hoeveel werk de activiteit is, in uren (schatting); null = niet ingevuld. Zie <see cref="ActTijd"/>.</summary>
+    public decimal? BenodigdeUren { get; set; }
     public DateTime GemaaktOp { get; set; }
     public DateTime? GeslotenOp { get; set; }
     public int Volgorde { get; set; }
@@ -93,7 +95,7 @@ public class Activiteit
 
     public Activiteit Kopie() => new()
     {
-        Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum,
+        Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren,
         GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
     };
@@ -151,6 +153,51 @@ public static class ActPrioriteit
 
     public static string Naam(int? p) => Alle.FirstOrDefault(x => x.Waarde == p).Naam ?? "";
     public static string Kleur(int? p) => Alle.FirstOrDefault(x => x.Waarde == p).Kleur ?? "default";
+}
+
+/// <summary>
+/// Benodigde tijd van een activiteit (verzoek Edwin, 19-11-2026): bewaard in uren. Invoer mag als uren ("1,5"), als
+/// uren:minuten ("1:30"), met een eenheid ("45m", "2u", "1u30", "2d"; een dag = <see cref="UrenPerDag"/> uur).
+/// </summary>
+public static class ActTijd
+{
+    public const decimal UrenPerDag = 8m;
+    public const decimal Max = 9999m;
+    private static readonly System.Globalization.CultureInfo Nl = System.Globalization.CultureInfo.GetCultureInfo("nl-NL");
+
+    /// <summary>Leest de invoer; leeg of 0 = geen tijd (null). False = niet te begrijpen of te groot.</summary>
+    public static bool Lees(string? tekst, out decimal? uren)
+    {
+        uren = null;
+        var t = (tekst ?? "").Trim().ToLowerInvariant();
+        if (t.Length == 0) return true;
+        decimal u;
+        System.Text.RegularExpressions.Match m;
+        if ((m = System.Text.RegularExpressions.Regex.Match(t, @"^(\d{1,4}):([0-5]?\d)$")).Success)
+            u = int.Parse(m.Groups[1].Value) + int.Parse(m.Groups[2].Value) / 60m;
+        else if ((m = System.Text.RegularExpressions.Regex.Match(t, @"^(\d{1,4})\s*(?:u|uur|uren|h)\s*([0-5]?\d)\s*(?:m|min|minuten)?$")).Success)
+            u = int.Parse(m.Groups[1].Value) + int.Parse(m.Groups[2].Value) / 60m;
+        else if ((m = System.Text.RegularExpressions.Regex.Match(t, @"^(\d+(?:[.,]\d+)?)\s*(m|min|minuut|minuten|u|uur|uren|h|d|dag|dagen)?$")).Success)
+        {
+            if (!decimal.TryParse(m.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.AllowDecimalPoint,
+                                  System.Globalization.CultureInfo.InvariantCulture, out u)) return false;
+            var eenheid = m.Groups[2].Value;
+            if (eenheid.StartsWith('m')) u /= 60m;
+            else if (eenheid.StartsWith('d')) u *= UrenPerDag;
+        }
+        else return false;
+        u = Math.Round(u, 2, MidpointRounding.AwayFromZero);
+        if (u > Max) return false;
+        uren = u > 0 ? u : null;
+        return true;
+    }
+
+    /// <summary>Voor het invoervak: de uren als getal ("1,5"), leeg zonder tijd.</summary>
+    public static string Invoer(decimal? uren) => uren is decimal u ? u.ToString("0.##", Nl) : "";
+
+    /// <summary>Om te tonen: "45 min" onder het uur, anders "1,5 u"; leeg zonder tijd.</summary>
+    public static string Tekst(decimal? uren)
+        => uren is not decimal u || u <= 0 ? "" : u < 1 ? $"{Math.Round(u * 60m, MidpointRounding.AwayFromZero):0} min" : u.ToString("0.##", Nl) + " u";
 }
 
 /// <summary>De zes tekstvelden van een activiteit: sleutel = kolomnaam, naam, hulptekst.</summary>

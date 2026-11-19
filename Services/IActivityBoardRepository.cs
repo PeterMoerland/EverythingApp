@@ -49,6 +49,8 @@ public interface IActivityBoardRepository
     Task VerwijderBoardAsync(int boardId);
     Task<ActBoardData?> LaadAsync(int boardId);
     Task<List<ActPersoon>> GetPersonenAsync();
+    /// <summary>Kan een activiteit een benodigde tijd hebben? (ActivityBoard_Tijd_MariaDB.sql uitgevoerd)</summary>
+    Task<bool> TijdAanwezigAsync();
 
     Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur);
     Task HernoemProbleemAsync(int probleemId, string naam);
@@ -62,7 +64,7 @@ public interface IActivityBoardRepository
 
     /// <summary>Nieuwe activiteit met koppelingen; geeft het id.</summary>
     Task<int> NieuweActiviteitAsync(int boardId, Activiteit a, int? door);
-    /// <summary>Eén veld: Titel, Prioriteit, Vervaldatum of een van de tekstvelden.</summary>
+    /// <summary>Eén veld: Titel, Prioriteit, Vervaldatum, BenodigdeUren of een van de tekstvelden.</summary>
     Task ZetVeldAsync(int activiteitId, string kolom, object? waarde, int? door);
     Task ZetStatusAsync(int activiteitId, string status, DateTime? geslotenOp, int? door);
     /// <summary>Koppelingen vervangen; soort = "problemen", "types" of "personen".</summary>
@@ -90,6 +92,7 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task VerwijderBoardAsync(int boardId) => Task.CompletedTask;
     public Task<ActBoardData?> LaadAsync(int boardId) => Task.FromResult<ActBoardData?>(null);
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(new List<ActPersoon>());
+    public Task<bool> TijdAanwezigAsync() => Task.FromResult(false);
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur) => Task.FromResult(0);
     public Task HernoemProbleemAsync(int probleemId, string naam) => Task.CompletedTask;
     public Task ZetProbleemVolgordeAsync(int boardId, IReadOnlyList<int> probleemIds) => Task.CompletedTask;
@@ -172,6 +175,23 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         }
         catch { }
         return _metWerkorder;
+    }
+
+    // Kolom BenodigdeUren aanwezig? Alleen 'ja' onthouden (ActivityBoard_Tijd_MariaDB.sql).
+    private bool _metTijd;
+    public async Task<bool> TijdAanwezigAsync()
+    {
+        if (_metTijd) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'ActivityBoardActiviteiten' AND COLUMN_NAME = 'BenodigdeUren'", cn);
+            _metTijd = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _metTijd;
     }
 
     /// <summary>Kolommen (id, nummer 218183-03, omschrijving) en join voor de werkorder, of lege kolommen zonder het script.</summary>
@@ -340,9 +360,11 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         }
 
         var perId = new Dictionary<int, Activiteit>();
+        var metTijd = await TijdAanwezigAsync();
         await using (var cmd = new MySqlCommand(
             "SELECT `ActiviteitID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, `GeslotenOp`, `Volgorde`, " +
-            "       `Samenvatting`, `Details`, `Impact`, `GenomenStappen`, `VolgendeStappen`, `Opmerkingen` " +
+            "       `Samenvatting`, `Details`, `Impact`, `GenomenStappen`, `VolgendeStappen`, `Opmerkingen`, " +
+            (metTijd ? "`BenodigdeUren`" : "NULL") +
             "  FROM `ActivityBoardActiviteiten` WHERE `BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
@@ -360,6 +382,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                     GemaaktOp = D(r, 5) ?? DateTime.Now,
                     GeslotenOp = D(r, 6),
                     Volgorde = I(r, 7) ?? 0,
+                    BenodigdeUren = r.IsDBNull(14) ? null : Convert.ToDecimal(r.GetValue(14)) is > 0 and var bu ? bu : null,
                 };
                 for (var i = 0; i < ActTekst.Velden.Length; i++)
                     if (S(r, 8 + i) is { Length: > 0 } tekst) a.Tekst[ActTekst.Velden[i].Kolom] = tekst;
@@ -461,16 +484,18 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
 
     public async Task<int> NieuweActiviteitAsync(int boardId, Activiteit a, int? door)
     {
+        var metTijd = await TijdAanwezigAsync();
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
         int id;
         await using (var cmd = new MySqlCommand(
             "INSERT INTO `ActivityBoardActiviteiten` (`BoardID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, " +
-            "   `GeslotenOp`, `Volgorde`, `GemaaktDoor`, `GewijzigdDoor`, " +
+            "   `GeslotenOp`, `Volgorde`, `GemaaktDoor`, `GewijzigdDoor`, " + (metTijd ? "`BenodigdeUren`, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => $"`{v.Kolom}`")) + ") " +
-            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @door, @door, " +
+            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @door, @door, " + (metTijd ? "@uren, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => "@x" + v.Kolom)) + "); SELECT LAST_INSERT_ID();", cn, tx))
         {
+            if (metTijd) cmd.Parameters.AddWithValue("@uren", (object?)a.BenodigdeUren ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@b", boardId);
             cmd.Parameters.AddWithValue("@t", Kort(a.Titel.Trim(), 300));
             cmd.Parameters.AddWithValue("@s", ActStatus.IsGeldig(a.Status) ? a.Status : ActStatus.Backlog);
@@ -493,7 +518,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
     public Task ZetVeldAsync(int activiteitId, string kolom, object? waarde, int? door)
     {
         // alleen deze kolommen; de naam komt nooit van buiten in de query
-        if (kolom is not ("Titel" or "Prioriteit" or "Vervaldatum") && !ActTekst.IsKolom(kolom))
+        if (kolom is not ("Titel" or "Prioriteit" or "Vervaldatum" or "BenodigdeUren") && !ActTekst.IsKolom(kolom))
             throw new ArgumentException($"Onbekend veld {kolom}");
         if (kolom == "Titel" && waarde is string t) waarde = Kort(t.Trim(), 300);
         if (waarde is string s && string.IsNullOrEmpty(s) && kolom != "Titel") waarde = null;

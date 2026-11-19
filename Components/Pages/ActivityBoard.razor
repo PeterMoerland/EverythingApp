@@ -318,14 +318,17 @@ else
             <div class="ab-bord">
                 @foreach (var s in ActStatus.Alle)
                 {
+                    var kolUren = lijst.Where(a => a.Status == s.Code).Sum(a => a.BenodigdeUren ?? 0m);
                     <div class="ab-kolkop"><span class="ab-spill ab-k-@s.Kleur"><i class="ab-dot-@s.Kleur"></i>@s.Naam</span>
-                        <span class="ab-n">@lijst.Count(a => a.Status == s.Code)</span></div>
+                        <span class="ab-n">@lijst.Count(a => a.Status == s.Code)</span>
+                        @if (kolUren > 0) { <span class="ab-n ab-som" title="Benodigde tijd van de activiteiten in deze kolom">⏱ @ActTijd.Tekst(kolUren)</span> }</div>
                 }
                 @foreach (var l in lanes)
                 {
                     var dicht = _dicht.Contains(l);
                     var p = l == "geen" ? null : _data.Problemen.FirstOrDefault(x => x.Id.ToString() == l);
                     var n = ActStatus.Alle.Sum(s => vak[l][s.Code].Count);
+                    var baanUren = ActStatus.Alle.Where(s => s.Groep != ActStatus.GroepKlaar).Sum(s => vak[l][s.Code].Sum(a => a.BenodigdeUren ?? 0m));
                     <div class="ab-baankop @(dicht ? "dicht" : "")" data-lane="@l" @key="LaneSleutel(l)">
                         <span class="ab-bk" role="button" tabindex="0" aria-expanded="@(!dicht)"
                               @onclick="() => WisselBaan(l)" @onkeydown="e => Klap(e, () => WisselBaan(l))">
@@ -339,6 +342,7 @@ else
                                 <span class="ab-geenp">Geen onderwerp</span>
                             }
                             <span class="ab-count">@n</span>
+                            @if (baanUren > 0) { <span class="ab-count ab-som" title="Benodigde tijd van de activiteiten die nog niet klaar zijn">⏱ @ActTijd.Tekst(baanUren) open</span> }
                         </span>
                     </div>
                     @if (!dicht)
@@ -357,6 +361,7 @@ else
                                             <div class="ab-wie">@foreach (var pid in a.Personen) { @PersoonHtml(pid) }</div>
                                         }
                                         <div class="ab-kmeta">
+                                            @if (a.BenodigdeUren is decimal bu) { <span class="ab-chip ab-tijd" title="Benodigde tijd">⏱ @ActTijd.Tekst(bu)</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
                                             @if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }
                                             @foreach (var pid in ProblemenGesorteerd(a, idx).Where(x => x.ToString() != l))
@@ -490,6 +495,21 @@ else
                 <div class="ab-lab">Vervaldatum</div>
                 <div><input type="date" value="@(o.Vervaldatum?.ToString("yyyy-MM-dd") ?? "")" @onchange="VervalGewijzigd" /></div>
 
+                <div class="ab-lab">Benodigde tijd</div>
+                @if (_metTijd)
+                {
+                    <div>
+                        <span class="ab-tijdinvoer"><input type="text" inputmode="decimal" autocomplete="off" @key="TijdSleutel" id="ab-dtijd"
+                                   value="@ActTijd.Invoer(o.BenodigdeUren)" placeholder="–" aria-label="Benodigde tijd in uren"
+                                   @onchange="TijdGewijzigd" /> uur</span>
+                        <p class="ab-hint">Hoeveel werk deze activiteit is. Typ uren (1,5), of 1:30, 45m, 2d (een dag = @ActTijd.UrenPerDag.ToString("0.##") uur).</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="ab-ro ab-muted">Kan na het uitvoeren van <code>ActivityBoard_Tijd_MariaDB.sql</code>.</div>
+                }
+
                 <div class="ab-lab">Gemaakt op</div>
                 <div class="ab-ro">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</div>
 
@@ -578,6 +598,7 @@ else
     private List<ActBoardRegel>? _boards;
     private bool _soorten;                                  // ActivityBoard_Soorten_MariaDB.sql uitgevoerd
     private bool _metWerkorder;                             // ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd
+    private bool _metTijd;                                  // ActivityBoard_Tijd_MariaDB.sql uitgevoerd (benodigde tijd per activiteit)
     private string _boardSoort = "";                        // filter op het startscherm
     private static readonly (string Code, string Naam)[] SoortFilters =
         { ("", "Alle"), (ActBoardSoort.Project, "Project"), (ActBoardSoort.Werkorder, "Werkorder"), (ActBoardSoort.Klant, "Klant"), (ActBoardSoort.Vrij, "Vrij") };
@@ -628,6 +649,7 @@ else
         if (_tabellen != true) return;
         _soorten = await Repo.SoortenAanwezigAsync();
         _metWerkorder = _soorten && await Repo.WerkorderAanwezigAsync();
+        _metTijd = await Repo.TijdAanwezigAsync();
 
         if (BoardId is null)
         {
@@ -1172,6 +1194,7 @@ else
                 else
                 {
                     o.Status = a.Status; o.Prioriteit = a.Prioriteit; o.Vervaldatum = a.Vervaldatum; o.GeslotenOp = a.GeslotenOp;
+                    o.BenodigdeUren = a.BenodigdeUren;
                     o.Problemen = new(a.Problemen); o.Types = new(a.Types); o.Personen = new(a.Personen);
                 }
             }
@@ -1337,20 +1360,21 @@ else
 
     private static readonly Dictionary<string, string[]> TabelKolommen = new()
     {
-        ["alle"] = new[] { "titel", "wie", "status", "type", "prio", "gemaakt", "verval", "dagen", "prob" },
-        ["mijn"] = new[] { "titel", "status", "dagen", "wie", "type", "gemaakt", "prob" },
-        ["voltooid"] = new[] { "titel", "wie", "status", "type", "gemaakt", "verval", "dagen", "prob" },
+        ["alle"] = new[] { "titel", "wie", "status", "type", "prio", "tijd", "gemaakt", "verval", "dagen", "prob" },
+        ["mijn"] = new[] { "titel", "status", "tijd", "dagen", "wie", "type", "gemaakt", "prob" },
+        ["voltooid"] = new[] { "titel", "wie", "status", "type", "tijd", "gemaakt", "verval", "dagen", "prob" },
     };
     private static readonly Dictionary<string, string> KolomNaam = new()
     {
         ["titel"] = "Activiteit", ["wie"] = "Toegewezen aan", ["status"] = "Status", ["type"] = "Type", ["prio"] = "Prioriteit",
         ["gemaakt"] = "Gemaakt op", ["verval"] = "Vervaldatum", ["dagen"] = "Dagen open", ["prob"] = "Onderwerpen",
+        ["tijd"] = "Tijd nodig",
     };
 
     private RenderFragment TabelWeergave(Dictionary<int, int> idx) => @<text>
         @{
             var v = _view;
-            var kol = TabelKolommen[v];
+            var kol = TabelKolommen[v].Where(c => c != "tijd" || _metTijd).ToArray();
             var lijst = Gefilterd(idx);
             if (v == "mijn") lijst = Ik.WerknemerId is int ik ? lijst.Where(a => a.Personen.Contains(ik)).ToList() : new();
             if (v == "voltooid") lijst = lijst.Where(a => ActStatus.Groep(a.Status) == ActStatus.GroepKlaar).ToList();
@@ -1387,6 +1411,17 @@ else
                     {
                         <tr><td colspan="@kol.Length" class="ab-leeg">Geen activiteiten@(FiltersActief ? " binnen de filters" : "").</td></tr>
                     }
+                    @if (lijst.Any(a => a.BenodigdeUren is not null))
+                    {
+                        // onderaan: wat er in deze lijst aan werk staat, en hoeveel daarvan nog niet klaar is
+                        var open = lijst.Where(a => ActStatus.Groep(a.Status) != ActStatus.GroepKlaar).ToList();
+                        var zonder = open.Count(a => a.BenodigdeUren is null);
+                        <tr class="ab-totaal"><td colspan="@kol.Length">⏱ Benodigde tijd: <b>@ActTijd.Tekst(lijst.Sum(a => a.BenodigdeUren ?? 0m))</b>@if (v != "voltooid")
+                            {
+                                <span> · nog open <b>@(open.Sum(a => a.BenodigdeUren ?? 0m) is > 0 and var ou ? ActTijd.Tekst(ou) : "0 u")</b></span>
+                                @if (zonder > 0) { <span class="ab-muted"> · @zonder open activiteit@(zonder == 1 ? "" : "en") zonder tijd</span> }
+                            }</td></tr>
+                    }
                     </tbody>
                 </table>
             </div>
@@ -1406,6 +1441,7 @@ else
                 case "prio": <td>@if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }</td> break;
                 case "gemaakt": <td class="ab-num">@a.GemaaktOp.ToString("dd-MM-yyyy")</td> break;
                 case "verval": <td class="ab-num">@(a.Vervaldatum?.ToString("dd-MM-yyyy") ?? "")</td> break;
+                case "tijd": <td class="ab-num">@ActTijd.Tekst(a.BenodigdeUren)</td> break;
                 case "dagen": <td class="ab-num">@(a.DagenOpen?.ToString() ?? "–")</td> break;
                 case "prob": <td><div class="ab-chips">@foreach (var pid in ProblemenGesorteerd(a, idx)) { @ProbleemChip(pid, idx, false) }</div></td> break;
             }
@@ -1722,7 +1758,7 @@ else
         if (_view == "mijn" && Ik.WerknemerId is int ik) a.Personen.Add(ik);
         _open = a;
         _openNieuw = true;
-        _titelVersie++;
+        _titelVersie++; _tijdVersie++;
         _focusNa = "#ab-dtitel";
     }
 
@@ -1731,7 +1767,7 @@ else
         _snel = null;
         _open = a.Kopie();
         _openNieuw = false;
-        _titelVersie++;
+        _titelVersie++; _tijdVersie++;
         _focusNa = ".ab-drawer";
     }
 
@@ -1813,6 +1849,28 @@ else
         if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Vervaldatum", o.Vervaldatum, Ik.WerknemerId))) SchrijfTerug();
     }
 
+    private int _tijdVersie;
+    // zonder het id: een nieuwe activiteit krijgt zijn id zodra de titel bewaard is, en dan mag dit vak de focus niet verliezen
+    private string TijdSleutel => $"tijd-{_tijdVersie}";
+
+    /// <summary>Benodigde tijd: uren, 1:30, 45m of 2d (zie ActTijd.Lees); leeg = geen tijd. Het vak toont daarna de uren.</summary>
+    private async Task TijdGewijzigd(ChangeEventArgs e)
+    {
+        if (_open is not { } o) return;
+        // "1:30" wordt vanzelf "1,5" (de waarde verandert). Verandert de waarde niet (onleesbaar, of "2u" bij 2), dan het
+        // vak opnieuw maken zodat er weer staat wat bewaard is; alleen dan, want opnieuw maken kost de focus.
+        if (!ActTijd.Lees((string?)e.Value, out var uren))
+        {
+            _tijdVersie++;
+            Toon($"Die tijd begrijp ik niet. Typ uren (1,5), of 1:30, 45m, 2d; hooguit {ActTijd.Max:0} uur.", fout: true);
+            return;
+        }
+        if (uren == o.BenodigdeUren) { _tijdVersie++; return; }
+        o.BenodigdeUren = uren;
+        if (o.Id == 0) return;
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "BenodigdeUren", uren, Ik.WerknemerId))) SchrijfTerug();
+    }
+
     private async Task TekstGewijzigd(string kolom, ChangeEventArgs e)
     {
         if (_open is not { } o) return;
@@ -1856,7 +1914,7 @@ else
         if (_data is null) return;
         var idx = ProbIndex();
         var kop = new[] { "Board", "Activiteit", "Status", "Prioriteit", "Type", "Onderwerpen (op prioriteit)", "Baan op bord",
-                          "Toegewezen aan", "Vervaldatum", "Gemaakt op", "Dagen open" };
+                          "Toegewezen aan", "Vervaldatum", "Gemaakt op", "Dagen open", "Benodigde tijd (uur)" };
         var regels = new List<string> { string.Join(";", kop.Select(CsvVeld)) };
         foreach (var a in _data.Activiteiten.OrderByDescending(x => x.GemaaktOp))
         {
@@ -1869,6 +1927,7 @@ else
                 lane == "geen" ? "Geen onderwerp" : ProbNaam(int.Parse(lane)),
                 string.Join(", ", a.Personen.Where(_persoonOpId.ContainsKey).Select(p => _persoonOpId[p].Naam)),
                 a.Vervaldatum?.ToString("dd-MM-yyyy") ?? "", a.GemaaktOp.ToString("dd-MM-yyyy"), a.DagenOpen?.ToString() ?? "",
+                ActTijd.Invoer(a.BenodigdeUren),
             }.Select(CsvVeld)));
         }
         var tekst = "﻿" + string.Join("\r\n", regels);

@@ -143,6 +143,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     }
 
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(Personen.ToList());
+    public Task<bool> TijdAanwezigAsync() => Task.FromResult(true);
 
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur)
     {
@@ -224,6 +225,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
                 case "Titel": a.Titel = (string)waarde!; break;
                 case "Prioriteit": a.Prioriteit = (int?)waarde; break;
                 case "Vervaldatum": a.Vervaldatum = (DateTime?)waarde; break;
+                case "BenodigdeUren": a.BenodigdeUren = (decimal?)waarde; break;
                 default:
                     if (waarde is string s && s.Length > 0) a.Tekst[kolom] = s; else a.Tekst.Remove(kolom);
                     break;

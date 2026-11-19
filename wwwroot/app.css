@@ -3620,6 +3620,15 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .ab-wie-tabel { margin: 0; }
 .ab-kmeta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .ab-kmeta:empty { display: none; }
+/* benodigde tijd per activiteit: chip op de kaart, som in kolom- en baankop, invoer in het detailpaneel, totaal onder de tabel */
+.ab-chip.ab-tijd { background: transparent; border: 1px solid var(--ab-rand); color: var(--ab-muted); white-space: nowrap; }
+.ab-som { white-space: nowrap; margin-left: auto; }
+.ab-bk .ab-som { margin-left: 0; }
+.ab-tijdinvoer { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ab-muted); }
+.ab-tijdinvoer input { font: inherit; font-size: 13px; width: 5.5rem; padding: 5px 8px; border: 1px solid var(--ab-rand); border-radius: 3px;
+                       background: var(--ab-wit); color: var(--ab-ink); text-align: right; }
+.ab-tijdinvoer input:focus { outline: none; border-color: var(--ab-rood); }
+.ab-totaal td { background: var(--ab-wit); border-top: 2px solid var(--ab-rand); border-bottom: none; font-size: 12.5px; position: sticky; bottom: 0; }
 .ab-ghost { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; box-shadow: 0 12px 28px rgba(0, 0, 0, .2); cursor: grabbing; margin: 0; opacity: .96; }
 .ab-plek { border: 2px dashed var(--ab-rood); border-radius: 4px; background: var(--ab-tint); margin-bottom: 6px; }
 body.ab-sleepmodus, body.ab-sleepmodus * { cursor: grabbing !important; user-select: none !important; }

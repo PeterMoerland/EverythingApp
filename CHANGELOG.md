@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 19-11-2026
+
+- **Activity board** — Nieuw: bij een activiteit kun je invullen hoeveel tijd nodig is om hem uit te voeren (veld Benodigde tijd in het paneel van de activiteit). Typ uren (1,5), of 1:30, 45m of 2d (een dag telt als 8 uur). De tijd staat op de kaart, in de tabellen (kolom Tijd nodig, met onderaan het totaal en wat nog open staat) en in de export naar Excel. Boven elke kolom en bij elk onderwerp op het bord staat de som (verzoek van Edwin).
+
 ## 18-11-2026
 
 - **Vragen aan AI** — Verbeterd: de naam van een klant of leverancier hoeft niet meer precies te kloppen. "VA Imaging" vindt nu ook VA-Imaging, "bolcom" vindt bol.com, "Wurth" vindt Würth, en een tikfout als "Omrom" wordt Omron. Het antwoord zegt op welke naam gezocht is. Lijkt er niets op, dan meldt de AI dat de naam niet gevonden is en noemt hij namen die in de buurt komen, in plaats van te zeggen dat er geen facturen zijn (verzoek van Peter).
