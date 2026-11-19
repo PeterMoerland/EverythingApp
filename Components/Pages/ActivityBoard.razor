@@ -22,6 +22,8 @@
 
 <PageTitle>@(_data is null ? "Activity board" : "Activity board · " + _data.Board.Titel)</PageTitle>
 
+@* ab-werk: het bord en (op een breed scherm) het paneel van de gekozen activiteit ernaast, als eigenschappenvenster *@
+<div class="ab-werk @(_open is not null && _data is not null ? "met-paneel" : "")">
 <div class="page ab">
 @if (!Repo.Beschikbaar)
 {
@@ -277,12 +279,18 @@ else
             <select class="@(_fWie.Length > 0 ? "aan" : "")" value="@_fWie" aria-label="Filter toegewezen aan"
                     @onchange="e => _fWie = (string?)e.Value ?? string.Empty">
                 <option value="">Toegewezen aan: iedereen</option>
-                @foreach (var m in FilterPersonen())
+                @if (IkKiesbaar is int ikf)
+                {
+                    <option value="@ikf">Ik (@_persoonOpId[ikf].Naam)</option>
+                }
+                @foreach (var m in FilterPersonen().Where(x => x.Id != IkKiesbaar))
                 {
                     <option value="@m.Id">@m.Naam</option>
                 }
                 <option value="niemand">Niemand</option>
             </select>
+            <button type="button" class="ab-vtab ab-markeer @(_markeer ? "actief" : "")" aria-pressed="@_markeer" @onclick="WisselMarkeer"
+                    title="Niet filteren maar markeren: de kaarten van de gekozen persoon lichten op, de andere blijven zichtbaar">Markeren</button>
             <select class="@(_fType.Length > 0 ? "aan" : "")" value="@_fType" aria-label="Filter type"
                     @onchange="e => _fType = (string?)e.Value ?? string.Empty">
                 <option value="">Type: alle</option>
@@ -353,8 +361,8 @@ else
                             <div class="ab-cel ab-st-@stc" data-status="@stc" data-lane="@l" @key="CelSleutel(l, stc)">
                                 @foreach (var a in vak[l][stc])
                                 {
-                                    <div class="ab-kaart" tabindex="0" role="button" data-id="@a.Id" @key="a.Id"
-                                         @onkeydown="e => KaartToets(e, a)">
+                                    <div class="ab-kaart @KaartKlasse(a)" tabindex="0" role="button" data-id="@a.Id" @key="a.Id"
+                                         @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
                                         <div class="ab-ktitel">@a.Titel</div>
                                         @if (a.Personen.Count > 0)
                                         {
@@ -413,7 +421,8 @@ else
                       @onchange="TitelGewijzigd">@o.Titel</textarea>
             <button class="ab-dsluit" type="button" aria-label="Sluiten" @onclick="SluitPaneel">×</button>
         </div>
-        <div class="ab-dbody">
+        @* de sleutel telt op bij een andere activiteit: de velden worden dan opnieuw gemaakt (geen resten van de vorige) *@
+        <div class="ab-dbody" @key="_paneelVersie">
             <div class="ab-eig">
                 <div class="ab-lab">Status</div>
                 <div><select value="@o.Status" @onchange="StatusGewijzigd">
@@ -531,6 +540,43 @@ else
             <button class="ab-btn klein primair" type="button" @onclick="SluitPaneel">Sluiten</button>
         </div>
     </aside>
+}
+</div>
+
+@* ---------- rechtermuismenu op een kaart of tabelregel ---------- *@
+@if (_menu is { } mn && _data?.Activiteiten.FirstOrDefault(x => x.Id == mn.Id) is { } ma)
+{
+    <div class="ab-menuvang" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault></div>
+    <div class="ab-menu" role="menu" tabindex="-1" aria-label="@("Acties voor " + ma.Titel)" @onkeydown="MenuToets"
+         style="left:min(@(mn.X)px, calc(100vw - 244px)); top:max(8px, min(@(mn.Y)px, calc(100vh - 460px)))">
+        <div class="ab-menukop" title="@ma.Titel">@ma.Titel</div>
+        <button type="button" role="menuitem" @onclick="() => MenuOpen(ma)">Openen</button>
+        <div class="ab-menulab">Status</div>
+        @foreach (var s in ActStatus.Alle)
+        {
+            var code = s.Code;
+            <button type="button" role="menuitem" @onclick="() => MenuStatus(ma, code)">
+                <span class="ab-pdot ab-dot-@s.Kleur"></span>@s.Naam@if (ma.Status == code) { <span class="ab-menuvink">✓</span> }
+            </button>
+        }
+        <div class="ab-menulab">Prioriteit</div>
+        <div class="ab-menurij">
+            @foreach (var pr in ActPrioriteit.Alle)
+            {
+                var w = pr.Waarde;
+                <button type="button" class="ab-kies @(ma.Prioriteit == w ? "aan ab-k-" + pr.Kleur : "")" aria-pressed="@(ma.Prioriteit == w)"
+                        @onclick="() => MenuPrio(ma, w)">@pr.Naam</button>
+            }
+        </div>
+        <div class="ab-menulijn"></div>
+        @if (Ik.WerknemerId is int ikm && (ma.Personen.Contains(ikm) || _persoonOpId.GetValueOrDefault(ikm)?.Kiesbaar == true))
+        {
+            <button type="button" role="menuitem" @onclick="() => MenuIk(ma, ikm)">@(ma.Personen.Contains(ikm) ? "Mij eraf halen" : "Aan mij toewijzen")</button>
+        }
+        <button type="button" role="menuitem" @onclick="() => MenuDupliceer(ma)">Dupliceren</button>
+        <div class="ab-menulijn"></div>
+        <button type="button" role="menuitem" class="gevaar" @onclick="() => MenuVerwijder(ma)">Verwijderen</button>
+    </div>
 }
 
 @* ---------- bevestiging in de pagina (geen browser-pop-ups, spec §7) ---------- *@
@@ -688,6 +734,7 @@ else
             try
             {
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-weergave") == "lijst") { _boom = false; StateHasChanged(); }
+                if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-markeer") == "ja") { _markeer = true; StateHasChanged(); }
             }
             catch { }
         }
@@ -1276,13 +1323,109 @@ else
         {
             if (_fProb == "geen" && Lane(a, idx) != "geen") return false;
             if (_fProb.Length > 0 && _fProb != "geen" && !a.Problemen.Any(p => p.ToString() == _fProb)) return false;
-            if (_fWie == "niemand" && a.Personen.Count > 0) return false;
-            if (_fWie.Length > 0 && _fWie != "niemand" && !a.Personen.Any(p => p.ToString() == _fWie)) return false;
+            if (!_markeer && _fWie.Length > 0 && !VanPersoon(a)) return false;      // bij markeren blijft alles staan
             if (_fType.Length > 0 && !a.Types.Any(t => t.ToString() == _fType)) return false;
             if (q.Length > 0 && !a.Titel.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
             return true;
         }).ToList();
     }
+
+    // ---- persoon: filteren of markeren (wens gebruiker 19-11-2026: "wat staat er voor mij open", de rest blijft zichtbaar)
+    private bool _markeer;                                 // onthouden per pc (mdeOpslag "ab-markeer")
+
+    /// <summary>Ikzelf, als ik in de lijst gekozen kan worden (gekoppeld, in dienst).</summary>
+    private int? IkKiesbaar => Ik.WerknemerId is int ik && _persoonOpId.GetValueOrDefault(ik)?.Kiesbaar == true ? ik : null;
+
+    /// <summary>Hoort de activiteit bij de persoon uit "Toegewezen aan" (of bij niemand, als dat gekozen is)?</summary>
+    private bool VanPersoon(Activiteit a)
+        => _fWie == "niemand" ? a.Personen.Count == 0 : a.Personen.Any(p => p.ToString() == _fWie);
+
+    /// <summary>Klassen van een kaart of tabelregel: open in het paneel (of het menu), en gemarkeerd of juist gedimd.</summary>
+    private string KaartKlasse(Activiteit a)
+        => (a.Id != 0 && (_open?.Id == a.Id || _menu?.Id == a.Id) ? "gekozen " : "")
+           + (_markeer && _fWie.Length > 0 ? VanPersoon(a) ? "mijn" : "dim" : "");
+
+    private async Task WisselMarkeer()
+    {
+        _markeer = !_markeer;
+        // nog niemand gekozen: jezelf, want daar gaat het meestal om
+        if (_markeer && _fWie.Length == 0 && IkKiesbaar is int ik) _fWie = ik.ToString();
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "ab-markeer", _markeer ? "ja" : "nee"); } catch { }
+        if (_markeer && _fWie.Length == 0) Toon("Kies bij \"Toegewezen aan\" wie je wilt markeren.");
+    }
+
+    // ================================================================ rechtermuismenu op een kaart of tabelregel
+    // Wens gebruiker 19-11-2026. Werkt op de activiteit in de lijst van het board; het open paneel volgt (NaarPaneel).
+    private sealed record KaartMenu(int Id, int X, int Y);
+    private KaartMenu? _menu;
+
+    private void OpenMenu(MouseEventArgs e, Activiteit a)
+    {
+        if (_sleept || a.Id == 0) return;      // touch: lang vasthouden sleept (activityboard.js), dan geen menu
+        _snel = null;
+        _menu = new KaartMenu(a.Id, (int)e.ClientX, (int)e.ClientY);
+        _focusNa = ".ab-menu";
+    }
+
+    private void MenuToets(KeyboardEventArgs e) { if (e.Key == "Escape") _menu = null; }
+    private void MenuOpen(Activiteit a) { _menu = null; OpenPaneel(a); }
+
+    /// <summary>Het open paneel laat dezelfde activiteit zien: status, prioriteit en personen overnemen.</summary>
+    private void NaarPaneel(Activiteit a)
+    {
+        if (_open is not { } o || o.Id != a.Id) return;
+        o.Status = a.Status; o.GeslotenOp = a.GeslotenOp; o.Prioriteit = a.Prioriteit; o.Personen = new(a.Personen);
+    }
+
+    private async Task MenuStatus(Activiteit a, string status)
+    {
+        _menu = null;
+        if (!ActStatus.IsGeldig(status) || status == a.Status) return;
+        ZetStatus(a, status);
+        if (!await Bewaar(() => Repo.ZetStatusAsync(a.Id, a.Status, a.GeslotenOp, Ik.WerknemerId))) return;   // mislukt: Bewaar laadt het board opnieuw
+        NaarPaneel(a);
+        Toon($"\"{a.Titel}\": status {ActStatus.Naam(status)}");
+    }
+
+    private async Task MenuPrio(Activiteit a, int waarde)
+    {
+        _menu = null;
+        a.Prioriteit = a.Prioriteit == waarde ? null : waarde;
+        if (!await Bewaar(() => Repo.ZetVeldAsync(a.Id, "Prioriteit", a.Prioriteit, Ik.WerknemerId))) return;
+        NaarPaneel(a);
+        Toon($"\"{a.Titel}\": prioriteit {(a.Prioriteit is null ? "weg" : ActPrioriteit.Naam(a.Prioriteit))}");
+    }
+
+    private async Task MenuIk(Activiteit a, int ik)
+    {
+        _menu = null;
+        var erbij = !a.Personen.Remove(ik);
+        if (erbij) a.Personen.Add(ik);
+        if (!await Bewaar(() => Repo.ZetKoppelingenAsync(a.Id, KoppelPersonen, a.Personen.ToList(), Ik.WerknemerId))) return;
+        NaarPaneel(a);
+        Toon(erbij ? $"\"{a.Titel}\" is aan jou toegewezen" : $"Je bent van \"{a.Titel}\" af");
+    }
+
+    /// <summary>Kopie met alles erop en eraan, onderaan hetzelfde vak; de datum is nu.</summary>
+    private async Task MenuDupliceer(Activiteit a)
+    {
+        _menu = null;
+        if (_data is null) return;
+        var idx = ProbIndex();
+        var lane = Lane(a, idx);
+        var k = a.Kopie();
+        k.Id = 0;
+        k.Titel = a.Titel + " (kopie)";
+        if (k.Titel.Length > 300) k.Titel = k.Titel[..300];
+        k.GemaaktOp = DateTime.Now;
+        k.GeslotenOp = ActStatus.Groep(k.Status) == ActStatus.GroepKlaar ? k.GemaaktOp : null;
+        k.Volgorde = _data.Activiteiten.Where(x => x.Status == a.Status && Lane(x, idx) == lane).Select(x => x.Volgorde).DefaultIfEmpty(-1).Max() + 1;
+        if (!await Bewaar(async () => k.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, k, Ik.WerknemerId))) return;
+        _data.Activiteiten.Add(k);
+        Toon($"Kopie gemaakt: \"{k.Titel}\"");
+    }
+
+    private async Task MenuVerwijder(Activiteit a) { _menu = null; await Verwijder(a); }
 
     /// <summary>Staat deze activiteit in de huidige weergave met de huidige filters?</summary>
     private bool Zichtbaar(Activiteit a)
@@ -1428,8 +1571,8 @@ else
         }
     </text>;
 
-    private RenderFragment TabelRij(Activiteit a, string[] kol, Dictionary<int, int> idx) => @<tr class="ab-rij" data-id="@a.Id" tabindex="0" @key="a.Id"
-            @onclick="() => OpenPaneel(a)" @onkeydown="e => KaartToets(e, a)">
+    private RenderFragment TabelRij(Activiteit a, string[] kol, Dictionary<int, int> idx) => @<tr class="ab-rij @KaartKlasse(a)" data-id="@a.Id" tabindex="0" @key="a.Id"
+            @onclick="() => OpenPaneel(a)" @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
         @foreach (var c in kol)
         {
             switch (c)
@@ -1738,7 +1881,7 @@ else
         };
         if (sn.Lane != "geen") a.Problemen.Add(int.Parse(sn.Lane));
         // actieve filters op persoon en type worden overgenomen
-        if (int.TryParse(_fWie, out var w) && _persoonOpId.ContainsKey(w)) a.Personen.Add(w);
+        if (!_markeer && int.TryParse(_fWie, out var w) && _persoonOpId.ContainsKey(w)) a.Personen.Add(w);
         if (int.TryParse(_fType, out var t) && _data.Types.Any(x => x.Id == t)) a.Types.Add(t);
         if (ActStatus.Groep(a.Status) == ActStatus.GroepKlaar) a.GeslotenOp = a.GemaaktOp;
         if (!await Bewaar(async () => a.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, a, Ik.WerknemerId))) return;
@@ -1756,19 +1899,41 @@ else
         var zelfde = _data.Activiteiten.Where(x => x.Status == ActStatus.Backlog && Lane(x, idx) == "geen").Select(x => x.Volgorde).ToList();
         var a = new Activiteit { Status = ActStatus.Backlog, GemaaktOp = DateTime.Now, Volgorde = zelfde.Count > 0 ? zelfde.Min() - 1 : 0 };
         if (_view == "mijn" && Ik.WerknemerId is int ik) a.Personen.Add(ik);
+        if (_open is { } vorige) Verlaten(vorige);
         _open = a;
         _openNieuw = true;
-        _titelVersie++; _tijdVersie++;
+        _titelVersie++; _tijdVersie++; _paneelVersie++;
         _focusNa = "#ab-dtitel";
     }
 
+    private int _paneelVersie;      // telt op bij een andere activiteit in het paneel (sleutel van de velden)
+
+    /// <summary>
+    /// De activiteit in het paneel zetten. Staat er al een andere open, dan wisselt het paneel meteen (op een breed
+    /// scherm staat het naast het bord en blijft het bord bruikbaar; wens gebruiker 19-11-2026). Wat in het vorige veld
+    /// getypt was, is bij het verlaten van dat veld al bewaard (change komt voor de klik).
+    /// </summary>
     private void OpenPaneel(Activiteit a)
     {
         _snel = null;
+        if (_open is { } vorige)
+        {
+            // dezelfde nog eens aanklikken: laten staan, anders raakt een wijziging die nog onderweg is uit het paneel
+            if (vorige.Id != 0 && vorige.Id == a.Id) { _focusNa = ".ab-drawer"; return; }
+            Verlaten(vorige);
+        }
         _open = a.Kopie();
         _openNieuw = false;
-        _titelVersie++; _tijdVersie++;
+        _titelVersie++; _tijdVersie++; _paneelVersie++;
         _focusNa = ".ab-drawer";
+    }
+
+    /// <summary>Het paneel verlaat deze activiteit (dicht of een andere): een net gemaakte die nu niet te zien is, melden.</summary>
+    private void Verlaten(Activiteit o)
+    {
+        if (o.Id == 0 || !_openNieuw) return;      // nieuw zonder titel: niet aangemaakt
+        var a = _data?.Activiteiten.FirstOrDefault(x => x.Id == o.Id);
+        if (a is not null && !Zichtbaar(a)) Toon("Activiteit toegevoegd, maar in deze weergave of met deze filters niet zichtbaar.");
     }
 
     private void SluitPaneel()
@@ -1777,19 +1942,25 @@ else
         var o = _open;
         _open = null;
         if (o.Id == 0) return;      // nieuw zonder titel: niet aangemaakt
-        var a = _data?.Activiteiten.FirstOrDefault(x => x.Id == o.Id);
-        if (_openNieuw && a is not null && !Zichtbaar(a)) Toon("Activiteit toegevoegd, maar in deze weergave of met deze filters niet zichtbaar.");
+        Verlaten(o);
         _focusKaart = o.Id;
     }
 
     private void PaneelToets(KeyboardEventArgs e) { if (e.Key == "Escape" && _modal is null) SluitPaneel(); }
 
-    /// <summary>De wijziging ook in de lijst van het board zetten (kaart en tabellen tonen die).</summary>
-    private void SchrijfTerug()
+    /// <summary>
+    /// De wijziging ook in de lijst van het board zetten (kaart en tabellen tonen die). Met de activiteit erbij en niet
+    /// via _open: tijdens het bewaren kan het paneel al naar een andere kaart gewisseld zijn. De plek in het vak komt
+    /// uit de lijst (slepen van andere kaarten nummert het vak opnieuw terwijl het paneel open staat).
+    /// </summary>
+    private void SchrijfTerug(Activiteit o)
     {
-        if (_open is null || _data is null || _open.Id == 0) return;
-        var i = _data.Activiteiten.FindIndex(x => x.Id == _open.Id);
-        if (i >= 0) _data.Activiteiten[i] = _open.Kopie();
+        if (_data is null || o.Id == 0) return;
+        var i = _data.Activiteiten.FindIndex(x => x.Id == o.Id);
+        if (i < 0) return;
+        var k = o.Kopie();
+        k.Volgorde = _data.Activiteiten[i].Volgorde;
+        _data.Activiteiten[i] = k;
     }
 
     private async Task TitelGewijzigd(ChangeEventArgs e)
@@ -1811,7 +1982,7 @@ else
             _data.Activiteiten.Add(a);
             return;
         }
-        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Titel", titel, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Titel", titel, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task StatusGewijzigd(ChangeEventArgs e)
@@ -1821,7 +1992,7 @@ else
         if (!ActStatus.IsGeldig(st) || st == o.Status) return;
         ZetStatus(o, st);
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetStatusAsync(o.Id, o.Status, o.GeslotenOp, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetStatusAsync(o.Id, o.Status, o.GeslotenOp, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task PrioKlik(int waarde)
@@ -1829,7 +2000,7 @@ else
         if (_open is not { } o) return;
         o.Prioriteit = o.Prioriteit == waarde ? null : waarde;
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Prioriteit", o.Prioriteit, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Prioriteit", o.Prioriteit, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task Wissel(string soort, int id)
@@ -1838,7 +2009,7 @@ else
         var lijst = soort == KoppelProblemen ? o.Problemen : soort == KoppelTypes ? o.Types : o.Personen;
         if (!lijst.Remove(id)) lijst.Add(id);
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetKoppelingenAsync(o.Id, soort, lijst.ToList(), Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetKoppelingenAsync(o.Id, soort, lijst.ToList(), Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task VervalGewijzigd(ChangeEventArgs e)
@@ -1846,7 +2017,7 @@ else
         if (_open is not { } o) return;
         o.Vervaldatum = DateTime.TryParseExact((string?)e.Value, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var d) ? d.Date : null;
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Vervaldatum", o.Vervaldatum, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Vervaldatum", o.Vervaldatum, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private int _tijdVersie;
@@ -1868,7 +2039,7 @@ else
         if (uren == o.BenodigdeUren) { _tijdVersie++; return; }
         o.BenodigdeUren = uren;
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "BenodigdeUren", uren, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "BenodigdeUren", uren, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task TekstGewijzigd(string kolom, ChangeEventArgs e)
@@ -1877,7 +2048,7 @@ else
         var tekst = (string?)e.Value ?? "";
         if (tekst.Length == 0) o.Tekst.Remove(kolom); else o.Tekst[kolom] = tekst;
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, kolom, tekst, Ik.WerknemerId))) SchrijfTerug();
+        if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, kolom, tekst, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     /// <summary>Verwijderen zonder vraag vooraf, met ongedaan maken (aanname A3): de kopie komt terug als nieuwe regel.</summary>
@@ -1885,7 +2056,14 @@ else
     {
         if (_open is not { } o || _data is null) return;
         _open = null;
-        if (o.Id == 0) return;
+        await Verwijder(o);
+    }
+
+    /// <summary>Vanuit het paneel of het rechtermuismenu; staat de activiteit in het paneel, dan gaat dat dicht.</summary>
+    private async Task Verwijder(Activiteit o)
+    {
+        if (_data is null || o.Id == 0) return;
+        if (_open?.Id == o.Id) _open = null;
         var kopie = o.Kopie();
         if (!await Bewaar(() => Repo.VerwijderActiviteitAsync(o.Id))) return;
         _data.Activiteiten.RemoveAll(x => x.Id == o.Id);

@@ -1615,6 +1615,36 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Activity board: paneel naast het bord, rechtermuismenu, persoon markeren (19-11-2026)
+
+Wensen gebruiker: het bewerken van een kaart "altijd in beeld, als een property-kader"; het bord werd inactief en een
+andere kaart kiezen sloot eerst het paneel.
+- **Paneel naast het bord** (vanaf 1200px breed; smaller = het oude schuifpaneel met scrim). `.ab-werk` om pagina en
+  paneel; met een open paneel krijgt de pagina `padding-right` (`.ab-werk.met-paneel > .page`) en staat `.ab-drawer`
+  `position: fixed` rechts, breedte `--ab-paneelb` (clamp 400px / 32vw / 540px, op `html`), zonder scrim. Bovenkant =
+  `--ab-top`: de onderkant van de kopbalk zolang die in beeld is, anders 0; `activityboard.js` (`paneelTop`, bij
+  scroll, resize, koppel en focusEl) houdt hem bij. **Eerst geprobeerd en verworpen:** `position: sticky; height:
+  100vh` in een flex-rij: bovenaan de pagina viel de voet (Verwijderen/Sluiten) dan onder het venster, en focus op het
+  paneel scrolde de pagina.
+- **Wisselen**: `OpenPaneel` vervangt `_open` direct (`_paneelVersie` als `@key` op `.ab-dbody`, zodat de velden opnieuw
+  gemaakt worden); dezelfde kaart nog eens = niets doen. Wat in een veld getypt was, is al bewaard (change komt voor de
+  klik). **`SchrijfTerug(o)` krijgt de activiteit mee**: tijdens het bewaren kan `_open` al een andere kaart zijn; de
+  plek in het vak (`Volgorde`) komt uit de lijst, want slepen kan nu met een open paneel. `Verlaten(o)` geeft de melding
+  "toegevoegd, maar niet zichtbaar" ook bij wisselen. Kaart/regel in het paneel: klasse `gekozen` (`KaartKlasse`).
+- **Rechtermuismenu** (`_menu`, `OpenMenu` via `@oncontextmenu` + `:preventDefault` op kaart en tabelregel; niet tijdens
+  slepen): Openen, Status (7), Prioriteit (aan/uit), Aan mij toewijzen / Mij eraf halen (alleen met een gekoppelde
+  werknemer), Dupliceren (kopie met alles, titel + " (kopie)", onderaan hetzelfde vak), Verwijderen (`Verwijder(o)`,
+  gedeeld met het paneel, met Ongedaan maken). De acties werken op de activiteit in de lijst; `NaarPaneel` zet status,
+  prioriteit en personen ook in het open paneel. Plek met css `min()`/`max()` (geen afmetingen van het venster nodig);
+  een onzichtbare `.ab-menuvang` sluit het menu bij een klik ernaast, Esc ook.
+- **Persoon markeren**: `_markeer` (mdeOpslag "ab-markeer") maakt van de filter "Toegewezen aan" een markering:
+  `Gefilterd` slaat het persoonsfilter dan over, `KaartKlasse` geeft `mijn` (blauwe rand) of `dim` (grijs, bij hover
+  weer helder). "Ik (naam)" staat bovenaan de keuzelijst (`IkKiesbaar`); Markeren aanzetten zonder gekozen persoon kiest
+  jezelf. Bij markeren neemt snel aanmaken de persoon niet over. De weergave "Mijn activiteiten" bestond al.
+- Getest lokaal met `ActivityBoard__Geheugen=true` op 1600px (wisselen, tekst blijft bewaard bij wisselen, menu: status,
+  dupliceren, verwijderen; filter en markeren) en op 1000px (scrim en schuifpaneel als voorheen). **Niet getest**: "Ik"
+  en "Aan mij toewijzen" (lokaal niet ingelogd), slepen met een open paneel, touch, donker thema van het menu.
+
 ## Activity board: benodigde tijd per activiteit (19-11-2026)
 
 Verzoek Edwin: per activiteit invoeren hoeveel tijd nodig is om hem uit te voeren. **Script

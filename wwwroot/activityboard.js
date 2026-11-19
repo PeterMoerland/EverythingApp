@@ -11,15 +11,24 @@
     let s = null;         // lopende sleep
 
     window.mdeAb = {
-        koppel: function (dotnet) { doel = dotnet; },
+        koppel: function (dotnet) { doel = dotnet; paneelTop(); },
         los: function () { stop(false); doel = null; },
         // Focus terug op een kaart of tabelregel na het sluiten van het detailpaneel
         focus: function (id) {
             const el = document.querySelector('.ab-kaart[data-id="' + id + '"], tr.ab-rij[data-id="' + id + '"]');
             if (el) el.focus({ preventScroll: true });
         },
-        focusEl: function (sel) { const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } }
+        focusEl: function (sel) { paneelTop(); const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } }
     };
+
+    // Het paneel van de activiteit staat op een breed scherm vast naast het bord (app.css, .ab-drawer): --ab-top is de
+    // onderkant van de kopbalk zolang die in beeld is, anders 0, zodat het paneel altijd tot onderaan het venster loopt.
+    function paneelTop() {
+        const w = document.querySelector('.ab-werk');
+        if (w) document.documentElement.style.setProperty('--ab-top', Math.max(0, Math.round(w.getBoundingClientRect().top)) + 'px');
+    }
+    window.addEventListener('scroll', paneelTop, { passive: true });
+    window.addEventListener('resize', paneelTop);
 
     function roep(naam) {
         if (!doel) return;
