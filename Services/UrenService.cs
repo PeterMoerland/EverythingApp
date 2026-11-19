@@ -210,41 +210,50 @@ public class UrenService
     };
 
     // === VBA: WoonWerk_Click — book commute kilometers twice (there and back), only once per day ===
-    public async Task<bool> BoekWoonWerkAsync(int werknemerId, DateOnly datum)
+    /// <summary>Null = geboekt; anders waarom niet (staat er al, of de regel kan niet: zelfde controles als bij opslaan).</summary>
+    public async Task<string?> BoekWoonWerkAsync(int werknemerId, DateOnly datum)
     {
         var settings = await _repo.GetGeneralSettingsAsync();
         var werknemer = await _repo.GetWerknemerAsync(werknemerId);
-        if (werknemer is null) return false;
+        if (werknemer is null) return "Deze werknemer is niet gevonden.";
+        if (settings.ManagementKilometerOrder <= 0)
+            return "Er is geen werkorder voor woon-werk kilometers ingesteld (General_settings.ManagementKilometerOrder).";
 
         var bestaand = await _repo.GetUrenVanDagAsync(werknemerId, datum);
         if (bestaand.Any(u => u.Werkorder == settings.ManagementKilometerOrder))
-            return false; // al geboekt vandaag
+            return "Woon-werk kilometers staan al geboekt op deze dag.";
 
-        foreach (var oms in new[] { werknemer.TextWoonWerk, werknemer.TextWerkWoon })
+        var regels = new[] { werknemer.TextWoonWerk, werknemer.TextWerkWoon }.Select(oms => new UrenEntry
         {
-            await _repo.AddAsync(new UrenEntry
-            {
-                Werkorder = settings.ManagementKilometerOrder,
-                StartDatum = datum, EindDatum = datum,
-                WerknemerId = werknemerId,
-                TariefsoortId = 1,                       // Travel
-                Omschrijving = oms,
-                Kilometers = werknemer.WoonWerkKilometers,
-                UrenActiviteitId = 13,                   // Woon-werk verkeer
-                PriveKMs = true,
-                FixedTypeId = 0
-            });
-        }
-        return true;
+            Werkorder = settings.ManagementKilometerOrder,
+            StartDatum = datum, EindDatum = datum,
+            WerknemerId = werknemerId,
+            TariefsoortId = 1,                       // Travel
+            Omschrijving = oms,
+            Kilometers = werknemer.WoonWerkKilometers,
+            UrenActiviteitId = 13,                   // Woon-werk verkeer
+            PriveKMs = true,
+            FixedTypeId = 0
+        }).ToList();
+        // eerst alles controleren, dan pas boeken: anders staat alleen de heenreis er
+        foreach (var e in regels)
+            if (await ValideerAsync(e) is { } fout) return "Woon-werk kilometers boeken kan niet. " + fout;
+        foreach (var e in regels) await _repo.AddAsync(e);
+        return null;
     }
 
     // === VBA: KnopVrijeUrenInboeken_Click — book 8 hours on a special order (verlof/ziek) ===
-    public async Task<bool> BoekVrijeUrenAsync(int werknemerId, DateOnly datum, int specialOrderId)
+    /// <summary>
+    /// Boekt 8 uur op de werkorder van deze soort vrije uren. Geeft terug of het gelukt is en de tekst voor de melding;
+    /// bij gelukt staat de werkorder erin, zodat een verkeerd ingestelde werkorder meteen opvalt. Dezelfde controles als
+    /// bij opslaan (werkorder bestaat en is open): zonder die controle weigerde de database de regel en liep de pagina vast.
+    /// </summary>
+    public async Task<(bool Gelukt, string Tekst)> BoekVrijeUrenAsync(int werknemerId, DateOnly datum, int specialOrderId)
     {
         var special = (await _repo.GetSpecialOrdersAsync()).FirstOrDefault(s => s.Id == specialOrderId);
-        if (special is null) return false;
+        if (special is null) return (false, "Deze soort vrije uren bestaat niet (meer).");
 
-        await _repo.AddAsync(new UrenEntry
+        var e = new UrenEntry
         {
             Werkorder = special.Order,
             Uren = 8,
@@ -252,10 +261,14 @@ public class UrenService
             WerknemerId = werknemerId,
             TariefsoortId = 2,                           // Normaal
             FixedTypeId = 0,
-            Omschrijving = special.Remark,
+            Omschrijving = special.Remark.Length > 0 ? special.Remark : special.Weergave,
             Kilometers = 0,
             FixedAmount = 0
-        });
-        return true;
+        };
+        if (await ValideerAsync(e) is { } fout)
+            return (false, $"{special.Weergave} boeken kan niet. {fout} De werkorder voor {special.Weergave} staat in de instellingen (GeneralSettingsSpecialOrders); vraag de beheerder die bij te werken.");
+        await _repo.AddAsync(e);
+        var wo = await _repo.GetWorkorderAsync(special.Order);
+        return (true, $"8 uur {special.Weergave} geboekt op {wo?.VolledigeTekst ?? "werkorder " + special.Order}.");
     }
 }

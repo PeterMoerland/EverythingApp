@@ -12,7 +12,7 @@
 <div class="page">
     <header class="topbar">
         <h1>Betalingen klaarzetten</h1>
-        <span class="weeklabel">@Zichtbaar.Count() facturen · @Gekozen.Count() geselecteerd · @Geld(Gekozen.Sum(r => r.Bedrag))</span>
+        <span class="weeklabel">@(Zoekt ? $"{Getoond.Count()} van {Zichtbaar.Count()}" : Zichtbaar.Count().ToString()) facturen · @Gekozen.Count() geselecteerd · @Geld(Gekozen.Sum(r => r.Bedrag))</span>
         <button class="klein" @onclick="Laad" title="Opnieuw ophalen; selectie en wijzigingen in omschrijving vervallen">↻ Vernieuwen</button>
     </header>
 
@@ -55,6 +55,12 @@
                     }
                 </select>
             </label>
+            @* zoeken (verzoek van Michiel, 19-11-2026): alleen wat je ziet; wat geselecteerd is blijft geselecteerd *@
+            <label class="bankveld prod-keuze">
+                <span>Zoeken</span>
+                <input type="search" value="@_zoek" placeholder="leverancier, factuurnummer, bedrag, omschrijving…" autocomplete="off"
+                       @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            </label>
             <div class="btngroup">
                 <button class="klein" disabled="@(!MagBetalen)" @onclick="SelecteerAlles">Selecteer alles</button>
                 <button class="klein" disabled="@(!MagBetalen)" @onclick="SelecteerNiets">Niets</button>
@@ -93,7 +99,11 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var r in Zichtbaar)
+                        @if (!Getoond.Any())
+                        {
+                            <tr><td colspan="12" class="kiezer-info">Niets gevonden voor ‘@_zoek.Trim()’.</td></tr>
+                        }
+                        @foreach (var r in Getoond)
                         {
                             var ontbreekt = r.Ontbreekt();
                             <tr @key="r.FactuurId" class="@RegelKlasse(r, ontbreekt)" @ondblclick="() => _factuurId = r.FactuurId"
@@ -137,7 +147,15 @@
             </div>
 
             <div class="bk-voet">
+                @* In de voet en niet als .melding (die zweeft rechtsboven); dit staat er bij bijna elke zoekopdracht.
+                   Let op in Razor: "tekst@if (...)" leest hij als een mailadres, dus de telling staat in een blokje. *@
+                @{ var buiten = Zoekt ? Gekozen.Except(Getoond).Count() : 0; }
                 <span>@Gekozen.Count() van @Zichtbaar.Count() geselecteerd</span>
+                @if (buiten > 0)
+                {
+                    <span class="bk-buiten" title="Zoeken verandert niet wat er betaald wordt: deze facturen gaan mee in het bestand">waarvan @buiten buiten de zoekopdracht</span>
+                    <button class="klein" @onclick="() => _zoek = string.Empty">Zoeken wissen</button>
+                }
                 @foreach (var g in Gekozen.GroupBy(r => r.Bv).OrderBy(g => g.Key))
                 {
                     <span class="bk-bv">@g.Key: @g.Count() · @Geld(g.Sum(r => r.Bedrag))</span>
@@ -182,8 +200,32 @@
         .Where(r => r.NogDagen > _vervalt && (_bv.Length == 0 || r.Bv == _bv))
         .OrderByDescending(r => r.NogDagen).ThenBy(r => r.Leverancier);
 
-    /// <summary>Wat er betaald wordt: geselecteerd én zichtbaar (wat je ziet is wat er in het bestand komt).</summary>
+    /// <summary>
+    /// Wat er betaald wordt: geselecteerd én binnen de filters Vervalt na en BV. De zoektekst telt hier niet mee: zoeken is
+    /// om een factuur te vinden en aan te vinken, niet om wat al aangevinkt is weer uit het bestand te halen.
+    /// </summary>
     private IEnumerable<BetaalRegel> Gekozen => Zichtbaar.Where(r => r.Selectie);
+
+    // ---- zoeken (verzoek van Michiel, 19-11-2026) ----
+    private string _zoek = "";
+    private bool Zoekt => _zoek.Trim().Length > 0;
+    private static readonly System.Globalization.CultureInfo NlZoek = new("nl-NL");
+
+    /// <summary>Wat er in de tabel staat: binnen de filters, en elk woord van de zoektekst komt ergens in de regel voor.</summary>
+    private IEnumerable<BetaalRegel> Getoond
+    {
+        get
+        {
+            var woorden = _zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return woorden.Length == 0 ? Zichtbaar : Zichtbaar.Where(r =>
+            {
+                // bedrag met en zonder punt voor de duizendtallen, datums zoals ze in de tabel staan
+                var tekst = string.Join(' ', r.Leverancier, r.Factuurnummer, r.Bv, r.Tenaamstelling, r.Omschrijving, r.Iban, r.Bic,
+                    r.Bedrag.ToString("N2", NlZoek), r.Bedrag.ToString("0.00", NlZoek), Datum(r.Factuurdatum), Datum(r.Betaaldatum));
+                return woorden.All(w => tekst.Contains(w, StringComparison.OrdinalIgnoreCase));
+            });
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -210,18 +252,19 @@
     }
 
     // Access: "Selecteer alles" zette alleen wat niet on hold is en een positief bedrag heeft (binnen het BV-filter).
+    // Met een zoektekst werken de drie knoppen op wat er in de tabel staat; de rest van de selectie blijft zoals hij was.
     private void SelecteerAlles()
     {
-        foreach (var r in _regels) r.Selectie = false;
-        foreach (var r in Zichtbaar) r.Selectie = !r.OnHold && !r.IsCredit;
+        if (!Zoekt) foreach (var r in _regels) r.Selectie = false;
+        foreach (var r in Getoond.ToList()) r.Selectie = !r.OnHold && !r.IsCredit;
     }
 
-    private void SelecteerNiets() { foreach (var r in _regels) r.Selectie = false; }
+    private void SelecteerNiets() { foreach (var r in Zoekt ? Getoond.ToList() : _regels) r.Selectie = false; }
 
     private void SelecteerVolledig()
     {
-        foreach (var r in _regels) r.Selectie = false;
-        foreach (var r in Zichtbaar) r.Selectie = !r.OnHold && !r.IsCredit && r.Volledig;
+        if (!Zoekt) foreach (var r in _regels) r.Selectie = false;
+        foreach (var r in Getoond.ToList()) r.Selectie = !r.OnHold && !r.IsCredit && r.Volledig;
     }
 
     // ---- IBAN en BIC: ook bij de leverancier bijwerken (Access: IBAN_AfterUpdate / BIC_AfterUpdate) ----

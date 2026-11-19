@@ -804,8 +804,11 @@ public class MySqlUrenRepository : IUrenRepository
             await using var cmd = new MySqlCommand(
                 $"SELECT `{id}` AS id, {(naam != null ? $"`{naam}`" : "NULL")} AS naam FROM `{t}`", cn);
             await using var r = await cmd.ExecuteReaderAsync();
+            // Regels zonder naam overslaan: in de tabel staan lege regels (id 18-32, in 2026 ontstaan, niet door deze app:
+            // die schrijft nooit in Tariefsoort) en die kwamen als lege keuzes in de lijst Tarief (gezien 19-11-2026).
             while (await r.ReadAsync())
-                list.Add(new Tariefsoort { TariefsoortId = I(r["id"]), Naam = S(r["naam"]) });
+                if (!string.IsNullOrWhiteSpace(S(r["naam"])))
+                    list.Add(new Tariefsoort { TariefsoortId = I(r["id"]), Naam = S(r["naam"]) });
             if (list.Count > 0) return list;
         }
         catch { /* val terug op standaard */ }
@@ -851,15 +854,44 @@ public class MySqlUrenRepository : IUrenRepository
         };
     }
 
-    public Task<List<SpecialOrder>> GetSpecialOrdersAsync()
-        => Task.FromResult(new List<SpecialOrder>
+    // Vrije uren en woon-werk: de werkorders staan in de instellingen van Access (GeneralSettingsSpecialOrders en
+    // General_settings.ManagementKilometerOrder). Hier stonden vaste nummers (90002-90004) die geen werkorder zijn; de
+    // database weigerde de regel dan (FK_Uren_Werkorder) en de pagina liep vast (punt van Gerard, 19-11-2026).
+    public async Task<List<SpecialOrder>> GetSpecialOrdersAsync()
+    {
+        var lijst = new List<SpecialOrder>();
+        try
         {
-            new() { Id = 1, Order = 90003, Remark = "Verlof" },
-            new() { Id = 2, Order = 90004, Remark = "Ziek" },
-        });
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT `GeneralSettingsSpecialOrders_id`, COALESCE(`Description`, ''), `Order`, COALESCE(`Remark`, '') " +
+                "  FROM `GeneralSettingsSpecialOrders` WHERE `Order` IS NOT NULL ORDER BY `Description`", cn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                lijst.Add(new SpecialOrder
+                {
+                    Id = Convert.ToInt32(r.GetValue(0)), Naam = r.GetString(1).Trim(),
+                    Order = Convert.ToInt32(r.GetValue(2)), Remark = r.GetString(3).Trim(),
+                });
+        }
+        catch { /* tabel ontbreekt: dan geen vrije uren in de lijst */ }
+        return lijst;
+    }
 
-    public Task<GeneralSettings> GetGeneralSettingsAsync()
-        => Task.FromResult(new GeneralSettings { ManagementKilometerOrder = 90002 });
+    public async Task<GeneralSettings> GetGeneralSettingsAsync()
+    {
+        var s = new GeneralSettings();
+        try
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var cmd = new MySqlCommand("SELECT `ManagementKilometerOrder` FROM `General_settings` LIMIT 1", cn);
+            if (await cmd.ExecuteScalarAsync() is { } w and not DBNull) s.ManagementKilometerOrder = Convert.ToInt32(w);
+        }
+        catch { /* 0 = niet ingesteld; boeken geeft dan een melding */ }
+        return s;
+    }
 
     // ============================================================
     //  PLANNING — leest uit Planning_Schema.sql als die tabellen bestaan;

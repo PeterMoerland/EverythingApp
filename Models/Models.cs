@@ -94,6 +94,10 @@ public class SpecialOrder
     public int Id { get; set; }                      // GeneralSettingsSpecialOrders_id
     public int Order { get; set; }                   // workorder to book on
     public string Remark { get; set; } = "";
+    /// <summary>De naam in de keuzelijst (GeneralSettingsSpecialOrders.Description: Vrije dag, Ziek, …).</summary>
+    public string Naam { get; set; } = "";
+    /// <summary>Wat er in de lijst staat: de naam, anders de opmerking.</summary>
+    public string Weergave => Naam.Length > 0 ? Naam : Remark;
 }
 
 /// <summary>Maps to [General_settings] (only the parts this form needs).</summary>

@@ -1615,6 +1615,53 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Betalingen klaarzetten: zoeken; lege tariefsoorten (19-11-2026)
+
+- **Zoeken** (verzoek van Michiel): `_zoek` en `Getoond` in `BetalingenKlaarzetten.razor` (elk woord moet voorkomen in
+  leverancier, factuurnummer, BV, tenaamstelling, omschrijving, IBAN, BIC, bedrag met en zonder duizendpunt, of de twee
+  datums). **De zoektekst telt niet mee in `Gekozen`** (dat blijft `Zichtbaar` = filters Vervalt na en BV, met een
+  vinkje): zoeken is om te vinden en aan te vinken, niet om wat al aangevinkt is uit het SEPA-bestand te halen. De voet
+  zegt "waarvan n buiten de zoekopdracht" met Zoeken wissen. Met een zoektekst werken Selecteer alles / Niets / Alleen
+  volledige regels op `Getoond` en laten ze de rest van de selectie staan; zonder zoektekst zoals het was.
+  Valkuilen: `class="melding"` is in deze app een zwevende melding rechtsboven, dus een vaste opmerking hoort er niet
+  in; en Razor leest `tekst@if (…)` als een mailadres (de `@if` wordt dan letterlijke tekst en de variabele bestaat niet).
+  Lokaal bekeken via een tijdelijk tweede `@page`-adres buiten `/financien` (weer weggehaald); knoppen niet getest
+  (zonder recht staan ze uit).
+- **Lege regels in de keuzelijst Tarief** (gezien door de gebruiker, ook in Access): tabel `Tariefsoort` had 15 regels
+  zonder naam (id 18-32, ontstaan op 17-7, 18-9 en 24-9-2026, telkens een paar tegelijk). Deze app schrijft nergens in
+  die tabel, dus het komt van Access (of een handmatige bewerking); geen enkele urenregel verwijst ernaar (alleen 1-5
+  zijn in gebruik, de enige verwijzing is `FK_Uren_TariefsoortID`). `GetTariefsoortenAsync` slaat regels zonder naam nu
+  over. Opruimen: `Tariefsoort_LegeRegels_MariaDB.sql` (de gebruiker voert het uit); daarin staat ook, uitgezet, een
+  CHECK die nieuwe lege regels weigert (dan krijgt Access een foutmelding op het moment dat het gebeurt, en weten we
+  welk scherm het doet).
+
+## Ureningave: Boek 8 uur liep vast; lege regel open; plakregel (19-11-2026)
+
+- **Oorzaak van het vastlopen** (punt van Gerard): `MySqlUrenRepository.GetSpecialOrdersAsync` en
+  `GetGeneralSettingsAsync` gaven vaste nummers terug (90003 Verlof, 90004 Ziek, 90002 woon-werk), overgenomen uit de
+  demo-gegevens. Dat zijn geen `Workorders.Werkbon-id`'s; de INSERT in `Uren` faalde op `FK_Uren_Werkorder` en de
+  niet-afgevangen fout legde de pagina plat (Blazor-circuit weg). Gold dus ook voor "Woon-werk km".
+- **Nu**: de werkorders komen uit de tabellen van Access: `GeneralSettingsSpecialOrders` (Description = `SpecialOrder.Naam`,
+  Order, Remark) en `General_settings.ManagementKilometerOrder` (1270 "KMs management"). `UrenService.BoekVrijeUrenAsync`
+  geeft `(Gelukt, Tekst)` en `BoekWoonWerkAsync` een foutmelding of null; beide lopen eerst door `ValideerAsync` (werkorder
+  bestaat en is open) en de knoppen in Ureningave vangen ook een onverwachte fout af. De melding na het boeken noemt de
+  werkorder.
+- **De instellingen in de database waren verouderd** (gezien 19-11-2026): Vrije dag -> 37 en Feestdag -> 36 (beide
+  gesloten), Ziek -> 2600 ("Versturen": open, dus die zou verkeerd boeken). In 2026 wordt geboekt op 970 (Vrije dag),
+  1402 (Feestdag) en 7007 (Ziekmeldingen 2026). **Script `Ureningave_VrijeUren_MariaDB.sql`** zet ze goed; de gebruiker
+  voert het uit, **vóór het publiceren**. Ziek heeft elk jaar een nieuwe werkorder en moet dus jaarlijks bijgewerkt.
+- **Lege regel staat al open** (wens gebruiker): `Ververs()` eindigt met `NieuweRegel()`. Een ongewijzigde lege regel telt
+  niet als niet-opgeslagen (`Onopgeslagen` vergelijkt met `_nieuwBegin`). Na `Opslaan` gaat de cursor naar de
+  omschrijving van de volgende lege regel (`_focusNieuw`, `_nieuwOmschrijving`); bij het laden van de pagina niet.
+- **Kopiëren en plakken "leek niet te werken"** (punt van Gerard): het werkte, maar de aanwijzing stond alleen even in
+  de melding rechtsboven. Nu een regel `tr.plakregel` in de voet van de tabel zolang er iets gekopieerd is (wat, knop
+  "Plak … op <dag>", ✕ = vergeten) en de plakknop bovenin is dan `primair`. Een hele dag kopiëren bestond al
+  ("Kopieer dag" zonder aangevinkte regels).
+- **Testen zonder database**: een tijdelijke map met alleen een kopie van `wwwroot` als `--contentRoot` (geen
+  appsettings.json = demo-modus met `JsonDemoRepository`; die schrijft `demo-data.json` in de content root, dus niet de
+  projectmap gebruiken). Zo getest: lege regel open, ⧉ en plakken op een andere dag, Boek 8 uur. **Niet getest**: tegen
+  de echte database (schrijft uren), Woon-werk km.
+
 ## Activity board: kolom Geannuleerd en keuzelijst; Verbeterverzoeken: intrekken (19-11-2026)
 
 - **Status `geannuleerd`** (wens gebruiker): achtste in `ActStatus.Alle`, groep Klaar (krijgt dus een sluitdatum, staat

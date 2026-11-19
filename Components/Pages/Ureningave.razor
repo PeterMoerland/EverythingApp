@@ -53,7 +53,7 @@
         @* Met regels aangevinkt kopieert de knop die regels, anders de hele dag; Plak plakt wat er gekopieerd is *@
         <div class="btngroup">
             <button title="@KopieerTitel" @onclick="Kopieer">@KopieerTekst</button>
-            <button disabled="@(_kopieerDatum is null && _kopieRegels is null)" title="@PlakTitel" @onclick="Plak">@PlakTekst</button>
+            <button class="@(_kopieerDatum is null && _kopieRegels is null ? "" : "primair")" disabled="@(_kopieerDatum is null && _kopieRegels is null)" title="@PlakTitel" @onclick="Plak">@PlakTekst</button>
         </div>
 
         @if (_huidigeWerknemer?.Directie == true)
@@ -66,10 +66,10 @@
                 <option value="0">— vrije uren —</option>
                 @foreach (var s in _specialOrders)
                 {
-                    <option value="@s.Id">@s.Remark</option>
+                    <option value="@s.Id">@s.Weergave</option>
                 }
             </select>
-            <button @onclick="BoekVrijeUren">Boek 8 uur</button>
+            <button disabled="@(_specialOrderId == 0)" title="8 uur boeken op de gekozen soort vrije uren" @onclick="BoekVrijeUren">Boek 8 uur</button>
         </div>
     </section>
 
@@ -123,6 +123,18 @@
                 }
             </tbody>
             <tfoot>
+                @* Wat er gekopieerd is blijft hier staan, met de plakknop erbij (punt van Gerard, 19-11-2026: kopiëren
+                   "leek niet te werken"; de aanwijzing stond alleen even in de melding rechtsboven). *@
+                @if (_kopieRegels is not null || _kopieerDatum is not null)
+                {
+                    <tr class="plakregel">
+                        <td colspan="10">
+                            📋 <b>@GekopieerdTekst</b> Ga naar de dag (of werknemer) waar het moet komen en klik
+                            <button class="klein primair" title="@PlakTitel" @onclick="Plak">@PlakTekst op @_datum.ToString("ddd d-M", new System.Globalization.CultureInfo("nl-NL"))</button>
+                            <button class="klein" title="Het gekopieerde vergeten" @onclick="VergeetKopie">✕</button>
+                        </td>
+                    </tr>
+                }
                 <tr>
                     <td colspan="5" class="r"><b>Totaal:</b></td>
                     <td class="r"><b>@_dagEntries.Sum(x => x.Uren).ToString("0.##")</b></td>
@@ -163,7 +175,7 @@
             </div>
             @DeelKeuze(e)
         </td>
-        <td><input @bind="e.Omschrijving" placeholder="omschrijving" /></td>
+        <td><input @ref="_nieuwOmschrijving" @bind="e.Omschrijving" placeholder="omschrijving" /></td>
         @* Tekstveld i.p.v. type=time: altijd 24-uurs (uu:mm), ongeacht de browsertaal.
            Snel typen mag: 8 / 830 / 8:30 / 0830. Alleen cijfers en een dubbele punt (invoerfilter.js op input.tijd);
            de sleutels (_startVersie enz.) zetten na een tijd die niet kan terug wat er stond. *@
@@ -372,6 +384,9 @@
         await LaadDelen(_dagEntries.Select(u => u.Werkorder));
         _bewerkt = null;
         _gekozen.Clear();
+        // De lege regel staat er meteen (wens gebruiker 19-11-2026): typen zonder eerst "+ Nieuwe regel". Zolang er niets
+        // in gewijzigd is, telt hij niet als niet-opgeslagen (Onopgeslagen vergelijkt met _nieuwBegin).
+        await NieuweRegel();
     }
 
     private string DagCss(int dagnr, DateOnly dagDatum, decimal? uren)
@@ -422,8 +437,17 @@
     private bool IkBenActief => _ikId is not null && _ikId == _werknemerId;
     private string IkNaam => _werknemers.FirstOrDefault(w => w.WerknemerId == _ikId)?.Naam ?? "";
 
+    // Na het opslaan van een nieuwe regel staat de cursor in de omschrijving van de volgende lege regel (doortypen).
+    private ElementReference _nieuwOmschrijving;
+    private bool _focusNieuw;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_focusNieuw)
+        {
+            _focusNieuw = false;
+            try { await _nieuwOmschrijving.FocusAsync(); } catch { /* geen lege regel in beeld */ }
+        }
         if (!firstRender || _gebruikerGelezen) return;
         _gebruikerGelezen = true;
         if (_ikId is not null) return;   // al bekend via de login
@@ -486,6 +510,9 @@
     private string PlakTekst => _kopieRegels is { } k ? $"Plak {Regels(k.Count)}" : "Plak dag";
     private string PlakTitel => _kopieRegels is { } k ? $"{Regels(k.Count)} op deze dag zetten"
         : _kopieerDatum is { } d ? $"De regels van {d:dd-MM-yyyy} op deze dag zetten" : "Kopieer eerst een dag of regels";
+    private string GekopieerdTekst => _kopieRegels is { } k ? $"{Regels(k.Count)} gekopieerd."
+        : _kopieerDatum is { } d ? $"De dag {d:dd-MM-yyyy} is gekopieerd." : "";
+    private void VergeetKopie() { _kopieRegels = null; _kopieerDatum = null; }
     private bool AllesGekozen => _dagEntries.Count > 0 && _gekozen.Count == _dagEntries.Count;
     private string RijKlasse(UrenEntry e) => _gekozen.Contains(e.UrenId) ? "gekozen" : "";
 
@@ -536,18 +563,29 @@
     private async Task BoekWoonWerk()
     {
         if (!await MagWeg()) return;
-        var geboekt = await Service.BoekWoonWerkAsync(_werknemerId, _datum);
-        Toon(geboekt ? "Woon-werk kilometers geboekt (heen en terug)." : "Woon-werk kilometers staan al geboekt op deze dag.", fout: !geboekt);
-        await Ververs();
+        try
+        {
+            var fout = await Service.BoekWoonWerkAsync(_werknemerId, _datum);
+            Toon(fout ?? "Woon-werk kilometers geboekt (heen en terug).", fout: fout is not null);
+            await Ververs();
+        }
+        catch (Exception ex) { Toon("Woon-werk kilometers boeken mislukt: " + ex.GetBaseException().Message, fout: true); }
     }
 
     // === VBA: KnopVrijeUrenInboeken_Click ===
+    // Een fout mag de pagina niet laten vastlopen (punt van Gerard, 19-11-2026): melden en verder.
     private async Task BoekVrijeUren()
     {
         if (_specialOrderId == 0 || !await MagWeg()) return;
-        await Service.BoekVrijeUrenAsync(_werknemerId, _datum, _specialOrderId);
-        _specialOrderId = 0;
-        await Ververs();
+        try
+        {
+            var (gelukt, tekst) = await Service.BoekVrijeUrenAsync(_werknemerId, _datum, _specialOrderId);
+            Toon(tekst, fout: !gelukt);
+            if (!gelukt) return;
+            _specialOrderId = 0;
+            await Ververs();
+        }
+        catch (Exception ex) { Toon("Vrije uren boeken mislukt: " + ex.GetBaseException().Message, fout: true); }
     }
 
     // === Grid bewerken (Access continuous subform) ===
@@ -755,6 +793,7 @@
         if (_bewerkt.UrenId == 0) await Repo.AddAsync(_bewerkt);
         else await Repo.UpdateAsync(_bewerkt);
         await Ververs();
+        _focusNieuw = true;
     }
 
     // VBA: KnopVerwijderRecord_Click ("Weet je het zeker?")
