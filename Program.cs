@@ -1532,6 +1532,8 @@ app.MapGet("/api/componenten", async (HttpContext ctx, IEcComponentRepository ec
 // geen sleutels = uit). Zie Services/ActivityBoardApi.cs en ActivityBoard-API.md.
 // ---------------------------------------------------------------------------
 app.MapActivityBoardApi();
+// de uitleg en de skill voor Claude Code als download (links bij "mijn sleutel" op de pagina Werknemers)
+foreach (var adres in app.MapActivityBoardUitleg()) { if (loginAan) adres.RequireAuthorization(); }
 
 var componenten = app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -4,6 +4,8 @@
 @inject FilestoreService Store
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
+@inject IConfiguration Config
+@inject NavigationManager Nav
 
 <div class="page">
     <header class="topbar">
@@ -279,6 +281,47 @@
                     </DetailMetZij>
                 }
 
+                @* Je eigen sleutel voor de Activity board API (wens gebruiker 19-11-2026: "iedereen zijn eigen key kunnen zien,
+                   men is al ingelogd"), op een eigen tabblad (TabSleutel) dat alleen op je eigen pagina bestaat en alleen met
+                   een persoonlijke aanmelding (deze module staat op een gedeelde werkplek toch al dicht). De sleutel staat
+                   pas in de pagina na Tonen. *@
+                @if (_tab == TabSleutel && ToonEigenSleutel)
+                {
+                    var sleutel = ActivityBoardApi.SleutelVan(Config, _gekozenId!.Value);
+                    <h3 class="wn-kop">Activity board API</h3>
+                    <div class="wn-api">
+                        <p class="uitleg">
+                            Je persoonlijke sleutel voor de API van het Activity board, bijvoorbeeld voor Claude Code. Alleen jij
+                            ziet dit tabblad. Alles wat met de sleutel gebeurt staat op jouw naam: behandel hem als een wachtwoord
+                            en geef hem aan niemand.
+                        </p>
+                        @if (sleutel is null)
+                        {
+                            <p class="uitleg"><b>Er is voor jou nog geen sleutel.</b> Vraag hem aan bij de beheerder van de app.</p>
+                        }
+                        else
+                        {
+                            <div class="wn-api-regel">
+                                <span class="wn-api-naam">Sleutel</span>
+                                <code class="wn-api-waarde">@(_sleutelTonen ? sleutel : new string('•', 24))</code>
+                                <button class="klein" @onclick="() => _sleutelTonen = !_sleutelTonen">@(_sleutelTonen ? "Verbergen" : "Tonen")</button>
+                                <button class="klein" title="Naar het klembord, zonder hem te tonen" @onclick='() => Kopieer(sleutel, "De sleutel")'>Kopiëren</button>
+                            </div>
+                            <div class="wn-api-regel">
+                                <span class="wn-api-naam">Adres van de app</span>
+                                <code class="wn-api-waarde">@AppAdres</code>
+                                <button class="klein" @onclick='() => Kopieer(AppAdres, "Het adres")'>Kopiëren</button>
+                            </div>
+                            <p class="uitleg">
+                                Zo gebruik je hem: download de <a href="tools/activityboard-api/skill">skill voor Claude Code</a> en pak de zip uit in
+                                <code>%USERPROFILE%\.claude\skills</code>. Zet daarna het adres in de omgevingsvariabele <code>MDE_APP</code> en de
+                                sleutel in <code>MDE_SLEUTEL</code>. Alle mogelijkheden staan in de
+                                <a href="tools/activityboard-api/uitleg">uitleg</a>. De API werkt alleen binnen het MDE-netwerk.
+                            </p>
+                        }
+                    </div>
+                }
+
                 @if (_tab == "Financieel" && WnRepo.Beschikbaar)
                 {
                     <h3 class="wn-kop">Passen</h3>
@@ -549,6 +592,7 @@
         WerknemerVelden.Tabs
             .Concat(new[] { new VeldTab("Loopbaan", null) })
             .Where(t => t.Recht is null || !Ik.Gekoppeld || Ik.Mag(t.Recht) || Ik.Mag("Directie"))
+            .Concat(ToonEigenSleutel ? new[] { new VeldTab(TabSleutel, null) } : Array.Empty<VeldTab>())      // alleen op je eigen pagina
             .ToArray();
 
     protected override async Task OnInitializedAsync()
@@ -622,9 +666,28 @@
         await Laad();
     }
 
+    // ---- je eigen sleutel voor de Activity board API ----
+    private const string TabSleutel = "API-sleutel";
+    private bool _sleutelTonen;
+
+    /// <summary>Alleen op je eigen pagina, met een persoonlijke aanmelding, en als de API aan staat.</summary>
+    private bool ToonEigenSleutel
+        => Ik.Ingelogd && !Ik.IsWerkplek && _gekozenId is int g && Ik.WerknemerId == g && ActivityBoardApi.Aan(Config);
+
+    private string AppAdres => Nav.BaseUri.TrimEnd('/');
+
+    private async Task Kopieer(string tekst, string wat)
+    {
+        var gelukt = false;
+        try { gelukt = await JS.InvokeAsync<bool>("mdeKopieer", tekst); } catch { }
+        Toon(gelukt ? wat + " staat op het klembord." : "Kopiëren lukte niet; klik op Tonen en neem hem met de hand over.", !gelukt);
+    }
+
     private async Task Kies(int id)
     {
+        _sleutelTonen = false;
         _gekozenId = id;
+        if (_tab == TabSleutel && !ToonEigenSleutel) _tab = "Basisgegevens";      // dat tabblad bestaat alleen op je eigen pagina
         _gebeurtenis = null;
         await WachtOpOpslaan();
         try { _velden = await Repo.GetWerknemerVeldenAsync(id); }

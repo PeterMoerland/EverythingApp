@@ -10,7 +10,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 {
     private readonly object _slot = new();
     private int _volgend = 100;
-    private sealed class Bord { public int Id; public int? ProjectId; public int? RelatieId; public int? WerkorderId; public string Naam = ""; }
+    private sealed class Bord { public int Id; public int? ProjectId; public int? RelatieId; public int? WerkorderId; public string Naam = ""; public int? Door; }
     private readonly List<Bord> _boards = new();
     private readonly List<(int BoardId, ActProbleem P)> _problemen = new();
     private readonly List<(int BoardId, ActType T)> _types = new();
@@ -51,7 +51,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         lock (_slot)
         {
             if (_boards.FirstOrDefault(x => x.ProjectId == projectId) is { } b) return Task.FromResult(b.Id);
-            var n = new Bord { Id = Nieuw(), ProjectId = projectId };
+            var n = new Bord { Id = Nieuw(), ProjectId = projectId, Door = door };
             _boards.Add(n);
             return Task.FromResult(n.Id);
         }
@@ -62,7 +62,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         lock (_slot)
         {
             if (_boards.FirstOrDefault(x => x.RelatieId == relatieId) is { } b) return Task.FromResult(b.Id);
-            var n = new Bord { Id = Nieuw(), RelatieId = relatieId };
+            var n = new Bord { Id = Nieuw(), RelatieId = relatieId, Door = door };
             _boards.Add(n);
             return Task.FromResult(n.Id);
         }
@@ -75,7 +75,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         lock (_slot)
         {
             if (_boards.FirstOrDefault(x => x.WerkorderId == werkbonId) is { } b) return Task.FromResult(b.Id);
-            var n = new Bord { Id = Nieuw(), WerkorderId = werkbonId };
+            var n = new Bord { Id = Nieuw(), WerkorderId = werkbonId, Door = door };
             _boards.Add(n);
             return Task.FromResult(n.Id);
         }
@@ -83,7 +83,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 
     public Task<int> NieuwVrijBoardAsync(string naam, int? door)
     {
-        lock (_slot) { var n = new Bord { Id = Nieuw(), Naam = naam.Trim() }; _boards.Add(n); return Task.FromResult(n.Id); }
+        lock (_slot) { var n = new Bord { Id = Nieuw(), Naam = naam.Trim(), Door = door }; _boards.Add(n); return Task.FromResult(n.Id); }
     }
 
     public Task HernoemBoardAsync(int boardId, string naam)
@@ -133,7 +133,8 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
             {
                 Board = new ActBoard(b.Id, b.ProjectId, b.ProjectId, b.ProjectId is null ? "" : $"Testproject {b.ProjectId}", b.Naam,
                                      b.RelatieId, b.RelatieId is null ? "" : $"Testklant {b.RelatieId}",
-                                     b.WerkorderId, b.WerkorderId is null ? "" : $"WO-{b.WerkorderId}", b.WerkorderId is null ? "" : $"Testwerkorder {b.WerkorderId}"),
+                                     b.WerkorderId, b.WerkorderId is null ? "" : $"WO-{b.WerkorderId}", b.WerkorderId is null ? "" : $"Testwerkorder {b.WerkorderId}")
+                        { AangemaaktDoor = b.Door },
                 Problemen = _problemen.Where(x => x.BoardId == boardId).Select(x => x.P).OrderBy(p => p.Positie)
                     .Select(p => new ActProbleem { Id = p.Id, Naam = p.Naam, Kleur = p.Kleur, Positie = p.Positie }).ToList(),
                 Types = _types.Where(x => x.BoardId == boardId).Select(x => new ActType { Id = x.T.Id, Naam = x.T.Naam, Kleur = x.T.Kleur }).ToList(),

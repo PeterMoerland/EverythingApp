@@ -12,7 +12,8 @@ MDE-netwerk. Alles wat je doet staat op naam van de gebruiker van wie de sleutel
 
 - Adres van de app: omgevingsvariabele `MDE_APP` (bv. `http://server:5000`). De API staat op `$env:MDE_APP/api/activityboard`.
 - Sleutel: omgevingsvariabele `MDE_SLEUTEL`, mee te sturen in de kop `X-Sleutel`.
-- Ontbreekt een van de twee, vraag de gebruiker dan om hem te zetten. **Vraag nooit om de sleutel in de chat te typen,
+- Ontbreekt een van de twee, vraag de gebruiker dan om hem te zetten. Beide staan in de MDE-app bij Werknemers ▸ je
+  eigen naam ▸ tabblad "API-sleutel". **Vraag nooit om de sleutel in de chat te typen,
   toon hem nooit en schrijf hem nooit in een bestand.**
 
 Gebruik PowerShell. Begin een sessie zo:

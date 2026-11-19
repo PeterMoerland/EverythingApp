@@ -23,6 +23,12 @@ public record ActBoard(int Id, int? ProjectId, int? ProjectNummer, string Projec
 {
     public string Soort => ActBoardSoort.Van(ProjectId, RelatieId, WerkorderId);
 
+    /// <summary>
+    /// Wie het board heeft aangemaakt (Werknemers.Werknemer-id; null = onbekend). Die mag het ook wissen, naast Directie
+    /// (besluit gebruiker 19-11-2026).
+    /// </summary>
+    public int? AangemaaktDoor { get; init; }
+
     /// <summary>Titel zonder eigen naam: "224091 · Paprika", de klantnaam, of "Naamloos board".</summary>
     public string StandaardTitel => Soort switch
     {

@@ -58,6 +58,9 @@
     <None Update="Templates\**" CopyToOutputDirectory="PreserveNewest" />
     <!-- Wat is er nieuw (/nieuw) leest CHANGELOG.md naast de dll -->
     <None Update="CHANGELOG.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Uitleg en skill van de Activity board API: te downloaden bij Werknemers (je eigen naam), zie ActivityBoardApi.MapActivityBoardUitleg -->
+    <None Update="ActivityBoard-API.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Skills\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- MdeAgent is een aparte wereld (Python-agent + CanLuisteraar, een eigen .NET-project
          dat bouw.bat bouwt). Zonder deze regels compileert de app CanLuisteraar\Program.cs mee. -->
     <Compile Remove="MdeAgent\**" />

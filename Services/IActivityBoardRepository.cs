@@ -43,7 +43,7 @@ public interface IActivityBoardRepository
     /// </summary>
     Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null);
     /// <summary>
-    /// Het hele board wissen (alleen Directie, de controle zit in het scherm): onderwerpen, types, activiteiten en hun
+    /// Het hele board wissen (Directie of wie het board aanmaakte; de controle zit in het scherm): onderwerpen, types, activiteiten en hun
     /// koppelingen gaan mee via ON DELETE CASCADE. Bijlagen van onderwerpen blijven in de filestore (soort 342).
     /// </summary>
     Task VerwijderBoardAsync(int boardId);
@@ -339,12 +339,14 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         var (wk, wj) = await WerkorderDeelAsync();
         await using (var cmd = new MySqlCommand(
             "SELECT b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, '')" + rk + wk +
+            ", b.`AangemaaktDoor`" +
             "  FROM `ActivityBoards` b LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj + " WHERE b.`BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
             await using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync()) return null;
-            data.Board = new ActBoard(r.GetInt32(0), I(r, 1), I(r, 2), S(r, 3), S(r, 4), I(r, 5), S(r, 6), I(r, 7), S(r, 8), S(r, 9));
+            data.Board = new ActBoard(r.GetInt32(0), I(r, 1), I(r, 2), S(r, 3), S(r, 4), I(r, 5), S(r, 6), I(r, 7), S(r, 8), S(r, 9))
+            { AangemaaktDoor = I(r, 10) };
         }
 
         await using (var cmd = new MySqlCommand(

@@ -1700,6 +1700,23 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     met `naam` volgt de regels van `HernoemBoard` in het scherm (standaardnaam = leeg, vrij board houdt een naam).
     Getest met de boards in het geheugen en echte projecten/klanten (alleen gelezen): maken, nog eens maken,
     hernoemen, de foutpaden. Niet getest: een echt werkordernummer en tegen de echte tabel.
+  - **Je eigen sleutel zien** (wens gebruiker, zelfde dag: "iedereen zijn eigen key onder Werknemers; men is al
+    ingelogd"). `Werknemers.razor`, eigen tabblad "API-sleutel" (`TabSleutel`; eerst een blok onder Basisgegevens, op verzoek
+    verplaatst; het tabblad zit alleen in `ZichtbareTabs` op je eigen pagina, en `Kies` gaat terug naar
+    Basisgegevens als je vanaf dat tabblad een collega kiest): alleen als `ToonEigenSleutel`
+    (`Ik.Ingelogd`, geen werkplek, de gekozen werknemer ben je zelf, en de API staat aan). Ook Directie ziet dus
+    alleen de eigen sleutel. `ActivityBoardApi.SleutelVan(config, id)` leest hem uit de instellingen; de waarde komt
+    pas in de pagina na Tonen (anders bolletjes), Kopiëren gaat via `mdeKopieer` zonder hem te tonen, en bij een
+    andere werknemer kiezen gaat hij weer dicht. Geen sleutel voor jou = een regel "vraag hem aan".
+    `MapActivityBoardUitleg` (Program.cs, met aanmelding als de login aan staat) geeft
+    `/tools/activityboard-api/uitleg` (ActivityBoard-API.md) en `/tools/activityboard-api/skill` (zip met
+    `mde-activity-board/SKILL.md`); beide bestanden gaan via de csproj mee naar de publish-map.
+    Sleutels voor iedereen in dienst zijn op 19-11-2026 op verzoek in `appsettings.json` gezet (buiten Git); een
+    nieuwe collega krijgt er niet vanzelf een (scratchpad-script van die dag, zo opnieuw te maken: werknemers in
+    dienst uitlezen, regels toevoegen voor wie er nog geen heeft).
+    Getest met een tijdelijke patch en een proefsleutel via een omgevingsvariabele: het blok alleen bij de bedoelde
+    werknemer, verborgen/tonen/verbergen, kopiëren met een echte klik, beide downloads. Niet getest: met een echte
+    aanmelding (lokaal is niemand aangemeld).
   - **Kan bewust niet:** verwijderen, een bestaand board aan iets anders koppelen, volgorde binnen een vak (slepen).
   - **Dicht tijdens het aftellen naar een nieuwe versie** (wens gebruiker, zelfde dag): zolang `OnderhoudMelding.Huidig`
     gevuld is (vanaf `service-herstarten.bat` of Beheer ▸ Nieuwe versie aankondigen, tot 10 minuten na het tijdstip of
@@ -1743,6 +1760,13 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     van de pop-up of na verversen) roept `KaartDubbel`. Niet in een invoerveld, op een knop of met pop-up/menu open.
   - **Getest** in de browser: alle drie. **Niet getest:** de tabellen (regels hebben geen icoon), aanraakscherm,
     donker thema.
+- **De maker mag zijn eigen board wissen** (besluit gebruiker, zelfde dag; Gerard kon zijn proefboards niet opruimen).
+  `ActBoard.AangemaaktDoor` (nieuw, uit `ActivityBoards.AangemaaktDoor`; `LaadAsync` leest hem als elfde kolom, de
+  geheugenversie onthoudt `door`). `MagWissen` in `ActivityBoard.razor` = Directie, of de aangemelde werknemer is de
+  maker. Een board zonder bekende maker blijft alleen voor Directie. Geen script nodig: de kolom bestond al en is bij
+  alle 8 boards gevuld (nagekeken 19-11-2026). De bevestigingsvraag is gebleven; via de API kan wissen nog steeds niet.
+  Getest in demo-modus met een tijdelijke patch (lokaal is niemand aangemeld): eigen board te wissen en na
+  bevestigen weg, board van een ander op slot. Niet getest: met een echte aanmelding en tegen de echte tabel.
 - **Bord en tabellen lopen door** (wens gebruiker: "nu het board in een venster staat los van de menu's, geen
   verticale scroll op het board zelf"). `app.css` onder `.ab-tabwrap`, alleen `@media screen and (min-width: 900px)`:
   `#ab-wrap` en `.ab-tabwrap` hebben `max-height: none; overflow: visible`. Daardoor plakken `.ab-kolkop`, de `th` van

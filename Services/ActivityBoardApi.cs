@@ -48,6 +48,57 @@ public static class ActivityBoardApi
 
     private static string Klein(string kolom) => char.ToLowerInvariant(kolom[0]) + kolom[1..];
 
+    // ------------------------------------------------------------------ sleutels
+
+    /// <summary>De geldige regels uit ActivityBoardApi:Sleutels (sleutel lang genoeg, werknemer ingevuld).</summary>
+    private static List<(string Sleutel, int Werknemer)> Sleutels(IConfiguration config)
+        => config.GetSection("ActivityBoardApi:Sleutels").GetChildren()
+            .Select(s => (Sleutel: (s["Sleutel"] ?? "").Trim(), Werknemer: int.TryParse(s["WerknemerId"], out var w) ? w : 0))
+            .Where(s => s.Sleutel.Length >= MinSleutelLengte && s.Werknemer > 0)
+            .ToList();
+
+    /// <summary>Staat de API aan (minstens één geldige sleutel)?</summary>
+    public static bool Aan(IConfiguration config) => Sleutels(config).Count > 0;
+
+    /// <summary>
+    /// De sleutel van deze werknemer, of null. Alleen voor "mijn sleutel" op de pagina Werknemers (wens gebruiker
+    /// 19-11-2026): de aanroeper moet zelf nagaan dat het om de aangemelde persoon gaat.
+    /// </summary>
+    public static string? SleutelVan(IConfiguration config, int werknemerId)
+        => Sleutels(config).Where(s => s.Werknemer == werknemerId).Select(s => s.Sleutel).FirstOrDefault();
+
+    // ------------------------------------------------------------------ uitleg en skill als download
+
+    /// <summary>
+    /// De uitleg (ActivityBoard-API.md) en de skill voor Claude Code (als zip, zo uit te pakken in .claude\skills), voor
+    /// de links bij "mijn sleutel" op de pagina Werknemers. De bestanden gaan mee naar de publish-map (csproj) en staan
+    /// lokaal in de projectmap. Geeft de adressen terug zodat Program.cs er de aanmelding op kan zetten.
+    /// </summary>
+    public static RouteHandlerBuilder[] MapActivityBoardUitleg(this WebApplication app)
+    {
+        static string? Vind(IWebHostEnvironment env, string rel)
+            => new[] { Path.Combine(AppContext.BaseDirectory, rel), Path.Combine(env.ContentRootPath, rel) }.FirstOrDefault(File.Exists);
+
+        var uitleg = app.MapGet("/tools/activityboard-api/uitleg", (IWebHostEnvironment env) =>
+            Vind(env, "ActivityBoard-API.md") is { } pad
+                ? Results.File(File.ReadAllBytes(pad), "text/markdown; charset=utf-8", "ActivityBoard-API.md")
+                : Results.NotFound());
+
+        var skill = app.MapGet("/tools/activityboard-api/skill", (IWebHostEnvironment env) =>
+        {
+            if (Vind(env, Path.Combine("Skills", "mde-activity-board", "SKILL.md")) is not { } pad) return Results.NotFound();
+            using var ms = new MemoryStream();
+            using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            {
+                using var s = zip.CreateEntry("mde-activity-board/SKILL.md").Open();
+                var inhoud = File.ReadAllBytes(pad);
+                s.Write(inhoud, 0, inhoud.Length);
+            }
+            return Results.File(ms.ToArray(), "application/zip", "mde-activity-board.zip");
+        });
+        return new[] { uitleg, skill };
+    }
+
     // ------------------------------------------------------------------ adressen
 
     public static void MapActivityBoardApi(this WebApplication app)
@@ -460,10 +511,7 @@ public static class ActivityBoardApi
     {
         var repo = ctx.RequestServices.GetRequiredService<IActivityBoardRepository>();
         var config = ctx.RequestServices.GetRequiredService<IConfiguration>();
-        var sleutels = config.GetSection("ActivityBoardApi:Sleutels").GetChildren()
-            .Select(s => (Sleutel: (s["Sleutel"] ?? "").Trim(), Werknemer: int.TryParse(s["WerknemerId"], out var w) ? w : 0))
-            .Where(s => s.Sleutel.Length >= MinSleutelLengte && s.Werknemer > 0)
-            .ToList();
+        var sleutels = Sleutels(config);
         if (sleutels.Count == 0 || !repo.Beschikbaar) return Results.NotFound();      // API uit: het adres bestaat niet
 
         var gegeven = ctx.Request.Headers["X-Sleutel"].FirstOrDefault()?.Trim() ?? "";

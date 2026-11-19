@@ -144,7 +144,7 @@ else
             <button class="ab-btn" type="button" @onclick="NaarExcel" title="Activiteiten van dit board naar Excel (csv)">Naar Excel</button>
             @* wissen: alleen Directie (wens gebruiker 24-10-2026); de knop staat er altijd, uit voor de rest *@
             <button class="ab-btn gevaar" type="button" disabled="@(!MagWissen)" @onclick="WisBoard"
-                    title="@(MagWissen ? "Dit board met alle onderwerpen, types en activiteiten wissen" : "Een board wissen kan alleen Directie")">Board wissen…</button>
+                    title="@(MagWissen ? "Dit board met alle onderwerpen, types en activiteiten wissen" : "Een board wissen kan alleen wie het heeft aangemaakt, of Directie")">Board wissen…</button>
         </div>
     </div>
 
@@ -1299,7 +1299,11 @@ else
         Toon("Board gekoppeld aan " + (werkorderId is not null ? "werkorder " : projectId is not null ? "project " : "klant ") + _data?.Board.StandaardTitel);
     }
 
-    private bool MagWissen => Ik.Mag("Directie");
+    /// <summary>
+    /// Directie, of wie het board zelf heeft aangemaakt (besluit gebruiker 19-11-2026: Gerard kon zijn eigen proefboards
+    /// niet opruimen). Een board zonder bekende maker (oud, of gemaakt zonder aanmelding) blijft alleen voor Directie.
+    /// </summary>
+    private bool MagWissen => Ik.Mag("Directie") || (_data?.Board.AangemaaktDoor is int maker && Ik.WerknemerId == maker);
 
     private void WisBoard()
     {
