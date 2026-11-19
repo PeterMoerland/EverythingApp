@@ -1641,6 +1641,13 @@ andere kaart kiezen sloot eerst het paneel.
   `Gefilterd` slaat het persoonsfilter dan over, `KaartKlasse` geeft `mijn` (blauwe rand) of `dim` (grijs, bij hover
   weer helder). "Ik (naam)" staat bovenaan de keuzelijst (`IkKiesbaar`); Markeren aanzetten zonder gekozen persoon kiest
   jezelf. Bij markeren neemt snel aanmaken de persoon niet over. De weergave "Mijn activiteiten" bestond al.
+- **Paneel dicht zonder gekozen kaart** (wens gebruiker, zelfde dag): `activityboard.js` meldt een klik op een lege
+  plek (`LeegGeklikt`): binnen `.page.ab`, niet op `button, input, select, textarea, a, label, [role="button"],
+  tr.ab-rij, .ab-snel`, niet op de schuifbalk van `#ab-wrap`/`.ab-tabwrap`, en alleen als er een paneel is. Knoppen,
+  filters en weergaven laten het paneel dus staan. `OpenSnel` (+ Nieuwe activiteit in een vak) sluit het ook. In beide
+  gevallen gaat de focus niet terug naar de kaart (`_focusKaart = null`). Let op bij testen met coördinaten: het bord
+  wordt breder als het paneel sluit, dus alles verschuift. Een lege cel aanklikken raakt de (onzichtbare) knop
+  "+ Nieuwe activiteit" en opent dus snel aanmaken; dat was al zo.
 - Getest lokaal met `ActivityBoard__Geheugen=true` op 1600px (wisselen, tekst blijft bewaard bij wisselen, menu: status,
   dupliceren, verwijderen; filter en markeren) en op 1000px (scrim en schuifpaneel als voorheen). **Niet getest**: "Ik"
   en "Aan mij toewijzen" (lokaal niet ingelogd), slepen met een open paneel, touch, donker thema van het menu.

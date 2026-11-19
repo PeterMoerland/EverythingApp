@@ -5,6 +5,7 @@
 //   ProblemenGeordend([ids], verplaatstId)
 //   KaartGeklikt(id)                                                   klik of tik zonder slepen
 //   SleepBezig(true|false)                                             zolang er gesleept wordt geen herlaad
+//   LeegGeklikt()                                                      klik naast de kaarten: het paneel gaat dicht
 (function () {
     'use strict';
     let doel = null;      // DotNetObjectReference van het scherm
@@ -76,6 +77,18 @@
         else { const g = x.el.querySelector('.ab-greep'); if (g) g.focus(); }
     });
     document.addEventListener('pointercancel', function () { stop(false); });
+    // Klik op een lege plek van het board (geen kaart, regel, knop of invoerveld): er is geen kaart meer gekozen, dus het
+    // paneel van de activiteit gaat dicht. Alleen als het paneel naast het bord staat; op een smal scherm ligt er een
+    // scrim over de pagina en komt de klik hier niet. Tijdens slepen heeft body de muis vast: dan is het doel body.
+    document.addEventListener('click', function (e) {
+        if (!doel || s || e.button !== 0 || !document.querySelector('.ab-drawer')) return;
+        const t = e.target;
+        if (!t.closest || !t.closest('.page.ab')) return;
+        if (t.closest('button, input, select, textarea, a, label, [role="button"], tr.ab-rij, .ab-snel')) return;
+        // de schuifbalk van het bord of de tabel is geen lege plek
+        if ((t.id === 'ab-wrap' || t.classList.contains('ab-tabwrap')) && (e.offsetX >= t.clientWidth || e.offsetY >= t.clientHeight)) return;
+        roep('LeegGeklikt');
+    });
     // prioriteit van een probleem met pijltje omhoog/omlaag op de greep; de focus blijft op dat probleem
     document.addEventListener('keydown', function (e) {
         if (!doel || s || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;

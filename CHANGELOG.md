@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Activity board** — Verbeterd: het paneel van een activiteit sluit vanzelf als er geen kaart meer gekozen is: bij een klik op een lege plek van het board, en als je in een vak een nieuwe activiteit begint te typen. Knoppen, filters en de weergaven (Kanban, Alle activiteiten…) laten het paneel staan (verzoek van Peter).
 - **Activity board** — Verbeterd: het paneel van een activiteit staat op een breed scherm vast naast het bord, als een eigenschappenvenster. Het bord blijft gewoon bruikbaar; klik je op een andere kaart, dan toont het paneel meteen die kaart (eerst sluiten hoeft niet meer). De kaart die open staat heeft een rode rand. Op een smal scherm schuift het paneel nog over het bord (verzoek van Peter).
 - **Activity board** — Nieuw: rechtermuisknop op een kaart of een regel in de tabel geeft een menu: openen, status en prioriteit zetten, aan mij toewijzen, dupliceren en verwijderen (met Ongedaan maken) (verzoek van Peter).
 - **Activity board** — Nieuw: naast de filter "Toegewezen aan" staat de knop Markeren. Staat die aan, dan blijven alle kaarten staan en lichten de kaarten van de gekozen persoon op (de rest wordt grijs). Bovenaan de lijst staat "Ik", zodat je snel ziet wat er voor jou open staat. De keuze voor Markeren wordt op je pc onthouden (verzoek van Peter).

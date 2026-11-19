@@ -1848,6 +1848,8 @@ else
 
     private void OpenSnel(string status, string lane)
     {
+        // een nieuwe kaart typen in een vak: de kaart in het paneel is niet meer gekozen, dus het paneel gaat dicht
+        if (_open is not null) { SluitPaneel(); _focusKaart = null; }
         _snel = new SnelInvoer { Status = status, Lane = lane };
         _focusNa = "#ab-snel";
     }
@@ -1947,6 +1949,20 @@ else
     }
 
     private void PaneelToets(KeyboardEventArgs e) { if (e.Key == "Escape" && _modal is null) SluitPaneel(); }
+
+    /// <summary>
+    /// Klik op een lege plek van het board (activityboard.js): geen kaart meer gekozen, dus het paneel gaat dicht
+    /// (wens gebruiker 19-11-2026). De focus gaat niet terug naar de kaart, anders lijkt hij nog gekozen.
+    /// </summary>
+    [JSInvokable]
+    public Task LeegGeklikt()
+    {
+        if (_open is null || _modal is not null || _menu is not null) return Task.CompletedTask;
+        SluitPaneel();
+        _focusKaart = null;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// De wijziging ook in de lijst van het board zetten (kaart en tabellen tonen die). Met de activiteit erbij en niet
