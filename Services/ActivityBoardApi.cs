@@ -17,13 +17,18 @@ namespace EverythingApp.Services;
 /// - Dezelfde laag als het scherm (<see cref="IActivityBoardRepository"/>) en dezelfde regels: sluitdatum bij een
 ///   klaar-status, een nieuwe activiteit onderaan haar vak, een melding voor wie wordt toegewezen, en
 ///   <see cref="ActivityBoardLive"/> zodat een open board bij een collega meteen ververst.
-/// - Bewust niet: verwijderen (activiteit, onderwerp, type, board), boards maken of koppelen, en slepen (volgorde).
+/// - Boards maken (vrij, of bij een project, werkorder of klant) en hernoemen kan sinds Gerard ertegenaan liep
+///   (19-11-2026): in de app mag iedereen met toegang dat ook. Bestaat het board al, dan komt dat terug.
+/// - Bewust niet: verwijderen (activiteit, onderwerp, type, board), een bestaand board aan iets anders koppelen, en
+///   slepen (volgorde).
+/// - Dicht tijdens het aftellen naar een nieuwe versie (<see cref="OnderhoudMelding"/>; wens gebruiker 19-11-2026): dan
+///   geeft elk adres 503 met het tijdstip en Retry-After, zodat er niet midden in een reeks de service onderuit gaat.
 /// </summary>
 public static class ActivityBoardApi
 {
     /// <summary>Een kortere sleutel telt niet mee: te raden.</summary>
     public const int MinSleutelLengte = 32;
-    private const int MaxPerKeer = 50, MaxTekst = 20000, MaxTitel = 300, MaxZoek = 100;
+    private const int MaxPerKeer = 50, MaxTekst = 20000, MaxTitel = 300, MaxZoek = 100, MaxBoardNaam = 200;
     private const StringComparison Los = StringComparison.OrdinalIgnoreCase;
 
     /// <summary>"Bron" voor <see cref="ActivityBoardLive"/>: geen scherm heeft deze sleutel, dus elk open board ververst.</summary>
@@ -61,6 +66,8 @@ public static class ActivityBoardApi
             adressen = new[]
             {
                 "GET   /api/activityboard/boards?zoek=tekst",
+                "POST  /api/activityboard/boards                          { naam } (vrij) of { project: nummer } / { werkorder: nummer } / { klant: naam }, met naam als eigen naam",
+                "PATCH /api/activityboard/boards/{boardId}                { naam }",
                 "GET   /api/activityboard/boards/{boardId}?open=true&mijn=true&status=code&tekst=true",
                 "GET   /api/activityboard/mijn?persoon=naam",
                 "GET   /api/activityboard/zoek?q=tekst&open=true&board=id&overal=true",
@@ -71,7 +78,7 @@ public static class ActivityBoardApi
                 "POST  /api/activityboard/boards/{boardId}/onderwerpen    { naam, kleur? }",
                 "POST  /api/activityboard/boards/{boardId}/types          { naam, kleur? }",
             },
-            nietMogelijk = "Verwijderen, boards maken of koppelen en de volgorde binnen een vak: dat doe je in de app.",
+            nietMogelijk = "Verwijderen, een bestaand board aan iets anders koppelen en de volgorde binnen een vak: dat doe je in de app.",
         })))));
 
         api.MapGet("/personen", Route(ctx => Met(ctx, v => Task.FromResult(Goed(new
@@ -91,6 +98,103 @@ public static class ActivityBoardApi
                     gewijzigd = b.Gewijzigd?.ToString("yyyy-MM-dd HH:mm"), link = v.Link(b.BoardId),
                 });
             return Goed(new { boards });
+        }));
+
+        // Board maken: vrij (alleen een naam), of bij een project, werkorder of klant (één per stuk, zoals in de app).
+        // Bestaat het al, dan komt dat terug met bestond = true: een tweede poging maakt dus geen tweede board.
+        api.MapPost("/boards", Route(ctx => Met(ctx, async v =>
+        {
+            var body = await Body(ctx);
+            if (body is not { ValueKind: JsonValueKind.Object } json)
+                return Fout(400, "Verwacht een JSON-object: { \"naam\": \"…\" } voor een vrij board, of { \"project\": 226102 }, { \"werkorder\": \"…\" } of { \"klant\": \"…\" }.");
+            string[] bekend = { "naam", "project", "werkorder", "klant" };
+            foreach (var p in json.EnumerateObject())
+                if (!bekend.Contains(p.Name, StringComparer.OrdinalIgnoreCase)) return Fout(400, $"Onbekend veld '{p.Name}'. Bekende velden: {string.Join(", ", bekend)}.");
+            var naam = Heeft(json, "naam", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString()!.Trim().ReplaceLineEndings(" ") : "";
+            if (naam.Length > MaxBoardNaam) return Fout(400, $"naam is langer dan {MaxBoardNaam} tekens.");
+            var koppel = new[] { "project", "werkorder", "klant" }.Where(k => Heeft(json, k, out var w) && w.ValueKind != JsonValueKind.Null).ToList();
+            if (koppel.Count > 1) return Fout(400, "Geef hoogstens één van project, werkorder of klant.");
+            var boards = await v.Repo.GetBoardsAsync();
+
+            if (koppel.Count == 0)
+            {
+                if (naam.Length == 0) return Fout(400, "Geef een naam voor een vrij board, of een project, werkorder of klant.");
+                if (!await v.Repo.SoortenAanwezigAsync()) return Fout(503, "Vrije boards kunnen in deze app nog niet.");
+                if (boards.FirstOrDefault(b => b.Soort == ActBoardSoort.Vrij && b.Naam.Trim().Equals(naam, Los)) is { } er)
+                    return Goed(new { bestond = true, board = BoardUit(er.BoardId, er.Titel, er.Soort, v) });
+                var nieuwId = await v.Repo.NieuwVrijBoardAsync(naam, v.Wie.Id);
+                v.Log($"vrij board {nieuwId} gemaakt");
+                return Results.Json(new { bestond = false, board = BoardUit(nieuwId, naam, ActBoardSoort.Vrij, v) }, Json, statusCode: 201);
+            }
+
+            var soort = koppel[0];
+            Heeft(json, soort, out var waarde);
+            var tekst = waarde.ValueKind == JsonValueKind.String ? waarde.GetString()!.Trim() : waarde.ValueKind == JsonValueKind.Number ? waarde.ToString() : "";
+            if (tekst.Length == 0) return Fout(400, $"{soort}: verwacht een nummer of een naam.");
+            int boardId;
+            bool bestond;
+            if (soort == "project")
+            {
+                if (!int.TryParse(tekst, out var nr)) return Fout(400, "project: geef het projectnummer, bv. 226102.");
+                var project = (await v.Dienst<IProjectRepository>().ZoekProjectenAsync(null, tekst, null, 0, 40)).FirstOrDefault(x => x.Nummer == nr);
+                if (project is null) return Fout(404, $"Project {nr} is niet gevonden.");
+                bestond = boards.Any(b => b.ProjectId == project.Id);
+                boardId = await v.Repo.ZorgVoorBoardAsync(project.Id, v.Wie.Id);
+            }
+            else if (soort == "werkorder")
+            {
+                if (!await v.Repo.SoortenAanwezigAsync() || !await v.Repo.WerkorderAanwezigAsync()) return Fout(503, "Boards bij een werkorder kunnen in deze app nog niet.");
+                var orders = (await v.Dienst<IUrenRepository>().ZoekWerkordersAsync(tekst, alleenOpen: false, 40))
+                    .Where(x => x.Nummer.Trim().Equals(tekst, Los)).ToList();
+                if (orders.Count == 0) return Fout(404, $"Werkorder '{tekst}' is niet gevonden. Geef het werkordernummer precies zoals het in de app staat.");
+                if (orders.Count > 1) return Fout(400, $"Werkordernummer '{tekst}' komt {orders.Count} keer voor; maak dit board in de app.");
+                bestond = boards.Any(b => b.WerkorderId == orders[0].WerkbonId);
+                boardId = await v.Repo.ZorgVoorWerkorderBoardAsync(orders[0].WerkbonId, v.Wie.Id);
+            }
+            else
+            {
+                if (!await v.Repo.SoortenAanwezigAsync()) return Fout(503, "Boards bij een klant kunnen in deze app nog niet.");
+                var klanten = await v.Dienst<IRelatieRepository>().ZoekAsync(tekst, alleenKlanten: true, alleenLeveranciers: false, 0, 40);
+                var precies = klanten.Where(x => x.Naam.Trim().Equals(tekst, Los)).ToList();
+                if (precies.Count > 0) klanten = precies;
+                if (klanten.Count == 0) return Fout(404, $"Klant '{tekst}' is niet gevonden bij Relaties (alleen relaties die klant zijn).");
+                if (klanten.Count > 1) return Fout(400, $"'{tekst}' past bij meer klanten: {string.Join("; ", klanten.Take(8).Select(x => x.Naam))}. Geef de hele naam.");
+                bestond = boards.Any(b => b.RelatieId == klanten[0].Id);
+                boardId = await v.Repo.ZorgVoorKlantBoardAsync(klanten[0].Id, v.Wie.Id);
+            }
+            // de eigen naam alleen bij een nieuw board: een bestaand board houdt de naam die het had
+            if (!bestond && naam.Length > 0) await v.Repo.HernoemBoardAsync(boardId, naam);
+            if (!bestond) v.Log($"board {boardId} gemaakt bij {soort} {tekst}");
+            var d = await v.Repo.LaadAsync(boardId);
+            if (d is null) return Fout(500, "Het board is gemaakt maar kon niet worden gelezen.");
+            return Results.Json(new { bestond, board = BoardUit(d.Board.Id, d.Board.Titel, d.Board.Soort, v) }, Json, statusCode: bestond ? 200 : 201);
+        })));
+
+        // Eigen naam van een board. Leeg (of de naam van het project, de werkorder of de klant) = weer de standaardnaam;
+        // een vrij board houdt altijd een naam.
+        api.MapMethods("/boards/{boardId:int}", new[] { "PATCH" }, (HttpContext ctx, int boardId) => Met(ctx, async v =>
+        {
+            var body = await Body(ctx);
+            if (body is not { ValueKind: JsonValueKind.Object } json) return Fout(400, "Verwacht een JSON-object: { \"naam\": \"…\" }.");
+            foreach (var p in json.EnumerateObject())
+                if (!p.Name.Equals("naam", Los)) return Fout(400, $"Onbekend veld '{p.Name}'. Van een board kun je alleen de naam wijzigen.");
+            if (!Heeft(json, "naam", out var n) || n.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return Fout(400, "naam ontbreekt (een tekst, of null voor de standaardnaam).");
+            var naam = n.ValueKind == JsonValueKind.String ? n.GetString()!.Trim().ReplaceLineEndings(" ") : "";
+            if (naam.Length > MaxBoardNaam) return Fout(400, $"naam is langer dan {MaxBoardNaam} tekens.");
+            var d = await v.Repo.LaadAsync(boardId);
+            if (d is null) return Fout(404, $"Board {boardId} bestaat niet.");
+            var standaard = d.Board.ProjectNummer is null ? d.Board.StandaardTitel : d.Board.ProjectNaam;
+            if (naam == standaard && d.Board.Soort != ActBoardSoort.Vrij) naam = "";
+            if (naam.Length == 0 && d.Board.Soort == ActBoardSoort.Vrij) return Fout(400, "Een vrij board heeft een naam nodig.");
+            var gewijzigd = naam != d.Board.Naam;
+            if (gewijzigd)
+            {
+                await v.Repo.HernoemBoardAsync(boardId, naam);
+                d.Board = d.Board with { Naam = naam };
+                v.Log($"board {boardId} hernoemd");
+                v.Ververs(boardId);
+            }
+            return Goed(new { gewijzigd, board = BoardUit(d.Board.Id, d.Board.Titel, d.Board.Soort, v) });
         }));
 
         api.MapGet("/boards/{boardId:int}", (HttpContext ctx, int boardId, bool? open, bool? mijn, string? status, bool? tekst) => Met(ctx, async v =>
@@ -376,6 +480,24 @@ public static class ActivityBoardApi
             return Fout(401, "Onbekende of ontbrekende sleutel. Stuur je sleutel mee in de kop X-Sleutel.");
         }
 
+        // Er is een nieuwe versie aangekondigd (de aftelbalk loopt bij iedereen): de API is dicht tot de app weer is
+        // gestart. Pas ná de sleutelcontrole, zodat iemand zonder sleutel hier niets uit kan aflezen. Ook lezen is dicht:
+        // wie nu leest, wil daarna meestal schrijven, en dan is één duidelijk antwoord beter dan een half werk.
+        if (ctx.RequestServices.GetRequiredService<OnderhoudMelding>().Huidig is { } onderhoud)
+        {
+            var wacht = Math.Max(60, (int)Math.Ceiling((onderhoud.Om - DateTime.Now).TotalSeconds) + 60);      // tot de stop, plus een minuut voor het starten
+            ctx.Response.Headers.RetryAfter = wacht.ToString(CultureInfo.InvariantCulture);
+            var wanneer = onderhoud.Om > DateTime.Now ? $"De app stopt om {onderhoud.Om:HH:mm} voor een nieuwe versie" : "De app wordt op dit moment bijgewerkt";
+            var minuten = (int)Math.Ceiling(wacht / 60.0);
+            var over = minuten <= 1 ? "een minuut" : $"{minuten} minuten";
+            return Results.Json(new
+            {
+                fout = $"{wanneer}; de API is zolang dicht. Er is niets gelezen of gewijzigd. Probeer het over ongeveer {over} opnieuw.",
+                onderhoud = true,
+                opnieuwNaSeconden = wacht,
+            }, Json, statusCode: 503);
+        }
+
         try
         {
             if (!await repo.TabellenAanwezigAsync()) return Fout(503, "Het Activity board is in deze app nog niet ingericht.");
@@ -392,6 +514,8 @@ public static class ActivityBoardApi
             return Fout(500, "Er ging iets mis in de app. De oorzaak staat in het logboek van de app.");
         }
     }
+
+    private static object BoardUit(int id, string titel, string soort, Verzoek v) => new { id, titel, soort, link = v.Link(id) };
 
     private static IResult Goed(object inhoud) => Results.Json(inhoud, Json);
     private static IResult Fout(int code, string tekst) => Results.Json(new { fout = tekst }, Json, statusCode: code);

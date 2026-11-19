@@ -14,9 +14,28 @@
 //
 // Een venster zonder sluitknop dat niet sluit bij een klik ernaast (een verplichte keuze) blijft dus staan.
 // Het bevestigvenster (mdeBevestig) en het Activity board (.ab-drawer, .ab-modal) regelen Escape zelf.
+//
+// Ook hier: de muis loslaten buiten het venster sluit het niet meer (wens gebruiker 19-11-2026). Wie in een venster
+// tekst selecteert of een schuifbalk sleept en de knop naast het venster loslaat, krijgt van de browser een klik op de
+// donkere achtergrond (de gezamenlijke ouder van indrukken en loslaten), en veel vensters sluiten bij een klik daarop.
+// Een klik op de achtergrond telt daarom alleen als de muisknop daar ook is ingedrukt; anders wordt hij hier
+// tegengehouden, voordat Blazor of het venster hem ziet. Een paar vensters deden dat al zelf (_overlayDruk); dit regelt
+// het voor alle vensters in .cmdk-overlay en voor het bevestigvenster (.bevestig-achter).
 (function () {
     'use strict';
     var bezig = false;
+
+    var ingedruktOp = null;
+    function isAchtergrond(el) {
+        return !!(el && el.classList && (el.classList.contains('cmdk-overlay') || el.classList.contains('bevestig-achter')));
+    }
+    // op window en in de vangfase: dat is vóór de luisteraars van Blazor (op document) en van het venster zelf
+    window.addEventListener('mousedown', function (e) { ingedruktOp = e.target; }, true);
+    window.addEventListener('click', function (e) {
+        if (!isAchtergrond(e.target) || ingedruktOp === e.target) return;
+        e.stopPropagation();
+        e.preventDefault();
+    }, true);
 
     function zichtbaar(el) { return el.getClientRects().length > 0; }
 

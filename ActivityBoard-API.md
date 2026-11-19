@@ -33,6 +33,8 @@ Invoke-RestMethod "$env:MDE_APP/api/activityboard" -Headers @{ "X-Sleutel" = $en
 | --- | --- |
 | Uitleg, wie ben ik | `GET /api/activityboard` |
 | Boards zoeken | `GET /api/activityboard/boards?zoek=paprika` |
+| Board maken | `POST /api/activityboard/boards` |
+| Board hernoemen | `PATCH /api/activityboard/boards/{boardId}` |
 | Eén board lezen | `GET /api/activityboard/boards/{boardId}` |
 | Wat staat er voor mij open | `GET /api/activityboard/mijn` |
 | Activiteiten zoeken op titel | `GET /api/activityboard/zoek?q=kabelgoot` |
@@ -52,7 +54,23 @@ dat board) en `&overal=true` (ook in de tekstvelden). Hoogstens 100 treffers.
 
 Een veld dat niet is ingevuld (geen prioriteit, geen vervaldatum) staat niet in het antwoord.
 
-**Niet via de API:** verwijderen (activiteit, onderwerp, type, board), boards maken of aan een project koppelen, en de
+**Een board maken** kan op vier manieren; geef er precies één:
+
+| Soort | Inhoud |
+| --- | --- |
+| Vrij board | `{ "naam": "Robot software" }` |
+| Bij een project | `{ "project": 226102 }` (het projectnummer) |
+| Bij een werkorder | `{ "werkorder": "…" }` (het werkordernummer, precies zoals in de app) |
+| Bij een klant | `{ "klant": "…" }` (de naam bij Relaties; moet één klant opleveren) |
+
+Bij een project, werkorder of klant mag je `naam` meegeven als eigen naam van het board. Er is één board per project,
+werkorder en klant, en een vrij board met dezelfde naam wordt niet nog eens gemaakt: bestaat het al, dan krijg je dat
+board terug met `bestond: true` en verandert er niets.
+
+**Hernoemen:** `{ "naam": "…" }`. Met `null` krijgt een board bij een project, werkorder of klant weer de standaardnaam;
+een vrij board houdt altijd een naam.
+
+**Niet via de API:** verwijderen (activiteit, onderwerp, type, board), een bestaand board aan iets anders koppelen, en de
 volgorde binnen een vak. Dat doe je in de app. Een activiteit die niet meer hoeft, zet je op `geannuleerd`.
 
 ## Velden van een activiteit
@@ -79,6 +97,9 @@ Regels:
 - Wie je toewijst krijgt een melding in de bel van de app, net als bij toewijzen in het scherm.
 - Staat het board bij een collega open, dan ziet die de wijziging meteen.
 - Fouten komen terug als `{ "fout": "…" }` met code 400 (invoer), 401 (sleutel), 404 (bestaat niet) of 500.
+- **Tijdens het aftellen naar een nieuwe versie is de API dicht:** zolang de balk "nieuwe versie" in de app loopt, geeft
+  elke aanroep `503` met `"onderhoud": true`, het tijdstip in de tekst en `opnieuwNaSeconden` (ook als kop
+  `Retry-After`). Er is dan niets gelezen of gewijzigd. Wacht die tijd en probeer het opnieuw.
 
 ## Voorbeelden
 

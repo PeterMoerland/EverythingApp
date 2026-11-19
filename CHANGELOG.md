@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Activity board** — Nieuw: via de API kun je nu ook een board maken (een vrij board, of bij een project, werkorder of klant) en een board hernoemen. Bestaat het board al, dan krijg je dat terug in plaats van een tweede. Wissen blijft alleen in de app kunnen (punt van Gerard).
+- **Algemeen** — Opgelost: een venster sluit niet meer als je er de muis in indrukt (bijvoorbeeld om tekst te selecteren) en hem naast het venster loslaat. Alleen een echte klik naast het venster sluit het nog (verzoek van Peter).
+- **Activity board** — Verbeterd: tijdens het aftellen naar een nieuwe versie is de API dicht. Een aanroep krijgt dan een nette melding met het tijdstip en wanneer het weer kan, in plaats van halverwege te stranden (verzoek van Peter).
 - **Facturen** — Nieuw: staat de leverancier van een factuur of bon nog niet bij Relaties, dan maak je hem aan vanuit het factuurvenster met **+ nieuwe relatie** (naast 🔍 zoeken, en bij "Niets gevonden"). De AI leest naam, adres, KvK, btw-nummer en bankgegevens van de factuur die in beeld staat; je kijkt het na en klikt Aanmaken, waarna hij meteen als leverancier is gekozen. Bestaat de relatie al, dan stelt het venster die voor (verzoek van Peter).
 - **Algemeen** — Verbeterd: Escape sluit nu elk venster (pop-up) met een ✕ in de kop, ook direct na het openen als je er nog niet in geklikt hebt. Staat de cursor in een keuzelijst of klapt er eerst iets anders dicht, dan sluit de volgende Escape het venster (verzoek van Peter).
 - **Activity board** — Verbeterd: elk kaartje heeft rechtsboven een icoontje om de eigenschappen te openen. Typ je een nieuwe kaart in een vak en druk je op Enter (of Klaar), dan gaan de eigenschappen meteen open. Enter opent het gekozen kaartje nu altijd, ook als de cursor er niet meer op staat (verzoek van Peter).

@@ -1656,6 +1656,13 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
   overlay nadoen (vensters die sluiten bij een klik ernaast). Een uitgeschakelde knop blijft uit.
 - Bovenste venster = hoogste z-index, bij gelijk de laatste in het document (`laag2`, `voorbeeld-laag`).
 - Cursor in een `select`: alleen `blur()`, de volgende Escape sluit (een open keuzelijst sluit zelf op Escape).
+- **Loslaten buiten het venster sluit niet meer** (wens gebruiker, zelfde dag): indrukken in het venster en loslaten
+  ernaast geeft van de browser een `click` op de achtergrond (de gezamenlijke ouder), en vensters met
+  `@onclick="Sluit"` op de overlay sloten dan. `vensters.js` onthoudt waar de knop werd ingedrukt (`mousedown` op
+  `window`, vangfase) en houdt een `click` op `.cmdk-overlay` of `.bevestig-achter` tegen als het indrukken daar niet
+  begon (`stopPropagation` in de vangfase, dus vóór Blazor). Het `_overlayDruk`-patroon in een paar vensters is
+  daarmee overbodig maar ongemoeid gelaten. Het vangnet voor Escape doet daarom eerst `mousedown` en dan `click`.
+  Getest op Nieuwe bestelling: slepen van binnen naar buiten laat het venster staan, een klik ernaast sluit het.
 - **Een nieuw venster doet dus vanzelf mee** als het in `.cmdk-overlay` staat en een `✕` in de kop heeft. Wil je dat
   een venster niet met Escape sluit: geen ✕-knop in de kop en geen klik-ernaast.
 - Niet via dit vangnet: `mdeBevestig` (eigen Escape, in de capture-fase), het Activity board (`.ab-drawer`,
@@ -1684,7 +1691,21 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     `/activiteiten/{id}`; `POST /boards/{id}/activiteiten` (object of lijst tot 50; eerst alles nalopen, dan pas
     schrijven), `PATCH /activiteiten/{id}` (alleen genoemde velden; lijsten vervangen), `POST
     /boards/{id}/onderwerpen` en `/types` (bestaande naam komt terug met `bestond: true`).
-  - **Kan bewust niet:** verwijderen, boards maken of koppelen, volgorde binnen een vak (slepen).
+  - **Boards maken en hernoemen** (Gerard liep er dezelfde dag tegenaan; in de app mag iedereen met toegang dat ook):
+    `POST /boards` met precies één van `naam` (vrij), `project` (projectnummer), `werkorder` (nummer, exact) of
+    `klant` (naam, moet één klant opleveren); `naam` erbij = eigen naam, alleen gezet bij een nieuw board. Opzoeken
+    met dezelfde aanroepen als het scherm (`IProjectRepository.ZoekProjectenAsync`, `IUrenRepository.
+    ZoekWerkordersAsync`, `IRelatieRepository.ZoekAsync` met alleen klanten). Bestaat het al (ook een vrij board met
+    dezelfde naam), dan `bestond: true` en geen tweede: een herhaalde aanroep is dus veilig. `PATCH /boards/{id}`
+    met `naam` volgt de regels van `HernoemBoard` in het scherm (standaardnaam = leeg, vrij board houdt een naam).
+    Getest met de boards in het geheugen en echte projecten/klanten (alleen gelezen): maken, nog eens maken,
+    hernoemen, de foutpaden. Niet getest: een echt werkordernummer en tegen de echte tabel.
+  - **Kan bewust niet:** verwijderen, een bestaand board aan iets anders koppelen, volgorde binnen een vak (slepen).
+  - **Dicht tijdens het aftellen naar een nieuwe versie** (wens gebruiker, zelfde dag): zolang `OnderhoudMelding.Huidig`
+    gevuld is (vanaf `service-herstarten.bat` of Beheer ▸ Nieuwe versie aankondigen, tot 10 minuten na het tijdstip of
+    tot de herstart) geeft `Met` op elk adres 503 met `onderhoud: true`, `opnieuwNaSeconden` en de kop `Retry-After`
+    (tot de stop plus een minuut, minstens 60 s). Na de sleutelcontrole, ook voor lezen. Getest in demo-modus:
+    aankondigen → 503, intrekken → weer 200.
   - **Zelfde regels als het scherm:** sluitdatum bij een klaar-status en weg bij terugzetten, nieuwe activiteit
     onderaan haar vak (`Baan` = `Lane` van het scherm), melding in de bel voor wie wordt toegewezen (niet aan jezelf),
     en `ActivityBoardLive.Meld` met een eigen bron-Guid zodat elk open board ververst.

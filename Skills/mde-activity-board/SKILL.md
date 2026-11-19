@@ -40,6 +40,8 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 | Doel | Aanroep |
 | --- | --- |
 | Boards zoeken | `GET /boards?zoek=paprika` |
+| Board maken | `POST /boards` met `{ "naam": "…" }` (vrij board), of `{ "project": 226102 }`, `{ "werkorder": "nummer" }`, `{ "klant": "naam" }`; `naam` erbij = eigen naam |
+| Board hernoemen | `PATCH /boards/{boardId}` met `{ "naam": "…" }` |
 | Board lezen (onderwerpen, types, activiteiten) | `GET /boards/{boardId}?open=true` (ook `&mijn=true`, `&status=bezig`, `&tekst=true`) |
 | Open activiteiten van mij of een collega | `GET /mijn` of `GET /mijn?persoon=Gerard` |
 | Activiteit zoeken op titel | `GET /zoek?q=kabelgoot` (ook `&open=true`, `&board=12`, `&overal=true`) |
@@ -64,6 +66,8 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 ## Werkwijze
 
 1. **Zoek eerst het board.** Noemt de gebruiker een naam, gebruik dan `/boards?zoek=`. Meer dan één treffer: vraag welke.
+   Bestaat het board niet, **maak er dan alleen een als de gebruiker dat vraagt of bevestigt**, en zeg welk soort je
+   maakt (vrij, of bij welk project, welke werkorder of klant). Het antwoord zegt met `bestond` of het er al was.
 2. **Lees het board voordat je schrijft**, zodat je de onderwerpen en types kent. Staat een onderwerp of type er niet
    op, vraag dan of je het mag toevoegen; maak er niet stilzwijgend een bij.
 3. **Meer dan één kaartje aanmaken: laat eerst de lijst zien** (titel, personen, onderwerp, prioriteit) en wacht op
@@ -74,9 +78,12 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 5. **Toewijzen geeft een melding** aan die collega in de app. Wijs dus niet "voor de zekerheid" mensen toe.
 6. **Fouten** komen terug als `{ "fout": "…" }` en zeggen wat er mis is en wat wel kan. Lees de tekst en herstel de
    aanroep; probeer niet blind opnieuw. `401` = de sleutel klopt niet: meld dat aan de gebruiker.
-7. **Antwoord kort**: noem wat je deed en geef de `link` van het kaartje of board, zodat de gebruiker het kan openen.
+7. **`503` met `"onderhoud": true`** = de app wordt bijgewerkt en de API is even dicht; er is niets gewijzigd. Zeg dat
+   tegen de gebruiker met het tijdstip uit de melding. Wacht `opnieuwNaSeconden` en probeer het dan één keer opnieuw;
+   blijf niet in een lus proberen. Stuur daarna de hele aanroep opnieuw (een lijst is alles of niets).
+8. **Antwoord kort**: noem wat je deed en geef de `link` van het kaartje of board, zodat de gebruiker het kan openen.
 
 ## Wat niet kan
 
-Verwijderen, een board maken of aan een project koppelen, en de volgorde binnen een vak. Zeg dat de gebruiker dat in de
-app doet. Een kaartje dat niet meer hoeft zet je op `geannuleerd`, na overleg.
+Verwijderen (ook van een board), een bestaand board aan iets anders koppelen, en de volgorde binnen een vak. Zeg dat de
+gebruiker dat in de app doet. Een kaartje dat niet meer hoeft zet je op `geannuleerd`, na overleg.
