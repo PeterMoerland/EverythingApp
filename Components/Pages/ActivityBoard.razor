@@ -1471,9 +1471,13 @@ else
     private bool VanPersoon(Activiteit a)
         => _fWie == "niemand" ? a.Personen.Count == 0 : a.Personen.Any(p => p.ToString() == _fWie);
 
-    /// <summary>Klassen van een kaart of tabelregel: open in het paneel (of het menu), en gemarkeerd of juist gedimd.</summary>
+    /// <summary>
+    /// Klassen van een kaart of tabelregel: open in het paneel (of het menu), van mijzelf (eigen: ik ben eraan toegewezen;
+    /// altijd een opvallende rand, wens gebruiker 19-11-2026), en met Markeren aan: gemarkeerd of juist gedimd.
+    /// </summary>
     private string KaartKlasse(Activiteit a)
         => (a.Id != 0 && (_open?.Id == a.Id || _menu?.Id == a.Id || _kaartGekozen == a.Id) ? "gekozen " : "")
+           + (Ik.WerknemerId is int ik && a.Personen.Contains(ik) ? "eigen " : "")
            + (_markeer && _fWie.Length > 0 ? VanPersoon(a) ? "mijn" : "dim" : "");
 
     private async Task WisselMarkeer()

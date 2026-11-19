@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Activity board** — Nieuw: de kaartjes waar je zelf aan toegewezen bent hebben altijd een opvallende amberkleurige rand, zodat je ze er meteen uit haalt. In de tabellen staat er een amberkleurige streep voor de regel (verzoek van Peter).
 - **Projecten** — Opgelost: maken twee mensen tegelijk een project aan, dan krijgen ze niet meer hetzelfde projectnummer. De tweede krijgt de melding dat het nummer net gebruikt is, met het volgende vrije nummer al ingevuld (vraag van Peter).
 - **Projecten** — Verbeterd: maak je een project aan zonder klant, dan krijg je daar eerst een melding van. Je kunt terug om een klant te kiezen, of bewust zonder klant aanmaken (verzoek van Peter).
 - **Projecten** — Verbeterd: + Nieuw project opent nu een eigen venster in plaats van een blok boven de lijst. Een fout (bijvoorbeeld een ontbrekende omschrijving) staat in het venster zelf; Ctrl+Enter maakt aan, Escape sluit (verzoek van Peter).

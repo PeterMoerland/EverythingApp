@@ -1820,6 +1820,10 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     van de pop-up of na verversen) roept `KaartDubbel`. Niet in een invoerveld, op een knop of met pop-up/menu open.
   - **Getest** in de browser: alle drie. **Niet getest:** de tabellen (regels hebben geen icoon), aanraakscherm,
     donker thema.
+- **Eigen kaartjes vallen op** (wens gebruiker, zelfde dag): `KaartKlasse` geeft `eigen` als de aangemelde werknemer
+  in `Personen` staat; `.ab-kaart.eigen` is een amberkleurige outline (#e09b00, 6 px; eerst 2 px, dat viel niet op), in de tabellen een streep voor de
+  regel. Altijd aan, los van de knop Markeren (die blauw markeert en de rest dimt, voor wie bij "Toegewezen aan"
+  gekozen is). Alleen toegewezen telt, niet de initiator. **Niet bekeken in de browser** (lokaal is niemand aangemeld).
 - **Kaartnummer op de kaart** (wens gebruiker, zelfde dag): `span.ab-knr` met `#` + het id van de activiteit, als
   laatste in `.ab-kmeta` (de rij chips) met `margin-left: auto`: het staat dus rechtsonder, en past het niet meer op
   de laatste regel chips, dan komt het eronder. Eerst naast de chips gezet; dat maakte de chips op een smalle kaart

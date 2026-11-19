@@ -3785,6 +3785,10 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 /* Het bord is het belangrijkst (wens gebruiker 19-11-2026): de pagina van het board heeft geen maximale breedte en de
    kolommen mogen smal worden (--ab-kolb 120px), zodat er geen horizontale schuifbalk komt. */
 .ab-werk > .page { max-width: none; }
+/* je eigen kaartjes (je bent eraan toegewezen): altijd een opvallende amberkleurige rand, los van Markeren en van de
+   rode rand van de gekozen kaart. Een outline, dus de kaart wordt er niet groter of kleiner van. */
+.ab-kaart.eigen { outline: 6px solid #e09b00; outline-offset: -4px; }      /* 6 px (was 2: niet goed te zien); 2 px buiten de kaart, 4 erbinnen */
+.ab-rij.eigen td:first-child { box-shadow: inset 8px 0 0 #e09b00; }
 .ab-kaart.mijn { border-color: #337ea9; box-shadow: inset 4px 0 0 #337ea9, 0 1px 3px rgba(51, 126, 169, .25); }
 .ab-kaart.dim { opacity: .45; }
 .ab-kaart.dim:hover, .ab-kaart.dim:focus, .ab-kaart.dim.gekozen { opacity: 1; }
