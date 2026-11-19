@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Verbeterverzoeken** — Verbeterd: bij Tonen kun je nu ook alleen Nieuw, Gepland of Bezig kiezen (verzoek van Peter).
+- **Algemeen** — Verbeterd: het menu links en de balk bovenin blijven altijd in beeld. Alleen het werkscherm krijgt een schuifbalk als de pagina niet past; op een andere pagina begin je weer bovenaan (verzoek van Peter).
+- **Activity board** — Verbeterd: de kolommen Backlog en Next heten nu Voorstel en Geaccepteerd. Aan de kaarten zelf verandert niets (punt van Gerard).
 - **Verbeterverzoeken** — Verbeterd: klik je op Bespreken, dan staat de cursor meteen in het tekstvak en kun je direct typen (verzoek van Peter).
 - **Activity board** — Nieuw: maakt een collega een activiteit voor je aan, of wijst hij je aan een bestaande toe, dan krijg je een melding in de bel (📌). Een klik op de melding opent die activiteit op het board. Wijs je jezelf toe, dan komt er geen melding (punt van Gerard).
 - **Ureningave** — Nieuw: dubbelklik in een leeg vak Start stelt de tijd voor: de eindtijd van de vorige regel, of 07:30 als de dag nog leeg is (punt van Arnold).

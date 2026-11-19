@@ -1615,6 +1615,31 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Menu en bovenbalk blijven staan; statusnamen Voorstel en Geaccepteerd (19-11-2026)
+
+- **Alleen het werkscherm schuift** (wens gebruiker: "het menu links en boven altijd in beeld, alleen het werkscherm een
+  scrollbar als het nodig is"). `app.css` direct onder `.inhoud { flex: 1; }`, alleen `@media screen and (min-width:
+  900px)`: `.shell` is precies `100vh` hoog met `overflow: hidden`, `.sidebar` schuift zelf als het menu te lang is, en
+  `main.inhoud` is de schuiver (`overflow: auto`, `min-height: 0`). **Het venster schuift dus niet meer.** Gevolgen:
+  - Script dat de pagina wil schuiven, schuift `main.inhoud`: `window.mdeInhoudBoven` (App.razor) en `paginaSchuif` in
+    `activityboard.js` (slepen bij de rand). `window.scrollTo`/`scrollBy` doet op een breed scherm niets meer.
+  - Blazor zet bij navigeren alleen het venster bovenaan. `MainLayout.LocatieGewijzigd` onthoudt daarom het pad (zonder
+    query) en roept na het renderen `mdeInhoudBoven` aan als het pad veranderd is; alleen een andere query (bv.
+    `?kaart=`) laat de stand staan.
+  - `position: sticky` binnen een pagina plakt nu aan `main.inhoud`; `calc(100vh - …)`-hoogtes op pagina's rekenen nog
+    met het hele venster en zijn niet aangepast.
+  - Smaller dan 900px en bij afdrukken is alles zoals het was (de print-regels zetten `.shell` al op `height: auto`).
+  - **Getest** (lokaal, 1500x850 en 1600x900): Nieuw, Activity board, Bestellingen, Planning: venster schuift niet,
+    balk en menu blijven staan, het werkscherm schuift en begint na een menuklik bovenaan; 800px breed = oud gedrag.
+    **Niet getest:** kiosk-modus, afdrukken, slepen met meeschuiven op het board, een menu dat langer is dan het scherm,
+    de pagina's met een eigen `100vh`-hoogte (Producten, 3D-viewer, Agenda, Mail) op dubbele schuifbalken, donker thema.
+- **Verbeterverzoeken: filter per open status** (wens gebruiker: "ook kunnen selecteren op bezig"): Tonen heeft naast
+  Open ook Nieuw, Gepland en Bezig (`Zichtbaar`). Na Toevoegen springt een filter waar een nieuw verzoek niet in valt
+  terug naar Open.
+- **Voorstel en Geaccepteerd** (punt van Gerard: "Backlog en Next een beetje vaag; in Notion Voorgestelde en
+  geaccepteerde ideeën"): alleen de naam in `ActStatus.Alle`. De codes `backlog` en `next` (database, CSS-klassen
+  `ab-st-backlog`/`ab-st-next`, `ActStatus.Backlog`/`Next` in code) zijn ongewijzigd; geen script nodig.
+
 ## Activity board: melding in de bel bij toewijzen (19-11-2026)
 
 Punt van Gerard: "melding als iemand anders een kaartje voor je heeft aangemaakt". `MeldToewijzing(a, personen, nieuw)`

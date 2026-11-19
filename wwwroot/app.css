@@ -886,6 +886,17 @@ th { text-align: left; }
 th.c, td.c { text-align: center; }
 .kiezer-tabel th.r, .kiezer-tabel td.r { text-align: right; }
 .inhoud { flex: 1; }
+/* Het menu links en de balk bovenin blijven altijd in beeld; alleen het werkscherm (main.inhoud) krijgt een schuifbalk als
+   de pagina niet past (wens gebruiker 19-11-2026). Het hele venster schuift dus niet meer: wie in script de pagina wil
+   schuiven, schuift main.inhoud (zie mdeInhoudBoven in App.razor en het slepen in activityboard.js). Een lang menu
+   schuift binnen de zijbalk. Smaller dan 900px blijft het zoals het was: daar is de app breder dan het scherm en moet het
+   venster ook opzij kunnen schuiven. Alleen op het scherm: bij afdrukken moet de hele pagina eruit komen. */
+@media screen and (min-width: 900px) {
+    .shell { height: 100vh; min-height: 0; overflow: hidden; }
+    .sidebar { overflow-y: auto; }
+    .hoofdvlak { min-height: 0; }
+    .inhoud { min-height: 0; overflow: auto; }
+}
 .paginanav { display: none; } /* pagina-eigen navigatie is vervangen door de sidebar */
 .cmdk-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: center; padding-top: 10vh; z-index: 100; }
 /* variant voor echte vensters (facturen, PO's): netjes in het midden */

@@ -127,7 +127,9 @@ public class ActBoardData
 
 /// <summary>
 /// De statussen met hun groep en kleur: de zeven uit de spec (§5, kleuren van het prototype) en Geannuleerd (wens
-/// gebruiker 19-11-2026; hoort bij Klaar, dus krijgt een sluitdatum en staat bij Voltooid).
+/// gebruiker 19-11-2026; hoort bij Klaar, dus krijgt een sluitdatum en staat bij Voltooid). De eerste twee heten op het
+/// scherm Voorstel en Geaccepteerd (punt van Gerard 19-11-2026, zoals in Notion); de codes backlog en next zijn gebleven,
+/// want die staan in de database.
 /// </summary>
 public static class ActStatus
 {
@@ -140,8 +142,8 @@ public static class ActStatus
 
     public static readonly Def[] Alle =
     {
-        new(Backlog, "Backlog", GroepTodo, "gray"),
-        new(Next, "Next", GroepTodo, "default"),
+        new(Backlog, "Voorstel", GroepTodo, "gray"),
+        new(Next, "Geaccepteerd", GroepTodo, "default"),
         new(Bezig, "In uitvoering", GroepBezig, "blue"),
         new(Testen, "Testen", GroepBezig, "purple"),
         new(Beoordeling, "Ter beoordeling", GroepBezig, "brown"),

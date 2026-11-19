@@ -62,6 +62,9 @@
             <label class="bankveld"><span>Tonen</span>
                 <select value="@_filter" @onchange='e => _filter = (string?)e.Value ?? "open"'>
                     <option value="open">Open (nieuw, gepland, bezig)</option>
+                    <option value="nieuw">Nieuw</option>
+                    <option value="gepland">Gepland</option>
+                    <option value="bezig">Bezig</option>
                     <option value="gedaan">Gedaan</option>
                     <option value="afgewezen">Afgewezen</option>
                     <option value="ingetrokken">Ingetrokken</option>
@@ -358,7 +361,7 @@
             var id = await Repo.IndienenAsync(tekst, "", Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
             _lijst = await Repo.LijstAsync();
             _nieuwOpen = false; _nieuweTekst = "";
-            if (_filter is "gedaan" or "afgewezen" or "ingetrokken") _filter = "open";      // anders zie je het nieuwe verzoek niet
+            if (_filter is "gepland" or "bezig" or "gedaan" or "afgewezen" or "ingetrokken") _filter = "open";      // anders zie je het nieuwe verzoek niet
             Toon($"Verzoek {id} toegevoegd.", false);
         }
         catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
@@ -369,6 +372,9 @@
         .Where(v => _filter switch
         {
             "open" => VerzoekStatus.IsOpen(v.Status),
+            "nieuw" => v.Status == VerzoekStatus.Nieuw,
+            "gepland" => v.Status == VerzoekStatus.Gepland,
+            "bezig" => v.Status == VerzoekStatus.Bezig,
             "gedaan" => v.Status == VerzoekStatus.Gedaan,
             "afgewezen" => v.Status == VerzoekStatus.Afgewezen,
             "ingetrokken" => v.Status == VerzoekStatus.Ingetrokken,

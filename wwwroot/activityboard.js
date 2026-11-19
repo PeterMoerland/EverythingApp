@@ -205,9 +205,15 @@
             if (s.x < r.left + rand) wrap.scrollLeft -= stap; else if (s.x > r.right - rand) wrap.scrollLeft += stap;
             if (s.y < r.top + rand) wrap.scrollTop -= stap; else if (s.y > r.bottom - rand) wrap.scrollTop += stap;
         }
-        if (s.y < rand) window.scrollBy(0, -stap); else if (s.y > window.innerHeight - rand) window.scrollBy(0, stap);
+        if (s.y < rand) paginaSchuif(-stap); else if (s.y > window.innerHeight - rand) paginaSchuif(stap);
         beweeg();
         s.raf = requestAnimationFrame(autoScroll);
+    }
+
+    // De pagina schuiven tijdens het slepen: het werkscherm (main.inhoud) als dat de schuifbalk heeft, anders het venster
+    function paginaSchuif(dy) {
+        const m = document.querySelector('main.inhoud');
+        if (m && m.scrollHeight > m.clientHeight) m.scrollBy(0, dy); else window.scrollBy(0, dy);
     }
 
     function stop(ok) {

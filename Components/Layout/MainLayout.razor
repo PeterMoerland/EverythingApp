@@ -293,6 +293,11 @@
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
         // zoekvenster net geopend: de cursor in het zoekveld, zodat je meteen kunt typen
+        if (_naarBoven)
+        {
+            _naarBoven = false;
+            try { await JS.InvokeVoidAsync("mdeInhoudBoven"); } catch { }
+        }
         if (_zoekFocus && _open)
         {
             _zoekFocus = false;
@@ -421,9 +426,15 @@
         if (!_openKlappers.Remove(m.Sleutel)) _openKlappers.Add(m.Sleutel);
     }
 
+    // Het werkscherm schuift zelf (app.css bij .inhoud); op een andere pagina moet het weer bovenaan beginnen
+    private string _padVoorSchuif = "";
+    private bool _naarBoven;
+
     private void LocatieGewijzigd(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         Registreer();
+        var pad = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].TrimEnd('/');
+        if (pad != _padVoorSchuif) { _padVoorSchuif = pad; _naarBoven = true; }
         InvokeAsync(StateHasChanged);
     }
 

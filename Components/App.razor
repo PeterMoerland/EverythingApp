@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=433" />
+    <link rel="stylesheet" href="app.css?v=435" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -57,7 +57,7 @@
     <script src="dymo.js?v=4"></script>
     <script src="scan.js?v=10"></script>
     <script src="camera.js?v=1"></script>
-    <script src="activityboard.js?v=5"></script>
+    <script src="activityboard.js?v=6"></script>
     <script src="snelbalk.js?v=1"></script>
     <script src="werkplek.js?v=2"></script>
     <script src="paneelgreep.js?v=2"></script>
@@ -95,6 +95,14 @@
         window.mdeOpslag = {
             lees: function (sleutel) { try { return localStorage.getItem(sleutel); } catch (e) { return null; } },
             schrijf: function (sleutel, waarde) { try { localStorage.setItem(sleutel, waarde); } catch (e) { } }
+        };
+
+        // Het werkscherm (main.inhoud) terug naar boven: dat schuift zelf, niet meer het hele venster (app.css bij .inhoud).
+        // MainLayout roept dit aan als je naar een andere pagina gaat, anders opent die op de schuifstand van de vorige.
+        window.mdeInhoudBoven = function () {
+            var m = document.querySelector('main.inhoud');
+            if (m) m.scrollTop = 0;
+            window.scrollTo(0, 0);
         };
 
         // Een element (bv. het gekozen type in een lijst) in beeld scrollen, alleen binnen zijn eigen schuiflijst.
