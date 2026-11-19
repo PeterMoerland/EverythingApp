@@ -3492,7 +3492,7 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
    de rest volgt de app. MDE-rood #d13228 als accent.
    =================================================================== */
 .ab { --ab-rood: #d13228; --ab-rood-donker: #a01200; --ab-tint: #fdecea; --ab-rand: #e2e2e2; --ab-muted: #68717c;
-      --ab-wit: #fff; --ab-ink: #111; --ab-kolb: 216px; }
+      --ab-wit: #fff; --ab-ink: #111; --ab-kolb: 120px; }
 .ab-muted { color: var(--ab-muted); }
 .ab-mono { font-family: Consolas, "IBM Plex Mono", monospace; }
 .ab-eyebrow { color: var(--merk-rood); text-transform: uppercase; letter-spacing: 2px; font-size: 11px; font-weight: 600; }
@@ -3561,6 +3561,7 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 html[data-thema="donker"] .bk-buiten { color: #f0b860; }
 .plakregel td { background: #eef5ff; border-top: 1px solid #c9dcf5; font-size: .9rem; padding: .4rem .6rem; }   /* Ureningave: wat er gekopieerd is */
 html[data-thema="donker"] .plakregel td { background: #1c2a3d; border-top-color: #2f4566; }
+.verbeter-plaatjes { margin-top: .4rem; }      /* Verbeterverzoeken: plaatjes bij een bericht in het gesprek */
 .verbeter-intrekken { margin-top: .35rem; }      /* Verbeterverzoeken: je eigen verzoek terugnemen */
 .ab-treffer-board { margin-left: .6rem; font-size: 11px; color: var(--ab-muted); border: 1px solid var(--ab-rand); border-radius: 3px; padding: 0 5px; }
 .ab-treffer { text-align: left; font: inherit; font-size: 13px; padding: .35rem .6rem; border: 1px solid transparent; background: none;
@@ -3711,8 +3712,19 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 
 /* paneel naast het bord (wens gebruiker 19-11-2026): een eigenschappenvenster dat blijft staan terwijl je op het bord
    werkt; een andere kaart aanklikken wisselt het paneel. Smaller dan 1200px: het oude schuifpaneel over het bord. */
-html { --ab-paneelb: clamp(400px, 32vw, 540px); }
+/* Het bord is het belangrijkst (wens gebruiker 19-11-2026): de pagina van het board heeft geen maximale breedte (de
+   gewone 1900px telde de vrijgehouden ruimte voor het paneel mee, dus op een breed scherm bleef er een leeg vlak tussen
+   bord en paneel), de kolommen mogen smal worden (--ab-kolb 120px) zodat er geen horizontale schuifbalk komt, en het
+   paneel is smal: 320 tot 380px. */
+html { --ab-paneelb: clamp(320px, 21vw, 380px); }
+.ab-werk > .page { max-width: none; }
 @media (min-width: 1200px) {
+    .ab-drawer .ab-dkop { padding: 12px 16px 10px; }
+    .ab-drawer .ab-dtitel { font-size: 17px; }
+    .ab-drawer .ab-dbody { padding: 12px 16px 20px; }
+    .ab-drawer .ab-dvoet { padding: 10px 16px; }
+    .ab-drawer .ab-eig { grid-template-columns: 88px minmax(0, 1fr); gap: 8px 10px; }
+    .ab-drawer .ab-lab { letter-spacing: .6px; }
     /* vast rechts, vanaf de onderkant van de kopbalk (--ab-top, bijgehouden door activityboard.js bij scrollen) tot onderaan;
        de pagina houdt er ruimte voor vrij, dus er ligt niets onder */
     .ab-scrim { display: none; }

@@ -1615,6 +1615,28 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Verbeterverzoeken: plaatjes in het gesprek; Ctrl+Enter = versturen (19-11-2026)
+
+- **Plaatjes bij een bericht in het gesprek** (wens gebruiker: "in berichten een afbeelding toevoegen"; de berichtenbox
+  kon het al, dus opgevat als het gesprek onder een verbeterverzoek): filestore **StoreType 343**
+  (`VerzoekStatus.StoreTypeBerichtPlaatje`), MasterID = BerichtID; **`VerbeterverzoekBerichten_Plaatjes_MariaDB.sql`
+  zelf draaien** (FileStoreType, anders weigert de database het plaatje; het bericht wordt dan wel geplaatst, met een
+  melding). `VerzoekBericht.Plaatjes` komt uit een GROUP_CONCAT-subquery in `BerichtenAsync`. Scherm: per open gesprek
+  wachtende plaatjes (`_plaatjes[verzoekId]`, hoogstens 3 van 10 MB), plakken met Ctrl+V in het tekstvak
+  (`mdeKlembord.koppelPlakken` op elk tekstvak, `@ref="_vakken[id]"`; `_plakDoel` = het vak met de cursor, want de
+  terugroep `AfbeeldingGeplakt` zegt niet uit welk vak) of een bestand kiezen. Een bericht met alleen plaatjes krijgt de
+  tekst "🖼 plaatje". Iedereen mag ze zien, net als de verzoeken zelf (geen regel in `MagBestand`).
+- **Ctrl+Enter** (wens gebruiker): algemeen in `wwwroot/invoerfilter.js`. Een scherm doet mee door het vak met de velden
+  en de knop het kenmerk **`data-ctrl-enter`** te geven; Ctrl+Enter in een invoerveld daarbinnen klikt de eerste
+  `button.primair` die aan staat, nadat er een `change` op het veld is gegeven (velden met `@bind` bewaren pas bij het
+  verlaten). Bewust per vak aangezet en niet overal: op een pagina staan vaak meer primaire knoppen. Nu op: het lampje
+  (`.idee-inhoud`), nieuw verbeterverzoek (`.verbeter-nieuw`), bericht schrijven in de bel (`.bel-schrijf`), bestelling
+  afkeuren (`.afkeur-venster`) en de nieuwe urenregel (`tr.editing`). Niet op de mailvensters (bestelling, factuur): daar
+  is per ongeluk versturen te duur.
+- Getest lokaal met `Verbeter__Geheugen=true` en het recht tijdelijk open (weer teruggezet): Ctrl+Enter bij een nieuw
+  verzoek, en het plaatjesvak in het gesprek staat er en het plakken is gekoppeld. **Niet getest**: echt een plaatje
+  plakken of kiezen en versturen (schrijft in de filestore), en Ctrl+Enter op de andere vier plekken.
+
 ## Betalingen klaarzetten: zoeken; lege tariefsoorten (19-11-2026)
 
 - **Zoeken** (verzoek van Michiel): `_zoek` en `Getoond` in `BetalingenKlaarzetten.razor` (elk woord moet voorkomen in
@@ -1717,6 +1739,14 @@ andere kaart kiezen sloot eerst het paneel.
   scroll, resize, koppel en focusEl) houdt hem bij. **Eerst geprobeerd en verworpen:** `position: sticky; height:
   100vh` in een flex-rij: bovenaan de pagina viel de voet (Verwijderen/Sluiten) dan onder het venster, en focus op het
   paneel scrolde de pagina.
+- **Breedte, tweede ronde (zelfde dag, wens gebruiker: "de kaartjes zijn het belangrijkst", "smaller is beter")**: het
+  paneel is `clamp(320px, 21vw, 380px)` (was 400-540) met kleinere marges en een smallere labelkolom; de pagina van het
+  board heeft geen `max-width` meer (`.ab-werk > .page`): de gewone 1900px telde de vrijgehouden ruimte voor het paneel
+  mee, waardoor er op een scherm van 2560px een leeg vlak tussen bord en paneel bleef en het bord toch schoof.
+  `--ab-kolb` (de kleinste kolombreedte) ging van 216 naar 120px, zodat de acht kolommen de breedte verdelen in plaats
+  van een horizontale schuifbalk te geven. Gemeten met het paneel open: 2560px = kolom 237px, 1920px = 157px, 1600px
+  = ongeveer 123px, alle zonder schuifbalk; op 1366px met paneel schuift het bord nog wel (zonder paneel past het).
+  Een zwevend venster is overwogen en niet gekozen.
 - **Wisselen**: `OpenPaneel` vervangt `_open` direct (`_paneelVersie` als `@key` op `.ab-dbody`, zodat de velden opnieuw
   gemaakt worden); dezelfde kaart nog eens = niets doen. Wat in een veld getypt was, is al bewaard (change komt voor de
   klik). **`SchrijfTerug(o)` krijgt de activiteit mee**: tijdens het bewaren kan `_open` al een andere kaart zijn; de

@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Verbeterverzoeken** — Nieuw: in het gesprek onder een verzoek kun je plaatjes meesturen met je bericht: plak een schermafdruk met Ctrl+V in het tekstvak, of kies een bestand (hoogstens drie per bericht). In de berichtenbox (de bel) kon dat al (verzoek van Peter).
+- **Algemeen** — Nieuw: Ctrl+Enter verstuurt of bevestigt, zonder naar de knop te gaan: bij een idee indienen (het lampje), een nieuw verbeterverzoek, een bericht aan een collega, een bestelling afkeuren en een nieuwe urenregel opslaan. In het gesprek onder een verbeterverzoek werkte het al (verzoek van Peter).
+- **Activity board** — Verbeterd: het bord met de kaarten krijgt alle breedte van het scherm. De kolommen verdelen die breedte, zodat er op een gewoon scherm geen schuifbalk onder het bord meer staat, en het paneel van de activiteit ernaast is smaller geworden. Op een breed scherm bleef er eerst een leeg vlak tussen bord en paneel (verzoek van Peter).
 - **Betalingen klaarzetten** — Nieuw: een zoekvak. Zoek op leverancier, factuurnummer, bedrag, omschrijving, IBAN of datum; meerdere woorden mogen. Zoeken verandert niet wat er betaald wordt: wat aangevinkt is blijft aangevinkt, en onderaan staat hoeveel daarvan buiten de zoekopdracht valt. Met een zoektekst werken Selecteer alles, Niets en Alleen volledige regels op wat er in beeld staat (verzoek van Michiel).
 - **Ureningave** — Opgelost: in de keuzelijst Tarief stonden lege regels. Die komen uit lege regels in de tabel met tariefsoorten; de app laat ze nu weg (melding van Peter).
 - **Ureningave** — Opgelost: "Boek 8 uur" (en "Woon-werk km") liet de pagina vastlopen. De knoppen boekten op een werkorder die niet bestaat. Ze gebruiken nu de werkorders uit de instellingen, controleren eerst of die werkorder bestaat en open is, en geven anders een melding. Na het boeken staat erbij op welke werkorder het gezet is (punt van Gerard).

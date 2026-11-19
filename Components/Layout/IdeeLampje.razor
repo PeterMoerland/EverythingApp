@@ -28,7 +28,7 @@
                 <span style="flex:1"></span>
                 <button class="klein" title="Sluiten" @onclick="Sluit">✕</button>
             </div>
-            <div class="idee-inhoud">
+            <div class="idee-inhoud" data-ctrl-enter>
                 @if (!_tabel)
                 {
                     <p class="melding fout">De tabel Verbeterverzoeken ontbreekt nog (Verbeterverzoeken_MariaDB.sql).</p>
@@ -76,7 +76,7 @@
                         <a class="knopje" href="verbeterverzoeken" @onclick="Sluit">Lijst bekijken</a>
                         <span style="flex:1"></span>
                         <button class="klein" @onclick="Sluit">Annuleren</button>
-                        <button class="primair" disabled="@(_bezig || _tekst.Trim().Length < 3)" @onclick="Verstuur">Versturen</button>
+                        <button class="primair" title="Versturen (Ctrl+Enter)" disabled="@(_bezig || _tekst.Trim().Length < 3)" @onclick="Verstuur">Versturen</button>
                     </div>
                 }
             </div>

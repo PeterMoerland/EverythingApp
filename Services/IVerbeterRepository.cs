@@ -33,12 +33,21 @@ public class VerzoekBericht
     public string Door { get; set; } = "";
     public string Werkplek { get; set; } = "";
     public string Tekst { get; set; } = "";
+    /// <summary>Meegestuurde plaatjes: FileStore-id's (StoreType 343, MasterID = dit bericht).</summary>
+    public List<int> Plaatjes { get; set; } = new();
 }
 
 public static class VerzoekStatus
 {
     /// <summary>FileStore.StoreType van een schermafdruk bij een verbeterverzoek (MasterID = VerzoekID).</summary>
     public const int StoreTypeSchermafdruk = 340;
+    /// <summary>
+    /// FileStore.StoreType van een plaatje bij een bericht in het gesprek (MasterID = BerichtID); wens gebruiker
+    /// 19-11-2026. De soort moet in FileStoreType staan: VerbeterverzoekBerichten_Plaatjes_MariaDB.sql.
+    /// </summary>
+    public const int StoreTypeBerichtPlaatje = 343;
+    public const int MaxPlaatjes = 3;
+    public const long MaxPlaatjeGrootte = 10_000_000;
 
     public const string Nieuw = "nieuw", Gepland = "gepland", Bezig = "bezig", Gedaan = "gedaan", Afgewezen = "afgewezen";
     /// <summary>Door de indiener zelf teruggenomen (punt van Gerard, 19-11-2026). Past in Status VARCHAR(12), geen script nodig.</summary>
@@ -288,7 +297,9 @@ public class MySqlVerbeterRepository : IVerbeterRepository
         if (!await GesprekMogelijkAsync()) return lijst;
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "SELECT b.`BerichtID`, b.`VerzoekID`, b.`Op`, b.`Door`, COALESCE(w.`NaamVoluit`, ''), COALESCE(b.`Werkplek`, ''), b.`Tekst` " +
+            "SELECT b.`BerichtID`, b.`VerzoekID`, b.`Op`, b.`Door`, COALESCE(w.`NaamVoluit`, ''), COALESCE(b.`Werkplek`, ''), b.`Tekst`, " +
+            "       (SELECT GROUP_CONCAT(f.`FileStoreID` ORDER BY f.`FileStoreID`) FROM `FileStore` f " +
+            $"        WHERE f.`StoreType` = {VerzoekStatus.StoreTypeBerichtPlaatje} AND f.`MasterID` = b.`BerichtID`) " +
             "  FROM `VerbeterverzoekBerichten` b LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = b.`Door` " +
             " WHERE b.`VerzoekID` = @id ORDER BY b.`Op`, b.`BerichtID`", cn);
         cmd.Parameters.AddWithValue("@id", verzoekId);
@@ -298,6 +309,8 @@ public class MySqlVerbeterRepository : IVerbeterRepository
             {
                 Id = r.GetInt32(0), VerzoekId = r.GetInt32(1), Op = r.GetDateTime(2), DoorId = r.IsDBNull(3) ? null : r.GetInt32(3),
                 Door = r.GetString(4), Werkplek = r.GetString(5), Tekst = r.GetString(6),
+                Plaatjes = r.IsDBNull(7) ? new() : Convert.ToString(r.GetValue(7))!.Split(',')
+                    .Select(s => int.TryParse(s, out var id) ? id : 0).Where(id => id > 0).ToList(),
             });
         return lijst;
     }

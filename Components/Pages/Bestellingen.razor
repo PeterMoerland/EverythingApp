@@ -205,7 +205,7 @@
                     @if (_afkeurOpen)
                     {
                         <div class="cmdk-overlay midden" @onclick="() => _afkeurOpen = false">
-                            <div class="kiezer afkeur-venster" @onclick:stopPropagation role="dialog" aria-label="Afkeuren">
+                            <div class="kiezer afkeur-venster" @onclick:stopPropagation role="dialog" aria-label="Afkeuren" data-ctrl-enter>
                                 <div class="kiezer-kop"><b>PO-@_orderId afkeuren</b></div>
                                 <div class="afkeur-inhoud">
                                     <p class="uitleg">De bestelling gaat terug naar Aanmaken. De besteller krijgt een melding met de reden;
@@ -216,7 +216,7 @@
                                 <div class="kiezer-voet">
                                     <span style="flex:1"></span>
                                     <button class="klein" @onclick="() => _afkeurOpen = false">Annuleren</button>
-                                    <button class="primair rood-vlak" disabled="@(_afkeurReden.Trim().Length == 0 || _volgendeBezig)" @onclick="Afkeuren">Afkeuren</button>
+                                    <button class="primair rood-vlak" title="Afkeuren (Ctrl+Enter)" disabled="@(_afkeurReden.Trim().Length == 0 || _volgendeBezig)" @onclick="Afkeuren">Afkeuren</button>
                                 </div>
                             </div>
                         </div>

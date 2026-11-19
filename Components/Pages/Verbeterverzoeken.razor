@@ -4,6 +4,8 @@
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
 @inject IJSRuntime JS
+@inject FilestoreService Store
+@implements IDisposable
 
 @* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk, of hier
    met + Nieuw verzoek: wens gebruiker 22-10-2026; dan zonder pagina en zonder schermafdruk).
@@ -34,7 +36,7 @@
         }
         @if (MagIndienen)
         {
-            <div class="verbeter-nieuw">
+            <div class="verbeter-nieuw" data-ctrl-enter>
                 @if (!_nieuwOpen)
                 {
                     <button class="primair klein" @onclick="OpenNieuw">+ Nieuw verzoek</button>
@@ -48,7 +50,7 @@
                         <small class="uitleg">Een schermafdruk meesturen kan met het lampje 💡 rechtsboven.</small>
                         <span style="flex:1"></span>
                         <button class="klein" @onclick="() => { _nieuwOpen = false; _nieuweTekst = string.Empty; }">Annuleren</button>
-                        <button class="primair" disabled="@(_bezig || _nieuweTekst.Trim().Length < 3)" @onclick="Indienen">Toevoegen</button>
+                        <button class="primair" title="Toevoegen (Ctrl+Enter)" disabled="@(_bezig || _nieuweTekst.Trim().Length < 3)" @onclick="Indienen">Toevoegen</button>
                     </div>
                 }
             </div>
@@ -172,6 +174,17 @@
                                             <div class="verbeter-bericht @(b.DoorId is int d && d == Ik.WerknemerId ? "eigen" : "")" @key="b.Id">
                                                 <div class="verbeter-bericht-kop"><b>@Afzender(b)</b> <small class="uitleg">@b.Op.ToString("dd-MM-yyyy HH:mm")</small></div>
                                                 <div class="verbeter-tekst-lees">@b.Tekst</div>
+                                                @if (b.Plaatjes.Count > 0)
+                                                {
+                                                    <div class="verbeter-shots">
+                                                        @foreach (var s in b.Plaatjes)
+                                                        {
+                                                            <a href="@($"bestand/{s}")" target="_blank" rel="noopener" title="Plaatje groot openen">
+                                                                <img src="@($"bestand/{s}")" alt="plaatje" loading="lazy" />
+                                                            </a>
+                                                        }
+                                                    </div>
+                                                }
                                             </div>
                                         }
                                     }
@@ -179,14 +192,38 @@
                                     {
                                         var id = v.Id;
                                         <div class="verbeter-gesprek-invoer">
-                                            <textarea class="verbeter-tekst" rows="2" maxlength="2000"
+                                            <textarea class="verbeter-tekst" rows="2" maxlength="2000" @ref="_vakken[id]"
                                                       placeholder="Schrijf een bericht… (Ctrl+Enter = versturen)"
                                                       value="@_concept.GetValueOrDefault(id, "")"
                                                       @oninput="e => _concept[id] = (string?)e.Value ?? string.Empty"
+                                                      @onfocus="() => _plakDoel = id"
                                                       @onkeydown="e => Toets(e, v)"></textarea>
-                                            <button class="primair" disabled="@(_bezig || _concept.GetValueOrDefault(id, "").Trim().Length == 0)"
+                                            <button class="primair" disabled="@(_bezig || (_concept.GetValueOrDefault(id, "").Trim().Length == 0 && Wachtend(id).Count == 0))"
                                                     @onclick="() => Versturen(v)">Versturen</button>
                                         </div>
+                                        @* plaatjes bij het bericht (wens gebruiker 19-11-2026): plakken in het tekstvak of een bestand kiezen *@
+                                        @if (Store.Beschikbaar)
+                                        {
+                                            var wacht = Wachtend(id);
+                                            <div class="idee-shots verbeter-plaatjes">
+                                                @foreach (var (shot, i) in wacht.Select((s, i) => (s, i)))
+                                                {
+                                                    var nr = i;
+                                                    <span class="idee-shot">
+                                                        <img src="@shot.Voorbeeld" alt="plaatje @(nr + 1)" />
+                                                        <button class="klein rood" title="Weghalen" @onclick="() => wacht.RemoveAt(nr)">✕</button>
+                                                    </span>
+                                                }
+                                                @if (wacht.Count < VerzoekStatus.MaxPlaatjes)
+                                                {
+                                                    <span class="idee-plakvak">
+                                                        🖼 Plaatje: <b>Ctrl+V</b> in het tekstvak (schermafdruk: Win+Shift+S)
+                                                        <label class="klein knop-label">of kies een bestand…
+                                                            <InputFile OnChange="e => PlaatjeGekozen(id, e)" accept="image/*" multiple /></label>
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
                                         <small class="uitleg">De indiener, wie gereageerd heeft en wie al meepraat krijgen een bericht in de bel.</small>
                                     }
                                 </div>
@@ -223,10 +260,86 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Ctrl+V met een plaatje in het tekstvak van een open gesprek (mdeKlembord in klembord.js, zoals de berichtenbox)
+        foreach (var id in _gesprekOpen.Where(g => !_gekoppeld.Contains(g) && _vakken.ContainsKey(g)).ToList())
+        {
+            try
+            {
+                _zelf ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("mdeKlembord.koppelPlakken", _vakken[id], _zelf);
+                _gekoppeld.Add(id);
+            }
+            catch { /* dan alleen via "kies een bestand" */ }
+        }
         if (!_focusNieuw) return;
         _focusNieuw = false;
         try { await _nieuwVeld.FocusAsync(); } catch { }
     }
+
+    public void Dispose() => _zelf?.Dispose();
+
+    // ---- Plaatjes bij een bericht in het gesprek (wens gebruiker 19-11-2026) ----
+    // Wachten per verzoek tot Versturen; dan naar de filestore (soort 343, MasterID = het bericht).
+    private sealed record Plaatje(byte[] Inhoud, string Soort, string Voorbeeld);
+    private readonly Dictionary<int, List<Plaatje>> _plaatjes = new();
+    private readonly Dictionary<int, ElementReference> _vakken = new();      // tekstvak per open gesprek
+    private readonly HashSet<int> _gekoppeld = new();                        // waar het plakken al op gekoppeld is
+    private DotNetObjectReference<Verbeterverzoeken>? _zelf;
+    private int? _plakDoel;                                                  // het gesprek waarvan het tekstvak de cursor heeft
+
+    private List<Plaatje> Wachtend(int verzoekId)
+    {
+        if (!_plaatjes.TryGetValue(verzoekId, out var lijst)) _plaatjes[verzoekId] = lijst = new();
+        return lijst;
+    }
+
+    [JSInvokable]
+    public async Task AfbeeldingGeplakt(string soort, int grootte)
+    {
+        if (_plakDoel is not int id) return;
+        try
+        {
+            var stroom = await JS.InvokeAsync<IJSStreamReference?>("mdeKlembord.afbeelding");
+            if (stroom is null) return;
+            await using var s = await stroom.OpenReadStreamAsync(maxAllowedSize: VerzoekStatus.MaxPlaatjeGrootte);
+            using var m = new MemoryStream();
+            await s.CopyToAsync(m);
+            await InvokeAsync(() => { VoegPlaatjeToe(id, m.ToArray(), soort); StateHasChanged(); });
+        }
+        catch (Exception ex) { await InvokeAsync(() => { Toon("Plakken mislukt: " + ex.Message, true); StateHasChanged(); }); }
+    }
+
+    /// <summary>Gewone tekst geplakt: niets aan de hand.</summary>
+    [JSInvokable]
+    public Task GeenAfbeelding() => Task.CompletedTask;
+
+    private async Task PlaatjeGekozen(int verzoekId, InputFileChangeEventArgs e)
+    {
+        foreach (var f in e.GetMultipleFiles(VerzoekStatus.MaxPlaatjes))
+        {
+            try
+            {
+                await using var s = f.OpenReadStream(maxAllowedSize: VerzoekStatus.MaxPlaatjeGrootte);
+                using var m = new MemoryStream();
+                await s.CopyToAsync(m);
+                VoegPlaatjeToe(verzoekId, m.ToArray(), f.ContentType is { Length: > 0 } ct ? ct : "image/png");
+            }
+            catch (Exception ex) { Toon($"{f.Name} lezen mislukt: " + ex.Message, true); }
+        }
+    }
+
+    private void VoegPlaatjeToe(int verzoekId, byte[] inhoud, string soort)
+    {
+        var lijst = Wachtend(verzoekId);
+        if (!soort.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { Toon("Alleen plaatjes.", true); return; }
+        if (lijst.Count >= VerzoekStatus.MaxPlaatjes) { Toon($"Hoogstens {VerzoekStatus.MaxPlaatjes} plaatjes per bericht.", true); return; }
+        lijst.Add(new Plaatje(inhoud, soort, $"data:{soort};base64,{Convert.ToBase64String(inhoud)}"));
+    }
+
+    private static string Extensie(string soort) => soort.ToLowerInvariant() switch
+    {
+        "image/jpeg" or "image/jpg" => ".jpg", "image/gif" => ".gif", "image/webp" => ".webp", "image/bmp" => ".bmp", _ => ".png",
+    };
 
     private async Task Indienen()
     {
@@ -295,7 +408,7 @@
 
     private async Task WisselGesprek(int id)
     {
-        if (_gesprekOpen.Remove(id)) return;
+        if (_gesprekOpen.Remove(id)) { _gekoppeld.Remove(id); _vakken.Remove(id); return; }      // het tekstvak verdwijnt
         await OpenGesprek(id);
     }
 
@@ -326,18 +439,36 @@
     private async Task Versturen(Verbeterverzoek v)
     {
         var tekst = _concept.GetValueOrDefault(v.Id, "").Trim();
-        if (tekst.Length == 0 || _bezig || !MagIndienen) return;
+        var plaatjes = Wachtend(v.Id).ToList();
+        if ((tekst.Length == 0 && plaatjes.Count == 0) || _bezig || !MagIndienen) return;
+        if (tekst.Length == 0) tekst = plaatjes.Count == 1 ? "🖼 plaatje" : $"🖼 {plaatjes.Count} plaatjes";      // een bericht heeft tekst nodig
         _bezig = true;
         try
         {
-            await Repo.BerichtToevoegenAsync(v.Id, tekst, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            var berichtId = await Repo.BerichtToevoegenAsync(v.Id, tekst, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
             _concept.Remove(v.Id);
+            // de plaatjes erbij; lukt dat niet (soort 343 niet in FileStoreType), dan staat het bericht er wel
+            var mislukt = 0; string? reden = null;
+            for (var i = 0; i < plaatjes.Count; i++)
+            {
+                try
+                {
+                    using var m = new MemoryStream(plaatjes[i].Inhoud);
+                    await Store.ToevoegenAsync(m, $"verzoek {v.Id} bericht {berichtId}-{i + 1}{Extensie(plaatjes[i].Soort)}",
+                                               VerzoekStatus.StoreTypeBerichtPlaatje, berichtId, Ik.WerknemerId ?? 0);
+                }
+                catch (Exception ex) { mislukt++; reden ??= ex.GetBaseException().Message; }
+            }
+            _plaatjes.Remove(v.Id);
             var lijst = await Repo.BerichtenAsync(v.Id);
             _berichten[v.Id] = lijst;
             _aantal[v.Id] = lijst.Count;
             var aantal = await BerichtAanBetrokkenen(v, lijst, tekst);
             var wie = aantal == 1 ? "1 collega krijgt" : aantal + " collega’s krijgen";
-            Toon("Bericht geplaatst." + (aantal > 0 ? " " + wie + " een melding." : ""), false);
+            if (mislukt > 0)
+                Toon($"Bericht geplaatst, maar {mislukt} plaatje{(mislukt == 1 ? "" : "s")} niet bewaard: {reden} (is VerbeterverzoekBerichten_Plaatjes_MariaDB.sql uitgevoerd?)", true);
+            else
+                Toon("Bericht geplaatst." + (aantal > 0 ? " " + wie + " een melding." : ""), false);
         }
         catch (Exception ex) { Toon("Versturen mislukt: " + ex.Message, true); }
         finally { _bezig = false; }
