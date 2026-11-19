@@ -301,6 +301,12 @@ html[data-thema="donker"] .wo-deel.leeg { background: #3a2a14; border-color: #b0
               display: flex; flex-direction: column; gap: .35rem; }
 .nieuw-blok .wn-veld { grid-template-columns: 1fr; gap: .1rem; }
 .nieuw-blok label { color: #555; font-size: .85em; }
+/* nieuw project in een pop-up: de velden van .nieuw-blok, zonder het gekleurde vlak van het oude blok boven de lijst */
+.factuurvenster.pr-nieuw { width: min(40rem, 94vw); }      /* met .factuurvenster ervoor: die zet verderop zelf een breedte */
+.nieuw-blok.in-venster { background: none; border-bottom: none; padding: .8rem 1rem 1rem; display: flex; flex-direction: column; gap: .55rem; }
+.nieuw-fout { margin: 0; padding: .45rem .7rem; border-radius: 5px; background: #fdecea; color: #a01200; border: 1px solid #f3b7b0; }
+html[data-thema="donker"] .nieuw-fout { background: #3a1f1c; color: #ffb4a8; border-color: #6b2f28; }
+.pr-nieuw .bijlagevoet { display: flex; justify-content: flex-end; gap: .5rem; }
 /* nieuw project: het lijstje werkorders (vinkje, omschrijving, Inkoop toegestaan) */
 .nieuw-wo { display: flex; flex-direction: column; gap: .25rem; }
 .nieuw-wo-rij { display: flex; align-items: center; gap: .4rem; }

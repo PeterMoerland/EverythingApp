@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Projecten** — Opgelost: maken twee mensen tegelijk een project aan, dan krijgen ze niet meer hetzelfde projectnummer. De tweede krijgt de melding dat het nummer net gebruikt is, met het volgende vrije nummer al ingevuld (vraag van Peter).
+- **Projecten** — Verbeterd: maak je een project aan zonder klant, dan krijg je daar eerst een melding van. Je kunt terug om een klant te kiezen, of bewust zonder klant aanmaken (verzoek van Peter).
+- **Projecten** — Verbeterd: + Nieuw project opent nu een eigen venster in plaats van een blok boven de lijst. Een fout (bijvoorbeeld een ontbrekende omschrijving) staat in het venster zelf; Ctrl+Enter maakt aan, Escape sluit (verzoek van Peter).
 - **Projecten** — Nieuw: bij + Nieuw project maak je meteen de werkorders aan. Je krijgt vijf regels; vink aan wat je wilt (minstens één) en geef elke aangevinkte werkorder een omschrijving. Met het vinkje **Inkoop toegestaan** erachter stel je dat veld van de werkorder meteen in (verzoek van Peter).
 - **Werknemers** — Nieuw: op je eigen pagina staat het tabblad **Meldingen**, waar je zelf kiest waarover je een melding in de bel krijgt. De eerste keuze is **Activity board toewijzing** (een collega wijst je toe of maakt een activiteit voor je aan); die staat standaard aan (verzoek van Peter).
 - **Activity board** — Nieuw: elk kaartje toont rechtsonder zijn kaartnummer (bijvoorbeeld #412). Dat is het nummer waarmee je een kaartje aanwijst, ook via de API (verzoek van Peter).

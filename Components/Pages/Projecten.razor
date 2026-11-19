@@ -69,16 +69,29 @@
                     </div>
                 </div>
 
+                @* Nieuw project met zijn werkorders, in een pop-up (wens gebruiker 19-11-2026; eerst een blok boven de lijst).
+                   Sluit met ✕, Annuleren of Escape (vensters.js); niet bij een klik ernaast, het is een formulier.
+                   Ctrl+Enter = Aanmaken. Een fout staat in het venster zelf: de gewone melding valt achter de pop-up. *@
                 @if (_nieuwOpen)
                 {
-                    <div class="nieuw-blok">
+                    <div class="cmdk-overlay midden">
+                    <div class="factuurvenster pr-nieuw" role="dialog" aria-modal="true" aria-label="Nieuw project" data-ctrl-enter>
+                    <header class="bijlagekop">
+                        <h2>Nieuw project</h2>
+                        <button class="klein" title="Sluiten (Esc)" @onclick="SluitNieuwProject">✕</button>
+                    </header>
+                    <div class="factuurvenster-inhoud nieuw-blok in-venster">
+                        @if (_nieuwFout is not null)
+                        {
+                            <p class="nieuw-fout">@_nieuwFout</p>
+                        }
                         <div class="wn-veld">
                             <label>Projectnummer</label>
                             <input class="r smal" value="@_nieuwNummer" @onchange="NieuwNummerGewijzigd" />
                         </div>
                         <div class="wn-veld">
                             <label>Omschrijving</label>
-                            <input value="@_nieuwOms" @onchange="NieuwOmsGewijzigd" />
+                            <input id="pr-nieuw-oms" value="@_nieuwOms" @onchange="NieuwOmsGewijzigd" autofocus />
                         </div>
                         <div class="wn-veld">
                             <label>Klant</label>
@@ -125,10 +138,12 @@
                                 }
                             </div>
                         </div>
-                        <div class="btngroup">
-                            <button class="primair" disabled="@_nieuwBezig" @onclick="MaakProject">Aanmaken</button>
-                            <button class="klein" @onclick="SluitNieuwProject">Annuleren</button>
-                        </div>
+                    </div>
+                    <div class="bijlagevoet">
+                        <button class="klein" @onclick="SluitNieuwProject">Annuleren</button>
+                        <button class="primair" title="Aanmaken (Ctrl+Enter)" disabled="@_nieuwBezig" @onclick="MaakProject">@(_nieuwBezig ? "Bezig…" : "Aanmaken")</button>
+                    </div>
+                    </div>
                     </div>
                 }
 
@@ -481,6 +496,9 @@
     private const int NieuwWoAantal = 5;
     private NieuweWo[] _nieuwWo = Array.Empty<NieuweWo>();
     private bool _nieuwWoFout, _nieuwBezig;
+    /// <summary>Wat er aan het formulier Nieuw project mankeert; staat in de pop-up zelf.</summary>
+    private string? _nieuwFout;
+    private bool _focusNieuw;
     private string _nieuwOms = "";
     private int? _nieuwKlant;
     private int? _nieuwBv;
@@ -519,6 +537,12 @@
 
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
+        if (_focusNieuw)
+        {
+            // de pop-up Nieuw project staat er net: cursor in de omschrijving
+            _focusNieuw = false;
+            try { await JS.InvokeVoidAsync("mdeAb.focusEl", "#pr-nieuw-oms"); } catch { }
+        }
         if (!eerste || !Repo.Beschikbaar) return;
         _zelf = DotNetObjectReference.Create(this);
         try { await JS.InvokeVoidAsync("mdeBoom.koppel", _zelf); } catch { }
@@ -817,7 +841,9 @@
         // vijf regels, de eerste aangevinkt; Inkoop toegestaan staat aan, zoals bij een losse nieuwe werkorder
         _nieuwWo = Enumerable.Range(0, NieuwWoAantal).Select(i => new NieuweWo { Aan = i == 0 }).ToArray();
         _nieuwWoFout = false;
+        _nieuwFout = null;
         _nieuwOpen = true;
+        _focusNieuw = true;
     }
 
     private void SluitNieuwProject() => _nieuwOpen = false;
@@ -836,27 +862,44 @@
 
     private async Task MaakProject()
     {
+        _nieuwFout = null;
         if (!int.TryParse(_nieuwNummer, out var nummer))
         {
-            Toon("Vul een geldig projectnummer in.", true);
+            _nieuwFout = "Vul een geldig projectnummer in.";
             return;
         }
         if (string.IsNullOrWhiteSpace(_nieuwOms))
         {
-            Toon("Vul een omschrijving in.", true);
+            _nieuwFout = "Vul een omschrijving van het project in.";
             return;
         }
         var werkorders = _nieuwWo.Where(w => w.Aan).ToList();
         if (werkorders.Count == 0)
         {
-            Toon("Vink minstens één werkorder aan.", true);
+            _nieuwFout = "Vink minstens één werkorder aan.";
             return;
         }
         if (werkorders.Any(w => w.Oms.Trim().Length == 0))
         {
             _nieuwWoFout = true;
-            Toon("Vul bij elke aangevinkte werkorder een omschrijving in.", true);
+            _nieuwFout = "Vul bij elke aangevinkte werkorder een omschrijving in.";
             return;
+        }
+        if (_nieuwBezig) return;
+
+        // geen klant gekozen: dat mag, maar niet ongemerkt (wens gebruiker 19-11-2026)
+        if (_nieuwKlant is null)
+        {
+            var door = false;
+            try
+            {
+                door = await JS.InvokeAsync<bool>("mdeBevestig",
+                    "Er is geen klant gekozen voor dit project.\n\nToch aanmaken zonder klant?",
+                    new { ja = "Aanmaken zonder klant", nee = "Terug" });
+            }
+            catch { }
+            if (!door) { _nieuwFout = "Er is nog geen klant gekozen."; return; }
+            _nieuwFout = null;
         }
         if (_nieuwBezig) return;
 
@@ -879,9 +922,17 @@
             await KiesProject(new ProjectRegel(id, nummer, _nieuwOms.Trim()));
             Toon($"Project {nummer} aangemaakt met {gemaakt} werkorder{(gemaakt == 1 ? "" : "s")}. Vul de gegevens aan.", false);
         }
+        catch (ProjectnummerBezetException)
+        {
+            // intussen maakte een collega een project met dit nummer: het volgende vrije voorstellen, niets is aangemaakt
+            var oud = _nieuwNummer;
+            try { _nieuwNummer = (await Repo.VolgendProjectnummerAsync()).ToString(); } catch { }
+            _nieuwFout = $"Projectnummer {oud} is intussen door iemand anders gebruikt. Het nummer is aangepast naar {_nieuwNummer}; "
+                       + "klik nog eens op Aanmaken.";
+        }
         catch (Exception ex)
         {
-            if (id == 0) Toon("Aanmaken mislukt: " + ex.Message, true);
+            if (id == 0) _nieuwFout = "Aanmaken mislukt: " + ex.Message;
             else
             {
                 // het project bestaat al: niet nog eens laten aanmaken, maar tonen wat er wel is

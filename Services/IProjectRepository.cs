@@ -14,6 +14,13 @@ public record WerkorderRegel(int Id, string Nummer, string Omschrijving, bool Ge
 /// <summary>De percentages uit de tariefafspraak van de klant (de grijze vakjes in Access).</summary>
 public record KlantAfspraak(decimal? Uren, decimal? Expenses, decimal? Materialen);
 
+/// <summary>Het gekozen projectnummer is al in gebruik (bv. net door een collega aangemaakt).</summary>
+public class ProjectnummerBezetException : Exception
+{
+    public int Nummer { get; }
+    public ProjectnummerBezetException(int nummer) : base($"Projectnummer {nummer} is al in gebruik.") => Nummer = nummer;
+}
+
 public interface IProjectRepository
 {
     bool Beschikbaar { get; }
@@ -341,19 +348,50 @@ public class MySqlProjectRepository : IProjectRepository
         if (kolommen.Contains("Created by")) sets.Add("`Created by` = @door");
 
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(
-            $"INSERT INTO `Projects` SET {string.Join(", ", sets)}", cn);
-        cmd.Parameters.AddWithValue("@nr", nummer);
-        cmd.Parameters.AddWithValue("@oms", omschrijving ?? "");
-        if (klantId is not null) cmd.Parameters.AddWithValue("@klant", klantId.Value);
-        if (metBv) cmd.Parameters.AddWithValue("@bv", bvId!.Value);
-        if (kolommen.Contains("ProjectStatus"))
-            cmd.Parameters.AddWithValue("@status", ProjectVelden.ProjectStatussen[0].Id);   // Open
-        if (kolommen.Contains("Created at")) cmd.Parameters.AddWithValue("@nu", DateTime.Now);
-        if (kolommen.Contains("Created by")) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
 
-        await cmd.ExecuteNonQueryAsync();
-        return (int)cmd.LastInsertedId;
+        // Twee mensen die tegelijk een project aanmaken kregen hetzelfde voorgestelde nummer, en de tabel dwingt geen
+        // uniek nummer af (de index op Projectnumber is niet uniek; nagekeken 19-11-2026). Daarom: een slot om
+        // "is het nummer nog vrij?" en het toevoegen heen, zodat de tweede netjes hoort dat het nummer bezet is.
+        const string slot = "mde_projectnummer";
+        await using (var pak = new MySqlCommand("SELECT GET_LOCK(@s, 10)", cn))
+        {
+            pak.Parameters.AddWithValue("@s", slot);
+            var gelukt = await pak.ExecuteScalarAsync();
+            if (gelukt is null or DBNull || Convert.ToInt32(gelukt) != 1)
+                throw new InvalidOperationException("Er wordt op dit moment al een project aangemaakt. Probeer het zo nog eens.");
+        }
+        try
+        {
+            await using (var vrij = new MySqlCommand("SELECT COUNT(*) FROM `Projects` WHERE `Projectnumber` = @nr", cn))
+            {
+                vrij.Parameters.AddWithValue("@nr", nummer);
+                if (Convert.ToInt32(await vrij.ExecuteScalarAsync()) > 0) throw new ProjectnummerBezetException(nummer);
+            }
+
+            await using var cmd = new MySqlCommand(
+                $"INSERT INTO `Projects` SET {string.Join(", ", sets)}", cn);
+            cmd.Parameters.AddWithValue("@nr", nummer);
+            cmd.Parameters.AddWithValue("@oms", omschrijving ?? "");
+            if (klantId is not null) cmd.Parameters.AddWithValue("@klant", klantId.Value);
+            if (metBv) cmd.Parameters.AddWithValue("@bv", bvId!.Value);
+            if (kolommen.Contains("ProjectStatus"))
+                cmd.Parameters.AddWithValue("@status", ProjectVelden.ProjectStatussen[0].Id);   // Open
+            if (kolommen.Contains("Created at")) cmd.Parameters.AddWithValue("@nu", DateTime.Now);
+            if (kolommen.Contains("Created by")) cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+
+            await cmd.ExecuteNonQueryAsync();
+            return (int)cmd.LastInsertedId;
+        }
+        finally
+        {
+            try
+            {
+                await using var los = new MySqlCommand("SELECT RELEASE_LOCK(@s)", cn);
+                los.Parameters.AddWithValue("@s", slot);
+                await los.ExecuteScalarAsync();
+            }
+            catch { /* het slot vervalt vanzelf als de verbinding sluit */ }
+        }
     }
 
     public async Task<string?> ProjectInGebruikAsync(int projectId)

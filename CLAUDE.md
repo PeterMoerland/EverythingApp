@@ -1649,6 +1649,21 @@ verplicht op een aangevinkte; een vinkje Inkoop toegestaan dat het veld van de w
 - `Projecten.razor`, blok Nieuw project: `_nieuwWo` (vijf `NieuweWo`: Aan, Oms, Inkoop). De eerste staat aan, Inkoop
   staat overal aan (dat is ook de standaard van een losse nieuwe werkorder). Een omschrijving typen in een regel die
   uit staat, vinkt hem aan.
+- **In een pop-up** (wens gebruiker, zelfde dag; eerst een blok boven de lijst): `.cmdk-overlay.midden` met
+  `.factuurvenster.pr-nieuw`, kop met ✕ (Escape via `vensters.js`), `data-ctrl-enter`, geen sluiten bij een klik
+  ernaast. Fouten staan in `_nieuwFout` in het venster zelf (`.nieuw-fout`): de gewone melding valt achter de pop-up.
+  Valkuil: `.pr-nieuw { width }` alleen verloor het van `.factuurvenster` (staat later in app.css, 96rem breed).
+  De cursor gaat na het openen naar de omschrijving (`_focusNieuw`, via `mdeAb.focusEl`).
+- **Twee mensen tegelijk** (vraag gebruiker, zelfde dag): het voorgestelde nummer (`VolgendProjectnummerAsync`, bij
+  het openen) was voor beiden gelijk en `NieuwProjectAsync` controleerde niets; de index op `Projects.Projectnumber`
+  is niet uniek (nagekeken, er waren nog geen dubbele nummers). Nu: `GET_LOCK('mde_projectnummer', 10)` om "nummer nog
+  vrij?" en de INSERT heen; bezet = `ProjectnummerBezetException`, en `MaakProject` zet dan het volgende vrije nummer
+  in het venster met een regel uitleg (er is dan niets aangemaakt). Dit bestond ook al vóór de pop-up. Werkorders
+  nummeren per project en botsen bij een nieuw project dus niet. **Niet getest** (vraagt twee schrijvende sessies op
+  de echte database).
+- **Geen klant gekozen** (wens gebruiker, zelfde dag: "dan graag de melding dat dat zo is"): na de andere controles
+  vraagt `MaakProject` met `mdeBevestig` (knoppen "Aanmaken zonder klant" / "Terug"). Terug laat de regel "Er is nog
+  geen klant gekozen" in het venster staan; een project zonder klant blijft dus mogelijk, maar niet ongemerkt.
 - `MaakProject` controleert eerst alles (omschrijving project, minstens één werkorder, omschrijving per aangevinkte;
   het lege veld kleurt rood) en schrijft dan pas: `NieuwProjectAsync`, daarna per regel in volgorde
   `NieuweWerkorderAsync` (nummers lopen dus gelijk op met het lijstje) en, als Inkoop uit staat,
