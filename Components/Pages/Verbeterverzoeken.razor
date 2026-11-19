@@ -3,6 +3,7 @@
 @inject HuidigeGebruiker Ik
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
+@inject IJSRuntime JS
 
 @* Beheer ▸ Verbeterverzoeken: ideeën en wensen van collega's (ingediend met het lampje 💡 in de bovenbalk, of hier
    met + Nieuw verzoek: wens gebruiker 22-10-2026; dan zonder pagina en zonder schermafdruk).
@@ -61,6 +62,7 @@
                     <option value="open">Open (nieuw, gepland, bezig)</option>
                     <option value="gedaan">Gedaan</option>
                     <option value="afgewezen">Afgewezen</option>
+                    <option value="ingetrokken">Ingetrokken</option>
                     <option value="mijn">Mijn verzoeken</option>
                     <option value="alles">Alles</option>
                 </select></label>
@@ -128,6 +130,12 @@
                             else
                             {
                                 <span class="stand-chip @VerzoekStatus.Kleur(v.Status)">@v.Status</span>
+                            }
+                            @* je eigen verzoek terugnemen zolang het open staat (punt van Gerard, 19-11-2026) *@
+                            @if (MagIntrekken(v))
+                            {
+                                <br /><button class="klein verbeter-intrekken" disabled="@_bezig" title="Je eigen verzoek terugnemen: het krijgt de status ingetrokken en verdwijnt uit de open verzoeken"
+                                              @onclick="() => TrekIn(v)">Intrekken</button>
                             }
                             @if (v.GewijzigdOp is DateTime g) { <br /><small class="uitleg">@g.ToString("dd-MM") @(v.GewijzigdDoor.Length > 0 ? "· " + v.GewijzigdDoor : "")</small> }
                         </td>
@@ -230,7 +238,7 @@
             var id = await Repo.IndienenAsync(tekst, "", Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
             _lijst = await Repo.LijstAsync();
             _nieuwOpen = false; _nieuweTekst = "";
-            if (_filter is "gedaan" or "afgewezen") _filter = "open";      // anders zie je het nieuwe verzoek niet
+            if (_filter is "gedaan" or "afgewezen" or "ingetrokken") _filter = "open";      // anders zie je het nieuwe verzoek niet
             Toon($"Verzoek {id} toegevoegd.", false);
         }
         catch (Exception ex) { Toon("Toevoegen mislukt: " + ex.Message, true); }
@@ -243,6 +251,7 @@
             "open" => VerzoekStatus.IsOpen(v.Status),
             "gedaan" => v.Status == VerzoekStatus.Gedaan,
             "afgewezen" => v.Status == VerzoekStatus.Afgewezen,
+            "ingetrokken" => v.Status == VerzoekStatus.Ingetrokken,
             "mijn" => v.IngediendDoorId is int d && d == Ik.WerknemerId,
             _ => true,
         })
@@ -407,6 +416,45 @@
             return true;
         }
         catch { return false; }
+    }
+
+    // ---- Eigen verzoek intrekken (punt van Gerard, 19-11-2026) ----
+    // Alleen de indiener zelf (op een gedeelde werkplek is niet bekend wie het was), en alleen zolang het open staat.
+    private bool MagIntrekken(Verbeterverzoek v)
+        => Ik.WerknemerId is int ik && v.IngediendDoorId == ik && VerzoekStatus.IsOpen(v.Status);
+
+    private async Task TrekIn(Verbeterverzoek v)
+    {
+        if (!MagIntrekken(v) || _bezig || Ik.WerknemerId is not int ik) return;
+        var onderwerp = v.Tekst.Trim().ReplaceLineEndings(" ");
+        if (onderwerp.Length > 80) onderwerp = onderwerp[..77] + "…";
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"Je verbeterverzoek intrekken?\n\n‘{onderwerp}’\n\nHet blijft te vinden onder Ingetrokken."); }
+        catch { return; }
+        if (!ja) return;
+        _bezig = true;
+        var behandelaar = v.GewijzigdDoorId;      // wie er al mee bezig was (status of reactie), vóór het intrekken
+        try
+        {
+            if (!await Repo.TrekInAsync(v.Id, ik))
+            {
+                _lijst = await Repo.LijstAsync();
+                Toon("Intrekken kan niet meer: het verzoek is intussen afgehandeld.", true);
+                return;
+            }
+            v.Status = VerzoekStatus.Ingetrokken; v.GewijzigdOp = DateTime.Now; v.GewijzigdDoor = Ik.Naam; v.GewijzigdDoorId = ik;
+            // wie de status of reactie al had gezet, hoort dat het niet meer hoeft
+            var bericht = false;
+            if (behandelaar is int b && b != ik && Meldingen.Beschikbaar)
+            {
+                var tekst = $"{Ik.Naam} heeft het verbeterverzoek ‘{onderwerp}’ ingetrokken.";
+                try { await Meldingen.MaakAsync(b, "verbeter", v.Id, tekst.Length > 250 ? tekst[..249] + "…" : tekst); Signaal.Geef(); bericht = true; }
+                catch { }
+            }
+            Toon("Verzoek ingetrokken." + (bericht ? " Wie ermee bezig was, krijgt een bericht." : ""), false);
+        }
+        catch (Exception ex) { Toon("Intrekken mislukt: " + ex.Message, true); }
+        finally { _bezig = false; }
     }
 
     private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }

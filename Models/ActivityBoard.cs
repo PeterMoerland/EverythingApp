@@ -120,11 +120,15 @@ public class ActBoardData
     public List<Activiteit> Activiteiten { get; set; } = new();
 }
 
-/// <summary>De zeven statussen (spec §5) met hun groep en kleur uit het prototype.</summary>
+/// <summary>
+/// De statussen met hun groep en kleur: de zeven uit de spec (§5, kleuren van het prototype) en Geannuleerd (wens
+/// gebruiker 19-11-2026; hoort bij Klaar, dus krijgt een sluitdatum en staat bij Voltooid).
+/// </summary>
 public static class ActStatus
 {
     public const string Backlog = "backlog", Next = "next", Bezig = "bezig", Testen = "testen",
-                        Beoordeling = "beoordeling", Opgelost = "opgelost", NietOpgelost = "nietopgelost";
+                        Beoordeling = "beoordeling", Opgelost = "opgelost", NietOpgelost = "nietopgelost",
+                        Geannuleerd = "geannuleerd";
     public const string GroepTodo = "todo", GroepBezig = "bezig", GroepKlaar = "klaar";
 
     public record Def(string Code, string Naam, string Groep, string Kleur);
@@ -138,6 +142,7 @@ public static class ActStatus
         new(Beoordeling, "Ter beoordeling", GroepBezig, "brown"),
         new(Opgelost, "Opgelost", GroepKlaar, "green"),
         new(NietOpgelost, "Wordt niet opgelost", GroepKlaar, "red"),
+        new(Geannuleerd, "Geannuleerd", GroepKlaar, "orange"),
     };
 
     public static Def Van(string code) => Alle.FirstOrDefault(s => s.Code == code) ?? Alle[0];

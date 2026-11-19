@@ -548,7 +548,7 @@ else
 {
     <div class="ab-menuvang" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault></div>
     <div class="ab-menu" role="menu" tabindex="-1" aria-label="@("Acties voor " + ma.Titel)" @onkeydown="MenuToets"
-         style="left:min(@(mn.X)px, calc(100vw - 244px)); top:max(8px, min(@(mn.Y)px, calc(100vh - 460px)))">
+         style="left:min(@(mn.X)px, calc(100vw - 244px)); top:max(8px, min(@(mn.Y)px, calc(100vh - 490px)))">
         <div class="ab-menukop" title="@ma.Titel">@ma.Titel</div>
         <button type="button" role="menuitem" @onclick="() => MenuOpen(ma)">Openen</button>
         <div class="ab-menulab">Status</div>
@@ -702,6 +702,7 @@ else
             _data = null; _geladenBoard = null; _open = null;
             try { _boards = await Repo.GetBoardsAsync(); }
             catch (Exception ex) { _boards = new(); Toon("Boards laden mislukt: " + ex.Message, fout: true); }
+            if (_zoek.Trim().Length < 2) await LaadKeuzelijst();
             return;
         }
         if (_geladenBoard == BoardId) return;
@@ -1047,11 +1048,17 @@ else
             </div>
             @if (_treffers.Count > 0)
             {
+                @* zonder zoektekst: de nieuwste projecten of open werkorders om uit te kiezen (punt van Gerard, 19-11-2026) *@
+                @if (_zoek.Trim().Length < 2 && _zoekSoort != ActBoardSoort.Klant)
+                {
+                    <p class="ab-hint ab-hint-los">@(_zoekSoort == ActBoardSoort.Werkorder ? "De nieuwste open werkorders" : "De nieuwste projecten"): klik om te kiezen, of typ om te zoeken.</p>
+                }
                 <div class="ab-treffers">
                     @foreach (var tr in _treffers)
                     {
+                        var heeft = HeeftBoard(tr.Id);
                         <button type="button" class="ab-treffer" @key="tr.Id" @onclick="() => Gekozen(tr.Id, koppelen)">
-                            @if (tr.Nummer.Length > 0) { <span class="ab-mono">@tr.Nummer</span> }@tr.Naam
+                            @if (tr.Nummer.Length > 0) { <span class="ab-mono">@tr.Nummer</span> }@tr.Naam@if (heeft) { <span class="ab-treffer-board" title="Hiervoor bestaat al een board">board</span> }
                         </button>
                     }
                 </div>
@@ -1063,7 +1070,7 @@ else
         }
     </div>;
 
-    private void KiesZoekSoort(string soort)
+    private async Task KiesZoekSoort(string soort)
     {
         if (_zoekSoort == soort) return;
         _zoekSoort = soort;
@@ -1071,7 +1078,40 @@ else
         _treffers = new();
         _zoekStop?.Cancel();
         _focusNa = "#ab-zoek";
+        await LaadKeuzelijst();
     }
+
+    // ---- keuzelijst (punt van Gerard, 19-11-2026: "een project kunnen selecteren, nu moet je nadenken") ----
+    // Zonder zoektekst staan de nieuwste projecten (of de nieuwste open werkorders) er al; typen zoekt in alles.
+    private const int KeuzeAantal = 40;
+
+    /// <summary>De treffers voor deze soort en zoektekst; onder de twee tekens = de keuzelijst (klant: leeg, daar typ je een naam).</summary>
+    private async Task<List<Treffer>> HaalTreffers(string soort, string q)
+    {
+        var lijst = q.Length < 2;
+        if (soort == ActBoardSoort.Klant)
+            return lijst ? new() : (await Relaties.ZoekAsync(q, alleenKlanten: true, alleenLeveranciers: false, 0, KeuzeAantal)).Select(k => new Treffer(k.Id, "", k.Naam)).ToList();
+        if (soort == ActBoardSoort.Werkorder)
+            return (await Uren.ZoekWerkordersAsync(lijst ? "" : q, alleenOpen: lijst, KeuzeAantal))
+                .Select(w => new Treffer(w.WerkbonId, w.Nummer, w.Omschrijving + (w.Klant.Length > 0 ? " · " + w.Klant : ""))).ToList();
+        if (soort == ActBoardSoort.Vrij) return new();
+        return (await Projecten.ZoekProjectenAsync(null, lijst ? null : q, null, 0, KeuzeAantal))
+            .Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving)).ToList();
+    }
+
+    private async Task LaadKeuzelijst()
+    {
+        try { _treffers = await HaalTreffers(_zoekSoort, ""); }
+        catch (Exception ex) { _treffers = new(); Toon("De lijst laden mislukt: " + ex.Message, fout: true); }
+    }
+
+    /// <summary>Bestaat er al een board voor dit project, deze werkorder of deze klant? (alleen op het startscherm bekend)</summary>
+    private bool HeeftBoard(int id) => _boards is { } b && _zoekSoort switch
+    {
+        ActBoardSoort.Werkorder => b.Any(x => x.WerkorderId == id),
+        ActBoardSoort.Klant => b.Any(x => x.RelatieId == id),
+        _ => b.Any(x => x.ProjectId == id),
+    };
 
     private async Task ZoekGewijzigd(ChangeEventArgs e)
     {
@@ -1080,17 +1120,11 @@ else
         var stop = _zoekStop = new CancellationTokenSource();
         var q = _zoek.Trim();
         var soort = _zoekSoort;
-        if (q.Length < 2) { _treffers = new(); return; }
         _zoekt = true;
         try
         {
             await Task.Delay(250, stop.Token);
-            List<Treffer> gevonden = soort == ActBoardSoort.Klant
-                ? (await Relaties.ZoekAsync(q, alleenKlanten: true, alleenLeveranciers: false, 0, 15)).Select(k => new Treffer(k.Id, "", k.Naam)).ToList()
-                : soort == ActBoardSoort.Werkorder
-                ? (await Uren.ZoekWerkordersAsync(q, alleenOpen: false, 15))
-                    .Select(w => new Treffer(w.WerkbonId, w.Nummer, w.Omschrijving + (w.Klant.Length > 0 ? " · " + w.Klant : ""))).ToList()
-                : (await Projecten.ZoekProjectenAsync(null, q, null, 0, 15)).Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving)).ToList();
+            var gevonden = await HaalTreffers(soort, q);      // minder dan twee tekens: weer de keuzelijst
             if (!stop.IsCancellationRequested) _treffers = gevonden;
         }
         catch (TaskCanceledException) { return; }
@@ -1154,12 +1188,13 @@ else
              : _data.Board.Soort == ActBoardSoort.Werkorder ? "de werkorder" : "het project"));
     }
 
-    private void OpenKoppel()
+    private async Task OpenKoppel()
     {
         _koppelOpen = true;
         _zoekSoort = _data?.Board.Soort is ActBoardSoort.Klant or ActBoardSoort.Werkorder ? _data.Board.Soort : ActBoardSoort.Project;
         _zoek = ""; _treffers = new();
         _focusNa = "#ab-zoek";
+        await LaadKeuzelijst();
     }
 
     private void KoppelToets(KeyboardEventArgs e) { if (e.Key == "Escape") _koppelOpen = false; }

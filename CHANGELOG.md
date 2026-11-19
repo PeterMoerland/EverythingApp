@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Activity board** — Nieuw: een achtste kolom Geannuleerd, achter Wordt niet opgelost. Een geannuleerde activiteit telt als klaar en staat ook bij Voltooid (verzoek van Peter).
+- **Activity board** — Verbeterd: bij "Board openen of maken" staan de nieuwste projecten (of open werkorders) meteen in een lijst om uit te kiezen; typen zoekt zoals voorheen. Achter een project dat al een board heeft staat "board" (punt van Gerard).
+- **Verbeterverzoeken** — Nieuw: je eigen verzoek kun je intrekken zolang het nog open staat (knop Intrekken onder de status). Het krijgt de status ingetrokken en staat onder het filter Ingetrokken; wie er al mee bezig was, krijgt een bericht (punt van Gerard).
 - **Ureningave** — Verbeterd: in de vakken Start en Eind kun je alleen nog cijfers en een dubbele punt typen (een punt of komma wordt de dubbele punt); in Uren en KM alleen cijfers en een komma. Snel typen blijft werken: 8 wordt 08:00, 830 wordt 08:30. Een tijd die niet bestaat (99, 1:75) geeft een melding en de oude tijd blijft staan; eerst werd het vak stil leeggemaakt (punt van Gerard).
 - **Service** — Opgelost: in "Wie werkte aan dit project" staan de uren met twee decimalen. Een kwartier is dus 0,25 en niet meer 0,3 (punt van Gerard).
 - **Bestellingen** — Verbeterd: de knoppen boven een bestelling staan op een vaste plek en verspringen niet meer als de status verandert. Er staan altijd dezelfde vier: mailen, de volgende stap (Volgende / Besteld / Gereed), Afkeuren en Genereer officiële order. Wat in deze status niet kan, is grijs; het wolkje zegt waarom. Genereer officiële order kan in deze balk nu vanaf In bestelling, net als op het tabblad Documenten (verzoek van Peter).

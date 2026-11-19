@@ -1615,6 +1615,29 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Activity board: kolom Geannuleerd en keuzelijst; Verbeterverzoeken: intrekken (19-11-2026)
+
+- **Status `geannuleerd`** (wens gebruiker): achtste in `ActStatus.Alle`, groep Klaar (krijgt dus een sluitdatum, staat
+  bij Voltooid, telt als klaar), kleur orange. Geen script: `Status` is VARCHAR(20). Wat van het aantal statussen
+  afhangt: `.ab-bord` in app.css (`repeat(8, …)` en de min-breedte; staat erbij als commentaar), de celkleur
+  `.ab-st-geannuleerd` (licht en donker), de hoogte in de plaatsing van het rechtermuismenu (490px), en
+  `KlaarStatussen` in `MySqlActivityBoardRepository` (de tellingen open/klaar van het startscherm; nu afgeleid van
+  `ActStatus.Alle` in plaats van uitgeschreven).
+- **Keuzelijst bij Board openen of maken en bij Koppelen** (punt van Gerard: "een project kunnen selecteren, nu moet je
+  nadenken; in Access zat ook zo'n selectievenster"): zonder zoektekst toont `HaalTreffers` de nieuwste 40 projecten
+  (`ZoekProjectenAsync` zonder zoektekst, nummer aflopend) of de nieuwste 40 open werkorders; vanaf twee tekens zoekt
+  het zoals voorheen (ook 40, de lijst scrolt: `.ab-treffers` max 21rem). Klant: geen lijst, daar typ je een naam.
+  `LaadKeuzelijst` bij het openen van het startscherm, bij wisselen van soort en bij Koppelen. `HeeftBoard` zet "board"
+  achter wat al een board heeft (alleen op het startscherm bekend, daar is `_boards` geladen).
+- **Verbeterverzoek intrekken** (punt van Gerard): `VerzoekStatus.Ingetrokken` ("ingetrokken", past in VARCHAR(12), geen
+  script). `IVerbeterRepository.TrekInAsync(id, door)` = één UPDATE met de voorwaarden erin (van deze werknemer, status
+  nieuw/gepland/bezig); false = intussen afgehandeld. Knop Intrekken onder de status (`MagIntrekken`: eigen verzoek en
+  open; op een gedeelde werkplek is de indiener niet bekend, dus daar geen knop), bevestiging met `mdeBevestig`, filter
+  Ingetrokken, en een melding in de bel voor wie de status of reactie al had gezet. Directie kan de status in de
+  keuzelijst weer terugzetten.
+- Getest lokaal: de keuzelijst (echte projecten, alleen lezen) en de acht kolommen (board in het geheugen). **Niet
+  getest**: intrekken (lokaal niet ingelogd, dus geen eigen verzoeken), slepen naar Geannuleerd, de werkorderlijst.
+
 ## Ureningave: alleen cijfers in tijd en uren; Service: uren met twee decimalen (19-11-2026)
 
 Punten van Gerard: "bij tijden kan ik ook tekst invoeren, alleen cijfers? Template?" en "15 minuten staat als 0,3".

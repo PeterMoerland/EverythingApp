@@ -3556,7 +3556,9 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .ab-tn { font-size: 11px; opacity: .65; }
 .ab-x { border: none; background: none; color: inherit; opacity: .5; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 2px; }
 .ab-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
-.ab-treffers { display: flex; flex-direction: column; gap: 2px; margin-top: .5rem; max-width: 620px; }
+.ab-treffers { display: flex; flex-direction: column; gap: 2px; margin-top: .5rem; max-width: 620px; max-height: 21rem; overflow: auto; }
+.verbeter-intrekken { margin-top: .35rem; }      /* Verbeterverzoeken: je eigen verzoek terugnemen */
+.ab-treffer-board { margin-left: .6rem; font-size: 11px; color: var(--ab-muted); border: 1px solid var(--ab-rand); border-radius: 3px; padding: 0 5px; }
 .ab-treffer { text-align: left; font: inherit; font-size: 13px; padding: .35rem .6rem; border: 1px solid transparent; background: none;
               border-radius: 3px; cursor: pointer; color: inherit; }
 .ab-treffer:hover, .ab-treffer:focus { border-color: var(--ab-rood); background: var(--ab-tint); outline: none; }
@@ -3599,7 +3601,7 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 
 /* kanban */
 #ab-wrap { overflow: auto; max-height: calc(100vh - 24px); background: var(--ab-wit); border: 1px solid var(--ab-rand); position: relative; }
-.ab-bord { display: grid; grid-template-columns: repeat(7, minmax(var(--ab-kolb), 1fr)); min-width: calc(7 * var(--ab-kolb)); }
+.ab-bord { display: grid; grid-template-columns: repeat(8, minmax(var(--ab-kolb), 1fr)); min-width: calc(8 * var(--ab-kolb)); }   /* 8 = aantal statussen (ActStatus.Alle) */
 .ab-kolkop { position: sticky; top: 0; z-index: 6; background: var(--ab-wit); padding: 10px 8px 9px; border-bottom: 1px solid var(--ab-rand);
              display: flex; align-items: center; gap: 8px; }
 .ab-n { color: var(--ab-muted); font-size: 12px; }
@@ -3611,6 +3613,7 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .ab-cel { min-height: 58px; padding: 6px 5px 8px; border-left: 1px solid var(--ab-wit); border-right: 1px solid var(--ab-wit); transition: background .12s; }
 .ab-st-backlog, .ab-st-next { background: #f7f7f5; } .ab-st-bezig { background: #f1f7fb; } .ab-st-testen { background: #f7f3fa; }
 .ab-st-beoordeling { background: #faf5f2; } .ab-st-opgelost { background: #f2f8f3; } .ab-st-nietopgelost { background: #fcf3f2; }
+.ab-st-geannuleerd { background: #fbf5ee; }
 .ab-cel.ab-doel { background: #fbe9e7 !important; }
 .ab-kaart { background: var(--ab-wit); border: 1px solid #e4e4e2; border-radius: 4px; padding: 9px 10px; margin-bottom: 6px; cursor: grab;
             box-shadow: 0 1px 2px rgba(15, 15, 15, .04); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; position: relative; }
@@ -3780,6 +3783,7 @@ html[data-thema="donker"] .ab-st-backlog, html[data-thema="donker"] .ab-st-next 
 html[data-thema="donker"] .ab-st-bezig { background: #18212b; } html[data-thema="donker"] .ab-st-testen { background: #201b27; }
 html[data-thema="donker"] .ab-st-beoordeling { background: #241e1b; } html[data-thema="donker"] .ab-st-opgelost { background: #18231b; }
 html[data-thema="donker"] .ab-st-nietopgelost { background: #271a19; }
+html[data-thema="donker"] .ab-st-geannuleerd { background: #262019; }
 html[data-thema="donker"] .ab-cel.ab-doel { background: #3a1f1d !important; }
 html[data-thema="donker"] .ab-kaart { border-color: var(--d3); box-shadow: none; }
 html[data-thema="donker"] .ab-tabel td { border-bottom-color: var(--d2); }

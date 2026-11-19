@@ -208,6 +208,10 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
             ? (", b.`RelatieID`, COALESCE(r.`name`, '')", " LEFT JOIN `Relations` r ON r.`id_supplier` = b.`RelatieID` ")
             : (", NULL, ''", " ");
 
+    /// <summary>De statussen van de groep Klaar als SQL-lijst ('opgelost','nietopgelost','geannuleerd'); vaste codes, geen invoer.</summary>
+    private static readonly string KlaarStatussen =
+        string.Join(",", ActStatus.Alle.Where(s => s.Groep == ActStatus.GroepKlaar).Select(s => "'" + s.Code + "'"));
+
     public async Task<List<ActBoardRegel>> GetBoardsAsync()
     {
         var lijst = new List<ActBoardRegel>();
@@ -228,8 +232,8 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, ''), " +
-            "       SUM(a.`ActiviteitID` IS NOT NULL AND a.`Status` NOT IN ('opgelost','nietopgelost')), " +
-            "       SUM(a.`Status` IN ('opgelost','nietopgelost')), " +
+            "       SUM(a.`ActiviteitID` IS NOT NULL AND a.`Status` NOT IN (" + KlaarStatussen + ")), " +
+            "       SUM(a.`Status` IN (" + KlaarStatussen + ")), " +
             "       GREATEST(COALESCE(MAX(a.`last_updated`), b.`last_updated`), b.`last_updated`)" + rk + wk + bk +
             "  FROM `ActivityBoards` b " +
             "  LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj + bj +

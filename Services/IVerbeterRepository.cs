@@ -41,7 +41,9 @@ public static class VerzoekStatus
     public const int StoreTypeSchermafdruk = 340;
 
     public const string Nieuw = "nieuw", Gepland = "gepland", Bezig = "bezig", Gedaan = "gedaan", Afgewezen = "afgewezen";
-    public static readonly string[] Alle = { Nieuw, Gepland, Bezig, Gedaan, Afgewezen };
+    /// <summary>Door de indiener zelf teruggenomen (punt van Gerard, 19-11-2026). Past in Status VARCHAR(12), geen script nodig.</summary>
+    public const string Ingetrokken = "ingetrokken";
+    public static readonly string[] Alle = { Nieuw, Gepland, Bezig, Gedaan, Afgewezen, Ingetrokken };
     public static bool IsOpen(string status) => status is Nieuw or Gepland or Bezig;
     public static string Kleur(string status) => status switch
     {
@@ -59,6 +61,11 @@ public interface IVerbeterRepository
     Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek);
     /// <summary>Tekst, status en reactie bijwerken (Directie).</summary>
     Task BewaarAsync(Verbeterverzoek v, int? door);
+    /// <summary>
+    /// De indiener trekt zijn eigen verzoek in: status ingetrokken, alleen als het van deze werknemer is en nog open staat
+    /// (nieuw, gepland of bezig). False = niet van jou of intussen al afgehandeld.
+    /// </summary>
+    Task<bool> TrekInAsync(int verzoekId, int door);
 
     // Gesprek per verzoek (wens collega 6-11-2026).
     /// <summary>Bestaat de tabel VerbeterverzoekBerichten?</summary>
@@ -79,6 +86,7 @@ public class GeenVerbeterRepository : IVerbeterRepository
     public Task<int> AantalNieuwAsync() => Task.FromResult(0);
     public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek) => throw new InvalidOperationException("Er is geen database.");
     public Task BewaarAsync(Verbeterverzoek v, int? door) => throw new InvalidOperationException("Er is geen database.");
+    public Task<bool> TrekInAsync(int verzoekId, int door) => Task.FromResult(false);
     public Task<bool> GesprekMogelijkAsync() => Task.FromResult(false);
     public Task<Dictionary<int, int>> AantalBerichtenAsync() => Task.FromResult(new Dictionary<int, int>());
     public Task<List<VerzoekBericht>> BerichtenAsync(int verzoekId) => Task.FromResult(new List<VerzoekBericht>());
@@ -112,6 +120,13 @@ public class GeheugenVerbeterRepository : IVerbeterRepository
         v.GewijzigdDoorId = door;
         _items[v.Id] = v;
         return Task.CompletedTask;
+    }
+
+    public Task<bool> TrekInAsync(int verzoekId, int door)
+    {
+        if (!_items.TryGetValue(verzoekId, out var v) || v.IngediendDoorId != door || !VerzoekStatus.IsOpen(v.Status)) return Task.FromResult(false);
+        v.Status = VerzoekStatus.Ingetrokken; v.GewijzigdOp = DateTime.Now; v.GewijzigdDoorId = door;
+        return Task.FromResult(true);
     }
 
     private readonly ConcurrentDictionary<int, VerzoekBericht> _berichten = new();
@@ -227,6 +242,17 @@ public class MySqlVerbeterRepository : IVerbeterRepository
         await cmd.ExecuteNonQueryAsync();
         v.GewijzigdOp = DateTime.Now;
         v.GewijzigdDoorId = door;
+    }
+
+    public async Task<bool> TrekInAsync(int verzoekId, int door)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "UPDATE `Verbeterverzoeken` SET `Status` = 'ingetrokken', `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door " +
+            " WHERE `VerzoekID` = @id AND `IngediendDoor` = @door AND `Status` IN ('nieuw', 'gepland', 'bezig')", cn);
+        cmd.Parameters.AddWithValue("@door", door);
+        cmd.Parameters.AddWithValue("@id", verzoekId);
+        return await cmd.ExecuteNonQueryAsync() > 0;
     }
 
     private bool _gesprek;

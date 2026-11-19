@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS `ActivityBoardTypes` (
         REFERENCES `ActivityBoards` (`BoardID`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Status: backlog, next, bezig, testen, beoordeling, opgelost, nietopgelost (groepen To do / Bezig / Klaar).
+-- Status: backlog, next, bezig, testen, beoordeling, opgelost, nietopgelost, geannuleerd (groepen To do / Bezig / Klaar).
+-- (geannuleerd is van 19-11-2026; daar is geen script voor nodig, de kolom is gewone tekst)
 -- Prioriteit: 1 = Hoog, 2 = Gemiddeld, 3 = Laag, NULL = geen. Volgorde = plek binnen het vak (status x baan).
 CREATE TABLE IF NOT EXISTS `ActivityBoardActiviteiten` (
     `ActiviteitID`    INT NOT NULL AUTO_INCREMENT,
