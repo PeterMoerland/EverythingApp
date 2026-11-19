@@ -1641,6 +1641,29 @@ ingevuld wat al kan op basis van de bon of factuur". Geen nieuw venster gebouwd 
   (Financiën is lokaal zonder aanmelding afgeschermd en die afscherming is niet opzijgezet), het echte Aanmaken, en
   het pad zonder bestand.
 
+## Meldingen zelf aan of uit zetten: tabblad Meldingen bij Werknemers (19-11-2026)
+
+Wens gebruiker: "de optie om meldingen te krijgen op diverse gebieden, in een aparte tab onder Werknemers; de eerste
+is Activity board toewijzing". **Script nodig: `MeldingVoorkeuren_MariaDB.sql`** (tabel `MeldingVoorkeuren`:
+WerknemerID + Soort als sleutel, Aan). Zolang die ontbreekt krijgt iedereen alle meldingen en is het tabblad
+alleen-lezen met een regel uitleg.
+
+- `Services/MeldingVoorkeuren.cs`: `MeldingSoorten.Instelbaar` is de lijst van soorten die je zelf kunt uitzetten
+  (code = `Meldingen.Soort`, naam, uitleg, standaard). Nu alleen `activiteit` = Activity board toewijzing, standaard
+  aan. **Een soort erbij = een regel in die lijst**; het tabblad en de controle bij het versturen volgen vanzelf.
+  `IMeldingVoorkeurRepository` (MySql / Geheugen / Geen): alleen wat iemand zelf koos staat in de tabel, de rest volgt
+  de standaard. `WilAsync` geeft bij een storing de standaard terug: een fout hier mag geen melding tegenhouden.
+- **De controle zit op één plek:** `MySqlMeldingRepository.MaakAsync` vraagt `WilAsync` en maakt de melding niet als
+  hij uit staat. De afzenders (Activity board in het scherm en via de API, en alles wat later een melding maakt)
+  hoeven er dus niets voor te doen. Een soort die niet in de lijst staat wordt altijd verstuurd.
+- `Werknemers.razor`: tabblad "Meldingen" (`TabMeldingen`), alleen op `EigenPagina` (persoonlijke aanmelding, je eigen
+  werknemer; ook de basis van het tabblad API-sleutel). Een vinkje per soort, direct bewaard (`ZetMelding`).
+- Lokaal proberen zonder tabel: `MeldingVoorkeuren__Geheugen=true`.
+- **Getest** met een tijdelijke patch (lokaal is niemand aangemeld) en de keuzes in het geheugen: het tabblad alleen
+  op de bedoelde pagina, uitzetten geeft de melding "staat uit" en blijft staan na wisselen van werknemer.
+  **Niet getest:** tegen de echte tabel (bestaat nog niet), het pad zonder tabel in de browser, en of een uitgezette
+  melding echt niet meer aankomt (dat zou een schrijfactie op de echte Meldingen-tabel vragen).
+
 ## Escape sluit het bovenste venster, op één plek geregeld (19-11-2026)
 
 Wens gebruiker: "pop-ups zouden met Escape (direct na openen) gesloten mogen worden; dit is nog niet overal". Oorzaak:
@@ -1708,6 +1731,9 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     alleen de eigen sleutel. `ActivityBoardApi.SleutelVan(config, id)` leest hem uit de instellingen; de waarde komt
     pas in de pagina na Tonen (anders bolletjes), Kopiëren gaat via `mdeKopieer` zonder hem te tonen, en bij een
     andere werknemer kiezen gaat hij weer dicht. Geen sleutel voor jou = een regel "vraag hem aan".
+    Het tabblad toont alleen de sleutel: het adres van de app en de alinea met de downloads zijn dezelfde dag op
+    verzoek weer weggehaald ("dit mag weg"). De twee adressen hieronder bestaan nog, maar er staat geen link meer
+    naar in de app.
     `MapActivityBoardUitleg` (Program.cs, met aanmelding als de login aan staat) geeft
     `/tools/activityboard-api/uitleg` (ActivityBoard-API.md) en `/tools/activityboard-api/skill` (zip met
     `mde-activity-board/SKILL.md`); beide bestanden gaan via de csproj mee naar de publish-map.
@@ -1760,6 +1786,12 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     van de pop-up of na verversen) roept `KaartDubbel`. Niet in een invoerveld, op een knop of met pop-up/menu open.
   - **Getest** in de browser: alle drie. **Niet getest:** de tabellen (regels hebben geen icoon), aanraakscherm,
     donker thema.
+- **Kaartnummer op de kaart** (wens gebruiker, zelfde dag): `span.ab-knr` met `#` + het id van de activiteit, als
+  laatste in `.ab-kmeta` (de rij chips) met `margin-left: auto`: het staat dus rechtsonder, en past het niet meer op
+  de laatste regel chips, dan komt het eronder. Eerst naast de chips gezet; dat maakte de chips op een smalle kaart
+  een kolom (kaart 251 px hoog in plaats van 208). `.ab-kmeta` is daardoor nooit meer leeg. Het nummer is het id
+  waarmee de API een kaart aanwijst (`/activiteiten/{id}`); het loopt over alle boards heen op. Alleen op de kaarten,
+  niet in de tabellen of de pop-up. Bekeken met een proefboard (kaart zonder chips, met één en met vijf).
 - **De maker mag zijn eigen board wissen** (besluit gebruiker, zelfde dag; Gerard kon zijn proefboards niet opruimen).
   `ActBoard.AangemaaktDoor` (nieuw, uit `ActivityBoards.AangemaaktDoor`; `LaadAsync` leest hem als elfde kolom, de
   geheugenversie onthoudt `door`). `MagWissen` in `ActivityBoard.razor` = Directie, of de aangemelde werknemer is de

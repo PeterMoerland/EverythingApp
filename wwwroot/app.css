@@ -809,6 +809,9 @@ html[data-thema="donker"] .compressor-druk-eenheid, html[data-thema="donker"] .c
               padding: 0 .4rem; font-size: .85em; margin-left: .5rem; }
 .tl-toel { color: #444; margin-top: .1rem; }
 .wn-kop { font-size: 1.05rem; margin: 1.2rem 0 .3rem; color: var(--accent); }
+/* Werknemers: zelf kiezen welke meldingen je krijgt */
+.wn-meld { display: flex; align-items: flex-start; gap: .6rem; margin: .5rem 0; cursor: pointer; }
+.wn-meld input { margin-top: .25rem; flex: 0 0 auto; }
 /* Werknemers: je eigen sleutel voor de Activity board API */
 .wn-api { max-width: 46rem; }
 .wn-api-regel { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .35rem 0; }
@@ -3661,6 +3664,9 @@ html[data-thema="donker"] .ab-kopen:hover { background: rgba(255, 255, 255, .12)
 .ab-wie-tabel { margin: 0; }
 .ab-kmeta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .ab-kmeta:empty { display: none; }
+/* het kaartnummer: laatste in de rij chips, rechts uitgelijnd (dus rechtsonder op de kaart) */
+.ab-knr { margin-left: auto; align-self: flex-end; font-size: 10.5px; line-height: 1.2; color: var(--ab-muted); white-space: nowrap;
+          font-variant-numeric: tabular-nums; user-select: none; }
 /* benodigde tijd per activiteit: chip op de kaart, som in kolom- en baankop, invoer in het detailpaneel, totaal onder de tabel */
 .ab-chip.ab-tijd { background: transparent; border: 1px solid var(--ab-rand); color: var(--ab-muted); white-space: nowrap; }
 .ab-som { white-space: nowrap; margin-left: auto; }

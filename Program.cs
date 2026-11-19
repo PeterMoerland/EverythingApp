@@ -137,7 +137,8 @@ if (liveDb)
         builder.Services.AddSingleton<IVerzekeringRepository>(_ => new GeheugenVerzekeringRepository(new MySqlVerzekeringRepository(cs!)));
     else
         builder.Services.AddSingleton<IVerzekeringRepository>(_ => new MySqlVerzekeringRepository(cs!));
-    builder.Services.AddSingleton<IMeldingRepository>(_ => new MySqlMeldingRepository(cs!));
+    builder.Services.AddSingleton<IMeldingVoorkeurRepository>(_ => new MySqlMeldingVoorkeurRepository(cs!));
+    builder.Services.AddSingleton<IMeldingRepository>(sp => new MySqlMeldingRepository(cs!, sp.GetRequiredService<IMeldingVoorkeurRepository>()));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
     builder.Services.AddSingleton<IInkoopBevestigingRepository>(_ => new MySqlInkoopBevestigingRepository(cs!));   // orderbevestigingen uit inkoop@
@@ -233,6 +234,7 @@ else
     builder.Services.AddSingleton<IBvStructuurRepository, GeenBvStructuurRepository>();
     builder.Services.AddSingleton<IVerzekeringRepository, GeenVerzekeringRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
+    builder.Services.AddSingleton<IMeldingVoorkeurRepository, GeenMeldingVoorkeurRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
     builder.Services.AddSingleton<IInkoopBevestigingRepository, GeenInkoopBevestigingRepository>();
@@ -285,6 +287,9 @@ else
 builder.Services.AddSingleton<CameraService>();
 builder.Services.AddSingleton<BatchBel>();
 builder.Services.AddSingleton<ActivityBoardLive>();   // Activity board: wijzigingen direct bij collega's
+// Alleen om het tabblad Meldingen (Werknemers) lokaal te proberen zonder de tabel MeldingVoorkeuren: MeldingVoorkeuren__Geheugen=true
+if (builder.Configuration.GetValue<bool>("MeldingVoorkeuren:Geheugen"))
+    builder.Services.AddSingleton<IMeldingVoorkeurRepository, GeheugenMeldingVoorkeurRepository>();
 // Alleen om het Activity board lokaal te testen zonder database: ActivityBoard__Geheugen=true
 if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();

@@ -76,8 +76,14 @@ public class GeenMeldingRepository : IMeldingRepository
 public class MySqlMeldingRepository : IMeldingRepository
 {
     private readonly string _cs;
+    private readonly IMeldingVoorkeurRepository? _voorkeuren;
     private bool _tabel;
-    public MySqlMeldingRepository(string connectionString) => _cs = connectionString;
+    /// <param name="voorkeuren">Wie welke soort melding wil (Werknemers ▸ Meldingen); zonder = iedereen alles.</param>
+    public MySqlMeldingRepository(string connectionString, IMeldingVoorkeurRepository? voorkeuren = null)
+    {
+        _cs = connectionString;
+        _voorkeuren = voorkeuren;
+    }
     public bool Beschikbaar => true;
 
     private async Task<MySqlConnection> OpenAsync()
@@ -144,6 +150,9 @@ public class MySqlMeldingRepository : IMeldingRepository
     public async Task MaakAsync(int werknemerId, string soort, int? orderId, string tekst)
     {
         if (!await TabelAanwezigAsync()) return;
+        // heeft deze werknemer deze soort melding uitgezet (Werknemers ▸ Meldingen)? Dan wordt hij niet gemaakt. Hier en
+        // niet bij de afzenders, zodat elke plek die een melding maakt het vanzelf volgt.
+        if (_voorkeuren is not null && !await _voorkeuren.WilAsync(werknemerId, soort)) return;
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "INSERT INTO `Meldingen` (`WerknemerID`, `Soort`, `OrderID`, `Tekst`, `Aangemaakt`) VALUES (@wn, @s, @o, @t, NOW())", cn);

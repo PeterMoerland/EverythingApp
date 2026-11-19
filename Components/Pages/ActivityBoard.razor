@@ -374,6 +374,9 @@ else
                                         {
                                             <div class="ab-wie">@foreach (var pid in a.Personen) { @PersoonHtml(pid) }</div>
                                         }
+                                        @* de chips, met als laatste het kaartnummer rechtsonder (wens gebruiker 19-11-2026). Het nummer is het id
+                                           van de activiteit: dat is ook het nummer waarmee de API een kaart aanwijst. Het staat ín de rij
+                                           chips: past het niet meer op de laatste regel, dan komt het eronder, zonder de chips smaller te maken. *@
                                         <div class="ab-kmeta">
                                             @if (a.BenodigdeUren is decimal bu) { <span class="ab-chip ab-tijd" title="Benodigde tijd">⏱ @ActTijd.Tekst(bu)</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
@@ -382,6 +385,7 @@ else
                                             {
                                                 @ProbleemChip(pid, idx, true)
                                             }
+                                            <span class="ab-knr" title="Kaartnummer">#@a.Id</span>
                                         </div>
                                     </div>
                                 }

@@ -5,7 +5,7 @@
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject IConfiguration Config
-@inject NavigationManager Nav
+@inject IMeldingVoorkeurRepository Voorkeuren
 
 <div class="page">
     <header class="topbar">
@@ -281,6 +281,32 @@
                     </DetailMetZij>
                 }
 
+                @* Zelf kiezen waarover je een melding in de bel krijgt (wens gebruiker 19-11-2026), op een eigen tabblad dat alleen
+                   op je eigen pagina bestaat. De soorten komen uit MeldingSoorten; een wijziging wordt meteen bewaard. *@
+                @if (_tab == TabMeldingen && EigenPagina)
+                {
+                    <h3 class="wn-kop">Meldingen</h3>
+                    <div class="wn-api">
+                        <p class="uitleg">
+                            Kies waarover je een melding wilt krijgen in de bel bovenin de app. Alleen jij ziet dit tabblad; een
+                            wijziging wordt meteen bewaard.
+                        </p>
+                        @if (!_voorkeurenKlaar)
+                        {
+                            <p class="uitleg"><b>Instellen kan nog niet; je krijgt nu alle meldingen.</b> De tabel MeldingVoorkeuren
+                                ontbreekt nog (MeldingVoorkeuren_MariaDB.sql).</p>
+                        }
+                        @foreach (var s in MeldingSoorten.Instelbaar)
+                        {
+                            <label class="wn-meld" @key="s.Code">
+                                <input type="checkbox" checked="@WilMelding(s)" disabled="@(!_voorkeurenKlaar)"
+                                       @onchange="e => ZetMelding(s, e.Value is true)" />
+                                <span><b>@s.Naam</b><br /><span class="uitleg">@s.Uitleg</span></span>
+                            </label>
+                        }
+                    </div>
+                }
+
                 @* Je eigen sleutel voor de Activity board API (wens gebruiker 19-11-2026: "iedereen zijn eigen key kunnen zien,
                    men is al ingelogd"), op een eigen tabblad (TabSleutel) dat alleen op je eigen pagina bestaat en alleen met
                    een persoonlijke aanmelding (deze module staat op een gedeelde werkplek toch al dicht). De sleutel staat
@@ -307,17 +333,6 @@
                                 <button class="klein" @onclick="() => _sleutelTonen = !_sleutelTonen">@(_sleutelTonen ? "Verbergen" : "Tonen")</button>
                                 <button class="klein" title="Naar het klembord, zonder hem te tonen" @onclick='() => Kopieer(sleutel, "De sleutel")'>Kopiëren</button>
                             </div>
-                            <div class="wn-api-regel">
-                                <span class="wn-api-naam">Adres van de app</span>
-                                <code class="wn-api-waarde">@AppAdres</code>
-                                <button class="klein" @onclick='() => Kopieer(AppAdres, "Het adres")'>Kopiëren</button>
-                            </div>
-                            <p class="uitleg">
-                                Zo gebruik je hem: download de <a href="tools/activityboard-api/skill">skill voor Claude Code</a> en pak de zip uit in
-                                <code>%USERPROFILE%\.claude\skills</code>. Zet daarna het adres in de omgevingsvariabele <code>MDE_APP</code> en de
-                                sleutel in <code>MDE_SLEUTEL</code>. Alle mogelijkheden staan in de
-                                <a href="tools/activityboard-api/uitleg">uitleg</a>. De API werkt alleen binnen het MDE-netwerk.
-                            </p>
                         }
                     </div>
                 }
@@ -592,7 +607,8 @@
         WerknemerVelden.Tabs
             .Concat(new[] { new VeldTab("Loopbaan", null) })
             .Where(t => t.Recht is null || !Ik.Gekoppeld || Ik.Mag(t.Recht) || Ik.Mag("Directie"))
-            .Concat(ToonEigenSleutel ? new[] { new VeldTab(TabSleutel, null) } : Array.Empty<VeldTab>())      // alleen op je eigen pagina
+            .Concat(EigenPagina ? new[] { new VeldTab(TabMeldingen, null) } : Array.Empty<VeldTab>())       // alleen op je eigen pagina
+            .Concat(ToonEigenSleutel ? new[] { new VeldTab(TabSleutel, null) } : Array.Empty<VeldTab>())      // idem
             .ToArray();
 
     protected override async Task OnInitializedAsync()
@@ -670,11 +686,46 @@
     private const string TabSleutel = "API-sleutel";
     private bool _sleutelTonen;
 
-    /// <summary>Alleen op je eigen pagina, met een persoonlijke aanmelding, en als de API aan staat.</summary>
-    private bool ToonEigenSleutel
-        => Ik.Ingelogd && !Ik.IsWerkplek && _gekozenId is int g && Ik.WerknemerId == g && ActivityBoardApi.Aan(Config);
+    /// <summary>Je kijkt naar je eigen pagina, met een persoonlijke aanmelding (niet op een gedeelde werkplek).</summary>
+    private bool EigenPagina => Ik.Ingelogd && !Ik.IsWerkplek && _gekozenId is int g && Ik.WerknemerId == g;
 
-    private string AppAdres => Nav.BaseUri.TrimEnd('/');
+    /// <summary>Alleen op je eigen pagina, en als de API aan staat.</summary>
+    private bool ToonEigenSleutel => EigenPagina && ActivityBoardApi.Aan(Config);
+
+    // ---- zelf kiezen welke meldingen je krijgt (tabblad Meldingen) ----
+    private const string TabMeldingen = "Meldingen";
+    private Dictionary<string, bool> _voorkeuren = new();
+    private bool _voorkeurenKlaar;
+
+    private bool WilMelding(MeldingSoort s) => _voorkeuren.TryGetValue(s.Code, out var aan) ? aan : s.Standaard;
+
+    private async Task LaadMeldingVoorkeuren()
+    {
+        _voorkeuren = new(); _voorkeurenKlaar = false;
+        if (!EigenPagina || _gekozenId is not int id) return;
+        try
+        {
+            _voorkeurenKlaar = Voorkeuren.Beschikbaar && await Voorkeuren.TabelAanwezigAsync();
+            if (_voorkeurenKlaar) _voorkeuren = await Voorkeuren.GetAsync(id);
+        }
+        catch { _voorkeurenKlaar = false; }
+    }
+
+    private async Task ZetMelding(MeldingSoort s, bool aan)
+    {
+        if (!EigenPagina || !_voorkeurenKlaar || _gekozenId is not int id) return;
+        try
+        {
+            await Voorkeuren.ZetAsync(id, s.Code, aan);
+            _voorkeuren[s.Code] = aan;
+            Toon($"Melding '{s.Naam}' staat {(aan ? "aan" : "uit")}.", false);
+        }
+        catch (Exception ex)
+        {
+            Toon("Bewaren mislukt: " + ex.Message, true);
+            await LaadMeldingVoorkeuren();
+        }
+    }
 
     private async Task Kopieer(string tekst, string wat)
     {
@@ -687,7 +738,9 @@
     {
         _sleutelTonen = false;
         _gekozenId = id;
-        if (_tab == TabSleutel && !ToonEigenSleutel) _tab = "Basisgegevens";      // dat tabblad bestaat alleen op je eigen pagina
+        // deze tabbladen bestaan alleen op je eigen pagina
+        if ((_tab == TabSleutel && !ToonEigenSleutel) || (_tab == TabMeldingen && !EigenPagina)) _tab = "Basisgegevens";
+        await LaadMeldingVoorkeuren();
         _gebeurtenis = null;
         await WachtOpOpslaan();
         try { _velden = await Repo.GetWerknemerVeldenAsync(id); }

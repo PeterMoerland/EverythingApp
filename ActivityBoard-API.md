@@ -11,8 +11,8 @@ Geef dit bestand aan Claude Code, samen met het adres van de app en je sleutel.
 - **Adres:** het adres van de MDE-app, met `/api/activityboard` erachter. Alleen bereikbaar binnen het MDE-netwerk.
 - **Sleutel:** elke aanroep stuurt je eigen sleutel mee in de kop `X-Sleutel`. De sleutel hoort bij één werknemer:
   alles wat ermee gebeurt staat op jouw naam (initiator van een nieuwe kaart, de melding die een collega krijgt).
-  Je vindt hem in de app bij **Werknemers** ▸ je eigen naam ▸ tabblad **API-sleutel** (Tonen of Kopiëren); daar
-  staan ook het adres van de app en de skill voor Claude Code. Alleen jij ziet dat tabblad.
+  Je vindt hem in de app bij **Werknemers** ▸ je eigen naam ▸ tabblad **API-sleutel** (Tonen of Kopiëren). Alleen
+  jij ziet dat tabblad.
   Behandel de sleutel als een wachtwoord: niet in een gedeeld bestand, niet in Git, niet in een chat.
 - Zonder geldige sleutel: `401`. Staat de API uit: `404`.
 

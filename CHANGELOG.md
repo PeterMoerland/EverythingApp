@@ -7,8 +7,10 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 19-11-2026
 
+- **Werknemers** — Nieuw: op je eigen pagina staat het tabblad **Meldingen**, waar je zelf kiest waarover je een melding in de bel krijgt. De eerste keuze is **Activity board toewijzing** (een collega wijst je toe of maakt een activiteit voor je aan); die staat standaard aan (verzoek van Peter).
+- **Activity board** — Nieuw: elk kaartje toont rechtsonder zijn kaartnummer (bijvoorbeeld #412). Dat is het nummer waarmee je een kaartje aanwijst, ook via de API (verzoek van Peter).
 - **Activity board** — Verbeterd: een board wissen kan nu ook wie het board zelf heeft aangemaakt, niet alleen Directie. Het board van een collega wissen blijft voor Directie (punt van Gerard).
-- **Werknemers** — Nieuw: op je eigen pagina staat het tabblad **API-sleutel** met je persoonlijke sleutel voor de API van het Activity board (voor Claude Code). De sleutel is verborgen tot je op Tonen of Kopiëren klikt; alleen jij ziet het tabblad. Je vindt er ook het adres van de app, de uitleg en de skill voor Claude Code als download (verzoek van Peter).
+- **Werknemers** — Nieuw: op je eigen pagina staat het tabblad **API-sleutel** met je persoonlijke sleutel voor de API van het Activity board (voor Claude Code). De sleutel is verborgen tot je op Tonen of Kopiëren klikt; alleen jij ziet het tabblad (verzoek van Peter).
 - **Activity board** — Nieuw: via de API kun je nu ook een board maken (een vrij board, of bij een project, werkorder of klant) en een board hernoemen. Bestaat het board al, dan krijg je dat terug in plaats van een tweede. Wissen blijft alleen in de app kunnen (punt van Gerard).
 - **Algemeen** — Opgelost: een venster sluit niet meer als je er de muis in indrukt (bijvoorbeeld om tekst te selecteren) en hem naast het venster loslaat. Alleen een echte klik naast het venster sluit het nog (verzoek van Peter).
 - **Activity board** — Verbeterd: tijdens het aftellen naar een nieuwe versie is de API dicht. Een aanroep krijgt dan een nette melding met het tijdstip en wanneer het weer kan, in plaats van halverwege te stranden (verzoek van Peter).
