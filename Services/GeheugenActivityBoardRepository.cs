@@ -143,6 +143,12 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     }
 
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(Personen.ToList());
+
+    public Task<int?> BoardVanActiviteitAsync(int activiteitId)
+    {
+        lock (_slot)
+            return Task.FromResult(_acts.Where(x => x.A.Id == activiteitId).Select(x => (int?)x.BoardId).FirstOrDefault());
+    }
     public Task<bool> TijdAanwezigAsync() => Task.FromResult(true);
 
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur)
@@ -208,6 +214,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         {
             var k = a.Kopie();
             k.Id = Nieuw();
+            k.GemaaktDoor ??= door;
             _acts.Add((boardId, k));
             return Task.FromResult(k.Id);
         }

@@ -85,6 +85,11 @@ public class Activiteit
     /// <summary>Hoeveel werk de activiteit is, in uren (schatting); null = niet ingevuld. Zie <see cref="ActTijd"/>.</summary>
     public decimal? BenodigdeUren { get; set; }
     public DateTime GemaaktOp { get; set; }
+    /// <summary>
+    /// De initiator: wie de activiteit aanmaakte (Werknemers.Werknemer-id, kolom GemaaktDoor); null = onbekend (gedeelde
+    /// werkplek). Punt van Gerard, 19-11-2026: de uitvoerder weet dan bij wie hij met vragen terecht kan.
+    /// </summary>
+    public int? GemaaktDoor { get; set; }
     public DateTime? GeslotenOp { get; set; }
     public int Volgorde { get; set; }
     public List<int> Problemen { get; set; } = new();
@@ -95,7 +100,7 @@ public class Activiteit
 
     public Activiteit Kopie() => new()
     {
-        Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren,
+        Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
         GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
     };

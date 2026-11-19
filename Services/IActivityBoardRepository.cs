@@ -48,6 +48,8 @@ public interface IActivityBoardRepository
     /// </summary>
     Task VerwijderBoardAsync(int boardId);
     Task<ActBoardData?> LaadAsync(int boardId);
+    /// <summary>Het board waar deze activiteit op staat (link uit de bel), of null als hij niet meer bestaat.</summary>
+    Task<int?> BoardVanActiviteitAsync(int activiteitId);
     Task<List<ActPersoon>> GetPersonenAsync();
     /// <summary>Kan een activiteit een benodigde tijd hebben? (ActivityBoard_Tijd_MariaDB.sql uitgevoerd)</summary>
     Task<bool> TijdAanwezigAsync();
@@ -62,7 +64,7 @@ public interface IActivityBoardRepository
     Task HernoemTypeAsync(int typeId, string naam);
     Task VerwijderTypeAsync(int typeId);
 
-    /// <summary>Nieuwe activiteit met koppelingen; geeft het id.</summary>
+    /// <summary>Nieuwe activiteit met koppelingen; geeft het id. De initiator is <c>a.GemaaktDoor</c>, anders <paramref name="door"/>.</summary>
     Task<int> NieuweActiviteitAsync(int boardId, Activiteit a, int? door);
     /// <summary>Eén veld: Titel, Prioriteit, Vervaldatum, BenodigdeUren of een van de tekstvelden.</summary>
     Task ZetVeldAsync(int activiteitId, string kolom, object? waarde, int? door);
@@ -91,6 +93,7 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task<string?> KoppelBoardAsync(int boardId, int? projectId, int? relatieId, int? werkorderId = null) => Task.FromResult<string?>(null);
     public Task VerwijderBoardAsync(int boardId) => Task.CompletedTask;
     public Task<ActBoardData?> LaadAsync(int boardId) => Task.FromResult<ActBoardData?>(null);
+    public Task<int?> BoardVanActiviteitAsync(int activiteitId) => Task.FromResult<int?>(null);
     public Task<List<ActPersoon>> GetPersonenAsync() => Task.FromResult(new List<ActPersoon>());
     public Task<bool> TijdAanwezigAsync() => Task.FromResult(false);
     public Task<int> VoegProbleemToeAsync(int boardId, string naam, string kleur) => Task.FromResult(0);
@@ -368,7 +371,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using (var cmd = new MySqlCommand(
             "SELECT `ActiviteitID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, `GeslotenOp`, `Volgorde`, " +
             "       `Samenvatting`, `Details`, `Impact`, `GenomenStappen`, `VolgendeStappen`, `Opmerkingen`, " +
-            (metTijd ? "`BenodigdeUren`" : "NULL") +
+            (metTijd ? "`BenodigdeUren`" : "NULL") + ", `GemaaktDoor`" +
             "  FROM `ActivityBoardActiviteiten` WHERE `BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
@@ -387,6 +390,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                     GeslotenOp = D(r, 6),
                     Volgorde = I(r, 7) ?? 0,
                     BenodigdeUren = r.IsDBNull(14) ? null : Convert.ToDecimal(r.GetValue(14)) is > 0 and var bu ? bu : null,
+                    GemaaktDoor = I(r, 15),
                 };
                 for (var i = 0; i < ActTekst.Velden.Length; i++)
                     if (S(r, 8 + i) is { Length: > 0 } tekst) a.Tekst[ActTekst.Velden[i].Kolom] = tekst;
@@ -409,6 +413,14 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await Koppel("ActivityBoardActTypes", "TypeID", a => a.Types);
         await Koppel("ActivityBoardActPersonen", "WerknemerID", a => a.Personen);
         return data;
+    }
+
+    public async Task<int?> BoardVanActiviteitAsync(int activiteitId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `BoardID` FROM `ActivityBoardActiviteiten` WHERE `ActiviteitID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", activiteitId);
+        return await cmd.ExecuteScalarAsync() is { } b and not DBNull ? Convert.ToInt32(b) : null;
     }
 
     public async Task<List<ActPersoon>> GetPersonenAsync()
@@ -496,10 +508,12 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
             "INSERT INTO `ActivityBoardActiviteiten` (`BoardID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, " +
             "   `GeslotenOp`, `Volgorde`, `GemaaktDoor`, `GewijzigdDoor`, " + (metTijd ? "`BenodigdeUren`, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => $"`{v.Kolom}`")) + ") " +
-            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @door, @door, " + (metTijd ? "@uren, " : "") +
+            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @maker, @door, " + (metTijd ? "@uren, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => "@x" + v.Kolom)) + "); SELECT LAST_INSERT_ID();", cn, tx))
         {
             if (metTijd) cmd.Parameters.AddWithValue("@uren", (object?)a.BenodigdeUren ?? DBNull.Value);
+            // de initiator: wie hem nu aanmaakt, of (terugzetten na verwijderen) wie hem oorspronkelijk aanmaakte
+            cmd.Parameters.AddWithValue("@maker", (object?)(a.GemaaktDoor ?? door) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@b", boardId);
             cmd.Parameters.AddWithValue("@t", Kort(a.Titel.Trim(), 300));
             cmd.Parameters.AddWithValue("@s", ActStatus.IsGeldig(a.Status) ? a.Status : ActStatus.Backlog);

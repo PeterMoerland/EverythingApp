@@ -148,8 +148,8 @@
                         <div class="bel-bericht @(ongelezen ? "ongelezen" : "")" @key="m.Id">
                             @if (Link(m) is { } link)
                             {
-                                <a class="bel-regel" href="@link" target='@(m.Soort is "verbeter" or "verzekering" ? null : "_blank")' rel="noopener"
-                                   @onclick='async () => { await ZetGelezen(m, true); if (m.Soort is "verbeter" or "verzekering") _open = false; }'>
+                                <a class="bel-regel" href="@link" target='@(m.Soort is "verbeter" or "verzekering" or "activiteit" ? null : "_blank")' rel="noopener"
+                                   @onclick='async () => { await ZetGelezen(m, true); if (m.Soort is "verbeter" or "verzekering" or "activiteit") _open = false; }'>
                                     <span class="bel-po">@Icoon(m)</span>
                                     <span class="bel-tekst">@m.Tekst<small>@Onder(m)</small></span>
                                 </a>
@@ -377,13 +377,14 @@
     {
         "analyse" => $"ai?vraag={oid}",           // OrderId = de vraag (Vragen aan AI)
         "verbeter" => $"verbeterverzoeken?verzoek={oid}",
+        "activiteit" => $"activityboard?kaart={oid}",     // OrderId = de activiteit; het board zoekt het scherm er zelf bij
         "verzekering" => $"financien/verzekeringen?verzekering={oid}",
         _ => $"bestellingen?order={oid}",
     };
 
     private static string Icoon(Melding m) => m.Soort switch
     {
-        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "verzekering" => "🛡️", "goedgekeurd" => "✅", "telaat" => "⏰", _ => "•",
+        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "activiteit" => "📌", "verzekering" => "🛡️", "goedgekeurd" => "✅", "telaat" => "⏰", _ => "•",
     };
 
     private static string Onder(Melding m)

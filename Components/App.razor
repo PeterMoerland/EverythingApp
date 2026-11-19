@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=431" />
+    <link rel="stylesheet" href="app.css?v=433" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -57,7 +57,7 @@
     <script src="dymo.js?v=4"></script>
     <script src="scan.js?v=10"></script>
     <script src="camera.js?v=1"></script>
-    <script src="activityboard.js?v=3"></script>
+    <script src="activityboard.js?v=5"></script>
     <script src="snelbalk.js?v=1"></script>
     <script src="werkplek.js?v=2"></script>
     <script src="paneelgreep.js?v=2"></script>
@@ -702,9 +702,9 @@
                 var knoppen = document.createElement('div');
                 knoppen.className = 'bevestig-knoppen';
                 var nee = document.createElement('button');
-                nee.type = 'button'; nee.className = 'bevestig-nee'; nee.textContent = 'Annuleren';
+                nee.type = 'button'; nee.className = 'bevestig-nee'; nee.textContent = opties.nee || 'Annuleren';      // opties.ja / opties.nee: eigen tekst op de knoppen
                 var ja = document.createElement('button');
-                ja.type = 'button'; ja.className = 'bevestig-ja'; ja.textContent = opties.alleenOk ? 'OK' : 'Ja, doorgaan';
+                ja.type = 'button'; ja.className = 'bevestig-ja'; ja.textContent = opties.alleenOk ? 'OK' : (opties.ja || 'Ja, doorgaan');
                 if (opties.alleenOk) nee.style.display = 'none';
                 function sluit(antwoord) {
                     document.removeEventListener('keydown', toets, true);

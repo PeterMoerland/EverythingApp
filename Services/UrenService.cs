@@ -159,6 +159,60 @@ public class UrenService
         e.EindDatum = e.EindTijd < e.StartTijd ? e.StartDatum.AddDays(1) : e.StartDatum;
     }
 
+    // === Starttijd voorstellen en standaardpauzes (punt van Arnold, 19-11-2026) ===
+    /// <summary>Het begin van de werkdag: het voorstel voor de eerste regel van een dag.</summary>
+    public static readonly TimeOnly StartVanDeDag = new(7, 30);
+
+    /// <summary>De standaardpauzes; een nieuwe regel die erover loopt kan in stukken zonder de pauzes worden opgeslagen.</summary>
+    public static readonly (TimeOnly Van, TimeOnly Tot)[] StandaardPauzes =
+    {
+        (new(10, 0), new(10, 15)), (new(12, 30), new(13, 0)), (new(15, 0), new(15, 15)),
+    };
+
+    /// <summary>Voorstel voor de starttijd: de laatste eindtijd van de regels die er die dag al staan, anders het begin van de dag.</summary>
+    public static TimeOnly VoorstelStart(IEnumerable<UrenEntry> dag)
+        => dag.Where(u => u.EindTijd is not null).Select(u => u.EindTijd!.Value).DefaultIfEmpty(StartVanDeDag).Max();
+
+    /// <summary>De pauzes die (deels) tussen start en eind liggen, op volgorde. Leeg als de regel over middernacht loopt.</summary>
+    public static List<(TimeOnly Van, TimeOnly Tot)> PauzesBinnen(TimeOnly start, TimeOnly eind, IEnumerable<(TimeOnly Van, TimeOnly Tot)> pauzes)
+        => eind <= start ? new() : pauzes.Where(p => p.Van < eind && p.Tot > start).OrderBy(p => p.Van).ToList();
+
+    /// <summary>De stukken werktijd tussen start en eind, met de pauzes ertussenuit.</summary>
+    public static List<(TimeOnly Van, TimeOnly Tot)> ZonderPauzes(TimeOnly start, TimeOnly eind, IEnumerable<(TimeOnly Van, TimeOnly Tot)> pauzes)
+    {
+        var uit = new List<(TimeOnly Van, TimeOnly Tot)>();
+        var van = start;
+        foreach (var p in PauzesBinnen(start, eind, pauzes))
+        {
+            if (p.Van > van) uit.Add((van, p.Van));
+            if (p.Tot > van) van = p.Tot;
+        }
+        if (eind > van) uit.Add((van, eind));
+        return uit;
+    }
+
+    /// <summary>
+    /// De regel in stukken zonder de pauzes: elk stuk een eigen regel met dezelfde werkorder, omschrijving en tarief en zijn
+    /// eigen tijden en uren. Kilometers en een vast bedrag blijven alleen op de eerste regel staan (anders tellen ze dubbel).
+    /// Valt er niets te splitsen, dan komt de regel zelf terug.
+    /// </summary>
+    public static List<UrenEntry> SplitsOpPauzes(UrenEntry e, IEnumerable<(TimeOnly Van, TimeOnly Tot)> pauzes)
+    {
+        if (e.StartTijd is not TimeOnly start || e.EindTijd is not TimeOnly eind) return new() { e };
+        var stukken = ZonderPauzes(start, eind, pauzes);
+        if (stukken.Count == 0 || (stukken.Count == 1 && stukken[0] == (start, eind))) return new() { e };
+        var uit = new List<UrenEntry>();
+        foreach (var (van, tot) in stukken)
+        {
+            var k = Kopie(e, e.WerknemerId, e.StartDatum);
+            k.StartTijd = van; k.EindTijd = tot;
+            BerekenUren(k);
+            if (uit.Count > 0) { k.Kilometers = 0; k.FixedAmount = 0; }
+            uit.Add(k);
+        }
+        return uit;
+    }
+
     // === VBA: btnPlak_Click — copy all entries of a day/employee to another day/employee ===
     public async Task<int> PlakDagAsync(int vanWerknemer, DateOnly vanDatum, int naarWerknemer, DateOnly naarDatum)
     {

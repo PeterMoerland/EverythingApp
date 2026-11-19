@@ -1615,6 +1615,85 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Activity board: melding in de bel bij toewijzen (19-11-2026)
+
+Punt van Gerard: "melding als iemand anders een kaartje voor je heeft aangemaakt". `MeldToewijzing(a, personen, nieuw)`
+in ActivityBoard.razor: per toegewezen persoon (kiesbaar, niet jezelf) een regel in `Meldingen`, **soort `activiteit`**,
+OrderID = de activiteit, tekst "X heeft een activiteit voor je aangemaakt: ‘…’ (Activity board …)" of "X heeft je
+toegewezen aan ‘…’". Aangeroepen bij: een persoon toevoegen in de pop-up (`Wissel`), een nieuwe activiteit die al
+personen heeft (pop-up bij de eerste titel, snel aanmaken met het persoonsfilter, Dupliceren). Niet bij jezelf
+toewijzen, niet bij terugzetten na verwijderen, en **alleen als de afzender een werknemer is** (`Ik.WerknemerId`; op
+een gedeelde werkplek of lokaal zonder aanmelding dus geen meldingen; zo schrijft een lokale test met
+`ActivityBoard__Geheugen=true` ook niets in de echte tabel Meldingen).
+- `MeldingBel`: soort `activiteit` linkt naar `activityboard?kaart=<id>` (zelfde tabblad, de bel gaat dicht), icoon 📌.
+- ActivityBoard: `?kaart=` (`KaartUitUrl`). Zonder board in het adres zoekt `BoardVanActiviteitAsync` het board en gaat
+  het scherm door naar `activityboard/<board>?kaart=<id>`; met board opent `OpenKaartUitUrl` de pop-up één keer
+  (`_kaartUitUrlGedaan`). Bestaat de activiteit niet meer, dan een melding onderin.
+- Gebouwd; **niet getest in de browser** (er is lokaal geen afzender, dus er gaat niets uit) behalve `?kaart=` met een
+  bestaande en een onbekende activiteit op een board in het geheugen.
+
+## Ureningave: starttijd voorstellen en standaardpauzes; bericht bij verbeterverzoek (19-11-2026)
+
+- **Starttijd voorstellen** (punt van Arnold): dubbelklik in een **leeg** vak Start (nieuwe regel en bestaande regels)
+  -> `UrenService.VoorstelStart(regels van de dag zonder deze)` = de laatste eindtijd, anders `StartVanDeDag` (07:30).
+  In een gevuld vak doet dubbelklik niets bijzonders (tekst selecteren). Bij een bestaande regel wordt het meteen bewaard.
+- **Standaardpauzes** (`UrenService.StandaardPauzes`: 10:00-10:15, 12:30-13:00, 15:00-15:15; in de mail stond
+  "12:30-23:00", gelezen als 13:00): bij het opslaan van een **nieuwe** regel (`Opslaan` -> `MetOfZonderPauzes`) die over
+  een pauze loopt, vraagt `mdeBevestig` "Standaard pauzetijden meenemen?" met wat er dan ontstaat. Ja (ook Enter) =
+  `SplitsOpPauzes`: per stuk werktijd een regel met dezelfde werkorder, omschrijving, tarief en activiteit; kilometers en
+  een vast bedrag alleen op de eerste. Nee (ook Esc) = één regel zoals ingevuld. Niet bij een regel over middernacht,
+  niet bij het wijzigen van een bestaande regel, niet bij plakken of Boek 8 uur. De pauzes en 07:30 staan vast in de
+  code (geen instelling).
+- `mdeBevestig` (App.razor) kent nu `opties.ja` en `opties.nee` voor eigen tekst op de knoppen.
+- **Bespreken zet de cursor in het tekstvak** (wens gebruiker): `WisselGesprek` zet `_focusGesprek`, en
+  `OnAfterRenderAsync` geeft het tekstvak van dat gesprek (`_vakken[id]`) de focus. Niet bij openen via een link uit de bel.
+- **Bericht aan de indiener van een verbeterverzoek** (wens gebruiker): `BerichtAanIndiener` stuurt alleen nog als de
+  status **gedaan of afgewezen wordt** (met de reactie erbij). Gepland, bezig en een losse reactie geven geen bericht
+  meer. Berichten uit het gesprek onder een verzoek (`BerichtAanBetrokkenen`) en bij intrekken zijn ongewijzigd.
+- Getest in demo-modus zonder database: dubbelklik geeft 07:30 op een lege dag en 16:00 na een regel tot 16:00;
+  07:30-16:00 wordt met Ja vier regels (2,5 + 2,25 + 2 + 0,75 = 7,5 uur). **Niet getest**: Nee, een bestaande regel, de
+  echte database, en het bericht bij een verbeterverzoek (lokaal geen Directie).
+
+## Activity board: bord over de hele breedte, eigenschappen in een pop-up (19-11-2026, eindstand)
+
+Besluit gebruiker na een dag proberen: "altijd over de hele breedte en een popup met properties als ik dubbelklik op een
+kaartje of via contextmenu". **Dit vervangt het paneel naast het bord** uit de sectie "paneel naast het bord,
+rechtermuismenu, persoon markeren" verderop (rechtermuismenu en markeren daaruit gelden nog).
+- **Bord**: `.ab-werk > .page { max-width: none }`, kolommen `repeat(8, minmax(var(--ab-kolb), 1fr))` met `--ab-kolb`
+  120px, dus geen horizontale schuifbalk tot ongeveer 1300px vensterbreedte. Er is geen ruimte meer voor een paneel.
+- **Openen**: één klik kiest de kaart alleen (`_kaartGekozen`, klasse `gekozen`); **dubbelklik** (`dblclick` in
+  activityboard.js -> `KaartDubbel`), **Enter** op de kaart of **Openen** in het rechtermuismenu opent de pop-up. Op een
+  aanraakscherm opent een tik meteen (geen dubbelklik daar). Tabelregels: `@onclick` kiest, `@ondblclick` opent. Kaart
+  en regel hebben een wolkje "Dubbelklik om te openen · rechtermuisknop voor meer".
+- **Pop-up** = dezelfde `.ab-drawer`, nu midden in beeld (max 1000px breed, 92vh hoog) met de scrim eronder. Vanaf 900px
+  twee kolommen in `.ab-dbody`: links `.ab-eig`, rechts de zes `.ab-sectie` (`grid-row: 1 / span 6`; verandert het
+  aantal tekstvelden, pas dat getal aan). Onder 700px schermvullend. Sluiten: ×, Sluiten, klik op de scrim, of Esc;
+  Esc werkt ook als de cursor niet in de pop-up staat (activityboard.js -> `SluitPopup`), want na een keuze uit een
+  "+ … toevoegen"-lijst wordt die lijst opnieuw gemaakt en is de focus weg.
+- De melding onderin staat met de pop-up open bovenin (`.ab-toast.naast`), zodat hij niet over Verwijderen/Sluiten ligt.
+- Vervallen: `--ab-paneelb`, `--ab-top` en `paneelTop` in activityboard.js, de klasse `met-paneel`. `LeegGeklikt` haalt
+  nu alleen de keuze van de kaart weg.
+- Getest lokaal (board in het geheugen, 1700px): één klik = alleen gekozen, dubbelklik en Openen = pop-up, type en
+  onderwerp toevoegen in de pop-up, Esc. **Niet getest**: aanraakscherm, de tabelweergaven, donker thema.
+
+## Activity board: Type en Onderwerpen als keuzelijst in het paneel (19-11-2026)
+
+Punt van Gerard: alle types en onderwerpen als knoppen in het paneel gaf "veel onnodige info". Nu zoals Toegewezen
+aan: de gekozen waarden als chip met × (`ab-kies aan ab-k-<kleur> ab-persoon`, onderwerpen met hun prioriteitsnummer) en
+een keuzelijst "+ type toevoegen…" / "+ onderwerp toevoegen…" met wat nog niet gekozen is (`KoppelGekozen`, sleutel met
+`_persoonKiesVersie` zodat de lijst terugspringt). De uitleg over meerdere onderwerpen staat in het wolkje van het label.
+Opslaan loopt nog via `Wissel`.
+
+## Activity board: initiator (19-11-2026)
+
+Punt van Gerard: "initiator toevoegen (altijd de persoon die het kaartje aanmaakt), dan kan de uitvoerende het nog
+vragen". De kolom `ActivityBoardActiviteiten.GemaaktDoor` werd al gevuld, dus geen script en bestaande kaarten hebben
+hem. `Activiteit.GemaaktDoor` (LaadAsync leest hem mee); `NieuweActiviteitAsync` schrijft `a.GemaaktDoor ?? door`, zodat
+terugzetten na verwijderen (Ongedaan maken) de oorspronkelijke initiator houdt; bij Dupliceren is het wie dupliceert.
+Niet te wijzigen. Te zien in het paneel (regel Initiator onder Toegewezen aan), als kolom in de drie tabelweergaven en
+in de csv. Null (aangemaakt op een gedeelde werkplek) = "onbekend". Lokaal bekeken met het board in het geheugen; daar
+is niemand ingelogd, dus alleen "onbekend" gezien; de naam komt uit dezelfde `PersoonHtml` als Toegewezen aan.
+
 ## Verbeterverzoeken: plaatjes in het gesprek; Ctrl+Enter = versturen (19-11-2026)
 
 - **Plaatjes bij een bericht in het gesprek** (wens gebruiker: "in berichten een afbeelding toevoegen"; de berichtenbox
@@ -1729,6 +1808,10 @@ Punten van Gerard: "bij tijden kan ik ook tekst invoeren, alleen cijfers? Templa
   Service-pagina in de browser.
 
 ## Activity board: paneel naast het bord, rechtermuismenu, persoon markeren (19-11-2026)
+
+**Het paneel naast het bord is dezelfde dag vervangen door een pop-up; zie "bord over de hele breedte, eigenschappen in
+een pop-up" hierboven.** Wat hieronder over de plek en breedte van het paneel staat is geschiedenis; rechtermuismenu,
+wisselen (`SchrijfTerug(o)`) en markeren kloppen nog.
 
 Wensen gebruiker: het bewerken van een kaart "altijd in beeld, als een property-kader"; het bord werd inactief en een
 andere kaart kiezen sloot eerst het paneel.
@@ -3223,6 +3306,9 @@ factuur aan gekoppeld kan worden. Gemeten (alleen lezen): 108 bestellingen lange
 bijna niets is via de app gemaild, dus de vraag "Nu op Besteld zetten?" komt zelden). Besluit gebruiker: een
 **persoonlijke lijst** van wat langer dan twee weken op een van beide staat, als **tegel bij Bestellingen**, PO's te
 openen in een nieuw venster. (Een herinnering in de bel of iets bij het koppelen zelf is voorgesteld, niet gekozen.)
+Sinds 19-11-2026 opent de **hele regel** de bestelling (wens gebruiker): `tr.rij-link` met `a.rij-doel::after` over de
+regel (app.css), dus nog steeds een echte link (nieuw venster, middelklik, Ctrl+klik) en geen script. Herbruikbaar voor
+andere lijsten; nadeel: tekst in zo'n regel is niet meer te selecteren en de wolkjes van de cellen vervallen.
 
 - `IBestelRepository.NietDoorgezetAsync(dagen, bestellerId?)` en `AantalNietDoorgezetAsync` -> `HangendeBestelling`
   (Models/Bestelling.cs). Status 0 of 3, besteller = `Created by`. "Sinds" = bij Aanmaken de aanmaakdatum, bij In

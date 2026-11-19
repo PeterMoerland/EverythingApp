@@ -3,33 +3,25 @@
 // een eigen plaatshouder en een zwevende kopie, en meldt bij loslaten wat er moet gebeuren:
 //   KaartLosgelaten(id, lane, status|null, prevId|null, nextId|null)   status null = op een baankop
 //   ProblemenGeordend([ids], verplaatstId)
-//   KaartGeklikt(id)                                                   klik of tik zonder slepen
+//   KaartGeklikt(id)                                                   klik zonder slepen: de kaart is gekozen
+//   KaartDubbel(id)                                                    dubbelklik (of een tik op een aanraakscherm): openen
 //   SleepBezig(true|false)                                             zolang er gesleept wordt geen herlaad
-//   LeegGeklikt()                                                      klik naast de kaarten: het paneel gaat dicht
+//   LeegGeklikt()                                                      klik naast de kaarten: geen kaart meer gekozen
 (function () {
     'use strict';
     let doel = null;      // DotNetObjectReference van het scherm
     let s = null;         // lopende sleep
 
     window.mdeAb = {
-        koppel: function (dotnet) { doel = dotnet; paneelTop(); },
+        koppel: function (dotnet) { doel = dotnet; },
         los: function () { stop(false); doel = null; },
         // Focus terug op een kaart of tabelregel na het sluiten van het detailpaneel
         focus: function (id) {
             const el = document.querySelector('.ab-kaart[data-id="' + id + '"], tr.ab-rij[data-id="' + id + '"]');
             if (el) el.focus({ preventScroll: true });
         },
-        focusEl: function (sel) { paneelTop(); const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } }
+        focusEl: function (sel) { const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } }
     };
-
-    // Het paneel van de activiteit staat op een breed scherm vast naast het bord (app.css, .ab-drawer): --ab-top is de
-    // onderkant van de kopbalk zolang die in beeld is, anders 0, zodat het paneel altijd tot onderaan het venster loopt.
-    function paneelTop() {
-        const w = document.querySelector('.ab-werk');
-        if (w) document.documentElement.style.setProperty('--ab-top', Math.max(0, Math.round(w.getBoundingClientRect().top)) + 'px');
-    }
-    window.addEventListener('scroll', paneelTop, { passive: true });
-    window.addEventListener('resize', paneelTop);
 
     function roep(naam) {
         if (!doel) return;
@@ -73,15 +65,32 @@
         clearTimeout(s.timer);
         if (s.gestart) { stop(true); return; }
         const x = s; s = null;
-        if (x.soort === 'kaart') roep('KaartGeklikt', parseInt(x.id));
+        // muis: een klik kiest de kaart, dubbelklik opent hem (zie dblclick hieronder); aanraken: een tik opent hem meteen
+        if (x.soort === 'kaart') roep(x.touch ? 'KaartDubbel' : 'KaartGeklikt', parseInt(x.id));
         else { const g = x.el.querySelector('.ab-greep'); if (g) g.focus(); }
     });
     document.addEventListener('pointercancel', function () { stop(false); });
-    // Klik op een lege plek van het board (geen kaart, regel, knop of invoerveld): er is geen kaart meer gekozen, dus het
-    // paneel van de activiteit gaat dicht. Alleen als het paneel naast het bord staat; op een smal scherm ligt er een
-    // scrim over de pagina en komt de klik hier niet. Tijdens slepen heeft body de muis vast: dan is het doel body.
+    // Esc sluit de pop-up met eigenschappen, ook als de cursor er niet (meer) in staat: na een keuze uit "+ type toevoegen…"
+    // wordt die lijst opnieuw gemaakt en is de focus weg. Staat de cursor in de pop-up, dan vangt die Esc zelf (PaneelToets).
+    document.addEventListener('keydown', function (e) {
+        if (!doel || s || e.key !== 'Escape' || !document.querySelector('.ab-drawer')) return;
+        if (document.querySelector('.ab-modal, .ab-menu')) return;
+        if (e.target.closest && e.target.closest('.ab-drawer')) return;
+        roep('SluitPopup');
+    });
+
+    // Dubbelklik op een kaart opent de eigenschappen (besluit gebruiker 19-11-2026; ook via het rechtermuismenu en Enter).
+    document.addEventListener('dblclick', function (e) {
+        if (!doel) return;
+        const kaart = e.target.closest && e.target.closest('.ab-kaart[data-id]');
+        if (!kaart || e.target.closest('button, input, select, textarea, a')) return;
+        roep('KaartDubbel', parseInt(kaart.dataset.id));
+    });
+
+    // Klik op een lege plek van het board (geen kaart, regel, knop of invoerveld): er is geen kaart meer gekozen.
+    // Tijdens slepen heeft body de muis vast: dan is het doel body. Alleen melden als er iets gekozen is.
     document.addEventListener('click', function (e) {
-        if (!doel || s || e.button !== 0 || !document.querySelector('.ab-drawer')) return;
+        if (!doel || s || e.button !== 0 || !document.querySelector('.ab-kaart.gekozen, tr.ab-rij.gekozen')) return;
         const t = e.target;
         if (!t.closest || !t.closest('.page.ab')) return;
         if (t.closest('button, input, select, textarea, a, label, [role="button"], tr.ab-rij, .ab-snel')) return;

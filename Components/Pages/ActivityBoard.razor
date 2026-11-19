@@ -9,6 +9,8 @@
 @inject IWerknemerRepository Bestanden
 @inject FilestoreService Store
 @inject ActivityBoardLive Live
+@inject IMeldingRepository Meldingen
+@inject MeldingSignaal Signaal
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -22,8 +24,9 @@
 
 <PageTitle>@(_data is null ? "Activity board" : "Activity board · " + _data.Board.Titel)</PageTitle>
 
-@* ab-werk: het bord en (op een breed scherm) het paneel van de gekozen activiteit ernaast, als eigenschappenvenster *@
-<div class="ab-werk @(_open is not null && _data is not null ? "met-paneel" : "")">
+@* ab-werk: het board over de hele breedte (geen maximale paginabreedte); de eigenschappen van een activiteit staan in een
+   pop-up (.ab-drawer) die opent bij dubbelklik, Enter of via het rechtermuismenu (besluit gebruiker 19-11-2026) *@
+<div class="ab-werk">
 <div class="page ab">
 @if (!Repo.Beschikbaar)
 {
@@ -361,7 +364,7 @@ else
                             <div class="ab-cel ab-st-@stc" data-status="@stc" data-lane="@l" @key="CelSleutel(l, stc)">
                                 @foreach (var a in vak[l][stc])
                                 {
-                                    <div class="ab-kaart @KaartKlasse(a)" tabindex="0" role="button" data-id="@a.Id" @key="a.Id"
+                                    <div class="ab-kaart @KaartKlasse(a)" tabindex="0" role="button" data-id="@a.Id" @key="a.Id" title="@OpenTip"
                                          @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
                                         <div class="ab-ktitel">@a.Titel</div>
                                         @if (a.Personen.Count > 0)
@@ -466,39 +469,75 @@ else
                     </select>
                 </div>
 
-                <div class="ab-lab">Type</div>
-                <div class="ab-kiezer">
-                    @if (_data.Types.Count == 0)
+                @* initiator (punt van Gerard, 19-11-2026): wie de activiteit aanmaakte; daar kan de uitvoerder met vragen terecht *@
+                <div class="ab-lab" title="Wie deze activiteit aanmaakte; bij hem of haar kun je terecht met vragen">Initiator</div>
+                <div class="ab-ro">
+                    @if (o.GemaaktDoor is int init && _persoonOpId.ContainsKey(init))
                     {
-                        <span class="ab-ro ab-muted">Nog geen types. Voeg ze toe in het paneel Types bovenin.</span>
+                        <span class="ab-wie ab-wie-tabel">@PersoonHtml(init)</span>
                     }
-                    @foreach (var ty in _data.Types)
+                    else
                     {
-                        var tid = ty.Id;
-                        var aan = o.Types.Contains(tid);
-                        <button type="button" class="ab-kies @(aan ? "aan ab-k-" + ty.Kleur : "")" aria-pressed="@aan" @onclick="() => Wissel(KoppelTypes, tid)">@ty.Naam</button>
+                        <span class="ab-muted">onbekend</span>
                     }
                 </div>
 
-                <div class="ab-lab">Onderwerpen</div>
-                <div>
-                    <div class="ab-kiezer">
-                        @if (_data.Problemen.Count == 0)
-                        {
-                            <span class="ab-ro ab-muted">Nog geen onderwerpen. Voeg ze toe in de lijst bovenin.</span>
-                        }
-                        @for (var i = 0; i < _data.Problemen.Count; i++)
-                        {
-                            var pr = _data.Problemen[i];
-                            var pid = pr.Id;
-                            var aan = o.Problemen.Contains(pid);
-                            <button type="button" class="ab-kies @(aan ? "aan ab-k-" + pr.Kleur : "")" aria-pressed="@aan" @onclick="() => Wissel(KoppelProblemen, pid)">
-                                <span class="ab-pnr">@(i + 1)</span>@pr.Naam
-                            </button>
-                        }
-                    </div>
-                    <p class="ab-hint">Een activiteit kan bij meerdere onderwerpen horen. De kaart staat in de baan van het onderwerp met de
-                        hoogste prioriteit. De lijst beheer je bovenin.</p>
+                @* Type en Onderwerpen zoals Toegewezen aan (punt van Gerard, 19-11-2026: alle keuzes als knoppen gaf "veel
+                   onnodige info"): alleen wat gekozen is als chip met ×, de rest in een keuzelijst. De uitleg staat in het wolkje. *@
+                <div class="ab-lab" title="Types maak en beheer je in het paneel Types boven het bord">Type</div>
+                <div class="ab-kiezer">
+                    @foreach (var ty in _data.Types.Where(t => o.Types.Contains(t.Id)))
+                    {
+                        var tid = ty.Id;
+                        <span class="ab-kies aan ab-k-@ty.Kleur ab-persoon">@ty.Naam
+                            <button type="button" class="ab-x" title="@("Type " + ty.Naam + " eraf halen")" aria-label="@("Type " + ty.Naam + " eraf halen")"
+                                    @onclick="() => Wissel(KoppelTypes, tid)">×</button>
+                        </span>
+                    }
+                    @if (_data.Types.Count == 0)
+                    {
+                        <span class="ab-ro ab-muted">nog geen types</span>
+                    }
+                    else if (_data.Types.Any(t => !o.Types.Contains(t.Id)))
+                    {
+                        <select class="ab-persoonkies" @key="@("tk" + PersoonKiesSleutel)" @onchange="e => KoppelGekozen(KoppelTypes, e)" aria-label="Type toevoegen">
+                            <option value="">+ type toevoegen…</option>
+                            @foreach (var ty in _data.Types.Where(t => !o.Types.Contains(t.Id)))
+                            {
+                                <option value="@ty.Id">@ty.Naam</option>
+                            }
+                        </select>
+                    }
+                </div>
+
+                <div class="ab-lab" title="Een activiteit kan bij meerdere onderwerpen horen. De kaart staat in de baan van het onderwerp met de hoogste prioriteit. De lijst beheer je boven het bord.">Onderwerpen</div>
+                <div class="ab-kiezer">
+                    @for (var i = 0; i < _data.Problemen.Count; i++)
+                    {
+                        var pr = _data.Problemen[i];
+                        if (!o.Problemen.Contains(pr.Id)) continue;
+                        var pid = pr.Id;
+                        <span class="ab-kies aan ab-k-@pr.Kleur ab-persoon"><span class="ab-pnr">@(i + 1)</span>@pr.Naam
+                            <button type="button" class="ab-x" title="@("Onderwerp " + pr.Naam + " eraf halen")" aria-label="@("Onderwerp " + pr.Naam + " eraf halen")"
+                                    @onclick="() => Wissel(KoppelProblemen, pid)">×</button>
+                        </span>
+                    }
+                    @if (_data.Problemen.Count == 0)
+                    {
+                        <span class="ab-ro ab-muted">nog geen onderwerpen</span>
+                    }
+                    else if (_data.Problemen.Any(p => !o.Problemen.Contains(p.Id)))
+                    {
+                        <select class="ab-persoonkies" @key="@("ok" + PersoonKiesSleutel)" @onchange="e => KoppelGekozen(KoppelProblemen, e)" aria-label="Onderwerp toevoegen">
+                            <option value="">+ onderwerp toevoegen…</option>
+                            @for (var i = 0; i < _data.Problemen.Count; i++)
+                            {
+                                var pr = _data.Problemen[i];
+                                if (o.Problemen.Contains(pr.Id)) continue;
+                                <option value="@pr.Id">@(i + 1). @pr.Naam</option>
+                            }
+                        </select>
+                    }
                 </div>
 
                 <div class="ab-lab">Vervaldatum</div>
@@ -630,6 +669,10 @@ else
 @code {
     [Parameter] public int? BoardId { get; set; }
 
+    /// <summary>Link uit de bel ("er is een activiteit voor je"): die activiteit openen. Zonder board in het adres zoekt het scherm het board erbij.</summary>
+    [SupplyParameterFromQuery(Name = "kaart")] public int? KaartUitUrl { get; set; }
+    private int? _kaartUitUrlGedaan;
+
     private static readonly (string Code, string Naam)[] Weergaven =
         { ("kanban", "Kanban"), ("alle", "Alle activiteiten"), ("mijn", "Mijn activiteiten"), ("voltooid", "Voltooid") };
     private const string KoppelProblemen = "problemen", KoppelTypes = "types", KoppelPersonen = "personen";
@@ -697,6 +740,15 @@ else
         _metWerkorder = _soorten && await Repo.WerkorderAanwezigAsync();
         _metTijd = await Repo.TijdAanwezigAsync();
 
+        if (KaartUitUrl is null) _kaartUitUrlGedaan = null;
+        if (BoardId is null && KaartUitUrl is int kaart)
+        {
+            int? bord = null;
+            try { bord = await Repo.BoardVanActiviteitAsync(kaart); } catch { }
+            if (bord is int naarBord) { Nav.NavigateTo($"activityboard/{naarBord}?kaart={kaart}", replace: true); return; }
+            Toon("Deze activiteit bestaat niet meer.", fout: true);
+        }
+
         if (BoardId is null)
         {
             _data = null; _geladenBoard = null; _open = null;
@@ -705,7 +757,7 @@ else
             if (_zoek.Trim().Length < 2) await LaadKeuzelijst();
             return;
         }
-        if (_geladenBoard == BoardId) return;
+        if (_geladenBoard == BoardId) { OpenKaartUitUrl(); return; }
         _geladenBoard = BoardId;
         _open = null; _snel = null; _dicht.Clear(); WisFilters();
         try
@@ -720,6 +772,39 @@ else
             else await LaadBijlagen();
         }
         catch (Exception ex) { _data = null; _laadFout = "Laden mislukt: " + ex.Message; }
+        OpenKaartUitUrl();
+    }
+
+    /// <summary>De activiteit uit het adres (?kaart=) één keer openen, zodra het board er is.</summary>
+    private void OpenKaartUitUrl()
+    {
+        if (KaartUitUrl is not int id || _kaartUitUrlGedaan == id || _data is null) return;
+        _kaartUitUrlGedaan = id;
+        if (_data.Activiteiten.FirstOrDefault(x => x.Id == id) is { } a) OpenPaneel(a);
+        else Toon("Deze activiteit staat niet (meer) op dit board.", fout: true);
+    }
+
+    // ================================================================ melding bij toewijzen
+    // Punt van Gerard (19-11-2026): een melding in de bel als iemand anders een kaartje voor je aanmaakt of je eraan
+    // toewijst. Soort 'activiteit', OrderID = de activiteit (MeldingBel linkt naar activityboard?kaart=…). Niet aan jezelf,
+    // en alleen als bekend is wie het doet (op een gedeelde werkplek of zonder aanmelding geen melding).
+    private async Task MeldToewijzing(Activiteit a, IEnumerable<int> personen, bool nieuw)
+    {
+        if (a.Id == 0 || _data is null || Ik.WerknemerId is not int ik || !Meldingen.Beschikbaar) return;
+        var wie = personen.Distinct().Where(p => p != ik && _persoonOpId.GetValueOrDefault(p)?.Kiesbaar == true).ToList();
+        if (wie.Count == 0) return;
+        var titel = a.Titel.Trim().ReplaceLineEndings(" ");
+        if (titel.Length > 90) titel = titel[..87] + "…";
+        var tekst = (nieuw ? $"{Ik.Naam} heeft een activiteit voor je aangemaakt: ‘{titel}’" : $"{Ik.Naam} heeft je toegewezen aan ‘{titel}’")
+                    + $" (Activity board {_data.Board.Titel})";
+        if (tekst.Length > 250) tekst = tekst[..249] + "…";      // Meldingen.Tekst is minstens VARCHAR(250)
+        var gelukt = 0;
+        foreach (var p in wie)
+        {
+            try { await Meldingen.MaakAsync(p, "activiteit", a.Id, tekst); gelukt++; }
+            catch { /* de toewijzing zelf is gelukt; de melding is een extra */ }
+        }
+        if (gelukt > 0) Signaal.Geef();
     }
 
     protected override async Task OnAfterRenderAsync(bool eerste)
@@ -1377,7 +1462,7 @@ else
 
     /// <summary>Klassen van een kaart of tabelregel: open in het paneel (of het menu), en gemarkeerd of juist gedimd.</summary>
     private string KaartKlasse(Activiteit a)
-        => (a.Id != 0 && (_open?.Id == a.Id || _menu?.Id == a.Id) ? "gekozen " : "")
+        => (a.Id != 0 && (_open?.Id == a.Id || _menu?.Id == a.Id || _kaartGekozen == a.Id) ? "gekozen " : "")
            + (_markeer && _fWie.Length > 0 ? VanPersoon(a) ? "mijn" : "dim" : "");
 
     private async Task WisselMarkeer()
@@ -1450,6 +1535,7 @@ else
         var lane = Lane(a, idx);
         var k = a.Kopie();
         k.Id = 0;
+        k.GemaaktDoor = Ik.WerknemerId;          // de kopie is van wie hem maakt
         k.Titel = a.Titel + " (kopie)";
         if (k.Titel.Length > 300) k.Titel = k.Titel[..300];
         k.GemaaktOp = DateTime.Now;
@@ -1457,6 +1543,7 @@ else
         k.Volgorde = _data.Activiteiten.Where(x => x.Status == a.Status && Lane(x, idx) == lane).Select(x => x.Volgorde).DefaultIfEmpty(-1).Max() + 1;
         if (!await Bewaar(async () => k.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, k, Ik.WerknemerId))) return;
         _data.Activiteiten.Add(k);
+        await MeldToewijzing(k, k.Personen, nieuw: true);
         Toon($"Kopie gemaakt: \"{k.Titel}\"");
     }
 
@@ -1477,6 +1564,16 @@ else
 
     private int _persoonKiesVersie;
     private string PersoonKiesSleutel => $"pk-{_open?.Id}-{_persoonKiesVersie}";
+
+    /// <summary>Type of onderwerp uit de keuzelijst toevoegen; de lijst springt daarna terug op "+ … toevoegen…".</summary>
+    private async Task KoppelGekozen(string soort, ChangeEventArgs e)
+    {
+        _persoonKiesVersie++;
+        if (_open is null || !int.TryParse((string?)e.Value, out var id)) return;
+        var lijst = soort == KoppelProblemen ? _open.Problemen : _open.Types;
+        if (lijst.Contains(id)) return;
+        await Wissel(soort, id);
+    }
 
     /// <summary>Persoon uit de keuzelijst toevoegen; de lijst springt daarna terug op "+ persoon toevoegen…".</summary>
     private async Task PersoonGekozen(ChangeEventArgs e)
@@ -1538,15 +1635,15 @@ else
 
     private static readonly Dictionary<string, string[]> TabelKolommen = new()
     {
-        ["alle"] = new[] { "titel", "wie", "status", "type", "prio", "tijd", "gemaakt", "verval", "dagen", "prob" },
-        ["mijn"] = new[] { "titel", "status", "tijd", "dagen", "wie", "type", "gemaakt", "prob" },
-        ["voltooid"] = new[] { "titel", "wie", "status", "type", "tijd", "gemaakt", "verval", "dagen", "prob" },
+        ["alle"] = new[] { "titel", "wie", "init", "status", "type", "prio", "tijd", "gemaakt", "verval", "dagen", "prob" },
+        ["mijn"] = new[] { "titel", "status", "tijd", "dagen", "wie", "init", "type", "gemaakt", "prob" },
+        ["voltooid"] = new[] { "titel", "wie", "init", "status", "type", "tijd", "gemaakt", "verval", "dagen", "prob" },
     };
     private static readonly Dictionary<string, string> KolomNaam = new()
     {
         ["titel"] = "Activiteit", ["wie"] = "Toegewezen aan", ["status"] = "Status", ["type"] = "Type", ["prio"] = "Prioriteit",
         ["gemaakt"] = "Gemaakt op", ["verval"] = "Vervaldatum", ["dagen"] = "Dagen open", ["prob"] = "Onderwerpen",
-        ["tijd"] = "Tijd nodig",
+        ["tijd"] = "Tijd nodig", ["init"] = "Initiator",
     };
 
     private RenderFragment TabelWeergave(Dictionary<int, int> idx) => @<text>
@@ -1606,14 +1703,15 @@ else
         }
     </text>;
 
-    private RenderFragment TabelRij(Activiteit a, string[] kol, Dictionary<int, int> idx) => @<tr class="ab-rij @KaartKlasse(a)" data-id="@a.Id" tabindex="0" @key="a.Id"
-            @onclick="() => OpenPaneel(a)" @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
+    private RenderFragment TabelRij(Activiteit a, string[] kol, Dictionary<int, int> idx) => @<tr class="ab-rij @KaartKlasse(a)" data-id="@a.Id" tabindex="0" @key="a.Id" title="@OpenTip"
+            @onclick="() => _kaartGekozen = a.Id" @ondblclick="() => OpenPaneel(a)" @onkeydown="e => KaartToets(e, a)" @oncontextmenu="e => OpenMenu(e, a)" @oncontextmenu:preventDefault>
         @foreach (var c in kol)
         {
             switch (c)
             {
                 case "titel": <td class="ab-t">@a.Titel</td> break;
                 case "wie": <td><div class="ab-wie ab-wie-tabel">@foreach (var pid in a.Personen) { @PersoonHtml(pid) }</div></td> break;
+                case "init": <td><div class="ab-wie ab-wie-tabel">@if (a.GemaaktDoor is int gd) { @PersoonHtml(gd) }</div></td> break;
                 case "status": <td>@StatusPill(a.Status)</td> break;
                 case "type": <td><div class="ab-chips">@foreach (var tid in a.Types) { @TypeChip(tid) }</div></td> break;
                 case "prio": <td>@if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }</td> break;
@@ -1801,8 +1899,19 @@ else
     private static string CelSleutel(string lane, string status) => "cel-" + lane + "-" + status;
     private static string LaneSleutel(string lane) => "lane-" + lane;
 
+    // Een klik kiest de kaart (rode rand), dubbelklik, Enter of het rechtermuismenu opent de eigenschappen in een pop-up.
+    private const string OpenTip = "Dubbelklik om te openen · rechtermuisknop voor meer";
+    private int? _kaartGekozen;
+
     [JSInvokable]
     public Task KaartGeklikt(int id)
+    {
+        if (_kaartGekozen != id) { _kaartGekozen = id; StateHasChanged(); }
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task KaartDubbel(int id)
     {
         var a = _data?.Activiteiten.FirstOrDefault(x => x.Id == id);
         if (a is not null) { OpenPaneel(a); StateHasChanged(); }
@@ -1913,7 +2022,7 @@ else
         var zelfde = _data.Activiteiten.Where(x => x.Status == sn.Status && Lane(x, idx) == sn.Lane).Select(x => x.Volgorde).ToList();
         var a = new Activiteit
         {
-            Titel = titel, Status = sn.Status, GemaaktOp = DateTime.Now,
+            Titel = titel, Status = sn.Status, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId,
             Volgorde = zelfde.Count > 0 ? zelfde.Max() + 1 : 0,          // snel aanmaken: onderaan het vak
         };
         if (sn.Lane != "geen") a.Problemen.Add(int.Parse(sn.Lane));
@@ -1923,6 +2032,7 @@ else
         if (ActStatus.Groep(a.Status) == ActStatus.GroepKlaar) a.GeslotenOp = a.GemaaktOp;
         if (!await Bewaar(async () => a.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, a, Ik.WerknemerId))) return;
         _data.Activiteiten.Add(a);
+        await MeldToewijzing(a, a.Personen, nieuw: true);
         Toon(Zichtbaar(a) ? $"\"{a.Titel}\" toegevoegd" : "Activiteit toegevoegd, maar met deze filters niet zichtbaar.");
     }
 
@@ -1934,7 +2044,8 @@ else
         if (_data is null) return;
         var idx = ProbIndex();
         var zelfde = _data.Activiteiten.Where(x => x.Status == ActStatus.Backlog && Lane(x, idx) == "geen").Select(x => x.Volgorde).ToList();
-        var a = new Activiteit { Status = ActStatus.Backlog, GemaaktOp = DateTime.Now, Volgorde = zelfde.Count > 0 ? zelfde.Min() - 1 : 0 };
+        var a = new Activiteit { Status = ActStatus.Backlog, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId,
+                                 Volgorde = zelfde.Count > 0 ? zelfde.Min() - 1 : 0 };
         if (_view == "mijn" && Ik.WerknemerId is int ik) a.Personen.Add(ik);
         if (_open is { } vorige) Verlaten(vorige);
         _open = a;
@@ -1960,6 +2071,7 @@ else
             Verlaten(vorige);
         }
         _open = a.Kopie();
+        _kaartGekozen = a.Id;
         _openNieuw = false;
         _titelVersie++; _tijdVersie++; _paneelVersie++;
         _focusNa = ".ab-drawer";
@@ -1985,6 +2097,14 @@ else
 
     private void PaneelToets(KeyboardEventArgs e) { if (e.Key == "Escape" && _modal is null) SluitPaneel(); }
 
+    /// <summary>Esc terwijl de cursor niet in de pop-up staat (activityboard.js).</summary>
+    [JSInvokable]
+    public Task SluitPopup()
+    {
+        if (_open is not null && _modal is null) { SluitPaneel(); StateHasChanged(); }
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Klik op een lege plek van het board (activityboard.js): geen kaart meer gekozen, dus het paneel gaat dicht
     /// (wens gebruiker 19-11-2026). De focus gaat niet terug naar de kaart, anders lijkt hij nog gekozen.
@@ -1992,9 +2112,9 @@ else
     [JSInvokable]
     public Task LeegGeklikt()
     {
-        if (_open is null || _modal is not null || _menu is not null) return Task.CompletedTask;
-        SluitPaneel();
-        _focusKaart = null;
+        if (_modal is not null || _menu is not null || (_open is null && _kaartGekozen is null)) return Task.CompletedTask;
+        _kaartGekozen = null;
+        if (_open is not null) { SluitPaneel(); _focusKaart = null; }
         StateHasChanged();
         return Task.CompletedTask;
     }
@@ -2031,6 +2151,7 @@ else
             if (!await Bewaar(async () => a.Id = await Repo.NieuweActiviteitAsync(_data.Board.Id, a, Ik.WerknemerId))) return;
             o.Id = a.Id;
             _data.Activiteiten.Add(a);
+            await MeldToewijzing(a, a.Personen, nieuw: true);
             return;
         }
         if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "Titel", titel, Ik.WerknemerId))) SchrijfTerug(o);
@@ -2058,9 +2179,12 @@ else
     {
         if (_open is not { } o) return;
         var lijst = soort == KoppelProblemen ? o.Problemen : soort == KoppelTypes ? o.Types : o.Personen;
-        if (!lijst.Remove(id)) lijst.Add(id);
+        var erbij = !lijst.Remove(id);
+        if (erbij) lijst.Add(id);
         if (o.Id == 0) return;
-        if (await Bewaar(() => Repo.ZetKoppelingenAsync(o.Id, soort, lijst.ToList(), Ik.WerknemerId))) SchrijfTerug(o);
+        if (!await Bewaar(() => Repo.ZetKoppelingenAsync(o.Id, soort, lijst.ToList(), Ik.WerknemerId))) return;
+        SchrijfTerug(o);
+        if (soort == KoppelPersonen && erbij) await MeldToewijzing(o, new[] { id }, nieuw: false);
     }
 
     private async Task VervalGewijzigd(ChangeEventArgs e)
@@ -2115,6 +2239,7 @@ else
     {
         if (_data is null || o.Id == 0) return;
         if (_open?.Id == o.Id) _open = null;
+        if (_kaartGekozen == o.Id) _kaartGekozen = null;
         var kopie = o.Kopie();
         if (!await Bewaar(() => Repo.VerwijderActiviteitAsync(o.Id))) return;
         _data.Activiteiten.RemoveAll(x => x.Id == o.Id);
@@ -2143,7 +2268,7 @@ else
         if (_data is null) return;
         var idx = ProbIndex();
         var kop = new[] { "Board", "Activiteit", "Status", "Prioriteit", "Type", "Onderwerpen (op prioriteit)", "Baan op bord",
-                          "Toegewezen aan", "Vervaldatum", "Gemaakt op", "Dagen open", "Benodigde tijd (uur)" };
+                          "Toegewezen aan", "Vervaldatum", "Gemaakt op", "Dagen open", "Benodigde tijd (uur)", "Initiator" };
         var regels = new List<string> { string.Join(";", kop.Select(CsvVeld)) };
         foreach (var a in _data.Activiteiten.OrderByDescending(x => x.GemaaktOp))
         {
@@ -2157,6 +2282,7 @@ else
                 string.Join(", ", a.Personen.Where(_persoonOpId.ContainsKey).Select(p => _persoonOpId[p].Naam)),
                 a.Vervaldatum?.ToString("dd-MM-yyyy") ?? "", a.GemaaktOp.ToString("dd-MM-yyyy"), a.DagenOpen?.ToString() ?? "",
                 ActTijd.Invoer(a.BenodigdeUren),
+                a.GemaaktDoor is int maker && _persoonOpId.TryGetValue(maker, out var mp) ? mp.Naam : "",
             }.Select(CsvVeld)));
         }
         var tekst = "﻿" + string.Join("\r\n", regels);

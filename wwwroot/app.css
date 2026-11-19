@@ -3557,6 +3557,12 @@ html[data-thema="donker"] .prod-ecat { background: rgba(100, 160, 230, .07); bor
 .ab-x { border: none; background: none; color: inherit; opacity: .5; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 2px; }
 .ab-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
 .ab-treffers { display: flex; flex-direction: column; gap: 2px; margin-top: .5rem; max-width: 620px; max-height: 21rem; overflow: auto; }
+/* Een hele tabelregel als link: de <a class="rij-doel"> in de regel ligt er met ::after overheen. Zo blijft het een echte
+   link (nieuw venster, middelklik, Ctrl+klik) zonder script. Gebruikt in Niet doorgezette bestellingen. */
+tr.rij-link { position: relative; cursor: pointer; }
+tr.rij-link a.rij-doel::after { content: ""; position: absolute; inset: 0; }
+tr.rij-link:hover td { background: #eef4fb; }
+html[data-thema="donker"] tr.rij-link:hover td { background: #1c2a3d; }
 .bk-buiten { color: #9a5b00; font-weight: 600; }      /* Betalingen klaarzetten: geselecteerd maar niet in beeld door het zoeken */
 html[data-thema="donker"] .bk-buiten { color: #f0b860; }
 .plakregel td { background: #eef5ff; border-top: 1px solid #c9dcf5; font-size: .9rem; padding: .4rem .6rem; }   /* Ureningave: wat er gekopieerd is */
@@ -3671,13 +3677,26 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 .ab-num { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 12px; white-space: nowrap; }
 .ab-boards { max-width: 980px; margin-top: .5rem; }
 
-/* detailpaneel; op een breed scherm staat het naast het bord (zie "paneel naast het bord" hieronder) */
-.ab-scrim { position: fixed; inset: 0; background: rgba(17, 17, 17, .22); z-index: 150; }
-.ab-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(580px, 100vw); background: var(--ab-wit, #fff); z-index: 160;
-             box-shadow: -10px 0 28px rgba(0, 0, 0, .14); display: flex; flex-direction: column; animation: ab-in .2s ease;
+/* Eigenschappen van een activiteit: een pop-up midden in beeld (besluit gebruiker 19-11-2026: het bord altijd over de
+   hele breedte, de eigenschappen in een pop-up bij dubbelklik of via het rechtermuismenu). Links de eigenschappen, rechts
+   de tekstvelden; op een smal scherm onder elkaar, en op een telefoon schermvullend. */
+.ab-scrim { position: fixed; inset: 0; background: rgba(17, 17, 17, .32); z-index: 150; }
+.ab-drawer { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(1000px, calc(100vw - 32px));
+             max-height: min(92vh, 940px); background: var(--ab-wit, #fff); z-index: 160; border-radius: 6px; border-top: 3px solid #d13228;
+             box-shadow: 0 20px 60px rgba(0, 0, 0, .3); display: flex; flex-direction: column; animation: ab-pop .16s ease;
              --ab-rood: #d13228; --ab-rood-donker: #a01200; --ab-tint: #fdecea; --ab-rand: #e2e2e2; --ab-muted: #68717c; --ab-wit: #fff; --ab-ink: #111; }
-@keyframes ab-in { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes ab-pop { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
 @media (prefers-reduced-motion: reduce) { .ab-drawer { animation: none; } }
+@media (min-width: 900px) {
+    .ab-dbody { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); column-gap: 30px; align-content: start; }
+    /* 6 = aantal tekstvelden (ActTekst.Velden); align-self: anders rekt het raster van de eigenschappen mee met de tekstvelden */
+    .ab-dbody > .ab-eig { grid-column: 1; grid-row: 1 / span 6; margin-bottom: 0; align-self: start; }
+    .ab-dbody > .ab-sectie { grid-column: 2; }
+    .ab-dbody > .ab-eig + .ab-sectie { margin-top: 0; }
+}
+@media (max-width: 700px) {
+    .ab-drawer { top: 0; left: 0; right: 0; bottom: 0; transform: none; width: 100vw; max-height: none; border-radius: 0; border-top: none; animation: none; }
+}
 .ab-drawer:focus { outline: none; }
 .ab-dkop { padding: 16px 22px 12px; border-bottom: 1px solid var(--ab-rand); position: relative; }
 .ab-dtitel { width: 100%; font: inherit; font-size: 20px; font-weight: 600; color: var(--ab-ink); border: none; resize: none; padding: 4px 36px 4px 0;
@@ -3710,28 +3729,9 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 .ab-sectie textarea:focus, .ab-dbody select:focus, .ab-dbody input:focus { outline: none; border-color: var(--ab-rood); }
 .ab-dvoet { padding: 12px 22px; border-top: 1px solid var(--ab-rand); display: flex; gap: 10px; align-items: center; }
 
-/* paneel naast het bord (wens gebruiker 19-11-2026): een eigenschappenvenster dat blijft staan terwijl je op het bord
-   werkt; een andere kaart aanklikken wisselt het paneel. Smaller dan 1200px: het oude schuifpaneel over het bord. */
-/* Het bord is het belangrijkst (wens gebruiker 19-11-2026): de pagina van het board heeft geen maximale breedte (de
-   gewone 1900px telde de vrijgehouden ruimte voor het paneel mee, dus op een breed scherm bleef er een leeg vlak tussen
-   bord en paneel), de kolommen mogen smal worden (--ab-kolb 120px) zodat er geen horizontale schuifbalk komt, en het
-   paneel is smal: 320 tot 380px. */
-html { --ab-paneelb: clamp(320px, 21vw, 380px); }
+/* Het bord is het belangrijkst (wens gebruiker 19-11-2026): de pagina van het board heeft geen maximale breedte en de
+   kolommen mogen smal worden (--ab-kolb 120px), zodat er geen horizontale schuifbalk komt. */
 .ab-werk > .page { max-width: none; }
-@media (min-width: 1200px) {
-    .ab-drawer .ab-dkop { padding: 12px 16px 10px; }
-    .ab-drawer .ab-dtitel { font-size: 17px; }
-    .ab-drawer .ab-dbody { padding: 12px 16px 20px; }
-    .ab-drawer .ab-dvoet { padding: 10px 16px; }
-    .ab-drawer .ab-eig { grid-template-columns: 88px minmax(0, 1fr); gap: 8px 10px; }
-    .ab-drawer .ab-lab { letter-spacing: .6px; }
-    /* vast rechts, vanaf de onderkant van de kopbalk (--ab-top, bijgehouden door activityboard.js bij scrollen) tot onderaan;
-       de pagina houdt er ruimte voor vrij, dus er ligt niets onder */
-    .ab-scrim { display: none; }
-    .ab-drawer { top: var(--ab-top, 0px); width: var(--ab-paneelb); z-index: 7; box-shadow: none; border-left: 1px solid var(--ab-rand);
-                 border-top: 1px solid var(--ab-rand); animation: none; }
-    .ab-werk.met-paneel > .page { padding-right: calc(var(--ab-paneelb) + 1.2rem); }
-}
 .ab-kaart.mijn { border-color: #337ea9; box-shadow: inset 4px 0 0 #337ea9, 0 1px 3px rgba(51, 126, 169, .25); }
 .ab-kaart.dim { opacity: .45; }
 .ab-kaart.dim:hover, .ab-kaart.dim:focus, .ab-kaart.dim.gekozen { opacity: 1; }
@@ -3777,9 +3777,8 @@ html { --ab-paneelb: clamp(320px, 21vw, 380px); }
 .ab-toast button { background: none; border: 1px solid rgba(255, 255, 255, .45); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 3px;
                    cursor: pointer; white-space: nowrap; }
 .ab-toast button:hover { background: rgba(255, 255, 255, .12); }
-/* met het detailpaneel open: links ervan of erboven, nooit over de knop Verwijderen (spec §5) */
-.ab-toast.naast { bottom: 72px; }
-@media (min-width: 1200px) { .ab-toast.naast { bottom: 22px; left: calc((100vw - var(--ab-paneelb)) / 2); max-width: calc(100vw - var(--ab-paneelb) - 40px); } }
+/* met de pop-up open: bovenin, zodat hij nooit over de knoppen Verwijderen en Sluiten ligt */
+.ab-toast.naast { bottom: auto; top: 14px; }
 
 @media (max-width: 700px) {
     .ab-padd { padding-left: 0; }

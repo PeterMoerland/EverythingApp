@@ -271,6 +271,12 @@
             }
             catch { /* dan alleen via "kies een bestand" */ }
         }
+        if (_focusGesprek is int gesprek && _vakken.TryGetValue(gesprek, out var vak))
+        {
+            _focusGesprek = null;
+            _plakDoel = gesprek;
+            try { await vak.FocusAsync(); } catch { }
+        }
         if (!_focusNieuw) return;
         _focusNieuw = false;
         try { await _nieuwVeld.FocusAsync(); } catch { }
@@ -286,6 +292,7 @@
     private readonly HashSet<int> _gekoppeld = new();                        // waar het plakken al op gekoppeld is
     private DotNetObjectReference<Verbeterverzoeken>? _zelf;
     private int? _plakDoel;                                                  // het gesprek waarvan het tekstvak de cursor heeft
+    private int? _focusGesprek;                                              // net geopend met Bespreken: daar moet de cursor heen
 
     private List<Plaatje> Wachtend(int verzoekId)
     {
@@ -410,6 +417,7 @@
     {
         if (_gesprekOpen.Remove(id)) { _gekoppeld.Remove(id); _vakken.Remove(id); return; }      // het tekstvak verdwijnt
         await OpenGesprek(id);
+        _focusGesprek = id;      // de cursor meteen in het tekstvak (wens gebruiker 19-11-2026): typen zonder eerst te klikken
     }
 
     /// <summary>Gesprek openen en altijd opnieuw laden (er kan intussen iets bij gekomen zijn).</summary>
@@ -521,19 +529,19 @@
     }
 
     /// <summary>
-    /// Nieuwe status of reactie: de indiener krijgt een bericht in de bel (Meldingen, soort 'verbeter', OrderID = het
-    /// verzoek). Niet bij een tekstcorrectie, niet aan jezelf, niet als de indiener onbekend is.
+    /// Het verzoek is afgehandeld (status wordt gedaan of afgewezen): de indiener krijgt een bericht in de bel (Meldingen,
+    /// soort 'verbeter', OrderID = het verzoek), met de reactie erbij. Niet bij een tussenstand, een losse reactie of een
+    /// tekstcorrectie, niet aan jezelf, niet als de indiener onbekend is.
     /// </summary>
     private async Task<bool> BerichtAanIndiener(Verbeterverzoek v, string oudeStatus, string oudeReactie)
     {
         if (v.IngediendDoorId is not int wie || wie == Ik.WerknemerId || !Meldingen.Beschikbaar) return false;
-        var nieuweReactie = v.Reactie.Trim().Length > 0 && v.Reactie.Trim() != oudeReactie.Trim();
-        if (v.Status == oudeStatus && !nieuweReactie) return false;
+        // Alleen als het verzoek is afgehandeld (wens gebruiker 19-11-2026): de status wordt gedaan of afgewezen. De
+        // tussenstanden (gepland, bezig) en een losse reactie geven geen bericht meer; de reactie gaat mee bij het afhandelen.
+        if (v.Status == oudeStatus || v.Status is not (VerzoekStatus.Gedaan or VerzoekStatus.Afgewezen)) return false;
         var onderwerp = v.Tekst.Trim().ReplaceLineEndings(" ");
         if (onderwerp.Length > 60) onderwerp = onderwerp[..57] + "…";
-        var tekst = v.Status != oudeStatus
-            ? $"Je verbeterverzoek ‘{onderwerp}’ staat nu op {v.Status}."
-            : $"Reactie op je verbeterverzoek ‘{onderwerp}’.";
+        var tekst = $"Je verbeterverzoek ‘{onderwerp}’ staat nu op {v.Status}.";
         if (v.Reactie.Trim().Length > 0)
         {
             var reactie = v.Reactie.Trim().ReplaceLineEndings(" ");

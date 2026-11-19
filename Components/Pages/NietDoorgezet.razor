@@ -6,7 +6,9 @@
 @* Niet doorgezette bestellingen (verzoek 13-11-2026: voorkomen dat bestellingen blijven hangen, waardoor er geen
    factuur aan gekoppeld kan worden). Een persoonlijke lijst: je eigen bestellingen die langer dan
    BestelFlow.NietDoorgezetDagen (14) dagen op Aanmaken of In bestelling staan. Financial en Directie kunnen ook
-   iedereen of één collega kiezen. Het PO-nummer opent de bestelling in een nieuw venster. Alleen lezen.
+   iedereen of één collega kiezen. De hele regel opent de bestelling in een nieuw venster (wens gebruiker 19-11-2026:
+   niet alleen het PO-nummer); dat is de link van het PO-nummer die met css over de regel ligt (tr.rij-link), dus
+   middelklik en Ctrl+klik werken ook en er is geen script nodig. Alleen lezen.
    Tegel: Bestellingen ▸ Inkoop ▸ Niet doorgezet (met het eigen aantal eronder, Components/Pages/Module.razor). *@
 
 <PageTitle>Niet doorgezet — MDE</PageTitle>
@@ -51,7 +53,7 @@
         <p class="uitleg">
             Bestellingen die langer dan @BestelFlow.NietDoorgezetDagen dagen op <b>Aanmaken</b> of <b>In bestelling</b> staan.
             Is er besteld? Zet de bestelling dan door met Volgende, anders kan er geen factuur aan gekoppeld worden.
-            Niet meer nodig? Annuleer hem. Klik op een PO-nummer om de bestelling in een nieuw venster te openen.
+            Niet meer nodig? Annuleer hem. Klik op een regel om de bestelling in een nieuw venster te openen.
         </p>
         @if (_fout is not null) { <div class="melding fout">@_fout</div> }
         @if (_laden) { <p class="uitleg"><span class="draaier"></span> Ophalen…</p> }
@@ -86,10 +88,10 @@
                             </tr>
                             @foreach (var b in g.Regels)
                             {
-                                <tr @key="b.Id">
+                                <tr @key="b.Id" class="rij-link">
                                     <td>
-                                        <a href="@("bestellingen?order=" + b.Id)" target="_blank" rel="noopener"
-                                           title="Deze bestelling openen in een nieuw venster">PO-@b.Id</a>
+                                        <a class="rij-doel" href="@("bestellingen?order=" + b.Id)" target="_blank" rel="noopener"
+                                           title="@($"PO-{b.Id} openen in een nieuw venster")">PO-@b.Id</a>
                                     </td>
                                     <td>@(b.Aangemaakt?.ToString("dd-MM-yyyy") ?? "")</td>
                                     <td><span class="stand-chip @(b.Status == BestelFlow.InBestelling ? "s-oranje" : "s-grijs")">@b.StatusNaam</span></td>
