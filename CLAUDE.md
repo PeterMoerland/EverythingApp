@@ -1615,6 +1615,27 @@ geen bedrag kreeg, ook niet het verkoopbedrag), met de melding "geen kostprijs v
 kostprijs gebruikt". Alleen zonder enig tarief blijft het "geen kostprijs bekend". Getoetst met een los programmaatje
 (binnen periode, na de laatste, vóór de eerste, geen tarief); niet in het importvenster bekeken.
 
+## Ureningave: alleen cijfers in tijd en uren; Service: uren met twee decimalen (19-11-2026)
+
+Punten van Gerard: "bij tijden kan ik ook tekst invoeren, alleen cijfers? Template?" en "15 minuten staat als 0,3".
+- **`wwwroot/invoerfilter.js`** (geladen in App.razor, werkt op elke pagina): `input.tijd` neemt alleen cijfers en één
+  dubbele punt aan, hooguit 5 tekens (punt, komma, puntkomma en streepje worden de dubbele punt);
+  `input[data-alleen="getal"]` alleen cijfers en één komma. Op het `input`-event (capture), dus ook bij plakken; de
+  cursor blijft staan. De tijdvakken van Agenda (ook `class="tijd"`) doen zo vanzelf mee. **Geen invoermasker** (zoals
+  "00:00" in Access): dan werkt snel typen (8, 830) niet meer; `UrenService.ParseTijd` maakt er op de server een tijd van.
+  Geen `maxlength` op die vakken: de browser kapt geplakte tekst dan af vóór het filter de letters eruit haalt.
+- **Ureningave.razor**: `LeesTijd` geeft bij iets wat geen tijd is (99, 1:75) een melding en laat de oude tijd staan
+  (vroeger werd de tijd stil leeg, bij een bestaande regel ook in de database); `UrenGewijzigd` idem voor de uren.
+  `StartGewijzigd`/`EindGewijzigd`/`UrenGewijzigd` geven nu bool terug; `ZetStart`/`ZetEind`/`ZetUren` bewaren alleen bij
+  true. `_startVersie`/`_eindVersie`/`_urenVersie` zijn de `@key` van de vakken: ophogen zet terug wat bewaard is (na
+  onleesbare invoer, of als de afronding op een kwartier hetzelfde geeft als er stond). Alleen dan, want opnieuw maken
+  kost de focus. Uren en KM hebben `data-alleen="getal"`.
+- **Service.razor**: `Uren()` was `#,0.#` (0,25 werd 0,3) en is `#,0.##`. Dat is de kolom Uren naast "Aandeel" in "Wie
+  werkte aan dit project", en de urenkolom van de projectenlijst erboven.
+- Getest lokaal op een nieuwe, niet opgeslagen regel (letters geweigerd, punt wordt dubbele punt, 99 geeft de melding,
+  uren 1,526 wordt 1,5). **Niet getest**: een bestaande regel (die schrijft meteen naar de database), Agenda, en de
+  Service-pagina in de browser.
+
 ## Activity board: paneel naast het bord, rechtermuismenu, persoon markeren (19-11-2026)
 
 Wensen gebruiker: het bewerken van een kaart "altijd in beeld, als een property-kader"; het bord werd inactief en een

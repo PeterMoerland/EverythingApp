@@ -275,7 +275,8 @@
     private CancellationTokenSource? _typPauze;
 
     private static readonly System.Globalization.CultureInfo Nl = new("nl-NL");
-    private static string Uren(decimal u) => u.ToString("#,0.#", Nl);
+    // twee decimalen: uren staan in kwartieren, dus een kwartier is 0,25 en niet 0,3 (punt van Gerard, 19-11-2026)
+    private static string Uren(decimal u) => u.ToString("#,0.##", Nl);
     private static string Procent(decimal p) => p.ToString("0", Nl) + "%";
 
     private static string Periode(ServiceWerknemer w)

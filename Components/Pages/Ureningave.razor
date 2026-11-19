@@ -165,12 +165,14 @@
         </td>
         <td><input @bind="e.Omschrijving" placeholder="omschrijving" /></td>
         @* Tekstveld i.p.v. type=time: altijd 24-uurs (uu:mm), ongeacht de browsertaal.
-           Snel typen mag: 8 / 830 / 8:30 / 0830 *@
-        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+           Snel typen mag: 8 / 830 / 8:30 / 0830. Alleen cijfers en een dubbele punt (invoerfilter.js op input.tijd);
+           de sleutels (_startVersie enz.) zetten na een tijd die niet kan terug wat er stond. *@
+        <td><input class="tijd" inputmode="numeric" placeholder="uu:mm" title="@TijdTip" @key='("start", 0, _startVersie)'
                    value="@e.StartTijd?.ToString("HH\\:mm")" @onchange="ev => StartGewijzigd(e, ev)" /></td>
-        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+        <td><input class="tijd" inputmode="numeric" placeholder="uu:mm" title="@TijdTip" @key='("eind", 0, _eindVersie)'
                    value="@e.EindTijd?.ToString("HH\\:mm")" @onchange="ev => EindGewijzigd(e, ev)" /></td>
-        <td><input class="r" value="@e.Uren.ToString("0.##")" @onchange="ev => UrenGewijzigd(e, ev)" /></td>
+        <td><input class="r" inputmode="decimal" data-alleen="getal" @key='("uren", 0, _urenVersie)'
+                   value="@e.Uren.ToString("0.##")" @onchange="ev => UrenGewijzigd(e, ev)" /></td>
         <td>
             <select @bind="e.TariefsoortId">
                 <option value="0">—</option>
@@ -189,7 +191,7 @@
                 }
             </select>
         </td>
-        <td><input class="r" @bind="e.Kilometers" /></td>
+        <td><input class="r" inputmode="decimal" data-alleen="getal" @bind="e.Kilometers" /></td>
         <td class="c">
             <button class="klein primair" @onclick="Opslaan">✔</button>
             <button class="klein" @onclick="AnnuleerBewerken">✕</button>
@@ -211,11 +213,12 @@
             @DeelKeuze(e)
         </td>
         <td><input value="@e.Omschrijving" placeholder="omschrijving" @onchange="ev => ZetOmschrijving(e, ev)" /></td>
-        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+        <td><input class="tijd" inputmode="numeric" placeholder="uu:mm" title="@TijdTip" @key='("start", e.UrenId, _startVersie)'
                    value="@e.StartTijd?.ToString("HH\\:mm")" @onchange="ev => ZetStart(e, ev)" /></td>
-        <td><input class="tijd" inputmode="numeric" maxlength="5" placeholder="uu:mm"
+        <td><input class="tijd" inputmode="numeric" placeholder="uu:mm" title="@TijdTip" @key='("eind", e.UrenId, _eindVersie)'
                    value="@e.EindTijd?.ToString("HH\\:mm")" @onchange="ev => ZetEind(e, ev)" /></td>
-        <td><input class="r" value="@(e.Uren == 0 ? "" : e.Uren.ToString("0.##"))" @onchange="ev => ZetUren(e, ev)" /></td>
+        <td><input class="r" inputmode="decimal" data-alleen="getal" @key='("uren", e.UrenId, _urenVersie)'
+                   value="@(e.Uren == 0 ? "" : e.Uren.ToString("0.##"))" @onchange="ev => ZetUren(e, ev)" /></td>
         <td>
             <select value="@e.TariefsoortId" @onchange="ev => ZetTarief(e, ev)">
                 <option value="0">—</option>
@@ -234,7 +237,7 @@
                 }
             </select>
         </td>
-        <td><input class="r" value="@(e.Kilometers == 0 ? "" : e.Kilometers.ToString("0.#"))" @onchange="ev => ZetKm(e, ev)" /></td>
+        <td><input class="r" inputmode="decimal" data-alleen="getal" value="@(e.Kilometers == 0 ? "" : e.Kilometers.ToString("0.#"))" @onchange="ev => ZetKm(e, ev)" /></td>
         <td class="c">
             <button class="klein" title="Deze regel kopiëren; kies daarna een andere dag en klik ‘Plak 1 regel’" @onclick="() => KopieerRegels(new[] { e })">⧉</button>
             <button class="klein rood" title="Regel verwijderen" @onclick="() => Verwijder(e)">✕</button>
@@ -589,18 +592,46 @@
         if (!await MagWeg()) context.PreventNavigation();
     }
 
-    private void StartGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    // ---- tijden en uren: alleen cijfers (punt van Gerard, 19-11-2026) ----
+    // Letters houdt invoerfilter.js al tegen bij het typen. Wat dan nog niet kan ("99", "1:75"), geeft hier een melding en
+    // de oude waarde blijft staan (vroeger werd de tijd stil leeggemaakt). De versies zijn de @key van de vakken: ophogen
+    // maakt ze opnieuw, zodat er weer staat wat bewaard is; alleen als dat nodig is, want opnieuw maken kost de focus.
+    private const string TijdTip = "24 uur, alleen cijfers: 8 = 08:00, 830 of 8:30 = 08:30; wordt afgerond op een kwartier";
+    private int _startVersie, _eindVersie, _urenVersie;
+
+    /// <summary>False = van de invoer is geen tijd te maken (melding getoond, <paramref name="nieuw"/> = de oude tijd).</summary>
+    private bool LeesTijd(string? invoer, TimeOnly? oud, out TimeOnly? nieuw, ref int versie)
     {
-        var t = UrenService.ParseTijd((string?)ev.Value);
-        e.StartTijd = t is null ? null : UrenService.OpKwartier(t.Value);
-        UrenService.BerekenUren(e); // VBA: StartTijd_AfterUpdate → berekenuren
+        var tekst = (invoer ?? "").Trim();
+        nieuw = oud;
+        var t = UrenService.ParseTijd(tekst);
+        if (t is null && tekst.Length > 0)
+        {
+            versie++;
+            Toon($"‘{tekst}’ is geen tijd. Typ bijvoorbeeld 8, 830 of 8:30 (24 uur).", fout: true);
+            return false;
+        }
+        nieuw = t is null ? null : UrenService.OpKwartier(t.Value);
+        if (_meldingIsFout) _melding = null;      // de melding over de vorige invoer hoeft er niet te blijven staan
+        // dezelfde tijd als er stond, maar anders getypt ("8" bij 08:00, of 8:07 dat 08:00 wordt): het vak bijwerken
+        if (nieuw == oud && tekst != (nieuw?.ToString("HH\\:mm") ?? "")) versie++;
+        return true;
     }
 
-    private void EindGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    private bool StartGewijzigd(UrenEntry e, ChangeEventArgs ev)
     {
-        var t = UrenService.ParseTijd((string?)ev.Value);
-        e.EindTijd = t is null ? null : UrenService.OpKwartier(t.Value);
+        if (!LeesTijd((string?)ev.Value, e.StartTijd, out var t, ref _startVersie)) return false;
+        e.StartTijd = t;
+        UrenService.BerekenUren(e); // VBA: StartTijd_AfterUpdate → berekenuren
+        return true;
+    }
+
+    private bool EindGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    {
+        if (!LeesTijd((string?)ev.Value, e.EindTijd, out var t, ref _eindVersie)) return false;
+        e.EindTijd = t;
         UrenService.BerekenUren(e); // VBA: Eindtijd_AfterUpdate → berekenuren
+        return true;
     }
 
     // ================================================================
@@ -661,20 +692,17 @@
 
     private async Task ZetStart(UrenEntry e, ChangeEventArgs ev)
     {
-        StartGewijzigd(e, ev);
-        await BewaarRegel(e);
+        if (StartGewijzigd(e, ev)) await BewaarRegel(e);
     }
 
     private async Task ZetEind(UrenEntry e, ChangeEventArgs ev)
     {
-        EindGewijzigd(e, ev);
-        await BewaarRegel(e);
+        if (EindGewijzigd(e, ev)) await BewaarRegel(e);
     }
 
     private async Task ZetUren(UrenEntry e, ChangeEventArgs ev)
     {
-        UrenGewijzigd(e, ev);
-        await BewaarRegel(e);
+        if (UrenGewijzigd(e, ev)) await BewaarRegel(e);
     }
 
     private async Task ZetTarief(UrenEntry e, ChangeEventArgs ev)
@@ -697,14 +725,22 @@
         await BewaarRegel(e);
     }
 
-    private void UrenGewijzigd(UrenEntry e, ChangeEventArgs ev)
+    /// <summary>False = geen getal (melding bij onleesbare invoer; het vak toont weer de uren die er stonden).</summary>
+    private bool UrenGewijzigd(UrenEntry e, ChangeEventArgs ev)
     {
-        if (decimal.TryParse(((string?)ev.Value)?.Replace(',', '.'),
+        var tekst = ((string?)ev.Value ?? "").Trim();
+        if (!decimal.TryParse(tekst.Replace(',', '.'),
             System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var u))
         {
-            e.Uren = Math.Round(u * 4, MidpointRounding.AwayFromZero) / 4;  // op kwartieren
-            UrenService.BerekenEindtijd(e); // VBA: uren_AfterUpdate
+            _urenVersie++;
+            if (tekst.Length > 0) Toon($"‘{tekst}’ is geen aantal uren. Typ bijvoorbeeld 7,5.", fout: true);
+            return false;
         }
+        var oud = e.Uren;
+        e.Uren = Math.Round(u * 4, MidpointRounding.AwayFromZero) / 4;  // op kwartieren
+        if (e.Uren == oud) _urenVersie++;                               // afgerond tot wat er stond: het vak bijwerken
+        UrenService.BerekenEindtijd(e); // VBA: uren_AfterUpdate
+        return true;
     }
 
     private async Task Opslaan()
