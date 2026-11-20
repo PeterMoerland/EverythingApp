@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Offertes** — Nieuw: in het offertedocument staat links een paneel met de **calculatie**. Sleep een deel naar het document en er komt een prijstabel van dat deel die gekoppeld blijft (dubbelklik zet hem onderaan). Knop 🧮 Calculatie toont of verbergt het paneel (verzoek van Peter).
+- **Offertes** — Nieuw: **sjablonen** voor het offertedocument. Met 💾 Als sjabloon… bewaar je een document voor je eigen BV of voor alle BV's; bij een offerte zonder document kies je waarmee je begint. Eerst `OfferteSjablonen_MariaDB.sql` draaien (verzoek van Peter).
 - **Offertes** — Nieuw: in het offertedocument kun je een **eigen tabel** zetten (cellen plakken uit Excel kan, met een kopregel en rechts uitgelijnde kolommen) en blokken **naast elkaar** zetten, bijvoorbeeld een plaatje naast een tekst: kies per blok hele breedte, 1/2, 1/3 of 2/3 (verzoek van Peter).
 - **Offertes** — Nieuw: het **offertedocument**. Bij een offerte (knop 📝 Document, ook vanuit de calculatie) maak je de offerte als vrij document: eigen tekst, koppen en plaatjes, en prijstabellen die uit de calculatie komen en daaraan gekoppeld blijven. Per prijstabel kies je welk deel van de calculatie en hoe ver uitgeklapt; de klant ziet alleen verkoopbedragen. De PDF bij "PDF en versturen" is dan dit document, en bij Verstuurd wordt het vastgelegd met de cijfers van dat moment (verzoek van Peter). Eerst `OfferteDocumenten_MariaDB.sql` draaien.
 - **Activity board** — Verbeterd: de pop-up met eigenschappen toont nu ook het kaartnummer (bijvoorbeeld #61), met een korte uitleg waar je het voor gebruikt (punt van Gerard).

@@ -84,8 +84,28 @@
   .ed-menu button:hover { background: #e8eef8; border-color: #9db7e6; }
   .ed-strip select { font: 11px 'Segoe UI', Arial, sans-serif; padding: 1px 2px; border: 1px solid #d5dbe3; border-radius: 4px; background: #fff; color: #333; }
   .ed-bewerk .eigen td:focus, .ed-bewerk .eigen th:focus { background: #eef4ff; }
+  /* het vel met links het paneel van de calculatie (stap 3): daaruit sleep je een deel naar het document */
+  .ed-werk { display: flex; align-items: flex-start; justify-content: center; gap: 14px; padding: 0 12px; }
+  .ed-werk .ed-blad { margin: 16px 0 80px; flex: none; }
+  .ed-boom { position: sticky; top: 64px; flex: none; width: 250px; max-height: calc(100vh - 84px); overflow: auto; margin-top: 16px; padding: 10px 8px;
+             background: var(--ed-balk); border: 1px solid var(--ed-lijn); border-radius: 8px; color: var(--ed-tekst); font: 12.5px 'Segoe UI', Arial, sans-serif; }
+  .ed-boom-titel { font-weight: 600; font-size: 13px; padding: 0 6px; }
+  .ed-boom-uitleg { color: var(--ed-zacht); font-size: 11.5px; line-height: 1.35; padding: 3px 6px 8px; }
+  .ed-boom-item { display: flex; gap: 8px; align-items: baseline; padding: 3px 6px; border-radius: 5px; cursor: grab; user-select: none; }
+  .ed-boom-item:hover { background: rgba(31, 111, 235, .14); }
+  .ed-boom-naam { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ed-boom-bedrag { margin-left: auto; color: var(--ed-zacht); white-space: nowrap; font-size: 11.5px; }
+  .ed-blad.ed-doel { outline: 2px dashed #1f6feb; outline-offset: 4px; }
+  .ed-velden input[type=text] { font: 13px 'Segoe UI', Arial, sans-serif; padding: 3px 7px; border: 1px solid var(--ed-lijn); border-radius: 5px; background: var(--ed-balk); color: var(--ed-tekst); width: 240px; }
+  .ed-velden label { display: inline-flex; gap: 4px; align-items: center; color: var(--ed-tekst); }
+  .ed-keuze { display: grid; gap: 4px; margin: 0 0 14px; }
+  .ed-keuze label { display: flex; gap: 8px; align-items: baseline; padding: 6px 9px; border: 1px solid var(--ed-lijn); border-radius: 6px; cursor: pointer; }
+  .ed-keuze label:has(input:checked) { border-color: var(--ed-accent); }
+  .ed-keuze small { color: var(--ed-zacht); }
+  .ed-keuze button { all: unset; margin-left: auto; cursor: pointer; color: var(--ed-zacht); padding: 0 4px; }
+  .ed-keuze button:hover { color: var(--ed-rood); }
   .ed-einde { margin-top: 8mm; text-align: center; }
-  @media print { .ed-balk, .ed-strip, .ed-inst, .ed-tussen, .ed-einde { display: none !important; } }
+  @media print { .ed-balk, .ed-strip, .ed-inst, .ed-tussen, .ed-einde, .ed-boom { display: none !important; } }
 </style>
 </head>
 <body>
@@ -94,11 +114,19 @@
   <span class="ed-chip" id="chip"></span>
   <span class="ed-opslag" id="opslag"></span>
   <span class="ed-groei"></span>
+  <button class="ed-knop" id="knopBoom" type="button" title="Het paneel met de calculatie tonen of verbergen; daaruit sleep je een deel naar het document">🧮 Calculatie</button>
   <button class="ed-knop" id="knopVelden" type="button" title="Velden die in een tekst of kop worden ingevuld, zoals {totaal}">{ } Velden</button>
   <button class="ed-knop" id="knopPdf" type="button" title="De offerte als PDF in een nieuw tabblad">📄 PDF bekijken</button>
+  <button class="ed-knop" id="knopSjabloon" type="button" title="Dit document bewaren als sjabloon om een volgende offerte mee te beginnen">💾 Als sjabloon…</button>
   <button class="ed-knop" id="knopWis" type="button" title="Dit document wissen en opnieuw beginnen">🗑 Wissen…</button>
   <button class="ed-knop hoofd" id="knopVast" type="button"></button>
   <div class="ed-velden" id="velden"></div>
+  <div class="ed-velden" id="sjabloon">
+    Bewaar dit document als sjabloon: <input type="text" id="sjabloonNaam" maxlength="100" placeholder="Naam, bijvoorbeeld Machine met installatie">
+    <label><input type="checkbox" id="sjabloonAlle"> voor alle BV's <span id="sjabloonBv"></span></label>
+    <button class="ed-knop hoofd" id="sjabloonBewaar" type="button">Bewaren</button>
+    <span>Een prijstabel van een deel wordt in het sjabloon een prijstabel van de hele calculatie.</span>
+  </div>
 </div>
 <div id="meldingen"></div>
 <div id="inhoud"></div>
@@ -114,7 +142,11 @@
   const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
 
   let INFO = {}, MAG = false, versie = 0, status = 0, doc = { blokken: [] }, W = { blokken: {}, kop: '', slot: '', problemen: [] };
-  let GROEPEN = [], VELDEN = [], VERSCHIL = null, CALC = false;
+  let GROEPEN = [], VELDEN = [], VERSCHIL = null, CALC = false, SJABLONEN = [], SJABLOONTABEL = false;
+  /** Het paneel met de calculatie open? Onthouden per browser; de eerste keer open als er ruimte is. */
+  let boomOpen = (() => { try { const w = localStorage.getItem('mde-offdoc-boom'); return w === null ? innerWidth >= 1100 : w === '1'; } catch (e) { return innerWidth >= 1100; } })();
+  /** Wat er uit het paneel gesleept wordt: het nummer van een groep, 'heel', of null. */
+  let sleepGroep = null;
   let wacht = null, bezig = false, nogEens = false, vuil = false, gestopt = false, melding = null;
   /** Alleen lezen: vastgelegd, of geen recht om te wijzigen. */
   const RO = () => !MAG || status === 1;
@@ -134,7 +166,7 @@
   }
 
   function neem(o) {
-    INFO = o.info || {}; MAG = !!o.mag; CALC = !!o.calculatie;
+    INFO = o.info || {}; MAG = !!o.mag; CALC = !!o.calculatie; SJABLONEN = o.sjablonen || []; SJABLOONTABEL = !!o.sjabloonTabel;
     if (!o.bestaat) return;
     versie = o.versie; status = o.status;
     doc = o.data && Array.isArray(o.data.blokken) ? o.data : { blokken: [] };
@@ -203,6 +235,7 @@
       const o = await r.json().catch(() => ({}));
       if (!r.ok) { meld(o.fout || `Opmaken mislukt (${r.status}).`, true); return; }
       W = { ...W, kop: o.kop, slot: o.slot, blokken: o.blokken || {}, problemen: o.problemen || [] };
+      if (o.groepen) { GROEPEN = o.groepen; const paneel = document.querySelector('.ed-boom'); if (paneel) paneel.outerHTML = tekenBoom(); }
       document.querySelectorAll('.ed-blok').forEach(el => {
         const b = blok(el.dataset.id);
         if (b && ['prijs', 'voorwaarden', 'ondertekening'].includes(b.soort)) el.querySelector('.ed-inhoud').innerHTML = W.blokken[b.id] || '';
@@ -346,6 +379,22 @@
     const strip = ro ? '' : `<div class="ed-strip"><span class="ed-greep" draggable="true" title="Slepen om te verplaatsen">⠿</span><span class="ed-soort">${SOORT[b.soort] || ''}</span>${extra}<button type="button" data-actie="op" title="Omhoog">↑</button><button type="button" data-actie="neer" title="Omlaag">↓</button><button type="button" data-actie="weg" title="Blok verwijderen">✕</button></div>`;
     return `<div class="ed-blok ${DEEL[b.deel] ? 'doc-' + b.deel : ''}" data-id="${b.id}" data-soort="${b.soort}">${strip}${inst}<div class="ed-inhoud">${binnen}</div></div>`;
   }
+  /** Het paneel met de delen van de calculatie: slepen naar het vel geeft een prijstabel van dat deel. */
+  function tekenBoom() {
+    if (RO() || !boomOpen) return '';
+    const tip = 'Sleep naar het document voor een prijstabel van dit deel; dubbelklik zet hem onderaan';
+    const items = GROEPEN.map(g => `<div class="ed-boom-item" draggable="true" data-groep="${g.id}" style="padding-left:${6 + g.diepte * 12}px" title="${tip}"><span class="ed-boom-naam">${esc(g.naam)}</span><span class="ed-boom-bedrag">${esc(euro.format(g.verkoop))}</span></div>`).join('');
+    return `<aside class="ed-boom"><div class="ed-boom-titel">Calculatie</div>
+      <div class="ed-boom-uitleg">${CALC ? 'Sleep een deel naar het document: er komt een prijstabel die aan de calculatie gekoppeld blijft.' : 'Deze offerte heeft nog geen calculatie.'}</div>
+      ${CALC ? `<div class="ed-boom-item" draggable="true" data-groep="heel" title="${tip}"><span class="ed-boom-naam"><b>Hele calculatie</b></span></div>` : ''}${items}</aside>`;
+  }
+  /** Een prijstabel van een deel uit het paneel: een deel zonder delen eronder toont zijn regels, anders één niveau. */
+  function prijsVan(groep, naId) {
+    if (groep === 'heel') return voegToe('prijs', naId);
+    const id = Number(groep), i = GROEPEN.findIndex(g => g.id === id);
+    const blad = i < 0 || !(GROEPEN[i + 1] && GROEPEN[i + 1].diepte > GROEPEN[i].diepte);
+    return voegToe('prijs', naId, { groep: id, regels: blad ? 'omschrijving' : 'geen' });
+  }
   function teken() {
     const ro = RO();
     const delen = [`<div class="ed-vast" data-deel="kop">${W.kop || ''}</div>`, tussen(null)];
@@ -360,7 +409,9 @@
     }
     sluit();
     delen.push(`<div class="ed-vast" data-deel="slot">${W.slot || ''}</div>`);
-    $('inhoud').innerHTML = `<div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div>`;
+    const schuif = scrollY;
+    $('inhoud').innerHTML = `<div class="ed-werk">${tekenBoom()}<div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div></div>`;
+    scrollTo(0, schuif);
     tekenBalk(); tekenMeldingen();
   }
   function tekenBalk() {
@@ -374,7 +425,9 @@
     v.textContent = status === 1 ? 'Weer bewerken' : '🔒 Vastleggen';
     v.title = status === 1 ? 'Het document weer bewerkbaar maken; de cijfers volgen dan weer de calculatie'
       : 'Het document vastzetten met de cijfers van nu (gebeurt ook als je de offerte op verstuurd zet)';
-    v.hidden = !MAG; $('knopWis').hidden = RO(); $('knopVelden').hidden = RO();
+    v.hidden = !MAG; $('knopWis').hidden = RO(); $('knopVelden').hidden = RO(); $('knopBoom').hidden = RO();
+    $('knopSjabloon').hidden = !MAG || !SJABLOONTABEL;
+    $('sjabloonBv').textContent = INFO.bv ? `(anders alleen ${INFO.bv})` : '';
     $('velden').innerHTML = 'Klik om in te voegen op de plek van de cursor: ' + VELDEN.map(x => `<button type="button" data-veld="${esc(x.veld)}" title="${esc(x.uitleg)}">${esc(x.veld)}</button>`).join('');
   }
 
@@ -387,6 +440,10 @@
       <p>Een offertedocument is de offerte als vrij op te maken document: tekst, koppen en plaatjes van jezelf, en prijstabellen die uit de ${calc} komen en daaraan gekoppeld blijven.</p>
       <p>${o.calculatie ? 'Je begint met een vaste opzet: aanhef, prijsopbouw op hoofdgroepen, voorwaarden en ondertekening. Alles is daarna te wijzigen.'
         : `Deze offerte heeft nog geen ${calc}. Je kunt het document al maken; de prijstabel blijft leeg tot de calculatie er is.`}</p>
+      ${MAG && SJABLONEN.length ? `<p><b>Begin met</b></p><div class="ed-keuze">
+          <label><input type="radio" name="begin" value="" checked> Vaste opzet <small>aanhef, prijsopbouw, voorwaarden, ondertekening</small></label>
+          ${SJABLONEN.map(s => `<label><input type="radio" name="begin" value="${s.id}"> ${esc(s.naam)} <small>${s.alleBvs ? 'alle BV\'s' : esc(INFO.bv || 'deze BV')}${s.door ? ' · ' + esc(s.door) : ''}${s.op ? ' · ' + esc(s.op) : ''}</small><button type="button" data-wis-sjabloon="${s.id}" title="Dit sjabloon wissen">✕</button></label>`).join('')}
+        </div>` : ''}
       ${MAG ? '<p><button class="ed-knop hoofd" id="knopMaak" type="button">Document maken</button></p>' : '<p><i>Je hebt geen recht om het document te maken.</i></p>'}`;
     $('inhoud').innerHTML = `<div class="ed-leeg">${html}</div>`;
     tekenMeldingen();
@@ -394,7 +451,8 @@
     if (k) k.addEventListener('click', async () => {
       k.disabled = true;
       try {
-        const r = await fetch(`${API}/maak`, { method: 'POST' });
+        const keuze = document.querySelector('input[name=begin]:checked')?.value || '';
+        const r = await fetch(`${API}/maak${keuze ? '?sjabloon=' + encodeURIComponent(keuze) : ''}`, { method: 'POST' });
         const n = await r.json().catch(() => ({}));
         if (!r.ok) { meld(n.fout || `Maken mislukt (${r.status}).`, true); k.disabled = false; return; }
         neem(n); teken();
@@ -528,6 +586,12 @@
   };
   const wisAanwijzers = () => document.querySelectorAll('.ed-voor, .ed-na').forEach(x => x.classList.remove('ed-voor', 'ed-na'));
   inhoud.addEventListener('dragstart', e => {
+    const uitBoom = e.target.closest ? e.target.closest('.ed-boom-item') : null;
+    if (uitBoom && !RO()) {
+      sleepGroep = uitBoom.dataset.groep;
+      e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', uitBoom.textContent);
+      return;
+    }
     const greep = e.target.closest ? e.target.closest('.ed-greep') : null;
     if (!greep || RO()) { e.preventDefault(); return; }
     const el = greep.closest('.ed-blok');
@@ -538,14 +602,26 @@
   inhoud.addEventListener('dragover', e => {
     if (RO()) return;
     const bestand = !sleep && [...(e.dataTransfer?.types || [])].includes('Files');
-    if (!sleep && !bestand) return;
+    if (!sleep && !bestand && sleepGroep === null) return;
+    if (sleepGroep !== null && !(e.target.closest && e.target.closest('.ed-blad'))) return;   // alleen op het vel
     e.preventDefault(); wisAanwijzers();
     const p = plek(e);
+    if (sleepGroep !== null) $('blad').classList.toggle('ed-doel', !p);
     if (p && p.id !== sleep) p.el.classList.add(p.voor ? 'ed-voor' : 'ed-na');
   });
   inhoud.addEventListener('drop', e => {
     if (RO()) return;
     const p = plek(e); wisAanwijzers();
+    if (sleepGroep !== null) {
+      // een deel uit het paneel: voor of na het blok waar je loslaat; naast de blokken = onderaan
+      e.preventDefault();
+      const groep = sleepGroep; sleepGroep = null;
+      if (!(e.target.closest && e.target.closest('.ed-blad'))) return;
+      let na = doc.blokken.at(-1)?.id ?? null;
+      if (p) { const i = doc.blokken.findIndex(b => b.id === p.id); na = p.voor ? (i > 0 ? doc.blokken[i - 1].id : null) : p.id; }
+      prijsVan(groep, na);
+      return;
+    }
     const bestand = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith('image/'));
     if (!sleep && bestand) {
       e.preventDefault();
@@ -562,10 +638,56 @@
     const i = zonder.findIndex(b => b.id === p.id);
     verplaats(id, p.voor ? i : i + 1);
   });
-  inhoud.addEventListener('dragend', () => { sleep = null; wisAanwijzers(); document.querySelectorAll('.ed-sleep').forEach(x => x.classList.remove('ed-sleep')); });
+  inhoud.addEventListener('dragend', () => { sleep = null; sleepGroep = null; document.querySelectorAll('.ed-doel').forEach(x => x.classList.remove('ed-doel')); wisAanwijzers(); document.querySelectorAll('.ed-sleep').forEach(x => x.classList.remove('ed-sleep')); });
 
   // de balk
-  $('knopVelden').addEventListener('click', () => $('velden').classList.toggle('open'));
+  $('knopVelden').addEventListener('click', () => { $('sjabloon').classList.remove('open'); $('velden').classList.toggle('open'); });
+  $('knopBoom').addEventListener('click', () => {
+    boomOpen = !boomOpen;
+    try { localStorage.setItem('mde-offdoc-boom', boomOpen ? '1' : '0'); } catch (e) { }
+    teken();
+  });
+  // dubbelklik in het paneel: de prijstabel onderaan, maar boven de ondertekening als die het laatste blok is
+  inhoud.addEventListener('dblclick', e => {
+    const item = e.target.closest ? e.target.closest('.ed-boom-item') : null;
+    if (!item || RO()) return;
+    let i = doc.blokken.length;
+    while (i > 0 && doc.blokken[i - 1].soort === 'ondertekening') i--;
+    prijsVan(item.dataset.groep, i > 0 ? doc.blokken[i - 1].id : null);
+  });
+  $('knopSjabloon').addEventListener('click', () => {
+    $('velden').classList.remove('open');
+    if ($('sjabloon').classList.toggle('open')) { if (!$('sjabloonNaam').value) $('sjabloonNaam').value = INFO.offerte || ''; $('sjabloonNaam').focus(); $('sjabloonNaam').select(); }
+  });
+  async function bewaarSjabloon(vervang) {
+    const naam = $('sjabloonNaam').value.trim();
+    if (!naam) { meld('Geef het sjabloon een naam.', true); return; }
+    if (!RO() && !await alles()) { meld('Eerst moet alles opgeslagen zijn; dat lukte niet.', true); return; }
+    try {
+      const r = await fetch(`${API}/sjabloon`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ naam, alleBvs: $('sjabloonAlle').checked, vervang: !!vervang }) });
+      const o = await r.json().catch(() => ({}));
+      if (r.status === 409 && o.bestaat && !vervang) {
+        if (await vraag(`Er is al een sjabloon "${naam}". Vervangen door dit document?`)) await bewaarSjabloon(true);
+        return;
+      }
+      if (!r.ok) { meld(o.fout || `Bewaren mislukt (${r.status}).`, true); return; }
+      $('sjabloon').classList.remove('open');
+      meld(`Sjabloon "${naam}" is bewaard. Je kunt ermee beginnen bij een offerte die nog geen document heeft.`, false);
+    } catch (e) { meld('Geen verbinding met de app.', true); }
+  }
+  $('sjabloonBewaar').addEventListener('click', () => bewaarSjabloon(false));
+  $('sjabloonNaam').addEventListener('keydown', e => { if (e.key === 'Enter') bewaarSjabloon(false); });
+  // een sjabloon wissen (in de keuze bij een offerte zonder document)
+  inhoud.addEventListener('click', async e => {
+    const wis = e.target.closest ? e.target.closest('[data-wis-sjabloon]') : null;
+    if (!wis) return;
+    e.preventDefault();
+    const s = SJABLONEN.find(x => String(x.id) === wis.dataset.wisSjabloon);
+    if (!s || !await vraag(`Sjabloon "${s.naam}" wissen? Documenten die ermee gemaakt zijn blijven zoals ze zijn.`)) return;
+    const r = await fetch(`offertedocument/api/sjablonen/${s.id}/wis`, { method: 'POST' });
+    if (!r.ok) { const o = await r.json().catch(() => ({})); meld(o.fout || `Wissen mislukt (${r.status}).`, true); return; }
+    await begin();
+  });
   $('velden').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
   $('velden').addEventListener('click', e => {
     const k = e.target.closest('[data-veld]'); if (!k) return;

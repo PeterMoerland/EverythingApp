@@ -394,7 +394,7 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
 
 Wens gebruiker: "een offerte maken op basis van een calculatie; stip aan de horizon een Word-achtig document waar je
 (delen van) de calculatie als blok in sleept en dat gekoppeld blijft". Afgesproken opzet in drie stappen; **gebouwd zijn
-stap 1 en 2**: per offerte één document uit blokken, gemaakt uit een vaste opzet. Stap 2 = meer blokken (eigen tabel, twee
+stap 1, 2 en 3**: per offerte één document uit blokken, gemaakt uit een vaste opzet. Stap 2 = meer blokken (eigen tabel, twee
 naast elkaar), stap 3 = slepen uit de boom en sjablonen per BV. Voorgesteld en niet tegengesproken: gekoppeld tot
 versturen en daarna vast; het document staat **naast** de offerteregels (die blijven bestaan).
 - Script **`OfferteDocumenten_MariaDB.sql`** (zelf draaien): `OfferteDocumenten` (OfferteID uniek, Status 0 concept /
@@ -437,6 +437,21 @@ versturen en daarna vast; het document staat **naast** de offerteregels (die bli
   `JsonValue.Create`. Getest: tabel maken, plakken uit Excel, rij en kolom erbij en eraf, kolom rechts, plaatje 1/3
   naast tekst 2/3, opslaan, en de PDF (tabel en naast elkaar kloppen, `{totaal}` in een cel ingevuld). Niet getest:
   drie blokken naast elkaar, een prijstabel in een smalle kolom, de knoppen met een echte muisklik.
+- **Stap 3 (zelfde dag, "Go stap 3")**: (a) **paneel Calculatie** links van het vel (`tekenBoom`, knop 🧮 Calculatie,
+  open/dicht in localStorage `mde-offdoc-boom`, de eerste keer open vanaf 1100 px): de groepen van de boom met hun
+  verkoop; een item slepen naar het vel = een `prijs`-blok van die groep voor of na het blok waar je loslaat
+  (`sleepGroep`, `prijsVan`: een groep zonder groepen eronder krijgt regels = omschrijving), dubbelklik = onderaan maar
+  boven de ondertekening. `POST …/weergave` geeft nu ook `groepen` terug, zodat paneel en keuzelijst meegaan met de
+  calculatie. Slepen vanuit de calculatiepagina zelf (een ander venster) is het niet. (b) **Sjablonen**
+  (`OfferteSjablonen_MariaDB.sql`, zelf draaien; zonder tabel geen knop en geen keuze): `OfferteSjablonen` met Naam,
+  BvID (NULL = alle BV's) en Data. `POST /{offerte}/sjabloon` {naam, alleBvs, vervang} bewaart het document van die
+  offerte (`AlsSjabloon` haalt `groep` uit de prijstabellen: een groepnummer geldt alleen in zijn eigen calculatie);
+  bestaat de naam al voor dezelfde BV dan 409 met `bestaat` en vraagt het scherm of hij vervangen mag worden.
+  `POST /{offerte}/maak?sjabloon=id` begint ermee (gaat weer door `Schoon`); GET zonder document geeft `sjablonen`
+  voor de BV van het project plus die voor alle BV's; `POST /sjablonen/{id}/wis`. Bewaren en wissen: wie het document
+  mag wijzigen. Getest: paneel, slepen van een deel en van de hele calculatie (via nagebootste sleepgebeurtenissen),
+  sjabloon bewaren, 409 bij dezelfde naam, kiezen bij een nieuw document (prijstabellen zonder groep), wissen. Niet
+  getest: slepen met de echte muis, een offerte van een andere BV (beide proefoffertes zijn AUTO), de echte tabel.
 - Getest lokaal (documenten in het geheugen, offerte 999 met de echte calculatie, rechten tijdelijk open en
   teruggezet): maken, totaal gelijk aan de calculatie (€ 18.866,73), niveaus/regels/uren kiezen, tekst met vet en een
   veld, een `<script>` komt als tekst terug, kop toevoegen, plaatje slepen, blok verplaatsen, PDF (2 pagina's, velden

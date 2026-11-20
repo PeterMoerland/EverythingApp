@@ -26,6 +26,12 @@ public record OfferteDocument(int Id, int OfferteId, int Status, int Versie, str
     public bool Vastgelegd => Status == 1;
 }
 
+/// <summary>
+/// Een sjabloon (tabel OfferteSjablonen): een document om een volgende offerte mee te beginnen. BvId null = voor alle
+/// BV's. In een lijst is Data leeg.
+/// </summary>
+public record OfferteSjabloon(int Id, string Naam, int? BvId, string Data, DateTime? Op, string Door);
+
 /// <summary>Iemand anders heeft het document intussen opgeslagen (versie klopt niet meer).</summary>
 public class OfferteDocumentConflictException(string bericht) : Exception(bericht);
 
@@ -168,6 +174,17 @@ public static class OfferteDocumentData
         }
         sb.Append(Los(html[pos..]));
         return sb.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Het document als sjabloon: een prijstabel van een deel wordt een prijstabel van de hele calculatie, want het
+    /// nummer van een groep geldt alleen in de calculatie waar het uit komt.
+    /// </summary>
+    public static string AlsSjabloon(string data)
+    {
+        if (JsonNode.Parse(data) is not JsonObject o || o["blokken"] is not JsonArray lijst) return """{"blokken":[]}""";
+        foreach (var b in lijst.OfType<JsonObject>()) b.Remove("groep");
+        return o.ToJsonString(Json);
     }
 
     private static string Los(string t) => t.Replace("<", "&lt;").Replace(">", "&gt;");
@@ -334,6 +351,18 @@ public interface IOfferteDocumentRepository
     Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door);
     /// <summary>Een concept wissen (om opnieuw te beginnen). False = er was niets te wissen of het is vastgelegd.</summary>
     Task<bool> WisAsync(int offerteId);
+
+    /// <summary>Is OfferteSjablonen_MariaDB.sql gedraaid?</summary>
+    Task<bool> SjabloonTabelAanwezigAsync();
+    /// <summary>De sjablonen voor deze BV en die voor alle BV's, op naam (zonder Data).</summary>
+    Task<List<OfferteSjabloon>> SjablonenAsync(int? bvId);
+    Task<OfferteSjabloon?> SjabloonAsync(int id);
+    /// <summary>
+    /// Een sjabloon bewaren. Bestaat er al een met deze naam voor dezelfde BV, dan wordt die vervangen als
+    /// <paramref name="vervang"/> aan staat; anders null (de aanroeper vraagt het dan eerst).
+    /// </summary>
+    Task<int?> BewaarSjabloonAsync(string naam, int? bvId, string data, int? door, bool vervang);
+    Task<bool> WisSjabloonAsync(int id);
 }
 
 public class GeenOfferteDocumentRepository : IOfferteDocumentRepository
@@ -345,6 +374,11 @@ public class GeenOfferteDocumentRepository : IOfferteDocumentRepository
     public Task<int> BewaarAsync(int offerteId, int versie, string data, int? door) => Task.FromResult(versie);
     public Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door) => Task.FromResult(0);
     public Task<bool> WisAsync(int offerteId) => Task.FromResult(false);
+    public Task<bool> SjabloonTabelAanwezigAsync() => Task.FromResult(false);
+    public Task<List<OfferteSjabloon>> SjablonenAsync(int? bvId) => Task.FromResult(new List<OfferteSjabloon>());
+    public Task<OfferteSjabloon?> SjabloonAsync(int id) => Task.FromResult<OfferteSjabloon?>(null);
+    public Task<int?> BewaarSjabloonAsync(string naam, int? bvId, string data, int? door, bool vervang) => Task.FromResult<int?>(null);
+    public Task<bool> WisSjabloonAsync(int id) => Task.FromResult(false);
 }
 
 public class MySqlOfferteDocumentRepository : IOfferteDocumentRepository
@@ -445,6 +479,90 @@ public class MySqlOfferteDocumentRepository : IOfferteDocumentRepository
         cmd.Parameters.AddWithValue("@o", offerteId);
         return await cmd.ExecuteNonQueryAsync() == 1;
     }
+
+    // ---- sjablonen ----
+    private bool _sjabloonTabel;
+
+    public async Task<bool> SjabloonTabelAanwezigAsync()
+    {
+        if (_sjabloonTabel) return true;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'OfferteSjablonen'", cn);
+        return _sjabloonTabel = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    private static OfferteSjabloon LeesSjabloon(MySqlDataReader r, bool metData) => new(
+        r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : Convert.ToInt32(r.GetValue(2)), metData ? r.GetString(5) : "",
+        r.IsDBNull(3) ? null : r.GetDateTime(3), r.GetString(4));
+
+    private const string SjabloonSelect =
+        "SELECT s.`SjabloonID`, s.`Naam`, s.`BvID`, COALESCE(s.`GewijzigdOp`, s.`AangemaaktOp`), COALESCE(w.`NaamVoluit`, '')";
+    private const string SjabloonVan =
+        "  FROM `OfferteSjablonen` s LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = COALESCE(s.`GewijzigdDoor`, s.`AangemaaktDoor`) ";
+
+    public async Task<List<OfferteSjabloon>> SjablonenAsync(int? bvId)
+    {
+        var lijst = new List<OfferteSjabloon>();
+        if (!await SjabloonTabelAanwezigAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(SjabloonSelect + SjabloonVan + " WHERE s.`BvID` IS NULL OR s.`BvID` = @bv ORDER BY s.`Naam`", cn);
+        cmd.Parameters.AddWithValue("@bv", (object?)bvId ?? DBNull.Value);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(LeesSjabloon(r, metData: false));
+        return lijst;
+    }
+
+    public async Task<OfferteSjabloon?> SjabloonAsync(int id)
+    {
+        if (!await SjabloonTabelAanwezigAsync()) return null;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(SjabloonSelect + ", s.`Data`" + SjabloonVan + " WHERE s.`SjabloonID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", id);
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? LeesSjabloon(r, metData: true) : null;
+    }
+
+    public async Task<int?> BewaarSjabloonAsync(string naam, int? bvId, string data, int? door, bool vervang)
+    {
+        await using var cn = await OpenAsync();
+        int? bestaand;
+        await using (var zoek = new MySqlCommand("SELECT `SjabloonID` FROM `OfferteSjablonen` WHERE `Naam` = @n AND `BvID` <=> @bv LIMIT 1", cn))
+        {
+            zoek.Parameters.AddWithValue("@n", naam);
+            zoek.Parameters.AddWithValue("@bv", (object?)bvId ?? DBNull.Value);
+            var res = await zoek.ExecuteScalarAsync();
+            bestaand = res is null or DBNull ? null : Convert.ToInt32(res);
+        }
+        if (bestaand is int id)
+        {
+            if (!vervang) return null;
+            await using var upd = new MySqlCommand(
+                "UPDATE `OfferteSjablonen` SET `Data` = @d, `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door WHERE `SjabloonID` = @id", cn);
+            upd.Parameters.AddWithValue("@d", data);
+            upd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+            upd.Parameters.AddWithValue("@id", id);
+            await upd.ExecuteNonQueryAsync();
+            return id;
+        }
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `OfferteSjablonen` (`Naam`, `BvID`, `Data`, `AangemaaktOp`, `AangemaaktDoor`) VALUES (@n, @bv, @d, NOW(), @door)", cn);
+        cmd.Parameters.AddWithValue("@n", naam);
+        cmd.Parameters.AddWithValue("@bv", (object?)bvId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@d", data);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+        return (int)cmd.LastInsertedId;
+    }
+
+    public async Task<bool> WisSjabloonAsync(int id)
+    {
+        if (!await SjabloonTabelAanwezigAsync()) return false;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("DELETE FROM `OfferteSjablonen` WHERE `SjabloonID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", id);
+        return await cmd.ExecuteNonQueryAsync() == 1;
+    }
 }
 
 /// <summary>Lokaal testen zonder in de database te schrijven (OfferteDocumenten__Geheugen=true): alles weg na herstart.</summary>
@@ -497,6 +615,43 @@ public class GeheugenOfferteDocumentRepository : IOfferteDocumentRepository
     public Task<bool> WisAsync(int offerteId)
     {
         lock (_slot) return Task.FromResult(_doc.TryGetValue(offerteId, out var d) && !d.Vastgelegd && _doc.Remove(offerteId));
+    }
+
+    private readonly List<OfferteSjabloon> _sjablonen = new();
+    private int _volgendSjabloon = 1;
+
+    public Task<bool> SjabloonTabelAanwezigAsync() => Task.FromResult(true);
+
+    public Task<List<OfferteSjabloon>> SjablonenAsync(int? bvId)
+    {
+        lock (_slot) return Task.FromResult(_sjablonen.Where(s => s.BvId is null || s.BvId == bvId).OrderBy(s => s.Naam).Select(s => s with { Data = "" }).ToList());
+    }
+
+    public Task<OfferteSjabloon?> SjabloonAsync(int id)
+    {
+        lock (_slot) return Task.FromResult(_sjablonen.FirstOrDefault(s => s.Id == id));
+    }
+
+    public Task<int?> BewaarSjabloonAsync(string naam, int? bvId, string data, int? door, bool vervang)
+    {
+        lock (_slot)
+        {
+            var i = _sjablonen.FindIndex(s => s.BvId == bvId && string.Equals(s.Naam, naam, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0)
+            {
+                if (!vervang) return Task.FromResult<int?>(null);
+                _sjablonen[i] = _sjablonen[i] with { Data = data, Op = DateTime.Now };
+                return Task.FromResult<int?>(_sjablonen[i].Id);
+            }
+            var nieuw = new OfferteSjabloon(_volgendSjabloon++, naam, bvId, data, DateTime.Now, "geheugen");
+            _sjablonen.Add(nieuw);
+            return Task.FromResult<int?>(nieuw.Id);
+        }
+    }
+
+    public Task<bool> WisSjabloonAsync(int id)
+    {
+        lock (_slot) return Task.FromResult(_sjablonen.RemoveAll(s => s.Id == id) > 0);
     }
 }
 

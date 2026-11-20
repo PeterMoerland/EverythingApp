@@ -19,8 +19,8 @@ public static class OfferteDocumentApi
 
         api.MapGet("/{offerteId:int}", Stand);
 
-        // Een document maken uit de vaste opzet (OfferteDocumentData.Sjabloon).
-        api.MapPost("/{offerteId:int}/maak", async (int offerteId, IOfferteDocumentRepository repo, IOfferteRepository offertes,
+        // Een document maken uit de vaste opzet (OfferteDocumentData.Sjabloon), of met ?sjabloon=<id> uit een sjabloon.
+        api.MapPost("/{offerteId:int}/maak", async (int offerteId, int? sjabloon, IOfferteDocumentRepository repo, IOfferteRepository offertes,
                                                     ICalculatieRepository calc, OfferteDocumentService dienst, HuidigeGebruiker ik) =>
         {
             await ik.ZorgGeladenAsync();
@@ -28,7 +28,15 @@ public static class OfferteDocumentApi
             if (!repo.Beschikbaar || !await repo.TabelAanwezigAsync()) return Fout(503, "Draai eerst OfferteDocumenten_MariaDB.sql op de database.");
             var o = await offertes.GetAsync(offerteId);
             if (o is null) return Fout(404, "Deze offerte bestaat niet (meer).");
-            try { await repo.MaakAsync(offerteId, OfferteDocumentData.Sjabloon(o), ik.WerknemerId); }
+            var begin = OfferteDocumentData.Sjabloon(o);
+            if (sjabloon is int sid)
+            {
+                var s = await repo.SjabloonAsync(sid);
+                if (s is null) return Fout(404, "Dit sjabloon bestaat niet (meer).");
+                // ook een sjabloon gaat door de controle: zo krijgt elk blok alleen wat een document mag hebben
+                begin = OfferteDocumentData.Schoon(JsonNode.Parse(s.Data)).Data ?? begin;
+            }
+            try { await repo.MaakAsync(offerteId, begin, ik.WerknemerId); }
             catch (InvalidOperationException) { /* er is er al een: gewoon tonen */ }
             return await Stand(offerteId, repo, offertes, dienst, ik);
         });
@@ -78,6 +86,40 @@ public static class OfferteDocumentApi
             return Results.Json(new { ok = true });
         });
 
+        // Het document van deze offerte als sjabloon bewaren: { naam, alleBvs, vervang }. Bestaat de naam al voor dezelfde
+        // BV en staat vervang niet aan, dan 409 met bestaat = true (het scherm vraagt het dan eerst).
+        api.MapPost("/{offerteId:int}/sjabloon", async (int offerteId, HttpRequest req, IOfferteDocumentRepository repo, IOfferteRepository offertes,
+                                                        HuidigeGebruiker ik) =>
+        {
+            await ik.ZorgGeladenAsync();
+            if (!Mag(ik)) return Fout(403, "Je mag geen sjabloon bewaren.");
+            if (!await repo.SjabloonTabelAanwezigAsync()) return Fout(503, "Draai eerst OfferteSjablonen_MariaDB.sql op de database.");
+            JsonNode? body;
+            try { body = await JsonNode.ParseAsync(req.Body); } catch { body = null; }
+            string naam; bool alle, vervang;
+            try
+            {
+                naam = System.Text.RegularExpressions.Regex.Replace(body?["naam"]?.GetValue<string>() ?? "", @"\s+", " ").Trim();
+                alle = body?["alleBvs"]?.GetValue<bool>() ?? false;
+                vervang = body?["vervang"]?.GetValue<bool>() ?? false;
+            }
+            catch { return Fout(400, "Geen geldige gegevens ontvangen."); }
+            if (naam.Length is 0 or > 100) return Fout(400, "Geef het sjabloon een naam (hooguit 100 tekens).");
+            var o = await offertes.GetAsync(offerteId);
+            var d = o is null ? null : await repo.GetAsync(offerteId);
+            if (o is null || d is null) return Fout(404, "Deze offerte heeft geen document.");
+            var id = await repo.BewaarSjabloonAsync(naam, alle ? null : o.BvId, OfferteDocumentData.AlsSjabloon(d.Data), ik.WerknemerId, vervang);
+            return id is null ? Results.Json(new { fout = $"Er is al een sjabloon \"{naam}\".", bestaat = true }, statusCode: 409)
+                              : Results.Json(new { id });
+        });
+
+        api.MapPost("/sjablonen/{id:int}/wis", async (int id, IOfferteDocumentRepository repo, HuidigeGebruiker ik) =>
+        {
+            await ik.ZorgGeladenAsync();
+            if (!Mag(ik)) return Fout(403, "Je mag geen sjabloon wissen.");
+            return await repo.WisSjabloonAsync(id) ? Results.Json(new { ok = true }) : Fout(404, "Dit sjabloon bestaat niet (meer).");
+        });
+
         api.MapPost("/{offerteId:int}/wis", async (int offerteId, IOfferteDocumentRepository repo, HuidigeGebruiker ik) =>
         {
             await ik.ZorgGeladenAsync();
@@ -111,6 +153,8 @@ public static class OfferteDocumentApi
     {
         stijl = metStijl ? w.Stijl : null, kop = w.Kop, blokken = w.Blokken, slot = w.Slot, totaal = w.Totaal,
         problemen = w.Problemen,
+        // de delen van de calculatie zoals ze nu zijn (voor de keuzelijst en het paneel om uit te slepen)
+        groepen = w.Groepen.Select(g => new { id = g.Id, naam = g.Naam, diepte = g.Diepte, verkoop = g.Verkoop }),
     };
 
     private static async Task<IResult> Stand(int offerteId, IOfferteDocumentRepository repo, IOfferteRepository offertes,
@@ -129,7 +173,16 @@ public static class OfferteDocumentApi
         DocumentWeergave nu;
         try { nu = await dienst.WeergaveAsync(offerteId, d?.Data ?? """{"blokken":[]}""", ik.WerknemerId); }
         catch (Exception ex) { return Fout(500, "Het document opmaken is mislukt: " + ex.Message); }
-        if (d is null) return Results.Json(new { info, tabel = true, bestaat = false, mag, calculatie = nu.Calculatie });
+        if (d is null)
+        {
+            // nog geen document: de sjablonen voor deze BV (en voor alle BV's) om mee te beginnen
+            var sjablonen = await repo.SjablonenAsync(o.BvId);
+            return Results.Json(new
+            {
+                info, tabel = true, bestaat = false, mag, calculatie = nu.Calculatie,
+                sjablonen = sjablonen.Select(s => new { id = s.Id, naam = s.Naam, alleBvs = s.BvId is null, door = s.Door, op = s.Op?.ToString("dd-MM-yyyy") ?? "" }),
+            });
+        }
 
         var vast = d.Vastgelegd ? OfferteDocumentService.UitVast(d.Vast) : null;
         var toon = vast ?? nu;
@@ -141,6 +194,7 @@ public static class OfferteDocumentApi
             info, tabel = true, bestaat = true, mag,
             calculatie = nu.Calculatie,
             versie = d.Versie, status = d.Status, gewijzigd = wanneer,
+            sjabloonTabel = await repo.SjabloonTabelAanwezigAsync(),
             data = JsonNode.Parse(d.Data),
             weergave = WeergaveJson(toon, metStijl: true),
             groepen = nu.Groepen.Select(g => new { id = g.Id, naam = g.Naam, diepte = g.Diepte, verkoop = g.Verkoop }),
