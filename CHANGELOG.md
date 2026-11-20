@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Activity board** — Verbeterd: de pop-up met eigenschappen toont nu ook het kaartnummer (bijvoorbeeld #61), met een korte uitleg waar je het voor gebruikt (punt van Gerard).
+- **Activity board** — Verbeterd: de pop-up is groter, en de tekstvakken groeien mee met de tekst, zodat je niet meer in een klein vak hoeft te schuiven (verzoek van Peter).
 - **Werknemers** — Nieuw: op het tabblad API-sleutel staat de knop **Script voor PowerShell kopiëren**. Plak het script in PowerShell en druk op Enter: Claude op die pc is dan gekoppeld aan het Activity board. Het script werkt tien minuten en één keer, en je sleutel staat er niet leesbaar in (verzoek van Peter).
 - **Artikelen** — Nieuw: in Artikelen ▸ Solar-prijzen kun je de prijs van Solar overnemen, per regel of in één keer voor alle kleine verschillen (tot en met 15%). Bij een groot verschil kies je eerst of Solar per stuk of per verpakking rekent; dat wordt onthouden. Elke wijziging staat in het logboek onderaan de pagina (verzoek van Peter).
 - **Artikelen** — Nieuw: de app kan de Solar-prijzen elke week in het weekend zelf bijwerken: kleine verschillen worden overgenomen, grote blijven staan om na te kijken. Wie dat wil, krijgt er een melding van (Werknemers ▸ Meldingen ▸ Solar-prijzen bijgewerkt). Staat uit tot het wordt aangezet (verzoek van Peter).

@@ -426,7 +426,7 @@ else
     <div class="ab-scrim" @onclick="SluitPaneel"></div>
     <aside class="ab-drawer" aria-label="Activiteit" tabindex="-1" @onkeydown="PaneelToets">
         <div class="ab-dkop">
-            <div class="ab-eyebrow">Activiteit · @_data.Board.Titel</div>
+            <div class="ab-eyebrow">Activiteit@(o.Id != 0 ? " #" + o.Id : "") · @_data.Board.Titel</div>
             <textarea class="ab-dtitel" id="ab-dtitel" rows="2" placeholder="Naam van de activiteit" @key="TitelSleutel"
                       @onchange="TitelGewijzigd">@o.Titel</textarea>
             <button class="ab-dsluit" type="button" aria-label="Sluiten" @onclick="SluitPaneel">×</button>
@@ -563,6 +563,17 @@ else
                 else
                 {
                     <div class="ab-ro ab-muted">Kan na het uitvoeren van <code>ActivityBoard_Tijd_MariaDB.sql</code>.</div>
+                }
+
+                @* het kaartnummer, ook in de pop-up (punt van Gerard 20-11-2026), met wat je ermee doet *@
+                @if (o.Id != 0)
+                {
+                    <div class="ab-lab">Kaartnummer</div>
+                    <div class="ab-ro">
+                        <b>#@o.Id</b>
+                        <div class="ab-hint">Het vaste nummer van dit kaartje; het staat ook rechtsonder op het kaartje. Gebruik het om het
+                            aan te wijzen, bijvoorbeeld tegen een collega of tegen Claude ("zet kaart @o.Id op testen").</div>
+                    </div>
                 }
 
                 <div class="ab-lab">Gemaakt op</div>

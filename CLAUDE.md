@@ -1888,6 +1888,11 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     van de pop-up of na verversen) roept `KaartDubbel`. Niet in een invoerveld, op een knop of met pop-up/menu open.
   - **Getest** in de browser: alle drie. **Niet getest:** de tabellen (regels hebben geen icoon), aanraakscherm,
     donker thema.
+- **Pop-up: kaartnummer en groter** (20-11-2026; punt van Gerard en wens gebruiker): het nummer staat in de kopregel
+  ("Activiteit #61 · board") en als regel Kaartnummer met een zin uitleg. `.ab-drawer` is 1320 px breed (was 1000) en
+  mag 95vh hoog; `.ab-sectie textarea` heeft `field-sizing: content` (groeit mee met de tekst, tot 45vh) en een
+  minimum van 76 px. Bekeken op 1600x900 met tien regels tekst: het vak is 204 px hoog zonder eigen schuifbalk; de
+  pop-up zelf schuift dan wel (zes tekstvakken passen niet op 900 px hoog).
 - **Eigen kaartjes vallen op** (wens gebruiker, zelfde dag): `KaartKlasse` geeft `eigen` als de aangemelde werknemer
   in `Personen` staat; `.ab-kaart.eigen` is een amberkleurige outline (#e09b00, 6 px; eerst 2 px, dat viel niet op), in de tabellen een streep voor de
   regel. Altijd aan, los van de knop Markeren (die blauw markeert en de rest dimt, voor wie bij "Toegewezen aan"

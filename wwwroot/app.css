@@ -3748,8 +3748,8 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
    hele breedte, de eigenschappen in een pop-up bij dubbelklik of via het rechtermuismenu). Links de eigenschappen, rechts
    de tekstvelden; op een smal scherm onder elkaar, en op een telefoon schermvullend. */
 .ab-scrim { position: fixed; inset: 0; background: rgba(17, 17, 17, .32); z-index: 150; }
-.ab-drawer { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(1000px, calc(100vw - 32px));
-             max-height: min(92vh, 940px); background: var(--ab-wit, #fff); z-index: 160; border-radius: 6px; border-top: 3px solid #d13228;
+.ab-drawer { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(1320px, calc(100vw - 32px));
+             max-height: min(95vh, 1200px); background: var(--ab-wit, #fff); z-index: 160; border-radius: 6px; border-top: 3px solid #d13228;
              box-shadow: 0 20px 60px rgba(0, 0, 0, .3); display: flex; flex-direction: column; animation: ab-pop .16s ease;
              --ab-rood: #d13228; --ab-rood-donker: #a01200; --ab-tint: #fdecea; --ab-rand: #e2e2e2; --ab-muted: #68717c; --ab-wit: #fff; --ab-ink: #111; }
 @keyframes ab-pop { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
@@ -3791,7 +3791,10 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
 .ab-persoonkies:hover, .ab-persoonkies:focus { border-color: var(--ab-rood); color: var(--ab-ink); outline: none; }
 .ab-sectie { margin-top: 14px; }
 .ab-sectie h3 { font-size: 14px; font-weight: 600; color: var(--ab-ink); margin: 0 0 6px; }
-.ab-sectie textarea { width: 100%; min-height: 60px; font: inherit; font-size: 13px; line-height: 1.45; border: 1px solid var(--ab-rand); border-radius: 3px;
+/* de tekstvakken groeien mee met wat erin staat (field-sizing), zodat er in het vak zelf geen schuifbalk komt (wens
+   gebruiker 20-11-2026); tot een maximum, daarboven schuift het vak toch. Een oudere browser houdt de vaste hoogte. */
+.ab-sectie textarea { field-sizing: content; max-height: 45vh;
+                      width: 100%; min-height: 76px; font: inherit; font-size: 13px; line-height: 1.45; border: 1px solid var(--ab-rand); border-radius: 3px;
                       padding: 8px 9px; resize: vertical; color: inherit; background: var(--ab-wit); }
 .ab-sectie textarea:focus, .ab-dbody select:focus, .ab-dbody input:focus { outline: none; border-color: var(--ab-rood); }
 .ab-dvoet { padding: 12px 22px; border-top: 1px solid var(--ab-rand); display: flex; gap: 10px; align-items: center; }
