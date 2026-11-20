@@ -65,11 +65,39 @@ public class OffertePdfService
         var o = g.Offerte;
         var t = new Teksten(o.Taal == OfferteTaal.Engels);
         var a = g.Afzender;
-        var k = g.Klant;
-        var kleur = System.Text.RegularExpressions.Regex.IsMatch(a.Kleur, "^#[0-9A-Fa-f]{6}$") ? a.Kleur : "#ED1C24";
         var sb = new StringBuilder();
 
-        Begin(sb, kleur, $"{t.Offerte} {o.OfferteNr}", $"{o.OfferteNr}  ·  {t.Datum(datum)}  ·  {VoetBv(a)}");
+        Begin(sb, Kleur(a), $"{t.Offerte} {o.OfferteNr}", $"{o.OfferteNr}  ·  {t.Datum(datum)}  ·  {VoetBv(a)}");
+        sb.Append(Briefhoofd(g, datum));
+        if (o.OfferteTekst.Trim().Length > 0) sb.Append($"<div class='koptekst'>{Alinea(o.OfferteTekst)}</div>");
+        Secties(sb, g, t);
+        sb.Append(Voorwaarden(g, o.Totalen.Totaal));
+
+        if (o.Voettekst.Trim().Length > 0) sb.Append($"<div class='voettekst'>{Alinea(o.Voettekst)}</div>");
+        sb.Append(Ondertekening(g));
+
+        // ---- disclaimer: in Access onderaan de laatste pagina ----
+        if (o.Disclaimer.Trim().Length > 0) sb.Append($"<div class='disclaimer'>{Alinea(o.Disclaimer)}</div>");
+
+        sb.Append("</body></html>");
+        return sb.ToString();
+    }
+
+    /// <summary>De huiskleur van de BV, of het MDE-rood als die niet (goed) is ingesteld.</summary>
+    internal static string Kleur(FactuurAfzender a)
+        => System.Text.RegularExpressions.Regex.IsMatch(a.Kleur, "^#[0-9A-Fa-f]{6}$") ? a.Kleur : "#ED1C24";
+
+    /// <summary>
+    /// Logo en afzender, het adres van de klant, offertenummer en datum, de titel en het onderwerp. Ook het begin van het
+    /// offertedocument (OfferteDocumentService).
+    /// </summary>
+    internal string Briefhoofd(OffertePdfGegevens g, DateOnly datum)
+    {
+        var o = g.Offerte;
+        var t = new Teksten(o.Taal == OfferteTaal.Engels);
+        var a = g.Afzender;
+        var k = g.Klant;
+        var sb = new StringBuilder();
 
         // ---- kop: logo en afzender (Access: logo per BV links, adresrapport rechts) ----
         sb.Append("<header class='kop'>");
@@ -94,9 +122,12 @@ public class OffertePdfService
 
         sb.Append($"<div class='titelrij'><h1>{t.Offerte.ToUpperInvariant()}</h1></div>");
         if (o.Omschrijving.Length > 0) sb.Append($"<div class='onderwerp'>{H(o.Omschrijving)}</div>");
-        if (o.OfferteTekst.Trim().Length > 0) sb.Append($"<div class='koptekst'>{Alinea(o.OfferteTekst)}</div>");
+        return sb.ToString();
+    }
 
-        // ---- secties (een sectie zonder regels valt weg, zoals een leeg subrapport) ----
+    /// <summary>De regels van de offerte: uren, materialen en overigen (een sectie zonder regels valt weg, zoals een leeg subrapport).</summary>
+    private static void Secties(StringBuilder sb, OffertePdfGegevens g, Teksten t)
+    {
         var cats = g.Regels.Categorieen.ToDictionary(c => c.Id, c => c.Naam);
         string Cat(int? id) => id is int i && cats.TryGetValue(i, out var n) ? n : "";
         var tarieven = g.Regels.Tarieven.ToDictionary(x => x.Id, x => x.Tarief);
@@ -138,16 +169,32 @@ public class OffertePdfService
                 t.TotaalOverigen, g.Regels.Overigen.Sum(v => v.Totaal), t);
         }
 
-        // ---- voorwaarden (Access: Prijs = offertetotaal, Levertijd, Geldigheid, Betalingstermijn, Betaling) ----
+    }
+
+    /// <summary>Voorwaarden (Access: Prijs = offertetotaal, Levertijd, Geldigheid, Betalingstermijn, Betaling).</summary>
+    internal string Voorwaarden(OffertePdfGegevens g, decimal prijs)
+    {
+        var o = g.Offerte;
+        var t = new Teksten(o.Taal == OfferteTaal.Engels);
+        var sb = new StringBuilder();
         sb.Append("<table class='voorwaarden'>");
-        sb.Append($"<tr class='prijs'><td>{t.PrijsLabel}</td><td>{t.Geld(o.Totalen.Totaal)}</td></tr>");
+        sb.Append($"<tr class='prijs'><td>{t.PrijsLabel}</td><td>{t.Geld(prijs)}</td></tr>");
         Voorwaarde(sb, t.Levertijd, o.Levertijd);
         Voorwaarde(sb, t.Geldigheid, o.Geldigheid);
         Voorwaarde(sb, t.Betalingstermijn, o.Betalingstermijn);
         Voorwaarde(sb, t.Betaling, o.Betaling);
         sb.Append("</table>");
+        return sb.ToString();
+    }
 
-        if (o.Voettekst.Trim().Length > 0) sb.Append($"<div class='voettekst'>{Alinea(o.Voettekst)}</div>");
+    /// <summary>Groet, ondertekenaar en (als de offerte dat vraagt) het vak om te tekenen met de handtekening.</summary>
+    internal string Ondertekening(OffertePdfGegevens g)
+    {
+        var o = g.Offerte;
+        var t = new Teksten(o.Taal == OfferteTaal.Engels);
+        var a = g.Afzender;
+        var k = g.Klant;
+        var sb = new StringBuilder();
 
         // ---- groet en ondertekenaar ----
         var w = g.Ondertekenaar;
@@ -171,11 +218,6 @@ public class OffertePdfService
             sb.Append($"<div class='streep'></div><div>{H(w.Naam)}</div><div class='klein'>{H(a.Naam)}</div></div>");
             sb.Append("</div></section>");
         }
-
-        // ---- disclaimer: in Access onderaan de laatste pagina ----
-        if (o.Disclaimer.Trim().Length > 0) sb.Append($"<div class='disclaimer'>{Alinea(o.Disclaimer)}</div>");
-
-        sb.Append("</body></html>");
         return sb.ToString();
     }
 
@@ -229,7 +271,7 @@ public class OffertePdfService
         return "";
     }
 
-    private static string VoetBv(FactuurAfzender a)
+    internal static string VoetBv(FactuurAfzender a)
     {
         var delen = new List<string> { a.Naam };
         if (a.Kvk.Length > 0) delen.Add($"KvK {a.Kvk}");
@@ -237,13 +279,21 @@ public class OffertePdfService
         return string.Join("  ·  ", delen.Where(d => d.Length > 0));
     }
 
-    private static string Alinea(string tekst) => H(tekst.TrimEnd()).Replace("\r\n", "\n").Replace("\n", "<br>");
+    internal static string Alinea(string tekst) => H(tekst.TrimEnd()).Replace("\r\n", "\n").Replace("\n", "<br>");
     private static string H(string? tekst) => HtmlEncode(tekst ?? "");
 
     private static void Begin(StringBuilder sb, string kleur, string titel, string voet)
     {
         sb.Append("<!doctype html><html><head><meta charset='utf-8'>");
         sb.Append($"<title>{H(titel)}</title><style>");
+        sb.Append(Stijl(kleur, voet));
+        sb.Append("</style></head><body>");
+    }
+
+    /// <summary>De opmaak van de offerte (pagina, voetregel met paginanummer, tabellen); ook voor het offertedocument.</summary>
+    internal static string Stijl(string kleur, string voet)
+    {
+        var sb = new StringBuilder();
         var voetCss = voet.Replace("\\", "\\\\").Replace("'", "\\'");
         sb.Append("@page { size: A4 portrait; margin: 14mm 15mm 20mm 15mm; ");
         sb.Append($"@bottom-left {{ content: '{voetCss}'; font: 7.5pt 'Segoe UI', Arial, sans-serif; color: #888; " +
@@ -297,16 +347,17 @@ public class OffertePdfService
             .handtekening { max-height: 26mm; max-width: 60mm; object-fit: contain; }
             .disclaimer { margin-top: 10mm; font-size: 8pt; color: #666; text-align: center; line-height: 1.4; page-break-inside: avoid; }
             """);
-        sb.Append("</style></head><body>");
+        return sb.ToString();
     }
 
     // ============================================================
     //  Teksten (Nederlands / Engels)
     // ============================================================
 
-    private sealed class Teksten
+    internal sealed class Teksten
     {
         private readonly bool _en;
+        public bool En => _en;
         public CultureInfo Cultuur { get; }
 
         public Teksten(bool engels)
@@ -336,6 +387,9 @@ public class OffertePdfService
         public string Prijs => T("Prijs", "Price");
         public string Korting => T("Korting", "Discount");
         public string Totaal => T("Totaal", "Total");
+        public string Bedrag => T("Bedrag", "Amount");
+        public string TotaalExcl => T("Totaal excl. btw", "Total excl. VAT");
+        public string OverigRegel => T("Overig", "Other");
         public string TotaalUren => T("Totaal uren", "Total hours");
         public string TotaalMateriaal => T("Totaal materiaal", "Total materials");
         public string TotaalOverigen => T("Totaal overigen", "Total miscellaneous");

@@ -1,0 +1,50 @@
+@page "/projecten/offertedocument/{OfferteId:int}"
+@inject IOfferteRepository Offertes
+
+@* Offertedocument (wens gebruiker 20-11-2026): de offerte als document uit blokken, met prijstabellen die aan de
+   calculatie gekoppeld blijven. Het bewerkscherm zelf is wwwroot/offertedocument.html in een iframe (eigen opmaak: het
+   vel gebruikt de stijl van de PDF en mag niet botsen met app.css); het haalt en bewaart via offertedocument/api/<offerte>
+   (Services/OfferteDocumentApi.cs). Deze pagina is alleen de kop met de weg terug. *@
+
+<PageTitle>Offertedocument — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Offertedocument</h1>
+        @if (_offerte is not null)
+        {
+            <span class="weeklabel">@_offerte.OfferteNr · @_offerte.Omschrijving · @_offerte.Klant</span>
+        }
+        <span class="groei"></span>
+        <a class="calc-link" href="projecten/offertes/@OfferteId">Offerte openen</a>
+        <a class="calc-link" href="projecten/calculaties/@OfferteId">🧮 Calculatie</a>
+    </header>
+
+    @if (_fout is not null)
+    {
+        <div class="melding fout">@_fout</div>
+    }
+    else
+    {
+        @* ?v= = versie van het bewerkscherm (cache) *@
+        <iframe class="calc-kader" src="@($"offertedocument.html?offerte={OfferteId}&v=2")" title="Offertedocument"></iframe>
+    }
+</div>
+
+@code {
+    [Parameter] public int OfferteId { get; set; }
+
+    private Offerte? _offerte;
+    private string? _fout;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _fout = null;
+        try
+        {
+            _offerte = await Offertes.GetAsync(OfferteId);
+            if (_offerte is null) _fout = "Deze offerte bestaat niet (meer).";
+        }
+        catch (Exception ex) { _fout = "De offerte lezen is mislukt: " + ex.Message; }
+    }
+}

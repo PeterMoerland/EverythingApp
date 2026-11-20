@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offertedocument</title>
+<!--
+  Offertedocument (wens gebruiker 20-11-2026): een offerte uit blokken, met prijstabellen die aan de calculatie gekoppeld
+  blijven. Draait in een iframe op Components/Pages/OfferteDocumentPagina.razor en haalt en bewaart via
+  offertedocument/api/<offerte> (Services/OfferteDocumentApi.cs).
+
+  - Het vel gebruikt de opmaak van de PDF zelf (de app stuurt de stijl mee), dus wat je ziet is wat de klant krijgt.
+  - Tekst, kop en plaatje bewerk je hier. Prijstabel, voorwaarden en ondertekening maakt de app op (één plek die de
+    opmaak bepaalt: OfferteDocumentService); hier kies je alleen welk deel van de calculatie en hoe.
+  - Alles van dit scherm zelf heet ed-…, zodat het niet botst met de klassen van de PDF (kop, klein, r, logo …).
+-->
+<style id="docstijl"></style>
+<style>
+  :root { --ed-vlak: #eef1f5; --ed-balk: #ffffff; --ed-lijn: #d5dbe3; --ed-tekst: #1c2430; --ed-zacht: #66707d; --ed-accent: #1f6feb; --ed-rood: #c0392b; --ed-geel: #fff6d6; }
+  html[data-theme="dark"] { --ed-vlak: #12171e; --ed-balk: #1a212b; --ed-lijn: #334051; --ed-tekst: #e6ebf2; --ed-zacht: #9aa6b5; --ed-accent: #6ea8ff; --ed-rood: #ff7b6b; --ed-geel: #3a3210; }
+  html, body { height: 100%; }
+  body { background: var(--ed-vlak) !important; margin: 0; }
+  .ed-balk { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px;
+             background: var(--ed-balk); border-bottom: 1px solid var(--ed-lijn); color: var(--ed-tekst); font: 13px 'Segoe UI', Arial, sans-serif; }
+  .ed-balk[hidden] { display: none; }
+  .ed-balk .ed-groei { flex: 1; }
+  .ed-chip { padding: 2px 9px; border-radius: 10px; font-size: 12px; border: 1px solid var(--ed-lijn); white-space: nowrap; }
+  .ed-chip.vast { background: #1f8f4d; border-color: #1f8f4d; color: #fff; }
+  .ed-opslag { color: var(--ed-zacht); font-size: 12px; }
+  .ed-opslag.fout { color: var(--ed-rood); font-weight: 600; }
+  .ed-knop { font: 13px 'Segoe UI', Arial, sans-serif; padding: 5px 11px; border: 1px solid var(--ed-lijn); border-radius: 6px; background: var(--ed-balk);
+             color: var(--ed-tekst); cursor: pointer; white-space: nowrap; }
+  .ed-knop:hover:not(:disabled) { border-color: var(--ed-accent); }
+  .ed-knop:disabled { opacity: .5; cursor: default; }
+  .ed-knop.hoofd { background: var(--ed-accent); border-color: var(--ed-accent); color: #fff; }
+  html[data-theme="dark"] .ed-knop.hoofd { color: #0b1220; }
+  .ed-meld { margin: 10px auto 0; max-width: 210mm; padding: 8px 12px; border-radius: 6px; font: 13px 'Segoe UI', Arial, sans-serif;
+             background: var(--ed-geel); color: var(--ed-tekst); border: 1px solid var(--ed-lijn); }
+  .ed-meld.fout { border-color: var(--ed-rood); color: var(--ed-rood); }
+  .ed-velden { display: none; flex-basis: 100%; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--ed-zacht); font-size: 12px; }
+  .ed-velden.open { display: flex; }
+  .ed-velden button { font: 12px Consolas, monospace; padding: 2px 7px; border: 1px solid var(--ed-lijn); border-radius: 5px; background: transparent; color: var(--ed-tekst); cursor: pointer; }
+
+  .ed-leeg { max-width: 640px; margin: 40px auto; padding: 22px 26px; background: var(--ed-balk); border: 1px solid var(--ed-lijn); border-radius: 10px;
+             color: var(--ed-tekst); font: 14px/1.5 'Segoe UI', Arial, sans-serif; }
+  .ed-leeg h2 { all: unset; display: block; font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+  .ed-leeg p { margin: 0 0 12px; }
+  .ed-leeg a { color: var(--ed-accent); }
+
+  /* het vel: A4-breed, altijd wit papier (ook in het donkere thema) */
+  .ed-blad { width: 210mm; max-width: calc(100vw - 24px); min-height: 297mm; margin: 16px auto 80px; padding: 14mm 15mm 20mm; background: #fff; color: #222;
+             box-shadow: 0 2px 14px rgba(0, 0, 0, .18); font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt; position: relative; }
+  .ed-vast { position: relative; }
+  .ed-blok { position: relative; border-radius: 3px; outline: 1px dashed transparent; outline-offset: 3px; }
+  .ed-bewerk .ed-blok:hover, .ed-bewerk .ed-blok:focus-within { outline-color: #9db7e6; }
+  .ed-blok.ed-sleep { opacity: .35; }
+  .ed-blok.ed-voor::before, .ed-blok.ed-na::after { content: ''; position: absolute; left: -4px; right: -4px; height: 3px; background: #1f6feb; border-radius: 2px; z-index: 5; }
+  .ed-blok.ed-voor::before { top: -6px; } .ed-blok.ed-na::after { bottom: -6px; }
+  .ed-strip { position: absolute; right: 0; top: -27px; z-index: 10; display: none; gap: 2px; padding: 2px; background: #fff; border: 1px solid #c9d3df;
+              border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); font: 12px 'Segoe UI', Arial, sans-serif; align-items: center; }
+  .ed-bewerk .ed-blok:hover > .ed-strip, .ed-bewerk .ed-blok:focus-within > .ed-strip { display: flex; }
+  .ed-strip button, .ed-strip .ed-greep { all: unset; min-width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 4px; cursor: pointer; color: #333; font-size: 13px; padding: 0 2px; }
+  .ed-strip button:hover { background: #e8eef8; }
+  .ed-strip .ed-greep { cursor: grab; color: #888; }
+  .ed-strip .ed-sep { width: 1px; height: 16px; background: #d5dbe3; margin: 0 2px; }
+  .ed-strip .ed-soort { color: #888; font-size: 11px; padding: 0 6px 0 4px; white-space: nowrap; }
+  .ed-inst { display: none; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 4mm 0 -2mm; padding: 5px 8px; background: #f1f5fb; border: 1px solid #c9d3df;
+             border-radius: 6px; font: 12px 'Segoe UI', Arial, sans-serif; color: #333; }
+  .ed-bewerk .ed-blok:hover > .ed-inst, .ed-bewerk .ed-blok:focus-within > .ed-inst, .ed-blok.ed-open > .ed-inst { display: flex; }
+  .ed-inst select { font: 12px 'Segoe UI', Arial, sans-serif; padding: 2px 4px; max-width: 260px; }
+  .ed-inst label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+  .ed-inst .ed-koppel { color: #1f6feb; font-weight: 600; }
+  [contenteditable]:focus { outline: none; }
+  .ed-bewerk [contenteditable]:empty::before { content: attr(data-leeg); color: #aaa; }
+  .ed-pagina { margin: 6mm 0 0; border-top: 2px dashed #b9c2cf; text-align: center; color: #8894a3; font: 11px 'Segoe UI', Arial, sans-serif; padding-top: 2px; }
+  .ed-tussen { position: relative; height: 10px; margin: 0 -6px; }
+  .ed-tussen > button { all: unset; position: absolute; left: 50%; top: -6px; transform: translateX(-50%); width: 22px; height: 22px; line-height: 20px; text-align: center;
+                        border-radius: 50%; background: #1f6feb; color: #fff; font: 600 16px 'Segoe UI', Arial, sans-serif; cursor: pointer; opacity: 0; z-index: 8; }
+  .ed-tussen:hover > button, .ed-tussen > button:focus, .ed-tussen.ed-menu-open > button { opacity: 1; }
+  .ed-tussen:hover::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; border-top: 1px dashed #9db7e6; }
+  .ed-menu { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 20; display: flex; flex-wrap: wrap; gap: 4px; width: max-content; max-width: 170mm;
+             padding: 6px; background: #fff; border: 1px solid #c9d3df; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .2); }
+  .ed-menu button { all: unset; padding: 5px 10px; border-radius: 5px; cursor: pointer; font: 12.5px 'Segoe UI', Arial, sans-serif; color: #222; border: 1px solid #e1e6ee; }
+  .ed-menu button:hover { background: #e8eef8; border-color: #9db7e6; }
+  .ed-strip select { font: 11px 'Segoe UI', Arial, sans-serif; padding: 1px 2px; border: 1px solid #d5dbe3; border-radius: 4px; background: #fff; color: #333; }
+  .ed-bewerk .eigen td:focus, .ed-bewerk .eigen th:focus { background: #eef4ff; }
+  .ed-einde { margin-top: 8mm; text-align: center; }
+  @media print { .ed-balk, .ed-strip, .ed-inst, .ed-tussen, .ed-einde { display: none !important; } }
+</style>
+</head>
+<body>
+<div class="ed-balk" id="balk" hidden>
+  <b id="titel"></b>
+  <span class="ed-chip" id="chip"></span>
+  <span class="ed-opslag" id="opslag"></span>
+  <span class="ed-groei"></span>
+  <button class="ed-knop" id="knopVelden" type="button" title="Velden die in een tekst of kop worden ingevuld, zoals {totaal}">{ } Velden</button>
+  <button class="ed-knop" id="knopPdf" type="button" title="De offerte als PDF in een nieuw tabblad">📄 PDF bekijken</button>
+  <button class="ed-knop" id="knopWis" type="button" title="Dit document wissen en opnieuw beginnen">🗑 Wissen…</button>
+  <button class="ed-knop hoofd" id="knopVast" type="button"></button>
+  <div class="ed-velden" id="velden"></div>
+</div>
+<div id="meldingen"></div>
+<div id="inhoud"></div>
+<input type="file" id="kiesPlaatje" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+
+<script>
+(() => {
+  'use strict';
+  const OFFERTE = Number(new URLSearchParams(location.search).get('offerte'));
+  const API = `offertedocument/api/${OFFERTE}`;
+  const $ = id => document.getElementById(id);
+  const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
+
+  let INFO = {}, MAG = false, versie = 0, status = 0, doc = { blokken: [] }, W = { blokken: {}, kop: '', slot: '', problemen: [] };
+  let GROEPEN = [], VELDEN = [], VERSCHIL = null, CALC = false;
+  let wacht = null, bezig = false, nogEens = false, vuil = false, gestopt = false, melding = null;
+  /** Alleen lezen: vastgelegd, of geen recht om te wijzigen. */
+  const RO = () => !MAG || status === 1;
+
+  const DEEL = { half: 1 / 2, derde: 1 / 3, tweederde: 2 / 3 };
+  /** De cel van een eigen tabel waar de cursor het laatst stond: { id, r, k }. */
+  let cel = null;
+  const SOORT = { tekst: 'Tekst', kop: 'Kop', prijs: 'Prijstabel', plaatje: 'Plaatje', tabel: 'Tabel', voorwaarden: 'Voorwaarden', ondertekening: 'Ondertekening', pagina: 'Nieuwe pagina' };
+
+  // ---------------------------------------------------------------- laden en opslaan
+  function opslagStand(tekst, fout) { const el = $('opslag'); el.textContent = tekst; el.className = 'ed-opslag' + (fout ? ' fout' : ''); }
+  function meld(tekst, fout) { melding = tekst ? { tekst, fout } : null; tekenMeldingen(); }
+
+  async function vraag(tekst) {
+    try { if (parent !== window && parent.mdeBevestig) return !!(await parent.mdeBevestig(tekst)); } catch (e) { }
+    return confirm(tekst);
+  }
+
+  function neem(o) {
+    INFO = o.info || {}; MAG = !!o.mag; CALC = !!o.calculatie;
+    if (!o.bestaat) return;
+    versie = o.versie; status = o.status;
+    doc = o.data && Array.isArray(o.data.blokken) ? o.data : { blokken: [] };
+    W = o.weergave || W; GROEPEN = o.groepen || []; VELDEN = o.velden || []; VERSCHIL = o.verschil || null;
+    if (W.stijl) $('docstijl').textContent = W.stijl;
+    opslagStand(o.gewijzigd || '');
+  }
+
+  async function laad() {
+    if (!OFFERTE) throw new Error('Geen offerte opgegeven.');
+    const r = await fetch(API, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(o.fout || `De app antwoordde ${r.status}.`);
+    return o;
+  }
+
+  function bewaar() {
+    if (RO() || gestopt) return;
+    vuil = true; opslagStand('Niet opgeslagen…');
+    clearTimeout(wacht); wacht = setTimeout(stuur, 800);
+  }
+  async function stuur() {
+    clearTimeout(wacht);
+    if (!vuil || gestopt) return;
+    if (bezig) { nogEens = true; return; }
+    bezig = true; vuil = false; opslagStand('Opslaan…');
+    try {
+      const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versie, data: doc }) });
+      const o = await r.json().catch(() => ({}));
+      if (r.ok) { versie = o.versie; opslagStand('Opgeslagen ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })); }
+      else {
+        if ([403, 404, 409].includes(r.status)) gestopt = true; else vuil = true;
+        opslagStand('Niet opgeslagen', true);
+        meld(o.fout || `Opslaan mislukt (${r.status}).`, true);
+      }
+    } catch (e) {
+      vuil = true; opslagStand('Niet opgeslagen: geen verbinding, opnieuw over 5 s', true);
+      setTimeout(stuur, 5000);
+    } finally {
+      bezig = false;
+      if (nogEens) { nogEens = false; vuil = true; stuur(); }
+    }
+  }
+  /** Wacht tot alles opgeslagen is (vóór de PDF en het vastleggen). */
+  async function alles() {
+    for (let i = 0; i < 150 && !gestopt && (vuil || bezig); i++) {
+      if (vuil && !bezig) await stuur(); else await new Promise(k => setTimeout(k, 100));
+    }
+    return !gestopt && !vuil && !bezig;
+  }
+  addEventListener('pagehide', () => {
+    if (!vuil || gestopt || bezig) return;
+    try { fetch(API, { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versie, data: doc }) }); } catch (e) { }
+  });
+
+  /** De gekoppelde blokken opnieuw laten opmaken (na een keuze in een prijstabel, en als je terugkomt van de calculatie). */
+  let ververst = 0, verversBezig = false, verversNog = false;
+  async function ververs() {
+    if (status === 1) return;
+    if (verversBezig) { verversNog = true; return; }   // er is intussen weer iets gekozen: daarna nog een keer
+    verversBezig = true; ververst = Date.now();
+    try {
+      // plaatjes hoeven niet mee: die tekent dit scherm zelf
+      const licht = { blokken: doc.blokken.filter(b => b.soort !== 'plaatje') };
+      const r = await fetch(`${API}/weergave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: licht }) });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok) { meld(o.fout || `Opmaken mislukt (${r.status}).`, true); return; }
+      W = { ...W, kop: o.kop, slot: o.slot, blokken: o.blokken || {}, problemen: o.problemen || [] };
+      document.querySelectorAll('.ed-blok').forEach(el => {
+        const b = blok(el.dataset.id);
+        if (b && ['prijs', 'voorwaarden', 'ondertekening'].includes(b.soort)) el.querySelector('.ed-inhoud').innerHTML = W.blokken[b.id] || '';
+      });
+      const kop = document.querySelector('.ed-vast[data-deel="kop"]'); if (kop) kop.innerHTML = W.kop || '';
+      const slot = document.querySelector('.ed-vast[data-deel="slot"]'); if (slot) slot.innerHTML = W.slot || '';
+      tekenMeldingen();
+    } catch (e) { /* geen verbinding: het oude beeld blijft staan */ }
+    finally { verversBezig = false; if (verversNog) { verversNog = false; ververs(); } }
+  }
+  addEventListener('focus', () => { if (doc.blokken.length && Date.now() - ververst > 3000) ververs(); });
+
+  // ---------------------------------------------------------------- blokken
+  const blok = id => doc.blokken.find(b => b.id === id);
+  const nieuwId = () => { let id; do id = 'b' + Math.random().toString(36).slice(2, 10); while (blok(id)); return id; };
+
+  function voegToe(soort, naId, extra) {
+    const b = { id: nieuwId(), soort, ...(extra || {}) };
+    if (soort === 'tekst') b.html = b.html ?? '';
+    if (soort === 'kop') b.tekst = b.tekst ?? '';
+    if (soort === 'prijs') Object.assign(b, { diepte: 1, regels: 'geen', aantallen: true, uren: false, ...extra });
+    if (soort === 'tabel') Object.assign(b, { rijen: [['', '', ''], ['', '', ''], ['', '', '']], kop: true, rechts: [], ...extra });
+    const i = naId ? doc.blokken.findIndex(x => x.id === naId) + 1 : 0;
+    doc.blokken.splice(i, 0, b);
+    bewaar(); teken();
+    if (['prijs', 'voorwaarden', 'ondertekening'].includes(soort)) ververs();
+    const el = document.querySelector(`.ed-blok[data-id="${b.id}"] [contenteditable]`);
+    if (el) el.focus();
+    return b;
+  }
+  function verplaats(id, naar) {   // naar = index in de lijst zonder het blok zelf
+    const i = doc.blokken.findIndex(b => b.id === id); if (i < 0) return;
+    const [b] = doc.blokken.splice(i, 1);
+    doc.blokken.splice(Math.max(0, Math.min(naar, doc.blokken.length)), 0, b);
+    bewaar(); teken();
+  }
+
+  /** Een plaatje verkleinen (hooguit 1600 px breed) en als data-URI teruggeven. */
+  function leesPlaatje(bestand) {
+    return new Promise((klaar, mis) => {
+      const lezer = new FileReader();
+      lezer.onerror = () => mis(new Error('Het bestand is niet te lezen.'));
+      lezer.onload = () => {
+        const img = new Image();
+        img.onerror = () => mis(new Error('Dit is geen plaatje dat de browser kan tonen.'));
+        img.onload = () => {
+          const f = Math.min(1, 1600 / img.naturalWidth);
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * f)); c.height = Math.max(1, Math.round(img.naturalHeight * f));
+          const g = c.getContext('2d');
+          if (bestand.type === 'image/png') {   // een kleine png (logo, schema) blijft png, met doorzichtigheid
+            g.drawImage(img, 0, 0, c.width, c.height);
+            const png = c.toDataURL('image/png');
+            if (png.length < 700000) { klaar(png); return; }
+          }
+          g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+          klaar(c.toDataURL('image/jpeg', 0.85));
+        };
+        img.src = lezer.result;
+      };
+      lezer.readAsDataURL(bestand);
+    });
+  }
+  async function plaatjeErbij(bestand, naId) {
+    try {
+      const src = await leesPlaatje(bestand);
+      if (src.length > 3900000) { meld('Dit plaatje is te groot, ook na verkleinen.', true); return; }
+      voegToe('plaatje', naId, { src, breedte: 60, onderschrift: '' });
+    } catch (e) { meld(e.message, true); }
+  }
+  let plaatjeNa = null;
+  $('kiesPlaatje').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (f) await plaatjeErbij(f, plaatjeNa);
+  });
+
+  // ---------------------------------------------------------------- tekenen
+  function tekenMeldingen() {
+    const delen = [];
+    if (melding) delen.push(`<div class="ed-meld ${melding.fout ? 'fout' : ''}">${esc(melding.tekst)}</div>`);
+    if (VERSCHIL && status === 1)
+      delen.push(`<div class="ed-meld">De calculatie is na het vastleggen gewijzigd: dit document toont ${esc(euro.format(VERSCHIL.toen))}, de calculatie staat nu op ${esc(euro.format(VERSCHIL.nu))}. Het document verandert niet mee; kies <b>Weer bewerken</b> om de nieuwe cijfers over te nemen.</div>`);
+    for (const p of (status === 1 ? [] : W.problemen || [])) delen.push(`<div class="ed-meld fout">${esc(p)}</div>`);
+    $('meldingen').innerHTML = delen.join('');
+  }
+
+  function tussen(naId) {
+    return RO() ? '' : `<div class="ed-tussen" data-na="${naId ?? ''}"><button type="button" title="Blok toevoegen">+</button></div>`;
+  }
+  function instPrijs(b) {
+    const opt = (w, t, gekozen) => `<option value="${esc(w)}" ${String(gekozen) === String(w) ? 'selected' : ''}>${esc(t)}</option>`;
+    const groepen = [opt('', 'Hele calculatie', b.groep ?? '')].concat(GROEPEN.map(g => opt(g.id, '  '.repeat(g.diepte) + g.naam + '  ·  ' + euro.format(g.verkoop), b.groep ?? '')));
+    if (b.groep != null && !GROEPEN.some(g => g.id === b.groep)) groepen.push(opt(b.groep, '(bestaat niet meer)', b.groep));
+    return `<div class="ed-inst">
+      <span class="ed-koppel" title="De cijfers komen uit de calculatie en veranderen mee tot het document is vastgelegd">🔗 calculatie</span>
+      <label>Deel <select data-veld="groep">${groepen.join('')}</select></label>
+      <label>Niveaus <select data-veld="diepte">${[[0, 'alleen het totaal'], [1, '1 niveau'], [2, '2 niveaus'], [3, '3 niveaus'], [9, 'alles']].map(([w, t]) => opt(w, t, b.diepte)).join('')}</select></label>
+      <label>Regels <select data-veld="regels">${[['geen', 'niet tonen'], ['omschrijving', 'omschrijving'], ['prijs', 'met bedrag']].map(([w, t]) => opt(w, t, b.regels)).join('')}</select></label>
+      <label><input type="checkbox" data-veld="aantallen" ${b.aantallen ? 'checked' : ''}> aantallen (2×)</label>
+      <label><input type="checkbox" data-veld="uren" ${b.uren ? 'checked' : ''}> uren</label>
+    </div>`;
+  }
+  function tekenBlok(b) {
+    const ro = RO();
+    let inst = '', binnen = '', extra = '';
+    switch (b.soort) {
+      case 'tekst':
+        binnen = ro ? (W.blokken[b.id] ?? `<div class="doc-tekst">${b.html || ''}</div>`)
+          : `<div class="doc-tekst" contenteditable="true" data-leeg="Typ hier tekst…">${b.html || ''}</div>`;
+        extra = `<button type="button" data-opmaak="bold" title="Vet (Ctrl+B)"><b>B</b></button><button type="button" data-opmaak="italic" title="Cursief (Ctrl+I)"><i>I</i></button><button type="button" data-opmaak="underline" title="Onderstreept (Ctrl+U)"><u>U</u></button><button type="button" data-opmaak="insertUnorderedList" title="Lijst met opsommingstekens">•</button><button type="button" data-opmaak="insertOrderedList" title="Genummerde lijst">1.</button><span class="ed-sep"></span>`;
+        break;
+      case 'kop':
+        binnen = ro ? (W.blokken[b.id] ?? `<h3 class="doc-kop">${esc(b.tekst)}</h3>`)
+          : `<h3 class="doc-kop" contenteditable="plaintext-only" data-leeg="Kop…">${esc(b.tekst)}</h3>`;
+        break;
+      case 'prijs':
+        if (!ro) inst = instPrijs(b);
+        binnen = W.blokken[b.id] ?? '<div class="doc-mist">Prijstabel wordt opgemaakt…</div>';
+        break;
+      case 'voorwaarden': case 'ondertekening':
+        if (!ro) inst = `<div class="ed-inst"><span class="ed-koppel">🔗 offerte</span> ${b.soort === 'voorwaarden' ? 'Prijs uit de calculatie; levertijd, geldigheid en betaling uit het tabblad Voorwaarden van de offerte.' : 'Wie de PDF maakt ondertekent; het tekenvak volgt het vinkje Ondertekening van de offerte.'}</div>`;
+        binnen = W.blokken[b.id] ?? '';
+        break;
+      case 'plaatje':
+        if (!ro) inst = `<div class="ed-inst"><label>Breedte <select data-veld="breedte">${[25, 40, 50, 60, 75, 100].map(w => `<option value="${w}" ${b.breedte == w ? 'selected' : ''}>${w}%</option>`).join('')}</select></label></div>`;
+        binnen = `<figure class="doc-plaatje"><img src="${b.src}" style="width:${Number(b.breedte) || 60}%" alt="">${ro ? (b.onderschrift ? `<figcaption>${esc(b.onderschrift)}</figcaption>` : '')
+          : `<figcaption contenteditable="plaintext-only" data-leeg="Onderschrift (mag leeg blijven)">${esc(b.onderschrift)}</figcaption>`}</figure>`;
+        break;
+      case 'tabel':
+        if (ro && W.blokken[b.id]) { binnen = W.blokken[b.id]; break; }
+        binnen = `<table class="regels eigen">${b.rijen.map((rij, i) => {
+          const kop = b.kop && i === 0, tag = kop ? 'th' : 'td';
+          return `<tr class="${kop ? 'kopjes' : ''}">${rij.map((c, k) => `<${tag} class="${(b.rechts || []).includes(k) ? 'r' : ''}" ${ro ? '' : 'contenteditable="plaintext-only"'} data-r="${i}" data-k="${k}">${esc(c)}</${tag}>`).join('')}</tr>`;
+        }).join('')}</table>`;
+        extra = `<button type="button" data-tabel="rij+" title="Rij toevoegen onder de cursor">+ rij</button><button type="button" data-tabel="kol+" title="Kolom toevoegen rechts van de cursor">+ kolom</button><button type="button" data-tabel="rij-" title="De rij van de cursor verwijderen">− rij</button><button type="button" data-tabel="kol-" title="De kolom van de cursor verwijderen">− kolom</button><button type="button" data-tabel="kop" title="Eerste rij als kopregel, aan of uit">kop</button><button type="button" data-tabel="rechts" title="De kolom van de cursor rechts uitlijnen (voor bedragen), aan of uit">⇥</button><span class="ed-sep"></span>`;
+        break;
+      case 'pagina': binnen = '<div class="ed-pagina">nieuwe pagina</div>'; break;
+    }
+    if (b.soort !== 'pagina')
+      extra += `<select data-veld="deel" title="Breedte van het blok: blokken die samen een regel vullen komen naast elkaar">${[['', 'hele breedte'], ['half', '1/2'], ['derde', '1/3'], ['tweederde', '2/3']].map(([w, t]) => `<option value="${w}" ${(b.deel || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select><span class="ed-sep"></span>`;
+    const strip = ro ? '' : `<div class="ed-strip"><span class="ed-greep" draggable="true" title="Slepen om te verplaatsen">⠿</span><span class="ed-soort">${SOORT[b.soort] || ''}</span>${extra}<button type="button" data-actie="op" title="Omhoog">↑</button><button type="button" data-actie="neer" title="Omlaag">↓</button><button type="button" data-actie="weg" title="Blok verwijderen">✕</button></div>`;
+    return `<div class="ed-blok ${DEEL[b.deel] ? 'doc-' + b.deel : ''}" data-id="${b.id}" data-soort="${b.soort}">${strip}${inst}<div class="ed-inhoud">${binnen}</div></div>`;
+  }
+  function teken() {
+    const ro = RO();
+    const delen = [`<div class="ed-vast" data-deel="kop">${W.kop || ''}</div>`, tussen(null)];
+    // blokken die niet de hele breedte nemen staan naast elkaar zolang ze samen op één regel passen (zoals de PDF)
+    let rij = [], som = 0;
+    const sluit = () => { if (!rij.length) return; delen.push(`<div class="doc-rij">${rij.map(tekenBlok).join('')}</div>`, tussen(rij.at(-1).id)); rij = []; som = 0; };
+    for (const b of doc.blokken) {
+      const breedte = DEEL[b.deel] || 1;
+      if (breedte >= 1) { sluit(); delen.push(tekenBlok(b), tussen(b.id)); continue; }
+      if (som + breedte > 1.001) sluit();
+      rij.push(b); som += breedte;
+    }
+    sluit();
+    delen.push(`<div class="ed-vast" data-deel="slot">${W.slot || ''}</div>`);
+    $('inhoud').innerHTML = `<div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div>`;
+    tekenBalk(); tekenMeldingen();
+  }
+  function tekenBalk() {
+    $('balk').hidden = false;
+    $('titel').textContent = `${INFO.offertenr || ''} · offertedocument`;
+    document.title = `Offertedocument ${INFO.offertenr || ''}`;
+    const chip = $('chip');
+    chip.textContent = status === 1 ? 'Vastgelegd' : 'Concept · gekoppeld aan de calculatie';
+    chip.className = 'ed-chip' + (status === 1 ? ' vast' : '');
+    const v = $('knopVast');
+    v.textContent = status === 1 ? 'Weer bewerken' : '🔒 Vastleggen';
+    v.title = status === 1 ? 'Het document weer bewerkbaar maken; de cijfers volgen dan weer de calculatie'
+      : 'Het document vastzetten met de cijfers van nu (gebeurt ook als je de offerte op verstuurd zet)';
+    v.hidden = !MAG; $('knopWis').hidden = RO(); $('knopVelden').hidden = RO();
+    $('velden').innerHTML = 'Klik om in te voegen op de plek van de cursor: ' + VELDEN.map(x => `<button type="button" data-veld="${esc(x.veld)}" title="${esc(x.uitleg)}">${esc(x.veld)}</button>`).join('');
+  }
+
+  function tekenLeeg(o) {
+    $('balk').hidden = true;
+    const calc = `<a href="projecten/calculaties/${OFFERTE}" target="_parent">calculatie</a>`;
+    let html;
+    if (!o.tabel) html = `<h2>Offertedocument</h2><p>De tabel voor offertedocumenten ontbreekt nog. Draai eerst <b>OfferteDocumenten_MariaDB.sql</b> op de database.</p>`;
+    else html = `<h2>${esc(INFO.offertenr || '')} heeft nog geen document</h2>
+      <p>Een offertedocument is de offerte als vrij op te maken document: tekst, koppen en plaatjes van jezelf, en prijstabellen die uit de ${calc} komen en daaraan gekoppeld blijven.</p>
+      <p>${o.calculatie ? 'Je begint met een vaste opzet: aanhef, prijsopbouw op hoofdgroepen, voorwaarden en ondertekening. Alles is daarna te wijzigen.'
+        : `Deze offerte heeft nog geen ${calc}. Je kunt het document al maken; de prijstabel blijft leeg tot de calculatie er is.`}</p>
+      ${MAG ? '<p><button class="ed-knop hoofd" id="knopMaak" type="button">Document maken</button></p>' : '<p><i>Je hebt geen recht om het document te maken.</i></p>'}`;
+    $('inhoud').innerHTML = `<div class="ed-leeg">${html}</div>`;
+    tekenMeldingen();
+    const k = $('knopMaak');
+    if (k) k.addEventListener('click', async () => {
+      k.disabled = true;
+      try {
+        const r = await fetch(`${API}/maak`, { method: 'POST' });
+        const n = await r.json().catch(() => ({}));
+        if (!r.ok) { meld(n.fout || `Maken mislukt (${r.status}).`, true); k.disabled = false; return; }
+        neem(n); teken();
+      } catch (e) { meld('Geen verbinding met de app.', true); k.disabled = false; }
+    });
+  }
+
+  // ---------------------------------------------------------------- bediening
+  const inhoud = $('inhoud');
+
+  inhoud.addEventListener('input', e => {
+    const el = e.target.closest('.ed-blok'); if (!el || RO()) return;
+    const b = blok(el.dataset.id); if (!b) return;
+    if (e.target.matches('.doc-tekst')) b.html = e.target.innerHTML === '<br>' ? '' : e.target.innerHTML;
+    else if (e.target.matches('.doc-kop')) b.tekst = e.target.textContent;
+    else if (e.target.matches('figcaption')) b.onderschrift = e.target.textContent;
+    else if (e.target.matches('.eigen td, .eigen th')) b.rijen[Number(e.target.dataset.r)][Number(e.target.dataset.k)] = e.target.textContent;
+    else return;
+    bewaar();
+  });
+  inhoud.addEventListener('change', e => {
+    const el = e.target.closest('.ed-blok'), veld = e.target.dataset.veld; if (!el || !veld || RO()) return;
+    const b = blok(el.dataset.id); if (!b) return;
+    if (veld === 'groep') { if (e.target.value === '') delete b.groep; else b.groep = Number(e.target.value); }
+    else if (veld === 'diepte' || veld === 'breedte') b[veld] = Number(e.target.value);
+    else if (veld === 'regels') b.regels = e.target.value;
+    else if (veld === 'deel') { if (e.target.value) b.deel = e.target.value; else delete b.deel; bewaar(); teken(); return; }
+    else b[veld] = e.target.checked;
+    bewaar();
+    if (b.soort === 'plaatje') el.querySelector('img').style.width = b.breedte + '%'; else ververs();
+  });
+  inhoud.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('.doc-kop, figcaption')) e.preventDefault();
+    // Enter in een eigen tabel: naar de cel eronder; in de laatste rij komt er een rij bij
+    if (e.key === 'Enter' && e.target.matches('.eigen td, .eigen th')) {
+      e.preventDefault();
+      const el = e.target.closest('.ed-blok'), b = blok(el.dataset.id), r = Number(e.target.dataset.r), k = Number(e.target.dataset.k);
+      if (r + 1 >= b.rijen.length) { b.rijen.push(b.rijen[0].map(() => '')); bewaar(); teken(); }
+      focusCel(b.id, r + 1, k);
+    }
+  });
+  const focusCel = (id, r, k) => { const c = document.querySelector(`.ed-blok[data-id="${id}"] [data-r="${r}"][data-k="${k}"]`); if (c) c.focus(); };
+  inhoud.addEventListener('focusin', e => {
+    if (e.target.matches && e.target.matches('.eigen td, .eigen th')) cel = { id: e.target.closest('.ed-blok').dataset.id, r: Number(e.target.dataset.r), k: Number(e.target.dataset.k) };
+  });
+  // plakken: altijd als platte tekst (geen opmaak uit Word of het web); een plaatje wordt een eigen blok
+  inhoud.addEventListener('paste', e => {
+    if (RO()) return;
+    const el = e.target.closest ? e.target.closest('.ed-blok') : null;
+    const img = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+    if (img) { e.preventDefault(); plaatjeErbij(img, el ? el.dataset.id : (doc.blokken.at(-1)?.id ?? null)); return; }
+    if (!e.target.isContentEditable && !e.target.closest('[contenteditable]')) return;
+    e.preventDefault();
+    // cellen uit Excel (tabs en regels) in een eigen tabel: vanaf de cel van de cursor invullen, de tabel groeit mee
+    const tc = e.target.closest('.eigen td, .eigen th'), plat = (e.clipboardData?.getData('text/plain') || '').replace(/\r/g, '');
+    if (tc && /[\t\n]/.test(plat.replace(/\n+$/, ''))) {
+      const b = blok(el.dataset.id), r0 = Number(tc.dataset.r), k0 = Number(tc.dataset.k);
+      const bron = plat.replace(/\n+$/, '').split('\n').map(x => x.split('\t'));
+      const kolommen = Math.min(8, Math.max(b.rijen[0].length, k0 + Math.max(...bron.map(x => x.length))));
+      while (b.rijen.length < Math.min(100, r0 + bron.length)) b.rijen.push([]);
+      b.rijen.forEach(rij => { while (rij.length < kolommen) rij.push(''); });
+      bron.forEach((rij, i) => rij.forEach((c, k) => { if (r0 + i < b.rijen.length && k0 + k < kolommen) b.rijen[r0 + i][k0 + k] = c.trim(); }));
+      bewaar(); teken(); focusCel(b.id, r0, k0);
+      return;
+    }
+    document.execCommand('insertText', false, (e.clipboardData?.getData('text/plain') || '').replace(/\r/g, ''));
+  });
+  // de knoppen in de strip mogen de selectie in de tekst niet weghalen
+  inhoud.addEventListener('mousedown', e => { if (e.target.closest('.ed-strip button')) e.preventDefault(); });
+  inhoud.addEventListener('click', async e => {
+    const opmaak = e.target.closest('[data-opmaak]');
+    if (opmaak) {
+      const veld = opmaak.closest('.ed-blok').querySelector('.doc-tekst');
+      if (!veld.contains(document.getSelection()?.anchorNode)) veld.focus();
+      document.execCommand(opmaak.dataset.opmaak);
+      veld.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    const tabel = e.target.closest('[data-tabel]');
+    if (tabel) {
+      const el = tabel.closest('.ed-blok'), b = blok(el.dataset.id), wat = tabel.dataset.tabel;
+      // de cel van de cursor; staat die niet in deze tabel, dan de laatste rij en kolom
+      const nu = document.activeElement && document.activeElement.matches('.eigen td, .eigen th') && el.contains(document.activeElement) ? document.activeElement : null;
+      if (nu) cel = { id: b.id, r: Number(nu.dataset.r), k: Number(nu.dataset.k) };
+      const hier = cel && cel.id === b.id && cel.r < b.rijen.length && cel.k < b.rijen[0].length ? cel : { r: b.rijen.length - 1, k: b.rijen[0].length - 1 };
+      let { r, k } = hier;
+      if (wat === 'rij+') { if (b.rijen.length >= 100) return; b.rijen.splice(r + 1, 0, b.rijen[0].map(() => '')); r++; }
+      else if (wat === 'kol+') { if (b.rijen[0].length >= 8) { meld('Een tabel heeft hooguit 8 kolommen.', false); return; } b.rijen.forEach(rij => rij.splice(k + 1, 0, '')); b.rechts = (b.rechts || []).map(x => x > k ? x + 1 : x); k++; }
+      else if (wat === 'rij-') { if (b.rijen.length <= 1) return; b.rijen.splice(r, 1); r = Math.min(r, b.rijen.length - 1); }
+      else if (wat === 'kol-') { if (b.rijen[0].length <= 1) return; b.rijen.forEach(rij => rij.splice(k, 1)); b.rechts = (b.rechts || []).filter(x => x !== k).map(x => x > k ? x - 1 : x); k = Math.min(k, b.rijen[0].length - 1); }
+      else if (wat === 'kop') b.kop = !b.kop;
+      else if (wat === 'rechts') b.rechts = (b.rechts || []).includes(k) ? b.rechts.filter(x => x !== k) : [...(b.rechts || []), k];
+      bewaar(); teken(); focusCel(b.id, r, k);
+      return;
+    }
+    const actie = e.target.closest('[data-actie]');
+    if (actie) {
+      const id = actie.closest('.ed-blok').dataset.id, i = doc.blokken.findIndex(b => b.id === id), b = doc.blokken[i];
+      if (actie.dataset.actie === 'op' && i > 0) verplaats(id, i - 1);
+      else if (actie.dataset.actie === 'neer' && i < doc.blokken.length - 1) verplaats(id, i + 1);
+      else if (actie.dataset.actie === 'weg') {
+        const leeg = (b.soort === 'tekst' && !b.html) || (b.soort === 'kop' && !b.tekst) || b.soort === 'pagina';
+        if (leeg || await vraag(`Dit blok (${SOORT[b.soort].toLowerCase()}) verwijderen?`)) { doc.blokken.splice(i, 1); bewaar(); teken(); }
+      }
+      return;
+    }
+    const plus = e.target.closest('.ed-tussen > button');
+    // eerst uitlezen wat er in het menu gekozen is: het menu gaat hierna weg
+    const nieuw = e.target.closest('[data-nieuw]'), nieuwNa = nieuw ? (nieuw.closest('.ed-tussen').dataset.na || null) : null;
+    document.querySelectorAll('.ed-menu').forEach(m => { m.parentElement.classList.remove('ed-menu-open'); m.remove(); });
+    if (plus) {
+      const zone = plus.parentElement;
+      zone.classList.add('ed-menu-open');
+      zone.insertAdjacentHTML('beforeend', `<div class="ed-menu">${[['tekst', '¶ Tekst'], ['kop', 'Kop'], ['prijs', '🔗 Prijstabel uit de calculatie'], ['plaatje', '🖼 Plaatje'], ['tabel', '▦ Eigen tabel'],
+        ['voorwaarden', '🔗 Voorwaarden'], ['ondertekening', '🔗 Ondertekening'], ['pagina', '⤓ Nieuwe pagina']].map(([s, t]) => `<button type="button" data-nieuw="${s}">${t}</button>`).join('')}</div>`);
+      return;
+    }
+    if (nieuw) {
+      if (nieuw.dataset.nieuw === 'plaatje') { plaatjeNa = nieuwNa; $('kiesPlaatje').click(); }
+      else voegToe(nieuw.dataset.nieuw, nieuwNa);
+    }
+  });
+
+  // slepen: met de greep, of een plaatje uit de verkenner op het vel
+  let sleep = null;
+  const plek = e => {
+    const el = e.target.closest ? e.target.closest('.ed-blok') : null;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { el, id: el.dataset.id, voor: e.clientY < r.top + r.height / 2 };
+  };
+  const wisAanwijzers = () => document.querySelectorAll('.ed-voor, .ed-na').forEach(x => x.classList.remove('ed-voor', 'ed-na'));
+  inhoud.addEventListener('dragstart', e => {
+    const greep = e.target.closest ? e.target.closest('.ed-greep') : null;
+    if (!greep || RO()) { e.preventDefault(); return; }
+    const el = greep.closest('.ed-blok');
+    sleep = el.dataset.id; el.classList.add('ed-sleep');
+    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', sleep);
+    try { e.dataTransfer.setDragImage(el, 20, 10); } catch (x) { }
+  });
+  inhoud.addEventListener('dragover', e => {
+    if (RO()) return;
+    const bestand = !sleep && [...(e.dataTransfer?.types || [])].includes('Files');
+    if (!sleep && !bestand) return;
+    e.preventDefault(); wisAanwijzers();
+    const p = plek(e);
+    if (p && p.id !== sleep) p.el.classList.add(p.voor ? 'ed-voor' : 'ed-na');
+  });
+  inhoud.addEventListener('drop', e => {
+    if (RO()) return;
+    const p = plek(e); wisAanwijzers();
+    const bestand = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith('image/'));
+    if (!sleep && bestand) {
+      e.preventDefault();
+      let na = doc.blokken.at(-1)?.id ?? null;
+      if (p) { const i = doc.blokken.findIndex(b => b.id === p.id); na = p.voor ? (i > 0 ? doc.blokken[i - 1].id : null) : p.id; }
+      plaatjeErbij(bestand, na);
+      return;
+    }
+    if (!sleep) return;
+    e.preventDefault();
+    const id = sleep; sleep = null;
+    if (!p || p.id === id) { teken(); return; }
+    const zonder = doc.blokken.filter(b => b.id !== id);
+    const i = zonder.findIndex(b => b.id === p.id);
+    verplaats(id, p.voor ? i : i + 1);
+  });
+  inhoud.addEventListener('dragend', () => { sleep = null; wisAanwijzers(); document.querySelectorAll('.ed-sleep').forEach(x => x.classList.remove('ed-sleep')); });
+
+  // de balk
+  $('knopVelden').addEventListener('click', () => $('velden').classList.toggle('open'));
+  $('velden').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+  $('velden').addEventListener('click', e => {
+    const k = e.target.closest('[data-veld]'); if (!k) return;
+    const el = document.activeElement;
+    if (!el || !el.isContentEditable || !el.matches('.doc-tekst, .doc-kop')) { meld('Zet eerst de cursor in een tekst of kop.', false); return; }
+    document.execCommand('insertText', false, k.dataset.veld);
+  });
+  $('knopPdf').addEventListener('click', async () => {
+    if (!RO() && !await alles()) { meld('Eerst moet alles opgeslagen zijn; dat lukte niet.', true); return; }
+    open(`${API}/pdf?t=${Date.now()}`, '_blank', 'noopener');
+  });
+  $('knopWis').addEventListener('click', async () => {
+    if (!await vraag('Het hele document wissen? Je teksten en plaatjes zijn dan weg; de calculatie en de offerte blijven zoals ze zijn.')) return;
+    gestopt = true; clearTimeout(wacht);
+    const r = await fetch(`${API}/wis`, { method: 'POST' });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok) { gestopt = false; meld(o.fout || `Wissen mislukt (${r.status}).`, true); return; }
+    await begin();
+  });
+  $('knopVast').addEventListener('click', async () => {
+    const vast = status === 1;
+    if (vast && !await vraag('Het document weer bewerkbaar maken? De prijstabellen nemen dan de cijfers over die nu in de calculatie staan.')) return;
+    if (!vast && !await alles()) { meld('Eerst moet alles opgeslagen zijn; dat lukte niet.', true); return; }
+    $('knopVast').disabled = true;
+    try {
+      const r = await fetch(`${API}/${vast ? 'vrijgeven' : 'vastleggen'}`, { method: 'POST' });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok) { meld(o.fout || `Mislukt (${r.status}).`, true); return; }
+      await begin();
+      meld(vast ? 'Het document is weer te bewerken en volgt de calculatie.' : 'Vastgelegd met de cijfers van nu. Een wijziging in de calculatie verandert dit document niet meer.', false);
+    } catch (e) { meld('Geen verbinding met de app.', true); }
+    finally { $('knopVast').disabled = false; }
+  });
+
+  /** Licht of donker zoals de app (html[data-thema] van het venster eromheen). */
+  function thema() {
+    const zet = () => {
+      let donker;
+      try { donker = parent.document.documentElement.getAttribute('data-thema') === 'donker'; }
+      catch (e) { donker = matchMedia('(prefers-color-scheme: dark)').matches; }
+      document.documentElement.dataset.theme = donker ? 'dark' : 'light';
+    };
+    zet();
+    try { new MutationObserver(zet).observe(parent.document.documentElement, { attributes: true, attributeFilter: ['data-thema'] }); } catch (e) { }
+  }
+
+  async function begin() {
+    gestopt = false; vuil = false; melding = null;
+    try {
+      const o = await laad();
+      neem(o);
+      if (o.bestaat) teken(); else tekenLeeg(o);
+    } catch (e) {
+      $('balk').hidden = true;
+      $('inhoud').innerHTML = `<div class="ed-leeg"><h2>Offertedocument</h2><p>${esc(e.message)}</p></div>`;
+    }
+  }
+  thema();
+  begin();
+})();
+</script>
+</body>
+</html>

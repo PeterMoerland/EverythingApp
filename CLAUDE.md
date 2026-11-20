@@ -390,6 +390,60 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
   (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
   donker thema, een bevroren calculatie (velden staan dan uit), twee gebruikers.
 
+## Offertedocument, stap 1 (20-11-2026)
+
+Wens gebruiker: "een offerte maken op basis van een calculatie; stip aan de horizon een Word-achtig document waar je
+(delen van) de calculatie als blok in sleept en dat gekoppeld blijft". Afgesproken opzet in drie stappen; **gebouwd zijn
+stap 1 en 2**: per offerte één document uit blokken, gemaakt uit een vaste opzet. Stap 2 = meer blokken (eigen tabel, twee
+naast elkaar), stap 3 = slepen uit de boom en sjablonen per BV. Voorgesteld en niet tegengesproken: gekoppeld tot
+versturen en daarna vast; het document staat **naast** de offerteregels (die blijven bestaan).
+- Script **`OfferteDocumenten_MariaDB.sql`** (zelf draaien): `OfferteDocumenten` (OfferteID uniek, Status 0 concept /
+  1 vastgelegd, Versie, Data = de blokken als JSON, Vast = de opmaak bij vastleggen). Zonder script: uitleg in het scherm.
+  Lokaal `OfferteDocumenten__Geheugen=true`.
+- **Blokken** (`Services/OfferteDocument.cs`, `OfferteDocumentData.Schoon` laat alleen dit door): `tekst` (html met
+  alleen b/i/u/br/p/div/ul/ol/li, `SchoonHtml`), `kop`, `prijs` (groep = id van een groep in de boom of leeg = hele
+  calculatie, diepte 0-9, regels geen/omschrijving/prijs, aantallen, uren), `plaatje` (data-URI, breedte %,
+  onderschrift), `voorwaarden`, `ondertekening`, `pagina`. Velden in tekst en kop: `{klant}`, `{contactpersoon}`,
+  `{offertenummer}`, `{omschrijving}`, `{project}`, `{datum}`, `{totaal}`.
+- **Gekoppeld** = een prijstabel bewaart alleen de verwijzing; `OfferteDocumentService.WeergaveAsync` rekent de boom
+  elke keer opnieuw uit (`Prijsboom.Bouw`, zelfde rekenregels als `CalculatieData.Totalen` en bereken() in de boom).
+  **Kostprijs, overhead en marge zitten niet in `Prijsboom`**, dus een blok kan ze niet tonen. Wat een tabel niet toont
+  maar wel meetelt wordt een regel "Overig"; een centverschil door afronden gaat naar de grootste regel (`RondAf`); een
+  groep zonder bedrag komt er niet op. Een verwijzing naar een groep die niet meer bestaat geeft een rode melding in het
+  blok en houdt vastleggen tegen.
+- **Eén plek bepaalt de opmaak**: de server maakt per blok de HTML, met de stijl van de offerte-PDF
+  (`OffertePdfService.Stijl`, `Briefhoofd`, `Voorwaarden`, `Ondertekening` zijn daarvoor uit `Html` gehaald en internal)
+  plus `DocStijl`. Het bewerkscherm `wwwroot/offertedocument.html` (iframe op
+  `Components/Pages/OfferteDocumentPagina.razor`, `/projecten/offertedocument/{id}`) laadt die stijl en tekent tekst, kop
+  en plaatje zelf; alles van het scherm heet `ed-…` omdat de PDF-stijl klassen als `kop`, `klein`, `r` heeft. Bij een
+  keuze in een prijstabel en als het venster weer focus krijgt: `POST …/weergave` (bewaart niets).
+- **Adressen** `/offertedocument/api/{offerte}` (`Services/OfferteDocumentApi.cs`): GET, POST `maak`, PUT (versie; 409
+  bij verouderd of vastgelegd), POST `weergave`, `vastleggen`, `vrijgeven`, `wis` (alleen concept), GET `pdf`
+  (`?download=1`). Wijzigen: gekoppelde werknemer of Directie, ook weer bewerkbaar maken.
+- **Vastleggen** bewaart in `Vast` de stijl, het briefhoofd, de HTML per blok, de hele pagina en het totaal; de PDF en
+  het scherm komen daarna daaruit. Staat de calculatie later op een ander totaal, dan zegt het scherm dat.
+- **Versturen**: `OfferteVersturenVenster` gebruikt het document als de offerte er een heeft
+  (`HtmlVoorPdfAsync`; anders de gewone PDF) en legt het vast bij "Verstuurd". Het offertebedrag in de lijsten komt nog
+  uit de offerteregels, niet uit de calculatie: **open punt**.
+- **Stap 2 (zelfde dag, "graag door met stap 2")**: blok `tabel` (rijen = lijst van lijsten platte tekst, hooguit 8
+  kolommen en 100 rijen, `kop` = eerste rij is kopregel, `rechts` = kolommen rechts uitgelijnd; velden als `{totaal}`
+  werken in een cel) en het veld `deel` op elk blok behalve `pagina` (half / derde / tweederde): opeenvolgende blokken
+  die samen op een regel passen staan naast elkaar (`doc-rij`; de server en `teken()` in het scherm groeperen op
+  dezelfde manier, som tot 1). In het scherm: knoppen + rij / + kolom / − rij / − kolom / kop / rechts in de strip
+  (ze werken op de cel van de cursor), Enter = cel eronder (in de laatste rij een rij erbij), cellen plakken uit Excel
+  vult vanaf de cursor en laat de tabel groeien. Tussen twee blokken naast elkaar staat geen +; zet er eerst een op
+  hele breedte. **Valkuil:** `JsonArray.Add(string)` is de generieke `Add<T>` en maakt een waarde die opties zonder
+  `TypeInfoResolver` niet kunnen schrijven (500 bij opslaan); de opties hebben nu een resolver en de cel gaat via
+  `JsonValue.Create`. Getest: tabel maken, plakken uit Excel, rij en kolom erbij en eraf, kolom rechts, plaatje 1/3
+  naast tekst 2/3, opslaan, en de PDF (tabel en naast elkaar kloppen, `{totaal}` in een cel ingevuld). Niet getest:
+  drie blokken naast elkaar, een prijstabel in een smalle kolom, de knoppen met een echte muisklik.
+- Getest lokaal (documenten in het geheugen, offerte 999 met de echte calculatie, rechten tijdelijk open en
+  teruggezet): maken, totaal gelijk aan de calculatie (€ 18.866,73), niveaus/regels/uren kiezen, tekst met vet en een
+  veld, een `<script>` komt als tekst terug, kop toevoegen, plaatje slepen, blok verplaatsen, PDF (2 pagina's, velden
+  ingevuld), vastleggen (alleen lezen, PUT geeft 409), vrijgeven, verdwenen groep. **Niet getest:** de echte tabel, het
+  verstuurvenster met een document, de melding na een gewijzigde calculatie, twee gebruikers tegelijk, slepen met de
+  greep met de muis, plakken uit Word, een Engelse offerte.
+
 ## Calculaties, stap 1 (10-11-2026)
 
 Het voorbeeld "Calculatieboom FIT Clean" (claude.ai-artifact, goed ontvangen door collega's) in de app. Besluiten gebruiker:

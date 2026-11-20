@@ -178,6 +178,11 @@ if (liveDb)
             new MySqlCalculatieRepository(cs!), sp.GetRequiredService<IOfferteRepository>()));
     else
         builder.Services.AddSingleton<ICalculatieRepository>(_ => new MySqlCalculatieRepository(cs!));
+    // offertedocument (OfferteDocumenten_MariaDB.sql); lokaal testen zonder te schrijven: OfferteDocumenten__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("OfferteDocumenten:Geheugen"))
+        builder.Services.AddSingleton<IOfferteDocumentRepository, GeheugenOfferteDocumentRepository>();
+    else
+        builder.Services.AddSingleton<IOfferteDocumentRepository>(_ => new MySqlOfferteDocumentRepository(cs!));
     builder.Services.AddSingleton<ISamenstellingRepository>(_ => new MySqlSamenstellingRepository(cs!));
     // uren boeken op de delen van een werkorder; lokaal testen zonder de kolom en zonder echte delen: UrenDelen__Geheugen=true
     if (builder.Configuration.GetValue<bool>("UrenDelen:Geheugen"))
@@ -272,6 +277,7 @@ else
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
     builder.Services.AddSingleton<ICalculatieRepository, GeenCalculatieRepository>();
+    builder.Services.AddSingleton<IOfferteDocumentRepository, GeenOfferteDocumentRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
     builder.Services.AddSingleton<IWerkorderDelenRepository, GeenWerkorderDelenRepository>();
     builder.Services.AddSingleton<IGrootboekRepository, GeenGrootboekRepository>();
@@ -393,6 +399,7 @@ builder.Services.AddSingleton<FactuurPdfService>();
 builder.Services.AddSingleton<FactuurCreditService>();
 builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
+builder.Services.AddSingleton<OfferteDocumentService>();   // offertedocument: blokken opmaken met de cijfers uit de calculatie
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap
 builder.Services.AddSingleton<AgentUitgave>();
@@ -1541,6 +1548,9 @@ app.MapGet("/api/componenten", async (HttpContext ctx, IEcComponentRepository ec
 // geen sleutels = uit). Zie Services/ActivityBoardApi.cs en ActivityBoard-API.md.
 // ---------------------------------------------------------------------------
 app.MapActivityBoardApi();
+// het bewerkscherm van het offertedocument (wwwroot/offertedocument.html) haalt en bewaart hier
+var offerteDocApi = app.MapOfferteDocumentApi();
+if (loginAan) offerteDocApi.RequireAuthorization();
 // de uitleg en de skill voor Claude Code als download (links bij "mijn sleutel" op de pagina Werknemers)
 foreach (var adres in app.MapActivityBoardUitleg()) { if (loginAan) adres.RequireAuthorization(); }
 

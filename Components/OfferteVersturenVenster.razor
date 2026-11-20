@@ -5,6 +5,7 @@
    offertemap en de filestore (StoreType 8, MasterID = project). *@
 @inject IOfferteRepository Repo
 @inject OffertePdfService Pdf
+@inject OfferteDocumentService Documenten
 @inject FilestoreService Filestore
 @inject MailService Post
 @inject HuidigeGebruiker Ik
@@ -63,7 +64,7 @@
                             }
                             <div class="of-bijlagen">
                                 <strong>Bijlagen</strong>
-                                <div>📄 @_pdfNaam</div>
+                                <div>📄 @_pdfNaam@(_uitDocument ? " (het offertedocument)" : "")</div>
                                 @if (_voorwaarden is not null) { <div>📄 @_voorwaarden.Value.Naam</div> }
                                 else if (_g?.Offerte.AlgemeneVoorwaarden == true) { <div class="of-mist">Algemene voorwaarden: bestand niet gevonden (@_voorwaardenPad)</div> }
                             </div>
@@ -113,6 +114,8 @@
     private List<string> _waarschuwingen = new();
     private string _aan = "", _cc = "", _onderwerp = "", _tekst = "";
     private bool _bezig, _bezigPdf, _fout, _verstuurd, _metHandtekening;
+    /// <summary>De PDF komt uit het offertedocument (OfferteDocumentService) in plaats van uit de offerteregels.</summary>
+    private bool _uitDocument;
     private string? _handtekening;          // uit de eigen Gmail; null = nog bezig, "" = geen
     private string GmailInstellingen => $"https://mail.google.com/mail/?authuser={Uri.EscapeDataString(Ik.Email)}#settings/general";
 
@@ -153,7 +156,14 @@
             else if (_g.ContactMail.Length == 0) _waarschuwingen.Add($"{_g.Klant.Tav} heeft geen mailadres; vul het in bij Relaties of typ het hieronder.");
             if (o.Geldigheid.Trim().Length == 0) _waarschuwingen.Add("Geldigheid is niet ingevuld (tabblad Voorwaarden).");
             if (o.Levertijd.Trim().Length == 0) _waarschuwingen.Add("Levertijd is niet ingevuld (tabblad Voorwaarden).");
-            if (o.Totalen.Totaal == 0) _waarschuwingen.Add("De offerte heeft geen bedrag.");
+            // heeft de offerte een document (20-11-2026), dan is dat de PDF: vastgelegd zoals bewaard, anders met de
+            // cijfers die nu in de calculatie staan
+            string? docHtml = null;
+            _uitDocument = false;
+            try { docHtml = await Documenten.HtmlVoorPdfAsync(id, Ik.WerknemerId); }
+            catch (Exception ex) { _waarschuwingen.Add("Het offertedocument is niet op te maken (" + ex.Message + "); dit is de gewone offerte-PDF."); }
+            _uitDocument = docHtml is not null;
+            if (!_uitDocument && o.Totalen.Totaal == 0) _waarschuwingen.Add("De offerte heeft geen bedrag.");
 
             // mail zoals Access: onderwerp "Offerte"/"Quotation" + nummer, tekst uit de instellingen met {of}
             var inst = await Repo.MailInstellingenAsync();
@@ -174,7 +184,7 @@
 
             _pdfNaam = OffertePdfService.Bestandsnaam(o);
             _mapPad = Path.Combine(Pdf.Map, DateTime.Today.Year.ToString(), _g.Afzender.Afkorting.Length > 0 ? _g.Afzender.Afkorting : "BV");
-            _pdf = await Pdf.NaarPdfAsync(Pdf.Html(_g, DateOnly.FromDateTime(DateTime.Today)));
+            _pdf = await Pdf.NaarPdfAsync(docHtml ?? Pdf.Html(_g, DateOnly.FromDateTime(DateTime.Today)));
             _pdfUrl = await JS.InvokeAsync<string>("mdeBlob.maak", _pdf, "application/pdf");
         }
         catch (Exception ex) { Toon("PDF maken mislukt: " + ex.Message, true); }
@@ -234,6 +244,11 @@
         try
         {
             await Repo.MarkeerVerstuurdAsync(_g.Offerte.Id, Ik.WerknemerId);
+            // verstuurd = het document verandert niet meer mee met de calculatie (besluit gebruiker 20-11-2026)
+            if (_uitDocument)
+            {
+                try { await Documenten.LegVastAsync(_g.Offerte.Id, Ik.WerknemerId); } catch { /* vastleggen kan ook nog in het document zelf */ }
+            }
             _verstuurd = true;
             await Sluit();
         }

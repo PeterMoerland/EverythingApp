@@ -142,6 +142,7 @@
                             <button class="klein" title="De offerte als PDF bekijken en als Gmail-concept klaarzetten" @onclick="OpenVersturen">📄 PDF en versturen…</button>
                         }
                         <button class="klein" title="De calculatie (kostprijs, uren en verkoop) van deze offerte openen of maken" @onclick="OpenCalculatie">🧮 Calculatie</button>
+                        <button class="klein" title="De offerte als vrij op te maken document, met prijstabellen die aan de calculatie gekoppeld blijven" @onclick="OpenDocument">📝 Document</button>
                         <button class="primair" disabled="@(!Gewijzigd || _bezig)" @onclick="Bewaar">Opslaan</button>
                     </div>
 
@@ -703,6 +704,11 @@
     }
 
     /// <summary>Projecten ▸ Calculaties voor deze offerte (Components/Pages/Calculaties.razor).</summary>
+    private void OpenDocument()
+    {
+        if (_o is not null) Nav.NavigateTo($"projecten/offertedocument/{_o.Id}");
+    }
+
     private void OpenCalculatie()
     {
         if (_o is not null) Nav.NavigateTo($"projecten/calculaties/{_o.Id}");

@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Offertes** — Nieuw: in het offertedocument kun je een **eigen tabel** zetten (cellen plakken uit Excel kan, met een kopregel en rechts uitgelijnde kolommen) en blokken **naast elkaar** zetten, bijvoorbeeld een plaatje naast een tekst: kies per blok hele breedte, 1/2, 1/3 of 2/3 (verzoek van Peter).
+- **Offertes** — Nieuw: het **offertedocument**. Bij een offerte (knop 📝 Document, ook vanuit de calculatie) maak je de offerte als vrij document: eigen tekst, koppen en plaatjes, en prijstabellen die uit de calculatie komen en daaraan gekoppeld blijven. Per prijstabel kies je welk deel van de calculatie en hoe ver uitgeklapt; de klant ziet alleen verkoopbedragen. De PDF bij "PDF en versturen" is dan dit document, en bij Verstuurd wordt het vastgelegd met de cijfers van dat moment (verzoek van Peter). Eerst `OfferteDocumenten_MariaDB.sql` draaien.
 - **Activity board** — Verbeterd: de pop-up met eigenschappen toont nu ook het kaartnummer (bijvoorbeeld #61), met een korte uitleg waar je het voor gebruikt (punt van Gerard).
 - **Activity board** — Verbeterd: de pop-up is groter, en de tekstvakken groeien mee met de tekst, zodat je niet meer in een klein vak hoeft te schuiven (verzoek van Peter).
 - **Werknemers** — Nieuw: op het tabblad API-sleutel staat de knop **Script voor PowerShell kopiëren**. Plak het script in PowerShell en druk op Enter: Claude op die pc is dan gekoppeld aan het Activity board. Het script werkt tien minuten en één keer, en je sleutel staat er niet leesbaar in (verzoek van Peter).
