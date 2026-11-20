@@ -958,7 +958,7 @@ public class MySqlArtikelRepository : IArtikelRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT s.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), COALESCE(s.`ArtikelNummerSupplier`, ''), " +
-            "       COALESCE(s.`StuksPerVE`, 1), COALESCE(s.`PrijsPerVE`, 0), COALESCE(s.`Korting`, 0) " +
+            "       COALESCE(s.`StuksPerVE`, 1), COALESCE(s.`PrijsPerVE`, 0), COALESCE(s.`Korting`, 0), s.`ArtikelSupplierID` " +
             "  FROM `ArtikelSupplier` s JOIN `Artikelen` a ON a.`ArtikelID` = s.`ArtikelID` " +
             " WHERE s.`SupplierID` = @l ORDER BY a.`ArtikelCodeMDE`, s.`ArtikelSupplierID`", cn);
         cmd.Parameters.AddWithValue("@l", leverancierId);
@@ -968,7 +968,7 @@ public class MySqlArtikelRepository : IArtikelRepository
             var stuks = Convert.ToDecimal(r.GetValue(4));
             lijst.Add(new LeverancierArtikel(r.GetInt32(0), Convert.ToString(r.GetValue(1)) ?? "", Convert.ToString(r.GetValue(2)) ?? "",
                                              (Convert.ToString(r.GetValue(3)) ?? "").Trim(), stuks > 0 ? stuks : 1,
-                                             Convert.ToDecimal(r.GetValue(5)), Convert.ToDecimal(r.GetValue(6))));
+                                             Convert.ToDecimal(r.GetValue(5)), Convert.ToDecimal(r.GetValue(6)), r.GetInt32(7)));
         }
         return lijst;
     }

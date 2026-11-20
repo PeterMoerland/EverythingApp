@@ -373,6 +373,7 @@
     }
 
     private static string? Link(Melding m) => m.Soort == TeLaatFacturen.Soort ? TeLaatFacturen.Pagina      // het overzicht, in een nieuw venster
+        : m.Soort == SolarPrijsWaker.MeldingSoort ? SolarPrijsWaker.Pagina
         : m.OrderId is not int oid || m.Soort == "bericht" ? null : m.Soort switch
     {
         "analyse" => $"ai?vraag={oid}",           // OrderId = de vraag (Vragen aan AI)
@@ -384,7 +385,7 @@
 
     private static string Icoon(Melding m) => m.Soort switch
     {
-        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "activiteit" => "📌", "verzekering" => "🛡️", "goedgekeurd" => "✅", "telaat" => "⏰", _ => "•",
+        "bericht" => "💬", "gemist" => "📹", "analyse" => "✨", "afgekeurd" => "❌", "geleverd" => "📦", "verbeter" => "💡", "activiteit" => "📌", "verzekering" => "🛡️", "goedgekeurd" => "✅", "telaat" => "⏰", "solarprijzen" => "💶", _ => "•",
     };
 
     private static string Onder(Melding m)

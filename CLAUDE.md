@@ -1672,6 +1672,29 @@ De Solar Procurement API (apiportal.solar.eu) was lang blijven liggen op het cli
     ligt dan onze prijs per stuk, en meldt dat ("per VE van 50"). Blijft het verschil groter dan +150% of -60%, dan
     staat er "groot verschil: andere eenheid of verpakking?". Het blijft dus een hulpmiddel om na te kijken, geen
     bron om blind over te nemen.
+- **Overnemen en de wekelijkse taak** (besluit gebruiker, zelfde dag: "automatisch, 1x per week in het weekend";
+  afgesproken: kleine verschillen tot en met 15% automatisch, grote eerst nakijken, eerst de achterstand met de hand).
+  **Script nodig: `SolarPrijzen_MariaDB.sql`** (`SolarArtikelBasis`, `SolarPrijsLog`, `SolarPrijsRuns`); zonder werkt
+  alleen het overzicht.
+  - `Services/SolarPrijsBeheer.cs`. `SolarVergelijk.Reken(artikel, solar, vasteBasis)` is de enige plek met de
+    rekenregels, voor scherm én taak: basis per stuk of per VE (vastgelegd, anders wat het dichtst bij ligt), verschil
+    op netto, en wat overnemen oplevert: `PrijsPerVE` = Solar-bruto (per stuk × StuksPerVE, of per VE), `Korting` =
+    1 − netto/bruto. `Klein(grens)` = meer dan 1% en hoogstens de grens; `Groot(grens)` = daarboven.
+  - `ISolarPrijsRepository.NeemOverAsync`: UPDATE van `ArtikelSupplier` (PrijsPerVE, Korting) en de logregel in één
+    transactie; `Door` leeg = de taak. Alleen deze twee kolommen worden geraakt; de kostprijs van het artikel niet.
+  - Scherm: filter "Klein verschil, over te nemen" (standaard) en "Groot verschil, na te kijken"; per regel
+    **Overnemen** (bij een groot verschil eerst een vraag die zegt wat de nieuwe prijs wordt en hoe de Solar-prijs
+    gelezen is) en, als StuksPerVE > 1, een knop **per stuk / per VE** die de basis omzet (vastgelegd in
+    `SolarArtikelBasis` bij het overnemen); **Alle kleine verschillen overnemen (n)** met een bevestiging. Overnemen
+    mag `Artikelbeheer` of `Directie`. Onderaan het logboek (laatste 100) en de laatste run van de taak.
+  - `SolarPrijsWaker` (BackgroundService): alleen met `Solar:AutoBijwerken = true` (**standaard uit**), op
+    `Solar:AutoDag` (Saturday) na `Solar:AutoUur` (2), één keer per dag volgens `SolarPrijsRuns` (ook een mislukte
+    poging telt, anders probeert hij het elk kwartier). Neemt alleen `Klein(Solar:AutoGrens)` over.
+  - Melding: soort `solarprijzen` in `MeldingSoorten`, **standaard uit**; `IMeldingVoorkeurRepository.WieWilAsync`
+    geeft wie hem heeft aangezet. Link in de bel naar de pagina.
+  - Stand 20-11 (alleen gelezen): 281 klein, 335 groot, 36 gelijk, 96 zonder prijs.
+  - **Niet getest:** het overnemen zelf, de knoppen, het logboek en de wekelijkse taak (de tabellen bestaan nog niet
+    en er wordt lokaal niet in de echte database geschreven). Wel: bouwen, en het overzicht met de nieuwe indeling.
 - **Getest** tegen de echte API en de echte artikelen (alleen lezen): 748 regels in ongeveer een minuut; uitkomst
   20-11: 556 duurder bij Solar, 60 goedkoper, 36 gelijk, 96 zonder prijs. **Niet nagekeken:** of die uitkomsten per
   artikel kloppen (veel verschillen van +50% en meer: oude prijzen bij ons, of toch een eenheid), de laatste

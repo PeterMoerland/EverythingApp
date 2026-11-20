@@ -18,6 +18,9 @@ public static class MeldingSoorten
     {
         new("activiteit", "Activity board toewijzing",
             "Een collega wijst je toe aan een activiteit op een Activity board, of maakt er een voor je aan."),
+        // staat standaard uit: alleen wie het aanzet hoort wat de wekelijkse taak deed (SolarPrijsWaker)
+        new(SolarPrijsWaker.MeldingSoort, "Solar-prijzen bijgewerkt",
+            "Na de wekelijkse controle van de Solar-prijzen: hoeveel prijzen zijn bijgewerkt en hoeveel er na te kijken zijn.", Standaard: false),
     };
 
     public static MeldingSoort? Van(string code) => Instelbaar.FirstOrDefault(s => s.Code == code);
@@ -39,6 +42,11 @@ public interface IMeldingVoorkeurRepository
     /// de standaard: een storing hier mag geen melding tegenhouden.
     /// </summary>
     Task<bool> WilAsync(int werknemerId, string soort);
+    /// <summary>
+    /// Wie deze soort uitdrukkelijk heeft aangezet. Voor een soort die standaard uit staat is dat de lijst van
+    /// ontvangers (een melding aan iedereen maken en laten wegfilteren zou voor elke werknemer een vraag kosten).
+    /// </summary>
+    Task<List<int>> WieWilAsync(string soort);
 }
 
 public class GeenMeldingVoorkeurRepository : IMeldingVoorkeurRepository
@@ -48,6 +56,7 @@ public class GeenMeldingVoorkeurRepository : IMeldingVoorkeurRepository
     public Task<Dictionary<string, bool>> GetAsync(int werknemerId) => Task.FromResult(new Dictionary<string, bool>());
     public Task ZetAsync(int werknemerId, string soort, bool aan) => Task.CompletedTask;
     public Task<bool> WilAsync(int werknemerId, string soort) => Task.FromResult(MeldingSoorten.Van(soort)?.Standaard ?? true);
+    public Task<List<int>> WieWilAsync(string soort) => Task.FromResult(new List<int>());
 }
 
 /// <summary>In het geheugen, alleen om het tabblad lokaal te proberen (MeldingVoorkeuren:Geheugen = true); weg na een herstart.</summary>
@@ -72,6 +81,11 @@ public class GeheugenMeldingVoorkeurRepository : IMeldingVoorkeurRepository
     {
         if (MeldingSoorten.Van(soort) is not { } s) return Task.FromResult(true);
         lock (_keuzes) return Task.FromResult(_keuzes.TryGetValue((werknemerId, soort), out var aan) ? aan : s.Standaard);
+    }
+
+    public Task<List<int>> WieWilAsync(string soort)
+    {
+        lock (_keuzes) return Task.FromResult(_keuzes.Where(k => k.Key.Item2 == soort && k.Value).Select(k => k.Key.Item1).ToList());
     }
 }
 
@@ -142,5 +156,19 @@ public class MySqlMeldingVoorkeurRepository : IMeldingVoorkeurRepository
             return await cmd.ExecuteScalarAsync() is { } v and not DBNull ? Convert.ToInt32(v) != 0 : s.Standaard;
         }
         catch { return s.Standaard; }
+    }
+
+    public async Task<List<int>> WieWilAsync(string soort)
+    {
+        var lijst = new List<int>();
+        if (!await TabelAanwezigAsync()) return lijst;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT v.`WerknemerID` FROM `MeldingVoorkeuren` v JOIN `Werknemers` w ON w.`Werknemer-id` = v.`WerknemerID` " +
+            " WHERE v.`Soort` = @s AND v.`Aan` <> 0 AND COALESCE(w.`Uit dienst`, 0) = 0", cn);
+        cmd.Parameters.AddWithValue("@s", soort);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(r.GetInt32(0));
+        return lijst;
     }
 }

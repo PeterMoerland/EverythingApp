@@ -2,14 +2,21 @@
 @using System.Globalization
 @implements IDisposable
 @inject IArtikelRepository Repo
+@inject ISolarPrijsRepository Opslag
 @inject SolarKoppeling Solar
+@inject HuidigeGebruiker Ik
+@inject IConfiguration Config
+@inject IJSRuntime JS
 
 @* Solar-prijzen (wens gebruiker 20-11-2026): onze prijzen van de artikelen die we bij Solar kopen (ArtikelSupplier,
    leverancier Solar:LeverancierId) naast de actuele bruto- en nettoprijs uit de Solar Procurement API
-   (Services/SolarKoppeling.cs). Alleen lezen: er wordt niets overgenomen of gewijzigd. Vergelijken gaat op de nettoprijs.
-   Solar rekent per eigen eenheid: soms per stuk of meter, soms per verpakking (klinknagels per blister van 50). Welke het
-   is zegt de API niet betrouwbaar, dus de regel vergelijkt met onze prijs per stuk of per VE, wat het dichtst bij ligt
-   (Regel.PerVe), en zegt in de opmerking als het per VE is. *@
+   (Services/SolarKoppeling.cs), en het overnemen daarvan.
+
+   De rekenregels staan in SolarVergelijk (Services/SolarPrijsBeheer.cs), dezelfde als de wekelijkse taak gebruikt:
+   vergelijken op de nettoprijs; per stuk of per VE, wat het dichtst bij ligt, tenzij het voor de regel is vastgelegd;
+   een verschil tot en met de grens (15%) heet klein en mag in één keer worden overgenomen, een groter verschil kijk je
+   eerst na. Overnemen zet PrijsPerVE en Korting van de regel en schrijft een logregel (SolarPrijzen_MariaDB.sql).
+   Overnemen mag wie artikelen mag beheren (Artikelbeheer of Directie); de rest ziet alleen het overzicht. *@
 
 <PageTitle>Solar-prijzen — MDE</PageTitle>
 
@@ -28,7 +35,7 @@
             }
             else
             {
-                <button class="primair" disabled="@(_regels.Count == 0)" @onclick="HaalPrijzen">@(_opgehaald is null ? "Prijzen ophalen bij Solar" : "↻ Opnieuw ophalen")</button>
+                <button class="primair" disabled="@(_regels.Count == 0 || _schrijft)" @onclick="HaalPrijzen">@(_opgehaald is null ? "Prijzen ophalen bij Solar" : "↻ Opnieuw ophalen")</button>
             }
         }
     </header>
@@ -44,12 +51,34 @@
     else
     {
         <p class="uitleg">
-            De artikelen die we bij Solar kopen, met onze prijs naast de actuele prijs van Solar. Alles is omgerekend naar de
-            prijs per stuk of meter, of per verpakking als Solar het zo verkoopt (dat staat dan in de opmerking). Het verschil
-            gaat over de <b>nettoprijs</b>. Er wordt niets gewijzigd: dit is alleen een overzicht. Klik op een regel om het
-            artikel te openen.
+            De artikelen die we bij Solar kopen, met onze prijs naast de actuele prijs van Solar, omgerekend naar de prijs per
+            stuk of meter, of per verpakking als Solar het zo verkoopt (dat staat dan in de opmerking). Het verschil gaat
+            over de <b>nettoprijs</b>. Een verschil tot en met @((Grens * 100).ToString("0.#", Nl))% heet klein; een groter
+            verschil kijk je eerst na, want het kan ook een andere eenheid zijn. Klik op een artikel om het te openen.
+        </p>
+        <p class="uitleg">
+            @if (!_tabellen)
+            {
+                <b>Overnemen kan nog niet:</b> <span>de tabellen ontbreken (SolarPrijzen_MariaDB.sql). Het overzicht werkt wel.</span>
+            }
+            else if (!MagBewerken)
+            {
+                <span>Prijzen overnemen kan wie artikelen mag beheren (Artikelbeheer of Directie).</span>
+            }
+            @if (_tabellen)
+            {
+                <span>
+                    Wekelijkse taak: <b>@(AutoAan ? "aan" : "uit")</b>@(AutoAan ? "" : " (Solar:AutoBijwerken in appsettings)").
+                    @if (_laatsteRun is { } run)
+                    {
+                        <text> Laatst gedraaid @run.Op.ToString("dd-MM-yyyy HH:mm"):
+                            @(run.Fout.Length > 0 ? "mislukt (" + run.Fout + ")" : $"{run.Bijgewerkt} bijgewerkt, {run.NaTeKijken} na te kijken").</text>
+                    }
+                </span>
+            }
         </p>
         @if (_fout is not null) { <div class="solar-fout">@_fout</div> }
+        @if (_klaarTekst is not null) { <div class="solar-ok" @onclick="() => _klaarTekst = null">@_klaarTekst</div> }
         @if (_laden) { <p class="uitleg"><span class="draaier"></span> Artikelen ophalen…</p> }
         @if (_bezig)
         {
@@ -60,8 +89,9 @@
         {
             <div class="bankfilters">
                 <label class="bankveld"><span>Tonen</span>
-                    <select value="@_filter" @onchange='e => _filter = (string?)e.Value ?? "verschil"'>
-                        <option value="verschil">Alleen verschillen (@Aantal("verschil"))</option>
+                    <select value="@_filter" @onchange='e => _filter = (string?)e.Value ?? "klein"'>
+                        <option value="klein">Klein verschil, over te nemen (@Aantal("klein"))</option>
+                        <option value="groot">Groot verschil, na te kijken (@Aantal("groot"))</option>
                         <option value="duurder">Duurder bij Solar (@Aantal("duurder"))</option>
                         <option value="goedkoper">Goedkoper bij Solar (@Aantal("goedkoper"))</option>
                         <option value="onbekend">Niet bekend bij Solar of geen prijs (@Aantal("onbekend"))</option>
@@ -70,6 +100,13 @@
                     </select></label>
                 <label class="bankveld prod-keuze"><span>Zoeken</span>
                     <input placeholder="artikel, omschrijving of Solar-nummer" value="@_zoek" @oninput='e => _zoek = (string?)e.Value ?? ""' /></label>
+                @if (KanOvernemen)
+                {
+                    var klein = _regels.Count(r => Past(r, "klein"));
+                    <button class="primair" disabled="@(_schrijft || klein == 0)" @onclick="NeemKleineOver"
+                            title="Neemt van alle regels met een klein verschil de Solar-prijs over; grote verschillen blijven staan">
+                        @(_schrijft ? "Bezig…" : $"Alle kleine verschillen overnemen ({klein})")</button>
+                }
             </div>
         }
 
@@ -81,32 +118,49 @@
                         <tr>
                             <th style="width:12rem">Artikel</th>
                             <th>Omschrijving</th>
-                            <th style="width:7rem">Solar-nr</th>
-                            <th style="width:6.5rem" class="r" title="Onze brutoprijs per stuk">Bruto ons</th>
-                            <th style="width:5rem" class="r" title="Onze korting">Korting</th>
-                            <th style="width:6.5rem" class="r" title="Onze nettoprijs per stuk">Netto ons</th>
-                            <th style="width:6.5rem" class="r" title="Brutoprijs van Solar per eenheid">Bruto Solar</th>
-                            <th style="width:6.5rem" class="r" title="Nettoprijs van Solar per eenheid">Netto Solar</th>
-                            <th style="width:5.5rem" class="r" title="Netto Solar ten opzichte van netto bij ons">Verschil</th>
-                            <th style="width:13rem">Opmerking</th>
+                            <th style="width:6rem">Solar-nr</th>
+                            <th style="width:6rem" class="r" title="Onze brutoprijs">Bruto ons</th>
+                            <th style="width:4.5rem" class="r" title="Onze korting">Korting</th>
+                            <th style="width:6rem" class="r" title="Onze nettoprijs">Netto ons</th>
+                            <th style="width:6rem" class="r" title="Brutoprijs van Solar per eenheid">Bruto Solar</th>
+                            <th style="width:6rem" class="r" title="Nettoprijs van Solar per eenheid">Netto Solar</th>
+                            <th style="width:5rem" class="r" title="Netto Solar ten opzichte van netto bij ons">Verschil</th>
+                            <th style="width:12rem">Opmerking</th>
+                            @if (KanOvernemen) { <th style="width:13rem"></th> }
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var r in Zichtbaar.Take(MaxTonen))
                         {
+                            var u = r.Uitkomst;
                             @* sleutel = de regel zelf: één artikel kan twee keer bij Solar staan (twee regels in ArtikelSupplier) *@
-                            <tr @key="r" class="rij-link @Klasse(r)">
-                                <td class="omschrijving"><a class="rij-doel" href="@("artikelen?nr=" + r.Artikel.ArtikelId)" target="_blank" rel="noopener"
+                            <tr @key="r" class="@Klasse(r)">
+                                <td class="omschrijving"><a href="@("artikelen?nr=" + r.Artikel.ArtikelId)" target="_blank" rel="noopener"
                                        title="@(r.Artikel.Code + " — artikel openen in een nieuw venster")">@(r.Artikel.Code.Length > 0 ? r.Artikel.Code : "#" + r.Artikel.ArtikelId)</a></td>
                                 <td class="omschrijving" title="@(r.Solar?.Omschrijving is { Length: > 0 } so ? "Bij Solar: " + so : r.Artikel.Omschrijving)">@r.Artikel.Omschrijving</td>
                                 <td>@r.Artikel.Artikelnummer</td>
-                                <td class="r">@Prijs(r.OnsBruto)</td>
+                                <td class="r">@Prijs(u.OnsBruto)</td>
                                 <td class="r">@(r.Artikel.Korting != 0 ? (r.Artikel.Korting * 100).ToString("0.#", Nl) + "%" : "")</td>
-                                <td class="r">@Prijs(r.OnsNetto)</td>
+                                <td class="r">@Prijs(u.OnsNetto)</td>
                                 <td class="r">@Prijs(r.Solar?.BrutoPerStuk)</td>
                                 <td class="r"><b>@Prijs(r.Solar?.NettoPerStuk)</b></td>
-                                <td class="r solar-verschil">@VerschilTekst(r)</td>
+                                <td class="r solar-verschil">@VerschilTekst(u)</td>
                                 <td class="omschrijving" title="@Opmerking(r)">@Opmerking(r)</td>
+                                @if (KanOvernemen)
+                                {
+                                    <td class="solar-knoppen">
+                                        @if (r.Solar is not null && u.NieuwPrijsPerVe is decimal np && u.NieuweKorting is decimal nk && !u.IsGelijk)
+                                        {
+                                            @if (r.Artikel.StuksPerVe > 1)
+                                            {
+                                                <button class="klein" disabled="@_schrijft" @onclick="() => WisselBasis(r)"
+                                                        title="@(u.PerVe ? $"De Solar-prijs geldt nu per VE van {r.Artikel.StuksPerVe:0.##}. Klik als Solar per stuk rekent." : $"De Solar-prijs geldt nu per stuk. Klik als Solar per verpakking (VE van {r.Artikel.StuksPerVe:0.##}) rekent.")">@(u.PerVe ? "per VE" : "per stuk")</button>
+                                            }
+                                            <button class="klein" disabled="@_schrijft" @onclick="() => NeemOver(r)"
+                                                    title="@($"Overnemen: prijs per VE wordt {Prijs(np)}, korting {(nk * 100).ToString("0.##", Nl)}% (netto {Prijs(np * (1 - nk))} per VE)")">Overnemen</button>
+                                        }
+                                    </td>
+                                }
                             </tr>
                         }
                     </tbody>
@@ -121,64 +175,93 @@
                 <section class="module-placeholder"><p>Geen regels met dit filter.</p></section>
             }
         }
+
+        @if (_log.Count > 0)
+        {
+            <h3 class="wn-kop solar-logkop" role="button" tabindex="0" @onclick="() => _logOpen = !_logOpen">@(_logOpen ? "▾" : "▸") Laatst overgenomen prijzen (@_log.Count)</h3>
+            @if (_logOpen)
+            {
+                <div class="regels-omhulsel">
+                    <table class="kiezer-tabel banktabel solar-tabel">
+                        <thead><tr><th style="width:9rem">Wanneer</th><th style="width:11rem">Door</th><th>Artikel</th>
+                            <th style="width:8rem" class="r">Oud per VE</th><th style="width:6rem" class="r">Oude korting</th>
+                            <th style="width:8rem" class="r">Nieuw per VE</th><th style="width:6rem" class="r">Nieuwe korting</th></tr></thead>
+                        <tbody>
+                            @foreach (var l in _log)
+                            {
+                                <tr>
+                                    <td>@l.Op.ToString("dd-MM-yyyy HH:mm")</td>
+                                    <td>@(l.Bron == "auto" ? "wekelijkse taak" : l.Door)</td>
+                                    <td class="omschrijving"><a href="@("artikelen?nr=" + l.ArtikelId)" target="_blank" rel="noopener">@(l.Artikel.Length > 0 ? l.Artikel : "#" + l.ArtikelId)</a></td>
+                                    <td class="r">@Prijs(l.OudPrijsPerVe)</td>
+                                    <td class="r">@(l.OudKorting is decimal ok ? (ok * 100).ToString("0.##", Nl) + "%" : "")</td>
+                                    <td class="r">@Prijs(l.NieuwPrijsPerVe)</td>
+                                    <td class="r">@((l.NieuweKorting * 100).ToString("0.##", Nl))%</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
     }
 </div>
 
 @code {
     private const int MaxTonen = 400;
-    /// <summary>Onder dit verschil (1%) noemen we de prijzen gelijk: afronding en prijs per verpakking.</summary>
-    private const decimal Marge = 0.01m;
     private static readonly CultureInfo Nl = new("nl-NL");
 
     private sealed class Regel
     {
-        public required LeverancierArtikel Artikel { get; init; }
+        public required LeverancierArtikel Artikel { get; set; }
         public SolarPrijs? Solar { get; set; }
-        /// <summary>
-        /// Vergelijken per verpakking (VE) in plaats van per stuk: als Solar kennelijk per verpakking rekent, dus als de
-        /// Solar-prijs dichter bij onze prijs per VE ligt dan bij onze prijs per stuk.
-        /// </summary>
-        public bool PerVe
-        {
-            get
-            {
-                if (Solar?.NettoPerStuk is not decimal s || s <= 0 || Artikel.StuksPerVe <= 1 || Artikel.NettoPerStuk <= 0) return false;
-                var perStuk = Math.Abs(Math.Log((double)(s / Artikel.NettoPerStuk)));
-                var perVe = Math.Abs(Math.Log((double)(s / (Artikel.NettoPerStuk * Artikel.StuksPerVe))));
-                return perVe < perStuk;
-            }
-        }
-        public decimal OnsBruto => PerVe ? Artikel.BrutoPerStuk * Artikel.StuksPerVe : Artikel.BrutoPerStuk;
-        public decimal OnsNetto => PerVe ? Artikel.NettoPerStuk * Artikel.StuksPerVe : Artikel.NettoPerStuk;
-
-        /// <summary>Netto Solar ten opzichte van netto bij ons, als fractie; null = niet te vergelijken.</summary>
-        public decimal? Verschil => Solar?.NettoPerStuk is decimal s && OnsNetto > 0 ? (s - OnsNetto) / OnsNetto : null;
+        /// <summary>Vastgelegd (in de database of zojuist met de knop): per VE of per stuk; null = de app kiest.</summary>
+        public bool? Basis { get; set; }
+        public SolarVergelijk.Uitkomst Uitkomst => SolarVergelijk.Reken(Artikel, Solar, Basis);
     }
 
     private List<Regel> _regels = new();
-    private bool _laden, _bezig;
+    private List<SolarLogRegel> _log = new();
+    private SolarRun? _laatsteRun;
+    private bool _laden, _bezig, _schrijft, _tabellen, _logOpen;
     private int _klaar, _totaal;
-    private string? _fout;
+    private string? _fout, _klaarTekst;
     private DateTime? _opgehaald;
-    private string _filter = "verschil", _zoek = "";
+    private string _filter = "klein", _zoek = "";
     private CancellationTokenSource? _stop;
+
+    private decimal Grens => SolarPrijsWaker.Grens(Config);
+    private bool AutoAan => Config.GetValue<bool>("Solar:AutoBijwerken");
+    private bool MagBewerken => Ik.Mag("Artikelbeheer") || Ik.Mag("Directie");
+    private bool KanOvernemen => MagBewerken && _tabellen && _opgehaald is not null;
 
     protected override async Task OnInitializedAsync()
     {
+        await Ik.ZorgGeladenAsync();
         if (!Repo.Beschikbaar || !Solar.Ingesteld) return;
         _laden = true;
         try
         {
-            _regels = (await Repo.ArtikelenVanLeverancierAsync(Solar.LeverancierId)).Select(a => new Regel { Artikel = a }).ToList();
+            _tabellen = Opslag.Beschikbaar && await Opslag.TabellenAanwezigAsync();
+            var basis = _tabellen ? await Opslag.BasisAsync() : new();
+            _regels = (await Repo.ArtikelenVanLeverancierAsync(Solar.LeverancierId))
+                .Select(a => new Regel { Artikel = a, Basis = basis.TryGetValue(a.Id, out var b) ? b : null }).ToList();
+            await LaadLog();
         }
         catch (Exception ex) { _fout = "Artikelen ophalen mislukt: " + ex.Message; }
         _laden = false;
     }
 
+    private async Task LaadLog()
+    {
+        if (!_tabellen) return;
+        try { _log = await Opslag.LogAsync(100); _laatsteRun = await Opslag.LaatsteRunAsync(); } catch { }
+    }
+
     private async Task HaalPrijzen()
     {
         if (_bezig) return;
-        _bezig = true; _fout = null; _klaar = 0;
+        _bezig = true; _fout = null; _klaarTekst = null; _klaar = 0;
         var nummers = _regels.Select(r => r.Artikel.Artikelnummer.Trim()).Where(n => n.Length > 0).Distinct().ToList();
         _totaal = nummers.Count;
         _stop = new CancellationTokenSource();
@@ -205,15 +288,90 @@
 
     private void Stop() => _stop?.Cancel();
 
-    private static string Soort(Regel r)
-        => r.Solar is null ? "" : r.Verschil is not decimal v ? "onbekend" : v > Marge ? "duurder" : v < -Marge ? "goedkoper" : "gelijk";
+    // ---- overnemen ----
+
+    /// <summary>De Solar-prijs van één regel overnemen. Een met de knop gekozen basis (per stuk / per VE) wordt daarbij vastgelegd.</summary>
+    private async Task<bool> Schrijf(Regel r)
+    {
+        var u = r.Uitkomst;
+        if (r.Solar is not { } solar || u.NieuwPrijsPerVe is not decimal prijs || u.NieuweKorting is not decimal korting) return false;
+        if (r.Basis is bool vast) await Opslag.ZetBasisAsync(r.Artikel.Id, vast, Ik.WerknemerId);
+        await Opslag.NeemOverAsync(r.Artikel, prijs, korting, solar, u.PerVe, Ik.WerknemerId ?? 0);
+        r.Artikel = r.Artikel with { PrijsPerVe = prijs, Korting = korting };
+        return true;
+    }
+
+    private async Task NeemOver(Regel r)
+    {
+        if (!KanOvernemen || _schrijft) return;
+        var u = r.Uitkomst;
+        // een groot verschil kan een andere eenheid zijn: eerst laten bevestigen wat er gaat gebeuren
+        if (u.Groot(Grens) || u.Verschil is null)
+        {
+            var vraag = $"{r.Artikel.Code}\n\nDe prijs per VE (van {r.Artikel.StuksPerVe:0.##}) wordt {Prijs(u.NieuwPrijsPerVe)} met {((u.NieuweKorting ?? 0) * 100).ToString("0.##", Nl)}% korting"
+                      + $" (was {Prijs(r.Artikel.PrijsPerVe)} met {(r.Artikel.Korting * 100).ToString("0.##", Nl)}%).\n\n"
+                      + $"De Solar-prijs is hierbij gelezen als prijs {(u.PerVe ? "per verpakking" : "per stuk")}. Klopt dat?";
+            var door = false;
+            try { door = await JS.InvokeAsync<bool>("mdeBevestig", vraag, new { ja = "Overnemen", nee = "Terug" }); } catch { }
+            if (!door) return;
+        }
+        _schrijft = true; _fout = null;
+        try
+        {
+            if (await Schrijf(r)) _klaarTekst = $"Prijs van {r.Artikel.Code} overgenomen.";
+            await LaadLog();
+        }
+        catch (Exception ex) { _fout = "Overnemen mislukt: " + ex.Message; }
+        _schrijft = false;
+    }
+
+    private async Task NeemKleineOver()
+    {
+        if (!KanOvernemen || _schrijft) return;
+        var lijst = _regels.Where(r => Past(r, "klein")).ToList();
+        if (lijst.Count == 0) return;
+        var door = false;
+        try
+        {
+            door = await JS.InvokeAsync<bool>("mdeBevestig",
+                $"Van {lijst.Count} artikelen de Solar-prijs overnemen?\n\nDit zijn de regels met een verschil tot en met {(Grens * 100).ToString("0.#", Nl)}%. "
+                + "Grote verschillen blijven staan om na te kijken. Elke wijziging komt in het logboek onderaan.",
+                new { ja = "Overnemen", nee = "Terug" });
+        }
+        catch { }
+        if (!door) return;
+        _schrijft = true; _fout = null; _klaarTekst = null;
+        StateHasChanged();
+        int gelukt = 0, mislukt = 0;
+        foreach (var r in lijst)
+        {
+            try { if (await Schrijf(r)) gelukt++; }
+            catch { mislukt++; }
+        }
+        await LaadLog();
+        _klaarTekst = $"{gelukt} prijzen overgenomen." + (mislukt > 0 ? $" {mislukt} mislukt; die staan er nog." : "");
+        _schrijft = false;
+    }
+
+    /// <summary>Per stuk ⇄ per VE voor deze regel (in het scherm; vastgelegd bij Overnemen).</summary>
+    private void WisselBasis(Regel r) => r.Basis = !r.Uitkomst.PerVe;
+
+    // ---- tonen ----
+
+    private string Soort(Regel r)
+    {
+        if (r.Solar is null) return "";
+        var u = r.Uitkomst;
+        return u.Verschil is not decimal v ? "onbekend" : u.IsGelijk ? "gelijk" : v > 0 ? "duurder" : "goedkoper";
+    }
 
     private int Aantal(string filter) => _regels.Count(r => Past(r, filter));
 
-    private static bool Past(Regel r, string filter) => filter switch
+    private bool Past(Regel r, string filter) => filter switch
     {
         "alles" => true,
-        "verschil" => Soort(r) is "duurder" or "goedkoper",
+        "klein" => r.Solar is not null && r.Uitkomst.Klein(Grens),
+        "groot" => r.Solar is not null && r.Uitkomst.Groot(Grens),
         _ => Soort(r) == filter,
     };
 
@@ -228,24 +386,26 @@
                                                            .Contains(w, StringComparison.OrdinalIgnoreCase)));
             // grootste verschil bovenaan, daarna op artikelcode
             return (_opgehaald is null ? lijst.OrderBy(r => r.Artikel.Code)
-                                       : lijst.OrderByDescending(r => Math.Abs(r.Verschil ?? 0)).ThenBy(r => r.Artikel.Code)).ToList();
+                                       : lijst.OrderByDescending(r => Math.Abs(r.Uitkomst.Verschil ?? 0)).ThenBy(r => r.Artikel.Code)).ToList();
         }
     }
 
-    private static string Klasse(Regel r) => Soort(r) switch { "duurder" => "solar-duurder", "goedkoper" => "solar-goedkoper", "onbekend" => "solar-onbekend", _ => "" };
+    private string Klasse(Regel r) => Soort(r) switch { "duurder" => "solar-duurder", "goedkoper" => "solar-goedkoper", "onbekend" => "solar-onbekend", _ => "" };
 
     private static string Prijs(decimal? p) => p is decimal v ? v.ToString(v < 10 ? "€ 0.00##" : "€ #,0.00", Nl) : "";
 
-    private static string VerschilTekst(Regel r) => r.Verschil is decimal v ? (v > 0 ? "+" : "") + (v * 100).ToString("0.#", Nl) + "%" : "";
+    private static string VerschilTekst(SolarVergelijk.Uitkomst u) => u.Verschil is decimal v ? (v > 0 ? "+" : "") + (v * 100).ToString("0.#", Nl) + "%" : "";
 
-    private static string Opmerking(Regel r)
+    private string Opmerking(Regel r)
     {
         if (r.Solar is not { } s) return "";
         if (s.Opmerking.Length > 0) return s.Opmerking;
+        var u = r.Uitkomst;
         var delen = new List<string>();
         if (r.Artikel.NettoPerStuk <= 0) delen.Add("bij ons geen prijs");
-        if (r.PerVe) delen.Add($"per VE van {r.Artikel.StuksPerVe:0.##}");
-        else if (r.Verschil is decimal v && (v > 1.5m || v < -0.6m)) delen.Add("groot verschil: andere eenheid of verpakking?");
+        if (u.PerVe) delen.Add($"per VE van {r.Artikel.StuksPerVe:0.##}" + (r.Basis is true ? " (vastgelegd)" : ""));
+        else if (r.Basis is false && r.Artikel.StuksPerVe > 1) delen.Add("per stuk (vastgelegd)");
+        if (u.Groot(Grens) && u.Verschil is decimal v && (v > 1.5m || v < -0.6m)) delen.Add("andere eenheid of verpakking?");
         if (s.Status.Length > 0 && s.Status != "10") delen.Add("status bij Solar: " + s.Status);
         if (s.Eenheid.Length > 0 && s.Eenheid is not ("PCE" or "ST")) delen.Add("Solar per " + s.Eenheid.ToLowerInvariant());
         return string.Join(" · ", delen);

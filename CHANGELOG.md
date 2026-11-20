@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Artikelen** — Nieuw: in Artikelen ▸ Solar-prijzen kun je de prijs van Solar overnemen, per regel of in één keer voor alle kleine verschillen (tot en met 15%). Bij een groot verschil kies je eerst of Solar per stuk of per verpakking rekent; dat wordt onthouden. Elke wijziging staat in het logboek onderaan de pagina (verzoek van Peter).
+- **Artikelen** — Nieuw: de app kan de Solar-prijzen elke week in het weekend zelf bijwerken: kleine verschillen worden overgenomen, grote blijven staan om na te kijken. Wie dat wil, krijgt er een melding van (Werknemers ▸ Meldingen ▸ Solar-prijzen bijgewerkt). Staat uit tot het wordt aangezet (verzoek van Peter).
 - **Artikelen** — Nieuw: Artikelen ▸ Solar-prijzen. Een overzicht van alle artikelen die we bij Solar kopen, met onze prijs naast de actuele bruto- en nettoprijs van Solar en het verschil in procenten. Je filtert op duurder, goedkoper, gelijk of niet bekend bij Solar. Het is alleen een overzicht: er wordt niets gewijzigd (verzoek van Peter).
 
 ## 19-11-2026

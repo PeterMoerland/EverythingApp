@@ -7,8 +7,9 @@ using System.Text.Json;
 namespace EverythingApp.Services;
 
 /// <summary>Een artikel dat wij bij Solar kopen: onze gegevens uit ArtikelSupplier.</summary>
+/// <param name="Id">ArtikelSupplier.ArtikelSupplierID: de regel die bij het overnemen van een prijs wordt bijgewerkt.</param>
 public record LeverancierArtikel(int ArtikelId, string Code, string Omschrijving, string Artikelnummer,
-                                 decimal StuksPerVe, decimal PrijsPerVe, decimal Korting)
+                                 decimal StuksPerVe, decimal PrijsPerVe, decimal Korting, int Id = 0)
 {
     /// <summary>Onze brutoprijs per stuk (PrijsPerVE gedeeld door StuksPerVE).</summary>
     public decimal BrutoPerStuk => StuksPerVe > 0 ? PrijsPerVe / StuksPerVe : PrijsPerVe;

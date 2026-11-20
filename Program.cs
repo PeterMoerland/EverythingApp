@@ -138,6 +138,7 @@ if (liveDb)
     else
         builder.Services.AddSingleton<IVerzekeringRepository>(_ => new MySqlVerzekeringRepository(cs!));
     builder.Services.AddSingleton<IMeldingVoorkeurRepository>(_ => new MySqlMeldingVoorkeurRepository(cs!));
+    builder.Services.AddSingleton<ISolarPrijsRepository>(_ => new MySqlSolarPrijsRepository(cs!));
     builder.Services.AddSingleton<IMeldingRepository>(sp => new MySqlMeldingRepository(cs!, sp.GetRequiredService<IMeldingVoorkeurRepository>()));
     builder.Services.AddSingleton<IProductTodoRepository>(_ => new MySqlProductTodoRepository(cs!));
     builder.Services.AddSingleton<IProjectFotoRepository>(_ => new MySqlProjectFotoRepository(cs!));   // projectfoto's vanaf de telefoon
@@ -235,6 +236,7 @@ else
     builder.Services.AddSingleton<IVerzekeringRepository, GeenVerzekeringRepository>();
     builder.Services.AddSingleton<IMeldingRepository, GeenMeldingRepository>();
     builder.Services.AddSingleton<IMeldingVoorkeurRepository, GeenMeldingVoorkeurRepository>();
+    builder.Services.AddSingleton<ISolarPrijsRepository, GeenSolarPrijsRepository>();
     builder.Services.AddSingleton<IProductTodoRepository, GeenProductTodoRepository>();
     builder.Services.AddSingleton<IProjectFotoRepository, GeenProjectFotoRepository>();
     builder.Services.AddSingleton<IInkoopBevestigingRepository, GeenInkoopBevestigingRepository>();
@@ -422,6 +424,7 @@ builder.Services.AddSingleton<FirmwarePakketten>();
 builder.Services.AddSingleton<ComponentZoeker>();
 builder.Services.AddSingleton<JlcKoppeling>();
 builder.Services.AddSingleton<SolarKoppeling>();   // Solar Procurement API: prijzen vergelijken (Artikelen > Solar-prijzen)
+builder.Services.AddHostedService<SolarPrijsWaker>();   // wekelijks kleine prijsverschillen overnemen (Solar:AutoBijwerken)
 builder.Services.AddSingleton<JlcOnderdelen>();
 // Word/Excel in beeld brengen door ze naar PDF om te zetten
 builder.Services.AddSingleton<VoorbeeldService>();
