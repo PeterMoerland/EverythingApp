@@ -541,6 +541,14 @@ versturen en daarna vast; het document staat **naast** de offerteregels (die bli
   Getest: de productiedatabase had de tabel al (document bij 999, zonder de kolom): de offerte toont € 18.866,73 uit
   het document; de vorm van de query met kolom nagelopen met een nagebootste tabel. Niet getest: een vastgelegd
   document met de kolom.
+- **Opmaakmodus met één knop** (wens gebruiker, zelfde dag: "onrustig als je eroverheen gaat met de muis"): niets in
+  het bewerkscherm reageert meer op wijzen. Knop 🧩 Opmaak (`opmaak`, localStorage `mde-offdoc-opmaak`, standaard uit)
+  zet klasse `ed-opmaak` op het vel: dan hebben alle blokken een rand en staat de + ertussen; de strip met knoppen en
+  de instellingen horen bij het **gekozen** blok (`gekozen`, klasse `ed-gekozen`; gezet bij klikken of typen in een
+  blok, `kies()`), niet bij de muis. Uit de opmaakmodus is er alleen het document: typen, Ctrl+B/I/U, Enter in een
+  tabel, plakken en slepen uit het calculatiepaneel werken, maar blokken toevoegen, verplaatsen, breedte en
+  instellingen niet. Bekeken in de browser: zonder de modus niets zichtbaar bij wijzen, met de modus randen, + en de
+  knoppen van het aangeklikte blok.
 - **Alleen het vel schuift** (wens gebruiker, zelfde dag): in `offertedocument.html` is `body` een kolom zonder eigen
   schuifbalk; de balk en de meldingen staan vast, het paneel ook, en `.ed-schuif` om het vel schuift (`teken()` bewaart
   diens scrollTop). De pagina heeft `page vulhoogte` (app.css, vanaf 900 px): het kader neemt de rest van de hoogte,

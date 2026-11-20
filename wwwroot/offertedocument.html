@@ -56,13 +56,17 @@
              box-shadow: 0 2px 14px rgba(0, 0, 0, .18); font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt; position: relative; }
   .ed-vast { position: relative; }
   .ed-blok { position: relative; border-radius: 3px; outline: 1px dashed transparent; outline-offset: 3px; }
-  .ed-bewerk .ed-blok:hover, .ed-bewerk .ed-blok:focus-within { outline-color: #9db7e6; }
+  /* Opmaakmodus (wens gebruiker 20-11-2026: "onrustig als je er met de muis overheen gaat"): zonder die modus verschijnt
+     er niets als je over het vel beweegt en typ je gewoon in de tekst. Met de knop Opmaak zie je de randen van alle
+     blokken en de + ertussen; de knoppen en instellingen horen bij het blok waarop je klikt, niet bij de muis. */
+  .ed-opmaak .ed-blok { outline-color: #c3d2ec; }
+  .ed-opmaak .ed-blok.ed-gekozen { outline: 2px solid #1f6feb; }
   .ed-blok.ed-sleep { opacity: .35; }
   .ed-blok.ed-voor::before, .ed-blok.ed-na::after { content: ''; position: absolute; left: -4px; right: -4px; height: 3px; background: #1f6feb; border-radius: 2px; z-index: 5; }
   .ed-blok.ed-voor::before { top: -6px; } .ed-blok.ed-na::after { bottom: -6px; }
   .ed-strip { position: absolute; right: 0; top: -27px; z-index: 10; display: none; gap: 2px; padding: 2px; background: #fff; border: 1px solid #c9d3df;
               border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); font: 12px 'Segoe UI', Arial, sans-serif; align-items: center; }
-  .ed-bewerk .ed-blok:hover > .ed-strip, .ed-bewerk .ed-blok:focus-within > .ed-strip { display: flex; }
+  .ed-opmaak .ed-blok.ed-gekozen > .ed-strip { display: flex; }
   .ed-strip button, .ed-strip .ed-greep { all: unset; min-width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 4px; cursor: pointer; color: #333; font-size: 13px; padding: 0 2px; }
   .ed-strip button:hover { background: #e8eef8; }
   .ed-strip .ed-greep { cursor: grab; color: #888; }
@@ -70,7 +74,7 @@
   .ed-strip .ed-soort { color: #888; font-size: 11px; padding: 0 6px 0 4px; white-space: nowrap; }
   .ed-inst { display: none; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 4mm 0 -2mm; padding: 5px 8px; background: #f1f5fb; border: 1px solid #c9d3df;
              border-radius: 6px; font: 12px 'Segoe UI', Arial, sans-serif; color: #333; }
-  .ed-bewerk .ed-blok:hover > .ed-inst, .ed-bewerk .ed-blok:focus-within > .ed-inst, .ed-blok.ed-open > .ed-inst { display: flex; }
+  .ed-opmaak .ed-blok.ed-gekozen > .ed-inst { display: flex; }
   .ed-inst select { font: 12px 'Segoe UI', Arial, sans-serif; padding: 2px 4px; max-width: 260px; }
   .ed-inst label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
   .ed-inst .ed-koppel { color: #1f6feb; font-weight: 600; }
@@ -80,8 +84,10 @@
   .ed-tussen { position: relative; height: 10px; margin: 0 -6px; }
   .ed-tussen > button { all: unset; position: absolute; left: 50%; top: -6px; transform: translateX(-50%); width: 22px; height: 22px; line-height: 20px; text-align: center;
                         border-radius: 50%; background: #1f6feb; color: #fff; font: 600 16px 'Segoe UI', Arial, sans-serif; cursor: pointer; opacity: 0; z-index: 8; }
-  .ed-tussen:hover > button, .ed-tussen > button:focus, .ed-tussen.ed-menu-open > button { opacity: 1; }
-  .ed-tussen:hover::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; border-top: 1px dashed #9db7e6; }
+  .ed-tussen > button { visibility: hidden; }
+  .ed-opmaak .ed-tussen > button { visibility: visible; opacity: .55; }
+  .ed-opmaak .ed-tussen > button:hover, .ed-opmaak .ed-tussen > button:focus, .ed-opmaak .ed-tussen.ed-menu-open > button { opacity: 1; }
+  .ed-knop.aan { border-color: var(--ed-accent); color: var(--ed-accent); font-weight: 600; }
   .ed-menu { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 20; display: flex; flex-wrap: wrap; gap: 4px; width: max-content; max-width: 170mm;
              padding: 6px; background: #fff; border: 1px solid #c9d3df; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .2); }
   .ed-menu button { all: unset; padding: 5px 10px; border-radius: 5px; cursor: pointer; font: 12.5px 'Segoe UI', Arial, sans-serif; color: #222; border: 1px solid #e1e6ee; }
@@ -118,6 +124,7 @@
   <span class="ed-chip" id="chip"></span>
   <span class="ed-opslag" id="opslag"></span>
   <span class="ed-groei"></span>
+  <button class="ed-knop" id="knopOpmaak" type="button" title="Opmaakmodus aan of uit. Aan: je ziet de blokken, kunt er een toevoegen (+), en klikt op een blok voor zijn knoppen (verplaatsen, breedte, verwijderen, instellingen). Uit: alleen het document, om rustig in te typen.">🧩 Opmaak</button>
   <button class="ed-knop" id="knopBoom" type="button" title="Het paneel met de calculatie tonen of verbergen; daaruit sleep je een deel naar het document">🧮 Calculatie</button>
   <button class="ed-knop" id="knopVelden" type="button" title="Velden die in een tekst of kop worden ingevuld, zoals {totaal}">{ } Velden</button>
   <button class="ed-knop" id="knopPdf" type="button" title="De offerte als PDF in een nieuw tabblad">📄 PDF bekijken</button>
@@ -148,6 +155,10 @@
   let INFO = {}, MAG = false, versie = 0, status = 0, doc = { blokken: [] }, W = { blokken: {}, kop: '', slot: '', problemen: [] };
   let GROEPEN = [], VELDEN = [], VERSCHIL = null, CALC = false, SJABLONEN = [], SJABLOONTABEL = false;
   /** Het paneel met de calculatie open? Onthouden per browser; de eerste keer open als er ruimte is. */
+  /** Opmaakmodus: de blokken met hun knoppen tonen. Onthouden per browser; standaard uit (rustig typen). */
+  let opmaak = (() => { try { return localStorage.getItem('mde-offdoc-opmaak') === '1'; } catch (e) { return false; } })();
+  /** Het blok waarop het laatst geklikt is: in de opmaakmodus toont dat blok zijn knoppen en instellingen. */
+  let gekozen = null;
   let boomOpen = (() => { try { const w = localStorage.getItem('mde-offdoc-boom'); return w === null ? innerWidth >= 1100 : w === '1'; } catch (e) { return innerWidth >= 1100; } })();
   /** Wat er uit het paneel gesleept wordt: het nummer van een groep, 'heel', of null. */
   let sleepGroep = null;
@@ -264,6 +275,7 @@
 
   function voegToe(soort, naId, extra) {
     const b = { id: nieuwId(), soort, ...(extra || {}) };
+    gekozen = b.id;
     if (soort === 'tekst') b.html = b.html ?? '';
     if (soort === 'kop') b.tekst = b.tekst ?? '';
     if (soort === 'prijs') Object.assign(b, { diepte: 1, regels: 'geen', aantallen: true, uren: false, ...extra });
@@ -387,7 +399,7 @@
     if (b.soort !== 'pagina')
       extra += `<select data-veld="deel" title="Breedte van het blok: blokken die samen een regel vullen komen naast elkaar">${[['', 'hele breedte'], ['half', '1/2'], ['derde', '1/3'], ['tweederde', '2/3']].map(([w, t]) => `<option value="${w}" ${(b.deel || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select><span class="ed-sep"></span>`;
     const strip = ro ? '' : `<div class="ed-strip"><span class="ed-greep" draggable="true" title="Slepen om te verplaatsen">⠿</span><span class="ed-soort">${SOORT[b.soort] || ''}</span>${extra}<button type="button" data-actie="op" title="Omhoog">↑</button><button type="button" data-actie="neer" title="Omlaag">↓</button><button type="button" data-actie="weg" title="Blok verwijderen">✕</button></div>`;
-    return `<div class="ed-blok ${DEEL[b.deel] ? 'doc-' + b.deel : ''}" data-id="${b.id}" data-soort="${b.soort}">${strip}${inst}<div class="ed-inhoud">${binnen}</div></div>`;
+    return `<div class="ed-blok ${DEEL[b.deel] ? 'doc-' + b.deel : ''} ${b.id === gekozen ? 'ed-gekozen' : ''}" data-id="${b.id}" data-soort="${b.soort}">${strip}${inst}<div class="ed-inhoud">${binnen}</div></div>`;
   }
   /** Het paneel met de delen van de calculatie: slepen naar het vel geeft een prijstabel van dat deel. */
   function tekenBoom() {
@@ -420,7 +432,7 @@
     sluit();
     delen.push(`<div class="ed-vast" data-deel="slot">${W.slot || ''}</div>`);
     const schuif = document.querySelector('.ed-schuif')?.scrollTop ?? 0;
-    $('inhoud').innerHTML = `<div class="ed-werk">${tekenBoom()}<div class="ed-schuif"><div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div></div></div>`;
+    $('inhoud').innerHTML = `<div class="ed-werk">${tekenBoom()}<div class="ed-schuif"><div class="ed-blad ${ro ? '' : 'ed-bewerk'} ${!ro && opmaak ? 'ed-opmaak' : ''}" id="blad">${delen.join('')}</div></div></div>`;
     document.querySelector('.ed-schuif').scrollTop = schuif;
     tekenBalk(); tekenMeldingen();
   }
@@ -436,6 +448,7 @@
     v.title = status === 1 ? 'Het document weer bewerkbaar maken; de cijfers volgen dan weer de calculatie'
       : 'Het document vastzetten met de cijfers van nu (gebeurt ook als je de offerte op verstuurd zet)';
     v.hidden = !MAG; $('knopWis').hidden = RO(); $('knopVelden').hidden = RO(); $('knopBoom').hidden = RO();
+    $('knopOpmaak').hidden = RO(); $('knopOpmaak').classList.toggle('aan', opmaak);
     $('knopSjabloon').hidden = !MAG || !SJABLOONTABEL;
     $('sjabloonBv').textContent = INFO.bv ? `(anders alleen ${INFO.bv})` : '';
     $('velden').innerHTML = 'Klik om in te voegen op de plek van de cursor: ' + VELDEN.map(x => `<button type="button" data-veld="${esc(x.veld)}" title="${esc(x.uitleg)}">${esc(x.veld)}</button>`).join('');
@@ -653,6 +666,26 @@
 
   // de balk
   $('knopVelden').addEventListener('click', () => { $('sjabloon').classList.remove('open'); $('velden').classList.toggle('open'); });
+  $('knopOpmaak').addEventListener('click', () => {
+    opmaak = !opmaak;
+    try { localStorage.setItem('mde-offdoc-opmaak', opmaak ? '1' : '0'); } catch (e) { }
+    document.querySelectorAll('.ed-menu').forEach(m => { m.parentElement.classList.remove('ed-menu-open'); m.remove(); });
+    $('blad')?.classList.toggle('ed-opmaak', opmaak && !RO());
+    $('knopOpmaak').classList.toggle('aan', opmaak);
+  });
+  // het blok waarop je klikt (of waarin je typt) is het gekozen blok; klik je naast de blokken, dan is er geen gekozen
+  function kies(id) {
+    if (gekozen === id) return;
+    gekozen = id;
+    document.querySelectorAll('.ed-blok.ed-gekozen').forEach(x => x.classList.remove('ed-gekozen'));
+    if (id) document.querySelector(`.ed-blok[data-id="${id}"]`)?.classList.add('ed-gekozen');
+  }
+  inhoud.addEventListener('mousedown', e => {
+    if (!e.target.closest || !e.target.closest('.ed-blad')) return;
+    const el = e.target.closest('.ed-blok');
+    if (el) kies(el.dataset.id); else if (!e.target.closest('.ed-tussen')) kies(null);
+  });
+  inhoud.addEventListener('focusin', e => { const el = e.target.closest ? e.target.closest('.ed-blok') : null; if (el) kies(el.dataset.id); });
   $('knopBoom').addEventListener('click', () => {
     boomOpen = !boomOpen;
     try { localStorage.setItem('mde-offdoc-boom', boomOpen ? '1' : '0'); } catch (e) { }
