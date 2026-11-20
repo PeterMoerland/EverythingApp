@@ -398,6 +398,13 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Uitleg achter een vraagteken** (wens gebruiker, zelfde dag: "minder tekst op beeld"): in de linkerkolom van de pop-up
+  staat de uitleg bij Benodigde tijd, Kaartnummer en Opmaak niet meer als `.ab-hint` onder het veld maar in
+  `Uitleg(tekst)` (een `RenderFragment`): een rondje met ? en een wolkje dat met alleen CSS verschijnt bij wijzen, klikken
+  (focus) of Tab (`.ab-uitleg`, `.ab-uitleg-tekst`). Gebruik dit ook voor nieuwe uitleg in de pop-up. Ook de zes
+  tekstvelden: de hulptekst (`ActTekst.Velden.Hulp`) staat achter een vraagteken naast de naam en niet meer als
+  voorbeeldtekst in het vak ("lege vakken hebben de voorkeur"). De Markdown-regel onder een tekstvak dat je bewerkt is
+  gebleven. Bekeken in de browser: wolkje bij wijzen en bij klikken.
 - **Onderdeel 3, koppelingen tussen kaartjes** (zelfde dag), ook tussen twee boards. Script
   **`ActivityBoard_Koppelingen_MariaDB.sql`**: `ActivityBoardKoppelingen` (VanID, NaarID, Soort afgesplitst / hangtaf /
   zieook; beide kanten cascade, dus een verwijderde kaart neemt zijn koppelingen mee en ongedaan maken zet ze niet

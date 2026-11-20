@@ -3771,6 +3771,16 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
     .ab-drawer { top: 0; left: 0; right: 0; bottom: 0; transform: none; width: 100vw; max-height: none; border-radius: 0; border-top: none; animation: none; }
 }
 .ab-drawer:focus { outline: none; }
+/* uitleg achter een vraagteken in de pop-up (wens gebruiker 20-11-2026): wolkje bij wijzen, klikken of Tab */
+.ab-uitleg { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 8px;
+             border: 1px solid var(--ab-rand); border-radius: 50%; color: var(--ab-muted); font-size: 11px; font-weight: 600; line-height: 1;
+             cursor: help; vertical-align: middle; user-select: none; flex: none; }
+.ab-sectie h3 .ab-uitleg { margin-left: 6px; width: 16px; height: 16px; font-size: 10px; }
+.ab-uitleg:hover, .ab-uitleg:focus { color: #1f6feb; border-color: #7aa7e0; outline: none; }
+.ab-uitleg-tekst { display: none; position: absolute; z-index: 30; top: calc(100% + 6px); left: -8px; width: max-content; max-width: 280px;
+                   padding: 8px 10px; border-radius: 6px; background: #262c31; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45;
+                   text-align: left; text-transform: none; letter-spacing: 0; white-space: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); cursor: default; }
+.ab-uitleg:hover .ab-uitleg-tekst, .ab-uitleg:focus .ab-uitleg-tekst { display: block; }
 /* koppelingen tussen kaartjes (vraag Gerard 20-11-2026): op het kaartje en in de pop-up */
 .ab-chip.ab-wacht { background: #fde8e6; color: #b3261e; }
 /* per koppeling: de soort op een eigen regel, daaronder de kaart met status (en het board als dat een ander is); het kruisje rechtsboven */

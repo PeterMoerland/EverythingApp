@@ -559,7 +559,8 @@ else
                         <span class="ab-tijdinvoer"><input type="text" inputmode="decimal" autocomplete="off" @key="TijdSleutel" id="ab-dtijd"
                                    value="@ActTijd.Invoer(o.BenodigdeUren)" placeholder="–" aria-label="Benodigde tijd in uren"
                                    @onchange="TijdGewijzigd" /> uur</span>
-                        <p class="ab-hint">Hoeveel werk deze activiteit is. Typ uren (1,5), of 1:30, 45m, 2d (een dag = @ActTijd.UrenPerDag.ToString("0.##") uur).</p>
+                        @* de uitleg achter een vraagteken in plaats van als tekst eronder (wens gebruiker 20-11-2026: minder tekst in beeld) *@
+                        @Uitleg($"Hoeveel werk deze activiteit is. Typ uren (1,5), of 1:30, 45m, 2d (een dag = {ActTijd.UrenPerDag:0.##} uur).")
                     </div>
                 }
                 else
@@ -573,8 +574,7 @@ else
                     <div class="ab-lab">Kaartnummer</div>
                     <div class="ab-ro">
                         <b>#@o.Id</b>
-                        <div class="ab-hint">Het vaste nummer van dit kaartje; het staat ook rechtsonder op het kaartje. Gebruik het om het
-                            aan te wijzen, bijvoorbeeld tegen een collega of tegen Claude ("zet kaart @o.Id op testen").</div>
+                        @Uitleg($"Het vaste nummer van dit kaartje; het staat ook rechtsonder op het kaartje. Gebruik het om het aan te wijzen, bijvoorbeeld tegen een collega of tegen Claude (\"zet kaart {o.Id} op testen\").")
                     </div>
                 }
 
@@ -627,7 +627,7 @@ else
                     <div class="ab-lab">Opmaak</div>
                     <div class="ab-ro">
                         <label class="ab-opmaak"><input type="checkbox" checked="@o.Opmaak" @onchange="e => OpmaakGewijzigd(e.Value is true)" /> Markdown in de tekstvelden</label>
-                        <div class="ab-hint">Aan: kopjes, lijsten, vet en code worden opgemaakt getoond. Uit: de tekst staat er precies zoals hij is getypt.</div>
+                        @Uitleg("Aan: kopjes, lijsten, vet en code worden opgemaakt getoond. Uit: de tekst staat er precies zoals hij is getypt.")
                     </div>
                 }
 
@@ -642,7 +642,8 @@ else
                 // je hem bewerkt (knop of dubbelklik); een leeg veld is meteen een tekstvak. Zonder opmaak: zoals het was.
                 var toon = o.Opmaak && inhoud.Length > 0 && _bewerkVeld != kolom;
                 <div class="ab-sectie">
-                    <h3>@v.Naam
+                    @* de uitleg van het veld achter een vraagteken; het vak zelf blijft leeg (wens gebruiker 20-11-2026) *@
+                    <h3>@v.Naam @Uitleg(v.Hulp)
                         @if (toon) { <button type="button" class="ab-md-knop" title="Tekst bewerken (dubbelklik op de tekst kan ook)" @onclick="() => BewerkVeld(kolom)">✎ bewerken</button> }
                     </h3>
                     @if (toon)
@@ -651,7 +652,7 @@ else
                     }
                     else
                     {
-                        <textarea id="@($"ab-tx-{kolom}")" placeholder="@v.Hulp" @onchange="e => TekstGewijzigd(kolom, e)"
+                        <textarea id="@($"ab-tx-{kolom}")" aria-label="@v.Naam" @onchange="e => TekstGewijzigd(kolom, e)"
                                   @onblur="() => { if (_bewerkVeld == kolom) _bewerkVeld = null; }">@inhoud</textarea>
                         @if (o.Opmaak && _bewerkVeld == kolom)
                         {
@@ -2415,6 +2416,12 @@ else
     private int _koppelKeuze;                                // index in ActKoppelSoort.Keuzes
     private string _koppelZoek = "";
     private List<ActKoppelDoel> _koppelTreffers = new();
+
+    /// <summary>
+    /// Een vraagteken met de uitleg van een veld: de tekst komt in beeld als je erop wijst, erop klikt of er met Tab op
+    /// komt (wens gebruiker 20-11-2026: minder tekst in de pop-up). Alleen opmaak, geen code: het wolkje is CSS.
+    /// </summary>
+    private static RenderFragment Uitleg(string tekst) => @<span class="ab-uitleg" tabindex="0" role="button" aria-label="Uitleg: @tekst">?<span class="ab-uitleg-tekst" role="tooltip">@tekst</span></span>;
 
     private string WachtTip(Activiteit a)
         => "Hangt af van " + string.Join(", ", a.Koppelingen.Where(k => k.Blokkeert).Select(k => $"#{k.AnderId} {k.AnderTitel} ({ActStatus.Naam(k.AnderStatus)})"));
