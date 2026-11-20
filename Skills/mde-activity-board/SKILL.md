@@ -54,6 +54,8 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 | Punten op de afvinklijst erbij | `POST /activiteiten/{id}/checklist` met `{ "tekst": "…", "kop": "Loggen" }`, `{ "kop": "…", "punten": [ … ] }` of een lijst daarvan |
 | Punt afvinken, uitvinken, tekst aanpassen | `PATCH /checklist/{puntId}` met `{ "klaar": true }`, `{ "klaar": false }` of `{ "tekst": "…" }` |
 | Punt of kopje weghalen | `DELETE /checklist/{puntId}` |
+| Kaartje koppelen aan een ander kaartje | `POST /activiteiten/{id}/koppelingen` met `{ "soort": "hangt af van", "naar": 105 }` |
+| Koppeling weghalen | `DELETE /activiteiten/{id}/koppelingen/{koppelingId}` |
 
 ## Velden van een activiteit
 
@@ -79,6 +81,20 @@ Schrijf de tekstvelden van een nieuw kaartje in Markdown als dat de tekst leesba
 (`-`, `1.`), **vet**, en `code` voor namen uit de software (`Status.Joint[n]`), codeblokken met drie backticks, links
 als `[tekst](https://…)`. Een enkele regelovergang blijft een regelovergang. Geen HTML: dat wordt als tekst getoond.
 Links alleen naar http, https of mailto. Bij een kaartje met `opmaak: false` schrijf je platte tekst.
+
+## Koppelingen
+
+- Soorten, gelezen vanaf het kaartje in het adres: `afgesplitst van` (de andere kant: `opgesplitst in`), `hangt af van`
+  (de andere kant: `blokkeert`), `zie ook`. Kies de soort die past bij wat de gebruiker zegt: "B is afgesplitst van A"
+  = bij B `afgesplitst van` A; "A wacht op B" = bij A `hangt af van` B.
+- `naar` is het nummer van het andere kaartje; het mag op een ander board staan. Ken je het nummer niet, zoek het dan
+  eerst met `/zoek?q=`; bij meer dan één treffer vraag je welke.
+- `GET /activiteiten/{id}` geeft `koppelingen` (met `id`, `soort` en de andere activiteit met titel, status, board en
+  link). `geblokkeerd: true` = het kaartje hangt af van een kaartje dat nog niet klaar is; noem dat als de gebruiker
+  vraagt wat hij kan oppakken.
+- Ontkoppelen kan alleen met het `id` van de koppeling: lees eerst het kaartje. Ontkoppel alleen op verzoek.
+- Een fout "bestaat niet" bij `naar` betekent dat er niets is gekoppeld: zoek het juiste nummer, verzin er geen.
+- In een tekstveld met opmaak wordt `#123` een link naar kaart 123. Gebruik dat om naar een ander kaartje te verwijzen.
 
 ## Afvinklijst
 

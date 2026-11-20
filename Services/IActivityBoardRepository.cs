@@ -81,6 +81,21 @@ public interface IActivityBoardRepository
     Task<bool> OpmaakAanwezigAsync();
     Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door);
 
+    // ---- koppelingen tussen activiteiten (ActivityBoard_Koppelingen_MariaDB.sql) ----
+    /// <summary>Kunnen activiteiten aan elkaar gekoppeld worden? (het script is uitgevoerd)</summary>
+    Task<bool> KoppelingenAanwezigAsync();
+    /// <summary>
+    /// Een koppeling van <paramref name="vanId"/> naar <paramref name="naarId"/>; geeft het id (bestaat hij al, dan dat
+    /// id). Een koppeling met zichzelf, of dezelfde soort andersom, geeft <see cref="InvalidOperationException"/> met
+    /// de reden in gewone taal.
+    /// </summary>
+    Task<int> NieuweKoppelingAsync(int vanId, int naarId, string soort, int? door);
+    Task VerwijderKoppelingAsync(int koppelingId, int? door);
+    /// <summary>De twee activiteiten van een koppeling, of null als hij niet (meer) bestaat.</summary>
+    Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId);
+    /// <summary>Activiteiten zoeken op nummer (123 of #123) of op woorden uit de titel, over alle boards.</summary>
+    Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max);
+
     // ---- afvinklijst (ActivityBoard_Checklist_MariaDB.sql) ----
     /// <summary>Kan een activiteit een afvinklijst hebben? (het script is uitgevoerd)</summary>
     Task<bool> ChecklistAanwezigAsync();
@@ -135,6 +150,11 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task VerwijderActiviteitAsync(int activiteitId) => Task.CompletedTask;
     public Task<bool> OpmaakAanwezigAsync() => Task.FromResult(false);
     public Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door) => Task.CompletedTask;
+    public Task<bool> KoppelingenAanwezigAsync() => Task.FromResult(false);
+    public Task<int> NieuweKoppelingAsync(int vanId, int naarId, string soort, int? door) => Task.FromResult(0);
+    public Task VerwijderKoppelingAsync(int koppelingId, int? door) => Task.CompletedTask;
+    public Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId) => Task.FromResult<(int, int)?>(null);
+    public Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max) => Task.FromResult(new List<ActKoppelDoel>());
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(false);
     public Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door) => Task.FromResult(0);
     public Task ZetPuntTekstAsync(int puntId, string tekst, int? door) => Task.CompletedTask;
@@ -465,6 +485,28 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                         Klaar = Convert.ToInt32(r.GetValue(4)) != 0, KlaarOp = D(r, 5), KlaarDoor = I(r, 6),
                     });
         }
+
+        if (await KoppelingenAanwezigAsync())
+        {
+            // van beide kanten: eerst waar een activiteit van dit board de "van"-kant is, dan de "naar"-kant. De andere
+            // activiteit kan op een ander board staan; de naam van dat board komt mee.
+            foreach (var heen in new[] { true, false })
+            {
+                var (eigen, ander) = heen ? ("VanID", "NaarID") : ("NaarID", "VanID");
+                await using var cmd = new MySqlCommand(
+                    $"SELECT k.`KoppelingID`, k.`Soort`, k.`{eigen}`, x.`ActiviteitID`, x.`Titel`, x.`Status`, " + BoardKolommen + rk + wk +
+                    $"  FROM `ActivityBoardKoppelingen` k JOIN `ActivityBoardActiviteiten` e ON e.`ActiviteitID` = k.`{eigen}` " +
+                    $"  JOIN `ActivityBoardActiviteiten` x ON x.`ActiviteitID` = k.`{ander}` " +
+                    "  JOIN `ActivityBoards` b ON b.`BoardID` = x.`BoardID` LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj +
+                    " WHERE e.`BoardID` = @b ORDER BY k.`KoppelingID`", cn);
+                cmd.Parameters.AddWithValue("@b", boardId);
+                await using var r = await cmd.ExecuteReaderAsync();
+                while (await r.ReadAsync())
+                    if (perId.TryGetValue(r.GetInt32(2), out var a) && ActKoppelSoort.IsGeldig(S(r, 1)))
+                        a.Koppelingen.Add(new ActKoppeling(r.GetInt32(0), S(r, 1), heen, r.GetInt32(3), S(r, 4),
+                            ActStatus.IsGeldig(S(r, 5)) ? S(r, 5) : ActStatus.Backlog, r.GetInt32(6), LeesBoard(r, 6).Titel));
+            }
+        }
         return data;
     }
 
@@ -647,6 +689,120 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
 
     public Task VerwijderActiviteitAsync(int activiteitId)
         => UitvoerenAsync("DELETE FROM `ActivityBoardActiviteiten` WHERE `ActiviteitID` = @id", ("@id", activiteitId));
+
+    // ------------------------------------------------------------------ koppelingen tussen activiteiten
+
+    /// <summary>De kolommen van een board (alias b, project p) waarmee <see cref="LeesBoard"/> de titel maakt; daarna rk en wk.</summary>
+    private const string BoardKolommen = "b.`BoardID`, b.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), COALESCE(b.`Naam`, '')";
+
+    private static ActBoard LeesBoard(MySqlDataReader r, int i)
+        => new(r.GetInt32(i), I(r, i + 1), I(r, i + 2), S(r, i + 3), S(r, i + 4), I(r, i + 5), S(r, i + 6), I(r, i + 7), S(r, i + 8), S(r, i + 9));
+
+    // Tabel aanwezig? Alleen 'ja' wordt onthouden, zodat het script uitvoeren zonder herstart werkt.
+    private bool _metKoppelingen;
+    public async Task<bool> KoppelingenAanwezigAsync()
+    {
+        if (_metKoppelingen) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ActivityBoardKoppelingen'", cn);
+            _metKoppelingen = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _metKoppelingen;
+    }
+
+    public async Task<int> NieuweKoppelingAsync(int vanId, int naarId, string soort, int? door)
+    {
+        if (!ActKoppelSoort.IsGeldig(soort)) throw new ArgumentException($"Onbekende soort koppeling {soort}");
+        if (vanId == naarId) throw new InvalidOperationException("Een activiteit kan niet aan zichzelf gekoppeld worden.");
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        // bestaat hij al (bij "zie ook" telt ook andersom), dan is dat hem; dezelfde soort andersom kan niet
+        await using (var zoek = new MySqlCommand(
+            "SELECT `KoppelingID`, `VanID` FROM `ActivityBoardKoppelingen` " +
+            " WHERE `Soort` = @s AND ((`VanID` = @v AND `NaarID` = @n) OR (`VanID` = @n AND `NaarID` = @v)) LIMIT 1", cn, tx))
+        {
+            zoek.Parameters.AddWithValue("@s", soort);
+            zoek.Parameters.AddWithValue("@v", vanId);
+            zoek.Parameters.AddWithValue("@n", naarId);
+            await using var r = await zoek.ExecuteReaderAsync();
+            if (await r.ReadAsync())
+            {
+                if (r.GetInt32(1) == vanId || soort == ActKoppelSoort.ZieOok) return r.GetInt32(0);
+                throw new InvalidOperationException(soort == ActKoppelSoort.HangtAf
+                    ? "Deze twee activiteiten zijn al andersom gekoppeld: de andere hangt af van deze."
+                    : "Deze twee activiteiten zijn al andersom gekoppeld: de andere is afgesplitst van deze.");
+            }
+        }
+        int id;
+        await using (var cmd = new MySqlCommand(
+            "INSERT INTO `ActivityBoardKoppelingen` (`VanID`, `NaarID`, `Soort`, `AangemaaktDoor`) VALUES (@v, @n, @s, @door); SELECT LAST_INSERT_ID();", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@v", vanId);
+            cmd.Parameters.AddWithValue("@n", naarId);
+            cmd.Parameters.AddWithValue("@s", soort);
+            cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+            id = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+        await GewijzigdAsync(cn, tx, vanId, door);
+        await GewijzigdAsync(cn, tx, naarId, door);
+        await tx.CommitAsync();
+        return id;
+    }
+
+    public async Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId)
+    {
+        if (!await KoppelingenAanwezigAsync()) return null;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `VanID`, `NaarID` FROM `ActivityBoardKoppelingen` WHERE `KoppelingID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", koppelingId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? (r.GetInt32(0), r.GetInt32(1)) : null;
+    }
+
+    public async Task VerwijderKoppelingAsync(int koppelingId, int? door)
+    {
+        if (await KoppelingAsync(koppelingId) is not { } k) return;
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var cmd = new MySqlCommand("DELETE FROM `ActivityBoardKoppelingen` WHERE `KoppelingID` = @id", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", koppelingId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await GewijzigdAsync(cn, tx, k.VanId, door);
+        await GewijzigdAsync(cn, tx, k.NaarId, door);
+        await tx.CommitAsync();
+    }
+
+    public async Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max)
+    {
+        var lijst = new List<ActKoppelDoel>();
+        var z = (zoek ?? "").Trim();
+        if (z.Length == 0) return lijst;
+        var (rk, rj) = await RelatieDeelAsync();
+        var (wk, wj) = await WerkorderDeelAsync();
+        var nummer = int.TryParse(z.TrimStart('#'), out var n) ? n : (int?)null;
+        var woorden = z.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6).ToList();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand { Connection = cn };
+        var waar = new List<string>();
+        for (var i = 0; i < woorden.Count; i++) { waar.Add($"x.`Titel` LIKE @w{i}"); cmd.Parameters.AddWithValue($"@w{i}", "%" + woorden[i].Replace("%", "\\%").Replace("_", "\\_") + "%"); }
+        cmd.Parameters.AddWithValue("@nr", (object?)nummer ?? DBNull.Value);
+        cmd.CommandText =
+            "SELECT x.`ActiviteitID`, x.`Titel`, x.`Status`, " + BoardKolommen + rk + wk +
+            "  FROM `ActivityBoardActiviteiten` x JOIN `ActivityBoards` b ON b.`BoardID` = x.`BoardID` " +
+            "  LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj +
+            $" WHERE x.`ActiviteitID` = @nr OR ({string.Join(" AND ", waar)}) " +
+            $" ORDER BY (x.`ActiviteitID` <=> @nr) DESC, x.`last_updated` DESC LIMIT {Math.Clamp(max, 1, 50)}";
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new ActKoppelDoel(r.GetInt32(0), S(r, 1), ActStatus.IsGeldig(S(r, 2)) ? S(r, 2) : ActStatus.Backlog, r.GetInt32(3), LeesBoard(r, 3).Titel));
+        return lijst;
+    }
 
     // ------------------------------------------------------------------ opmaak in de tekstvelden
 

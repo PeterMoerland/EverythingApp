@@ -110,6 +110,10 @@ public class Activiteit
     public bool Opmaak { get; set; }
     /// <summary>De afvinklijst, op volgorde: kopjes en punten door elkaar (zie <see cref="ActPunt"/>).</summary>
     public List<ActPunt> Checklist { get; set; } = new();
+    /// <summary>De koppelingen met andere activiteiten, van beide kanten gezien (zie <see cref="ActKoppeling"/>).</summary>
+    public List<ActKoppeling> Koppelingen { get; set; } = new();
+    /// <summary>Hangt af van een activiteit die nog niet klaar is.</summary>
+    public bool Geblokkeerd => Koppelingen.Any(k => k.Blokkeert);
     public int PuntenTotaal => Checklist.Count(p => !p.Kop);
     public int PuntenKlaar => Checklist.Count(p => !p.Kop && p.Klaar);
 
@@ -118,7 +122,7 @@ public class Activiteit
         Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
         GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde, Opmaak = Opmaak,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
-        Checklist = Checklist.Select(p => p.Kopie()).ToList(),
+        Checklist = Checklist.Select(p => p.Kopie()).ToList(), Koppelingen = new(Koppelingen),
     };
 
     /// <summary>Hele dagen tussen gemaakt en gesloten, of tot vandaag zolang hij open is; null = sluitmoment onbekend.</summary>
@@ -161,6 +165,41 @@ public class ActPunt
         }
         return uit;
     }
+}
+
+/// <summary>
+/// De soorten koppelingen tussen activiteiten (ActivityBoard_Koppelingen_MariaDB.sql; vraag Gerard 20-11-2026). Een
+/// koppeling loopt van de ene activiteit naar de andere; elke kant heeft zijn eigen naam.
+/// </summary>
+public static class ActKoppelSoort
+{
+    public const string Afgesplitst = "afgesplitst", HangtAf = "hangtaf", ZieOok = "zieook";
+
+    /// <summary>De keuzes zoals je ze vanaf één kaartje ziet: naam, soort, en of dit kaartje de "van"-kant is.</summary>
+    public static readonly (string Naam, string Soort, bool Heen)[] Keuzes =
+    {
+        ("afgesplitst van", Afgesplitst, true), ("opgesplitst in", Afgesplitst, false),
+        ("hangt af van", HangtAf, true), ("blokkeert", HangtAf, false),
+        ("zie ook", ZieOok, true),
+    };
+
+    public static bool IsGeldig(string soort) => soort is Afgesplitst or HangtAf or ZieOok;
+    public static string Naam(string soort, bool heen)
+        => soort == ZieOok ? "zie ook" : Keuzes.FirstOrDefault(k => k.Soort == soort && k.Heen == heen).Naam ?? soort;
+}
+
+/// <summary>Een activiteit om aan te koppelen (zoeken op nummer of titel, over alle boards).</summary>
+public record ActKoppelDoel(int Id, string Titel, string Status, int BoardId, string Board);
+
+/// <summary>
+/// Een koppeling gezien vanaf één activiteit: de soort, of deze activiteit de "van"-kant is (<see cref="Heen"/>), en de
+/// andere activiteit met titel, status en board.
+/// </summary>
+public record ActKoppeling(int Id, string Soort, bool Heen, int AnderId, string AnderTitel, string AnderStatus, int AnderBoardId, string AnderBoard)
+{
+    public string Naam => ActKoppelSoort.Naam(Soort, Heen);
+    /// <summary>Deze activiteit hangt af van de andere, en die is nog niet klaar.</summary>
+    public bool Blokkeert => Soort == ActKoppelSoort.HangtAf && Heen && ActStatus.Groep(AnderStatus) != ActStatus.GroepKlaar;
 }
 
 /// <summary>Alles van één board, in één keer geladen.</summary>

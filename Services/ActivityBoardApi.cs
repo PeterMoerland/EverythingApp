@@ -167,12 +167,17 @@ public static class ActivityBoardApi
                 "POST  /api/activityboard/activiteiten/{id}/checklist      { tekst, kop?, klaar? } of { kop, punten: [...] }, of een lijst daarvan: punten erbij op de afvinklijst",
                 "PATCH /api/activityboard/checklist/{puntId}               { tekst?, klaar? }  (afvinken: klaar true; uitvinken: klaar false)",
                 "DELETE /api/activityboard/checklist/{puntId}              (een punt of kopje weg; bij een kopje blijven de punten staan)",
+                "POST  /api/activityboard/activiteiten/{id}/koppelingen    { soort, naar }  (soort: afgesplitst van, opgesplitst in, hangt af van, blokkeert, zie ook; naar: het nummer van de andere kaart)",
+                "DELETE /api/activityboard/activiteiten/{id}/koppelingen/{koppelingId}",
                 "POST  /api/activityboard/boards/{boardId}/onderwerpen    { naam, kleur? }",
                 "POST  /api/activityboard/boards/{boardId}/types          { naam, kleur? }",
             },
             opmaak = "De zes tekstvelden tonen Markdown (kopjes, vet, cursief, lijsten, `code`, codeblokken, links) als opmaak van het kaartje true is. " +
                      "Een kaartje dat je via de API aanmaakt krijgt opmaak true; kaartjes van voor deze uitbreiding staan op false en blijven platte tekst " +
                      "tot je { \"opmaak\": true } stuurt. HTML in de tekst wordt niet uitgevoerd; een link mag alleen naar http, https of mailto.",
+            koppelingen = "Een kaartje kan gekoppeld zijn aan een ander kaartje, ook op een ander board. GET /activiteiten/{id} geeft koppelingen " +
+                          "(id, soort zoals je hem vanaf dit kaartje leest, en de andere activiteit met titel, status, board en link). geblokkeerd: true = " +
+                          "het kaartje hangt af van een kaartje dat nog niet klaar is. In een tekstveld met opmaak wordt #123 een link naar kaart 123.",
             checklist = "Bij aanmaken mag checklist mee: [ { \"kop\": \"Loggen\", \"punten\": [ { \"tekst\": \"Sampletijd 2 ms houden\", \"klaar\": false } ] } ]. " +
                         "Een punt mag ook een losse tekst zijn, en punten zonder kopje mogen los in de lijst staan. GET /activiteiten/{id} geeft de lijst " +
                         "met per punt een id; voortgang (bv. 12/35) staat bij elke activiteit met een lijst. Hooguit " + ActPunt.MaxPerActiviteit + " regels per activiteit.",
@@ -489,6 +494,51 @@ public static class ActivityBoardApi
                 await MeldToewijzing(v, d, a, erbij, nieuw: false);
             }
             return Goed(new { gewijzigd, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
+        }));
+
+        // ---- koppelingen tussen activiteiten (vraag Gerard 20-11-2026), ook tussen twee boards ----
+        api.MapPost("/activiteiten/{id:int}/koppelingen", (HttpContext ctx, int id) => Met(ctx, async v =>
+        {
+            var body = await Body(ctx);
+            if (body is not { ValueKind: JsonValueKind.Object } json) return Fout(400, "Verwacht een JSON-object met soort en naar.");
+            foreach (var p in json.EnumerateObject())
+                if (!p.Name.Equals("soort", Los) && !p.Name.Equals("naar", Los)) return Fout(400, $"Onbekend veld '{p.Name}'. Bekende velden: soort, naar.");
+            if (!await v.Repo.KoppelingenAanwezigAsync()) return Fout(400, "Koppelingen zijn in deze app nog niet ingericht (het script ActivityBoard_Koppelingen_MariaDB.sql is nog niet gedraaid).");
+            var soorten = string.Join(", ", ActKoppelSoort.Keuzes.Select(k => k.Naam));
+            var tekst = Heeft(json, "soort", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString()!.Trim() : "";
+            // de naam zoals je hem leest ("hangt af van"), of de code (afgesplitst, hangtaf, zieook = de "van"-kant)
+            var keuze = ActKoppelSoort.Keuzes.FirstOrDefault(k => k.Naam.Equals(tekst, Los) || (k.Heen && k.Soort.Equals(tekst.Replace(" ", ""), Los)));
+            if (keuze.Naam is null) return Fout(400, $"soort '{tekst}' bestaat niet. Kies uit: {soorten}.");
+            if (!Heeft(json, "naar", out var n) || !(n.ValueKind == JsonValueKind.Number ? n.TryGetInt32(out var naar)
+                    : int.TryParse((n.ValueKind == JsonValueKind.String ? n.GetString()! : "").Trim().TrimStart('#'), out naar)))
+                return Fout(400, "naar moet het nummer van de andere activiteit zijn, bv. 123.");
+            if (naar == id) return Fout(400, "Een activiteit kan niet aan zichzelf gekoppeld worden.");
+
+            var (d, a) = await Zoek(v, id);
+            if (d is null || a is null) return Fout(404, $"Activiteit {id} bestaat niet.");
+            if (await v.Repo.BoardVanActiviteitAsync(naar) is not int anderBoard) return Fout(404, $"Activiteit {naar} bestaat niet; er is niets gekoppeld.");
+
+            int koppeling;
+            try { koppeling = keuze.Heen ? await v.Repo.NieuweKoppelingAsync(id, naar, keuze.Soort, v.Wie.Id) : await v.Repo.NieuweKoppelingAsync(naar, id, keuze.Soort, v.Wie.Id); }
+            catch (InvalidOperationException ex) { return Fout(400, ex.Message); }
+            v.Log($"activiteit {id} gekoppeld aan {naar}: {keuze.Naam}");
+            v.Ververs(d.Board.Id);
+            if (anderBoard != d.Board.Id) v.Ververs(anderBoard);
+            (d, a) = await Zoek(v, id);      // opnieuw lezen: de koppeling met titel, status en board van de ander
+            return Results.Json(new { koppeling, activiteit = Uit(a!, d!, v, metTekst: true, metBoard: true) }, Json, statusCode: 201);
+        }));
+
+        api.MapDelete("/activiteiten/{id:int}/koppelingen/{koppelingId:int}", (HttpContext ctx, int id, int koppelingId) => Met(ctx, async v =>
+        {
+            var (d, a) = await Zoek(v, id);
+            if (d is null || a is null) return Fout(404, $"Activiteit {id} bestaat niet.");
+            if (a.Koppelingen.FirstOrDefault(k => k.Id == koppelingId) is not { } k) return Fout(404, $"Koppeling {koppelingId} bestaat niet bij activiteit {id}.");
+            await v.Repo.VerwijderKoppelingAsync(koppelingId, v.Wie.Id);
+            a.Koppelingen.Remove(k);
+            v.Log($"koppeling {koppelingId} ({k.Naam} {k.AnderId}) van activiteit {id} verwijderd");
+            v.Ververs(d.Board.Id);
+            if (k.AnderBoardId != d.Board.Id) v.Ververs(k.AnderBoardId);
+            return Goed(new { verwijderd = koppelingId, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
         }));
 
         // ---- afvinklijst (vraag Gerard 20-11-2026): punten erbij, afvinken, aanpassen en weghalen ----
@@ -824,6 +874,17 @@ public static class ActivityBoardApi
         };
         if (metBoard) uit["board"] = new { id = d.Board.Id, titel = d.Board.Titel };
         if (metTekst) uit["opmaak"] = a.Opmaak;
+        if (a.Geblokkeerd) uit["geblokkeerd"] = true;
+        if (metTekst && a.Koppelingen.Count > 0)
+            uit["koppelingen"] = a.Koppelingen.Select(k => new
+            {
+                id = k.Id, soort = k.Naam,
+                activiteit = new
+                {
+                    id = k.AnderId, titel = k.AnderTitel, status = k.AnderStatus, statusNaam = ActStatus.Naam(k.AnderStatus),
+                    board = new { id = k.AnderBoardId, titel = k.AnderBoard }, link = v.Link(k.AnderBoardId, k.AnderId),
+                },
+            }).ToList();
         if (a.PuntenTotaal > 0) uit["voortgang"] = $"{a.PuntenKlaar}/{a.PuntenTotaal}";
         if (metTekst && a.Checklist.Count > 0)
             uit["checklist"] = ActPunt.Groepen(a.Checklist).Where(g => g.Kop is not null || g.Punten.Count > 0).Select(g => new

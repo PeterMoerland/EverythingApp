@@ -138,7 +138,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
                 Problemen = _problemen.Where(x => x.BoardId == boardId).Select(x => x.P).OrderBy(p => p.Positie)
                     .Select(p => new ActProbleem { Id = p.Id, Naam = p.Naam, Kleur = p.Kleur, Positie = p.Positie }).ToList(),
                 Types = _types.Where(x => x.BoardId == boardId).Select(x => new ActType { Id = x.T.Id, Naam = x.T.Naam, Kleur = x.T.Kleur }).ToList(),
-                Activiteiten = _acts.Where(x => x.BoardId == boardId).Select(x => x.A.Kopie()).ToList(),
+                Activiteiten = _acts.Where(x => x.BoardId == boardId).Select(x => { var k = x.A.Kopie(); k.Koppelingen = KoppelingenVan(k.Id); return k; }).ToList(),
             });
         }
     }
@@ -274,11 +274,69 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     }
 
     public Task VerwijderActiviteitAsync(int activiteitId)
-    { lock (_slot) _acts.RemoveAll(x => x.A.Id == activiteitId); return Task.CompletedTask; }
+    { lock (_slot) { _acts.RemoveAll(x => x.A.Id == activiteitId); _koppelingen.RemoveAll(k => k.Van == activiteitId || k.Naar == activiteitId); } return Task.CompletedTask; }
 
     public Task<bool> OpmaakAanwezigAsync() => Task.FromResult(true);
     public Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door)
     { lock (_slot) Act(activiteitId).Opmaak = opmaak; return Task.CompletedTask; }
+
+    // ---- koppelingen ----
+    private readonly List<(int Id, int Van, int Naar, string Soort)> _koppelingen = new();
+    public Task<bool> KoppelingenAanwezigAsync() => Task.FromResult(true);
+
+    private string BoardNaam(int boardId) => _boards.FirstOrDefault(b => b.Id == boardId) is { } b && b.Naam.Length > 0 ? b.Naam : $"Board {boardId}";
+
+    private List<ActKoppeling> KoppelingenVan(int id)
+    {
+        var uit = new List<ActKoppeling>();
+        foreach (var k in _koppelingen.Where(k => k.Van == id || k.Naar == id))
+        {
+            var heen = k.Van == id;
+            var ander = _acts.FirstOrDefault(x => x.A.Id == (heen ? k.Naar : k.Van));
+            if (ander.A is null) continue;
+            uit.Add(new ActKoppeling(k.Id, k.Soort, heen, ander.A.Id, ander.A.Titel, ander.A.Status, ander.BoardId, BoardNaam(ander.BoardId)));
+        }
+        return uit;
+    }
+
+    public Task<int> NieuweKoppelingAsync(int vanId, int naarId, string soort, int? door)
+    {
+        lock (_slot)
+        {
+            if (vanId == naarId) throw new InvalidOperationException("Een activiteit kan niet aan zichzelf gekoppeld worden.");
+            var bestaand = _koppelingen.FirstOrDefault(k => k.Soort == soort && ((k.Van == vanId && k.Naar == naarId) || (k.Van == naarId && k.Naar == vanId)));
+            if (bestaand.Id != 0)
+            {
+                if (bestaand.Van == vanId || soort == ActKoppelSoort.ZieOok) return Task.FromResult(bestaand.Id);
+                throw new InvalidOperationException("Deze twee activiteiten zijn al andersom gekoppeld.");
+            }
+            var id = Nieuw();
+            _koppelingen.Add((id, vanId, naarId, soort));
+            return Task.FromResult(id);
+        }
+    }
+
+    public Task VerwijderKoppelingAsync(int koppelingId, int? door)
+    { lock (_slot) _koppelingen.RemoveAll(k => k.Id == koppelingId); return Task.CompletedTask; }
+
+    public Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId)
+    {
+        lock (_slot)
+            return Task.FromResult(_koppelingen.FirstOrDefault(k => k.Id == koppelingId) is { Id: not 0 } k ? ((int, int)?)(k.Van, k.Naar) : null);
+    }
+
+    public Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max)
+    {
+        lock (_slot)
+        {
+            var z = zoek.Trim();
+            var nummer = int.TryParse(z.TrimStart('#'), out var n) ? n : (int?)null;
+            var woorden = z.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return Task.FromResult(_acts.Where(x => x.A.Id == nummer || woorden.All(w => x.A.Titel.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(x => x.A.Id == nummer).Take(max)
+                .Select(x => new ActKoppelDoel(x.A.Id, x.A.Titel, x.A.Status, x.BoardId, BoardNaam(x.BoardId))).ToList());
+        }
+    }
 
     // ---- afvinklijst ----
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(true);

@@ -49,6 +49,8 @@ Invoke-RestMethod "$env:MDE_APP/api/activityboard" -Headers @{ "X-Sleutel" = $en
 | Punten op de afvinklijst erbij | `POST /api/activityboard/activiteiten/{id}/checklist` |
 | Punt afvinken, uitvinken of de tekst aanpassen | `PATCH /api/activityboard/checklist/{puntId}` |
 | Punt of kopje van de afvinklijst weghalen | `DELETE /api/activityboard/checklist/{puntId}` |
+| Kaartje koppelen aan een ander kaartje | `POST /api/activityboard/activiteiten/{id}/koppelingen` |
+| Koppeling weghalen | `DELETE /api/activityboard/activiteiten/{id}/koppelingen/{koppelingId}` |
 
 Bij het lezen van een board kun je de lijst inperken: `?open=true` (alleen wat nog niet klaar is), `?mijn=true` (alleen
 waar ik aan toegewezen ben), `?status=bezig`. De lange tekstvelden komen alleen mee met `?tekst=true`; bij het lezen
@@ -127,6 +129,44 @@ Regels:
 - `GET /activiteiten/{id}` geeft `opmaak` terug.
 - HTML in de tekst wordt niet uitgevoerd maar als tekst getoond. Een link mag alleen naar `http`, `https` of `mailto`;
   een andere link komt als gewone tekst in beeld. Een plaatje (`![…](…)`) wordt een gewone link.
+
+## Koppelingen tussen kaartjes
+
+Een kaartje kan gekoppeld zijn aan een ander kaartje, ook op een **ander board**. Er zijn drie soorten; elke kant leest
+de koppeling op zijn eigen manier:
+
+| Op dit kaartje | Op het andere kaartje |
+| --- | --- |
+| `afgesplitst van` | `opgesplitst in` |
+| `hangt af van` | `blokkeert` |
+| `zie ook` | `zie ook` |
+
+**Lezen.** `GET /activiteiten/{id}` geeft `koppelingen`, zoals je ze vanaf dat kaartje leest:
+
+```json
+"geblokkeerd": true,
+"koppelingen": [
+  { "id": 107, "soort": "hangt af van",
+    "activiteit": { "id": 105, "titel": "Kaart op het andere board", "status": "bezig", "statusNaam": "In uitvoering",
+                    "board": { "id": 102, "titel": "Robot software" }, "link": "https://…/activityboard/102?kaart=105" } }
+]
+```
+
+`geblokkeerd: true` staat er (ook in lijsten) als het kaartje afhangt van een kaartje dat nog niet klaar is. In de app
+staat dan ⛔ wacht op het kaartje.
+
+**Koppelen.** `POST /activiteiten/{id}/koppelingen` met `{ "soort": "hangt af van", "naar": 105 }`. `soort` is een van
+de vijf namen uit de tabel, gelezen vanaf kaartje `{id}`; `naar` is het nummer van het andere kaartje.
+
+- Bestaat het andere kaartje niet, dan krijg je `404` met `{ "fout": "Activiteit 105 bestaat niet; er is niets gekoppeld." }`.
+- Bestaat de koppeling al, dan krijg je de bestaande terug en verandert er niets.
+- Dezelfde soort andersom (A hangt af van B terwijl B al afhangt van A) geeft een fout.
+- Een kaartje kan niet aan zichzelf gekoppeld worden.
+
+**Ontkoppelen.** `DELETE /activiteiten/{id}/koppelingen/{koppelingId}`, met het `id` van de koppeling uit de lijst. De
+koppeling verdwijnt aan beide kanten. Wordt een van de twee kaartjes verwijderd, dan gaat de koppeling mee weg.
+
+**`#123` in een tekstveld** van een kaartje met opmaak wordt een link naar kaart 123 (niet in code en niet in een adres).
 
 ## Afvinklijst
 

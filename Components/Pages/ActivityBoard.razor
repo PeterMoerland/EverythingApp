@@ -379,6 +379,7 @@ else
                                            chips: past het niet meer op de laatste regel, dan komt het eronder, zonder de chips smaller te maken. *@
                                         <div class="ab-kmeta">
                                             @if (a.BenodigdeUren is decimal bu) { <span class="ab-chip ab-tijd" title="Benodigde tijd">⏱ @ActTijd.Tekst(bu)</span> }
+                                            @if (a.Geblokkeerd) { <span class="ab-chip ab-wacht" title="@WachtTip(a)">⛔ wacht</span> }
                                             @if (a.PuntenTotaal > 0) { <span class="ab-chip ab-vink @(a.PuntenKlaar == a.PuntenTotaal ? "af" : "")" title="Afvinklijst: @a.PuntenKlaar van de @a.PuntenTotaal punten afgevinkt">☑ @a.PuntenKlaar/@a.PuntenTotaal</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
                                             @if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }
@@ -579,6 +580,47 @@ else
 
                 <div class="ab-lab">Gemaakt op</div>
                 <div class="ab-ro">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</div>
+
+                @if (_metKoppelingen && o.Id != 0)
+                {
+                    @* koppelingen met andere kaartjes (vraag Gerard 20-11-2026), ook op een ander board *@
+                    <div class="ab-lab">Koppelingen</div>
+                    <div class="ab-ro ab-koppelingen">
+                        @foreach (var k in o.Koppelingen)
+                        {
+                            var kop = k;
+                            <div class="ab-koppeling @(kop.Blokkeert ? "wacht" : "")" @key="kop.Id">
+                                <span class="ab-ksoort">@(kop.Blokkeert ? "⛔ " : "")@kop.Naam</span>
+                                <a href="@($"activityboard/{kop.AnderBoardId}?kaart={kop.AnderId}")" title="Deze kaart openen@(kop.AnderBoardId != _data.Board.Id ? " (op het board " + kop.AnderBoard + ")" : "")">#@kop.AnderId @kop.AnderTitel</a>
+                                <span class="ab-chip ab-k-@ActStatus.Van(kop.AnderStatus).Kleur">@ActStatus.Naam(kop.AnderStatus)</span>
+                                @if (kop.AnderBoardId != _data.Board.Id) { <span class="ab-kboard">@kop.AnderBoard</span> }
+                                <button type="button" class="ab-pweg" title="Deze koppeling verwijderen" @onclick="() => Ontkoppel(kop)">×</button>
+                            </div>
+                        }
+                        @if (_koppelNieuw)
+                        {
+                            <div class="ab-koppelnieuw">
+                                <select @bind="_koppelKeuze" aria-label="Soort koppeling">
+                                    @for (var i = 0; i < ActKoppelSoort.Keuzes.Length; i++) { <option value="@i">@ActKoppelSoort.Keuzes[i].Naam</option> }
+                                </select>
+                                <input id="ab-koppelzoek" placeholder="nummer of titel van de andere kaart" autocomplete="off" value="@_koppelZoek"
+                                       @oninput="KaartKoppelZoek" @onkeydown="KaartKoppelToets" aria-label="Kaart zoeken" />
+                                @foreach (var t in _koppelTreffers)
+                                {
+                                    var doel = t;
+                                    <button type="button" class="ab-koppeltreffer" @onclick="() => KaartKoppel(doel)">
+                                        <b>#@doel.Id</b> @doel.Titel <span class="ab-kboard">@ActStatus.Naam(doel.Status)@(doel.BoardId != _data.Board.Id ? " · " + doel.Board : "")</span>
+                                    </button>
+                                }
+                                @if (_koppelZoek.Trim().Length >= 2 && _koppelTreffers.Count == 0) { <div class="ab-hint">Geen kaart gevonden.</div> }
+                            </div>
+                        }
+                        else
+                        {
+                            <button type="button" class="ab-btn klein" @onclick="KaartKoppelOpen">+ koppelen</button>
+                        }
+                    </div>
+                }
 
                 @if (_metOpmaak)
                 {
@@ -783,6 +825,7 @@ else
     private bool _metTijd;                                  // ActivityBoard_Tijd_MariaDB.sql uitgevoerd (benodigde tijd per activiteit)
     private bool _metChecklist;                             // ActivityBoard_Checklist_MariaDB.sql uitgevoerd (afvinklijst per activiteit)
     private bool _metOpmaak;                                // ActivityBoard_Opmaak_MariaDB.sql uitgevoerd (Markdown in de tekstvelden)
+    private bool _metKoppelingen;                           // ActivityBoard_Koppelingen_MariaDB.sql uitgevoerd (koppelingen tussen kaartjes)
     private string? _bewerkVeld;                            // het tekstveld dat nu als tekstvak open staat (bij een kaartje met opmaak)
     private string _boardSoort = "";                        // filter op het startscherm
     private static readonly (string Code, string Naam)[] SoortFilters =
@@ -837,6 +880,7 @@ else
         _metTijd = await Repo.TijdAanwezigAsync();
         _metChecklist = await Repo.ChecklistAanwezigAsync();
         _metOpmaak = await Repo.OpmaakAanwezigAsync();
+        _metKoppelingen = await Repo.KoppelingenAanwezigAsync();
 
         if (KaartUitUrl is null) _kaartUitUrlGedaan = null;
         if (BoardId is null && KaartUitUrl is int kaart)
@@ -1468,6 +1512,7 @@ else
                     o.Problemen = new(a.Problemen); o.Types = new(a.Types); o.Personen = new(a.Personen);
                     o.Checklist = a.Checklist.Select(p => p.Kopie()).ToList();
                     o.Opmaak = a.Opmaak;
+                    o.Koppelingen = new(a.Koppelingen);
                     // de tekst van een collega of de API, behalve in het veld waar je zelf in typt
                     foreach (var veld in ActTekst.Velden.Select(x => x.Kolom).Where(k => k != _bewerkVeld))
                         if (a.Tekst.TryGetValue(veld, out var nieuweTekst)) o.Tekst[veld] = nieuweTekst; else o.Tekst.Remove(veld);
@@ -2362,6 +2407,68 @@ else
         if (tekst.Length == 0) o.Tekst.Remove(kolom); else o.Tekst[kolom] = tekst;
         if (o.Id == 0) return;
         if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, kolom, tekst, Ik.WerknemerId))) SchrijfTerug(o);
+    }
+
+    // ---------------------------------------------------------------- koppelingen met andere kaartjes
+
+    private bool _koppelNieuw;                               // het zoekvak om te koppelen staat open
+    private int _koppelKeuze;                                // index in ActKoppelSoort.Keuzes
+    private string _koppelZoek = "";
+    private List<ActKoppelDoel> _koppelTreffers = new();
+
+    private string WachtTip(Activiteit a)
+        => "Hangt af van " + string.Join(", ", a.Koppelingen.Where(k => k.Blokkeert).Select(k => $"#{k.AnderId} {k.AnderTitel} ({ActStatus.Naam(k.AnderStatus)})"));
+
+    private void KaartKoppelOpen()
+    {
+        _koppelNieuw = true; _koppelZoek = ""; _koppelTreffers = new();
+        _focusNa = "#ab-koppelzoek";
+    }
+
+    private async Task KaartKoppelZoek(ChangeEventArgs e)
+    {
+        _koppelZoek = (string?)e.Value ?? "";
+        var z = _koppelZoek.Trim();
+        if (_open is not { } o || (z.Length < 2 && !int.TryParse(z.TrimStart('#'), out _))) { _koppelTreffers = new(); return; }
+        try
+        {
+            var gevonden = await Repo.ZoekActiviteitenAsync(z, 9);
+            if (z != _koppelZoek.Trim()) return;      // er is intussen verder getypt
+            _koppelTreffers = gevonden.Where(t => t.Id != o.Id).Take(8).ToList();
+        }
+        catch (Exception ex) { Toon("Zoeken mislukt: " + ex.Message, fout: true); }
+    }
+
+    private async Task KaartKoppelToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _koppelTreffers.Count > 0) await KaartKoppel(_koppelTreffers[0]);
+    }
+
+    private async Task KaartKoppel(ActKoppelDoel doel)
+    {
+        if (_open is not { } o || _data is null || o.Id == 0) return;
+        var keuze = ActKoppelSoort.Keuzes[Math.Clamp(_koppelKeuze, 0, ActKoppelSoort.Keuzes.Length - 1)];
+        int id;
+        try { id = keuze.Heen ? await Repo.NieuweKoppelingAsync(o.Id, doel.Id, keuze.Soort, Ik.WerknemerId) : await Repo.NieuweKoppelingAsync(doel.Id, o.Id, keuze.Soort, Ik.WerknemerId); }
+        catch (InvalidOperationException ex) { Toon(ex.Message, fout: true); return; }
+        catch (Exception ex) { Toon("Koppelen mislukt: " + ex.Message, fout: true); return; }
+        if (!o.Koppelingen.Any(k => k.Id == id))
+            o.Koppelingen.Add(new ActKoppeling(id, keuze.Soort, keuze.Heen, doel.Id, doel.Titel, doel.Status, doel.BoardId, doel.Board));
+        _koppelNieuw = false; _koppelZoek = ""; _koppelTreffers = new();
+        SchrijfTerug(o);
+        Meld();
+        // de andere kaart staat misschien op een ander board: ook daar verversen, en hier de andere kant bijwerken
+        if (doel.BoardId != _data.Board.Id) Live.Meld(doel.BoardId, _sleutel, Ik.Naam);
+        else await HerlaadAsync();
+    }
+
+    private async Task Ontkoppel(ActKoppeling k)
+    {
+        if (_open is not { } o || _data is null || !o.Koppelingen.Remove(k)) return;
+        if (!await Bewaar(() => Repo.VerwijderKoppelingAsync(k.Id, Ik.WerknemerId))) return;
+        SchrijfTerug(o);
+        if (k.AnderBoardId != _data.Board.Id) Live.Meld(k.AnderBoardId, _sleutel, Ik.Naam);
+        else await HerlaadAsync();
     }
 
     // ---------------------------------------------------------------- afvinklijst

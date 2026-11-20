@@ -397,7 +397,27 @@ Markdown in de tekstvelden, koppelingen tussen kaartjes; los op te leveren in di
 plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaande tekst blijft ongemoeid** (onderdeel
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
-**Onderdeel 3 (koppelingen) is nog niet gebouwd;** onderdeel 2 staat hieronder.
+Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Onderdeel 3, koppelingen tussen kaartjes** (zelfde dag), ook tussen twee boards. Script
+  **`ActivityBoard_Koppelingen_MariaDB.sql`**: `ActivityBoardKoppelingen` (VanID, NaarID, Soort afgesplitst / hangtaf /
+  zieook; beide kanten cascade, dus een verwijderde kaart neemt zijn koppelingen mee en ongedaan maken zet ze niet
+  terug). Eén rij per koppeling; `ActKoppeling` is de koppeling gezien vanaf één kaart (`Heen` = de van-kant),
+  `ActKoppelSoort.Keuzes` de vijf namen (afgesplitst van / opgesplitst in, hangt af van / blokkeert, zie ook).
+  `LaadAsync` leest ze van beide kanten met titel, status en boardtitel van de ander (`BoardKolommen` + `LeesBoard`,
+  met dezelfde rk/wk-delen als het board zelf). `NieuweKoppelingAsync` geeft een bestaande terug en weigert zichzelf en
+  dezelfde soort andersom (`InvalidOperationException` met de reden). `ZoekActiviteitenAsync` zoekt op nummer of titel
+  over alle boards. Scherm: in de linkerkolom van de pop-up "Koppelingen" met per koppeling soort, link
+  (`activityboard/{board}?kaart={id}`), status en board, kruisje om te ontkoppelen, en "+ koppelen" (soort kiezen,
+  zoeken, Enter of klikken); op het kaartje `⛔ wacht` als hij afhangt van een kaart die niet klaar is
+  (`Activiteit.Geblokkeerd`). Staat de andere kaart op een ander board, dan krijgt dat board ook een live-melding.
+  De functies in het scherm heten `KaartKoppel…` omdat `Koppel…` al van het board aan een project is. `#123` in een
+  tekst met opmaak wordt een link `activityboard?kaart=123` (`ActMarkdown`, niet in code, links of midden in een woord).
+  API: `koppelingen` en `geblokkeerd` in de uitvoer, `POST /activiteiten/{id}/koppelingen` {soort, naar} en
+  `DELETE /activiteiten/{id}/koppelingen/{koppelingId}`. Getest (geheugen, `abkop-test.py`): de drie soorten van beide
+  kanten, twee boards, dubbel, andersom, onbekende kaart, zichzelf, onbekende soort en veld, geblokkeerd aan en uit na
+  oplossen, ontkoppelen; in het scherm koppelen met zoeken en Enter, de chip op het kaartje, doorklikken naar het
+  andere board, ontkoppelen aan beide kanten, en de #-links. Niet getest: de echte tabel en `ZoekActiviteitenAsync`
+  tegen de database.
 - **Onderdeel 2, opmaak (Markdown) in de zes tekstvelden** (zelfde dag). Omdat bestaande tekst ongemoeid moest blijven:
   een vlag per kaartje, kolom `Opmaak` (script **`ActivityBoard_Opmaak_MariaDB.sql`**, bestaande rijen 0). Nieuwe
   kaartjes uit het scherm en de API krijgen 1 (`_metOpmaak` / `OpmaakAanwezigAsync`; zonder kolom blijft alles plat);
