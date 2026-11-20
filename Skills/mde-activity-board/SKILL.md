@@ -51,6 +51,9 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 | Aanmaken (één object of een lijst, hoogstens 50) | `POST /boards/{boardId}/activiteiten` |
 | Wijzigen (alleen wat je meegeeft) | `PATCH /activiteiten/{id}` |
 | Onderwerp of type toevoegen | `POST /boards/{boardId}/onderwerpen` of `/types` met `{ "naam": "…" }` |
+| Punten op de afvinklijst erbij | `POST /activiteiten/{id}/checklist` met `{ "tekst": "…", "kop": "Loggen" }`, `{ "kop": "…", "punten": [ … ] }` of een lijst daarvan |
+| Punt afvinken, uitvinken, tekst aanpassen | `PATCH /checklist/{puntId}` met `{ "klaar": true }`, `{ "klaar": false }` of `{ "tekst": "…" }` |
+| Punt of kopje weghalen | `DELETE /checklist/{puntId}` |
 
 ## Velden van een activiteit
 
@@ -63,6 +66,20 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 - `onderwerpen`, `types`: namen of ids **van dat board**
 - `personen`: namen of ids; `"ik"` is de gebruiker zelf; een voornaam mag als die maar één persoon oplevert
 - tekstvelden: `samenvatting`, `details`, `impact`, `genomenStappen`, `volgendeStappen`, `opmerkingen`
+- `checklist` (alleen bij aanmaken): de afvinklijst, bv.
+  `[ { "kop": "Loggen", "punten": [ { "tekst": "Sampletijd 2 ms houden", "klaar": false }, "Logbestand bewaren" ] } ]`.
+  Een punt mag een losse tekst zijn; punten zonder kopje staan vooraan. Hoogstens 300 regels per kaartje.
+
+## Afvinklijst
+
+- `GET /activiteiten/{id}` geeft `checklist` (groepen met `kop`, `kopId` en `punten`; elk punt heeft `id`, `tekst`,
+  `klaar` en na afvinken `klaarOp` en `klaarDoor`) en `voortgang` (bv. `"12/35"`). In lijsten staat alleen `voortgang`.
+- **Een punt afvinken = eerst de kaart lezen** om het `id` van het punt te vinden, daarna `PATCH /checklist/{puntId}`.
+  Vink alleen af wat de gebruiker noemt; bij twijfel welk punt bedoeld is, laat de punten zien en vraag het.
+- Een nieuw punt komt onderaan het kopje met die naam; bestaat het kopje niet, dan komt het er onderaan de lijst bij.
+- `checklist` in een `PATCH` van de activiteit geeft een fout: na het aanmaken gaat het per punt.
+- Een kopje verwijderen laat de punten staan (ze horen dan bij het kopje erboven). Verwijder alleen op verzoek.
+- De volgorde veranderen kan alleen in de app.
 
 ## Werkwijze
 
@@ -86,5 +103,6 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 
 ## Wat niet kan
 
-Verwijderen (ook van een board), een bestaand board aan iets anders koppelen, en de volgorde binnen een vak. Zeg dat de
+Een kaartje of board verwijderen, een bestaand board aan iets anders koppelen, de volgorde binnen een vak en de volgorde
+van een afvinklijst. (Een los punt of kopje van de afvinklijst weghalen kan wel.) Zeg dat de
 gebruiker dat in de app doet. Een kaartje dat niet meer hoeft zet je op `geannuleerd`, na overleg.

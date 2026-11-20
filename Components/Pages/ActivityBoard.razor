@@ -379,6 +379,7 @@ else
                                            chips: past het niet meer op de laatste regel, dan komt het eronder, zonder de chips smaller te maken. *@
                                         <div class="ab-kmeta">
                                             @if (a.BenodigdeUren is decimal bu) { <span class="ab-chip ab-tijd" title="Benodigde tijd">⏱ @ActTijd.Tekst(bu)</span> }
+                                            @if (a.PuntenTotaal > 0) { <span class="ab-chip ab-vink @(a.PuntenKlaar == a.PuntenTotaal ? "af" : "")" title="Afvinklijst: @a.PuntenKlaar van de @a.PuntenTotaal punten afgevinkt">☑ @a.PuntenKlaar/@a.PuntenTotaal</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
                                             @if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }
                                             @foreach (var pid in ProblemenGesorteerd(a, idx).Where(x => x.ToString() != l))
@@ -589,6 +590,53 @@ else
                     <h3>@v.Naam</h3>
                     <textarea placeholder="@v.Hulp" @onchange="e => TekstGewijzigd(kolom, e)">@o.Tekst.GetValueOrDefault(kolom)</textarea>
                 </div>
+                @if (kolom == "Samenvatting" && _metChecklist)
+                {
+                    @* de afvinklijst (vraag Gerard 20-11-2026): kopjes met punten; elke wijziging gaat meteen naar de database *@
+                    <div class="ab-sectie ab-lijst">
+                        <h3>Afvinklijst @if (o.PuntenTotaal > 0) { <span class="ab-lijst-tel @(o.PuntenKlaar == o.PuntenTotaal ? "af" : "")">@o.PuntenKlaar/@o.PuntenTotaal</span> }</h3>
+                        @if (o.Id == 0)
+                        {
+                            <div class="ab-hint">Geef de activiteit eerst een titel; daarna kun je punten toevoegen.</div>
+                        }
+                        else
+                        {
+                            var groepen = ActPunt.Groepen(o.Checklist);
+                            @foreach (var groep in groepen)
+                            {
+                                var g = groep;
+                                var gid = g.Kop?.Id ?? 0;
+                                @if (g.Kop is { } kop)
+                                {
+                                    <div class="ab-pkop" @key="kop.Id" @ondragover:preventDefault @ondrop="() => PuntDrop(kop.Id)">
+                                        <span class="ab-pgreep" draggable="true" title="Slepen om te verplaatsen (of Alt+pijl omhoog/omlaag)" @ondragstart="() => _sleepPunt = kop.Id">⠿</span>
+                                        <input id="@($"ab-pk-{kop.Id}")" value="@kop.Tekst" maxlength="200" aria-label="Kopje" @onchange="e => PuntTekst(kop, e)" @onkeydown="e => PuntToets(e, kop)" />
+                                        <button type="button" class="ab-pweg" title="Kopje verwijderen (de punten blijven staan)" @onclick="() => PuntWeg(kop)">×</button>
+                                    </div>
+                                }
+                                @foreach (var p in g.Punten)
+                                {
+                                    var punt = p;
+                                    <div class="ab-punt @(punt.Klaar ? "klaar" : "")" @key="punt.Id" @ondragover:preventDefault @ondrop="() => PuntDrop(punt.Id)">
+                                        <span class="ab-pgreep" draggable="true" title="Slepen om te verplaatsen (of Alt+pijl omhoog/omlaag)" @ondragstart="() => _sleepPunt = punt.Id">⠿</span>
+                                        <input type="checkbox" checked="@punt.Klaar" title="@PuntTip(punt)" aria-label="Afgevinkt" @onchange="e => PuntKlaar(punt, e.Value is true)" />
+                                        <input class="ab-ptekst" value="@punt.Tekst" maxlength="@ActPunt.MaxTekst" aria-label="Punt" title="@PuntTip(punt)" @onchange="e => PuntTekst(punt, e)" @onkeydown="e => PuntToets(e, punt)" />
+                                        <button type="button" class="ab-pweg" title="Punt verwijderen" @onclick="() => PuntWeg(punt)">×</button>
+                                    </div>
+                                }
+                                @* onderaan elk groepje: een punt erbij (Enter); ook de plek om een punt naar het eind van het groepje te slepen *@
+                                @if (g.Kop is not null || groepen.Count == 1 || g.Punten.Count > 0)
+                                {
+                                    <div class="ab-pnieuw" @ondragover:preventDefault @ondrop="() => PuntDropEinde(gid)">
+                                        <input id="@($"ab-pn-{gid}")" @key="@($"pn-{gid}-{_puntVersie}")" placeholder="+ punt (Enter)" maxlength="@ActPunt.MaxTekst" aria-label="Nieuw punt"
+                                               @oninput="e => _nieuwPunt[gid] = (string?)e.Value ?? string.Empty" @onkeydown="e => NieuwPuntToets(e, gid)" />
+                                    </div>
+                                }
+                            }
+                            <button class="ab-btn klein" type="button" @onclick="NieuwKopje">+ Kopje</button>
+                        }
+                    </div>
+                }
             }
         </div>
         <div class="ab-dvoet">
@@ -706,6 +754,7 @@ else
     private bool _soorten;                                  // ActivityBoard_Soorten_MariaDB.sql uitgevoerd
     private bool _metWerkorder;                             // ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd
     private bool _metTijd;                                  // ActivityBoard_Tijd_MariaDB.sql uitgevoerd (benodigde tijd per activiteit)
+    private bool _metChecklist;                             // ActivityBoard_Checklist_MariaDB.sql uitgevoerd (afvinklijst per activiteit)
     private string _boardSoort = "";                        // filter op het startscherm
     private static readonly (string Code, string Naam)[] SoortFilters =
         { ("", "Alle"), (ActBoardSoort.Project, "Project"), (ActBoardSoort.Werkorder, "Werkorder"), (ActBoardSoort.Klant, "Klant"), (ActBoardSoort.Vrij, "Vrij") };
@@ -757,6 +806,7 @@ else
         _soorten = await Repo.SoortenAanwezigAsync();
         _metWerkorder = _soorten && await Repo.WerkorderAanwezigAsync();
         _metTijd = await Repo.TijdAanwezigAsync();
+        _metChecklist = await Repo.ChecklistAanwezigAsync();
 
         if (KaartUitUrl is null) _kaartUitUrlGedaan = null;
         if (BoardId is null && KaartUitUrl is int kaart)
@@ -1385,6 +1435,7 @@ else
                     o.Status = a.Status; o.Prioriteit = a.Prioriteit; o.Vervaldatum = a.Vervaldatum; o.GeslotenOp = a.GeslotenOp;
                     o.BenodigdeUren = a.BenodigdeUren;
                     o.Problemen = new(a.Problemen); o.Types = new(a.Types); o.Personen = new(a.Personen);
+                    o.Checklist = a.Checklist.Select(p => p.Kopie()).ToList();
                 }
             }
             if (_typeHernoem is int t && !vers.Types.Any(x => x.Id == t)) _typeHernoem = null;
@@ -2260,6 +2311,126 @@ else
         if (tekst.Length == 0) o.Tekst.Remove(kolom); else o.Tekst[kolom] = tekst;
         if (o.Id == 0) return;
         if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, kolom, tekst, Ik.WerknemerId))) SchrijfTerug(o);
+    }
+
+    // ---------------------------------------------------------------- afvinklijst
+
+    private int? _sleepPunt;                                 // de regel die gesleept wordt
+    private int _puntVersie;                                 // telt op na een nieuw punt: de invoervakken worden dan leeg opnieuw gemaakt
+    private readonly Dictionary<int, string> _nieuwPunt = new();   // wat er in "+ punt" staat, per kopje (0 = zonder kopje)
+
+    private string PuntTip(ActPunt p)
+        => p.Klaar && p.KlaarOp is DateTime op
+            ? $"Afgevinkt{(p.KlaarDoor is int w && _persoonOpId.TryGetValue(w, out var wie) ? " door " + wie.Naam : "")} op {op:dd-MM-yyyy HH:mm}"
+            : "";
+
+    /// <summary>Een wijziging aan de lijst bewaren; mislukt het, dan laadt Bewaar het board (en de lijst) opnieuw.</summary>
+    private async Task BewaarLijst(Activiteit o, Func<Task> doe)
+    {
+        if (await Bewaar(doe)) SchrijfTerug(o);
+    }
+
+    private async Task PuntKlaar(ActPunt p, bool klaar)
+    {
+        if (_open is not { } o || p.Klaar == klaar) return;
+        p.Klaar = klaar; p.KlaarOp = klaar ? DateTime.Now : null; p.KlaarDoor = klaar ? Ik.WerknemerId : null;
+        await BewaarLijst(o, () => Repo.ZetPuntKlaarAsync(p.Id, klaar, Ik.WerknemerId));
+    }
+
+    /// <summary>De tekst van een punt of kopje; leeggemaakt = weg ermee.</summary>
+    private async Task PuntTekst(ActPunt p, ChangeEventArgs e)
+    {
+        if (_open is not { } o) return;
+        var tekst = ((string?)e.Value ?? "").Trim();
+        if (tekst.Length == 0) { await PuntWeg(p); return; }
+        if (tekst == p.Tekst) return;
+        p.Tekst = tekst;
+        await BewaarLijst(o, () => Repo.ZetPuntTekstAsync(p.Id, tekst, Ik.WerknemerId));
+    }
+
+    private async Task PuntWeg(ActPunt p)
+    {
+        if (_open is not { } o || !o.Checklist.Remove(p)) return;
+        await BewaarLijst(o, () => Repo.VerwijderPuntAsync(p.Id, Ik.WerknemerId));
+    }
+
+    private Task BewaarVolgorde(Activiteit o)
+    {
+        var ids = o.Checklist.Select(p => p.Id).ToList();
+        return BewaarLijst(o, () => Repo.ZetPuntVolgordeAsync(o.Id, ids, Ik.WerknemerId));
+    }
+
+    /// <summary>Alt+pijl omhoog/omlaag: de regel een plek opschuiven.</summary>
+    private async Task PuntToets(KeyboardEventArgs e, ActPunt p)
+    {
+        if (_open is not { } o || !e.AltKey || e.Key is not ("ArrowUp" or "ArrowDown")) return;
+        var i = o.Checklist.IndexOf(p);
+        var naar = e.Key == "ArrowUp" ? i - 1 : i + 1;
+        if (i < 0 || naar < 0 || naar >= o.Checklist.Count) return;
+        (o.Checklist[i], o.Checklist[naar]) = (o.Checklist[naar], o.Checklist[i]);
+        await BewaarVolgorde(o);
+    }
+
+    /// <summary>Losgelaten op een regel: de gesleepte regel komt ervoor.</summary>
+    private async Task PuntDrop(int doelId)
+    {
+        var sleep = _sleepPunt; _sleepPunt = null;
+        if (_open is not { } o || sleep is not int id || id == doelId) return;
+        var p = o.Checklist.FirstOrDefault(x => x.Id == id);
+        if (p is null) return;
+        o.Checklist.Remove(p);
+        var plek = o.Checklist.FindIndex(x => x.Id == doelId);
+        o.Checklist.Insert(plek < 0 ? o.Checklist.Count : plek, p);
+        await BewaarVolgorde(o);
+    }
+
+    /// <summary>Losgelaten op "+ punt" van een groepje: de regel komt onderaan dat groepje (kopId 0 = zonder kopje).</summary>
+    private async Task PuntDropEinde(int kopId)
+    {
+        var sleep = _sleepPunt; _sleepPunt = null;
+        if (_open is not { } o || sleep is not int id || id == kopId) return;
+        var p = o.Checklist.FirstOrDefault(x => x.Id == id);
+        if (p is null) return;
+        o.Checklist.Remove(p);
+        o.Checklist.Insert(EindeVanGroep(o, kopId), p);
+        await BewaarVolgorde(o);
+    }
+
+    /// <summary>De plek direct na het laatste punt van het groepje (kopId 0 = de punten zonder kopje, vooraan).</summary>
+    private static int EindeVanGroep(Activiteit o, int kopId)
+    {
+        var start = kopId == 0 ? 0 : o.Checklist.FindIndex(x => x.Id == kopId) + 1;
+        var volgende = o.Checklist.FindIndex(start, x => x.Kop);
+        return volgende < 0 ? o.Checklist.Count : volgende;
+    }
+
+    private async Task NieuwPuntToets(KeyboardEventArgs e, int kopId)
+    {
+        if (e.Key != "Enter" || _open is not { } o || o.Id == 0) return;
+        var tekst = _nieuwPunt.GetValueOrDefault(kopId, "").Trim();
+        if (tekst.Length == 0) return;
+        if (o.Checklist.Count >= ActPunt.MaxPerActiviteit) { Toon($"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels.", fout: true); return; }
+        var plek = EindeVanGroep(o, kopId);
+        var p = new ActPunt { Tekst = tekst.Length > ActPunt.MaxTekst ? tekst[..ActPunt.MaxTekst] : tekst };
+        int? na = plek == 0 ? 0 : o.Checklist[plek - 1].Id;
+        o.Checklist.Insert(plek, p);
+        _nieuwPunt.Remove(kopId);
+        _puntVersie++;                       // het vak leeg opnieuw maken, en de cursor er weer in
+        _focusNa = $"#ab-pn-{kopId}";
+        if (!await Bewaar(() => Repo.NieuwPuntAsync(o.Id, p, na, Ik.WerknemerId))) return;
+        SchrijfTerug(o);
+    }
+
+    private async Task NieuwKopje()
+    {
+        if (_open is not { } o || o.Id == 0) return;
+        if (o.Checklist.Count >= ActPunt.MaxPerActiviteit) { Toon($"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels.", fout: true); return; }
+        var n = o.Checklist.Count(x => x.Kop) + 1;
+        var p = new ActPunt { Kop = true, Tekst = $"Kopje {n}" };
+        o.Checklist.Add(p);
+        if (!await Bewaar(() => Repo.NieuwPuntAsync(o.Id, p, null, Ik.WerknemerId))) return;
+        SchrijfTerug(o);
+        _focusNa = $"#ab-pk-{p.Id}";         // de naam staat geselecteerd: meteen overtypen
     }
 
     /// <summary>Verwijderen zonder vraag vooraf, met ongedaan maken (aanname A3): de kopie komt terug als nieuwe regel.</summary>

@@ -75,6 +75,24 @@ public interface IActivityBoardRepository
     Task VerplaatsAsync(int activiteitId, string status, DateTime? geslotenOp, IReadOnlyCollection<int> problemen,
                         IReadOnlyList<int> vakVolgorde, int? door);
     Task VerwijderActiviteitAsync(int activiteitId);
+
+    // ---- afvinklijst (ActivityBoard_Checklist_MariaDB.sql) ----
+    /// <summary>Kan een activiteit een afvinklijst hebben? (het script is uitgevoerd)</summary>
+    Task<bool> ChecklistAanwezigAsync();
+    /// <summary>
+    /// Een punt of kopje erbij; geeft het id (en zet het in <paramref name="punt"/>). <paramref name="naPuntId"/>: null =
+    /// onderaan, 0 = bovenaan, anders direct na die regel.
+    /// </summary>
+    Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door);
+    Task ZetPuntTekstAsync(int puntId, string tekst, int? door);
+    /// <summary>Afvinken of het vinkje weghalen; bij afvinken worden wie en wanneer bewaard.</summary>
+    Task ZetPuntKlaarAsync(int puntId, bool klaar, int? door);
+    /// <summary>De nieuwe volgorde van alle regels van de lijst.</summary>
+    Task ZetPuntVolgordeAsync(int activiteitId, IReadOnlyList<int> puntIds, int? door);
+    /// <summary>Een regel weg. Bij een kopje blijven de punten staan; ze horen dan bij het kopje erboven.</summary>
+    Task VerwijderPuntAsync(int puntId, int? door);
+    /// <summary>De activiteit van deze regel, of null als hij niet (meer) bestaat.</summary>
+    Task<int?> ActiviteitVanPuntAsync(int puntId);
 }
 
 /// <summary>Demo-modus zonder database.</summary>
@@ -110,6 +128,13 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task VerplaatsAsync(int activiteitId, string status, DateTime? geslotenOp, IReadOnlyCollection<int> problemen,
                                IReadOnlyList<int> vakVolgorde, int? door) => Task.CompletedTask;
     public Task VerwijderActiviteitAsync(int activiteitId) => Task.CompletedTask;
+    public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(false);
+    public Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door) => Task.FromResult(0);
+    public Task ZetPuntTekstAsync(int puntId, string tekst, int? door) => Task.CompletedTask;
+    public Task ZetPuntKlaarAsync(int puntId, bool klaar, int? door) => Task.CompletedTask;
+    public Task ZetPuntVolgordeAsync(int activiteitId, IReadOnlyList<int> puntIds, int? door) => Task.CompletedTask;
+    public Task VerwijderPuntAsync(int puntId, int? door) => Task.CompletedTask;
+    public Task<int?> ActiviteitVanPuntAsync(int puntId) => Task.FromResult<int?>(null);
 }
 
 public class MySqlActivityBoardRepository : IActivityBoardRepository
@@ -414,6 +439,23 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await Koppel("ActivityBoardActProblemen", "ProbleemID", a => a.Problemen);
         await Koppel("ActivityBoardActTypes", "TypeID", a => a.Types);
         await Koppel("ActivityBoardActPersonen", "WerknemerID", a => a.Personen);
+
+        if (await ChecklistAanwezigAsync())
+        {
+            await using var cmd = new MySqlCommand(
+                "SELECT c.`ActiviteitID`, c.`PuntID`, c.`IsKop`, c.`Tekst`, c.`Klaar`, c.`KlaarOp`, c.`KlaarDoor` " +
+                "  FROM `ActivityBoardChecklist` c JOIN `ActivityBoardActiviteiten` a ON a.`ActiviteitID` = c.`ActiviteitID` " +
+                " WHERE a.`BoardID` = @b ORDER BY c.`ActiviteitID`, c.`Positie`, c.`PuntID`", cn);
+            cmd.Parameters.AddWithValue("@b", boardId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                if (perId.TryGetValue(r.GetInt32(0), out var a))
+                    a.Checklist.Add(new ActPunt
+                    {
+                        Id = r.GetInt32(1), Kop = Convert.ToInt32(r.GetValue(2)) != 0, Tekst = S(r, 3),
+                        Klaar = Convert.ToInt32(r.GetValue(4)) != 0, KlaarOp = D(r, 5), KlaarDoor = I(r, 6),
+                    });
+        }
         return data;
     }
 
@@ -503,6 +545,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
     public async Task<int> NieuweActiviteitAsync(int boardId, Activiteit a, int? door)
     {
         var metTijd = await TijdAanwezigAsync();
+        var metLijst = a.Checklist.Count > 0 && await ChecklistAanwezigAsync();
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
         int id;
@@ -531,6 +574,10 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         }
         foreach (var soort in new[] { "problemen", "types", "personen" })
             await KoppelingenAsync(cn, tx, id, soort, soort == "problemen" ? a.Problemen : soort == "types" ? a.Types : a.Personen);
+        // de afvinklijst mee (nieuw via de API, of terugzetten na verwijderen: dan met de vinkjes zoals ze waren)
+        if (metLijst)
+            for (var i = 0; i < a.Checklist.Count; i++)
+                a.Checklist[i].Id = await VoegPuntInAsync(cn, tx, id, a.Checklist[i], i, door);
         await tx.CommitAsync();
         return id;
     }
@@ -589,6 +636,128 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
 
     public Task VerwijderActiviteitAsync(int activiteitId)
         => UitvoerenAsync("DELETE FROM `ActivityBoardActiviteiten` WHERE `ActiviteitID` = @id", ("@id", activiteitId));
+
+    // ------------------------------------------------------------------ afvinklijst
+
+    // Tabel aanwezig? Alleen 'ja' wordt onthouden, zodat het script uitvoeren zonder herstart werkt.
+    private bool _metChecklist;
+    public async Task<bool> ChecklistAanwezigAsync()
+    {
+        if (_metChecklist) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ActivityBoardChecklist'", cn);
+            _metChecklist = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _metChecklist;
+    }
+
+    private static async Task<int> VoegPuntInAsync(MySqlConnection cn, MySqlTransaction tx, int activiteitId, ActPunt p, int positie, int? door)
+    {
+        await using var cmd = new MySqlCommand(
+            "INSERT INTO `ActivityBoardChecklist` (`ActiviteitID`, `IsKop`, `Tekst`, `Klaar`, `KlaarOp`, `KlaarDoor`, `Positie`, `AangemaaktDoor`) " +
+            "VALUES (@a, @kop, @t, @k, @op, @kd, @pos, @door); SELECT LAST_INSERT_ID();", cn, tx);
+        var klaar = p.Klaar && !p.Kop;
+        cmd.Parameters.AddWithValue("@a", activiteitId);
+        cmd.Parameters.AddWithValue("@kop", p.Kop ? 1 : 0);
+        cmd.Parameters.AddWithValue("@t", Kort(p.Tekst.Trim(), ActPunt.MaxTekst));
+        cmd.Parameters.AddWithValue("@k", klaar ? 1 : 0);
+        cmd.Parameters.AddWithValue("@op", klaar ? p.KlaarOp ?? DateTime.Now : DBNull.Value);
+        cmd.Parameters.AddWithValue("@kd", klaar ? (object?)(p.KlaarDoor ?? door) ?? DBNull.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@pos", positie);
+        cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    private static async Task ZetPositiesAsync(MySqlConnection cn, MySqlTransaction tx, int activiteitId, IReadOnlyList<int> ids)
+    {
+        for (var i = 0; i < ids.Count; i++)
+        {
+            await using var cmd = new MySqlCommand(
+                "UPDATE `ActivityBoardChecklist` SET `Positie` = @p WHERE `PuntID` = @id AND `ActiviteitID` = @a", cn, tx);
+            cmd.Parameters.AddWithValue("@p", i);
+            cmd.Parameters.AddWithValue("@id", ids[i]);
+            cmd.Parameters.AddWithValue("@a", activiteitId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    public async Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        var ids = new List<int>();
+        await using (var cmd = new MySqlCommand(
+            "SELECT `PuntID` FROM `ActivityBoardChecklist` WHERE `ActiviteitID` = @a ORDER BY `Positie`, `PuntID` FOR UPDATE", cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@a", activiteitId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) ids.Add(r.GetInt32(0));
+        }
+        if (ids.Count >= ActPunt.MaxPerActiviteit)
+            throw new InvalidOperationException($"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels.");
+        var plek = naPuntId is null ? ids.Count : naPuntId == 0 ? 0 : ids.IndexOf(naPuntId.Value) is >= 0 and var i ? i + 1 : ids.Count;
+        punt.Id = await VoegPuntInAsync(cn, tx, activiteitId, punt, plek, door);
+        ids.Insert(plek, punt.Id);
+        await ZetPositiesAsync(cn, tx, activiteitId, ids);
+        await GewijzigdAsync(cn, tx, activiteitId, door);
+        await tx.CommitAsync();
+        return punt.Id;
+    }
+
+    /// <summary>Een wijziging aan één regel, en de activiteit telt als gewijzigd.</summary>
+    private async Task PuntAsync(int puntId, int? door, string sql, params (string Naam, object Waarde)[] par)
+    {
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        int? act;
+        await using (var zoek = new MySqlCommand("SELECT `ActiviteitID` FROM `ActivityBoardChecklist` WHERE `PuntID` = @id", cn, tx))
+        {
+            zoek.Parameters.AddWithValue("@id", puntId);
+            act = await zoek.ExecuteScalarAsync() is { } a and not DBNull ? Convert.ToInt32(a) : null;
+        }
+        if (act is null) return;      // net door een collega verwijderd
+        await using (var cmd = new MySqlCommand(sql, cn, tx))
+        {
+            cmd.Parameters.AddWithValue("@id", puntId);
+            foreach (var (n, w) in par) cmd.Parameters.AddWithValue(n, w);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await GewijzigdAsync(cn, tx, act.Value, door);
+        await tx.CommitAsync();
+    }
+
+    public Task ZetPuntTekstAsync(int puntId, string tekst, int? door)
+        => PuntAsync(puntId, door, "UPDATE `ActivityBoardChecklist` SET `Tekst` = @t WHERE `PuntID` = @id", ("@t", Kort(tekst.Trim(), ActPunt.MaxTekst)));
+
+    public Task ZetPuntKlaarAsync(int puntId, bool klaar, int? door)
+        => PuntAsync(puntId, door,
+            "UPDATE `ActivityBoardChecklist` SET `Klaar` = @k, `KlaarOp` = IF(@k = 1, NOW(), NULL), `KlaarDoor` = IF(@k = 1, @door, NULL) " +
+            " WHERE `PuntID` = @id AND `IsKop` = 0", ("@k", klaar ? 1 : 0), ("@door", (object?)door ?? DBNull.Value));
+
+    public Task VerwijderPuntAsync(int puntId, int? door)
+        => PuntAsync(puntId, door, "DELETE FROM `ActivityBoardChecklist` WHERE `PuntID` = @id");
+
+    public async Task ZetPuntVolgordeAsync(int activiteitId, IReadOnlyList<int> puntIds, int? door)
+    {
+        await using var cn = await OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        await ZetPositiesAsync(cn, tx, activiteitId, puntIds);
+        await GewijzigdAsync(cn, tx, activiteitId, door);
+        await tx.CommitAsync();
+    }
+
+    public async Task<int?> ActiviteitVanPuntAsync(int puntId)
+    {
+        if (!await ChecklistAanwezigAsync()) return null;
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand("SELECT `ActiviteitID` FROM `ActivityBoardChecklist` WHERE `PuntID` = @id", cn);
+        cmd.Parameters.AddWithValue("@id", puntId);
+        return await cmd.ExecuteScalarAsync() is { } a and not DBNull ? Convert.ToInt32(a) : null;
+    }
 
     // ------------------------------------------------------------------ hulp
 

@@ -41,7 +41,7 @@ public static class ActivityBoardApi
     };
 
     private static readonly string[] Velden =
-        new[] { "titel", "status", "prioriteit", "vervaldatum", "benodigdeTijd", "onderwerpen", "types", "personen" }
+        new[] { "titel", "status", "prioriteit", "vervaldatum", "benodigdeTijd", "onderwerpen", "types", "personen", "checklist" }
             .Concat(ActTekst.Velden.Select(v => Klein(v.Kolom))).ToArray();
     private static readonly HashSet<string> Bekend =
         new(Velden.Concat(new[] { "benodigdeUren", "tekst" }), StringComparer.OrdinalIgnoreCase);
@@ -164,10 +164,16 @@ public static class ActivityBoardApi
                 "GET   /api/activityboard/activiteiten/{id}",
                 "POST  /api/activityboard/boards/{boardId}/activiteiten   (één object of een lijst, hoogstens " + MaxPerKeer + ")",
                 "PATCH /api/activityboard/activiteiten/{id}                (alleen de velden die je meegeeft veranderen)",
+                "POST  /api/activityboard/activiteiten/{id}/checklist      { tekst, kop?, klaar? } of { kop, punten: [...] }, of een lijst daarvan: punten erbij op de afvinklijst",
+                "PATCH /api/activityboard/checklist/{puntId}               { tekst?, klaar? }  (afvinken: klaar true; uitvinken: klaar false)",
+                "DELETE /api/activityboard/checklist/{puntId}              (een punt of kopje weg; bij een kopje blijven de punten staan)",
                 "POST  /api/activityboard/boards/{boardId}/onderwerpen    { naam, kleur? }",
                 "POST  /api/activityboard/boards/{boardId}/types          { naam, kleur? }",
             },
-            nietMogelijk = "Verwijderen, een bestaand board aan iets anders koppelen en de volgorde binnen een vak: dat doe je in de app.",
+            checklist = "Bij aanmaken mag checklist mee: [ { \"kop\": \"Loggen\", \"punten\": [ { \"tekst\": \"Sampletijd 2 ms houden\", \"klaar\": false } ] } ]. " +
+                        "Een punt mag ook een losse tekst zijn, en punten zonder kopje mogen los in de lijst staan. GET /activiteiten/{id} geeft de lijst " +
+                        "met per punt een id; voortgang (bv. 12/35) staat bij elke activiteit met een lijst. Hooguit " + ActPunt.MaxPerActiviteit + " regels per activiteit.",
+            nietMogelijk = "Activiteiten en boards verwijderen, een bestaand board aan iets anders koppelen, de volgorde binnen een vak en de volgorde van de afvinklijst: dat doe je in de app.",
         })))));
 
         api.MapGet("/personen", Route(ctx => Met(ctx, v => Task.FromResult(Goed(new
@@ -386,6 +392,8 @@ public static class ActivityBoardApi
                 if (fout is not null) return Fout(400, items.Count > 1 ? $"Activiteit {i + 1}: {fout}" : fout);
                 klaar.Add(w);
             }
+            if (klaar.Any(w => w.Checklist is { Count: > 0 }) && !await v.Repo.ChecklistAanwezigAsync())
+                return Fout(400, "De afvinklijst kan in deze app nog niet worden bewaard (het script ActivityBoard_Checklist_MariaDB.sql is nog niet gedraaid).");
 
             var idx = d.Problemen.Select((p, i) => (p.Id, i)).ToDictionary(x => x.Id, x => x.i);
             var gemaakt = new List<Activiteit>();
@@ -397,7 +405,9 @@ public static class ActivityBoardApi
                     BenodigdeUren = w.Uren, GemaaktOp = DateTime.Now, GemaaktDoor = v.Wie.Id,
                     Problemen = w.Onderwerpen ?? new(), Types = w.Types ?? new(), Personen = w.Personen ?? new(),
                     Tekst = w.Tekst.Where(t => t.Value.Length > 0).ToDictionary(t => t.Key, t => t.Value),
+                    Checklist = w.Checklist ?? new(),
                 };
+                foreach (var p in a.Checklist.Where(p => p.Klaar)) { p.KlaarOp = a.GemaaktOp; p.KlaarDoor = v.Wie.Id; }
                 if (ActStatus.Groep(a.Status) == ActStatus.GroepKlaar) a.GeslotenOp = a.GemaaktOp;
                 var baan = Baan(a, idx);
                 a.Volgorde = d.Activiteiten.Where(x => x.Status == a.Status && Baan(x, idx) == baan)
@@ -466,6 +476,107 @@ public static class ActivityBoardApi
                 await MeldToewijzing(v, d, a, erbij, nieuw: false);
             }
             return Goed(new { gewijzigd, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
+        }));
+
+        // ---- afvinklijst (vraag Gerard 20-11-2026): punten erbij, afvinken, aanpassen en weghalen ----
+        api.MapPost("/activiteiten/{id:int}/checklist", (HttpContext ctx, int id) => Met(ctx, async v =>
+        {
+            var body = await Body(ctx);
+            if (body is not { } json) return Fout(400, "De inhoud is geen geldige JSON in UTF-8 (of is groter dan 1 MB).");
+            if (!await v.Repo.ChecklistAanwezigAsync()) return Fout(400, "De afvinklijst is in deze app nog niet ingericht.");
+            var (d, a) = await Zoek(v, id);
+            if (d is null || a is null) return Fout(404, $"Activiteit {id} bestaat niet.");
+            // dezelfde vorm als bij aanmaken; één los object mag ook
+            var fout = LeesChecklist(json.ValueKind == JsonValueKind.Array ? json : default, json.ValueKind == JsonValueKind.Array ? null : json, out var nieuw);
+            if (fout is not null) return Fout(400, fout);
+            if (nieuw.Count == 0) return Fout(400, "Er staat niets om toe te voegen.");
+            if (a.Checklist.Count + nieuw.Count > ActPunt.MaxPerActiviteit) return Fout(400, $"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels.");
+
+            // Een punt komt onder het kopje met die naam (onderaan dat groepje); bestaat het kopje nog niet, dan komt het
+            // onderaan de lijst. Punten zonder kopje komen bij de punten zonder kopje, vooraan in de lijst.
+            var toegevoegd = new List<ActPunt>();
+            ActPunt? kop = null;
+            var eersteZonderKop = true;
+            foreach (var p in nieuw)
+            {
+                if (p.Kop)
+                {
+                    kop = a.Checklist.FirstOrDefault(x => x.Kop && x.Tekst.Equals(p.Tekst, Los));
+                    if (kop is null)
+                    {
+                        await v.Repo.NieuwPuntAsync(id, p, null, v.Wie.Id);
+                        a.Checklist.Add(p); kop = p; toegevoegd.Add(p);
+                    }
+                    eersteZonderKop = false;
+                    continue;
+                }
+                int plek;      // de plek in de lijst waar het punt komt
+                if (kop is null && eersteZonderKop) plek = a.Checklist.FindIndex(x => x.Kop) is >= 0 and var k ? k : a.Checklist.Count;
+                else
+                {
+                    var start = kop is null ? 0 : a.Checklist.IndexOf(kop) + 1;
+                    plek = a.Checklist.FindIndex(start, x => x.Kop) is >= 0 and var k ? k : a.Checklist.Count;
+                }
+                if (p.Klaar) { p.KlaarOp = DateTime.Now; p.KlaarDoor = v.Wie.Id; }
+                await v.Repo.NieuwPuntAsync(id, p, plek == 0 ? 0 : a.Checklist[plek - 1].Id, v.Wie.Id);
+                a.Checklist.Insert(plek, p);
+                toegevoegd.Add(p);
+            }
+            v.Log($"afvinklijst van activiteit {id} op board {d.Board.Id}: {toegevoegd.Count} regel(s) erbij");
+            v.Ververs(d.Board.Id);
+            return Results.Json(new
+            {
+                toegevoegd = toegevoegd.Select(p => new { id = p.Id, kop = p.Kop ? true : (bool?)null, tekst = p.Tekst }),
+                activiteit = Uit(a, d, v, metTekst: true, metBoard: true),
+            }, Json, statusCode: 201);
+        }));
+
+        api.MapMethods("/checklist/{puntId:int}", new[] { "PATCH" }, (HttpContext ctx, int puntId) => Met(ctx, async v =>
+        {
+            var body = await Body(ctx);
+            if (body is not { ValueKind: JsonValueKind.Object } json) return Fout(400, "Verwacht een JSON-object met tekst en/of klaar.");
+            foreach (var p in json.EnumerateObject())
+                if (!p.Name.Equals("tekst", Los) && !p.Name.Equals("klaar", Los)) return Fout(400, $"Onbekend veld '{p.Name}'. Bekende velden: tekst, klaar.");
+            var (d, a, punt) = await ZoekPunt(v, puntId);
+            if (d is null || a is null || punt is null) return Fout(404, $"Punt {puntId} bestaat niet.");
+
+            var gewijzigd = new List<string>();
+            if (Heeft(json, "tekst", out var t))
+            {
+                var tekst = t.ValueKind == JsonValueKind.String ? t.GetString()!.Trim().ReplaceLineEndings(" ") : "";
+                if (tekst.Length == 0) return Fout(400, "tekst moet een tekst zijn en mag niet leeg zijn (verwijderen gaat met DELETE).");
+                if (tekst.Length > ActPunt.MaxTekst) return Fout(400, $"tekst is langer dan {ActPunt.MaxTekst} tekens.");
+                if (tekst != punt.Tekst) { await v.Repo.ZetPuntTekstAsync(puntId, tekst, v.Wie.Id); punt.Tekst = tekst; gewijzigd.Add("tekst"); }
+            }
+            if (Heeft(json, "klaar", out var k))
+            {
+                if (k.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return Fout(400, "klaar moet true of false zijn.");
+                if (punt.Kop) return Fout(400, "Dit is een kopje; een kopje kun je niet afvinken.");
+                var klaar = k.GetBoolean();
+                if (klaar != punt.Klaar)
+                {
+                    await v.Repo.ZetPuntKlaarAsync(puntId, klaar, v.Wie.Id);
+                    punt.Klaar = klaar; punt.KlaarOp = klaar ? DateTime.Now : null; punt.KlaarDoor = klaar ? v.Wie.Id : null;
+                    gewijzigd.Add("klaar");
+                }
+            }
+            if (gewijzigd.Count > 0)
+            {
+                v.Log($"punt {puntId} van activiteit {a.Id} op board {d.Board.Id} gewijzigd: {string.Join(", ", gewijzigd)}");
+                v.Ververs(d.Board.Id);
+            }
+            return Goed(new { gewijzigd, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
+        }));
+
+        api.MapDelete("/checklist/{puntId:int}", (HttpContext ctx, int puntId) => Met(ctx, async v =>
+        {
+            var (d, a, punt) = await ZoekPunt(v, puntId);
+            if (d is null || a is null || punt is null) return Fout(404, $"Punt {puntId} bestaat niet.");
+            await v.Repo.VerwijderPuntAsync(puntId, v.Wie.Id);
+            a.Checklist.Remove(punt);
+            v.Log($"{(punt.Kop ? "kopje" : "punt")} {puntId} van activiteit {a.Id} op board {d.Board.Id} verwijderd");
+            v.Ververs(d.Board.Id);
+            return Goed(new { verwijderd = puntId, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
         }));
 
         // Het koppelscript (Werknemers ▸ API-sleutel) wisselt hier zijn eenmalige code in voor de sleutel. Geen sleutel in
@@ -671,6 +782,13 @@ public static class ActivityBoardApi
         return (d, d?.Activiteiten.FirstOrDefault(a => a.Id == activiteitId));
     }
 
+    private static async Task<(ActBoardData? Data, Activiteit? Act, ActPunt? Punt)> ZoekPunt(Verzoek v, int puntId)
+    {
+        if (await v.Repo.ActiviteitVanPuntAsync(puntId) is not int act) return (null, null, null);
+        var (d, a) = await Zoek(v, act);
+        return (d, a, a?.Checklist.FirstOrDefault(p => p.Id == puntId));
+    }
+
     // ------------------------------------------------------------------ uitvoer
 
     private static Dictionary<string, object?> Uit(Activiteit a, ActBoardData d, Verzoek v, bool metTekst, bool metBoard = false)
@@ -692,6 +810,17 @@ public static class ActivityBoardApi
             ["geslotenOp"] = a.GeslotenOp?.ToString("yyyy-MM-dd HH:mm"),
         };
         if (metBoard) uit["board"] = new { id = d.Board.Id, titel = d.Board.Titel };
+        if (a.PuntenTotaal > 0) uit["voortgang"] = $"{a.PuntenKlaar}/{a.PuntenTotaal}";
+        if (metTekst && a.Checklist.Count > 0)
+            uit["checklist"] = ActPunt.Groepen(a.Checklist).Where(g => g.Kop is not null || g.Punten.Count > 0).Select(g => new
+            {
+                kop = g.Kop?.Tekst, kopId = g.Kop?.Id,
+                punten = g.Punten.Select(p => new
+                {
+                    id = p.Id, tekst = p.Tekst, klaar = p.Klaar,
+                    klaarOp = p.KlaarOp?.ToString("yyyy-MM-dd HH:mm"), klaarDoor = p.KlaarDoor is int kd ? v.Naam(kd) : null,
+                }).ToList(),
+            }).ToList();
         if (metTekst)
             foreach (var t in ActTekst.Velden)
                 if (a.Tekst.TryGetValue(t.Kolom, out var tekst) && tekst.Length > 0) uit[Klein(t.Kolom)] = tekst;
@@ -714,6 +843,8 @@ public static class ActivityBoardApi
         public List<int>? Onderwerpen, Types, Personen;
         /// <summary>Kolom → tekst; een lege tekst maakt het veld leeg.</summary>
         public Dictionary<string, string> Tekst = new();
+        /// <summary>De afvinklijst bij aanmaken, op volgorde (kopjes en punten).</summary>
+        public List<ActPunt>? Checklist;
     }
 
     private static ActStatus.Def? ZoekStatus(string tekst)
@@ -806,6 +937,20 @@ public static class ActivityBoardApi
             if (fout is not null) return fout;
         }
 
+        if (Heeft(o, "checklist", out var cl))
+        {
+            if (bestaand is not null)
+                return "checklist kan alleen bij aanmaken mee. Bij een bestaande activiteit: POST /activiteiten/{id}/checklist om punten toe te voegen, " +
+                       "PATCH /checklist/{puntId} om af te vinken of de tekst aan te passen, DELETE /checklist/{puntId} om te verwijderen.";
+            if (cl.ValueKind != JsonValueKind.Null)
+            {
+                if (cl.ValueKind != JsonValueKind.Array) return "checklist moet een lijst zijn, bv. [ { \"kop\": \"Loggen\", \"punten\": [ { \"tekst\": \"…\" } ] } ].";
+                var fout = LeesChecklist(cl, null, out var lijst);
+                if (fout is not null) return fout;
+                w.Checklist = lijst;
+            }
+        }
+
         JsonElement? blok = null;
         if (Heeft(o, "tekst", out var tk))
         {
@@ -823,6 +968,81 @@ public static class ActivityBoardApi
             if (tekst.Length > MaxTekst) return $"{Klein(veld.Kolom)} is langer dan {MaxTekst} tekens.";
             w.Tekst[veld.Kolom] = tekst;
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Een afvinklijst uit de JSON: een lijst van groepen <c>{ kop, punten: [...] }</c>, losse punten <c>{ tekst, klaar }</c>
+    /// of losse teksten, door elkaar. Geeft de regels op volgorde (kopjes en punten) of de fout in gewone taal.
+    /// <paramref name="los"/> = één los object in plaats van een lijst.
+    /// </summary>
+    private static string? LeesChecklist(JsonElement lijst, JsonElement? los, out List<ActPunt> uit)
+    {
+        uit = new List<ActPunt>();
+        var regels = uit;
+        string? Punt(JsonElement x, string waar)
+        {
+            string tekst; var klaar = false;
+            if (x.ValueKind == JsonValueKind.String) tekst = x.GetString()!;
+            else if (x.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in x.EnumerateObject())
+                    if (!p.Name.Equals("tekst", Los) && !p.Name.Equals("klaar", Los)) return $"{waar}: onbekend veld '{p.Name}'. Een punt heeft tekst en klaar.";
+                if (!Heeft(x, "tekst", out var t) || t.ValueKind != JsonValueKind.String) return $"{waar}: tekst ontbreekt.";
+                tekst = t.GetString()!;
+                if (Heeft(x, "klaar", out var k))
+                {
+                    if (k.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return $"{waar}: klaar moet true of false zijn.";
+                    klaar = k.GetBoolean();
+                }
+            }
+            else return $"{waar}: een punt is een tekst of een object met tekst en klaar.";
+            tekst = tekst.Trim().ReplaceLineEndings(" ");
+            if (tekst.Length == 0) return $"{waar}: de tekst van een punt mag niet leeg zijn.";
+            if (tekst.Length > ActPunt.MaxTekst) return $"{waar}: de tekst is langer dan {ActPunt.MaxTekst} tekens.";
+            regels.Add(new ActPunt { Tekst = tekst, Klaar = klaar });
+            return null;
+        }
+
+        var items = los is { } een ? new List<JsonElement> { een } : lijst.EnumerateArray().ToList();
+        for (var i = 0; i < items.Count; i++)
+        {
+            var x = items[i];
+            var waar = $"checklist, regel {i + 1}";
+            var groep = x.ValueKind == JsonValueKind.Object && (Heeft(x, "punten", out _) || (Heeft(x, "kop", out _) && !Heeft(x, "tekst", out _)));
+            if (!groep)
+            {
+                // een los punt; met "kop" erbij komt het onder dat kopje
+                if (x.ValueKind == JsonValueKind.Object && Heeft(x, "kop", out var lk))
+                {
+                    var naam = lk.ValueKind == JsonValueKind.String ? lk.GetString()!.Trim().ReplaceLineEndings(" ") : "";
+                    if (naam.Length == 0 || naam.Length > 200) return $"{waar}: kop moet een tekst zijn van hooguit 200 tekens.";
+                    if (!regels.Any(r => r.Kop && r.Tekst.Equals(naam, Los)) || !regels.Last(r => r.Kop).Tekst.Equals(naam, Los))
+                        regels.Add(new ActPunt { Kop = true, Tekst = naam });
+                    var zonder = JsonDocument.Parse("{" + string.Join(",", x.EnumerateObject().Where(p => !p.Name.Equals("kop", Los)).Select(p => JsonSerializer.Serialize(p.Name) + ":" + p.Value.GetRawText())) + "}").RootElement.Clone();
+                    if (Punt(zonder, waar) is { } f1) return f1;
+                }
+                else if (Punt(x, waar) is { } f2) return f2;
+                continue;
+            }
+            foreach (var p in x.EnumerateObject())
+                if (!p.Name.Equals("kop", Los) && !p.Name.Equals("punten", Los)) return $"{waar}: onbekend veld '{p.Name}'. Een groep heeft kop en punten.";
+            if (Heeft(x, "kop", out var kop) && kop.ValueKind != JsonValueKind.Null)
+            {
+                var naam = kop.ValueKind == JsonValueKind.String ? kop.GetString()!.Trim().ReplaceLineEndings(" ") : "";
+                if (naam.Length == 0 || naam.Length > 200) return $"{waar}: kop moet een tekst zijn van hooguit 200 tekens.";
+                regels.Add(new ActPunt { Kop = true, Tekst = naam });
+            }
+            else if (regels.Any(r => r.Kop)) return $"{waar}: punten zonder kop kunnen alleen vooraan in de lijst staan.";
+            if (Heeft(x, "punten", out var punten) && punten.ValueKind != JsonValueKind.Null)
+            {
+                if (punten.ValueKind != JsonValueKind.Array) return $"{waar}: punten moet een lijst zijn.";
+                var n = 0;
+                foreach (var p in punten.EnumerateArray())
+                    if (Punt(p, $"{waar}, punt {++n}") is { } f3) return f3;
+            }
+        }
+        if (uit.Count > ActPunt.MaxPerActiviteit) return $"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels (kopjes en punten samen).";
         return null;
     }
 

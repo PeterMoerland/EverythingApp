@@ -213,6 +213,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     {
         lock (_slot)
         {
+            foreach (var p in a.Checklist) { p.Id = Nieuw(); if (p.Klaar) { p.KlaarOp ??= DateTime.Now; p.KlaarDoor ??= door; } }
             var k = a.Kopie();
             k.Id = Nieuw();
             k.GemaaktDoor ??= door;
@@ -274,4 +275,54 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 
     public Task VerwijderActiviteitAsync(int activiteitId)
     { lock (_slot) _acts.RemoveAll(x => x.A.Id == activiteitId); return Task.CompletedTask; }
+
+    // ---- afvinklijst ----
+    public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(true);
+
+    private (Activiteit A, ActPunt P)? Punt(int puntId)
+    {
+        foreach (var x in _acts)
+            if (x.A.Checklist.FirstOrDefault(p => p.Id == puntId) is { } p) return (x.A, p);
+        return null;
+    }
+
+    public Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door)
+    {
+        lock (_slot)
+        {
+            var lijst = Act(activiteitId).Checklist;
+            if (lijst.Count >= ActPunt.MaxPerActiviteit) throw new InvalidOperationException($"Een afvinklijst heeft hooguit {ActPunt.MaxPerActiviteit} regels.");
+            punt.Id = Nieuw();
+            if (punt.Klaar) { punt.KlaarOp ??= DateTime.Now; punt.KlaarDoor ??= door; }
+            var plek = naPuntId is null ? lijst.Count : naPuntId == 0 ? 0 : lijst.FindIndex(p => p.Id == naPuntId) is >= 0 and var i ? i + 1 : lijst.Count;
+            lijst.Insert(plek, punt.Kopie());
+            return Task.FromResult(punt.Id);
+        }
+    }
+
+    public Task ZetPuntTekstAsync(int puntId, string tekst, int? door)
+    { lock (_slot) { if (Punt(puntId) is { } x) x.P.Tekst = tekst.Trim(); } return Task.CompletedTask; }
+
+    public Task ZetPuntKlaarAsync(int puntId, bool klaar, int? door)
+    {
+        lock (_slot)
+            if (Punt(puntId) is { } x && !x.P.Kop) { x.P.Klaar = klaar; x.P.KlaarOp = klaar ? DateTime.Now : null; x.P.KlaarDoor = klaar ? door : null; }
+        return Task.CompletedTask;
+    }
+
+    public Task ZetPuntVolgordeAsync(int activiteitId, IReadOnlyList<int> puntIds, int? door)
+    {
+        lock (_slot)
+        {
+            var a = Act(activiteitId);
+            a.Checklist = a.Checklist.OrderBy(p => puntIds.ToList().IndexOf(p.Id) is >= 0 and var i ? i : int.MaxValue).ToList();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task VerwijderPuntAsync(int puntId, int? door)
+    { lock (_slot) { if (Punt(puntId) is { } x) x.A.Checklist.Remove(x.P); } return Task.CompletedTask; }
+
+    public Task<int?> ActiviteitVanPuntAsync(int puntId)
+    { lock (_slot) return Task.FromResult(Punt(puntId)?.A.Id); }
 }

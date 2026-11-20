@@ -103,12 +103,17 @@ public class Activiteit
     public List<int> Personen { get; set; } = new();
     /// <summary>De zes tekstvelden, op sleutel uit <see cref="ActTekst.Velden"/>.</summary>
     public Dictionary<string, string> Tekst { get; set; } = new();
+    /// <summary>De afvinklijst, op volgorde: kopjes en punten door elkaar (zie <see cref="ActPunt"/>).</summary>
+    public List<ActPunt> Checklist { get; set; } = new();
+    public int PuntenTotaal => Checklist.Count(p => !p.Kop);
+    public int PuntenKlaar => Checklist.Count(p => !p.Kop && p.Klaar);
 
     public Activiteit Kopie() => new()
     {
         Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
         GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
+        Checklist = Checklist.Select(p => p.Kopie()).ToList(),
     };
 
     /// <summary>Hele dagen tussen gemaakt en gesloten, of tot vandaag zolang hij open is; null = sluitmoment onbekend.</summary>
@@ -119,6 +124,37 @@ public class Activiteit
             DateTime? eind = GeslotenOp ?? (ActStatus.Groep(Status) != ActStatus.GroepKlaar ? DateTime.Now : null);
             return eind is DateTime e ? Math.Max(0, (int)Math.Floor((e - GemaaktOp).TotalDays)) : null;
         }
+    }
+}
+
+/// <summary>
+/// Een regel van de afvinklijst van een activiteit (ActivityBoard_Checklist_MariaDB.sql; vraag Gerard 20-11-2026): een
+/// kopje of een punt. De punten onder een kopje zijn de regels tot het volgende kopje; wat vóór het eerste kopje staat
+/// hoort bij geen kopje. Bij een afgevinkt punt staat wie het deed en wanneer.
+/// </summary>
+public class ActPunt
+{
+    public const int MaxTekst = 500, MaxPerActiviteit = 300;
+
+    public int Id { get; set; }
+    public bool Kop { get; set; }
+    public string Tekst { get; set; } = "";
+    public bool Klaar { get; set; }
+    public DateTime? KlaarOp { get; set; }
+    public int? KlaarDoor { get; set; }
+
+    public ActPunt Kopie() => (ActPunt)MemberwiseClone();
+
+    /// <summary>De lijst in groepen: het kopje (null = zonder kopje, alleen vooraan) met zijn punten.</summary>
+    public static List<(ActPunt? Kop, List<ActPunt> Punten)> Groepen(IEnumerable<ActPunt> lijst)
+    {
+        var uit = new List<(ActPunt? Kop, List<ActPunt> Punten)> { (null, new List<ActPunt>()) };
+        foreach (var p in lijst)
+        {
+            if (p.Kop) uit.Add((p, new List<ActPunt>()));
+            else uit[^1].Punten.Add(p);
+        }
+        return uit;
     }
 }
 

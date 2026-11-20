@@ -46,6 +46,9 @@ Invoke-RestMethod "$env:MDE_APP/api/activityboard" -Headers @{ "X-Sleutel" = $en
 | Activiteit wijzigen | `PATCH /api/activityboard/activiteiten/{id}` |
 | Onderwerp toevoegen | `POST /api/activityboard/boards/{boardId}/onderwerpen` |
 | Type toevoegen | `POST /api/activityboard/boards/{boardId}/types` |
+| Punten op de afvinklijst erbij | `POST /api/activityboard/activiteiten/{id}/checklist` |
+| Punt afvinken, uitvinken of de tekst aanpassen | `PATCH /api/activityboard/checklist/{puntId}` |
+| Punt of kopje van de afvinklijst weghalen | `DELETE /api/activityboard/checklist/{puntId}` |
 
 Bij het lezen van een board kun je de lijst inperken: `?open=true` (alleen wat nog niet klaar is), `?mijn=true` (alleen
 waar ik aan toegewezen ben), `?status=bezig`. De lange tekstvelden komen alleen mee met `?tekst=true`; bij het lezen
@@ -72,8 +75,8 @@ board terug met `bestond: true` en verandert er niets.
 **Hernoemen:** `{ "naam": "…" }`. Met `null` krijgt een board bij een project, werkorder of klant weer de standaardnaam;
 een vrij board houdt altijd een naam.
 
-**Niet via de API:** verwijderen (activiteit, onderwerp, type, board), een bestaand board aan iets anders koppelen, en de
-volgorde binnen een vak. Dat doe je in de app. Een activiteit die niet meer hoeft, zet je op `geannuleerd`.
+**Niet via de API:** verwijderen (activiteit, onderwerp, type, board), een bestaand board aan iets anders koppelen, de
+volgorde binnen een vak en de volgorde van een afvinklijst. Dat doe je in de app. Een activiteit die niet meer hoeft, zet je op `geannuleerd`.
 
 ## Velden van een activiteit
 
@@ -88,6 +91,7 @@ volgorde binnen een vak. Dat doe je in de app. Een activiteit die niet meer hoef
 | `types` | lijst van namen of ids van types **van dit board** |
 | `personen` | lijst van namen of ids; `"ik"` ben jezelf. Een deel van de naam mag als het er maar één oplevert (`"Gerard"`) |
 | `samenvatting`, `details`, `impact`, `genomenStappen`, `volgendeStappen`, `opmerkingen` | de zes tekstvelden; een lege tekst maakt het veld leeg |
+| `checklist` | alleen bij aanmaken: de afvinklijst, zie [Afvinklijst](#afvinklijst) |
 
 Regels:
 
@@ -102,6 +106,50 @@ Regels:
 - **Tijdens het aftellen naar een nieuwe versie is de API dicht:** zolang de balk "nieuwe versie" in de app loopt, geeft
   elke aanroep `503` met `"onderhoud": true`, het tijdstip in de tekst en `opnieuwNaSeconden` (ook als kop
   `Retry-After`). Er is dan niets gelezen of gewijzigd. Wacht die tijd en probeer het opnieuw.
+
+## Afvinklijst
+
+Een activiteit kan een afvinklijst hebben: punten om af te vinken, zo nodig onder kopjes. Hoogstens 300 regels (kopjes
+en punten samen) per activiteit, een punt hoogstens 500 tekens.
+
+**Lezen.** `GET /activiteiten/{id}` geeft `checklist` en `voortgang`. In lijsten (een board, `/mijn`, `/zoek`) staat
+alleen `voortgang`, bijvoorbeeld `"12/35"`.
+
+```json
+"voortgang": "1/3",
+"checklist": [
+  { "punten": [ { "id": 102, "tekst": "Los punt zonder kopje", "klaar": false } ] },
+  { "kop": "Loggen", "kopId": 103, "punten": [
+      { "id": 104, "tekst": "Sampletijd 2 ms houden", "klaar": false },
+      { "id": 106, "tekst": "Logbestand bewaren", "klaar": true, "klaarOp": "2026-11-20 15:00", "klaarDoor": "Gerard Quaak" } ] }
+]
+```
+
+**Bij aanmaken** mag `checklist` mee, in dezelfde vorm (zonder ids). Een punt mag ook een losse tekst zijn. Punten
+zonder kopje staan vooraan in de lijst.
+
+```json
+{ "titel": "Astest: eenmalige volledige robottest",
+  "checklist": [
+    { "kop": "Loggen", "punten": [ { "tekst": "Sampletijd 2 ms houden", "klaar": false }, "Logbestand bewaren" ] },
+    { "kop": "Testbewegingen", "punten": [ "Joint 1", "Joint 2" ] } ] }
+```
+
+**Daarna** gaat het per punt (`checklist` in een `PATCH` van de activiteit geeft een fout):
+
+| Doel | Aanroep |
+| --- | --- |
+| Punten erbij | `POST /api/activityboard/activiteiten/{id}/checklist` met `{ "tekst": "…", "kop": "Loggen" }`, een groep `{ "kop": "…", "punten": [ … ] }`, of een lijst daarvan |
+| Afvinken of uitvinken | `PATCH /api/activityboard/checklist/{puntId}` met `{ "klaar": true }` of `{ "klaar": false }` |
+| Tekst aanpassen | `PATCH /api/activityboard/checklist/{puntId}` met `{ "tekst": "…" }` (ook voor een kopje, met zijn `kopId`) |
+| Punt of kopje weghalen | `DELETE /api/activityboard/checklist/{puntId}` |
+
+- Een nieuw punt komt onderaan het kopje met die naam (hoofdletters tellen niet). Bestaat het kopje niet, dan komt het
+  onderaan de lijst erbij. Een punt zonder `kop` komt bij de punten zonder kopje, vooraan.
+- Bij afvinken worden jouw naam en het tijdstip bewaard (`klaarDoor`, `klaarOp`); uitvinken haalt ze weg.
+- Een kopje verwijderen laat de punten staan: ze horen daarna bij het kopje erboven.
+- De volgorde veranderen kan alleen in de app (slepen, of Alt+pijl omhoog/omlaag).
+- Elk antwoord bevat de activiteit met de lijst zoals hij nu is.
 
 ## Voorbeelden
 

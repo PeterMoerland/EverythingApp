@@ -390,6 +390,39 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
   (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
   donker thema, een bevroren calculatie (velden staan dan uit), twee gebruikers.
 
+## Activity board: afvinklijst (20-11-2026, onderdeel 1 van 3 uit Gerards prompt)
+
+Gerard leverde `prompt-activityboard-uitbreiding.md` (overzetten van de Notion-database "Robot Software"): afvinklijsten,
+Markdown in de tekstvelden, koppelingen tussen kaartjes; los op te leveren in die volgorde. Besluiten gebruiker op het
+plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaande tekst blijft ongemoeid** (onderdeel
+2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
+koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
+**Onderdeel 2 en 3 zijn nog niet gebouwd.**
+- Script **`ActivityBoard_Checklist_MariaDB.sql`** (zelf draaien): `ActivityBoardChecklist` (PuntID, ActiviteitID met
+  cascade, IsKop, Tekst 500, Klaar, KlaarOp, KlaarDoor, Positie). Zonder script: geen lijst in het scherm, en de API
+  zegt dat hij er nog niet is (`ChecklistAanwezigAsync`, alleen 'ja' onthouden).
+- **Model**: `ActPunt` (kopje of punt) en `Activiteit.Checklist` als één lijst op volgorde; de punten onder een kopje
+  zijn de regels tot het volgende kopje (`ActPunt.Groepen`). `Kopie()` neemt de lijst mee, dus ongedaan maken van een
+  verwijderde activiteit zet ook de lijst terug (`NieuweActiviteitAsync` schrijft `a.Checklist` en zet de ids erin).
+- **Opslag**: `NieuwPuntAsync(act, punt, naPuntId)` (null = onderaan, 0 = bovenaan), `ZetPuntTekstAsync`,
+  `ZetPuntKlaarAsync` (bewaart wie en wanneer), `ZetPuntVolgordeAsync`, `VerwijderPuntAsync`, `ActiviteitVanPuntAsync`;
+  elke wijziging zet de activiteit op gewijzigd. Ook in de geheugen-variant.
+- **Scherm** (pop-up, onder Samenvatting): per groepje de punten met greep, vinkje, tekstvak en kruisje, en een vak
+  "+ punt (Enter)" dat de cursor houdt (`_puntVersie` maakt het leeg opnieuw, `_focusNa`); knop + Kopje; tekst
+  leegmaken = weg; verplaatsen met slepen aan de greep (losgelaten op een regel = ervoor, op "+ punt" = onderaan dat
+  groepje) of Alt+pijl. Bij een nieuwe activiteit zonder titel eerst de titel. Kaartje: chip `☑ 3/10`, groen als alles
+  af is. Een wijziging van een collega of via de API werkt de open pop-up bij.
+- **API**: `checklist` bij aanmaken (groepen `{kop, punten}`, losse punten of teksten; alles of niets blijft gelden),
+  in `GET /activiteiten/{id}` met ids, `voortgang` overal; `POST /activiteiten/{id}/checklist`, `PATCH` en `DELETE`
+  `/checklist/{puntId}`. `checklist` in een PATCH van de activiteit geeft een fout met de juiste adressen. De volgorde
+  kan niet via de API. Dit is de eerste `DELETE` in de API.
+- Getest lokaal (board in het geheugen, proefsleutel): de API met `ablijst-test.sh` in de scratchpad (aanmaken met
+  lijst, toevoegen onder een bestaand en een nieuw kopje, afvinken, vijf foutgevallen, kopje weg), en het scherm met
+  echte klikken (afvinken, twee punten achter elkaar typen, + Kopje) en nagebootste sleepgebeurtenissen (verslepen,
+  naar het eind van een groepje, Alt+pijl, kruisje); een PATCH via de API verscheen meteen in de open pop-up.
+  **Niet getest:** de echte tabel, slepen met de muis (het sleepgereedschap van de testbrowser gaf geen sleepgebeurtenis),
+  twee schermen tegelijk.
+
 ## Offertedocument, stap 1 (20-11-2026)
 
 Wens gebruiker: "een offerte maken op basis van een calculatie; stip aan de horizon een Word-achtig document waar je
