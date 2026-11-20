@@ -105,12 +105,49 @@ public partial class MySqlOfferteRepository : IOfferteRepository
         "(SELECT COALESCE(SUM(v.`Aantal` * v.`Prijs`), 0) FROM `OfferteOverigen` v WHERE v.`OfferteID` = o.`OfferteID`)";
     private const string Totaal = "(" + TotaalUren + " + " + TotaalMateriaal + " + " + TotaalOverigen + ")";
 
+    // ---- het bedrag uit het offertedocument (besluit gebruiker 20-11-2026: "pak het offertebedrag uit de calculatie") ----
+    // Heeft de offerte een document, dan is het offertebedrag het totaal van de calculatie; is het document vastgelegd,
+    // dan het totaal van dat moment (OfferteDocumenten.VastTotaal). Zonder document, of zonder calculatie, gelden de
+    // offerteregels. De tabellen komen uit losse scripts; wat er (nog) niet is, doet niet mee.
+    private int _docStand = -1;          // -1 = nog niet gekeken, 0 = tabellen ontbreken, 1 = zonder VastTotaal, 2 = alles
+    private DateTime _docGekeken;
+
+    /// <summary>De subquery die het bedrag van het document geeft (NULL = geen document of geen calculatie), of "NULL".</summary>
+    private async Task<string> DocumentBedragAsync(MySqlConnection cn)
+    {
+        if (_docStand < 2 && (DateTime.Now - _docGekeken).TotalSeconds > 60)
+        {
+            _docGekeken = DateTime.Now;
+            try
+            {
+                await using var cmd = new MySqlCommand(
+                    "SELECT (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'OfferteDocumenten'), " +
+                    "       (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Calculaties'), " +
+                    "       (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'OfferteDocumenten' " +
+                    "           AND COLUMN_NAME = 'VastTotaal')", cn);
+                await using var r = await cmd.ExecuteReaderAsync();
+                await r.ReadAsync();
+                _docStand = Convert.ToInt32(r.GetValue(0)) == 0 || Convert.ToInt32(r.GetValue(1)) == 0 ? 0
+                          : Convert.ToInt32(r.GetValue(2)) == 0 ? 1 : 2;
+            }
+            catch { _docStand = 0; }
+        }
+        return _docStand switch
+        {
+            2 => "(SELECT IF(d.`Status` = 1 AND d.`VastTotaal` IS NOT NULL, d.`VastTotaal`, c.`Verkoop`) FROM `OfferteDocumenten` d " +
+                 "  LEFT JOIN `Calculaties` c ON c.`OfferteID` = d.`OfferteID` WHERE d.`OfferteID` = o.`OfferteID`)",
+            1 => "(SELECT c.`Verkoop` FROM `OfferteDocumenten` d JOIN `Calculaties` c ON c.`OfferteID` = d.`OfferteID` WHERE d.`OfferteID` = o.`OfferteID`)",
+            _ => "NULL",
+        };
+    }
+
     private const string NrSql =
         "CONCAT('Q', p.`Projectnumber`, '-', IF(o.`OfferteNummer` < 100, LPAD(o.`OfferteNummer`, 2, '0'), o.`OfferteNummer`))";
 
-    private const string RegelSelect =
+    /// <summary>De offertes voor een lijst; het bedrag is dat van het document als de offerte er een heeft.</summary>
+    private static string RegelSelect(string documentBedrag) =>
         "SELECT o.`OfferteID`, " + NrSql + ", COALESCE(o.`Omschrijving`, ''), COALESCE(o.`Status`, 1), o.`AanmaakDatum`, " +
-        "       COALESCE(w.`NaamVoluit`, ''), " + Totaal + ", o.`ProjectID`, " +
+        "       COALESCE(w.`NaamVoluit`, ''), COALESCE(" + documentBedrag + ", " + Totaal + "), o.`ProjectID`, " +
         "       CONCAT_WS(' · ', p.`Projectnumber`, p.`Projectdescription`), COALESCE(k.`name`, '') " +
         "  FROM `Offertes` o JOIN `Projects` p ON p.`Project-Id` = o.`ProjectID` " +
         "  LEFT JOIN `Relations` k ON k.`id_supplier` = p.`Customer-id` " +
@@ -152,7 +189,7 @@ public partial class MySqlOfferteRepository : IOfferteRepository
     {
         var lijst = new List<OfferteRegel>();
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(RegelSelect + " AND o.`ProjectID` = @p ORDER BY o.`OfferteNummer` DESC", cn);
+        await using var cmd = new MySqlCommand(RegelSelect(await DocumentBedragAsync(cn)) + " AND o.`ProjectID` = @p ORDER BY o.`OfferteNummer` DESC", cn);
         cmd.Parameters.AddWithValue("@p", projectId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) lijst.Add(LeesRegel(r));
@@ -164,7 +201,7 @@ public partial class MySqlOfferteRepository : IOfferteRepository
         var lijst = new List<OfferteRegel>();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand { Connection = cn };
-        var sql = RegelSelect;
+        var sql = RegelSelect(await DocumentBedragAsync(cn));
         if (!string.IsNullOrWhiteSpace(tekst))
         {
             // Access @ZoekOfferte: projectomschrijving, offerte-omschrijving, projectnummer, klantnaam; plus het offertenummer
@@ -182,6 +219,7 @@ public partial class MySqlOfferteRepository : IOfferteRepository
     public async Task<Offerte?> GetAsync(int id)
     {
         await using var cn = await OpenAsync();
+        var documentBedrag = await DocumentBedragAsync(cn);
         await using var cmd = new MySqlCommand(
             "SELECT o.`OfferteID`, o.`OfferteNummer`, o.`ProjectID`, p.`Projectnumber`, COALESCE(p.`Projectdescription`, ''), " +
             "       p.`Customer-id`, COALESCE(k.`name`, ''), p.`Werkmaatschappij`, COALESCE(bv.`Afkorting`, ''), " +
@@ -191,7 +229,7 @@ public partial class MySqlOfferteRepository : IOfferteRepository
             "       o.`AlgemenVoorwaarden`, o.`Ondertekening`, COALESCE(o.`Disclaimer`, ''), COALESCE(o.`Aantekeningen`, ''), " +
             "       o.`AanmaakDatum`, COALESCE(wa.`NaamVoluit`, ''), o.`GemaildOp`, COALESCE(wg.`NaamVoluit`, ''), " +
             "       COALESCE(o.`Bronofferte`, ''), " +
-            $"       {TotaalUren}, {AantalUren}, {TotaalMateriaal}, {TotaalOverigen} " +
+            $"       {TotaalUren}, {AantalUren}, {TotaalMateriaal}, {TotaalOverigen}, {documentBedrag} " +
             "  FROM `Offertes` o JOIN `Projects` p ON p.`Project-Id` = o.`ProjectID` " +
             "  LEFT JOIN `Relations` k ON k.`id_supplier` = p.`Customer-id` " +
             "  LEFT JOIN `Relations` bv ON bv.`id_supplier` = p.`Werkmaatschappij` " +
@@ -237,6 +275,7 @@ public partial class MySqlOfferteRepository : IOfferteRepository
                 AantalUren = M(r, 29),
                 Materiaal = Math.Round(M(r, 30), 2),
                 Overigen = Math.Round(M(r, 31), 2),
+                Document = r.IsDBNull(32) ? null : Math.Round(Convert.ToDecimal(r.GetValue(32)), 2),
             },
         };
     }

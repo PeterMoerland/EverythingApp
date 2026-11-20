@@ -215,7 +215,16 @@
                             <tr><td>Uren</td><td class="r">@_o.Totalen.AantalUren.ToString("0.##", Nl) uur (@((_o.Totalen.AantalUren / 8).ToString("0.#", Nl)) dagen)</td><td class="r">@Geld(_o.Totalen.Uren)</td></tr>
                             <tr><td>Materiaal</td><td></td><td class="r">@Geld(_o.Totalen.Materiaal)</td></tr>
                             <tr><td>Overigen</td><td></td><td class="r">@Geld(_o.Totalen.Overigen)</td></tr>
-                            <tr class="of-totaal"><td>Offerte totaal (excl. btw)</td><td></td><td class="r">@Geld(_o.Totalen.Totaal)</td></tr>
+                            @if (_o.Totalen.Document is decimal uitDocument)
+                            {
+                                @* de offerte heeft een offertedocument: dat is de offerte, met het bedrag uit de calculatie *@
+                                <tr><td>Som van de regels hierboven</td><td class="r"><small>telt niet mee: de offerte is het document</small></td><td class="r">@Geld(_o.Totalen.Regels)</td></tr>
+                                <tr class="of-totaal"><td>Offerte totaal (excl. btw)</td><td class="r"><small>uit het <a href="projecten/offertedocument/@_o.Id">offertedocument</a> (calculatie)</small></td><td class="r">@Geld(uitDocument)</td></tr>
+                            }
+                            else
+                            {
+                                <tr class="of-totaal"><td>Offerte totaal (excl. btw)</td><td></td><td class="r">@Geld(_o.Totalen.Totaal)</td></tr>
+                            }
                         </table>
                     }
                     else if (_tab == "Voorwaarden")

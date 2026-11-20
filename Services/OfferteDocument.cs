@@ -347,8 +347,11 @@ public interface IOfferteDocumentRepository
     Task MaakAsync(int offerteId, string data, int? door);
     /// <summary>Opslaan als de versie nog klopt en het document niet vastgelegd is; geeft de nieuwe versie.</summary>
     Task<int> BewaarAsync(int offerteId, int versie, string data, int? door);
-    /// <summary>Vastleggen (status 1, met de opmaak van dat moment) of weer bewerkbaar maken (status 0); geeft de nieuwe versie.</summary>
-    Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door);
+    /// <summary>
+    /// Vastleggen (status 1, met de opmaak en het totaal van dat moment) of weer bewerkbaar maken (status 0); geeft de
+    /// nieuwe versie. Het totaal is het offertebedrag zolang het document vastligt.
+    /// </summary>
+    Task<int> ZetStatusAsync(int offerteId, int status, string? vast, decimal? vastTotaal, int? door);
     /// <summary>Een concept wissen (om opnieuw te beginnen). False = er was niets te wissen of het is vastgelegd.</summary>
     Task<bool> WisAsync(int offerteId);
 
@@ -372,7 +375,7 @@ public class GeenOfferteDocumentRepository : IOfferteDocumentRepository
     public Task<OfferteDocument?> GetAsync(int offerteId) => Task.FromResult<OfferteDocument?>(null);
     public Task MaakAsync(int offerteId, string data, int? door) => Task.CompletedTask;
     public Task<int> BewaarAsync(int offerteId, int versie, string data, int? door) => Task.FromResult(versie);
-    public Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door) => Task.FromResult(0);
+    public Task<int> ZetStatusAsync(int offerteId, int status, string? vast, decimal? vastTotaal, int? door) => Task.FromResult(0);
     public Task<bool> WisAsync(int offerteId) => Task.FromResult(false);
     public Task<bool> SjabloonTabelAanwezigAsync() => Task.FromResult(false);
     public Task<List<OfferteSjabloon>> SjablonenAsync(int? bvId) => Task.FromResult(new List<OfferteSjabloon>());
@@ -455,15 +458,27 @@ public class MySqlOfferteDocumentRepository : IOfferteDocumentRepository
             "Het document is intussen door iemand anders opgeslagen of vastgelegd. Vernieuw de pagina; je laatste wijziging is niet opgeslagen.");
     }
 
-    public async Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door)
+    private bool _vastTotaal;
+
+    public async Task<int> ZetStatusAsync(int offerteId, int status, string? vast, decimal? vastTotaal, int? door)
     {
         await using var cn = await OpenAsync();
+        // de kolom VastTotaal kwam later in het script; ontbreekt hij nog, dan zonder
+        if (!_vastTotaal)
+        {
+            await using var kijk = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'OfferteDocumenten' " +
+                "   AND COLUMN_NAME = 'VastTotaal'", cn);
+            _vastTotaal = Convert.ToInt32(await kijk.ExecuteScalarAsync()) > 0;
+        }
         await using var cmd = new MySqlCommand(
             "UPDATE `OfferteDocumenten` SET `Status` = @s, `Versie` = `Versie` + 1, `Vast` = @vast, " +
+            (_vastTotaal ? "`VastTotaal` = @totaal, " : "") +
             "       `VastOp` = IF(@s = 1, NOW(), NULL), `VastDoor` = IF(@s = 1, @door, NULL) " +
             " WHERE `OfferteID` = @o", cn);
         cmd.Parameters.AddWithValue("@s", status);
         cmd.Parameters.AddWithValue("@vast", status == 1 ? (object?)vast ?? DBNull.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@totaal", status == 1 && vastTotaal is decimal vt ? Math.Round(vt, 2) : DBNull.Value);
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@o", offerteId);
         await cmd.ExecuteNonQueryAsync();
@@ -601,7 +616,7 @@ public class GeheugenOfferteDocumentRepository : IOfferteDocumentRepository
         }
     }
 
-    public Task<int> ZetStatusAsync(int offerteId, int status, string? vast, int? door)
+    public Task<int> ZetStatusAsync(int offerteId, int status, string? vast, decimal? vastTotaal, int? door)
     {
         lock (_slot)
         {
@@ -794,7 +809,7 @@ public class OfferteDocumentService
                     break;
                 case "pagina": html = "<div class='doc-pagina'></div>"; break;
                 case "voorwaarden":
-                    html = _pdf.Voorwaarden(g, c is not null ? totaal : o.Totalen.Totaal).Replace("class='voorwaarden'", "class='voorwaarden in-doc'");
+                    html = _pdf.Voorwaarden(g, c is not null ? totaal : o.Totalen.Regels).Replace("class='voorwaarden'", "class='voorwaarden in-doc'");
                     break;
                 case "ondertekening": html = _pdf.Ondertekening(g); break;
                 case "prijs":
@@ -980,7 +995,7 @@ public class OfferteDocumentService
         if (d.Vastgelegd) return null;
         var w = await WeergaveAsync(offerteId, d.Data, door);
         if (w.Problemen.Count > 0) return string.Join(" ", w.Problemen);
-        await _repo.ZetStatusAsync(offerteId, 1, NaarVast(w), door);
+        await _repo.ZetStatusAsync(offerteId, 1, NaarVast(w), w.Totaal, door);
         return null;
     }
 

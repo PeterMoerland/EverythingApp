@@ -82,7 +82,7 @@ public static class OfferteDocumentApi
             await ik.ZorgGeladenAsync();
             if (!Mag(ik)) return Fout(403, "Je mag dit document niet weer bewerkbaar maken.");
             if (await repo.GetAsync(offerteId) is null) return Fout(404, "Deze offerte heeft geen document.");
-            await repo.ZetStatusAsync(offerteId, 0, null, ik.WerknemerId);
+            await repo.ZetStatusAsync(offerteId, 0, null, null, ik.WerknemerId);
             return Results.Json(new { ok = true });
         });
 

@@ -1657,6 +1657,12 @@ html[data-thema="donker"] .fai-kaart { background: var(--d1); border-color: var(
 .calc-import { display: flex; flex-direction: column; gap: .4rem; margin-top: .6rem; padding: .7rem .9rem; border: 1px solid #d3e2f5; border-radius: 8px; background: #eef4fc; max-width: 46rem; }
 html[data-thema="donker"] .calc-import { background: #1b2a3f; border-color: #2b4a73; }
 .calc-kader { display: block; width: 100%; height: calc(100dvh - 7.5rem); min-height: 30rem; border: 1px solid #dfe4ea; border-radius: 8px; background: #f4f6f9; }
+/* een pagina die precies het scherm vult met alleen een kader (offertedocument): het kader neemt de rest van de hoogte,
+   zodat de pagina zelf geen schuifbalk krijgt en alleen het vel in het kader schuift (wens gebruiker 20-11-2026) */
+@media screen and (min-width: 900px) {
+    .page.vulhoogte { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding-bottom: .6rem; }
+    .page.vulhoogte .calc-kader { flex: 1; min-height: 0; height: auto; }
+}
 .calc-link { font-size: .85rem; text-decoration: none; padding: .2rem .6rem; border: 1px solid #c9d3df; border-radius: 5px; color: inherit; margin-left: .4rem; white-space: nowrap; }
 .calc-link:hover { border-color: var(--accent); }
 .calc-lijst td { vertical-align: top; }

@@ -71,7 +71,7 @@ public class OffertePdfService
         sb.Append(Briefhoofd(g, datum));
         if (o.OfferteTekst.Trim().Length > 0) sb.Append($"<div class='koptekst'>{Alinea(o.OfferteTekst)}</div>");
         Secties(sb, g, t);
-        sb.Append(Voorwaarden(g, o.Totalen.Totaal));
+        sb.Append(Voorwaarden(g, o.Totalen.Regels));
 
         if (o.Voettekst.Trim().Length > 0) sb.Append($"<div class='voettekst'>{Alinea(o.Voettekst)}</div>");
         sb.Append(Ondertekening(g));

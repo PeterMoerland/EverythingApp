@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Offertes** — Verbeterd: heeft een offerte een offertedocument, dan is het offertebedrag (in de lijsten, bij het project en bij de offerte zelf) het totaal van de calculatie; na vastleggen het totaal van dat moment. Zonder document blijft het de som van de offerteregels. Draai `OfferteDocumenten_MariaDB.sql` nog een keer: er is een kolom bij gekomen (verzoek van Peter).
+- **Offertes** — Verbeterd: in het offertedocument schuift alleen nog het vel; de pagina en de knoppenbalk blijven staan (verzoek van Peter).
+- **Offertes** — Verbeterd: een plaatje plakken (Ctrl+V) in het offertedocument werkt nu ook als de cursor niet in een blok staat; het komt dan onderaan, boven de ondertekening (vraag van Peter).
 - **Offertes** — Nieuw: in het offertedocument staat links een paneel met de **calculatie**. Sleep een deel naar het document en er komt een prijstabel van dat deel die gekoppeld blijft (dubbelklik zet hem onderaan). Knop 🧮 Calculatie toont of verbergt het paneel (verzoek van Peter).
 - **Offertes** — Nieuw: **sjablonen** voor het offertedocument. Met 💾 Als sjabloon… bewaar je een document voor je eigen BV of voor alle BV's; bij een offerte zonder document kies je waarmee je begint. Eerst `OfferteSjablonen_MariaDB.sql` draaien (verzoek van Peter).
 - **Offertes** — Nieuw: in het offertedocument kun je een **eigen tabel** zetten (cellen plakken uit Excel kan, met een kopregel en rechts uitgelijnde kolommen) en blokken **naast elkaar** zetten, bijvoorbeeld een plaatje naast een tekst: kies per blok hele breedte, 1/2, 1/3 of 2/3 (verzoek van Peter).

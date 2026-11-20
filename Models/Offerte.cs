@@ -55,7 +55,18 @@ public class OfferteTotalen
     public decimal AantalUren { get; set; }
     public decimal Materiaal { get; set; }
     public decimal Overigen { get; set; }
-    public decimal Totaal => Uren + Materiaal + Overigen;
+
+    /// <summary>De som van de offerteregels (uren, materiaal en overigen).</summary>
+    public decimal Regels => Uren + Materiaal + Overigen;
+
+    /// <summary>
+    /// Het bedrag van het offertedocument (20-11-2026): het totaal van de calculatie, of na vastleggen het totaal van
+    /// dat moment. Null = de offerte heeft geen document (of nog geen calculatie); dan gelden de regels.
+    /// </summary>
+    public decimal? Document { get; set; }
+
+    /// <summary>Het offertebedrag: dat van het document als de offerte er een heeft, anders de som van de regels.</summary>
+    public decimal Totaal => Document ?? Regels;
 }
 
 /// <summary>Een offerte in een lijst (bij een project, of als zoekresultaat).</summary>

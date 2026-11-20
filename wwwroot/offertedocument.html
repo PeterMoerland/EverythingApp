@@ -18,9 +18,13 @@
 <style>
   :root { --ed-vlak: #eef1f5; --ed-balk: #ffffff; --ed-lijn: #d5dbe3; --ed-tekst: #1c2430; --ed-zacht: #66707d; --ed-accent: #1f6feb; --ed-rood: #c0392b; --ed-geel: #fff6d6; }
   html[data-theme="dark"] { --ed-vlak: #12171e; --ed-balk: #1a212b; --ed-lijn: #334051; --ed-tekst: #e6ebf2; --ed-zacht: #9aa6b5; --ed-accent: #6ea8ff; --ed-rood: #ff7b6b; --ed-geel: #3a3210; }
+  /* Alleen het vel schuift (wens gebruiker 20-11-2026): de balk, de meldingen en het paneel staan vast, het scherm zelf
+     heeft geen schuifbalk. */
   html, body { height: 100%; }
-  body { background: var(--ed-vlak) !important; margin: 0; }
-  .ed-balk { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px;
+  body { background: var(--ed-vlak) !important; margin: 0; display: flex; flex-direction: column; overflow: hidden; }
+  #meldingen { flex: none; }
+  #inhoud { flex: 1; min-height: 0; overflow: auto; }
+  .ed-balk { flex: none; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px;
              background: var(--ed-balk); border-bottom: 1px solid var(--ed-lijn); color: var(--ed-tekst); font: 13px 'Segoe UI', Arial, sans-serif; }
   .ed-balk[hidden] { display: none; }
   .ed-balk .ed-groei { flex: 1; }
@@ -34,7 +38,7 @@
   .ed-knop:disabled { opacity: .5; cursor: default; }
   .ed-knop.hoofd { background: var(--ed-accent); border-color: var(--ed-accent); color: #fff; }
   html[data-theme="dark"] .ed-knop.hoofd { color: #0b1220; }
-  .ed-meld { margin: 10px auto 0; max-width: 210mm; padding: 8px 12px; border-radius: 6px; font: 13px 'Segoe UI', Arial, sans-serif;
+  .ed-meld { margin: 8px auto 2px; max-width: 210mm; padding: 8px 12px; border-radius: 6px; font: 13px 'Segoe UI', Arial, sans-serif;
              background: var(--ed-geel); color: var(--ed-tekst); border: 1px solid var(--ed-lijn); }
   .ed-meld.fout { border-color: var(--ed-rood); color: var(--ed-rood); }
   .ed-velden { display: none; flex-basis: 100%; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--ed-zacht); font-size: 12px; }
@@ -85,9 +89,9 @@
   .ed-strip select { font: 11px 'Segoe UI', Arial, sans-serif; padding: 1px 2px; border: 1px solid #d5dbe3; border-radius: 4px; background: #fff; color: #333; }
   .ed-bewerk .eigen td:focus, .ed-bewerk .eigen th:focus { background: #eef4ff; }
   /* het vel met links het paneel van de calculatie (stap 3): daaruit sleep je een deel naar het document */
-  .ed-werk { display: flex; align-items: flex-start; justify-content: center; gap: 14px; padding: 0 12px; }
-  .ed-werk .ed-blad { margin: 16px 0 80px; flex: none; }
-  .ed-boom { position: sticky; top: 64px; flex: none; width: 250px; max-height: calc(100vh - 84px); overflow: auto; margin-top: 16px; padding: 10px 8px;
+  .ed-werk { display: flex; align-items: flex-start; gap: 14px; padding: 0 0 0 12px; height: 100%; box-sizing: border-box; }
+  .ed-schuif { flex: 1; min-width: 0; height: 100%; overflow: auto; }
+  .ed-boom { flex: none; width: 250px; max-height: calc(100% - 28px); box-sizing: border-box; overflow: auto; margin-top: 16px; padding: 10px 8px;
              background: var(--ed-balk); border: 1px solid var(--ed-lijn); border-radius: 8px; color: var(--ed-tekst); font: 12.5px 'Segoe UI', Arial, sans-serif; }
   .ed-boom-titel { font-weight: 600; font-size: 13px; padding: 0 6px; }
   .ed-boom-uitleg { color: var(--ed-zacht); font-size: 11.5px; line-height: 1.35; padding: 3px 6px 8px; }
@@ -250,6 +254,12 @@
 
   // ---------------------------------------------------------------- blokken
   const blok = id => doc.blokken.find(b => b.id === id);
+  /** Het blok waarna iets "onderaan" komt: het laatste, maar boven de ondertekening als die het document afsluit. */
+  function onderaan() {
+    let i = doc.blokken.length;
+    while (i > 0 && doc.blokken[i - 1].soort === 'ondertekening') i--;
+    return i > 0 ? doc.blokken[i - 1].id : null;
+  }
   const nieuwId = () => { let id; do id = 'b' + Math.random().toString(36).slice(2, 10); while (blok(id)); return id; };
 
   function voegToe(soort, naId, extra) {
@@ -409,9 +419,9 @@
     }
     sluit();
     delen.push(`<div class="ed-vast" data-deel="slot">${W.slot || ''}</div>`);
-    const schuif = scrollY;
-    $('inhoud').innerHTML = `<div class="ed-werk">${tekenBoom()}<div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div></div>`;
-    scrollTo(0, schuif);
+    const schuif = document.querySelector('.ed-schuif')?.scrollTop ?? 0;
+    $('inhoud').innerHTML = `<div class="ed-werk">${tekenBoom()}<div class="ed-schuif"><div class="ed-blad ${ro ? '' : 'ed-bewerk'}" id="blad">${delen.join('')}</div></div></div>`;
+    document.querySelector('.ed-schuif').scrollTop = schuif;
     tekenBalk(); tekenMeldingen();
   }
   function tekenBalk() {
@@ -499,11 +509,12 @@
     if (e.target.matches && e.target.matches('.eigen td, .eigen th')) cel = { id: e.target.closest('.ed-blok').dataset.id, r: Number(e.target.dataset.r), k: Number(e.target.dataset.k) };
   });
   // plakken: altijd als platte tekst (geen opmaak uit Word of het web); een plaatje wordt een eigen blok
-  inhoud.addEventListener('paste', e => {
+  // (op het hele scherm: een plaatje plakken werkt ook als de cursor niet in een blok staat; het komt dan onderaan)
+  document.addEventListener('paste', e => {
     if (RO()) return;
     const el = e.target.closest ? e.target.closest('.ed-blok') : null;
     const img = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
-    if (img) { e.preventDefault(); plaatjeErbij(img, el ? el.dataset.id : (doc.blokken.at(-1)?.id ?? null)); return; }
+    if (img) { e.preventDefault(); plaatjeErbij(img, el ? el.dataset.id : onderaan()); return; }
     if (!e.target.isContentEditable && !e.target.closest('[contenteditable]')) return;
     e.preventDefault();
     // cellen uit Excel (tabs en regels) in een eigen tabel: vanaf de cel van de cursor invullen, de tabel groeit mee
@@ -651,9 +662,7 @@
   inhoud.addEventListener('dblclick', e => {
     const item = e.target.closest ? e.target.closest('.ed-boom-item') : null;
     if (!item || RO()) return;
-    let i = doc.blokken.length;
-    while (i > 0 && doc.blokken[i - 1].soort === 'ondertekening') i--;
-    prijsVan(item.dataset.groep, i > 0 ? doc.blokken[i - 1].id : null);
+    prijsVan(item.dataset.groep, onderaan());
   });
   $('knopSjabloon').addEventListener('click', () => {
     $('velden').classList.remove('open');

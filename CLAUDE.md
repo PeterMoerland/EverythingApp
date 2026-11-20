@@ -452,6 +452,23 @@ versturen en daarna vast; het document staat **naast** de offerteregels (die bli
   mag wijzigen. Getest: paneel, slepen van een deel en van de hele calculatie (via nagebootste sleepgebeurtenissen),
   sjabloon bewaren, 409 bij dezelfde naam, kiezen bij een nieuw document (prijstabellen zonder groep), wissen. Niet
   getest: slepen met de echte muis, een offerte van een andere BV (beide proefoffertes zijn AUTO), de echte tabel.
+- **Offertebedrag uit de calculatie (zelfde dag, "pak het offertebedrag uit de calculatie maar op")**: heeft een
+  offerte een document, dan is het offertebedrag `Calculaties.Verkoop`, en bij een vastgelegd document
+  `OfferteDocumenten.VastTotaal` (nieuwe kolom; het script heeft er een `ALTER … ADD COLUMN IF NOT EXISTS` bij, dus
+  **nog een keer draaien**). Zonder document of zonder calculatie: de som van de regels.
+  `MySqlOfferteRepository.DocumentBedragAsync` geeft de subquery of "NULL" naar wat er bestaat (tabellen en kolom,
+  hooguit eens per minuut gekeken tot alles er is); `RegelSelect(…)` (lijsten, project) en `GetAsync` gebruiken hem.
+  `OfferteTotalen`: `Regels` (som van de regels), `Document` (null = geen document) en `Totaal = Document ?? Regels`;
+  de gewone offerte-PDF en de voorwaarden zonder calculatie gebruiken `Regels`. Bij de offerte staat dan "Som van de
+  regels (telt niet mee)" en het totaal uit het document. `ZetStatusAsync` van het document kreeg `vastTotaal`.
+  Getest: de productiedatabase had de tabel al (document bij 999, zonder de kolom): de offerte toont € 18.866,73 uit
+  het document; de vorm van de query met kolom nagelopen met een nagebootste tabel. Niet getest: een vastgelegd
+  document met de kolom.
+- **Alleen het vel schuift** (wens gebruiker, zelfde dag): in `offertedocument.html` is `body` een kolom zonder eigen
+  schuifbalk; de balk en de meldingen staan vast, het paneel ook, en `.ed-schuif` om het vel schuift (`teken()` bewaart
+  diens scrollTop). De pagina heeft `page vulhoogte` (app.css, vanaf 900 px): het kader neemt de rest van de hoogte,
+  zodat `main.inhoud` niet schuift. **Plaatje plakken** luistert nu op het hele document (niet alleen in een blok);
+  zonder blok komt het bij `onderaan()` (boven een afsluitende ondertekening), net als dubbelklik in het paneel.
 - Getest lokaal (documenten in het geheugen, offerte 999 met de echte calculatie, rechten tijdelijk open en
   teruggezet): maken, totaal gelijk aan de calculatie (€ 18.866,73), niveaus/regels/uren kiezen, tekst met vet en een
   veld, een `<script>` komt als tekst terug, kop toevoegen, plaatje slepen, blok verplaatsen, PDF (2 pagina's, velden
