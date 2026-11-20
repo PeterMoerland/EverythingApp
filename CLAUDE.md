@@ -397,7 +397,24 @@ Markdown in de tekstvelden, koppelingen tussen kaartjes; los op te leveren in di
 plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaande tekst blijft ongemoeid** (onderdeel
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
-**Onderdeel 2 en 3 zijn nog niet gebouwd.**
+**Onderdeel 3 (koppelingen) is nog niet gebouwd;** onderdeel 2 staat hieronder.
+- **Onderdeel 2, opmaak (Markdown) in de zes tekstvelden** (zelfde dag). Omdat bestaande tekst ongemoeid moest blijven:
+  een vlag per kaartje, kolom `Opmaak` (script **`ActivityBoard_Opmaak_MariaDB.sql`**, bestaande rijen 0). Nieuwe
+  kaartjes uit het scherm en de API krijgen 1 (`_metOpmaak` / `OpmaakAanwezigAsync`; zonder kolom blijft alles plat);
+  in de pop-up staat het vinkje Opmaak, in de API het veld `opmaak` (aanmaken en PATCH, terug in GET).
+  `Services/ActMarkdown.cs` maakt de HTML met Markdig: `DisableHtml`, een enkele regelovergang = regelovergang,
+  autolinks, tabellen; een link mag alleen naar http/https/mailto (anders wordt het de tekst), een plaatje wordt een
+  link, links krijgen `target=_blank rel=noopener noreferrer`. **Valkuil:** `Inline.ReplaceBy(x)` neemt standaard de
+  kinderen mee (dubbele tekst); `copyChildren: false`. Scherm: met opmaak en tekst staat het veld opgemaakt in beeld
+  (`.ab-md`), ✎ bewerken of dubbelklik maakt er een tekstvak van met de cursor achteraan (`_bewerkVeld`,
+  `_focusNa = "eind:#…"` → `mdeAb.focusEind`) en een regel uitleg; verlaten = weer opgemaakt. Een leeg veld is meteen
+  een tekstvak. Zonder opmaak is het veld het tekstvak van altijd. Bij verversen door een collega of de API gaan nu
+  ook de teksten mee, behalve het veld waar je in typt. Getest (geheugen, proefsleutel, `abmd-test.py` in de
+  scratchpad): kopjes, lijsten, code, codeblok, links en regelovergangen; kwaadaardige invoer (`<script>`,
+  `<img onerror>`, `javascript:`- en `data:`-links, autolink, verwijzingslink, HTML-link met onclick, een aanhalingsteken
+  in een adres) voert niets uit en laat geen script, plaatje of gebeurtenis in de pagina achter; bewerken met echte
+  klikken en typen; een kaartje zonder opmaak toont de ruwe tekst en het vinkje zet het aan en uit. Niet getest: de
+  echte kolom.
 - Script **`ActivityBoard_Checklist_MariaDB.sql`** (zelf draaien): `ActivityBoardChecklist` (PuntID, ActiviteitID met
   cascade, IsKop, Tekst 500, Klaar, KlaarOp, KlaarDoor, Positie). Zonder script: geen lijst in het scherm, en de API
   zegt dat hij er nog niet is (`ChecklistAanwezigAsync`, alleen 'ja' onthouden).

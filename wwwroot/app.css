@@ -3771,6 +3771,29 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
     .ab-drawer { top: 0; left: 0; right: 0; bottom: 0; transform: none; width: 100vw; max-height: none; border-radius: 0; border-top: none; animation: none; }
 }
 .ab-drawer:focus { outline: none; }
+/* opgemaakte tekst (Markdown) in de tekstvelden van de pop-up (vraag Gerard 20-11-2026) */
+.ab-md { font-size: 13.5px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--ab-rand); border-radius: 6px; background: #fff;
+         overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
+.ab-md > :first-child { margin-top: 0; } .ab-md > :last-child { margin-bottom: 0; }
+.ab-md h1, .ab-md h2, .ab-md h3, .ab-md h4 { margin: .9em 0 .35em; line-height: 1.25; color: var(--ab-ink); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.ab-md h1 { font-size: 17px; } .ab-md h2 { font-size: 15.5px; } .ab-md h3 { font-size: 14.5px; } .ab-md h4 { font-size: 13.5px; }
+.ab-md p { margin: .5em 0; }
+.ab-md ul, .ab-md ol { margin: .4em 0; padding-left: 1.5em; }
+.ab-md li { margin: .15em 0; }
+.ab-md code { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 12.5px; background: #f1f3f6; padding: 1px 4px; border-radius: 3px; }
+.ab-md pre { background: #f1f3f6; padding: 8px 10px; border-radius: 5px; overflow: auto; margin: .5em 0; }
+.ab-md pre code { background: none; padding: 0; }
+.ab-md a { color: #1f6feb; }
+.ab-md blockquote { margin: .5em 0; padding-left: 10px; border-left: 3px solid var(--ab-rand); color: var(--ab-muted); }
+.ab-md table { border-collapse: collapse; margin: .5em 0; }
+.ab-md th, .ab-md td { border: 1px solid var(--ab-rand); padding: 3px 8px; text-align: left; }
+.ab-md-knop { margin-left: 8px; border: none; background: transparent; color: var(--ab-muted); cursor: pointer; font: inherit; font-size: 11px;
+              font-weight: 400; text-transform: none; letter-spacing: 0; padding: 0 4px; border-radius: 4px; }
+.ab-md-knop:hover { color: #1f6feb; background: #eef4ff; }
+.ab-sectie .ab-hint code { font-family: Consolas, monospace; font-size: 11.5px; }
+.ab-opmaak { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+html[data-thema="donker"] .ab-md { background: #12171e; }
+html[data-thema="donker"] .ab-md code, html[data-thema="donker"] .ab-md pre { background: #222b36; }
 /* afvinklijst in de pop-up (vraag Gerard 20-11-2026) en de voortgang op het kaartje */
 .ab-chip.ab-vink { background: #eef1f5; color: #44505e; font-variant-numeric: tabular-nums; }
 .ab-chip.ab-vink.af { background: #dff3e4; color: #1d6b34; }

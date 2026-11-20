@@ -20,7 +20,14 @@
             const el = document.querySelector('.ab-kaart[data-id="' + id + '"], tr.ab-rij[data-id="' + id + '"]');
             if (el) el.focus({ preventScroll: true });
         },
-        focusEl: function (sel) { const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } }
+        focusEl: function (sel) { const el = document.querySelector(sel); if (el) { el.focus(); if (el.select) el.select(); } },
+        // een tekstvak dat je gaat bewerken: de cursor achteraan, niets geselecteerd
+        focusEind: function (sel) {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            el.focus();
+            try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) { }
+        }
     };
 
     function roep(naam) {

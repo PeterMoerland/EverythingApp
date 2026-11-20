@@ -41,7 +41,7 @@ public static class ActivityBoardApi
     };
 
     private static readonly string[] Velden =
-        new[] { "titel", "status", "prioriteit", "vervaldatum", "benodigdeTijd", "onderwerpen", "types", "personen", "checklist" }
+        new[] { "titel", "status", "prioriteit", "vervaldatum", "benodigdeTijd", "onderwerpen", "types", "personen", "checklist", "opmaak" }
             .Concat(ActTekst.Velden.Select(v => Klein(v.Kolom))).ToArray();
     private static readonly HashSet<string> Bekend =
         new(Velden.Concat(new[] { "benodigdeUren", "tekst" }), StringComparer.OrdinalIgnoreCase);
@@ -170,6 +170,9 @@ public static class ActivityBoardApi
                 "POST  /api/activityboard/boards/{boardId}/onderwerpen    { naam, kleur? }",
                 "POST  /api/activityboard/boards/{boardId}/types          { naam, kleur? }",
             },
+            opmaak = "De zes tekstvelden tonen Markdown (kopjes, vet, cursief, lijsten, `code`, codeblokken, links) als opmaak van het kaartje true is. " +
+                     "Een kaartje dat je via de API aanmaakt krijgt opmaak true; kaartjes van voor deze uitbreiding staan op false en blijven platte tekst " +
+                     "tot je { \"opmaak\": true } stuurt. HTML in de tekst wordt niet uitgevoerd; een link mag alleen naar http, https of mailto.",
             checklist = "Bij aanmaken mag checklist mee: [ { \"kop\": \"Loggen\", \"punten\": [ { \"tekst\": \"Sampletijd 2 ms houden\", \"klaar\": false } ] } ]. " +
                         "Een punt mag ook een losse tekst zijn, en punten zonder kopje mogen los in de lijst staan. GET /activiteiten/{id} geeft de lijst " +
                         "met per punt een id; voortgang (bv. 12/35) staat bij elke activiteit met een lijst. Hooguit " + ActPunt.MaxPerActiviteit + " regels per activiteit.",
@@ -392,6 +395,9 @@ public static class ActivityBoardApi
                 if (fout is not null) return Fout(400, items.Count > 1 ? $"Activiteit {i + 1}: {fout}" : fout);
                 klaar.Add(w);
             }
+            var metOpmaak = await v.Repo.OpmaakAanwezigAsync();
+            if (klaar.Any(w => w.Opmaak == true) && !metOpmaak)
+                return Fout(400, "Opmaak kan in deze app nog niet worden bewaard (het script ActivityBoard_Opmaak_MariaDB.sql is nog niet gedraaid).");
             if (klaar.Any(w => w.Checklist is { Count: > 0 }) && !await v.Repo.ChecklistAanwezigAsync())
                 return Fout(400, "De afvinklijst kan in deze app nog niet worden bewaard (het script ActivityBoard_Checklist_MariaDB.sql is nog niet gedraaid).");
 
@@ -406,6 +412,7 @@ public static class ActivityBoardApi
                     Problemen = w.Onderwerpen ?? new(), Types = w.Types ?? new(), Personen = w.Personen ?? new(),
                     Tekst = w.Tekst.Where(t => t.Value.Length > 0).ToDictionary(t => t.Key, t => t.Value),
                     Checklist = w.Checklist ?? new(),
+                    Opmaak = w.Opmaak ?? metOpmaak,      // via de API gemaakt: met opmaak, tenzij er false staat
                 };
                 foreach (var p in a.Checklist.Where(p => p.Klaar)) { p.KlaarOp = a.GemaaktOp; p.KlaarDoor = v.Wie.Id; }
                 if (ActStatus.Groep(a.Status) == ActStatus.GroepKlaar) a.GeslotenOp = a.GemaaktOp;
@@ -448,6 +455,12 @@ public static class ActivityBoardApi
                 await v.Repo.ZetVeldAsync(id, kolom, tekst, door);
                 if (tekst.Length > 0) a.Tekst[kolom] = tekst; else a.Tekst.Remove(kolom);
                 gewijzigd.Add(Klein(kolom));
+            }
+            if (w.Opmaak is bool opmaak && opmaak != a.Opmaak)
+            {
+                if (!await v.Repo.OpmaakAanwezigAsync())
+                    return Fout(400, "Opmaak kan in deze app nog niet worden bewaard (het script ActivityBoard_Opmaak_MariaDB.sql is nog niet gedraaid).");
+                await v.Repo.ZetOpmaakAsync(id, opmaak, door); a.Opmaak = opmaak; gewijzigd.Add("opmaak");
             }
             if (w.Status is { } status && status != a.Status)
             {
@@ -810,6 +823,7 @@ public static class ActivityBoardApi
             ["geslotenOp"] = a.GeslotenOp?.ToString("yyyy-MM-dd HH:mm"),
         };
         if (metBoard) uit["board"] = new { id = d.Board.Id, titel = d.Board.Titel };
+        if (metTekst) uit["opmaak"] = a.Opmaak;
         if (a.PuntenTotaal > 0) uit["voortgang"] = $"{a.PuntenKlaar}/{a.PuntenTotaal}";
         if (metTekst && a.Checklist.Count > 0)
             uit["checklist"] = ActPunt.Groepen(a.Checklist).Where(g => g.Kop is not null || g.Punten.Count > 0).Select(g => new
@@ -845,6 +859,8 @@ public static class ActivityBoardApi
         public Dictionary<string, string> Tekst = new();
         /// <summary>De afvinklijst bij aanmaken, op volgorde (kopjes en punten).</summary>
         public List<ActPunt>? Checklist;
+        /// <summary>Markdown in de tekstvelden aan of uit; null = niet genoemd.</summary>
+        public bool? Opmaak;
     }
 
     private static ActStatus.Def? ZoekStatus(string tekst)
@@ -935,6 +951,12 @@ public static class ActivityBoardApi
         {
             var fout = Lijst(per, "personen", x => { var f = ZoekPersoon(x, v, bestaand, out var id); return (id, f); }, out w.Personen);
             if (fout is not null) return fout;
+        }
+
+        if (Heeft(o, "opmaak", out var om))
+        {
+            if (om.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return "opmaak moet true of false zijn (true = de tekstvelden tonen Markdown).";
+            w.Opmaak = om.GetBoolean();
         }
 
         if (Heeft(o, "checklist", out var cl))

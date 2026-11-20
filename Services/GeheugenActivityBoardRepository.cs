@@ -276,6 +276,10 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     public Task VerwijderActiviteitAsync(int activiteitId)
     { lock (_slot) _acts.RemoveAll(x => x.A.Id == activiteitId); return Task.CompletedTask; }
 
+    public Task<bool> OpmaakAanwezigAsync() => Task.FromResult(true);
+    public Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door)
+    { lock (_slot) Act(activiteitId).Opmaak = opmaak; return Task.CompletedTask; }
+
     // ---- afvinklijst ----
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(true);
 

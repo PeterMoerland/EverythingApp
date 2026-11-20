@@ -76,6 +76,11 @@ public interface IActivityBoardRepository
                         IReadOnlyList<int> vakVolgorde, int? door);
     Task VerwijderActiviteitAsync(int activiteitId);
 
+    // ---- opmaak in de tekstvelden (ActivityBoard_Opmaak_MariaDB.sql) ----
+    /// <summary>Kan een activiteit opmaak (Markdown) in de tekstvelden hebben? (het script is uitgevoerd)</summary>
+    Task<bool> OpmaakAanwezigAsync();
+    Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door);
+
     // ---- afvinklijst (ActivityBoard_Checklist_MariaDB.sql) ----
     /// <summary>Kan een activiteit een afvinklijst hebben? (het script is uitgevoerd)</summary>
     Task<bool> ChecklistAanwezigAsync();
@@ -128,6 +133,8 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task VerplaatsAsync(int activiteitId, string status, DateTime? geslotenOp, IReadOnlyCollection<int> problemen,
                                IReadOnlyList<int> vakVolgorde, int? door) => Task.CompletedTask;
     public Task VerwijderActiviteitAsync(int activiteitId) => Task.CompletedTask;
+    public Task<bool> OpmaakAanwezigAsync() => Task.FromResult(false);
+    public Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door) => Task.CompletedTask;
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(false);
     public Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door) => Task.FromResult(0);
     public Task ZetPuntTekstAsync(int puntId, string tekst, int? door) => Task.CompletedTask;
@@ -395,10 +402,11 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
 
         var perId = new Dictionary<int, Activiteit>();
         var metTijd = await TijdAanwezigAsync();
+        var metOpmaak = await OpmaakAanwezigAsync();
         await using (var cmd = new MySqlCommand(
             "SELECT `ActiviteitID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, `GeslotenOp`, `Volgorde`, " +
             "       `Samenvatting`, `Details`, `Impact`, `GenomenStappen`, `VolgendeStappen`, `Opmerkingen`, " +
-            (metTijd ? "`BenodigdeUren`" : "NULL") + ", `GemaaktDoor`" +
+            (metTijd ? "`BenodigdeUren`" : "NULL") + ", `GemaaktDoor`, " + (metOpmaak ? "`Opmaak`" : "0") +
             "  FROM `ActivityBoardActiviteiten` WHERE `BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
@@ -418,6 +426,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                     Volgorde = I(r, 7) ?? 0,
                     BenodigdeUren = r.IsDBNull(14) ? null : Convert.ToDecimal(r.GetValue(14)) is > 0 and var bu ? bu : null,
                     GemaaktDoor = I(r, 15),
+                    Opmaak = Convert.ToInt32(r.GetValue(16)) != 0,
                 };
                 for (var i = 0; i < ActTekst.Velden.Length; i++)
                     if (S(r, 8 + i) is { Length: > 0 } tekst) a.Tekst[ActTekst.Velden[i].Kolom] = tekst;
@@ -546,16 +555,18 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
     {
         var metTijd = await TijdAanwezigAsync();
         var metLijst = a.Checklist.Count > 0 && await ChecklistAanwezigAsync();
+        var metOpmaak = await OpmaakAanwezigAsync();
         await using var cn = await OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
         int id;
         await using (var cmd = new MySqlCommand(
             "INSERT INTO `ActivityBoardActiviteiten` (`BoardID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, " +
-            "   `GeslotenOp`, `Volgorde`, `GemaaktDoor`, `GewijzigdDoor`, " + (metTijd ? "`BenodigdeUren`, " : "") +
+            "   `GeslotenOp`, `Volgorde`, `GemaaktDoor`, `GewijzigdDoor`, " + (metTijd ? "`BenodigdeUren`, " : "") + (metOpmaak ? "`Opmaak`, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => $"`{v.Kolom}`")) + ") " +
-            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @maker, @door, " + (metTijd ? "@uren, " : "") +
+            "VALUES (@b, @t, @s, @p, @v, @gm, @gs, @vo, @maker, @door, " + (metTijd ? "@uren, " : "") + (metOpmaak ? "@opmaak, " : "") +
             string.Join(", ", ActTekst.Velden.Select(v => "@x" + v.Kolom)) + "); SELECT LAST_INSERT_ID();", cn, tx))
         {
+            if (metOpmaak) cmd.Parameters.AddWithValue("@opmaak", a.Opmaak ? 1 : 0);
             if (metTijd) cmd.Parameters.AddWithValue("@uren", (object?)a.BenodigdeUren ?? DBNull.Value);
             // de initiator: wie hem nu aanmaakt, of (terugzetten na verwijderen) wie hem oorspronkelijk aanmaakte
             cmd.Parameters.AddWithValue("@maker", (object?)(a.GemaaktDoor ?? door) ?? DBNull.Value);
@@ -636,6 +647,29 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
 
     public Task VerwijderActiviteitAsync(int activiteitId)
         => UitvoerenAsync("DELETE FROM `ActivityBoardActiviteiten` WHERE `ActiviteitID` = @id", ("@id", activiteitId));
+
+    // ------------------------------------------------------------------ opmaak in de tekstvelden
+
+    // Kolom Opmaak aanwezig? Alleen 'ja' wordt onthouden, zodat het script uitvoeren zonder herstart werkt.
+    private bool _metOpmaak;
+    public async Task<bool> OpmaakAanwezigAsync()
+    {
+        if (_metOpmaak) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "   AND TABLE_NAME = 'ActivityBoardActiviteiten' AND COLUMN_NAME = 'Opmaak'", cn);
+            _metOpmaak = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _metOpmaak;
+    }
+
+    public Task ZetOpmaakAsync(int activiteitId, bool opmaak, int? door)
+        => UitvoerenAsync("UPDATE `ActivityBoardActiviteiten` SET `Opmaak` = @o, `GewijzigdDoor` = @door WHERE `ActiviteitID` = @id",
+                          ("@o", opmaak ? 1 : 0), ("@door", (object?)door ?? DBNull.Value), ("@id", activiteitId));
 
     // ------------------------------------------------------------------ afvinklijst
 

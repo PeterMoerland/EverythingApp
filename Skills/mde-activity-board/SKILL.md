@@ -66,9 +66,19 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
 - `onderwerpen`, `types`: namen of ids **van dat board**
 - `personen`: namen of ids; `"ik"` is de gebruiker zelf; een voornaam mag als die maar één persoon oplevert
 - tekstvelden: `samenvatting`, `details`, `impact`, `genomenStappen`, `volgendeStappen`, `opmerkingen`
+- `opmaak`: `true` = de tekstvelden tonen Markdown. Een kaartje dat je aanmaakt krijgt `true`; oudere kaartjes staan op
+  `false` (platte tekst) tot je `{ "opmaak": true }` stuurt. Zet het bij een bestaand kaartje alleen aan als de
+  gebruiker dat vraagt.
 - `checklist` (alleen bij aanmaken): de afvinklijst, bv.
   `[ { "kop": "Loggen", "punten": [ { "tekst": "Sampletijd 2 ms houden", "klaar": false }, "Logbestand bewaren" ] } ]`.
   Een punt mag een losse tekst zijn; punten zonder kopje staan vooraan. Hoogstens 300 regels per kaartje.
+
+## Opmaak (Markdown)
+
+Schrijf de tekstvelden van een nieuw kaartje in Markdown als dat de tekst leesbaarder maakt: kopjes (`##`), lijsten
+(`-`, `1.`), **vet**, en `code` voor namen uit de software (`Status.Joint[n]`), codeblokken met drie backticks, links
+als `[tekst](https://…)`. Een enkele regelovergang blijft een regelovergang. Geen HTML: dat wordt als tekst getoond.
+Links alleen naar http, https of mailto. Bij een kaartje met `opmaak: false` schrijf je platte tekst.
 
 ## Afvinklijst
 

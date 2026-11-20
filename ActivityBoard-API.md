@@ -92,6 +92,7 @@ volgorde binnen een vak en de volgorde van een afvinklijst. Dat doe je in de app
 | `personen` | lijst van namen of ids; `"ik"` ben jezelf. Een deel van de naam mag als het er maar één oplevert (`"Gerard"`) |
 | `samenvatting`, `details`, `impact`, `genomenStappen`, `volgendeStappen`, `opmerkingen` | de zes tekstvelden; een lege tekst maakt het veld leeg |
 | `checklist` | alleen bij aanmaken: de afvinklijst, zie [Afvinklijst](#afvinklijst) |
+| `opmaak` | `true` of `false`: tonen de tekstvelden Markdown? Zie [Opmaak](#opmaak-in-de-tekstvelden) |
 
 Regels:
 
@@ -106,6 +107,26 @@ Regels:
 - **Tijdens het aftellen naar een nieuwe versie is de API dicht:** zolang de balk "nieuwe versie" in de app loopt, geeft
   elke aanroep `503` met `"onderhoud": true`, het tijdstip in de tekst en `opnieuwNaSeconden` (ook als kop
   `Retry-After`). Er is dan niets gelezen of gewijzigd. Wacht die tijd en probeer het opnieuw.
+
+## Opmaak in de tekstvelden
+
+De zes tekstvelden blijven gewone tekst; er mag **Markdown** in staan. De app toont die als opmaak als `opmaak` van het
+kaartje `true` is:
+
+- kopjes (`# Kop`, `## Kopje`), **vet** (`**vet**`) en *cursief* (`*cursief*`)
+- opsommingen (`- punt`) en genummerde lijsten (`1. punt`)
+- code in een regel (`` `Status.Joint[n]` ``) en codeblokken (drie backticks ervoor en erna)
+- links (`[tekst](https://…)`, of een los adres)
+- een enkele regelovergang blijft een regelovergang
+
+Regels:
+
+- Een kaartje dat je via de API **aanmaakt** krijgt `opmaak: true`, tenzij je `"opmaak": false` meegeeft.
+- Kaartjes van vóór deze uitbreiding staan op `false` en blijven platte tekst, precies zoals ze waren. Aanzetten kan
+  met `PATCH /activiteiten/{id}` en `{ "opmaak": true }`, of in de pop-up met het vinkje Opmaak.
+- `GET /activiteiten/{id}` geeft `opmaak` terug.
+- HTML in de tekst wordt niet uitgevoerd maar als tekst getoond. Een link mag alleen naar `http`, `https` of `mailto`;
+  een andere link komt als gewone tekst in beeld. Een plaatje (`![…](…)`) wordt een gewone link.
 
 ## Afvinklijst
 

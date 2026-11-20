@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 20-11-2026
 
+- **Activity board** — Nieuw: **opmaak in de tekstvelden** van een kaartje (Markdown): kopjes, vet en cursief, lijsten, code en links. Nieuwe kaartjes hebben het aan; bestaande kaartjes blijven precies zoals ze waren tot je in de pop-up het vinkje Opmaak aanzet. De tekst staat opgemaakt in beeld; met ✎ bewerken of dubbelklik pas je hem aan. Eerst `ActivityBoard_Opmaak_MariaDB.sql` draaien (verzoek van Gerard).
 - **Activity board** — Nieuw: een **afvinklijst** per kaartje. In de pop-up voeg je punten toe (Enter), zo nodig onder kopjes, vink je ze af, pas je de tekst aan en versleep je ze. Op het kaartje staat de voortgang (bijvoorbeeld 12/35), en bij een afgevinkt punt zie je wie het deed en wanneer. Kan ook via de API. Eerst `ActivityBoard_Checklist_MariaDB.sql` draaien (verzoek van Gerard).
 - **Offertes** — Verbeterd: heeft een offerte een offertedocument, dan is het offertebedrag (in de lijsten, bij het project en bij de offerte zelf) het totaal van de calculatie; na vastleggen het totaal van dat moment. Zonder document blijft het de som van de offerteregels. Draai `OfferteDocumenten_MariaDB.sql` nog een keer: er is een kolom bij gekomen (verzoek van Peter).
 - **Offertes** — Verbeterd: in het offertedocument schuift alleen nog het vel; de pagina en de knoppenbalk blijven staan (verzoek van Peter).

@@ -580,15 +580,42 @@ else
                 <div class="ab-lab">Gemaakt op</div>
                 <div class="ab-ro">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</div>
 
+                @if (_metOpmaak)
+                {
+                    <div class="ab-lab">Opmaak</div>
+                    <div class="ab-ro">
+                        <label class="ab-opmaak"><input type="checkbox" checked="@o.Opmaak" @onchange="e => OpmaakGewijzigd(e.Value is true)" /> Markdown in de tekstvelden</label>
+                        <div class="ab-hint">Aan: kopjes, lijsten, vet en code worden opgemaakt getoond. Uit: de tekst staat er precies zoals hij is getypt.</div>
+                    </div>
+                }
+
                 <div class="ab-lab">Dagen open</div>
                 <div class="ab-ro">@(dagen?.ToString() ?? "–")@if (dagen is null) { <span class="ab-muted"> (sluitdatum onbekend)</span> }</div>
             </div>
             @foreach (var v in ActTekst.Velden)
             {
                 var kolom = v.Kolom;
+                var inhoud = o.Tekst.GetValueOrDefault(kolom) ?? "";
+                // met opmaak (Markdown, vraag Gerard 20-11-2026): de tekst staat opgemaakt in beeld en wordt een tekstvak als
+                // je hem bewerkt (knop of dubbelklik); een leeg veld is meteen een tekstvak. Zonder opmaak: zoals het was.
+                var toon = o.Opmaak && inhoud.Length > 0 && _bewerkVeld != kolom;
                 <div class="ab-sectie">
-                    <h3>@v.Naam</h3>
-                    <textarea placeholder="@v.Hulp" @onchange="e => TekstGewijzigd(kolom, e)">@o.Tekst.GetValueOrDefault(kolom)</textarea>
+                    <h3>@v.Naam
+                        @if (toon) { <button type="button" class="ab-md-knop" title="Tekst bewerken (dubbelklik op de tekst kan ook)" @onclick="() => BewerkVeld(kolom)">✎ bewerken</button> }
+                    </h3>
+                    @if (toon)
+                    {
+                        <div class="ab-md" @ondblclick="() => BewerkVeld(kolom)">@((MarkupString)ActMarkdown.Html(inhoud))</div>
+                    }
+                    else
+                    {
+                        <textarea id="@($"ab-tx-{kolom}")" placeholder="@v.Hulp" @onchange="e => TekstGewijzigd(kolom, e)"
+                                  @onblur="() => { if (_bewerkVeld == kolom) _bewerkVeld = null; }">@inhoud</textarea>
+                        @if (o.Opmaak && _bewerkVeld == kolom)
+                        {
+                            <div class="ab-hint">Markdown: <code># kop</code> · <code>**vet**</code> · <code>*cursief*</code> · <code>- lijst</code> · <code>1. genummerd</code> · <code>`code`</code> · <code>[tekst](https://…)</code>. Klik buiten het vak om de opmaak te zien.</div>
+                        }
+                    }
                 </div>
                 @if (kolom == "Samenvatting" && _metChecklist)
                 {
@@ -755,6 +782,8 @@ else
     private bool _metWerkorder;                             // ActivityBoard_Werkorder_Bijlagen_MariaDB.sql uitgevoerd
     private bool _metTijd;                                  // ActivityBoard_Tijd_MariaDB.sql uitgevoerd (benodigde tijd per activiteit)
     private bool _metChecklist;                             // ActivityBoard_Checklist_MariaDB.sql uitgevoerd (afvinklijst per activiteit)
+    private bool _metOpmaak;                                // ActivityBoard_Opmaak_MariaDB.sql uitgevoerd (Markdown in de tekstvelden)
+    private string? _bewerkVeld;                            // het tekstveld dat nu als tekstvak open staat (bij een kaartje met opmaak)
     private string _boardSoort = "";                        // filter op het startscherm
     private static readonly (string Code, string Naam)[] SoortFilters =
         { ("", "Alle"), (ActBoardSoort.Project, "Project"), (ActBoardSoort.Werkorder, "Werkorder"), (ActBoardSoort.Klant, "Klant"), (ActBoardSoort.Vrij, "Vrij") };
@@ -807,6 +836,7 @@ else
         _metWerkorder = _soorten && await Repo.WerkorderAanwezigAsync();
         _metTijd = await Repo.TijdAanwezigAsync();
         _metChecklist = await Repo.ChecklistAanwezigAsync();
+        _metOpmaak = await Repo.OpmaakAanwezigAsync();
 
         if (KaartUitUrl is null) _kaartUitUrlGedaan = null;
         if (BoardId is null && KaartUitUrl is int kaart)
@@ -895,7 +925,8 @@ else
         if (_focusNa is { } f)
         {
             _focusNa = null;
-            try { await JS.InvokeVoidAsync("mdeAb.focusEl", f); } catch { }
+            // "eind:" = de cursor achteraan zetten in plaats van alles selecteren (een tekstveld dat je gaat bewerken)
+            try { await JS.InvokeVoidAsync(f.StartsWith("eind:") ? "mdeAb.focusEind" : "mdeAb.focusEl", f.StartsWith("eind:") ? f[5..] : f); } catch { }
         }
         if (_focusKaart is int k)
         {
@@ -1436,6 +1467,10 @@ else
                     o.BenodigdeUren = a.BenodigdeUren;
                     o.Problemen = new(a.Problemen); o.Types = new(a.Types); o.Personen = new(a.Personen);
                     o.Checklist = a.Checklist.Select(p => p.Kopie()).ToList();
+                    o.Opmaak = a.Opmaak;
+                    // de tekst van een collega of de API, behalve in het veld waar je zelf in typt
+                    foreach (var veld in ActTekst.Velden.Select(x => x.Kolom).Where(k => k != _bewerkVeld))
+                        if (a.Tekst.TryGetValue(veld, out var nieuweTekst)) o.Tekst[veld] = nieuweTekst; else o.Tekst.Remove(veld);
                 }
             }
             if (_typeHernoem is int t && !vers.Types.Any(x => x.Id == t)) _typeHernoem = null;
@@ -2103,7 +2138,7 @@ else
         var zelfde = _data.Activiteiten.Where(x => x.Status == sn.Status && Lane(x, idx) == sn.Lane).Select(x => x.Volgorde).ToList();
         var a = new Activiteit
         {
-            Titel = titel, Status = sn.Status, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId,
+            Titel = titel, Status = sn.Status, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId, Opmaak = _metOpmaak,
             Volgorde = zelfde.Count > 0 ? zelfde.Max() + 1 : 0,          // snel aanmaken: onderaan het vak
         };
         if (sn.Lane != "geen") a.Problemen.Add(int.Parse(sn.Lane));
@@ -2131,7 +2166,7 @@ else
         if (_data is null) return;
         var idx = ProbIndex();
         var zelfde = _data.Activiteiten.Where(x => x.Status == ActStatus.Backlog && Lane(x, idx) == "geen").Select(x => x.Volgorde).ToList();
-        var a = new Activiteit { Status = ActStatus.Backlog, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId,
+        var a = new Activiteit { Status = ActStatus.Backlog, GemaaktOp = DateTime.Now, GemaaktDoor = Ik.WerknemerId, Opmaak = _metOpmaak,
                                  Volgorde = zelfde.Count > 0 ? zelfde.Min() - 1 : 0 };
         if (_view == "mijn" && Ik.WerknemerId is int ik) a.Personen.Add(ik);
         if (_open is { } vorige) Verlaten(vorige);
@@ -2302,6 +2337,22 @@ else
         o.BenodigdeUren = uren;
         if (o.Id == 0) return;
         if (await Bewaar(() => Repo.ZetVeldAsync(o.Id, "BenodigdeUren", uren, Ik.WerknemerId))) SchrijfTerug(o);
+    }
+
+    /// <summary>Een opgemaakt tekstveld als tekstvak openen, met de cursor achteraan.</summary>
+    private void BewerkVeld(string kolom)
+    {
+        _bewerkVeld = kolom;
+        _focusNa = $"eind:#ab-tx-{kolom}";
+    }
+
+    private async Task OpmaakGewijzigd(bool aan)
+    {
+        if (_open is not { } o || o.Opmaak == aan) return;
+        o.Opmaak = aan;
+        _bewerkVeld = null;
+        if (o.Id == 0) return;
+        if (await Bewaar(() => Repo.ZetOpmaakAsync(o.Id, aan, Ik.WerknemerId))) SchrijfTerug(o);
     }
 
     private async Task TekstGewijzigd(string kolom, ChangeEventArgs e)

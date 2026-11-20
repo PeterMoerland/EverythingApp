@@ -103,6 +103,11 @@ public class Activiteit
     public List<int> Personen { get; set; } = new();
     /// <summary>De zes tekstvelden, op sleutel uit <see cref="ActTekst.Velden"/>.</summary>
     public Dictionary<string, string> Tekst { get; set; } = new();
+    /// <summary>
+    /// De tekstvelden tonen opmaak (Markdown; ActivityBoard_Opmaak_MariaDB.sql). Kaartjes van vóór die tijd staan op
+    /// uit en blijven platte tekst, precies zoals ze waren (besluit gebruiker 20-11-2026); nieuwe kaartjes staan op aan.
+    /// </summary>
+    public bool Opmaak { get; set; }
     /// <summary>De afvinklijst, op volgorde: kopjes en punten door elkaar (zie <see cref="ActPunt"/>).</summary>
     public List<ActPunt> Checklist { get; set; } = new();
     public int PuntenTotaal => Checklist.Count(p => !p.Kop);
@@ -111,7 +116,7 @@ public class Activiteit
     public Activiteit Kopie() => new()
     {
         Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
-        GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde,
+        GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde, Opmaak = Opmaak,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
         Checklist = Checklist.Select(p => p.Kopie()).ToList(),
     };
