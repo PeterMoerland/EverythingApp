@@ -78,6 +78,8 @@ public interface IArtikelRepository
 
     // ---- leveranciers en prijzen (ArtikelSupplier) ----
     Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId);
+    /// <summary>Alle artikelen die we bij deze leverancier kopen, met onze prijs (voor Artikelen ▸ Solar-prijzen). Alleen lezen.</summary>
+    Task<List<LeverancierArtikel>> ArtikelenVanLeverancierAsync(int leverancierId);
     /// <summary>Nieuw (Id 0) of bijwerken; geeft het id.</summary>
     Task<int> BewaarLeverancierAsync(ArtikelLeverancier l);
     Task VerwijderLeverancierAsync(int artikelSupplierId);
@@ -152,6 +154,7 @@ public class GeenArtikelRepository : IArtikelRepository
     public Task ZetKostprijsAsync(int artikelId, decimal kostprijs, decimal toeslagProcent)
         => Task.CompletedTask;
     public Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId) => Task.FromResult(new List<ArtikelLeverancier>());
+    public Task<List<LeverancierArtikel>> ArtikelenVanLeverancierAsync(int leverancierId) => Task.FromResult(new List<LeverancierArtikel>());
     public Task<int> BewaarLeverancierAsync(ArtikelLeverancier l) => Task.FromResult(0);
     public Task VerwijderLeverancierAsync(int artikelSupplierId) => Task.CompletedTask;
     public Task<List<Keuze>> VerpakkingseenhedenAsync() => Task.FromResult(new List<Keuze>());
@@ -949,6 +952,27 @@ public class MySqlArtikelRepository : IArtikelRepository
     // ============================================================
     //  Leveranciers en prijzen (ArtikelSupplier)
     // ============================================================
+    public async Task<List<LeverancierArtikel>> ArtikelenVanLeverancierAsync(int leverancierId)
+    {
+        var lijst = new List<LeverancierArtikel>();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT s.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), COALESCE(s.`ArtikelNummerSupplier`, ''), " +
+            "       COALESCE(s.`StuksPerVE`, 1), COALESCE(s.`PrijsPerVE`, 0), COALESCE(s.`Korting`, 0) " +
+            "  FROM `ArtikelSupplier` s JOIN `Artikelen` a ON a.`ArtikelID` = s.`ArtikelID` " +
+            " WHERE s.`SupplierID` = @l ORDER BY a.`ArtikelCodeMDE`, s.`ArtikelSupplierID`", cn);
+        cmd.Parameters.AddWithValue("@l", leverancierId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var stuks = Convert.ToDecimal(r.GetValue(4));
+            lijst.Add(new LeverancierArtikel(r.GetInt32(0), Convert.ToString(r.GetValue(1)) ?? "", Convert.ToString(r.GetValue(2)) ?? "",
+                                             (Convert.ToString(r.GetValue(3)) ?? "").Trim(), stuks > 0 ? stuks : 1,
+                                             Convert.ToDecimal(r.GetValue(5)), Convert.ToDecimal(r.GetValue(6))));
+        }
+        return lijst;
+    }
+
     public async Task<List<ArtikelLeverancier>> LeveranciersAsync(int artikelId)
     {
         var lijst = new List<ArtikelLeverancier>();

@@ -1641,6 +1641,43 @@ ingevuld wat al kan op basis van de bon of factuur". Geen nieuw venster gebouwd 
   (Financiën is lokaal zonder aanmelding afgeschermd en die afscherming is niet opzijgezet), het echte Aanmaken, en
   het pad zonder bestand.
 
+## Artikelen ▸ Solar-prijzen: onze prijzen naast die van Solar (20-11-2026)
+
+De Solar Procurement API (apiportal.solar.eu) was lang blijven liggen op het client secret; dat staat sinds 20-11-2026 in
+`appsettings.json` (sectie `Solar`). Eerste stap op verzoek: een overzicht, **alleen lezen**.
+
+- `Services/SolarKoppeling.cs` (singleton): aanmelden met OAuth2 client credentials bij
+  `sgidp.b2clogin.com/.../b2c_1a_client_credentials/oauth2/v2.0/token` (scope `https://sgidp.onmicrosoft.com/
+  api.procurement/.default`, token 60 min, onthouden), basis `https://api.solar.eu/procurement/V1`.
+  - `Solar:AccountId` mag leeg: `/accounts` geeft het ene account (2110087, MDE Automation BV). Het prijzen-adres wil
+    het wel (zonder: 401), anders dan de gebruiker in Postman zag.
+  - **Ons nummer is niet het prijsnummer.** In `ArtikelSupplier.ArtikelNummerSupplier` staat het nummer van 7 cijfers;
+    bij Solar is dat `electricalNumber` of `hwsNumber` (niet elk artikel heeft beide; alleen hwsNumber vond 425 van
+    721 nummers, met electricalNumber eerst blijven er 96 regels zonder prijs over). Prijzen komen alleen op
+    `SAPMaterialNumber` (10 cijfers): eerst `GET /catalogs/{CatalogId}/products/{nr}?productIdentifier=…`, dan
+    `POST /products/prices?accountId=…` in groepen van 50. De producten worden een dag in het geheugen onthouden.
+  - Een prijs komt per `PriceQuantity` eenheden (883 per 100 m): teruggerekend naar één eenheid. Prijs 0 (status 40)
+    = geen prijs. 429 en 5xx: tot vier keer opnieuw met wachttijd (een 503 kwam bij het proberen voor).
+  - De namen van de identifiers staan niet in de zichtbare documentatie maar in de portal-API:
+    `/developer/apis/xapi-procurementservices/operations/get-product` (electricalNumber, hwsNumber, eanNumber,
+    sapMaterialNumber). Een catalogus-lijst bestaat niet (404).
+- `IArtikelRepository.ArtikelenVanLeverancierAsync(Solar:LeverancierId)`: de 748 regels (747 artikelen; één artikel
+  staat twee keer bij Solar, vandaar `@key="r"` in de tabel en niet het artikel-id).
+- `Components/Pages/SolarPrijzen.razor` (`/artikelen/solar-prijzen`, menu Artikelen ▸ Onderhoud): knop Prijzen ophalen
+  (vier opzoekingen tegelijk, voortgang, Stoppen), daarna filter (verschillen, duurder, goedkoper, onbekend, gelijk,
+  alles) en zoeken; grootste verschil bovenaan, hoogstens 400 regels in beeld. Verschil = netto Solar tegenover
+  netto bij ons; binnen 1% heet gelijk.
+  - **Eenheden:** Solar rekent per eigen eenheid, soms per verpakking (klinknagels per blister van 50), en de API
+    zegt dat niet betrouwbaar. `Regel.PerVe` vergelijkt met onze prijs per VE als die dichter bij de Solar-prijs
+    ligt dan onze prijs per stuk, en meldt dat ("per VE van 50"). Blijft het verschil groter dan +150% of -60%, dan
+    staat er "groot verschil: andere eenheid of verpakking?". Het blijft dus een hulpmiddel om na te kijken, geen
+    bron om blind over te nemen.
+- **Getest** tegen de echte API en de echte artikelen (alleen lezen): 748 regels in ongeveer een minuut; uitkomst
+  20-11: 556 duurder bij Solar, 60 goedkoper, 36 gelijk, 96 zonder prijs. **Niet nagekeken:** of die uitkomsten per
+  artikel kloppen (veel verschillen van +50% en meer: oude prijzen bij ons, of toch een eenheid), de laatste
+  kolombreedtes, donker thema. **Niet gebouwd:** prijzen overnemen, de knop per artikel, voorraad (`/products/atp`) en
+  bestellen (`/orders`).
+
 ## Projecten: werkorders meteen bij een nieuw project (19-11-2026)
 
 Wens gebruiker: "bij het aanmaken van een project een lijstje van 5 werkorders; minimaal 1 aangevinkt; omschrijving

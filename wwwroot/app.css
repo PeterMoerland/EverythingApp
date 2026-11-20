@@ -822,6 +822,15 @@ html[data-thema="donker"] .compressor-druk-eenheid, html[data-thema="donker"] .c
               padding: 0 .4rem; font-size: .85em; margin-left: .5rem; }
 .tl-toel { color: #444; margin-top: .1rem; }
 .wn-kop { font-size: 1.05rem; margin: 1.2rem 0 .3rem; color: var(--accent); }
+/* Artikelen > Solar-prijzen: onze prijs naast die van Solar */
+.solar-tabel tr.solar-duurder .solar-verschil { color: #b3261e; font-weight: 600; }
+.solar-tabel tr.solar-goedkoper .solar-verschil { color: #1b7f3b; font-weight: 600; }
+.solar-tabel tr.solar-onbekend td { color: #888; }
+.solar-tabel td.r, .solar-tabel th.r { white-space: nowrap; }
+.solar-fout { margin: .4rem 0; padding: .45rem .7rem; border-radius: 5px; background: #fdecea; color: #a01200; border: 1px solid #f3b7b0; }
+html[data-thema="donker"] .solar-fout { background: #3a1f1c; color: #ffb4a8; border-color: #6b2f28; }
+html[data-thema="donker"] .solar-tabel tr.solar-duurder .solar-verschil { color: #ff8f85; }
+html[data-thema="donker"] .solar-tabel tr.solar-goedkoper .solar-verschil { color: #6fd08c; }
 /* Werknemers: zelf kiezen welke meldingen je krijgt */
 .wn-meld { display: flex; align-items: flex-start; gap: .6rem; margin: .5rem 0; cursor: pointer; }
 .wn-meld input { margin-top: .25rem; flex: 0 0 auto; }

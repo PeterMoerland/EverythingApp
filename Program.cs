@@ -421,6 +421,7 @@ builder.Services.AddSingleton<FusionPakketten>();
 builder.Services.AddSingleton<FirmwarePakketten>();
 builder.Services.AddSingleton<ComponentZoeker>();
 builder.Services.AddSingleton<JlcKoppeling>();
+builder.Services.AddSingleton<SolarKoppeling>();   // Solar Procurement API: prijzen vergelijken (Artikelen > Solar-prijzen)
 builder.Services.AddSingleton<JlcOnderdelen>();
 // Word/Excel in beeld brengen door ze naar PDF om te zetten
 builder.Services.AddSingleton<VoorbeeldService>();

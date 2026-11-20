@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 20-11-2026
+
+- **Artikelen** — Nieuw: Artikelen ▸ Solar-prijzen. Een overzicht van alle artikelen die we bij Solar kopen, met onze prijs naast de actuele bruto- en nettoprijs van Solar en het verschil in procenten. Je filtert op duurder, goedkoper, gelijk of niet bekend bij Solar. Het is alleen een overzicht: er wordt niets gewijzigd (verzoek van Peter).
+
 ## 19-11-2026
 
 - **Activity board** — Nieuw: de kaartjes waar je zelf aan toegewezen bent hebben altijd een opvallende amberkleurige rand, zodat je ze er meteen uit haalt. In de tabellen staat er een amberkleurige streep voor de regel (verzoek van Peter).
