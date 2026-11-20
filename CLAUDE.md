@@ -1837,6 +1837,14 @@ cursor in het venster, en een deel deed er niets mee. Niet per venster opgelost 
     Getest met een tijdelijke patch en een proefsleutel via een omgevingsvariabele: het blok alleen bij de bedoelde
     werknemer, verborgen/tonen/verbergen, kopiëren met een echte klik, beide downloads. Niet getest: met een echte
     aanmelding (lokaal is niemand aangemeld).
+  - **Koppelscript voor PowerShell** (wens gebruiker 20-11-2026, naar zijn eigen `activity-board-skill-auth.ps1`):
+    knop op het tabblad API-sleutel zet een script op het klembord dat `MDE_APP` en `MDE_SLEUTEL` als
+    omgevingsvariabelen van de Windows-gebruiker zet. **De sleutel staat niet in het script**: geplakte tekst komt in
+    de PowerShell-geschiedenis op schijf en het klembord blijft gevuld. `ActivityBoardApi.Koppelscript` maakt een
+    eenmalige code (48 hex, 10 minuten, in het geheugen; een nieuwe klik laat de vorige vervallen) en het script wisselt
+    die in bij `POST /api/activityboard/koppelen` (kop `X-Koppelcode`, zonder sleutel; 401 bij een verlopen of
+    gebruikte code). Elke opdracht staat op één regel, zodat plakken regel voor regel of als blok werkt. Na een
+    herstart van de app zijn openstaande codes weg. Getest: zie hieronder bij deze wijziging.
   - **Kan bewust niet:** verwijderen, een bestaand board aan iets anders koppelen, volgorde binnen een vak (slepen).
   - **Dicht tijdens het aftellen naar een nieuwe versie** (wens gebruiker, zelfde dag): zolang `OnderhoudMelding.Huidig`
     gevuld is (vanaf `service-herstarten.bat` of Beheer ▸ Nieuwe versie aankondigen, tot 10 minuten na het tijdstip of

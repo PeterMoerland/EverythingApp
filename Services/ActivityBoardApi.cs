@@ -67,6 +67,44 @@ public static class ActivityBoardApi
     public static string? SleutelVan(IConfiguration config, int werknemerId)
         => Sleutels(config).Where(s => s.Werknemer == werknemerId).Select(s => s.Sleutel).FirstOrDefault();
 
+    // ------------------------------------------------------------------ koppelscript voor PowerShell
+
+    /// <summary>Een eenmalige code waarmee het koppelscript de sleutel ophaalt: werknemer en tot wanneer geldig.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Werknemer, DateTime Tot)> Koppelcodes = new();
+    private static readonly TimeSpan KoppelcodeGeldig = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Het script dat een gebruiker in PowerShell plakt om Claude aan het Activity board te koppelen (wens gebruiker
+    /// 20-11-2026: "na een knop het script op het klembord, met de gegevens van de gebruiker"). Het zet MDE_APP en
+    /// MDE_SLEUTEL als omgevingsvariabelen van de Windows-gebruiker.
+    ///
+    /// De sleutel staat er bewust niet in: wat je in PowerShell plakt komt in de geschiedenis op schijf
+    /// (ConsoleHost_history.txt), en het klembord blijft gevuld. In het script staat een code die tien minuten geldig is
+    /// en één keer werkt; daarmee haalt het script de sleutel op bij POST /api/activityboard/koppelen.
+    /// De aanroeper moet zelf nagaan dat het om de aangemelde persoon gaat. Null = geen sleutel voor deze werknemer.
+    /// </summary>
+    public static string? Koppelscript(IConfiguration config, int werknemerId, string appAdres)
+    {
+        if (SleutelVan(config, werknemerId) is null) return null;
+        foreach (var oud in Koppelcodes.Where(k => k.Value.Tot < DateTime.Now || k.Value.Werknemer == werknemerId).Select(k => k.Key).ToList())
+            Koppelcodes.TryRemove(oud, out _);      // verlopen codes, en een eerdere code van dezelfde persoon
+        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+        Koppelcodes[code] = (werknemerId, DateTime.Now + KoppelcodeGeldig);
+        var adres = appAdres.TrimEnd('/').Replace("'", "''");
+        // elke opdracht op één regel: plakken werkt dan in elke PowerShell, regel voor regel of als blok
+        return string.Join("\r\n", new[]
+        {
+            "# MDE Activity board koppelen aan Claude. De code hieronder werkt een keer en is 10 minuten geldig.",
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12",
+            $"$mdeApp = '{adres}'",
+            "$mde = $null",
+            $"try {{ $mde = Invoke-RestMethod -Uri \"$mdeApp/api/activityboard/koppelen\" -Method Post -Headers @{{ 'X-Koppelcode' = '{code}' }} -TimeoutSec 15 }} catch {{ Write-Host \"Koppelen is niet gelukt: de code is verlopen of al gebruikt, of de MDE-app is niet bereikbaar. Kopieer het script opnieuw in de MDE-app (Werknemers, tabblad API-sleutel). $($_.Exception.Message)\" -ForegroundColor Red }}",
+            "if ($mde) { [Environment]::SetEnvironmentVariable('MDE_APP', $mdeApp, 'User'); [Environment]::SetEnvironmentVariable('MDE_SLEUTEL', $mde.sleutel, 'User'); $env:MDE_APP = $mdeApp; $env:MDE_SLEUTEL = $mde.sleutel; Write-Host \"Gekoppeld als $($mde.naam). Sluit Claude Desktop helemaal af (ook in het systeemvak) en elke terminal met Claude Code, start ze opnieuw en vraag: wat staat er voor mij open?\" -ForegroundColor Green }",
+            "Remove-Variable mde, mdeApp -ErrorAction SilentlyContinue",
+            "",
+        });
+    }
+
     // ------------------------------------------------------------------ uitleg en skill als download
 
     /// <summary>
@@ -428,6 +466,27 @@ public static class ActivityBoardApi
                 await MeldToewijzing(v, d, a, erbij, nieuw: false);
             }
             return Goed(new { gewijzigd, activiteit = Uit(a, d, v, metTekst: true, metBoard: true) });
+        }));
+
+        // Het koppelscript (Werknemers ▸ API-sleutel) wisselt hier zijn eenmalige code in voor de sleutel. Geen sleutel in
+        // de kop, dus niet via Met; de code is 48 willekeurige tekens, tien minuten geldig, en weg na één gebruik.
+        api.MapPost("/koppelen", Route(async ctx =>
+        {
+            var config = ctx.RequestServices.GetRequiredService<IConfiguration>();
+            var repo = ctx.RequestServices.GetRequiredService<IActivityBoardRepository>();
+            if (!Aan(config) || !repo.Beschikbaar) return Results.NotFound();
+            var code = (ctx.Request.Headers["X-Koppelcode"].FirstOrDefault() ?? "").Trim();
+            if (code.Length == 0 || !Koppelcodes.TryRemove(code, out var k) || k.Tot < DateTime.Now)
+            {
+                await Task.Delay(400);
+                return Fout(401, "Deze koppelcode is verlopen of al gebruikt. Kopieer het script opnieuw in de MDE-app (Werknemers, tabblad API-sleutel).");
+            }
+            if (SleutelVan(config, k.Werknemer) is not { } sleutel) return Fout(403, "Er is voor deze werknemer geen sleutel (meer).");
+            var naam = "";
+            try { naam = (await repo.GetPersonenAsync()).FirstOrDefault(p => p.Id == k.Werknemer)?.Naam ?? ""; } catch { }
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ActivityBoardApi")
+               .LogInformation("Activity board API: koppelscript gebruikt door werknemer {Id} ({Naam})", k.Werknemer, naam);
+            return Goed(new { sleutel, naam });
         }));
 
         api.MapPost("/boards/{boardId:int}/onderwerpen", (HttpContext ctx, int boardId) => NieuwLabel(ctx, boardId, onderwerp: true));

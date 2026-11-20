@@ -5,6 +5,7 @@
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 @inject IConfiguration Config
+@inject NavigationManager Nav
 @inject IMeldingVoorkeurRepository Voorkeuren
 
 <div class="page">
@@ -332,6 +333,11 @@
                                 <code class="wn-api-waarde">@(_sleutelTonen ? sleutel : new string('•', 24))</code>
                                 <button class="klein" @onclick="() => _sleutelTonen = !_sleutelTonen">@(_sleutelTonen ? "Verbergen" : "Tonen")</button>
                                 <button class="klein" title="Naar het klembord, zonder hem te tonen" @onclick='() => Kopieer(sleutel, "De sleutel")'>Kopiëren</button>
+                            </div>
+                            <div class="wn-api-regel">
+                                <span class="wn-api-naam">Claude koppelen</span>
+                                <button class="primair" @onclick="KopieerKoppelscript"
+                                        title="Zet een script op het klembord dat Claude (Desktop en Code) op deze pc aan het Activity board koppelt. Plak het binnen 10 minuten in PowerShell. De sleutel staat niet in het script: het haalt hem met een eenmalige code op.">Script voor PowerShell kopiëren</button>
                             </div>
                         }
                     </div>
@@ -725,6 +731,20 @@
             Toon("Bewaren mislukt: " + ex.Message, true);
             await LaadMeldingVoorkeuren();
         }
+    }
+
+    /// <summary>
+    /// Het koppelscript voor PowerShell op het klembord (wens gebruiker 20-11-2026). Het script bevat een eenmalige code,
+    /// niet de sleutel (ActivityBoardApi.Koppelscript); elke klik maakt een nieuwe code en de vorige vervalt.
+    /// </summary>
+    private async Task KopieerKoppelscript()
+    {
+        if (!ToonEigenSleutel || _gekozenId is not int id) return;
+        if (ActivityBoardApi.Koppelscript(Config, id, Nav.BaseUri) is not { } script) { Toon("Er is voor jou nog geen sleutel.", true); return; }
+        var gelukt = false;
+        try { gelukt = await JS.InvokeAsync<bool>("mdeKopieer", script); } catch { }
+        Toon(gelukt ? "Het script staat op het klembord. Open PowerShell, plak het (Ctrl+V) en druk op Enter. Het werkt 10 minuten en één keer."
+                    : "Kopiëren lukte niet. Probeer het nog eens, of kopieer de sleutel en zet hem zelf in MDE_SLEUTEL.", !gelukt);
     }
 
     private async Task Kopieer(string tekst, string wat)
