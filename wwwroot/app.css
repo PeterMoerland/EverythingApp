@@ -1663,6 +1663,68 @@ html[data-thema="donker"] .calc-import { background: #1b2a3f; border-color: #2b4
     .page.vulhoogte { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding-bottom: .6rem; }
     .page.vulhoogte .calc-kader { flex: 1; min-height: 0; height: auto; }
 }
+/* bovenbalk: wie heeft de app nu open (Directie, 23-11-2026) */
+.aw { position: relative; }
+.aw-knop { border: 1px solid #c9d3df; background: #fff; border-radius: 999px; padding: .2rem .65rem; font: inherit; font-size: .88rem; cursor: pointer; color: inherit; white-space: nowrap; }
+.aw-knop:hover { border-color: var(--accent); }
+.aw-aantal { font-weight: 600; font-variant-numeric: tabular-nums; }
+.aw-scherm { position: fixed; inset: 0; z-index: 90; }
+.aw-paneel { position: absolute; right: 0; top: calc(100% + .4rem); z-index: 91; width: 26rem; max-width: calc(100vw - 2rem); background: #fff; color: #222;
+             border: 1px solid #c9d3df; border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, .2); }
+.aw-kop { display: flex; align-items: center; gap: .6rem; padding: .6rem .8rem; border-bottom: 1px solid #e3e8ef; }
+.aw-kop span { color: #667; font-size: .82rem; flex: 1; }
+.aw-lijst { max-height: 60vh; overflow: auto; padding: .3rem 0; }
+.aw-persoon { padding: .35rem .8rem; }
+.aw-persoon + .aw-persoon { border-top: 1px solid #f0f2f5; }
+.aw-naam { font-weight: 600; }
+.aw-soort { font-weight: 400; font-size: .72rem; background: #eef2f7; color: #556; border-radius: 4px; padding: 0 .35rem; margin-left: .35rem; }
+.aw-regel { display: flex; gap: .6rem; font-size: .85rem; color: #445; padding: .05rem 0; }
+.aw-pagina { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-tijd { color: #778; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.aw-leeg, .aw-voet { padding: .5rem .8rem; color: #778; font-size: .8rem; }
+.aw-voet { border-top: 1px solid #e3e8ef; }
+html[data-thema="donker"] .aw-knop { background: #1a212b; border-color: #334051; }
+html[data-thema="donker"] .aw-paneel { background: #1a212b; color: #e6ebf2; border-color: #334051; }
+html[data-thema="donker"] .aw-kop, html[data-thema="donker"] .aw-voet { border-color: #334051; }
+html[data-thema="donker"] .aw-persoon + .aw-persoon { border-color: #263140; }
+html[data-thema="donker"] .aw-regel { color: #c5cfdb; }
+html[data-thema="donker"] .aw-soort { background: #263140; color: #c5cfdb; }
+/* Beheer > Netwerk: de vaste IP-adressen per groep (23-11-2026) */
+.nw-zoek { width: 18rem; max-width: 40vw; }
+.nw-filters { display: flex; flex-wrap: wrap; gap: .35rem; margin: .4rem 0 .7rem; }
+.nw-chip { border: 1px solid #c9d3df; background: #fff; border-radius: 999px; padding: .2rem .7rem; font: inherit; font-size: .85rem; cursor: pointer; color: inherit; }
+.nw-chip small { color: #778; margin-left: .25rem; }
+.nw-chip.aan { background: var(--accent); border-color: var(--accent); color: #fff; }
+.nw-chip.aan small { color: #fff; opacity: .85; }
+.nw-tabel { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.nw-tabel th { text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; color: #667; padding: .35rem .5rem; border-bottom: 1px solid #c9d3df;
+               position: sticky; top: 0; background: var(--pagina, #f7f8fa); z-index: 1; }
+.nw-tabel td { padding: .3rem .5rem; border-bottom: 1px solid #edf0f4; vertical-align: top; }
+.nw-tabel .r { text-align: right; }
+.nw-groep td { background: #eef2f7; padding-top: .45rem; padding-bottom: .45rem; border-bottom: 1px solid #c9d3df; }
+.nw-bereik { color: #667; font-size: .8rem; margin-left: .7rem; }
+.nw-erbij { margin-left: .7rem; }
+.nw-rij { cursor: pointer; }
+.nw-rij:hover td { background: #f3f7fd; }
+.nw-ip { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nw-ip a { color: var(--accent); }
+.nw-let { margin-left: .4rem; font-size: .72rem; background: #fdecc8; color: #7a4b00; border-radius: 4px; padding: 0 .35rem; }
+.nw-ww { white-space: nowrap; cursor: default; }
+.nw-ww code { font-family: Consolas, monospace; background: #f1f3f6; padding: 1px 5px; border-radius: 3px; margin-right: .3rem; user-select: all; }
+.nw-dicht { color: #889; font-style: italic; font-size: .85em; }
+.nw-opm { color: #445; overflow-wrap: anywhere; }
+.factuurvenster.nw-venster { width: min(46rem, calc(100vw - 2rem)); }
+.nw-iprij { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.nw-iprij input { flex: 1; min-width: 10rem; }
+.nw-groepen input { width: 100%; box-sizing: border-box; }
+html[data-thema="donker"] .nw-chip { background: #1a212b; border-color: #334051; }
+html[data-thema="donker"] .nw-chip.aan { background: var(--accent); border-color: var(--accent); }
+html[data-thema="donker"] .nw-tabel th { background: #12171e; color: #9fb0c4; border-color: #334051; }
+html[data-thema="donker"] .nw-tabel td { border-color: #263140; }
+html[data-thema="donker"] .nw-groep td { background: #1c2531; border-color: #334051; }
+html[data-thema="donker"] .nw-rij:hover td { background: #16273d; }
+html[data-thema="donker"] .nw-ww code { background: #222b36; }
+html[data-thema="donker"] .nw-let { background: #4a3a12; color: #ffd98a; }
 .calc-link { font-size: .85rem; text-decoration: none; padding: .2rem .6rem; border: 1px solid #c9d3df; border-radius: 5px; color: inherit; margin-left: .4rem; white-space: nowrap; }
 .calc-link:hover { border-color: var(--accent); }
 .calc-lijst td { vertical-align: top; }
@@ -3150,6 +3212,10 @@ html[data-thema="donker"] .bz-info { background: #1d3557; border-color: #2b4a73;
 .of-disclaimers .wn-naam { white-space: normal; font-size: .9em; }
 .of-nieuw { width: min(36rem, 94vw); }
 html[data-thema="donker"] .of-lijst .wn-naam small { color: #9fb0c4; }
+/* de gekozen offerte of het gekozen project heeft een blauwe achtergrond: de kleine regel eronder dan licht in plaats van
+   grijs (melding gebruiker 23-11-2026: "grijs in blauw, onleesbaar"), en het statusplaatje op wit zodat het leesbaar blijft */
+.of-lijst .wn-naam.actief small, html[data-thema="donker"] .of-lijst .wn-naam.actief small { color: #fff; opacity: .92; }
+.of-lijst .wn-naam.actief .stand-chip { background: #fff; color: #1d2733; border-color: #fff; }
 html[data-thema="donker"] .of-slot { color: #ffb4ae; }
 /* Algemeen en Voorwaarden: velden onder elkaar, niet breder dan nodig */
 .of-velden { max-width: 52rem; }

@@ -172,6 +172,11 @@ if (liveDb)
     builder.Services.AddSingleton<IPOKlantRepository>(_ => new MySqlPOKlantRepository(cs!));
     builder.Services.AddSingleton<IBezoekRepository>(_ => new MySqlBezoekRepository(cs!));
     builder.Services.AddSingleton<IOfferteRepository>(_ => new MySqlOfferteRepository(cs!));
+    // Beheer > Netwerk (IP-adressen); lokaal testen zonder te schrijven: Netwerk__Geheugen=true
+    if (builder.Configuration.GetValue<bool>("Netwerk:Geheugen"))
+        builder.Services.AddSingleton<INetwerkRepository>(_ => new GeheugenNetwerkRepository(new MySqlNetwerkRepository(cs!)));
+    else
+        builder.Services.AddSingleton<INetwerkRepository>(_ => new MySqlNetwerkRepository(cs!));
     // lokaal testen zonder in Calculaties te schrijven: Calculaties__Geheugen=true (offertes en activiteiten echt)
     if (builder.Configuration.GetValue<bool>("Calculaties:Geheugen"))
         builder.Services.AddSingleton<ICalculatieRepository>(sp => new GeheugenCalculatieRepository(
@@ -276,6 +281,7 @@ else
     builder.Services.AddSingleton<IProjectTeamRepository, GeenProjectTeamRepository>();
     builder.Services.AddSingleton<IPakbonRepository, GeenPakbonRepository>();
     builder.Services.AddSingleton<IOfferteRepository, GeenOfferteRepository>();
+    builder.Services.AddSingleton<INetwerkRepository, GeenNetwerkRepository>();
     builder.Services.AddSingleton<ICalculatieRepository, GeenCalculatieRepository>();
     builder.Services.AddSingleton<IOfferteDocumentRepository, GeenOfferteDocumentRepository>();
     builder.Services.AddSingleton<ISamenstellingRepository, GeenSamenstellingRepository>();
@@ -399,6 +405,7 @@ builder.Services.AddSingleton<FactuurPdfService>();
 builder.Services.AddSingleton<FactuurCreditService>();
 builder.Services.AddSingleton<PakbonPdfService>();
 builder.Services.AddSingleton<OffertePdfService>();
+builder.Services.AddSingleton<Aanwezigheid>();   // wie heeft de app nu open (knop in de bovenbalk, Directie)
 builder.Services.AddSingleton<OfferteDocumentService>();   // offertedocument: blokken opmaken met de cijfers uit de calculatie
 builder.Services.AddSingleton<DuurtestService>();
 builder.Services.AddSingleton<ArtikelFotoService>();   // artikelfoto uit klembord/bestand in de fotomap

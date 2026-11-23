@@ -122,7 +122,8 @@ else
         => item.Klaar && Mag(item);
 
     private bool Mag(MenuItem item)
-        => item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
+        => item.Recht == "Netwerk" ? Ik.MagNetwerk      // Netwerk: het recht of Directie, ook zonder gekoppelde werknemer dicht
+         : item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
            || (item.Recht == "Budgetverantwoordelijke" && Ik.Mag("Directie"))    // welkomstscherm: ook Directie
            || (item.Recht == "Fusion" && Ik.MagFusion)
            || (item.Recht == "Verkoop" && Ik.MagVerkoop);                        // Verkooporders: ook Directie                          // Fusion: ook Directie

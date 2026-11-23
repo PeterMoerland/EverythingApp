@@ -1,0 +1,81 @@
+@implements IDisposable
+@inject Aanwezigheid Aanwezig
+@inject HuidigeGebruiker Ik
+
+@* Wie heeft de app nu open (wens gebruiker 23-11-2026: een knop in de bovenbalk voor de verantwoordelijke van de app).
+   Alleen voor Directie; op een werkplek dus nooit (Mag("Directie") is daar altijd nee). De knop toont het aantal mensen;
+   een klik toont per persoon de pagina's die open staan, sinds wanneer, en wanneer de laatste stap was. *@
+
+@if (Ik.Mag("Directie"))
+{
+    <div class="aw">
+        <button type="button" class="aw-knop" title="Wie heeft de app nu open (alleen voor Directie)" @onclick="() => _open = !_open">
+            👥 <span class="aw-aantal">@Aanwezig.Aantal</span>
+        </button>
+        @if (_open)
+        {
+            var nu = DateTime.Now;
+            var lijst = Aanwezig.Lijst();
+            <div class="aw-scherm" @onclick="() => _open = false"></div>
+            <div class="aw-paneel" role="dialog" aria-label="Wie is er actief">
+                <div class="aw-kop"><b>Nu in de app</b> <span>@Aanwezig.Aantal @(Aanwezig.Aantal == 1 ? "persoon" : "personen") · @lijst.Count @(lijst.Count == 1 ? "tabblad" : "tabbladen")</span>
+                    <button type="button" class="klein" @onclick="() => _open = false">✕</button></div>
+                <div class="aw-lijst">
+                    @foreach (var groep in lijst.GroupBy(s => s.Naam))
+                    {
+                        <div class="aw-persoon" @key="groep.Key">
+                            <div class="aw-naam">@groep.Key @if (groep.First().Werkplek) { <span class="aw-soort">werkplek</span> }</div>
+                            @foreach (var s in groep.OrderByDescending(s => s.Laatst))
+                            {
+                                <div class="aw-regel" @key="s.Sleutel" title="Open sinds @s.Sinds.ToString("HH:mm"), laatste stap naar een pagina om @s.Laatst.ToString("HH:mm")">
+                                    <span class="aw-pagina">@Pagina(s.Pad)</span>
+                                    <span class="aw-tijd">@Geleden(nu - s.Laatst)</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (lijst.Count == 0) { <div class="aw-leeg">Niemand.</div> }
+                </div>
+                <div class="aw-voet">De tijd is hoe lang iemand al op die pagina staat. Wie zijn browser sluit, staat er nog een paar minuten bij.</div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _open;
+    private System.Threading.Timer? _klok;
+
+    protected override void OnInitialized()
+    {
+        Aanwezig.Gewijzigd += Ververs;
+        // de tijden lopen mee zolang het paneel open staat
+        _klok = new System.Threading.Timer(_ => { if (_open) Ververs(); }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private void Ververs() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>De naam van de pagina zoals hij in het menu staat, anders het adres.</summary>
+    private static string Pagina(string pad)
+    {
+        var p = pad.Split('?', '#')[0].Trim('/');
+        if (p.Length == 0) return "Ureningave";
+        if (p.StartsWith("module/", StringComparison.OrdinalIgnoreCase)) return Menu.Zoek(p[7..])?.Naam ?? p;
+        // het langste menu-adres waar dit adres mee begint (projecten/offertes/123 → Offertes)
+        var treffer = Menu.WerkendeItems()
+            .Select(x => (x.Module, x.Item, Url: x.Item.Url.Trim('/')))
+            .Where(x => x.Url.Length > 0 && (p.Equals(x.Url, StringComparison.OrdinalIgnoreCase) || p.StartsWith(x.Url + "/", StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(x => x.Url.Length).FirstOrDefault();
+        if (treffer.Item is not null) return $"{treffer.Item.Label} ({treffer.Module})" + (p.Length > treffer.Url.Length ? " · " + p[(treffer.Url.Length + 1)..] : "");
+        return p;
+    }
+
+    private static string Geleden(TimeSpan t)
+        => t.TotalMinutes < 1 ? "nu" : t.TotalMinutes < 60 ? $"{(int)t.TotalMinutes} min" : t.TotalHours < 24 ? $"{(int)t.TotalHours} u {t.Minutes:00}" : $"{(int)t.TotalDays} d";
+
+    public void Dispose()
+    {
+        Aanwezig.Gewijzigd -= Ververs;
+        _klok?.Dispose();
+    }
+}

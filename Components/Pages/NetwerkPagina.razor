@@ -1,0 +1,445 @@
+@page "/beheer/netwerk"
+@inject INetwerkRepository Repo
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject ILogger<NetwerkPagina> Log
+
+@* Netwerk (wens gebruiker 23-11-2026): de vaste IP-adressen per groep uit Access (IPgroep en NetworkTopologie).
+   Zien en bijwerken: het recht Netwerk (Werknemers ▸ Rechten) of Directie. Wachtwoorden alleen voor Directie: de lijst
+   leest ze niet mee, een wachtwoord wordt per adres opgehaald als iemand van de Directie op Tonen klikt (en dat komt in
+   het logboek van de app). Een opmerking waar een wachtwoord of sleutel in lijkt te staan is ook alleen voor Directie. *@
+
+<PageTitle>Netwerk — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Netwerk</h1>
+        <span class="weeklabel">vaste IP-adressen per groep</span>
+        <span class="groei"></span>
+        @if (_mag)
+        {
+            <input class="nw-zoek" data-zoeklijst placeholder="Zoeken: adres, naam, opmerking…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" />
+            <button class="klein" @onclick="() => _groepenOpen = true">Groepen…</button>
+            <button class="primair" @onclick="() => Nieuw(null)">＋ Adres</button>
+        }
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")">@_melding</div>
+    }
+
+    @if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_mag)
+    {
+        <section class="module-placeholder">
+            <p><b>Geen toegang.</b></p>
+            <p>Het netwerkoverzicht is voor wie het recht Netwerk heeft (Werknemers ▸ Rechten) en voor de Directie. Op een werkplek is het altijd dicht.</p>
+        </section>
+    }
+    else if (!Repo.Beschikbaar)
+    {
+        <p class="uitleg">Er is geen database; het netwerkoverzicht is leeg.</p>
+    }
+    else
+    {
+        <div class="nw-filters">
+            <button class="nw-chip @(_groepFilter is null ? "aan" : "")" @onclick="() => _groepFilter = null">Alle <small>@_adressen.Count</small></button>
+            @foreach (var g in _groepen)
+            {
+                var groep = g;
+                <button class="nw-chip @(_groepFilter == groep.Id ? "aan" : "")" title="@groep.Van – @groep.Tot" @onclick="() => _groepFilter = groep.Id">
+                    @groep.Omschrijving <small>@_adressen.Count(a => a.GroepId == groep.Id)</small>
+                </button>
+            }
+        </div>
+
+        <table class="nw-tabel">
+            <thead>
+                <tr><th>IP-adres</th><th>Omschrijving</th><th>Login</th><th>Wachtwoord</th><th>Domeinnaam</th><th class="r">Poort</th><th>Opmerking</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var g in Zichtbaar())
+                {
+                    var groep = g.Groep;
+                    <tr class="nw-groep" @key="@($"g{groep?.Id ?? 0}")">
+                        <td colspan="7">
+                            <b>@(groep?.Omschrijving ?? "Zonder groep")</b>
+                            @if (groep is not null) { <span class="nw-bereik">@groep.Van – @groep.Tot</span> }
+                            <span class="nw-bereik">@g.Adressen.Count @(g.Adressen.Count == 1 ? "adres" : "adressen")</span>
+                            @if (groep is not null) { <button class="klein nw-erbij" title="Een adres toevoegen in deze groep" @onclick="() => Nieuw(groep)">＋</button> }
+                        </td>
+                    </tr>
+                    @foreach (var a in g.Adressen)
+                    {
+                        var adres = a;
+                        <tr class="nw-rij" @key="adres.Id" @onclick="() => Open(adres)" title="Klik om te bewerken">
+                            <td class="nw-ip">
+                                @if (adres.Poort is int poort)
+                                {
+                                    <a href="@($"http://{adres.Ip}:{poort}")" target="_blank" rel="noopener noreferrer" title="Open de webpagina van dit apparaat" @onclick:stopPropagation>@adres.Ip</a>
+                                }
+                                else { @adres.Ip }
+                                @if (!Netwerk.InBereik(adres.Ip, groep)) { <span class="nw-let" title="Dit adres valt buiten het bereik van de groep">buiten bereik</span> }
+                                @if (_dubbel.Contains(adres.Ip)) { <span class="nw-let" title="Dit adres staat meer dan één keer in de lijst">dubbel</span> }
+                            </td>
+                            <td>@adres.Omschrijving</td>
+                            <td>@adres.LoginUser</td>
+                            <td class="nw-ww" @onclick:stopPropagation>
+                                @if (adres.HeeftWachtwoord)
+                                {
+                                    @if (!_directie)
+                                    {
+                                        <span class="nw-dicht" title="Wachtwoorden zijn alleen voor de Directie te zien">•••• Directie</span>
+                                    }
+                                    else if (_getoond.TryGetValue(adres.Id, out var ww))
+                                    {
+                                        <code>@ww</code>
+                                        <button class="klein" title="Naar het klembord" @onclick="() => Kopieer(ww)">⧉</button>
+                                        <button class="klein" title="Weer verbergen" @onclick="() => _getoond.Remove(adres.Id)">✕</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="klein" title="Het wachtwoord tonen (alleen Directie; dit komt in het logboek)" @onclick="() => Toon(adres)">•••• Tonen</button>
+                                    }
+                                }
+                            </td>
+                            <td>@adres.DomainName</td>
+                            <td class="r">@adres.Poort</td>
+                            <td class="nw-opm">
+                                @if (!_directie && Netwerk.LijktGeheim(adres.Opmerking))
+                                {
+                                    <span class="nw-dicht" title="In deze opmerking lijkt een wachtwoord of sleutel te staan; die is alleen voor de Directie te lezen">alleen Directie</span>
+                                }
+                                else { @adres.Opmerking }
+                            </td>
+                        </tr>
+                    }
+                }
+                @if (!Zichtbaar().Any())
+                {
+                    <tr><td colspan="7" class="uitleg">Niets gevonden.</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@* ---------- een adres bewerken ---------- *@
+@if (_open is { } o)
+{
+    var geheim = !_directie && Netwerk.LijktGeheim(_openOpmerkingWas);
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster nw-venster" data-ctrl-enter>
+            <header class="bijlagekop">
+                <h2>@(o.Id == 0 ? "Nieuw adres" : o.Ip)</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_openFout is not null) { <div class="melding fout">@_openFout</div> }
+                <div class="wn-velden een-kolom">
+                    <div class="wn-veld"><label>Groep</label>
+                        <select value="@(o.GroepId?.ToString() ?? "")" @onchange="GroepGekozen">
+                            <option value="">(zonder groep)</option>
+                            @foreach (var g in _groepen) { <option value="@g.Id">@g.Omschrijving (@g.Van – @g.Tot)</option> }
+                        </select>
+                    </div>
+                    <div class="wn-veld"><label>IP-adres</label>
+                        <span class="nw-iprij">
+                            <input id="nw-ip" value="@o.Ip" @onchange="e => o.Ip = Tekst(e)" placeholder="172.16.1.20" autocomplete="off" />
+                            @if (_groepen.FirstOrDefault(g => g.Id == o.GroepId) is { } gekozen && Netwerk.EersteVrije(gekozen, _adressen) is { Length: > 0 } vrij && vrij != o.Ip)
+                            {
+                                <button class="klein" title="Het eerste adres in deze groep dat nog niet in de lijst staat" @onclick="() => o.Ip = vrij">eerste vrije: @vrij</button>
+                            }
+                        </span>
+                    </div>
+                    <div class="wn-veld"><label>Omschrijving</label><input value="@o.Omschrijving" maxlength="200" @onchange="e => o.Omschrijving = Tekst(e)" /></div>
+                    <div class="wn-veld"><label>Login</label><input value="@o.LoginUser" maxlength="50" autocomplete="off" @onchange="e => o.LoginUser = Tekst(e)" /></div>
+                    @if (_directie)
+                    {
+                        <div class="wn-veld"><label>Wachtwoord</label>
+                            <span class="nw-iprij">
+                                <input value="@_nieuwWw" maxlength="50" autocomplete="off" placeholder="@(o.HeeftWachtwoord ? "leeg laten = blijft zoals het is" : "geen")"
+                                       disabled="@_wwWissen" @onchange="e => _nieuwWw = (string?)e.Value ?? string.Empty" />
+                                @if (o.HeeftWachtwoord)
+                                {
+                                    <label class="vink"><input type="checkbox" checked="@_wwWissen" @onchange="e => _wwWissen = e.Value is true" /> wissen</label>
+                                }
+                            </span>
+                        </div>
+                    }
+                    <div class="wn-veld"><label>Domeinnaam</label><input value="@o.DomainName" maxlength="50" @onchange="e => o.DomainName = Tekst(e)" /></div>
+                    <div class="wn-veld"><label>Webserverpoort</label><input inputmode="numeric" value="@o.Poort" placeholder="bv. 80" @onchange="PoortGewijzigd" /></div>
+                    <div class="wn-veld"><label>Opmerking</label>
+                        @if (geheim)
+                        {
+                            <span class="wn-vast nw-dicht">alleen voor de Directie te lezen (blijft ongewijzigd)</span>
+                        }
+                        else
+                        {
+                            <input value="@o.Opmerking" maxlength="200" @onchange="e => o.Opmerking = Tekst(e)" />
+                        }
+                    </div>
+                </div>
+                <p class="uitleg">Zet wachtwoorden bij voorkeur in 1Password en niet in de opmerking. @(_directie ? "" : "Wachtwoorden zijn alleen voor de Directie te zien en te wijzigen.")</p>
+                <div class="btngroep-rand">
+                    @if (o.Id != 0) { <button class="klein rood" disabled="@_bezig" @onclick="Verwijder">Verwijderen…</button> }
+                    <span class="groei"></span>
+                    <button class="klein" @onclick="Sluit">Annuleren</button>
+                    <button class="primair" disabled="@_bezig" @onclick="Bewaar">Opslaan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- groepen ---------- *@
+@if (_groepenOpen)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster nw-venster">
+            <header class="bijlagekop">
+                <h2>Groepen</h2>
+                <button class="klein" @onclick="() => { _groepenOpen = false; _groepFout = null; }">✕</button>
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (_groepFout is not null) { <div class="melding fout">@_groepFout</div> }
+                <table class="nw-tabel nw-groepen">
+                    <thead><tr><th>Omschrijving</th><th>Begin bereik</th><th>Einde bereik</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var g in _groepen)
+                        {
+                            var groep = g;
+                            <tr @key="groep.Id">
+                                <td><input value="@groep.Omschrijving" maxlength="50" @onchange="e => WijzigGroep(groep with { Omschrijving = Tekst(e) })" /></td>
+                                <td><input value="@groep.Van" maxlength="50" @onchange="e => WijzigGroep(groep with { Van = Tekst(e) })" /></td>
+                                <td><input value="@groep.Tot" maxlength="50" @onchange="e => WijzigGroep(groep with { Tot = Tekst(e) })" /></td>
+                                <td><button class="klein rood" title="Groep verwijderen (kan alleen als er geen adressen meer in staan)"
+                                            disabled="@_adressen.Any(a => a.GroepId == groep.Id)" @onclick="() => VerwijderGroep(groep)">✕</button></td>
+                            </tr>
+                        }
+                        <tr>
+                            <td><input value="@_nieuweGroep" maxlength="50" placeholder="Nieuwe groep…" @onchange="e => _nieuweGroep = Tekst(e)" /></td>
+                            <td><input value="@_nieuweVan" maxlength="50" placeholder="172.16.8.1" @onchange="e => _nieuweVan = Tekst(e)" /></td>
+                            <td><input value="@_nieuweTot" maxlength="50" placeholder="172.16.8.255" @onchange="e => _nieuweTot = Tekst(e)" /></td>
+                            <td><button class="klein" @onclick="NieuweGroep">＋</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="uitleg">Een wijziging wordt meteen bewaard. Het bereik is alleen een hulp: een adres buiten het bereik krijgt in de lijst de melding "buiten bereik".</p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _geladen, _mag, _directie, _bezig, _fout, _groepenOpen;
+    private string? _melding, _openFout, _groepFout;
+    private List<IpGroep> _groepen = new();
+    private List<IpAdres> _adressen = new();
+    private HashSet<string> _dubbel = new();
+    private string _zoek = "";
+    private int? _groepFilter;
+    /// <summary>Wachtwoorden die de Directie in deze sessie heeft laten tonen (adres-id → wachtwoord).</summary>
+    private readonly Dictionary<int, string> _getoond = new();
+
+    private IpAdres? _open;
+    private string _openOpmerkingWas = "", _nieuwWw = "";
+    private bool _wwWissen;
+    private string _nieuweGroep = "", _nieuweVan = "", _nieuweTot = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        _mag = Ik.MagNetwerk;
+        _directie = Ik.Mag("Directie");
+        if (_mag && Repo.Beschikbaar) await Laad();
+        _geladen = true;
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _groepen = await Repo.GroepenAsync();
+            _adressen = await Repo.AdressenAsync();
+            _dubbel = _adressen.GroupBy(a => a.Ip).Where(g => g.Key.Length > 0 && g.Count() > 1).Select(g => g.Key).ToHashSet();
+        }
+        catch (Exception ex) { Meld("Laden mislukt: " + ex.Message, true); }
+    }
+
+    private sealed record Blok(IpGroep? Groep, List<IpAdres> Adressen);
+
+    /// <summary>De groepen met hun adressen, na het filter op groep en de zoektekst (elk woord moet ergens voorkomen).</summary>
+    private IEnumerable<Blok> Zichtbaar()
+    {
+        var woorden = _zoek.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        bool Past(IpAdres a)
+        {
+            // een opmerking die een niet-directielid niet mag lezen doet ook niet mee in het zoeken
+            var opm = !_directie && Netwerk.LijktGeheim(a.Opmerking) ? "" : a.Opmerking;
+            var tekst = $"{a.Ip} {a.Omschrijving} {a.LoginUser} {a.DomainName} {opm}";
+            return woorden.All(w => tekst.Contains(w, StringComparison.OrdinalIgnoreCase));
+        }
+        var bekend = _groepen.Select(g => g.Id).ToHashSet();
+        foreach (var g in _groepen.Where(g => _groepFilter is null || _groepFilter == g.Id))
+        {
+            var lijst = _adressen.Where(a => a.GroepId == g.Id && Past(a)).ToList();
+            if (lijst.Count > 0 || (woorden.Length == 0 && _groepFilter == g.Id)) yield return new Blok(g, lijst);
+        }
+        if (_groepFilter is null)
+        {
+            var los = _adressen.Where(a => (a.GroepId is not int id || !bekend.Contains(id)) && Past(a)).ToList();
+            if (los.Count > 0) yield return new Blok(null, los);
+        }
+    }
+
+    // ---- wachtwoord (alleen Directie) ----
+    private async Task Toon(IpAdres a)
+    {
+        if (!_directie) return;
+        try
+        {
+            _getoond[a.Id] = await Repo.WachtwoordAsync(a.Id);
+            Log.LogInformation("Netwerk: {Naam} ({Id}) bekeek het wachtwoord van {Ip} ({Omschrijving})", Ik.Naam, Ik.WerknemerId, a.Ip, a.Omschrijving);
+        }
+        catch (Exception ex) { Meld("Wachtwoord ophalen mislukt: " + ex.Message, true); }
+    }
+
+    private async Task Kopieer(string tekst)
+    {
+        var gelukt = false;
+        try { gelukt = await JS.InvokeAsync<bool>("mdeKopieer", tekst); } catch { }
+        Meld(gelukt ? "Het wachtwoord staat op het klembord." : "Kopiëren lukte niet.", !gelukt);
+    }
+
+    // ---- een adres ----
+    private void Nieuw(IpGroep? groep)
+    {
+        groep ??= _groepen.FirstOrDefault(g => g.Id == _groepFilter);
+        Open(new IpAdres { GroepId = groep?.Id, Ip = groep is null ? "" : Netwerk.EersteVrije(groep, _adressen) });
+    }
+
+    private void Open(IpAdres a)
+    {
+        _open = a.Kopie();
+        _openOpmerkingWas = a.Opmerking;
+        _nieuwWw = ""; _wwWissen = false; _openFout = null;
+    }
+
+    private void Sluit() { _open = null; _openFout = null; }
+
+    private void GroepGekozen(ChangeEventArgs e)
+    {
+        if (_open is not { } o) return;
+        o.GroepId = int.TryParse((string?)e.Value, out var id) ? id : null;
+        // een nieuw adres zonder adres krijgt meteen het eerste vrije van de gekozen groep
+        if (o.Id == 0 && o.Ip.Length == 0 && _groepen.FirstOrDefault(g => g.Id == o.GroepId) is { } g) o.Ip = Netwerk.EersteVrije(g, _adressen);
+    }
+
+    private void PoortGewijzigd(ChangeEventArgs e)
+    {
+        if (_open is not { } o) return;
+        var t = Tekst(e);
+        o.Poort = t.Length == 0 ? null : int.TryParse(t, out var p) && p is > 0 and <= 65535 ? p : -1;
+    }
+
+    private async Task Bewaar()
+    {
+        if (_open is not { } o || !_mag) return;
+        o.Ip = o.Ip.Trim();
+        if (Netwerk.Getal(o.Ip) is null) { _openFout = "Vul een geldig IP-adres in, bijvoorbeeld 172.16.1.20."; return; }
+        if (o.Omschrijving.Trim().Length == 0) { _openFout = "Vul een omschrijving in."; return; }
+        if (o.Poort == -1) { _openFout = "De webserverpoort is een getal van 1 tot 65535 (of leeg)."; return; }
+        if (_adressen.FirstOrDefault(a => a.Id != o.Id && a.Ip == o.Ip) is { } al) { _openFout = $"{o.Ip} staat al in de lijst ({al.Omschrijving})."; return; }
+        // een opmerking die deze gebruiker niet mag lezen blijft zoals hij was
+        if (!_directie && Netwerk.LijktGeheim(_openOpmerkingWas)) o.Opmerking = _openOpmerkingWas;
+        // alleen de Directie kan het wachtwoord veranderen; null = blijft zoals het is
+        string? ww = !_directie ? null : _wwWissen ? "" : _nieuwWw.Length > 0 ? _nieuwWw : null;
+        _bezig = true;
+        try
+        {
+            var nieuw = o.Id == 0;
+            var id = await Repo.BewaarAdresAsync(o, ww);
+            Log.LogInformation("Netwerk: {Naam} ({Wie}) {Wat} {Ip} ({Omschrijving}){Ww}", Ik.Naam, Ik.WerknemerId, nieuw ? "voegde toe" : "wijzigde",
+                               o.Ip, o.Omschrijving, ww is null ? "" : ", wachtwoord gewijzigd");
+            _getoond.Remove(id);
+            _open = null;
+            await Laad();
+            Meld($"{o.Ip} is opgeslagen.", false);
+        }
+        catch (Exception ex) { _openFout = "Opslaan mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    private async Task Verwijder()
+    {
+        if (_open is not { } o || o.Id == 0 || !_mag) return;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"{o.Ip} ({o.Omschrijving}) uit de lijst verwijderen?"); } catch { ja = false; }
+        if (!ja) return;
+        _bezig = true;
+        try
+        {
+            await Repo.VerwijderAdresAsync(o.Id);
+            Log.LogInformation("Netwerk: {Naam} ({Wie}) verwijderde {Ip} ({Omschrijving})", Ik.Naam, Ik.WerknemerId, o.Ip, o.Omschrijving);
+            _getoond.Remove(o.Id);
+            _open = null;
+            await Laad();
+            Meld($"{o.Ip} is verwijderd.", false);
+        }
+        catch (Exception ex) { _openFout = "Verwijderen mislukt: " + ex.Message; }
+        finally { _bezig = false; }
+    }
+
+    // ---- groepen ----
+    private static string? GroepFout(IpGroep g)
+    {
+        if (g.Omschrijving.Trim().Length == 0) return "Geef de groep een naam.";
+        if (Netwerk.Getal(g.Van) is not uint van || Netwerk.Getal(g.Tot) is not uint tot) return "Begin en einde van het bereik zijn IP-adressen, bijvoorbeeld 172.16.8.1 en 172.16.8.255.";
+        return tot < van ? "Het einde van het bereik ligt vóór het begin." : null;
+    }
+
+    private async Task WijzigGroep(IpGroep g)
+    {
+        if (!_mag) return;
+        _groepFout = GroepFout(g);
+        if (_groepFout is not null) { await Laad(); return; }
+        try { await Repo.BewaarGroepAsync(g); }
+        catch (Exception ex) { _groepFout = "Opslaan mislukt: " + ex.Message; }
+        await Laad();
+    }
+
+    private async Task NieuweGroep()
+    {
+        if (!_mag) return;
+        var g = new IpGroep(0, _nieuweGroep, _nieuweVan, _nieuweTot);
+        _groepFout = GroepFout(g);
+        if (_groepFout is not null) return;
+        try
+        {
+            await Repo.BewaarGroepAsync(g);
+            _nieuweGroep = _nieuweVan = _nieuweTot = "";
+        }
+        catch (Exception ex) { _groepFout = "Opslaan mislukt: " + ex.Message; }
+        await Laad();
+    }
+
+    private async Task VerwijderGroep(IpGroep g)
+    {
+        if (!_mag) return;
+        bool ja;
+        try { ja = await JS.InvokeAsync<bool>("mdeBevestig", $"De groep {g.Omschrijving} verwijderen?"); } catch { ja = false; }
+        if (!ja) return;
+        try { if (!await Repo.VerwijderGroepAsync(g.Id)) _groepFout = "In deze groep staan nog adressen."; }
+        catch (Exception ex) { _groepFout = "Verwijderen mislukt: " + ex.Message; }
+        if (_groepFilter == g.Id) _groepFilter = null;
+        await Laad();
+    }
+
+    private void Meld(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+    private static string Tekst(ChangeEventArgs e) => ((string?)e.Value ?? "").Trim();
+}

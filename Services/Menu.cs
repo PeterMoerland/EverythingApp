@@ -277,6 +277,8 @@ public static class Menu
                 new MenuItem("Verbinding & schema", "/diag", Icoon: "database"),
                 new MenuItem("Filestore", "/beheer/filestore", Icoon: "hard-drive"),
                 new MenuItem("Computers", "/beheer/computers", Icoon: "computer"),
+                // de vaste IP-adressen per groep (uit Access); alleen met het recht Netwerk of Directie
+                new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),
                 new MenuItem("Werkplekken", "/beheer/werkplekken", Icoon: "laptop"),
                 new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone"))),
     };

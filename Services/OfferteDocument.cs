@@ -40,7 +40,24 @@ public static class OfferteDocumentData
     /// <summary>Zoveel tekens mag het document zijn (plaatjes staan erin als data-URI).</summary>
     public const int MaxTekens = 6_000_000;
 
-    public static readonly string[] Soorten = { "tekst", "kop", "prijs", "plaatje", "tabel", "voorwaarden", "ondertekening", "pagina" };
+    public static readonly string[] Soorten = { "tekst", "kop", "prijs", "plaatje", "tabel", "voorwaarden", "ondertekening", "pagina", "briefhoofd", "titel", "ruimte" };
+
+    /// <summary>
+    /// Het document met het briefhoofd (logo, adressen, nummer, datum, titel) als blok. Sinds de voorpagina (punt van
+    /// Edwin, 23-11-2026) is het briefhoofd een blok dat je kunt verplaatsen, zodat er een voorpagina vóór kan. Een
+    /// document van vóór die tijd heeft het blok niet: dan staat het briefhoofd vooraan, zoals het altijd stond.
+    /// </summary>
+    public static string MetBriefhoofd(string data)
+    {
+        try
+        {
+            if (JsonNode.Parse(data) is not JsonObject o || o["blokken"] is not JsonArray lijst) return data;
+            if (lijst.OfType<JsonObject>().Any(b => Tekst(b, "soort") == "briefhoofd")) return data;
+            lijst.Insert(0, new JsonObject { ["id"] = "briefhoofd", ["soort"] = "briefhoofd" });
+            return o.ToJsonString(Json);
+        }
+        catch { return data; }
+    }
 
     /// <summary>Een blok dat niet de hele breedte neemt (stap 2): blokken die samen een regel vullen staan naast elkaar.</summary>
     public static readonly string[] Delen = { "half", "derde", "tweederde" };
@@ -97,9 +114,12 @@ public static class OfferteDocumentData
             if (id.Length is 0 or > 24 || !ids.Add(id))
                 do id = "b" + Guid.NewGuid().ToString("N")[..10]; while (!ids.Add(id));
             var s = new JsonObject { ["id"] = id, ["soort"] = soort };
-            if (soort != "pagina" && Delen.Contains(Tekst(b, "deel"))) s["deel"] = Tekst(b, "deel");
+            if (soort is not ("pagina" or "briefhoofd" or "ruimte") && Delen.Contains(Tekst(b, "deel"))) s["deel"] = Tekst(b, "deel");
+            if (soort == "briefhoofd" && uit.OfType<JsonObject>().Any(x => Tekst(x, "soort") == "briefhoofd")) continue;      // er is er maar één
             switch (soort)
             {
+                case "titel": s["tekst"] = Kort(Tekst(b, "tekst"), 300); break;
+                case "ruimte": s["hoogte"] = (int)Math.Clamp(Heel(b["hoogte"]) ?? 20, 2, 200); break;
                 case "tabel":
                     // een eigen tabel: platte tekst per cel, hooguit 8 kolommen en 100 rijen, elke rij even lang
                     var bron2 = (b["rijen"] as JsonArray)?.OfType<JsonArray>().Take(100).ToList() ?? new();
@@ -122,7 +142,10 @@ public static class OfferteDocumentData
                     s["rechts"] = new JsonArray(((b["rechts"] as JsonArray)?.Select(Heel).OfType<long>().Where(x => x >= 0 && x < kolommen).Distinct()
                                                  ?? Enumerable.Empty<long>()).Select(x => (JsonNode?)JsonValue.Create((int)x)).ToArray());
                     break;
-                case "tekst": s["html"] = SchoonHtml(Tekst(b, "html")); break;
+                case "tekst":
+                    s["html"] = SchoonHtml(Tekst(b, "html"));
+                    if (Tekst(b, "uitlijnen") is "midden" or "rechts") s["uitlijnen"] = Tekst(b, "uitlijnen");
+                    break;
                 case "kop": s["tekst"] = Kort(Tekst(b, "tekst"), 300); break;
                 case "prijs":
                     if (Heel(b["groep"]) is long g) s["groep"] = g;
@@ -142,7 +165,7 @@ public static class OfferteDocumentData
             }
             uit.Add(s);
         }
-        var json = new JsonObject { ["blokken"] = uit }.ToJsonString(Json);
+        var json = MetBriefhoofd(new JsonObject { ["blokken"] = uit }.ToJsonString(Json));
         return json.Length > MaxTekens ? (null, "Het document is te groot; gebruik minder of kleinere plaatjes.") : (json, null);
     }
 
@@ -206,6 +229,7 @@ public static class OfferteDocumentData
             vul?.Invoke(b);
             blokken.Add(b);
         }
+        Voeg("briefhoofd");
         Voeg("tekst", b => b["html"] = o.OfferteTekst.Trim().Length > 0 ? AlsHtml(o.OfferteTekst)
             : en ? "Dear Sir, Madam,<br><br>Thank you for your enquiry. Please find our quotation for {omschrijving} below."
                  : "Geachte heer, mevrouw,<br><br>Hartelijk dank voor uw aanvraag. Hierbij ontvangt u onze offerte voor {omschrijving}.");
@@ -710,6 +734,9 @@ public class OfferteDocumentService
         .doc-tekst ul, .doc-tekst ol { margin: 1mm 0; padding-left: 6mm; }
         h3.doc-kop { font-size: 12pt; font-weight: 600; margin: 8mm 0 0; padding-bottom: 1mm; border-bottom: 1px solid var(--kleur);
                      page-break-after: avoid; }
+        .doc-titel { font-size: 26pt; font-weight: 600; line-height: 1.2; text-align: center; margin: 6mm 0 0; overflow-wrap: anywhere; }
+        .doc-midden { text-align: center; } .doc-rechts { text-align: right; }
+        .doc-ruimte { width: 100%; }
         .doc-plaatje { margin: 5mm 0 0; text-align: center; page-break-inside: avoid; }
         .doc-plaatje img { max-width: 100%; height: auto; }
         .doc-plaatje figcaption { font-size: 8pt; color: #666; margin-top: 1mm; }
@@ -770,7 +797,11 @@ public class OfferteDocumentService
         var blokken = new Dictionary<string, string>();
         var geheel = new StringBuilder();
         var delen = new List<(string Deel, string Html)>();
-        var lijst = (JsonNode.Parse(data) as JsonObject)?["blokken"] as JsonArray ?? new JsonArray();
+        var briefhoofd = _pdf.Briefhoofd(g, datum);
+        var lijst = (JsonNode.Parse(OfferteDocumentData.MetBriefhoofd(data)) as JsonObject)?["blokken"] as JsonArray ?? new JsonArray();
+        // begint het document met iets anders dan het briefhoofd, dan is dat een voorpagina: die krijgt geen voetregel
+        var voorpagina = lijst.OfType<JsonObject>().FirstOrDefault() is { } eerste
+                         && !(eerste["soort"] is JsonValue sv && sv.TryGetValue<string>(out var es) && es == "briefhoofd");
         foreach (var b in lijst.OfType<JsonObject>())
         {
             string S(string veld) { try { return b[veld] is JsonValue v && v.TryGetValue<string>(out var s) ? s : ""; } catch { return ""; } }
@@ -780,7 +811,10 @@ public class OfferteDocumentService
             string html;
             switch (S("soort"))
             {
-                case "tekst": html = $"<div class='doc-tekst'>{Vul(S("html"))}</div>"; break;
+                case "briefhoofd": html = briefhoofd; break;
+                case "titel": html = $"<div class='doc-titel'>{Vul(H(S("tekst")))}</div>"; break;
+                case "ruimte": html = $"<div class='doc-ruimte' style='height:{(int)Math.Clamp(G("hoogte") ?? 20, 2, 200)}mm'></div>"; break;
+                case "tekst": html = $"<div class='doc-tekst{(S("uitlijnen") is "midden" or "rechts" ? " doc-" + S("uitlijnen") : "")}'>{Vul(S("html"))}</div>"; break;
                 case "kop": html = $"<h3 class='doc-kop'>{Vul(H(S("tekst")))}</h3>"; break;
                 case "plaatje":
                     var onder = S("onderschrift");
@@ -848,10 +882,12 @@ public class OfferteDocumentService
 
         var kleur = OffertePdfService.Kleur(g.Afzender);
         var stijl = OffertePdfService.Stijl(kleur, $"{o.OfferteNr}  ·  {t.Datum(datum)}  ·  {OffertePdfService.VoetBv(g.Afzender)}") + DocStijl;
-        var kop = _pdf.Briefhoofd(g, datum);
+        var kop = briefhoofd;
+        if (voorpagina)
+            stijl += " @page :first { @bottom-left { content: ''; border-top: none; } @bottom-right { content: ''; border-top: none; } } ";
         var slot = o.Disclaimer.Trim().Length > 0 ? $"<div class='disclaimer'>{OffertePdfService.Alinea(o.Disclaimer)}</div>" : "";
         var pagina = "<!doctype html><html><head><meta charset='utf-8'>" +
-                     $"<title>{H($"{t.Offerte} {o.OfferteNr}")}</title><style>{stijl}</style></head><body>{kop}{geheel}{slot}</body></html>";
+                     $"<title>{H($"{t.Offerte} {o.OfferteNr}")}</title><style>{stijl}</style></head><body>{geheel}{slot}</body></html>";
 
         return new DocumentWeergave(stijl, kop, blokken, slot, pagina, totaal, c is not null,
             boom.Volgorde.Select(x => new DocumentGroep(x.Id, x.Naam, x.Diepte, Math.Round(x.Verkoop, 2))).ToList(),

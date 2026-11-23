@@ -390,6 +390,53 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
   (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
   donker thema, een bevroren calculatie (velden staan dan uit), twee gebruikers.
 
+## Wie heeft de app open (23-11-2026)
+
+Wens gebruiker ("ik ben de verantwoordelijke voor de app; een knop op de bovenste balk met wie er actief is", daarna
+"mag op directie voorwaarde" en "de offline werknemers hoef ik niet te zien"). `Services/Aanwezigheid.cs` (singleton,
+alleen geheugen): elk open tabblad meldt zich vanuit `MainLayout` met een eigen sleutel (`MeldAanwezig`: bij het laden,
+bij elke `LocationChanged`; `Dispose` meldt af) met naam, werknemer, werkplek ja/nee en het adres. De naam is die van
+de gebruiker, op een werkplek de naam van de werkplek, anders "niet ingelogd". `Components/Layout/AanwezigKnop.razor`
+staat in de bovenbalk vóór ＋ Nieuw, alleen bij `Ik.Mag("Directie")` (op een werkplek dus nooit): 👥 met het aantal
+mensen, en een paneel met per persoon de open pagina's (naam uit het menu via `Menu.WerkendeItems`, anders het adres)
+en hoe lang hij daar al staat; ververst bij elke wijziging en elke 30 s zolang het open staat. Alleen wie de app open
+heeft staat erin. Een gesloten browser blijft nog een paar minuten staan tot de app de verbinding opruimt. Los van
+`BelCentrale.Online()` (die weet alleen óf iemand de app open heeft). Getest lokaal met twee tabbladen (voorwaarde
+tijdelijk open en teruggezet): aantal, twee pagina's met hun menunaam. Niet getest: echte gebruikers, een werkplek,
+het verdwijnen na het sluiten van een tabblad.
+
+## Netwerk: vaste IP-adressen (23-11-2026)
+
+Wens gebruiker: de lijst met vaste IP-adressen per groep uit Access in de app; "om het netwerk te mogen zien wil ik
+een nieuwe vlag aan medewerkers hangen"; wachtwoorden "alleen zichtbaar op directieniveau en misschien helemaal weg
+i.v.m. 1Password".
+- **Tabellen bestaan al** (uit Access, ongewijzigd): `IPgroep` (Omschrijving, FromRange, ToRange) en `NetworkTopologie`
+  (IPadres, Omschrijving, IPgroepID, LoginUser, LoginPassword, DomainName, WebserverPoort, Opmerking). 9 groepen, 45
+  adressen; 12 adressen vallen buiten het bereik van hun groep (publieke en 192.168-adressen).
+- **Recht Netwerk**: script **`Netwerk_MariaDB.sql`** (zelf draaien) voegt `Werknemers.Netwerk` toe; vinkje bij
+  Werknemers ▸ Rechten (`WerknemerVelden`). `HuidigeGebruiker.MagNetwerk` = Netwerk of Directie, **zonder** de
+  uitzondering "niet gekoppeld" die Fusion heeft, en "Netwerk" staat in `NietOpWerkplek` (op een gedeelde pc altijd
+  dicht). Menu: Beheer ▸ Systeem ▸ Netwerk (IP-adressen), `Module.razor` en `MainLayout` kennen het recht; de pagina
+  controleert het zelf nog eens.
+- **Wachtwoorden alleen Directie**: `INetwerkRepository.AdressenAsync` leest het wachtwoord nooit mee (alleen of er een
+  is); `WachtwoordAsync(id)` haalt er één op als iemand van de Directie op Tonen klikt, en dat komt met naam en adres
+  in het logboek van de app. Alleen Directie ziet het wachtwoordveld in het bewerkvenster (leeg laten = ongewijzigd,
+  vinkje wissen). **Opmerkingen**: in Access stonden daar soms wachtwoorden in ("Wifi pass …", "ww …", "Sleutel: …");
+  `Netwerk.LijktGeheim` (woorden als pass, wachtwoord, ww, sleutel, pin, code, key) schermt zo'n opmerking af voor wie
+  geen Directie is: niet getoond, niet doorzocht, en bij opslaan blijft hij zoals hij was. Het is een vuistregel op
+  woorden.
+- **Scherm** `Components/Pages/NetwerkPagina.razor` (`/beheer/netwerk`): per groep de adressen op volgorde van adres,
+  chips per groep met aantal, zoeken op woorden, het adres is een link als er een webserverpoort is, labels "buiten
+  bereik" en "dubbel"; klik op een regel = bewerken (adres moet geldig IPv4 en uniek zijn, omschrijving verplicht),
+  "eerste vrije" adres van de groep als voorstel (`Netwerk.EersteVrije`), venster Groepen (meteen bewaren; verwijderen
+  alleen als de groep leeg is). Bijwerken mag iedereen met het recht; dat is een keuze van mij, de gebruiker vroeg om
+  "zien".
+- Lokaal `Netwerk__Geheugen=true`: de lijst wordt één keer echt gelezen (zonder wachtwoorden) en daarna alleen in het
+  geheugen bijgewerkt. Getest zo, als niet-Directie (recht tijdelijk open en teruggezet): lijst en groepen, wachtwoorden
+  dicht, drie opmerkingen afgeschermd, nieuw adres met eerste vrije (172.16.2.10), fout zonder omschrijving, opslaan,
+  zoeken, een afgeschermde opmerking in het venster, het venster Groepen. **Niet getest:** de weergave als Directie
+  (Tonen, kopiëren, wachtwoord wijzigen), echt schrijven in de database, en het vinkje bij Werknemers.
+
 ## Activity board: afvinklijst (20-11-2026, onderdeel 1 van 3 uit Gerards prompt)
 
 Gerard leverde `prompt-activityboard-uitbreiding.md` (overzetten van de Notion-database "Robot Software"): afvinklijsten,
@@ -541,6 +588,20 @@ versturen en daarna vast; het document staat **naast** de offerteregels (die bli
   Getest: de productiedatabase had de tabel al (document bij 999, zonder de kolom): de offerte toont € 18.866,73 uit
   het document; de vorm van de query met kolom nagelopen met een nagebootste tabel. Niet getest: een vastgelegd
   document met de kolom.
+- **Voorpagina (punt van Edwin, 23-11-2026: "ook voorpagina als sjabloon, een pagina met een afbeelding, een naam")**:
+  het briefhoofd is een blok geworden (`briefhoofd`, hooguit één, niet te verwijderen, wel te verplaatsen), zodat er
+  blokken vóór kunnen. Een document van vóór die tijd heeft het blok niet: `OfferteDocumentData.MetBriefhoofd` zet het
+  dan vooraan (bij tonen, opmaken en opslaan), dus oude documenten zien er hetzelfde uit; een oude vastgelegde opmaak
+  heeft het briefhoofd nog los (`W.kop`), het scherm valt daarop terug. Nieuwe blokken: `titel` (26 pt, gecentreerd),
+  `ruimte` (hoogte in mm) en `uitlijnen` (midden/rechts) op een tekstblok. Begint het document met iets anders dan het
+  briefhoofd, dan krijgt de eerste pagina van de PDF geen voetregel (`@page :first`). In het +-menu helemaal bovenaan
+  staat 📄 Voorpagina (opzet) zolang het document met het briefhoofd begint: witruimte, titel `{omschrijving}`,
+  gecentreerd `{klant}` en nummer met datum, nieuwe pagina. Een sjabloon neemt de voorpagina mee (het is gewoon het
+  begin van het document). Getest lokaal (geheugen): opzet invoegen, plaatje erbij, opslaan, PDF (voorpagina zonder
+  voetregel, velden ingevuld, daarna de offerte), bewaren als sjabloon en er een nieuw document mee beginnen. Niet
+  getest: een bestaand document uit de database (zonder het blok) bewerken en opslaan.
+- **Leesbare gekozen regel in de offertelijst** (melding Edwin, zelfde dag): `.of-lijst .wn-naam.actief small` is wit
+  (was grijs op het blauw) en het statusplaatje staat daar op wit.
 - **Opmaakmodus met één knop** (wens gebruiker, zelfde dag: "onrustig als je eroverheen gaat met de muis"): niets in
   het bewerkscherm reageert meer op wijzen. Knop 🧩 Opmaak (`opmaak`, localStorage `mde-offdoc-opmaak`, standaard uit)
   zet klasse `ed-opmaak` op het vel: dan hebben alle blokken een rand en staat de + ertussen; de strip met knoppen en

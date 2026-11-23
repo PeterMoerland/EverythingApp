@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 @inject WerkplekAgent Agent
+@inject Aanwezigheid Aanwezig
 @implements IDisposable
 
 <div class="shell @(_kiosk ? "kiosk" : "")">
@@ -66,6 +67,7 @@
             {
                 <a class="ai-knop" href="ai" title="Vraag het de AI (projecten, uren, bestellingen, voorraad, producten…)">✨</a>
             }
+            <AanwezigKnop />
             <NieuwKnop />
             <BroodjeKnop />
             <IdeeLampje />
@@ -288,6 +290,19 @@
             _alles.Add(new("Werknemers", wn.Naam, ""));
 
         Registreer(); // huidige pagina
+        MeldAanwezig();
+    }
+
+    /// <summary>De sleutel van dit tabblad in <see cref="Aanwezigheid"/> (wie heeft de app open, knop voor Directie).</summary>
+    private readonly Guid _aanwezigSleutel = Guid.NewGuid();
+
+    private void MeldAanwezig()
+    {
+        if (!_ikGeladen) return;
+        var naam = Ik.Werkplek is { } wp ? wp.Naam
+                 : Ik.Ingelogd ? (Ik.Naam.Length > 0 ? Ik.Naam : Ik.Email)
+                 : "niet ingelogd";
+        Aanwezig.Meld(_aanwezigSleutel, naam, Ik.WerknemerId, Ik.IsWerkplek, Nav.ToBaseRelativePath(Nav.Uri));
     }
 
     protected override async Task OnAfterRenderAsync(bool eerste)
@@ -379,7 +394,7 @@
 
         // alleen tegels met een scherm in de app tellen (de "in Access"-tegels zijn weg, 12-11-2026)
         return m.Groepen.SelectMany(g => g.Items)
-                        .Any(i => i.Klaar && (i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop)));
+                        .Any(i => i.Klaar && (i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop) || (i.Recht == "Netwerk" && Ik.MagNetwerk)));
     }
 
     // ===== Gebouwbeheer als zwevend venster =====
@@ -433,6 +448,7 @@
     private void LocatieGewijzigd(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         Registreer();
+        MeldAanwezig();
         var pad = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].TrimEnd('/');
         if (pad != _padVoorSchuif) { _padVoorSchuif = pad; _naarBoven = true; }
         InvokeAsync(StateHasChanged);
@@ -521,5 +537,9 @@
         Nav.NavigateTo(d.Url);
     }
 
-    public void Dispose() => Nav.LocationChanged -= LocatieGewijzigd;
+    public void Dispose()
+    {
+        Nav.LocationChanged -= LocatieGewijzigd;
+        Aanwezig.Weg(_aanwezigSleutel);
+    }
 }

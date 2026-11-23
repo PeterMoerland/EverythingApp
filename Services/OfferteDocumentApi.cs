@@ -195,7 +195,7 @@ public static class OfferteDocumentApi
             calculatie = nu.Calculatie,
             versie = d.Versie, status = d.Status, gewijzigd = wanneer,
             sjabloonTabel = await repo.SjabloonTabelAanwezigAsync(),
-            data = JsonNode.Parse(d.Data),
+            data = JsonNode.Parse(OfferteDocumentData.MetBriefhoofd(d.Data)),      // een ouder document krijgt het briefhoofd als eerste blok
             weergave = WeergaveJson(toon, metStijl: true),
             groepen = nu.Groepen.Select(g => new { id = g.Id, naam = g.Naam, diepte = g.Diepte, verkoop = g.Verkoop }),
             // vastgelegd en de calculatie is daarna veranderd: het document toont nog het bedrag van toen

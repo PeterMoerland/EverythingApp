@@ -103,6 +103,8 @@ public static class WerknemerVelden
             new Veld("Mag facturen goedkeuren", VeldType.JaNee, new[] { "GoedkeurenFacturen", "goedkeurenfacturen", "MagFacturenGoedkeuren" }),
             new Veld("ERP developer", VeldType.JaNee, new[] { "ERP_developer", "erp_developer", "ERPdeveloper" }),
             new Veld("Inventor gebruiker", VeldType.JaNee, new[] { "InventorGebruiker", "Inventor_gebruiker", "inventor" }),
+            // Beheer > Netwerk: de vaste IP-adressen zien en bijwerken (Netwerk_MariaDB.sql); wachtwoorden blijven voor Directie
+            new Veld("Netwerk (IP-adressen)", VeldType.JaNee, new[] { "Netwerk" }),
             new Veld("Voorraadbeheer", VeldType.JaNee, new[] { "Voorraadbeheer", "voorraadbeheer" }),
             new Veld("Bestellingen", VeldType.JaNee, new[] { "Bestellingen", "bestellingen" }),
             // artikelen en samenstellingen wijzigen; kolom uit Werknemers_Artikelbeheer_MariaDB.sql

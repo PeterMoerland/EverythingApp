@@ -285,7 +285,7 @@ public class HuidigeGebruiker
     /// Zie ook <see cref="DichtOpWerkplek"/>.
     /// </summary>
     private static readonly HashSet<string> NietOpWerkplek = new(StringComparer.OrdinalIgnoreCase)
-        { "Financial", "MagFacturenGoedkeuren", "HRM", "Directie" };
+        { "Financial", "MagFacturenGoedkeuren", "HRM", "Directie", "Netwerk" };
 
     /// <summary>Modules die op een werkplek helemaal uit staan (menu, zoekvenster en adres), ook met rechten.</summary>
     public static readonly string[] ModulesNietOpWerkplek = { "financien", "werknemers" };
@@ -326,6 +326,13 @@ public class HuidigeGebruiker
     /// gedeelde als "Niemand" (Thomas, inlener zonder account, 6-11-2026).
     /// </summary>
     public bool MagFusion => !Gekoppeld || Mag("Fusion") || Mag("Directie") || (Medewerker is not null && _medewerkerFusion);
+
+    /// <summary>
+    /// Beheer ▸ Netwerk (de vaste IP-adressen): het recht Netwerk, of Directie (Netwerk_MariaDB.sql; wens gebruiker
+    /// 23-11-2026). Bewust zonder uitzondering voor een gebruiker zonder gekoppelde werknemer, en op een werkplek nooit:
+    /// in de lijst staan inlognamen van apparaten. Wachtwoorden zijn daarbinnen alleen voor Directie.
+    /// </summary>
+    public bool MagNetwerk => Mag("Netwerk") || Mag("Directie");
 
     /// <summary>Verkooporders invoeren (Bestellingen ▸ Verkooporders): het recht Verkoop, of Directie (VerkoopOrders_MariaDB.sql).</summary>
     public bool MagVerkoop => Mag("Verkoop") || Mag("Directie");
