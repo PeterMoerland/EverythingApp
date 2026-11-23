@@ -4,6 +4,12 @@ using libplctag.DataTypes;
 
 namespace EverythingApp.Services;
 
+// libplctag 1.6 noemt Tag<Mapper, T> verouderd (CS0618, https://github.com/libplctag/libplctag.NET/issues/406); het werkt
+// nog gewoon. Omzetten naar de kale Tag met GetBit/GetFloat64 verandert hoe een BOOL en een LREAL gelezen en geschreven
+// worden, en dat is alleen te testen tegen de echte gebouw-PLC (licht, zonwering, alarm). Tot dat gedaan is: de
+// waarschuwing hier uit (alleen in dit bestand) en de pakketversie vast in EverythingApp.csproj (melding gebruiker 23-11-2026).
+#pragma warning disable CS0618
+
 /// <summary>
 /// Praat over EtherNet/IP met de Omron NJ van het gebouw.
 ///

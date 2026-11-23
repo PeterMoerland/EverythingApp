@@ -9,7 +9,7 @@
     <div class="cmdk-overlay midden" @onmousedown="() => _overlayDruk = true" @onclick="OverlayGeklikt">
         <div class="factuurvenster verplaatsbaar" @onclick:stopPropagation @onmousedown:stopPropagation>
             <header class="bijlagekop sleepkop">
-                <h2>Uren importeren · @KlantNaam</h2>
+                <h2>Uren en materiaal importeren · @KlantNaam</h2>
                 <button class="klein" @onclick="Sluit">✕</button>
             </header>
 
@@ -70,8 +70,15 @@
                     </div>
                 </div>
 
+                @* verzoek Edwin 23-11-2026: bij een (storings)order ook het materiaal kunnen kiezen; het is een keuze, standaard uit *@
+                <label class="vinkje ui-metmateriaal" title="Toont ook wat op deze werkorders uit de voorraad is uitgegeven en wat erop is ingekocht. Je kiest per regel wat op de factuur komt.">
+                    <input type="checkbox" checked="@_metMateriaal" @onchange="MetMateriaalGewijzigd" />
+                    Ook het materiaal van deze werkorders tonen
+                    @if (_metMateriaal && _selectie.ProjectId is null) { <span class="zij-extra">kies eerst een project</span> }
+                </label>
+
                 <div class="btngroup">
-                    <button class="primair" disabled="@_bezig" @onclick="Toon">@(_bezig ? "Bezig…" : "Uren tonen")</button>
+                    <button class="primair" disabled="@_bezig" @onclick="Toon">@(_bezig ? "Bezig…" : _metMateriaal ? "Uren en materiaal tonen" : "Uren tonen")</button>
                     @if (_uren.Count > 0)
                     {
                         <span class="zij-extra">
@@ -140,12 +147,64 @@
                         </table>
                     </div>
                 }
+
+                @* ---------- het materiaal van de werkorders ---------- *@
+                @if (_getoond && _metMateriaal && _selectie.ProjectId is not null)
+                {
+                    <div class="ui-materiaalkop">
+                        <strong>Materiaal</strong>
+                        <span class="zij-extra">@_materiaal.Count(m => m.Gekozen) van @_materiaal.Count gekozen · @Geld(_materiaal.Where(m => m.Gekozen).Sum(m => m.Aantal * m.Verkoopprijs))</span>
+                        @if (_materiaal.Count > 0)
+                        {
+                            <button class="klein" @onclick="() => KiesAlleMateriaal(true)">Alles</button>
+                            <button class="klein" @onclick="() => KiesAlleMateriaal(false)">Niets</button>
+                        }
+                    </div>
+                    <div class="ui-lijst">
+                        <table class="kiezer-tabel">
+                            <thead>
+                                <tr>
+                                    <th style="width:2rem"></th>
+                                    <th style="width:6.5rem">Werkorder</th>
+                                    <th style="width:7rem">Herkomst</th>
+                                    <th>Artikel</th>
+                                    <th style="width:4rem" class="r">Aantal</th>
+                                    <th style="width:6.5rem" class="r" title="Verkoopprijs project van het artikel; leeg = zelf invullen op de factuur">Prijs</th>
+                                    <th style="width:6.5rem" class="r">Bedrag</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var m in _materiaal)
+                                {
+                                    var regel = m;
+                                    <tr class="@(regel.Gekozen ? "" : "ui-nietgekozen")">
+                                        <td><input type="checkbox" checked="@regel.Gekozen" @onchange="e => regel.Gekozen = e.Value is true" aria-label="Op de factuur zetten" /></td>
+                                        <td title="@regel.WerkorderOmschrijving">@regel.Wo</td>
+                                        <td title="@(regel.Bron == "inkoop" ? $"Ingekocht op de werkorder; kostte {Geld(regel.Inkoop)}" : regel.Datum is DateTime d ? $"Uit de voorraad uitgegeven, laatst op {d:dd-MM-yyyy}" : "Uit de voorraad uitgegeven")">
+                                            @(regel.Bron == "inkoop" ? "PO-" + regel.OrderId : "uit voorraad")</td>
+                                        <td class="omschrijving">@($"{regel.Code} {regel.Omschrijving}".Trim())</td>
+                                        <td class="r">@Getal(regel.Aantal)</td>
+                                        <td class="r @(regel.Verkoopprijs == 0 ? "factuur-credit" : "")" title="@(regel.Verkoopprijs == 0 ? "Geen verkoopprijs bekend: vul de prijs op de factuur zelf in" : "")">
+                                            @(regel.Verkoopprijs == 0 ? "zelf invullen" : Geld(regel.Verkoopprijs))</td>
+                                        <td class="r">@(regel.Verkoopprijs == 0 ? "" : Geld(regel.Aantal * regel.Verkoopprijs))</td>
+                                    </tr>
+                                }
+                                @if (_materiaal.Count == 0)
+                                {
+                                    <tr><td colspan="7" class="kiezer-info">Op deze werkorders is geen materiaal uitgegeven of ingekocht.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="zij-extra">Alles wat op deze werkorders is uitgegeven of ingekocht, ongeacht de periode. De app houdt niet bij of materiaal al eerder gefactureerd is: kijk dat zelf na.</p>
+                }
             </div>
 
             <div class="bijlagevoet">
                 <button class="klein" @onclick="Sluit">Annuleren</button>
-                <button class="primair" disabled="@(_bezig || _uren.Count == 0)" @onclick="Toevoegen">
-                    @(_bezig ? "Bezig…" : $"Tarieven opslaan en {AantalRegels} regels toevoegen")
+                <button class="primair" disabled="@(_bezig || (_uren.Count == 0 && !_materiaal.Any(m => m.Gekozen)))" @onclick="Toevoegen">
+                    @(_bezig ? "Bezig…" : _uren.Count > 0 ? $"Tarieven opslaan en {AantalRegels + _materiaal.Count(m => m.Gekozen)} regels toevoegen"
+                                                         : $"{_materiaal.Count(m => m.Gekozen)} materiaalregels toevoegen")
                 </button>
             </div>
         </div>
@@ -169,6 +228,9 @@
     private List<ProjectKeuze> _projecten = new();
     private List<WerkorderKeuzeUren> _werkorders = new();
     private List<UurRegel> _uren = new();
+    /// <summary>Het materiaal van de gekozen werkorders, als het vinkje aan staat (verzoek Edwin 23-11-2026).</summary>
+    private List<MateriaalRegel> _materiaal = new();
+    private bool _metMateriaal;
     private List<string> _meldingen = new();
     private bool _getoond;
     private bool _bezig;
@@ -207,6 +269,8 @@
         _selectie = new UrenSelectie { KlantId = KlantId, Van = vandaag.AddDays(-7), Tot = vandaag };
         _werkorders = new();
         _uren = new();
+        _materiaal = new();
+        _metMateriaal = false;      // elke keer opnieuw een keuze
         _meldingen = new();
         _getoond = false;
         _melding = null;
@@ -271,8 +335,20 @@
     }
 
     /// <summary>Andere keuze = de getoonde uren kloppen niet meer.</summary>
+    private void MetMateriaalGewijzigd(ChangeEventArgs e)
+    {
+        _metMateriaal = e.Value is true;
+        WisLijst();
+    }
+
+    private void KiesAlleMateriaal(bool aan)
+    {
+        foreach (var m in _materiaal) m.Gekozen = aan;
+    }
+
     private void WisLijst()
     {
+        _materiaal = new();
         _uren = new();
         _meldingen = new();
         _getoond = false;
@@ -288,6 +364,7 @@
         {
             _uren = await Repo.GetUrenAsync(_selectie);
             await Repo.RekenAsync(KlantId, _uren);
+            _materiaal = _metMateriaal ? await Repo.GetMateriaalAsync(_selectie) : new();
             _meldingen = Meldingen();
             _getoond = true;
             _melding = null;
@@ -359,6 +436,33 @@
             .OrderBy(r => r.Werkorder).ThenBy(r => r.Naam).ThenBy(r => r.Uurtype)
             .ToList();
 
+    /// <summary>
+    /// De gekozen materiaalregels als factuurregels, zoals ＋ Pakbon dat doet: per werkorder een kopregel
+    /// "Materiaal 226040-05 …", dan per regel code + omschrijving met aantal en de verkoopprijs project (0 = zelf invullen).
+    /// </summary>
+    private List<VerkoopFactuurItem> MateriaalRegels()
+    {
+        var uit = new List<VerkoopFactuurItem>();
+        foreach (var groep in _materiaal.Where(m => m.Gekozen).GroupBy(m => m.WerkbonId))
+        {
+            var eerste = groep.First();
+            var kop = $"Materiaal {eerste.Wo} {eerste.WerkorderOmschrijving}".Trim();
+            uit.Add(new VerkoopFactuurItem { Omschrijving = kop.Length > 200 ? kop[..200] : kop, Totaal = 0 });
+            foreach (var m in groep)
+            {
+                var tekst = $"{m.Code} {m.Omschrijving}".Trim();
+                uit.Add(new VerkoopFactuurItem
+                {
+                    Omschrijving = tekst.Length > 200 ? tekst[..200] : tekst,
+                    Aantal = m.Aantal,
+                    Stuksprijs = m.Verkoopprijs,
+                    Korting = 0,
+                });
+            }
+        }
+        return uit;
+    }
+
     private async Task Toevoegen()
     {
         var elders = _uren.Count(AlElders);
@@ -376,6 +480,7 @@
         {
             var bijgewerkt = await Repo.SchrijfTarievenAsync(_uren);
             var regels = Groepeer();
+            regels.AddRange(MateriaalRegels());
             await Toegevoegd.InvokeAsync(regels);
             Toon($"{regels.Count} regels toegevoegd" + (bijgewerkt > 0 ? $"; {bijgewerkt} tarieven bijgewerkt." : "."), false);
         }

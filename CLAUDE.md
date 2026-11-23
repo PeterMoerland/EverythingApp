@@ -390,6 +390,33 @@ de tekst, gescheiden door streepjes/spaties, als extra zoektermen); dubbelklik =
   (teruggezet): lijst onder het veld, kiezen met de toetsen, dubbelklik, kiezen in het venster, opslaan. Niet getest:
   donker thema, een bevroren calculatie (velden staan dan uit), twee gebruikers.
 
+## Uitgaande factuur: materiaal van de werkorder (23-11-2026)
+
+Verzoek Edwin: "bij een storingsorder met uren en materiaal (226040-05) wil ik bij het opmaken van de factuur zowel de
+uren als de materialen kunnen selecteren; moet wel een keuze zijn, materialen importeren". In
+`Components/UrenImportVenster.razor` (knop heet nu ＋ Uren en materiaal) staat het vinkje "Ook het materiaal van deze
+werkorders tonen" (elke keer uit). Aan + een project gekozen: `IUrenImportRepository.GetMateriaalAsync(selectie)` geeft
+`MateriaalRegel`s uit twee bronnen, voor de aangevinkte werkorders of anders het hele project, **ongeacht de periode**:
+(1) uit de voorraad uitgegeven = `ProjectMaterialsDelivered`, per werkorder en artikel opgeteld (retour telt af);
+(2) ingekocht op de werkorder = `Orderitems` (`Workorder-ID` van de regel, anders `Orders.Workorder-id`), zonder
+geannuleerde bestellingen (`Status` 7) en `ToBeDeleted`. Prijs = `Artikelen.Verkoopprijs project` (bij een inkoopregel
+via `MDE_ID`); 0 = "zelf invullen". Per regel een vinkje (standaard aan), knoppen Alles/Niets. Toevoegen zet ze op de
+factuur zoals ＋ Pakbon: per werkorder een kopregel "Materiaal 226040-05 …" en dan code + omschrijving, aantal, prijs.
+Alleen materiaal toevoegen (zonder uren) kan ook. **Er wordt niet bijgehouden of materiaal al gefactureerd is** (bij
+uren wel, via de reservering); het venster zegt dat. Getest: de twee zoekvragen alleen lezend op de echte database
+(226040-05 geeft de frequentieregelaar 3G3MX2-AB004-E, 1 stuk, € 254,75; in hetzelfde project een inkoopregel met
+PO-nummer). **Niet getest:** het venster zelf (Financiën is lokaal bewust dicht en niet omzeild).
+
+## Waarschuwingen bij publiceren: libplctag (23-11-2026)
+
+`service-herstarten.bat` gaf tien keer CS0618 uit `Services/OmronPlc.cs`: libplctag 1.6.0 noemt `Tag<BoolPlcMapper, bool>`
+en `Tag<LrealPlcMapper, double>` verouderd (libplctag.NET issue 406). Het pakket stond op `1.*`, dus een restore pakte
+vanzelf 1.6.0. Gedaan, zonder de werking te veranderen: `#pragma warning disable CS0618` bovenin dat ene bestand en de
+versie vast op `1.6.0` in `EverythingApp.csproj` (geen stille sprong naar een versie die het weghaalt). **Niet gedaan:**
+omzetten naar de kale `Tag` met `GetBit`/`GetFloat64`; dat verandert hoe BOOL en LREAL gelezen en geschreven worden en
+is alleen te testen tegen de echte gebouw-PLC. `TagBool` en `TagLreal` bestaan in 1.6.0, maar of die ook verouderd zijn
+is niet nagegaan.
+
 ## Wie heeft de app open (23-11-2026)
 
 Wens gebruiker ("ik ben de verantwoordelijke voor de app; een knop op de bovenste balk met wie er actief is", daarna

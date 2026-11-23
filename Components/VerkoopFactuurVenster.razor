@@ -304,7 +304,7 @@
                             <button class="klein" @onclick="() => VoegRegelIn(_f.Regels.Count)">＋ Regel</button>
                             <button class="klein" @onclick="() => _artikelZoekOpen = !_artikelZoekOpen">＋ Artikel</button>
                             <button class="klein" title="De regels van een pakbon overnemen" @onclick="WisselPakbonZoek">＋ Pakbon</button>
-                            <button class="klein" disabled="@(_f.KlantId is null)" @onclick="() => _urenOpen = true">＋ Uren</button>
+                            <button class="klein" disabled="@(_f.KlantId is null)" title="Uren van een project of werkorder op de factuur zetten; het materiaal van de werkorder kan daar ook bij" @onclick="() => _urenOpen = true">＋ Uren en materiaal</button>
                             @if (_f.KlantId is null)
                             {
                                 <span class="zij-extra">kies eerst een klant voor de uren</span>
@@ -872,7 +872,9 @@
     {
         _f.Regels.AddRange(regels);
         _urenOpen = false;
-        Toon($"{regels.Count} urenregels toegevoegd. De uren worden gereserveerd zodra je de factuur opslaat.", false);
+        var zonderPrijs = regels.Count(r => !r.IsUren && r.Aantal is not null && r.Stuksprijs == 0);
+        Toon($"{regels.Count} regels toegevoegd. Uren worden gereserveerd zodra je de factuur opslaat." +
+             (zonderPrijs > 0 ? $" {zonderPrijs} materiaalregel(s) zonder verkoopprijs: vul de prijs zelf in." : ""), zonderPrijs > 0);
     }
 
     // ---- opslaan en sluiten ----

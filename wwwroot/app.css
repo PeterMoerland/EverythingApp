@@ -1689,6 +1689,11 @@ html[data-thema="donker"] .aw-kop, html[data-thema="donker"] .aw-voet { border-c
 html[data-thema="donker"] .aw-persoon + .aw-persoon { border-color: #263140; }
 html[data-thema="donker"] .aw-regel { color: #c5cfdb; }
 html[data-thema="donker"] .aw-soort { background: #263140; color: #c5cfdb; }
+/* Uren importeren: ook het materiaal van de werkorder (verzoek Edwin 23-11-2026) */
+.ui-metmateriaal { display: flex; gap: .4rem; align-items: center; margin: .5rem 0 .2rem; }
+.ui-materiaalkop { display: flex; gap: .6rem; align-items: center; margin: .9rem 0 .3rem; }
+.ui-materiaalkop .zij-extra { flex: 1; }
+.kiezer-tabel tr.ui-nietgekozen td { opacity: .5; }
 /* Beheer > Netwerk: de vaste IP-adressen per groep (23-11-2026) */
 .nw-zoek { width: 18rem; max-width: 40vw; }
 .nw-filters { display: flex; flex-wrap: wrap; gap: .35rem; margin: .4rem 0 .7rem; }

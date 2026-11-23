@@ -25,6 +25,36 @@ public interface IUrenImportRepository
 
     /// <summary>Zet de gerekende bedragen in Uren, alleen waar ze veranderd zijn. Geeft het aantal terug.</summary>
     Task<int> SchrijfTarievenAsync(IReadOnlyList<UurRegel> uren);
+
+    /// <summary>
+    /// Het materiaal van de gekozen werkorders (of van het hele project): wat uit de voorraad is uitgegeven
+    /// (ProjectMaterialsDelivered, per werkorder en artikel opgeteld) en wat op de werkorder is ingekocht (Orderitems
+    /// van niet-geannuleerde bestellingen). De periode telt niet mee. Zonder project en zonder werkorders: leeg.
+    /// </summary>
+    Task<List<MateriaalRegel>> GetMateriaalAsync(UrenSelectie selectie);
+}
+
+/// <summary>
+/// Materiaal van een werkorder om op een uitgaande factuur te zetten (verzoek Edwin 23-11-2026: bij een storingsorder
+/// naast de uren ook het gebruikte materiaal kunnen kiezen). Bron = "voorraad" (uitgegeven) of "inkoop" (besteld op de
+/// werkorder, met het PO-nummer). Verkoopprijs = `Verkoopprijs project` van het MDE-artikel; 0 = zelf invullen.
+/// </summary>
+public class MateriaalRegel
+{
+    public string Bron { get; set; } = "";
+    public int WerkbonId { get; set; }
+    public string Wo { get; set; } = "";
+    public string WerkorderOmschrijving { get; set; } = "";
+    public string Code { get; set; } = "";
+    public string Omschrijving { get; set; } = "";
+    public decimal Aantal { get; set; }
+    public decimal Verkoopprijs { get; set; }
+    /// <summary>Bij inkoop: wat de regel heeft gekost (totaal, ter vergelijking); anders 0.</summary>
+    public decimal Inkoop { get; set; }
+    public int? OrderId { get; set; }
+    public DateTime? Datum { get; set; }
+    /// <summary>Gaat deze regel mee naar de factuur? (het vinkje in het venster)</summary>
+    public bool Gekozen { get; set; } = true;
 }
 
 public class GeenUrenImportRepository : IUrenImportRepository
@@ -38,6 +68,7 @@ public class GeenUrenImportRepository : IUrenImportRepository
     public Task<List<UurRegel>> GetUrenAsync(UrenSelectie selectie) => Task.FromResult(new List<UurRegel>());
     public Task RekenAsync(int klantId, IReadOnlyList<UurRegel> uren) => Task.CompletedTask;
     public Task<int> SchrijfTarievenAsync(IReadOnlyList<UurRegel> uren) => Task.FromResult(0);
+    public Task<List<MateriaalRegel>> GetMateriaalAsync(UrenSelectie selectie) => Task.FromResult(new List<MateriaalRegel>());
 }
 
 public class MySqlUrenImportRepository : IUrenImportRepository
@@ -125,6 +156,71 @@ public class MySqlUrenImportRepository : IUrenImportRepository
             vragen = uit.Values.Where(v => v.Ouder is int o && !uit.ContainsKey(o)).Select(v => v.Ouder!.Value).Distinct().ToList();
         }
         return uit;
+    }
+
+    // ============================================================
+    //  Het materiaal van de gekozen werkorders
+    // ============================================================
+    public async Task<List<MateriaalRegel>> GetMateriaalAsync(UrenSelectie s)
+    {
+        var lijst = new List<MateriaalRegel>();
+        if (s.WerkbonIds.Count == 0 && s.ProjectId is null) return lijst;      // niet van alle projecten van een klant tegelijk
+        await using var cn = await OpenAsync();
+        string Waar(MySqlCommand cmd)
+        {
+            if (s.WerkbonIds.Count > 0) return $"w.`Werkbon-id` IN ({string.Join(",", s.WerkbonIds.Select(id => id.ToString()))})";
+            cmd.Parameters.AddWithValue("@project", s.ProjectId!.Value);
+            return "p.`Project-Id` = @project";
+        }
+        const string Nummer = "CONCAT(COALESCE(p.`Projectnumber`, ''), '-', LPAD(COALESCE(w.`Werkbonnummer`, 0), 2, '0'))";
+        static decimal M(MySqlDataReader r, int i) => r.IsDBNull(i) ? 0 : Convert.ToDecimal(r.GetValue(i));
+        static string S(MySqlDataReader r, int i) => r.IsDBNull(i) ? "" : r.GetValue(i).ToString() ?? "";
+
+        // 1. uit de voorraad uitgegeven op de werkorder, per artikel opgeteld (een retour telt er weer af)
+        await using (var cmd = new MySqlCommand { Connection = cn })
+        {
+            cmd.CommandText =
+                $"SELECT w.`Werkbon-id`, {Nummer}, COALESCE(w.`Werkbonomschrijving`, ''), COALESCE(a.`ArtikelCodeMDE`, ''), " +
+                "       COALESCE(a.`OmschrijvingNL`, ''), SUM(COALESCE(d.`Aantal`, 0)), COALESCE(a.`Verkoopprijs project`, 0), MAX(d.`ToegevoegdOp`) " +
+                "  FROM `ProjectMaterialsDelivered` d " +
+                "  JOIN `Workorders` w ON w.`Werkbon-id` = d.`WorkorderID` " +
+                "  JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+                "  LEFT JOIN `Artikelen` a ON a.`ArtikelID` = d.`ArtikelID` " +
+                " WHERE " + Waar(cmd) +
+                " GROUP BY w.`Werkbon-id`, d.`ArtikelID` HAVING SUM(COALESCE(d.`Aantal`, 0)) <> 0 " +
+                " ORDER BY w.`Werkbonnummer`, a.`ArtikelCodeMDE`";
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                lijst.Add(new MateriaalRegel
+                {
+                    Bron = "voorraad", WerkbonId = r.GetInt32(0), Wo = S(r, 1), WerkorderOmschrijving = S(r, 2), Code = S(r, 3), Omschrijving = S(r, 4),
+                    Aantal = M(r, 5), Verkoopprijs = M(r, 6), Datum = r.IsDBNull(7) ? null : Convert.ToDateTime(r.GetValue(7)),
+                });
+        }
+
+        // 2. ingekocht op de werkorder (de regel zelf, of anders de bestelling); geannuleerde bestellingen (status 7) niet
+        await using (var cmd = new MySqlCommand { Connection = cn })
+        {
+            cmd.CommandText =
+                $"SELECT w.`Werkbon-id`, {Nummer}, COALESCE(w.`Werkbonomschrijving`, ''), COALESCE(NULLIF(a.`ArtikelCodeMDE`, ''), oi.`Partnumber`, ''), " +
+                "       COALESCE(NULLIF(oi.`Description`, ''), a.`OmschrijvingNL`, ''), COALESCE(oi.`Quantity ordered`, 0), " +
+                "       COALESCE(a.`Verkoopprijs project`, 0), COALESCE(oi.`Totalprice`, 0), o.`Order-id` " +
+                "  FROM `Orderitems` oi JOIN `Orders` o ON o.`Order-id` = oi.`Order-id` " +
+                "  JOIN `Workorders` w ON w.`Werkbon-id` = COALESCE(NULLIF(oi.`Workorder-ID`, 0), o.`Workorder-id`) " +
+                "  JOIN `Projects` p ON p.`Project-Id` = w.`Project-id` " +
+                "  LEFT JOIN `Artikelen` a ON a.`ArtikelID` = oi.`MDE_ID` " +
+                " WHERE " + Waar(cmd) +
+                "   AND COALESCE(o.`Status`, 0) <> 7 AND COALESCE(oi.`ToBeDeleted`, 0) = 0 " +
+                " ORDER BY w.`Werkbonnummer`, o.`Order-id`, oi.`Orderitem-id`";
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                lijst.Add(new MateriaalRegel
+                {
+                    Bron = "inkoop", WerkbonId = r.GetInt32(0), Wo = S(r, 1), WerkorderOmschrijving = S(r, 2), Code = S(r, 3).Trim(), Omschrijving = S(r, 4).Trim(),
+                    Aantal = M(r, 5), Verkoopprijs = M(r, 6), Inkoop = M(r, 7), OrderId = r.IsDBNull(8) ? null : Convert.ToInt32(r.GetValue(8)),
+                });
+        }
+        return lijst;
     }
 
     // ============================================================

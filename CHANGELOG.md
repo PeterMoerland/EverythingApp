@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
+- **Uitgaande facturen** — Nieuw: bij ＋ Uren en materiaal kun je met een vinkje ook het **materiaal van de werkorder** tonen: wat uit de voorraad is uitgegeven en wat op de werkorder is ingekocht. Je vinkt per regel aan wat op de factuur komt; de prijs is de verkoopprijs van het artikel, of je vult hem zelf in als die er niet is. Handig bij een storingsorder met uren en materiaal (verzoek van Edwin).
+- **Publiceren** — Opgelost: de tien waarschuwingen over de PLC-koppeling bij het publiceren zijn weg. Aan de werking van Gebouwbeheer is niets veranderd (melding van Peter).
 - **Netwerk** — Verbeterd: het netwerkscherm staat nu ook onder **Tools ▸ Netwerk**, voor wie het recht Netwerk heeft. Het menu Beheer is alleen voor de Directie, dus wie alleen het recht Netwerk had kon er niet via het menu bij (vraag van Peter).
 - **Activity board** — Nieuw: knop **Op prioriteit** in de Kanban-weergave. Aan: in elk vak staan de kaartjes met de hoogste prioriteit bovenaan (Hoog, Gemiddeld, Laag, en dan de kaartjes zonder prioriteit). Uit: de volgorde waarin je ze gesleept hebt. De app onthoudt je keuze per pc (punt van Kees).
 - **Bovenbalk** — Nieuw (alleen Directie): een knop 👥 met het aantal mensen dat de app nu open heeft. Klik erop en je ziet per persoon op welke pagina hij staat en hoe lang al (verzoek van Peter).
