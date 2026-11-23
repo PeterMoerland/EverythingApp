@@ -378,6 +378,9 @@
         // Financiën: alleen Financial of Directie, ook als er tegels zonder recht in staan (besluit 19-10-2026)
         if (m.Sleutel == "financien") return Ik.MagFinancien;
 
+        // Tools ▸ Netwerk: alleen met het recht Netwerk of Directie (het heeft een eigen adres en zou anders altijd zichtbaar zijn)
+        if (m.Sleutel == "netwerk") return Ik.MagNetwerk;
+
         // Financiën en Werknemers nooit op een werkplek (gedeelde pc), ook niet met rechten
         if (Ik.IsWerkplek && HuidigeGebruiker.ModulesNietOpWerkplek.Contains(m.Sleutel)) return false;
 

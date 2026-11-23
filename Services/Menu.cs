@@ -192,6 +192,13 @@ public static class Menu
                         new MenuItem("Connectortypes (kabels)", "/beheer/tabel/kabel-connectoren", Icoon: "plug-zap")))
                 { Url = "/tools/kabelconfigurator" },
 
+                // De vaste IP-adressen: ook hier, want het menu Beheer is alleen voor Directie en wie het recht Netwerk heeft
+                // (bv. Gerard) kwam er anders niet bij (vraag gebruiker 23-11-2026). Zichtbaar met MagNetwerk (MainLayout).
+                new MenuModule("netwerk", "Netwerk", "network",
+                    new MenuGroep("Netwerk",
+                        new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network")))
+                { Url = "/beheer/netwerk" },
+
                 new MenuModule("fusion", "Fusion", "cpu",
                     new MenuGroep("Bewerkingen",
                         new MenuItem("Converteer naar CAM", "/tools/fusion-cam", "Fusion", Icoon: "drill")),

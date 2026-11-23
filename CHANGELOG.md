@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
+- **Netwerk** — Verbeterd: het netwerkscherm staat nu ook onder **Tools ▸ Netwerk**, voor wie het recht Netwerk heeft. Het menu Beheer is alleen voor de Directie, dus wie alleen het recht Netwerk had kon er niet via het menu bij (vraag van Peter).
 - **Activity board** — Nieuw: knop **Op prioriteit** in de Kanban-weergave. Aan: in elk vak staan de kaartjes met de hoogste prioriteit bovenaan (Hoog, Gemiddeld, Laag, en dan de kaartjes zonder prioriteit). Uit: de volgorde waarin je ze gesleept hebt. De app onthoudt je keuze per pc (punt van Kees).
 - **Bovenbalk** — Nieuw (alleen Directie): een knop 👥 met het aantal mensen dat de app nu open heeft. Klik erop en je ziet per persoon op welke pagina hij staat en hoe lang al (verzoek van Peter).
 - **Beheer** — Nieuw: **Netwerk (IP-adressen)**, de lijst met vaste IP-adressen per groep uit Access. Zoeken, filteren op groep, adressen toevoegen (met het eerste vrije adres van de groep als voorstel), wijzigen en verwijderen, en de groepen beheren. Alleen te zien met het nieuwe recht **Netwerk** (Werknemers ▸ Rechten) of als Directie. Wachtwoorden zijn alleen voor de Directie te zien. Eerst `Netwerk_MariaDB.sql` draaien (verzoek van Peter).

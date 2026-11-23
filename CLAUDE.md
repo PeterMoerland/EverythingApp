@@ -418,6 +418,10 @@ i.v.m. 1Password".
   uitzondering "niet gekoppeld" die Fusion heeft, en "Netwerk" staat in `NietOpWerkplek` (op een gedeelde pc altijd
   dicht). Menu: Beheer ▸ Systeem ▸ Netwerk (IP-adressen), `Module.razor` en `MainLayout` kennen het recht; de pagina
   controleert het zelf nog eens.
+- **Ook onder Tools ▸ Netwerk** (vraag gebruiker zelfde dag: "Gerard heeft het recht, kan hij ook in Beheer?"): nee,
+  het menu Beheer is alleen zichtbaar met `Mag("Beheer")` of Directie, en de kolom `Beheer` bestaat niet in Werknemers,
+  dus in de praktijk alleen Directie. Daarom staat het scherm ook als module `netwerk` onder Tools (eigen adres
+  `/beheer/netwerk`, zichtbaar met `MagNetwerk` via een eigen regel in `ModuleZichtbaar`). Het adres is hetzelfde.
 - **Wachtwoorden alleen Directie**: `INetwerkRepository.AdressenAsync` leest het wachtwoord nooit mee (alleen of er een
   is); `WachtwoordAsync(id)` haalt er één op als iemand van de Directie op Tonen klikt, en dat komt met naam en adres
   in het logboek van de app. Alleen Directie ziet het wachtwoordveld in het bewerkvenster (leeg laten = ongewijzigd,
