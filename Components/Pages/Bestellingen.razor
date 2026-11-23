@@ -500,7 +500,7 @@
                     <div class="regels-balk">
                         <h3 class="wn-kop">Regels</h3>
                         <div class="btngroup">
-                            <button class="klein" @onclick="NieuweRegel">+ Regel</button>
+                            <button class="klein" @onclick="NieuweRegel" title="Naar de lege regel onderaan">+ Regel</button>
                             <button class="klein" disabled="@(_pakbonBezig || _regels.Count == 0)" @onclick="PakbonMaken"
                                     title="Een pakbon voor deze leverancier met de regels van deze bestelling, om mee te geven (bv. delen die naar de anodiseerder gaan)">
                                 @(_pakbonBezig ? "Bezig…" : "📦 Pakbon")</button>
@@ -542,9 +542,11 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var regel in _regels)
+                                @* Onderaan staat altijd een lege regel klaar (wens gebruiker 23-11-2026, zoals bij uren): hij staat
+                                   nog niet in de database en wordt pas bewaard als er iets in is ingevuld (KlaarRegel). *@
+                                @foreach (var regel in _regels.Append(KlaarRegel))
                                 {
-                                    <tr @key="regel.Id" class="@(regel.Compleet ? "geleverd" : "")">
+                                    <tr @key="Sleutel(regel)" class="@(regel.Id == 0 ? "regel-nieuw" : regel.Compleet ? "geleverd" : "")">
                                         <td><input class="c" value="@regel.Aantal"
                                                    @onchange="e => ZetGetal(regel, v => regel.Aantal = v, e)" /></td>
                                         <td>
@@ -587,19 +589,18 @@
                                             @(regel.Geleverd > 0 ? regel.Geleverd.ToString("0.##") : "")
                                         </td>
                                         <td class="c">
-                                            <button class="klein @(regel.Bijlagen > 0 ? "metbijlage" : "")"
-                                                    title="Bijlagen bij deze regel"
-                                                    @onclick="() => OpenBijlagen(regel)">
-                                                📎@(regel.Bijlagen > 0 ? regel.Bijlagen.ToString() : "")
-                                            </button>
-                                            <button class="klein rood" title="Regel verwijderen"
-                                                    @onclick="() => VerwijderRegel(regel)">✕</button>
+                                            @if (regel.Id != 0)
+                                            {
+                                                <button class="klein @(regel.Bijlagen > 0 ? "metbijlage" : "")"
+                                                        title="Bijlagen bij deze regel"
+                                                        @onclick="() => OpenBijlagen(regel)">
+                                                    📎@(regel.Bijlagen > 0 ? regel.Bijlagen.ToString() : "")
+                                                </button>
+                                                <button class="klein rood" title="Regel verwijderen"
+                                                        @onclick="() => VerwijderRegel(regel)">✕</button>
+                                            }
                                         </td>
                                     </tr>
-                                }
-                                @if (_regels.Count == 0)
-                                {
-                                    <tr><td colspan="11" class="kiezer-info">Nog geen regels op deze bestelling.</td></tr>
                                 }
                             </tbody>
                             <tfoot>
@@ -1678,16 +1679,63 @@
     // ================================================================
     private string EenheidTekst(Orderregel r) => r.EenheidId is int id ? id.ToString() : "";
 
+    // ---- de lege regel die onderaan klaarstaat (wens gebruiker 23-11-2026) ----
+    private Orderregel? _klaar;
+    private bool _klaarGewijzigd;
+    private object _klaarSleutel = new();
+    /// <summary>
+    /// De rij van een zojuist bewaarde klaarstaande regel houdt zijn sleutel, zodat Blazor dezelfde rij op het scherm
+    /// laat staan en de cursor blijft waar hij is (anders typ je verder in de volgende lege regel).
+    /// </summary>
+    private readonly Dictionary<int, object> _sleutels = new();
+    private readonly SemaphoreSlim _regelSlot = new(1, 1);
+
+    private object Sleutel(Orderregel r) => r.Id == 0 ? _klaarSleutel : _sleutels.GetValueOrDefault(r.Id) ?? r.Id;
+
+    /// <summary>De lege regel van de open bestelling: aantal 1, stuks en de standaard leverdatum, zoals "+ Regel" deed.</summary>
+    private Orderregel KlaarRegel
+    {
+        get
+        {
+            var order = _orderId ?? 0;
+            if (_klaar is null || _klaar.OrderId != order)
+            {
+                _klaar = new Orderregel { OrderId = order, Aantal = 1, EenheidId = 2 };
+                _klaarGewijzigd = false; _klaarSleutel = new(); _sleutels.Clear(); _artikelTekst.Remove(0);
+            }
+            if (!_klaarGewijzigd) _klaar.Leverdatum = StandaardLeverdatum;      // de velden van de order kunnen later binnenkomen
+            return _klaar;
+        }
+    }
+
+    /// <summary>Nog niets ingevuld dat het bewaren waard is (alleen aantal, eenheid, datum of korting).</summary>
+    private static bool KlaarLeeg(Orderregel r)
+        => string.IsNullOrWhiteSpace(r.Artikelcode) && string.IsNullOrWhiteSpace(r.Omschrijving)
+           && string.IsNullOrWhiteSpace(r.MdeCode) && r.Prijs is null or 0;
+
     private async Task BewaarRegel(Orderregel regel)
     {
+        await _regelSlot.WaitAsync();       // na elkaar: twee velden snel achter elkaar in de lege regel mogen geen twee regels geven
         try
         {
+            var wasKlaar = regel.Id == 0 && ReferenceEquals(regel, _klaar);
+            if (wasKlaar)
+            {
+                _klaarGewijzigd = true;
+                if (_orderId is null || KlaarLeeg(regel)) return;      // blijft klaarstaan met wat er al in staat
+            }
             regel.Id = await Repo.BewaarRegelAsync(regel);
+            if (wasKlaar)
+            {
+                _sleutels[regel.Id] = _klaarSleutel;
+                _klaar = null; _klaarSleutel = new(); _klaarGewijzigd = false; _artikelTekst.Remove(0);
+            }
             await LaadRegels();
             await Laad();          // het totaal in de lijst links klopt dan ook weer
             Toon("Opgeslagen.", false);
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+        finally { _regelSlot.Release(); }
     }
 
     private async Task Zet(Orderregel regel, Action<string> zet, ChangeEventArgs e)
@@ -1821,24 +1869,14 @@
         await Laad();
     }
 
+    /// <summary>
+    /// "+ Regel": de cursor in de artikelcode van de lege regel die onderaan klaarstaat. Tot 23-11-2026 schreef deze
+    /// knop meteen een lege regel in de database.
+    /// </summary>
     private async Task NieuweRegel()
     {
         if (_orderId is null) return;
-        try
-        {
-            var standaard = _velden.TryGetValue("DefaultLeverDatum", out var d) && d is DateTime dt
-                ? DateOnly.FromDateTime(dt) : (DateOnly?)null;
-
-            await Repo.BewaarRegelAsync(new Orderregel
-            {
-                OrderId = _orderId.Value,
-                Aantal = 1,
-                EenheidId = 2,          // stuks, net als de standaard in Access
-                Leverdatum = standaard,
-            });
-            await LaadRegels();
-        }
-        catch (Exception ex) { Toon("Regel toevoegen mislukt: " + ex.Message, true); }
+        try { await JS.InvokeVoidAsync("mdeSnel.focus", "tr.regel-nieuw td:nth-child(3) input"); } catch { }
     }
 
     /// <summary>Niets ingevuld behalve wat een nieuwe regel al meekrijgt (aantal, eenheid, leverdatum).</summary>

@@ -758,6 +758,16 @@ voor de orderbatch, dus niet toegevoegd).
   nieuwe rekeningen zonder nummer (IBAN First, creditcards, import volgt) gaven dus "" = alle rekeningen. Nu `_rekeningId`;
   zonder nummer = geen regels. In de lijst staat zo'n rekening als "Omschrijving · nog geen nummer".
 
+## Bestellingen: lege regel staat klaar (23-11-2026)
+
+Wens gebruiker, zoals bij uren. `Bestellingen.razor`: `KlaarRegel` is een `Orderregel` met Id 0 (aantal 1, stuks,
+standaard leverdatum) die achter `_regels` wordt getekend maar er niet in zit (tellingen en totalen kloppen dus) en
+**niet in de database staat**. `BewaarRegel` bewaart hem pas als artikelcode, omschrijving, MDE-nummer of prijs is
+ingevuld (`KlaarLeeg`); daarna komt er een nieuwe. De bewaarde rij houdt zijn `@key` (`Sleutel`, `_sleutels`), anders
+blijft de cursor in de nieuwe lege rij staan en typ je daar verder. `_regelSlot` zet het bewaren van regels na elkaar
+(twee velden snel achter elkaar gaven anders twee regels). "+ Regel" zet alleen nog de cursor in de lege regel
+(`mdeSnel.focus`); bijlage- en wisknop staan er niet op zolang de regel niet bewaard is.
+
 ## Bestellingen: pakbon om mee te geven (11-11-2026)
 
 Wens gebruiker: delen die iemand naar de leverancier rijdt (bv. naar Nederlandse Anodising) krijgen een pakbon mee. Knop

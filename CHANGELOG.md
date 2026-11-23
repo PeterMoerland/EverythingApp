@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
+- **Bestellingen** — Verbeterd: onder de regels van een bestelling staat altijd een **lege regel klaar**, zoals bij uren; je typt meteen door zonder eerst op + Regel te klikken. De regel wordt pas bewaard als je er iets in invult (verzoek van Peter).
 - **Activity board** — Nieuw: een kaartje dat een ander kaartje **blokkeert**, krijgt vanzelf minstens de prioriteit van dat kaartje zolang het niet klaar is. Op het kaartje staat dan bijvoorbeeld "Hoog ↑" (de eigen prioriteit blijft bewaard), en **Op prioriteit** sorteert daarop (punt van Kees).
 - **Activity board** — Verbeterd: in de pop-up van een kaartje heet Initiator nu **Aangemaakt**, met de naam en de datum achter elkaar; **Aangepast** staat er direct onder, ook met naam en datum op één regel (verzoek van Peter).
 - **Activity board** — Nieuw: in de pop-up van een kaartje staat **Aangepast op** en **Aangepast door**: wanneer en door wie het kaartje het laatst is gewijzigd (punt van Kees).
