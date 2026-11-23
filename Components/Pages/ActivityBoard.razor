@@ -484,9 +484,10 @@ else
                     </select>
                 </div>
 
-                @* initiator (punt van Gerard, 19-11-2026): wie de activiteit aanmaakte; daar kan de uitvoerder met vragen terecht *@
-                <div class="ab-lab" title="Wie deze activiteit aanmaakte; bij hem of haar kun je terecht met vragen">Initiator</div>
-                <div class="ab-ro">
+                @* Aangemaakt: wie (de initiator, punt van Gerard 19-11-2026: daar kan de uitvoerder met vragen terecht) en wanneer,
+                   achter elkaar; en Aangepast op dezelfde manier (wens gebruiker 23-11-2026, eerder twee losse regels) *@
+                <div class="ab-lab" title="Wie deze activiteit aanmaakte (bij hem of haar kun je terecht met vragen) en wanneer">Aangemaakt</div>
+                <div class="ab-ro ab-wiewanneer">
                     @if (o.GemaaktDoor is int init && _persoonOpId.ContainsKey(init))
                     {
                         <span class="ab-wie ab-wie-tabel">@PersoonHtml(init)</span>
@@ -495,7 +496,24 @@ else
                     {
                         <span class="ab-muted">onbekend</span>
                     }
+                    <span class="ab-wanneer">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</span>
                 </div>
+
+                @if (o.Id != 0 && o.GewijzigdOp is DateTime aangepast)
+                {
+                    <div class="ab-lab" title="Wie deze activiteit het laatst aanpaste en wanneer">Aangepast</div>
+                    <div class="ab-ro ab-wiewanneer">
+                        @if (o.GewijzigdDoor is int wie && _persoonOpId.ContainsKey(wie))
+                        {
+                            <span class="ab-wie ab-wie-tabel">@PersoonHtml(wie)</span>
+                        }
+                        else
+                        {
+                            <span class="ab-muted">onbekend</span>
+                        }
+                        <span class="ab-wanneer">@aangepast.ToString("dd-MM-yyyy HH:mm")</span>
+                    </div>
+                }
 
                 @* Type en Onderwerpen zoals Toegewezen aan (punt van Gerard, 19-11-2026: alle keuzes als knoppen gaf "veel
                    onnodige info"): alleen wat gekozen is als chip met ×, de rest in een keuzelijst. De uitleg staat in het wolkje. *@
@@ -584,17 +602,6 @@ else
                     </div>
                 }
 
-                <div class="ab-lab">Gemaakt op</div>
-                <div class="ab-ro">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</div>
-
-                @* laatst aangepast: wanneer en door wie (punt van Kees, 23-11-2026) *@
-                @if (o.Id != 0 && o.GewijzigdOp is DateTime aangepast)
-                {
-                    <div class="ab-lab">Aangepast op</div>
-                    <div class="ab-ro">@aangepast.ToString("dd-MM-yyyy HH:mm")</div>
-                    <div class="ab-lab">Aangepast door</div>
-                    <div class="ab-ro">@(o.GewijzigdDoor is int wie && _persoonOpId.TryGetValue(wie, out var pers) ? pers.Naam : "onbekend")</div>
-                }
 
                 @if (_metKoppelingen && o.Id != 0)
                 {

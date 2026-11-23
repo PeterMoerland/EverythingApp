@@ -476,6 +476,10 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Aangemaakt en Aangepast op één regel** (wens gebruiker, zelfde dag): in de pop-up heet Initiator nu Aangemaakt, met
+  naam en datum achter elkaar (`.ab-wiewanneer`, `.ab-wanneer`); Aangepast staat er direct onder in dezelfde vorm. De
+  losse regels Gemaakt op, Aangepast op en Aangepast door zijn weg. De kolom in de tabelweergaven en de Excel-export
+  heet nog Initiator.
 - **Aangepast op / door** (punt van Kees, 23-11-2026): `Activiteit.GewijzigdOp` en `GewijzigdDoor` uit de bestaande
   kolommen `last_updated` en `GewijzigdDoor` (geen script). In de pop-up onder Gemaakt op; in de API `gewijzigdOp` en
   `gewijzigdDoor`. Het opnieuw nummeren van een vak bij slepen houdt `last_updated` nu vast (`last_updated =
