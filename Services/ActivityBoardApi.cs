@@ -863,6 +863,8 @@ public static class ActivityBoardApi
             ["status"] = a.Status,
             ["statusNaam"] = ActStatus.Naam(a.Status),
             ["prioriteit"] = a.Prioriteit is int p ? ActPrioriteit.Naam(p).ToLowerInvariant() : null,
+            ["afgeleidePrioriteit"] = a.AfgeleidePrioriteit is int ap ? ActPrioriteit.Naam(ap).ToLowerInvariant() : null,
+            ["afgeleidVan"] = a.AfgeleidePrioriteit is not null ? a.AfgeleidVan : null,
             ["vervaldatum"] = a.Vervaldatum?.ToString("yyyy-MM-dd"),
             ["benodigdeUren"] = a.BenodigdeUren,
             ["onderwerpen"] = d.Problemen.Where(x => a.Problemen.Contains(x.Id)).Select(x => new { id = x.Id, naam = x.Naam }).ToList(),

@@ -320,6 +320,8 @@ else
     @* ---------- weergave ---------- *@
     @if (_view == "kanban")
     {
+        // afgeleide prioriteit (punt van Kees): elke keer opnieuw, want status, prioriteit en koppelingen wijzigen hier ter plekke
+        ActPrioriteit.Afleiden(_data.Activiteiten);
         var lijst = Gefilterd(idx);
         var lanes = _data.Problemen.Select(p => p.Id.ToString()).Append("geen").ToList();
         var vak = lanes.ToDictionary(l => l, l => ActStatus.Alle.ToDictionary(s => s.Code, s => new List<Activiteit>()));
@@ -388,7 +390,7 @@ else
                                             @if (a.Geblokkeerd) { <span class="ab-chip ab-wacht" title="@WachtTip(a)">⛔ wacht</span> }
                                             @if (a.PuntenTotaal > 0) { <span class="ab-chip ab-vink @(a.PuntenKlaar == a.PuntenTotaal ? "af" : "")" title="Afvinklijst: @a.PuntenKlaar van de @a.PuntenTotaal punten afgevinkt">☑ @a.PuntenKlaar/@a.PuntenTotaal</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
-                                            @if (a.Prioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)">@ActPrioriteit.Naam(pr)</span> }
+                                            @if (a.TelPrioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)" title="@PrioTip(a)">@ActPrioriteit.Naam(pr)@(a.AfgeleidePrioriteit is null ? "" : " ↑")</span> }
                                             @foreach (var pid in ProblemenGesorteerd(a, idx).Where(x => x.ToString() != l))
                                             {
                                                 @ProbleemChip(pid, idx, true)
@@ -454,6 +456,11 @@ else
                         var w = pr.Waarde;
                         <button type="button" class="ab-kies @(o.Prioriteit == w ? "aan ab-k-" + pr.Kleur : "")" aria-pressed="@(o.Prioriteit == w)"
                                 @onclick="() => PrioKlik(w)">@pr.Naam</button>
+                    }
+                    @* afgeleide prioriteit (punt van Kees): dit kaartje blokkeert iets met een hogere prioriteit *@
+                    @if (_data.Activiteiten.FirstOrDefault(x => x.Id == o.Id && o.Id != 0) is { AfgeleidePrioriteit: not null } bron)
+                    {
+                        <span class="ab-afgeleid">↑ @PrioTip(bron)</span>
                     }
                 </div>
 
@@ -1634,7 +1641,16 @@ else
 
     /// <summary>Hoog (1) bovenaan, dan Gemiddeld, Laag, en zonder prioriteit onderaan; daarbinnen de eigen volgorde.</summary>
     private int OpPrioriteit(Activiteit a, Activiteit b)
-        => (a.Prioriteit ?? 9) != (b.Prioriteit ?? 9) ? (a.Prioriteit ?? 9).CompareTo(b.Prioriteit ?? 9) : OpVolgorde(a, b);
+        => (a.TelPrioriteit ?? 9) != (b.TelPrioriteit ?? 9) ? (a.TelPrioriteit ?? 9).CompareTo(b.TelPrioriteit ?? 9) : OpVolgorde(a, b);
+
+    /// <summary>Uitleg bij een afgeleide prioriteit: welke activiteit wacht hierop. Leeg als de eigen prioriteit geldt.</summary>
+    private string PrioTip(Activiteit a)
+    {
+        if (a.AfgeleidePrioriteit is not int p) return "";
+        var titel = a.Koppelingen.FirstOrDefault(k => k.AnderId == a.AfgeleidVan)?.AnderTitel;
+        return $"Telt als {ActPrioriteit.Naam(p)}: #{a.AfgeleidVan}{(titel is null ? "" : " " + titel)} wacht hierop. " +
+               $"Eigen prioriteit: {(a.Prioriteit is null ? "geen" : ActPrioriteit.Naam(a.Prioriteit))}.";
+    }
 
     private async Task WisselOpPrio()
     {

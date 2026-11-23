@@ -120,6 +120,16 @@ public class Activiteit
     public List<ActKoppeling> Koppelingen { get; set; } = new();
     /// <summary>Hangt af van een activiteit die nog niet klaar is.</summary>
     public bool Geblokkeerd => Koppelingen.Any(k => k.Blokkeert);
+    /// <summary>
+    /// Afgeleide prioriteit (punt van Kees, 23-11-2026): deze activiteit blokkeert een activiteit met een hogere
+    /// prioriteit die nog niet klaar is, en telt daarom zelf ook zo zwaar. Null = geen (de eigen prioriteit is al
+    /// minstens zo hoog). Gezet door <see cref="ActPrioriteit.Afleiden"/>; niet bewaard.
+    /// </summary>
+    public int? AfgeleidePrioriteit { get; set; }
+    /// <summary>Het nummer van de wachtende activiteit waar de afgeleide prioriteit vandaan komt.</summary>
+    public int? AfgeleidVan { get; set; }
+    /// <summary>De prioriteit die telt: de afgeleide als die er is, anders de eigen.</summary>
+    public int? TelPrioriteit => AfgeleidePrioriteit ?? Prioriteit;
     public int PuntenTotaal => Checklist.Count(p => !p.Kop);
     public int PuntenKlaar => Checklist.Count(p => !p.Kop && p.Klaar);
 
@@ -127,6 +137,7 @@ public class Activiteit
     {
         Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
         GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde, Opmaak = Opmaak, GewijzigdOp = GewijzigdOp, GewijzigdDoor = GewijzigdDoor,
+        AfgeleidePrioriteit = AfgeleidePrioriteit, AfgeleidVan = AfgeleidVan,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
         Checklist = Checklist.Select(p => p.Kopie()).ToList(), Koppelingen = new(Koppelingen),
     };
@@ -201,7 +212,8 @@ public record ActKoppelDoel(int Id, string Titel, string Status, int BoardId, st
 /// Een koppeling gezien vanaf één activiteit: de soort, of deze activiteit de "van"-kant is (<see cref="Heen"/>), en de
 /// andere activiteit met titel, status en board.
 /// </summary>
-public record ActKoppeling(int Id, string Soort, bool Heen, int AnderId, string AnderTitel, string AnderStatus, int AnderBoardId, string AnderBoard)
+public record ActKoppeling(int Id, string Soort, bool Heen, int AnderId, string AnderTitel, string AnderStatus, int AnderBoardId, string AnderBoard,
+                           int? AnderPrioriteit = null)
 {
     public string Naam => ActKoppelSoort.Naam(Soort, Heen);
     /// <summary>Deze activiteit hangt af van de andere, en die is nog niet klaar.</summary>
@@ -257,6 +269,34 @@ public static class ActPrioriteit
 
     public static string Naam(int? p) => Alle.FirstOrDefault(x => x.Waarde == p).Naam ?? "";
     public static string Kleur(int? p) => Alle.FirstOrDefault(x => x.Waarde == p).Kleur ?? "default";
+
+    /// <summary>
+    /// Zet de afgeleide prioriteit van alle activiteiten van een board (punt van Kees, 23-11-2026): wie een activiteit
+    /// blokkeert die nog niet klaar is, telt minstens zo zwaar als die activiteit. Werkt door over een keten (A blokkeert
+    /// B, B blokkeert C). Van een activiteit op dit board gelden status en prioriteit van nu; van een ander board die
+    /// uit de koppeling. Een activiteit die zelf klaar is krijgt niets.
+    /// </summary>
+    public static void Afleiden(IReadOnlyCollection<Activiteit> alle)
+    {
+        var opId = new Dictionary<int, Activiteit>();
+        foreach (var a in alle) { a.AfgeleidePrioriteit = null; a.AfgeleidVan = null; if (a.Id != 0) opId[a.Id] = a; }
+        for (var ronde = 0; ronde < 25; ronde++)          // elke ronde een schakel verder; de grens vangt een kring op
+        {
+            var veranderd = false;
+            foreach (var a in alle)
+            {
+                if (ActStatus.Groep(a.Status) == ActStatus.GroepKlaar) continue;
+                foreach (var k in a.Koppelingen)
+                {
+                    if (k.Soort != ActKoppelSoort.HangtAf || k.Heen) continue;      // alleen "blokkeert"
+                    var (status, prio) = opId.TryGetValue(k.AnderId, out var b) ? (b.Status, b.TelPrioriteit) : (k.AnderStatus, k.AnderPrioriteit);
+                    if (ActStatus.Groep(status) == ActStatus.GroepKlaar || prio is not int p || p >= (a.TelPrioriteit ?? 9)) continue;
+                    a.AfgeleidePrioriteit = p; a.AfgeleidVan = k.AnderId; veranderd = true;
+                }
+            }
+            if (!veranderd) break;
+        }
+    }
 }
 
 /// <summary>

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
+- **Activity board** — Nieuw: een kaartje dat een ander kaartje **blokkeert**, krijgt vanzelf minstens de prioriteit van dat kaartje zolang het niet klaar is. Op het kaartje staat dan bijvoorbeeld "Hoog ↑" (de eigen prioriteit blijft bewaard), en **Op prioriteit** sorteert daarop (punt van Kees).
 - **Activity board** — Verbeterd: in de pop-up van een kaartje heet Initiator nu **Aangemaakt**, met de naam en de datum achter elkaar; **Aangepast** staat er direct onder, ook met naam en datum op één regel (verzoek van Peter).
 - **Activity board** — Nieuw: in de pop-up van een kaartje staat **Aangepast op** en **Aangepast door**: wanneer en door wie het kaartje het laatst is gewijzigd (punt van Kees).
 - **Uitgaande facturen** — Nieuw: bij ＋ Uren en materiaal kun je met een vinkje ook het **materiaal van de werkorder** tonen: wat uit de voorraad is uitgegeven en wat op de werkorder is ingekocht. Je vinkt per regel aan wat op de factuur komt; de prijs is de verkoopprijs van het artikel, of je vult hem zelf in als die er niet is. Handig bij een storingsorder met uren en materiaal (verzoek van Edwin).

@@ -476,6 +476,14 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Afgeleide prioriteit** (punt van Kees, 23-11-2026): blokkeren bestond al als koppeling ("hangt af van" /
+  "blokkeert"). `ActPrioriteit.Afleiden(activiteiten)` zet `Activiteit.AfgeleidePrioriteit`/`AfgeleidVan` (niet bewaard):
+  wie iets blokkeert dat nog niet klaar is, telt minstens zo zwaar (`TelPrioriteit`); werkt door over een keten. Draait
+  bij het laden (beide repositories, dus ook de API: `afgeleidePrioriteit`, `afgeleidVan`) en bij elke render van het
+  bord. Kaartje: chip "Hoog ↑" met uitleg (`PrioTip`), ook in de pop-up; Op prioriteit sorteert op `TelPrioriteit`.
+  `ActKoppeling.AnderPrioriteit` komt uit de query (voor een kaartje op een ander board); een koppeling die net in de
+  pop-up naar een ander board is gelegd heeft hem pas na opnieuw laden. De tabelweergaven en Excel tonen de eigen
+  prioriteit.
 - **Aangemaakt en Aangepast op één regel** (wens gebruiker, zelfde dag): in de pop-up heet Initiator nu Aangemaakt, met
   naam en datum achter elkaar (`.ab-wiewanneer`, `.ab-wanneer`); Aangepast staat er direct onder in dezelfde vorm. De
   losse regels Gemaakt op, Aangepast op en Aangepast door zijn weg. De kolom in de tabelweergaven en de Excel-export

@@ -495,7 +495,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
             {
                 var (eigen, ander) = heen ? ("VanID", "NaarID") : ("NaarID", "VanID");
                 await using var cmd = new MySqlCommand(
-                    $"SELECT k.`KoppelingID`, k.`Soort`, k.`{eigen}`, x.`ActiviteitID`, x.`Titel`, x.`Status`, " + BoardKolommen + rk + wk +
+                    $"SELECT k.`KoppelingID`, k.`Soort`, k.`{eigen}`, x.`ActiviteitID`, x.`Titel`, x.`Status`, x.`Prioriteit`, " + BoardKolommen + rk + wk +
                     $"  FROM `ActivityBoardKoppelingen` k JOIN `ActivityBoardActiviteiten` e ON e.`ActiviteitID` = k.`{eigen}` " +
                     $"  JOIN `ActivityBoardActiviteiten` x ON x.`ActiviteitID` = k.`{ander}` " +
                     "  JOIN `ActivityBoards` b ON b.`BoardID` = x.`BoardID` LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj +
@@ -505,9 +505,10 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                 while (await r.ReadAsync())
                     if (perId.TryGetValue(r.GetInt32(2), out var a) && ActKoppelSoort.IsGeldig(S(r, 1)))
                         a.Koppelingen.Add(new ActKoppeling(r.GetInt32(0), S(r, 1), heen, r.GetInt32(3), S(r, 4),
-                            ActStatus.IsGeldig(S(r, 5)) ? S(r, 5) : ActStatus.Backlog, r.GetInt32(6), LeesBoard(r, 6).Titel));
+                            ActStatus.IsGeldig(S(r, 5)) ? S(r, 5) : ActStatus.Backlog, r.GetInt32(7), LeesBoard(r, 7).Titel, I(r, 6)));
             }
         }
+        ActPrioriteit.Afleiden(data.Activiteiten);
         return data;
     }
 

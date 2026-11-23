@@ -152,6 +152,9 @@ de koppeling op zijn eigen manier:
 ]
 ```
 
+`afgeleidePrioriteit` staat erbij als de activiteit iets blokkeert dat een hogere prioriteit heeft en nog niet klaar is:
+hij telt dan zo zwaar als die activiteit (`afgeleidVan` is het nummer daarvan). `prioriteit` blijft de eigen waarde.
+
 `gewijzigdOp` en `gewijzigdDoor` (bij elke activiteit) zeggen wanneer en door wie hij het laatst is aangepast.
 
 `geblokkeerd: true` staat er (ook in lijsten) als het kaartje afhangt van een kaartje dat nog niet klaar is. In de app

@@ -138,7 +138,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
                 Problemen = _problemen.Where(x => x.BoardId == boardId).Select(x => x.P).OrderBy(p => p.Positie)
                     .Select(p => new ActProbleem { Id = p.Id, Naam = p.Naam, Kleur = p.Kleur, Positie = p.Positie }).ToList(),
                 Types = _types.Where(x => x.BoardId == boardId).Select(x => new ActType { Id = x.T.Id, Naam = x.T.Naam, Kleur = x.T.Kleur }).ToList(),
-                Activiteiten = _acts.Where(x => x.BoardId == boardId).Select(x => { var k = x.A.Kopie(); k.Koppelingen = KoppelingenVan(k.Id); return k; }).ToList(),
+                Activiteiten = Afgeleid(_acts.Where(x => x.BoardId == boardId).Select(x => { var k = x.A.Kopie(); k.Koppelingen = KoppelingenVan(k.Id); return k; }).ToList()),
             });
         }
     }
@@ -289,6 +289,8 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 
     private string BoardNaam(int boardId) => _boards.FirstOrDefault(b => b.Id == boardId) is { } b && b.Naam.Length > 0 ? b.Naam : $"Board {boardId}";
 
+    private static List<Activiteit> Afgeleid(List<Activiteit> lijst) { ActPrioriteit.Afleiden(lijst); return lijst; }
+
     private List<ActKoppeling> KoppelingenVan(int id)
     {
         var uit = new List<ActKoppeling>();
@@ -297,7 +299,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
             var heen = k.Van == id;
             var ander = _acts.FirstOrDefault(x => x.A.Id == (heen ? k.Naar : k.Van));
             if (ander.A is null) continue;
-            uit.Add(new ActKoppeling(k.Id, k.Soort, heen, ander.A.Id, ander.A.Titel, ander.A.Status, ander.BoardId, BoardNaam(ander.BoardId)));
+            uit.Add(new ActKoppeling(k.Id, k.Soort, heen, ander.A.Id, ander.A.Titel, ander.A.Status, ander.BoardId, BoardNaam(ander.BoardId), ander.A.Prioriteit));
         }
         return uit;
     }
