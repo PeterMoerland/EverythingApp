@@ -768,6 +768,18 @@ blijft de cursor in de nieuwe lege rij staan en typ je daar verder. `_regelSlot`
 (twee velden snel achter elkaar gaven anders twee regels). "+ Regel" zet alleen nog de cursor in de lege regel
 (`mdeSnel.focus`); bijlage- en wisknop staan er niet op zolang de regel niet bewaard is.
 
+## Bestellingen: getypte artikelcode opzoeken (23-11-2026)
+
+Wens gebruiker. `Bestellingen.ZetArtikelcode` (onchange van de artikelcode): eerst bewaren zoals altijd, dan
+`IArtikelRepository.ZoekOpCodeAsync(code, leverancier, 50)`: **precies** die code als `ArtikelCodeMDE`,
+`ArtikelCodeFactory` of `ArtikelSupplier.ArtikelNummerSupplier` (standaard en maakdelen door elkaar; wat we bij de
+leverancier van de order kopen bovenaan). Bewust **niet** op `ArtikelID`: een kaal getal als bestelnummer zou anders een
+willekeurig MDE-artikel in de regel zetten. 1 treffer = `VulArtikel` (het oude `ArtikelGekozen`: code, omschrijving,
+MDE-nummer, prijs/korting van de leverancier, minimale hoeveelheid, bijlages), behalve als de regel al bij dat artikel
+hoort. Meer = `ArtikelZoekVenster` opent met die lijst (`Voorstel`); Annuleren laat de getypte code staan. Geen = vrije
+tekst. Alleen als de code echt veranderd is en minstens 2 tekens heeft. Let op: een treffer overschrijft omschrijving en
+prijs die al in de regel stonden.
+
 ## Bestellingen: pakbon om mee te geven (11-11-2026)
 
 Wens gebruiker: delen die iemand naar de leverancier rijdt (bv. naar Nederlandse Anodising) krijgen een pakbon mee. Knop

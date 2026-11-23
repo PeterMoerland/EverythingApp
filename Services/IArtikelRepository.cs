@@ -19,6 +19,13 @@ public interface IArtikelRepository
     Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
                                        IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false);
 
+    /// <summary>
+    /// De artikelen met precies deze code (bestelregel, wens gebruiker 23-11-2026): de MDE-code, de fabrikantcode of het
+    /// bestelnummer bij een leverancier. Standaard en maakdelen door elkaar; wat we bij <paramref name="leverancierId"/>
+    /// kopen staat bovenaan. Alleen lezen.
+    /// </summary>
+    Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max);
+
     Task<Artikel?> GetAsync(int artikelId);
     Task<List<ArtikelGroep>> GetGroepenAsync(int artikelId);
 
@@ -130,6 +137,7 @@ public record ArtikelLaatstBesteld(decimal Aantal, string Leverancier, DateTime?
 public class GeenArtikelRepository : IArtikelRepository
 {
     public bool Beschikbaar => false;
+    public Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max) => Task.FromResult(new List<ArtikelRegel>());
     public Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
                                               IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false)
         => Task.FromResult(new List<ArtikelRegel>());
@@ -340,6 +348,35 @@ public class MySqlArtikelRepository : IArtikelRepository
                 r.GetInt32(0),
                 r.IsDBNull(1) ? "" : r.GetString(1),
                 r.IsDBNull(2) ? "" : r.GetString(2),
+                merkId is not null && namen.TryGetValue(merkId.Value, out var m) ? m : ""));
+        }
+        return lijst;
+    }
+
+    public async Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max)
+    {
+        var lijst = new List<ArtikelRegel>();
+        var c = (code ?? "").Trim();
+        if (c.Length == 0) return lijst;
+        var namen = await MerkNamenAsync();
+
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT a.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), a.`BrandID` " +
+            "  FROM `Artikelen` a " +
+            " WHERE a.`ArtikelCodeMDE` = @c OR a.`ArtikelCodeFactory` = @c " +
+            "    OR EXISTS (SELECT 1 FROM `ArtikelSupplier` s WHERE s.`ArtikelID` = a.`ArtikelID` AND s.`ArtikelNummerSupplier` = @c) " +
+            " ORDER BY EXISTS (SELECT 1 FROM `ArtikelSupplier` s2 WHERE s2.`ArtikelID` = a.`ArtikelID` AND s2.`SupplierID` = @l) DESC, " +
+            "          a.`ArtikelID` DESC " +
+            $" LIMIT {Math.Clamp(max, 1, 200)}", cn);
+        cmd.Parameters.AddWithValue("@c", c);
+        cmd.Parameters.AddWithValue("@l", (object?)leverancierId ?? DBNull.Value);
+
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var merkId = r.IsDBNull(3) ? (int?)null : Convert.ToInt32(r.GetValue(3));
+            lijst.Add(new ArtikelRegel(r.GetInt32(0), r.GetString(1), r.GetString(2),
                 merkId is not null && namen.TryGetValue(merkId.Value, out var m) ? m : ""));
         }
         return lijst;

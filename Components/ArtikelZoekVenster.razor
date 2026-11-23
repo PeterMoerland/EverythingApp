@@ -63,6 +63,11 @@
     [Parameter] public string Zoek { get; set; } = "";
     /// <summary>Eerst Maakdelen tonen (Relations.DefaultMaakdelen van de leverancier).</summary>
     [Parameter] public bool Maakdelen { get; set; }
+    /// <summary>
+    /// Een lijst om mee te openen in plaats van te zoeken: de artikelen die precies de getypte code hebben (bestelregel,
+    /// wens gebruiker 23-11-2026). Typen of wisselen zoekt daarna gewoon.
+    /// </summary>
+    [Parameter] public List<ArtikelRegel>? Voorstel { get; set; }
     [Parameter] public EventCallback<int> OpGekozen { get; set; }
     [Parameter] public EventCallback OpGesloten { get; set; }
 
@@ -81,7 +86,13 @@
             _zoek = (Zoek ?? "").Trim();
             _maakdelen = Maakdelen;
             _focus = true;
-            await Zoeken();
+            if (Voorstel is { Count: > 0 } v)
+            {
+                ++_teller;
+                _lijst = v; _index = 0;
+                _status = $"{v.Count} artikelen met de code '{_zoek}'. Kies er een, of typ om verder te zoeken.";
+            }
+            else await Zoeken();
         }
         _wasOpen = Open;
     }

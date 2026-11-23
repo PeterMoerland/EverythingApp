@@ -562,7 +562,7 @@
                                                    @oninput="e => _artikelTekst[regel.Id] = (string?)e.Value ?? string.Empty"
                                                    @ondblclick="() => OpenArtikelZoek(regel)"
                                                    @onkeydown="e => ArtikelcodeToets(regel, e)"
-                                                   @onchange="e => Zet(regel, v => regel.Artikelcode = v, e)" /></td>
+                                                   @onchange="e => ZetArtikelcode(regel, e)" /></td>
                                         <td><input value="@regel.Omschrijving" maxlength="400"
                                                    @onchange="e => Zet(regel, v => regel.Omschrijving = v, e)" /></td>
                                         @* Het MDE-nummer blijft te wijzigen; staat er een geldig
@@ -615,7 +615,8 @@
 
                     <BestelMailVenster OrderId="_mailOrder" OpGesloten="MailGesloten" />
                     <ArtikelZoekVenster Open="_artZoekRegel is not null" Zoek="@_artZoekTekst" Maakdelen="_artZoekMaakdelen"
-                                        OpGekozen="ArtikelGekozen" OpGesloten="() => _artZoekRegel = null" />
+                                        Voorstel="_artZoekVoorstel"
+                                        OpGekozen="ArtikelGekozen" OpGesloten="() => { _artZoekRegel = null; _artZoekVoorstel = null; }" />
                     <PlakVenster Open="_plakOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
                                  OpToegevoegd="NaPlakken" OpGesloten="() => _plakOpen = false" />
                     <ScreenshotVenster Open="_schermOpen" OrderId="_orderId" LeverancierId="LeverancierVanOrder" Leverdatum="StandaardLeverdatum"
@@ -1963,8 +1964,42 @@
     /// <summary>Wat er in het veld getypt is maar nog niet opgeslagen (onchange komt pas bij het verlaten).</summary>
     private readonly Dictionary<int, string> _artikelTekst = new();
 
+    /// <summary>De artikelen met precies de getypte code, als dat er meer dan een zijn: daarmee opent het zoekvenster.</summary>
+    private List<ArtikelRegel>? _artZoekVoorstel;
+
+    /// <summary>
+    /// De artikelcode is getypt (wens gebruiker 23-11-2026): de regel bewaren zoals altijd, en dan kijken of er een
+    /// artikel met precies deze code bestaat (MDE-code, fabrikantcode of bestelnummer bij een leverancier). Eén treffer:
+    /// het artikel komt in de regel, zoals na kiezen in het zoekvenster. Meer: het zoekvenster opent met die lijst.
+    /// Geen: de code blijft staan als vrije tekst. Hoort de regel al bij de enige treffer, dan gebeurt er niets.
+    /// </summary>
+    private async Task ZetArtikelcode(Orderregel regel, ChangeEventArgs e)
+    {
+        var oud = (regel.Artikelcode ?? "").Trim();
+        var code = ((string?)e.Value ?? "").Trim();
+        regel.Artikelcode = (string?)e.Value ?? "";
+        await BewaarRegel(regel);
+        if (regel.Id == 0 || code.Length < 2 || string.Equals(code, oud, StringComparison.OrdinalIgnoreCase)) return;
+
+        List<ArtikelRegel> treffers;
+        try { treffers = await Artikelen.ZoekOpCodeAsync(code, LeverancierVanOrder, 50); }
+        catch { return; }                                  // opzoeken is een extraatje: de regel is al bewaard
+        if (treffers.Count == 0) return;
+        if (treffers.Count == 1)
+        {
+            if (MdeNummer(regel.MdeCode) != treffers[0].Id) await VulArtikel(regel, treffers[0].Id);
+            return;
+        }
+        _artikelTekst.Remove(regel.Id);
+        _artZoekTekst = code;
+        _artZoekMaakdelen = false;
+        _artZoekVoorstel = treffers;
+        _artZoekRegel = regel;
+    }
+
     private async Task OpenArtikelZoek(Orderregel regel)
     {
+        _artZoekVoorstel = null;
         _artZoekTekst = _artikelTekst.TryGetValue(regel.Id, out var t) ? t : regel.Artikelcode;
         try { _artZoekMaakdelen = await Repo.DefaultMaakdelenAsync(LeverancierVanOrder); } catch { _artZoekMaakdelen = false; }
         _artZoekRegel = regel;
@@ -1984,7 +2019,13 @@
     {
         var regel = _artZoekRegel;
         _artZoekRegel = null;
+        _artZoekVoorstel = null;
         if (regel is null) return;
+        await VulArtikel(regel, artikelId);
+    }
+
+    private async Task VulArtikel(Orderregel regel, int artikelId)
+    {
         _artikelTekst.Remove(regel.Id);
         try
         {
