@@ -217,18 +217,21 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
             var k = a.Kopie();
             k.Id = Nieuw();
             k.GemaaktDoor ??= door;
+            k.GewijzigdOp = DateTime.Now; k.GewijzigdDoor = door;
             _acts.Add((boardId, k));
             return Task.FromResult(k.Id);
         }
     }
 
     private Activiteit Act(int id) => _acts.First(x => x.A.Id == id).A;
+    /// <summary>De activiteit, en hij telt als nu aangepast door deze werknemer (zoals last_updated en GewijzigdDoor).</summary>
+    private Activiteit Act(int id, int? door) { var a = Act(id); a.GewijzigdOp = DateTime.Now; a.GewijzigdDoor = door; return a; }
 
     public Task ZetVeldAsync(int activiteitId, string kolom, object? waarde, int? door)
     {
         lock (_slot)
         {
-            var a = Act(activiteitId);
+            var a = Act(activiteitId, door);
             switch (kolom)
             {
                 case "Titel": a.Titel = (string)waarde!; break;
@@ -245,7 +248,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
 
     public Task ZetStatusAsync(int activiteitId, string status, DateTime? geslotenOp, int? door)
     {
-        lock (_slot) { var a = Act(activiteitId); a.Status = status; a.GeslotenOp = geslotenOp; }
+        lock (_slot) { var a = Act(activiteitId, door); a.Status = status; a.GeslotenOp = geslotenOp; }
         return Task.CompletedTask;
     }
 
@@ -253,7 +256,7 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
     {
         lock (_slot)
         {
-            var a = Act(activiteitId);
+            var a = Act(activiteitId, door);
             var lijst = ids.Distinct().ToList();
             if (soort == "problemen") a.Problemen = lijst; else if (soort == "types") a.Types = lijst; else a.Personen = lijst;
         }

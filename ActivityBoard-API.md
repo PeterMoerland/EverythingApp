@@ -152,6 +152,8 @@ de koppeling op zijn eigen manier:
 ]
 ```
 
+`gewijzigdOp` en `gewijzigdDoor` (bij elke activiteit) zeggen wanneer en door wie hij het laatst is aangepast.
+
 `geblokkeerd: true` staat er (ook in lijsten) als het kaartje afhangt van een kaartje dat nog niet klaar is. In de app
 staat dan ⛔ wacht op het kaartje.
 

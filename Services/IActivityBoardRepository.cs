@@ -426,7 +426,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using (var cmd = new MySqlCommand(
             "SELECT `ActiviteitID`, `Titel`, `Status`, `Prioriteit`, `Vervaldatum`, `GemaaktOp`, `GeslotenOp`, `Volgorde`, " +
             "       `Samenvatting`, `Details`, `Impact`, `GenomenStappen`, `VolgendeStappen`, `Opmerkingen`, " +
-            (metTijd ? "`BenodigdeUren`" : "NULL") + ", `GemaaktDoor`, " + (metOpmaak ? "`Opmaak`" : "0") +
+            (metTijd ? "`BenodigdeUren`" : "NULL") + ", `GemaaktDoor`, " + (metOpmaak ? "`Opmaak`" : "0") + ", `last_updated`, `GewijzigdDoor`" +
             "  FROM `ActivityBoardActiviteiten` WHERE `BoardID` = @b", cn))
         {
             cmd.Parameters.AddWithValue("@b", boardId);
@@ -447,6 +447,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
                     BenodigdeUren = r.IsDBNull(14) ? null : Convert.ToDecimal(r.GetValue(14)) is > 0 and var bu ? bu : null,
                     GemaaktDoor = I(r, 15),
                     Opmaak = Convert.ToInt32(r.GetValue(16)) != 0,
+                    GewijzigdOp = D(r, 17), GewijzigdDoor = I(r, 18),
                 };
                 for (var i = 0; i < ActTekst.Velden.Length; i++)
                     if (S(r, 8 + i) is { Length: > 0 } tekst) a.Tekst[ActTekst.Velden[i].Kolom] = tekst;
@@ -679,7 +680,7 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         for (var i = 0; i < vakVolgorde.Count; i++)
         {
             await using var cmd = new MySqlCommand(
-                "UPDATE `ActivityBoardActiviteiten` SET `Volgorde` = @v WHERE `ActiviteitID` = @id", cn, tx);
+                "UPDATE `ActivityBoardActiviteiten` SET `Volgorde` = @v, `last_updated` = `last_updated` WHERE `ActiviteitID` = @id", cn, tx);
             cmd.Parameters.AddWithValue("@v", i);
             cmd.Parameters.AddWithValue("@id", vakVolgorde[i]);
             await cmd.ExecuteNonQueryAsync();

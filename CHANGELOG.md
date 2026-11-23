@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
+- **Activity board** — Nieuw: in de pop-up van een kaartje staat **Aangepast op** en **Aangepast door**: wanneer en door wie het kaartje het laatst is gewijzigd (punt van Kees).
 - **Uitgaande facturen** — Nieuw: bij ＋ Uren en materiaal kun je met een vinkje ook het **materiaal van de werkorder** tonen: wat uit de voorraad is uitgegeven en wat op de werkorder is ingekocht. Je vinkt per regel aan wat op de factuur komt; de prijs is de verkoopprijs van het artikel, of je vult hem zelf in als die er niet is. Handig bij een storingsorder met uren en materiaal (verzoek van Edwin).
 - **Publiceren** — Opgelost: de tien waarschuwingen over de PLC-koppeling bij het publiceren zijn weg. Aan de werking van Gebouwbeheer is niets veranderd (melding van Peter).
 - **Netwerk** — Verbeterd: het netwerkscherm staat nu ook onder **Tools ▸ Netwerk**, voor wie het recht Netwerk heeft. Het menu Beheer is alleen voor de Directie, dus wie alleen het recht Netwerk had kon er niet via het menu bij (vraag van Peter).

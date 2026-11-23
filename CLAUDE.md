@@ -476,6 +476,11 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Aangepast op / door** (punt van Kees, 23-11-2026): `Activiteit.GewijzigdOp` en `GewijzigdDoor` uit de bestaande
+  kolommen `last_updated` en `GewijzigdDoor` (geen script). In de pop-up onder Gemaakt op; in de API `gewijzigdOp` en
+  `gewijzigdDoor`. Het opnieuw nummeren van een vak bij slepen houdt `last_updated` nu vast (`last_updated =
+  last_updated`), anders leek elke kaart in dat vak aangepast. `SchrijfTerug` zet na een eigen wijziging tijd en naam
+  meteen in de open pop-up. Let op: een punt afvinken of een koppeling leggen telt ook als aanpassing.
 - **Op prioriteit** (punt van Kees, 23-11-2026): knop naast Markeren, alleen in Kanban. Aan = elk vak gesorteerd met
   `OpPrioriteit` (Hoog, Gemiddeld, Laag, zonder; daarbinnen `OpVolgorde`), uit = de eigen volgorde. Per pc onthouden
   (`mdeOpslag` "ab-opprio"). Er wordt niets bewaard: het is alleen de weergave. Let op: wie met de knop aan een kaart

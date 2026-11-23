@@ -97,6 +97,12 @@ public class Activiteit
     /// </summary>
     public int? GemaaktDoor { get; set; }
     public DateTime? GeslotenOp { get; set; }
+    /// <summary>
+    /// Wanneer en door wie de activiteit het laatst is aangepast (punt van Kees, 23-11-2026): de kolommen last_updated
+    /// en GewijzigdDoor. Alleen een andere plek in het vak door slepen telt niet. Null = onbekend.
+    /// </summary>
+    public DateTime? GewijzigdOp { get; set; }
+    public int? GewijzigdDoor { get; set; }
     public int Volgorde { get; set; }
     public List<int> Problemen { get; set; } = new();
     public List<int> Types { get; set; } = new();
@@ -120,7 +126,7 @@ public class Activiteit
     public Activiteit Kopie() => new()
     {
         Id = Id, Titel = Titel, Status = Status, Prioriteit = Prioriteit, Vervaldatum = Vervaldatum, BenodigdeUren = BenodigdeUren, GemaaktDoor = GemaaktDoor,
-        GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde, Opmaak = Opmaak,
+        GemaaktOp = GemaaktOp, GeslotenOp = GeslotenOp, Volgorde = Volgorde, Opmaak = Opmaak, GewijzigdOp = GewijzigdOp, GewijzigdDoor = GewijzigdDoor,
         Problemen = new(Problemen), Types = new(Types), Personen = new(Personen), Tekst = new(Tekst),
         Checklist = Checklist.Select(p => p.Kopie()).ToList(), Koppelingen = new(Koppelingen),
     };

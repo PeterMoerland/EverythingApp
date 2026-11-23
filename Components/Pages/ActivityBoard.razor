@@ -587,6 +587,15 @@ else
                 <div class="ab-lab">Gemaakt op</div>
                 <div class="ab-ro">@(o.Id == 0 ? "nog niet opgeslagen" : o.GemaaktOp.ToString("dd-MM-yyyy HH:mm"))</div>
 
+                @* laatst aangepast: wanneer en door wie (punt van Kees, 23-11-2026) *@
+                @if (o.Id != 0 && o.GewijzigdOp is DateTime aangepast)
+                {
+                    <div class="ab-lab">Aangepast op</div>
+                    <div class="ab-ro">@aangepast.ToString("dd-MM-yyyy HH:mm")</div>
+                    <div class="ab-lab">Aangepast door</div>
+                    <div class="ab-ro">@(o.GewijzigdDoor is int wie && _persoonOpId.TryGetValue(wie, out var pers) ? pers.Naam : "onbekend")</div>
+                }
+
                 @if (_metKoppelingen && o.Id != 0)
                 {
                     @* koppelingen met andere kaartjes (vraag Gerard 20-11-2026), ook op een ander board *@
@@ -1520,6 +1529,7 @@ else
                     o.Problemen = new(a.Problemen); o.Types = new(a.Types); o.Personen = new(a.Personen);
                     o.Checklist = a.Checklist.Select(p => p.Kopie()).ToList();
                     o.Opmaak = a.Opmaak;
+                    o.GewijzigdOp = a.GewijzigdOp; o.GewijzigdDoor = a.GewijzigdDoor;
                     o.Koppelingen = new(a.Koppelingen);
                     // de tekst van een collega of de API, behalve in het veld waar je zelf in typt
                     foreach (var veld in ActTekst.Velden.Select(x => x.Kolom).Where(k => k != _bewerkVeld))
@@ -2315,6 +2325,8 @@ else
         if (_data is null || o.Id == 0) return;
         var i = _data.Activiteiten.FindIndex(x => x.Id == o.Id);
         if (i < 0) return;
+        // dit wordt aangeroepen na een eigen wijziging die bewaard is: dat is nu de laatste aanpassing
+        o.GewijzigdOp = DateTime.Now; o.GewijzigdDoor = Ik.WerknemerId;
         var k = o.Kopie();
         k.Volgorde = _data.Activiteiten[i].Volgorde;
         _data.Activiteiten[i] = k;

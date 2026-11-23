@@ -871,6 +871,8 @@ public static class ActivityBoardApi
             ["initiator"] = a.GemaaktDoor is int g ? new { id = g, naam = v.Naam(g) } : null,
             ["gemaaktOp"] = a.GemaaktOp.ToString("yyyy-MM-dd HH:mm"),
             ["geslotenOp"] = a.GeslotenOp?.ToString("yyyy-MM-dd HH:mm"),
+            ["gewijzigdOp"] = a.GewijzigdOp?.ToString("yyyy-MM-dd HH:mm"),
+            ["gewijzigdDoor"] = a.GewijzigdDoor is int gw ? new { id = gw, naam = v.Naam(gw) } : null,
         };
         if (metBoard) uit["board"] = new { id = d.Board.Id, titel = d.Board.Titel };
         if (metTekst) uit["opmaak"] = a.Opmaak;
