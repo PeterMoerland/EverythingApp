@@ -445,6 +445,10 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Op prioriteit** (punt van Kees, 23-11-2026): knop naast Markeren, alleen in Kanban. Aan = elk vak gesorteerd met
+  `OpPrioriteit` (Hoog, Gemiddeld, Laag, zonder; daarbinnen `OpVolgorde`), uit = de eigen volgorde. Per pc onthouden
+  (`mdeOpslag` "ab-opprio"). Er wordt niets bewaard: het is alleen de weergave. Let op: wie met de knop aan een kaart
+  binnen een vak versleept, legt de volgorde vast zoals hij dan in beeld staat (dus op prioriteit).
 - **Uitleg achter een vraagteken** (wens gebruiker, zelfde dag: "minder tekst op beeld"): in de linkerkolom van de pop-up
   staat de uitleg bij Benodigde tijd, Kaartnummer en Opmaak niet meer als `.ab-hint` onder het veld maar in
   `Uitleg(tekst)` (een `RenderFragment`): een rondje met ? en een wolkje dat met alleen CSS verschijnt bij wijzen, klikken

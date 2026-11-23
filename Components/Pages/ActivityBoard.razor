@@ -294,6 +294,12 @@ else
             </select>
             <button type="button" class="ab-vtab ab-markeer @(_markeer ? "actief" : "")" aria-pressed="@_markeer" @onclick="WisselMarkeer"
                     title="Niet filteren maar markeren: de kaarten van de gekozen persoon lichten op, de andere blijven zichtbaar">Markeren</button>
+            @* punt van Kees (23-11-2026): de kaartjes in elk vak op prioriteit, hoogste bovenaan; uit = de eigen volgorde (slepen) *@
+            @if (_view == "kanban")
+            {
+                <button type="button" class="ab-vtab ab-markeer @(_opPrio ? "actief" : "")" aria-pressed="@_opPrio" @onclick="WisselOpPrio"
+                        title="De kaartjes in elk vak op prioriteit: Hoog bovenaan, dan Gemiddeld, Laag en zonder prioriteit. Uit: de volgorde waarin ze gesleept zijn.">Op prioriteit</button>
+            }
             <select class="@(_fType.Length > 0 ? "aan" : "")" value="@_fType" aria-label="Filter type"
                     @onchange="e => _fType = (string?)e.Value ?? string.Empty">
                 <option value="">Type: alle</option>
@@ -318,7 +324,7 @@ else
         var lanes = _data.Problemen.Select(p => p.Id.ToString()).Append("geen").ToList();
         var vak = lanes.ToDictionary(l => l, l => ActStatus.Alle.ToDictionary(s => s.Code, s => new List<Activiteit>()));
         foreach (var a in lijst) vak[Lane(a, idx)][a.Status].Add(a);
-        foreach (var l in lanes) foreach (var s in ActStatus.Alle) vak[l][s.Code].Sort(OpVolgorde);
+        foreach (var l in lanes) foreach (var s in ActStatus.Alle) vak[l][s.Code].Sort(_opPrio ? OpPrioriteit : OpVolgorde);
 
         @if (_data.Activiteiten.Count == 0)
         {
@@ -964,6 +970,7 @@ else
             {
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-weergave") == "lijst") { _boom = false; StateHasChanged(); }
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-markeer") == "ja") { _markeer = true; StateHasChanged(); }
+                if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-opprio") == "ja") { _opPrio = true; StateHasChanged(); }
             }
             catch { }
         }
@@ -1606,6 +1613,17 @@ else
 
     // ---- persoon: filteren of markeren (wens gebruiker 19-11-2026: "wat staat er voor mij open", de rest blijft zichtbaar)
     private bool _markeer;                                 // onthouden per pc (mdeOpslag "ab-markeer")
+    private bool _opPrio;                                  // kaartjes per vak op prioriteit (mdeOpslag "ab-opprio"; punt van Kees)
+
+    /// <summary>Hoog (1) bovenaan, dan Gemiddeld, Laag, en zonder prioriteit onderaan; daarbinnen de eigen volgorde.</summary>
+    private int OpPrioriteit(Activiteit a, Activiteit b)
+        => (a.Prioriteit ?? 9) != (b.Prioriteit ?? 9) ? (a.Prioriteit ?? 9).CompareTo(b.Prioriteit ?? 9) : OpVolgorde(a, b);
+
+    private async Task WisselOpPrio()
+    {
+        _opPrio = !_opPrio;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "ab-opprio", _opPrio ? "ja" : "nee"); } catch { }
+    }
 
     /// <summary>Ikzelf, als ik in de lijst gekozen kan worden (gekoppeld, in dienst).</summary>
     private int? IkKiesbaar => Ik.WerknemerId is int ik && _persoonOpId.GetValueOrDefault(ik)?.Kiesbaar == true ? ik : null;
