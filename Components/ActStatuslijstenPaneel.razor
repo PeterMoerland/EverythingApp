@@ -78,10 +78,11 @@ else
                                         var open = _celOpen == (r.Id, k.Id);
                                         <td class="sl-cel" @key="k.Id">
                                             <button type="button" class="ab-chip ab-k-@ActCelStatus.Kleur(status) sl-status @(cel is null ? "leeg" : "")" title="@CelTip(cel)"
-                                                    @onclick="() => _celOpen = open ? null : (r.Id, k.Id)"><span class="sl-stip"></span>@ActCelStatus.Naam(status)</button>
+                                                    @onclick="e => OpenCel(e, open ? null : (r.Id, k.Id))"><span class="sl-stip"></span>@ActCelStatus.Naam(status)</button>
                                             @if (open)
                                             {
-                                                <div class="sl-menu">
+                                                @* vast op het scherm bij de muis: binnen de tabel viel de lijst weg onder de rand (overflow) *@
+                                                <div class="sl-menu" style="@_menuStijl">
                                                     @foreach (var s in ActCelStatus.Alle)
                                                     {
                                                         var code = s.Code;
@@ -149,6 +150,16 @@ else
     private int _nieuwKolommen = 8;
     private int _board, _versie;
     private (int Rij, int Kolom)? _celOpen;
+    private string _menuStijl = "";
+
+    private void OpenCel(MouseEventArgs e, (int Rij, int Kolom)? cel)
+    {
+        _celOpen = cel;
+        // iets onder en links van de muis; nooit onder de onderrand of voorbij de rechterrand van het venster
+        var x = ((int)e.ClientX - 20).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var y = ((int)e.ClientY + 14).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _menuStijl = $"left:min({x}px, calc(100vw - 130px)); top:min({y}px, calc(100vh - 150px));";
+    }
     private string? _focus;
     private readonly Dictionary<(int Lijst, int Kop), string> _nieuw = new();
 
