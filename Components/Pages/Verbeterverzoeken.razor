@@ -91,8 +91,9 @@
                     <th style="width:7.5rem">Ingediend</th>
                     <th style="width:10rem">Door</th>
                     <th>Verzoek</th>
+                    @if (_prioMogelijk) { <th style="width:7.5rem">Prioriteit</th> }
                     <th style="width:9rem">Status</th>
-                    <th style="width:24%">Reactie</th>
+                    <th style="width:17%">Reactie</th>
                 </tr>
             </thead>
             <tbody>
@@ -135,6 +136,24 @@
                                 </div>
                             }
                         </td>
+                        @* prioriteit in een eigen kolom voor de status (wens gebruiker 24-11-2026): Directie kiest, de rest ziet een chipje *@
+                        @if (_prioMogelijk)
+                        {
+                            <td>
+                                @if (MagBeheren)
+                                {
+                                    <select value="@(v.Prioriteit?.ToString() ?? "")" class="verbeter-status" title="Prioriteit" aria-label="Prioriteit"
+                                            @onchange="e => Wijzig(v, () => v.Prioriteit = int.TryParse((string?)e.Value, out var p) ? p : null)">
+                                        <option value="">—</option>
+                                        @foreach (var p in VerzoekStatus.Prioriteiten) { <option value="@p.Waarde">@p.Naam</option> }
+                                    </select>
+                                }
+                                else if (v.Prioriteit is int pr)
+                                {
+                                    <span class="stand-chip @VerzoekStatus.PrioKleur(pr)">@VerzoekStatus.PrioNaam(pr)</span>
+                                }
+                            </td>
+                        }
                         <td>
                             @if (MagBeheren)
                             {
@@ -145,19 +164,6 @@
                             else
                             {
                                 <span class="stand-chip @VerzoekStatus.Kleur(v.Status)">@v.Status</span>
-                            }
-                            @* prioriteit: Directie kiest, de rest ziet een chipje *@
-                            @if (_prioMogelijk && MagBeheren)
-                            {
-                                <select value="@(v.Prioriteit?.ToString() ?? "")" class="verbeter-status verbeter-prio" title="Prioriteit" aria-label="Prioriteit"
-                                        @onchange="e => Wijzig(v, () => v.Prioriteit = int.TryParse((string?)e.Value, out var p) ? p : null)">
-                                    <option value="">prioriteit: geen</option>
-                                    @foreach (var p in VerzoekStatus.Prioriteiten) { <option value="@p.Waarde">prioriteit: @p.Naam</option> }
-                                </select>
-                            }
-                            else if (_prioMogelijk && v.Prioriteit is int pr)
-                            {
-                                <br /><span class="stand-chip @VerzoekStatus.PrioKleur(pr)" title="Prioriteit">prio @VerzoekStatus.PrioNaam(pr)</span>
                             }
                             @* je eigen verzoek terugnemen zolang het open staat (punt van Gerard, 19-11-2026) *@
                             @if (MagIntrekken(v))
@@ -183,7 +189,7 @@
                     {
                         <tr @key="-v.Id" class="verbeter-gesprek-rij @(v.Id == VerzoekUitUrl ? "verbeter-uitgelicht" : "")">
                             <td></td>
-                            <td colspan="4">
+                            <td colspan="@(_prioMogelijk ? 5 : 4)">
                                 <div class="verbeter-gesprek">
                                     @if (!_berichten.TryGetValue(v.Id, out var berichten))
                                     {
@@ -259,7 +265,7 @@
                 }
                 @if (!Zichtbaar.Any())
                 {
-                    <tr><td colspan="5" class="kiezer-info">Geen verzoeken@(_filter == "open" ? " open" : "") — klik op 💡 rechtsboven voor een idee.</td></tr>
+                    <tr><td colspan="@(_prioMogelijk ? 6 : 5)" class="kiezer-info">Geen verzoeken@(_filter == "open" ? " open" : "") — klik op 💡 rechtsboven voor een idee.</td></tr>
                 }
             </tbody>
         </table>
