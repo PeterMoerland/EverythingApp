@@ -476,6 +476,23 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Afbeeldingen bij de tekstvelden** (punt van Arnold, 24-11-2026; script `ActivityBoard_Afbeeldingen_MariaDB.sql`):
+  `Services/ActAfbeeldingen.cs` (singleton, los van `IActivityBoardRepository`): bestand in de filestore (soort **344**,
+  MasterID = activiteit), tabel `ActivityBoardAfbeeldingen` voor veld (`ActTekst`-kolom), titel en commentaar; met
+  `ActivityBoard:Geheugen` alles in het geheugen. Adressen `POST /activityboard/afbeelding?activiteit=&veld=` (multipart,
+  alleen png/jpg/gif/webp/bmp tot 20 MB) en `GET /activityboard/afbeelding/{id}`. `activityboard.js` vangt het slepen
+  van bestanden: op `.ab-tveld[data-veld]` in de pop-up meteen uploaden, op een `.ab-kaart` eerst `AfbeeldingOpKaart`
+  (het scherm vraagt het veld, dan `mdeAb.stuurWacht`), daarna `AfbeeldingenGewijzigd`. Elders op het board is loslaten
+  geblokkeerd (anders opent de browser het plaatje). Pagina: `_afb` (per activiteit, geladen in `LaadBijlagen`), lijstje
+  rechts naast elk veld (`.ab-veldrij`), kijkvenster (`_afbOpen`: ‹ › en pijltjes over alle afbeeldingen van de
+  activiteit, dubbelklik of ✎ = titel/commentaar, verwijderen), chip 🖼 n op het kaartje. Zonder het script werkt het
+  board zonder afbeeldingen. Een activiteit verwijderen ruimt de afbeeldingen (nog) niet op; niet in de API.
+- **Afvinklijst slepen deed niets** (melding Arnold, 24-11-2026): `@ondragover:preventDefault` zonder handler annuleert
+  dragover niet, dus de browser liet nooit loslaten toe. Nu doet `activityboard.js` dat (dragstart op `.ab-pgreep` zet
+  een eigen gegevenssoort, dragover op `.ab-punt/.ab-pkop/.ab-pnieuw` annuleert en zet `.ab-pdoel`); het loslaten zelf
+  blijft `@ondrop` in de pagina. Alt+pijl werkte al.
+- **Snelknop + Ik** (punt van Arnold, 24-11-2026): in de pop-up bij Toegewezen aan, voor de keuzelijst; alleen als je
+  kiesbaar bent (`IkKiesbaar`) en er nog niet op staat. Doet hetzelfde als jezelf kiezen in de lijst.
 - **Afgeleide prioriteit** (punt van Kees, 23-11-2026): blokkeren bestond al als koppeling ("hangt af van" /
   "blokkeert"). `ActPrioriteit.Afleiden(activiteiten)` zet `Activiteit.AfgeleidePrioriteit`/`AfgeleidVan` (niet bewaard):
   wie iets blokkeert dat nog niet klaar is, telt minstens zo zwaar (`TelPrioriteit`); werkt door over een keten. Draait

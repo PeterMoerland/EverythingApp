@@ -8,6 +8,7 @@
 @inject IUrenRepository Uren
 @inject IWerknemerRepository Bestanden
 @inject FilestoreService Store
+@inject ActAfbeeldingen Afb
 @inject ActivityBoardLive Live
 @inject IMeldingRepository Meldingen
 @inject MeldingSignaal Signaal
@@ -388,6 +389,7 @@ else
                                         <div class="ab-kmeta">
                                             @if (a.BenodigdeUren is decimal bu) { <span class="ab-chip ab-tijd" title="Benodigde tijd">⏱ @ActTijd.Tekst(bu)</span> }
                                             @if (a.Geblokkeerd) { <span class="ab-chip ab-wacht" title="@WachtTip(a)">⛔ wacht</span> }
+                                            @if (_afb.TryGetValue(a.Id, out var afl) && afl.Count > 0) { <span class="ab-chip ab-tijd" title="@(afl.Count == 1 ? "1 afbeelding" : afl.Count + " afbeeldingen")">🖼 @afl.Count</span> }
                                             @if (a.PuntenTotaal > 0) { <span class="ab-chip ab-vink @(a.PuntenKlaar == a.PuntenTotaal ? "af" : "")" title="Afvinklijst: @a.PuntenKlaar van de @a.PuntenTotaal punten afgevinkt">☑ @a.PuntenKlaar/@a.PuntenTotaal</span> }
                                             @foreach (var tid in a.Types) { @TypeChip(tid) }
                                             @if (a.TelPrioriteit is int pr) { <span class="ab-chip ab-k-@ActPrioriteit.Kleur(pr)" title="@PrioTip(a)">@ActPrioriteit.Naam(pr)@(a.AfgeleidePrioriteit is null ? "" : " ↑")</span> }
@@ -477,6 +479,12 @@ else
                             <button type="button" class="ab-x" title="@("Haal " + m.Naam + " eraf")" aria-label="@(m.Naam + " eraf halen")"
                                     @onclick="() => Wissel(KoppelPersonen, pid)">×</button>
                         </span>
+                    }
+                    @* snelknop om jezelf toe te wijzen (punt van Arnold, 24-11-2026); weg zodra je erop staat *@
+                    @if (IkKiesbaar is int ikm && !o.Personen.Contains(ikm))
+                    {
+                        <button type="button" class="ab-kies" title="@("Wijs de activiteit aan jezelf toe (" + _persoonOpId[ikm].Naam + ")")"
+                                @onclick="() => Wissel(KoppelPersonen, ikm)">+ Ik</button>
                     }
                     <select class="ab-persoonkies" @key="PersoonKiesSleutel" @onchange="PersoonGekozen" aria-label="Persoon toevoegen">
                         <option value="">+ persoon toevoegen…</option>
@@ -670,11 +678,14 @@ else
                 // met opmaak (Markdown, vraag Gerard 20-11-2026): de tekst staat opgemaakt in beeld en wordt een tekstvak als
                 // je hem bewerkt (knop of dubbelklik); een leeg veld is meteen een tekstvak. Zonder opmaak: zoals het was.
                 var toon = o.Opmaak && inhoud.Length > 0 && _bewerkVeld != kolom;
-                <div class="ab-sectie">
+                var metAfb = _metAfb && o.Id != 0;
+                <div class="ab-sectie @(metAfb ? "ab-tveld" : "")" data-veld="@(metAfb ? kolom : null)" data-act="@(metAfb ? o.Id : null)">
                     @* de uitleg van het veld achter een vraagteken; het vak zelf blijft leeg (wens gebruiker 20-11-2026) *@
                     <h3>@v.Naam @Uitleg(v.Hulp)
                         @if (toon) { <button type="button" class="ab-md-knop" title="Tekst bewerken (dubbelklik op de tekst kan ook)" @onclick="() => BewerkVeld(kolom)">✎ bewerken</button> }
                     </h3>
+                    <div class="@(metAfb ? "ab-veldrij" : "")">
+                    <div class="ab-veldtekst">
                     @if (toon)
                     {
                         <div class="ab-md" @ondblclick="() => BewerkVeld(kolom)">@((MarkupString)ActMarkdown.Html(inhoud))</div>
@@ -688,6 +699,21 @@ else
                             <div class="ab-hint">Markdown: <code># kop</code> · <code>**vet**</code> · <code>*cursief*</code> · <code>- lijst</code> · <code>1. genummerd</code> · <code>`code`</code> · <code>[tekst](https://…)</code>. Klik buiten het vak om de opmaak te zien.</div>
                         }
                     }
+                    </div>
+                    @* afbeeldingen bij dit veld (punt van Arnold 24-11-2026): slepen op het veld zet ze erbij (activityboard.js) *@
+                    @if (metAfb)
+                    {
+                        <div class="ab-afb" title="Sleep een afbeelding op dit veld om hem erbij te zetten">
+                            @foreach (var pl in AfbVan(o.Id, kolom))
+                            {
+                                var plaatje = pl;
+                                <button type="button" class="ab-afb-item" title="@(plaatje.Titel + (plaatje.Commentaar.Length > 0 ? " — " + plaatje.Commentaar : "") + "\nKlik: bekijken · dubbelklik: titel en commentaar")"
+                                        @onclick="() => OpenAfb(plaatje, false)" @ondblclick="() => OpenAfb(plaatje, true)">🖼 @plaatje.Titel</button>
+                            }
+                            <span class="ab-afb-hint">sleep hier een afbeelding heen</span>
+                        </div>
+                    }
+                    </div>
                 </div>
                 @if (kolom == "Samenvatting" && _metChecklist)
                 {
@@ -780,6 +806,63 @@ else
         <button type="button" role="menuitem" @onclick="() => MenuDupliceer(ma)">Dupliceren</button>
         <div class="ab-menulijn"></div>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => MenuVerwijder(ma)">Verwijderen</button>
+    </div>
+}
+
+@* ---------- afbeelding bekijken: titel, commentaar, bladeren (punt van Arnold 24-11-2026) ---------- *@
+@if (_afbOpen is { } af)
+{
+    var alle = AfbVan(af.ActiviteitId);
+    var nr = alle.FindIndex(x => x.Id == af.Id);
+    <div class="ab-modal ab-afbkijk" @onclick="SluitAfb">
+        <div class="ab-afbkijk-in" id="ab-afbkijk" tabindex="0" role="dialog" aria-modal="true" @onclick:stopPropagation="true" @onkeydown="AfbToets">
+            <div class="ab-afbkijk-kop">
+                <button class="ab-btn klein" type="button" disabled="@(nr <= 0)" title="Vorige (pijl links)" @onclick="() => AfbStap(-1)">‹</button>
+                <span class="ab-muted">@(nr + 1) / @alle.Count · @(ActTekst.Velden.FirstOrDefault(v => v.Kolom == af.Veld).Naam ?? af.Veld)</span>
+                <button class="ab-btn klein" type="button" disabled="@(nr < 0 || nr >= alle.Count - 1)" title="Volgende (pijl rechts)" @onclick="() => AfbStap(1)">›</button>
+                <span style="flex:1"></span>
+                @if (!_afbBewerk) { <button class="ab-btn klein" type="button" @onclick="AfbBewerken">✎ titel en commentaar</button> }
+                <a class="ab-btn klein" href="@AfbUrl(af)" target="_blank" title="De afbeelding los openen in een nieuw tabblad">↗</a>
+                <button class="ab-btn klein" type="button" title="Sluiten (Esc)" @onclick="SluitAfb">✕</button>
+            </div>
+            <img src="@AfbUrl(af)" alt="@af.Titel" title="Dubbelklik: titel en commentaar wijzigen" @ondblclick="AfbBewerken" />
+            @if (_afbBewerk)
+            {
+                <input class="ab-afbkijk-t" maxlength="200" placeholder="Titel" aria-label="Titel" @bind="_afbTitel" @onkeydown:stopPropagation="true" />
+                <textarea placeholder="Commentaar" aria-label="Commentaar" @bind="_afbComm" @onkeydown:stopPropagation="true"></textarea>
+                <div class="ab-mknop">
+                    <button class="ab-btn klein" type="button" style="margin-right:auto" @onclick="AfbWeg">Afbeelding verwijderen</button>
+                    <button class="ab-btn klein" type="button" @onclick="() => _afbBewerk = false">Annuleren</button>
+                    <button class="ab-btn klein primair" type="button" @onclick="AfbBewaar">Opslaan</button>
+                </div>
+            }
+            else
+            {
+                <div class="ab-afbkijk-titel">@af.Titel</div>
+                @if (af.Commentaar.Length > 0) { <div class="ab-afbkijk-comm">@af.Commentaar</div> }
+            }
+        </div>
+    </div>
+}
+
+@* ---------- afbeelding op een kaartje gesleept: onder welk veld? ---------- *@
+@if (_afbKaart is int afk && _data?.Activiteiten.FirstOrDefault(x => x.Id == afk) is { } afa)
+{
+    <div class="ab-modal">
+        <div class="ab-mbox" role="dialog" aria-modal="true">
+            <h3>@(_afbKaartAantal == 1 ? "Afbeelding" : _afbKaartAantal + " afbeeldingen") bij “@afa.Titel”</h3>
+            <p>Onder welk veld wil je @(_afbKaartAantal == 1 ? "hem" : "ze") hangen?</p>
+            <div class="ab-afbkeuze">
+                @foreach (var v in ActTekst.Velden)
+                {
+                    var kol = v.Kolom;
+                    <button class="ab-btn klein" type="button" @onclick="() => AfbKaartKies(kol)">@v.Naam</button>
+                }
+            </div>
+            <div class="ab-mknop">
+                <button class="ab-btn klein" type="button" @onclick="() => AfbKaartKies(null)">Annuleren</button>
+            </div>
+        </div>
     </div>
 }
 
@@ -981,6 +1064,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool eerste)
     {
+        // het kijkvenster van een afbeelding krijgt de focus, zodat pijltjes en Esc werken
+        if (_afbFocus)
+        {
+            _afbFocus = false;
+            if (_afbOpen is not null && !_afbBewerk) try { await JS.InvokeVoidAsync("mdeAb.focusEl", "#ab-afbkijk"); } catch { }
+        }
         if (eerste)
         {
             _zelf = DotNetObjectReference.Create(this);
@@ -1027,8 +1116,140 @@ else
     private ElementReference _bijlagenVak;
     private bool _koppelPlakken, _bijlBezig;
 
+    // ================================================================ afbeeldingen bij de tekstvelden
+    // Punt van Arnold (24-11-2026): een afbeelding op een tekstveld van de open activiteit slepen, of op een kaartje
+    // (dan eerst de vraag onder welk veld). Opslag: Services/ActAfbeeldingen.cs; het slepen en uploaden: activityboard.js.
+    private Dictionary<int, List<ActAfbeelding>> _afb = new();
+    private bool _metAfb;                                   // ActivityBoard_Afbeeldingen_MariaDB.sql uitgevoerd
+    private ActAfbeelding? _afbOpen;                        // de afbeelding in het kijkvenster
+    private bool _afbBewerk, _afbFocus;
+    private string _afbTitel = "", _afbComm = "";
+    private int? _afbKaart;                                 // kaartje waarop afbeeldingen zijn losgelaten: wacht op het veld
+    private int _afbKaartAantal;
+
+    private async Task LaadAfbeeldingen()
+    {
+        var uit = new Dictionary<int, List<ActAfbeelding>>();
+        try
+        {
+            _metAfb = await Afb.AanwezigAsync();
+            if (_metAfb && _data is not null)
+                foreach (var x in await Afb.VanActiviteitenAsync(_data.Activiteiten.Select(a => a.Id).ToList()))
+                {
+                    if (!uit.TryGetValue(x.ActiviteitId, out var l)) uit[x.ActiviteitId] = l = new();
+                    l.Add(x);
+                }
+        }
+        catch { /* zonder afbeeldingen werkt het board gewoon */ }
+        _afb = uit;
+        if (_afbOpen is { } open) _afbOpen = uit.GetValueOrDefault(open.ActiviteitId)?.FirstOrDefault(x => x.Id == open.Id);
+    }
+
+    /// <summary>De afbeeldingen van een activiteit: van één veld, of allemaal in de volgorde van de velden.</summary>
+    private List<ActAfbeelding> AfbVan(int activiteitId, string? veld = null)
+    {
+        var alle = _afb.GetValueOrDefault(activiteitId);
+        if (alle is null) return new();
+        return veld is not null
+            ? alle.Where(x => x.Veld == veld).ToList()
+            : alle.OrderBy(x => Array.FindIndex(ActTekst.Velden, v => v.Kolom == x.Veld)).ThenBy(x => x.Id).ToList();
+    }
+
+    private static string AfbUrl(ActAfbeelding a) => $"activityboard/afbeelding/{a.Id}";
+
+    private void OpenAfb(ActAfbeelding a, bool bewerk)
+    {
+        _afbOpen = a; _afbFocus = true;
+        if (bewerk) AfbBewerken(); else _afbBewerk = false;
+    }
+
+    private void AfbBewerken()
+    {
+        if (_afbOpen is not { } a) return;
+        _afbTitel = a.Titel; _afbComm = a.Commentaar; _afbBewerk = true;
+    }
+
+    private void SluitAfb() { _afbOpen = null; _afbBewerk = false; }
+
+    private void AfbStap(int richting)
+    {
+        if (_afbOpen is not { } a) return;
+        var alle = AfbVan(a.ActiviteitId);
+        var i = alle.FindIndex(x => x.Id == a.Id) + richting;
+        if (i < 0 || i >= alle.Count) return;
+        _afbOpen = alle[i]; _afbBewerk = false; _afbFocus = true;
+    }
+
+    private void AfbToets(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape": if (_afbBewerk) _afbBewerk = false; else SluitAfb(); break;
+            case "ArrowLeft": AfbStap(-1); break;
+            case "ArrowRight": AfbStap(1); break;
+        }
+    }
+
+    private async Task AfbBewaar()
+    {
+        if (_afbOpen is not { } a) return;
+        var titel = _afbTitel.Trim();
+        if (titel.Length == 0) titel = a.Titel;
+        try
+        {
+            await Afb.ZetAsync(a.Id, titel, _afbComm);
+            await LaadAfbeeldingen();
+            _afbBewerk = false; _afbFocus = true;
+            Meld();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.GetBaseException().Message, fout: true); }
+    }
+
+    private async Task AfbWeg()
+    {
+        if (_afbOpen is not { } a) return;
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Afbeelding ‘{a.Titel}’ verwijderen?")) return;
+        try
+        {
+            await Afb.VerwijderAsync(a.Id);
+            SluitAfb();
+            await LaadAfbeeldingen();
+            Meld();
+            Toon("Afbeelding verwijderd");
+        }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.GetBaseException().Message, fout: true); }
+    }
+
+    /// <summary>activityboard.js: er zijn afbeeldingen op een kaartje losgelaten; eerst de vraag onder welk veld.</summary>
+    [JSInvokable]
+    public Task AfbeeldingOpKaart(int id, int aantal)
+    {
+        if (!_metAfb) { Toon("Afbeeldingen kunnen nog niet: ActivityBoard_Afbeeldingen_MariaDB.sql is niet uitgevoerd.", fout: true); }
+        else { _afbKaart = id; _afbKaartAantal = aantal; }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task AfbKaartKies(string? veld)
+    {
+        _afbKaart = null;
+        try { await JS.InvokeVoidAsync(veld is null ? "mdeAb.vergeetWacht" : "mdeAb.stuurWacht", veld); } catch { }
+    }
+
+    /// <summary>activityboard.js: het uploaden is klaar (of mislukt).</summary>
+    [JSInvokable]
+    public async Task AfbeeldingenGewijzigd(int activiteitId, int toegevoegd, string fout)
+    {
+        await LaadAfbeeldingen();
+        if (toegevoegd > 0) Meld();
+        if (!string.IsNullOrWhiteSpace(fout)) Toon((toegevoegd > 0 ? $"{toegevoegd} toegevoegd; niet gelukt: " : "Afbeelding toevoegen is niet gelukt: ") + fout, fout: true);
+        else if (toegevoegd > 0) Toon(toegevoegd == 1 ? "Afbeelding toegevoegd" : $"{toegevoegd} afbeeldingen toegevoegd");
+        StateHasChanged();
+    }
+
     private async Task LaadBijlagen()
     {
+        await LaadAfbeeldingen();
         if (_data is null || !Bestanden.Beschikbaar) { _bijlagen = new(); return; }
         var uit = new Dictionary<int, List<Bestand>>();
         foreach (var p in _data.Problemen)

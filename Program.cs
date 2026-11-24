@@ -307,6 +307,7 @@ if (builder.Configuration.GetValue<bool>("MeldingVoorkeuren:Geheugen"))
 // Alleen om het Activity board lokaal te testen zonder database: ActivityBoard__Geheugen=true
 if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
+builder.Services.AddSingleton<ActAfbeeldingen>();   // Activity board: afbeeldingen bij de tekstvelden
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
 // Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
@@ -1555,6 +1556,9 @@ app.MapGet("/api/componenten", async (HttpContext ctx, IEcComponentRepository ec
 // geen sleutels = uit). Zie Services/ActivityBoardApi.cs en ActivityBoard-API.md.
 // ---------------------------------------------------------------------------
 app.MapActivityBoardApi();
+// afbeeldingen bij een activiteit: uploaden (slepen) en tonen; Services/ActAfbeeldingen.cs
+var actAfbeeldingen = app.MapActAfbeeldingen();
+if (loginAan) actAfbeeldingen.RequireAuthorization();
 // het bewerkscherm van het offertedocument (wwwroot/offertedocument.html) haalt en bewaart hier
 var offerteDocApi = app.MapOfferteDocumentApi();
 if (loginAan) offerteDocApi.RequireAuthorization();

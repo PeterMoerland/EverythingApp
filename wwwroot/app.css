@@ -213,6 +213,9 @@ button.rood { color: var(--rood); border-color: var(--rood); background: #fff; }
     background-size: contain;
     text-indent: -9999px; overflow: hidden; white-space: nowrap;
 }
+/* donker: het logo uit de MDE-huisstijl met een dunne witte rand om de zwarte letters, zonder vlak erachter
+   (wwwroot/logo-mde-donker.png; punt van Arnold 24-11-2026) */
+html[data-thema="donker"] .sidebar .logo { background-image: url("logo-mde-donker.png"); }
 .sidebar nav { display: flex; flex-direction: column; padding: 0 .5rem 1rem; }
 .navkop { margin: .9rem .5rem .25rem; font-size: .72em; text-transform: uppercase; letter-spacing: .07em; color: #8a95a3; }
 .sidebar nav a { color: #33404f; text-decoration: none; padding: .42rem .6rem; border-radius: 5px; font-size: .95em; }
@@ -1212,9 +1215,10 @@ input.koppelbedrag { width: 6rem; text-align: right; font-variant-numeric: tabul
               position: sticky; top: 0; z-index: 5; }
 .mobiel-logo { display: block; font-weight: 700; font-size: 1.1rem; color: var(--merk-rood);
                text-decoration: none; letter-spacing: .5px; }
-/* het logo van de grote app (wwwroot/logo-mde.png); in donker op een wit vlakje, de letters MDE zijn zwart */
+/* het logo van de grote app (wwwroot/logo-mde.png); in donker het logo met de witte rand uit de huisstijl
+   (logo-mde-donker.png), niet meer op een wit vlakje */
 .mobiel-logo img { display: block; height: 2.2rem; width: auto; }
-html[data-thema="donker"] .mobiel-logo { background: #fff; border-radius: 6px; padding: .2rem .4rem; }
+html[data-thema="donker"] .mobiel-logo img { content: url("logo-mde-donker.png"); }
 .mobiel-vulling { flex: 1; }
 .mobiel-inhoud { flex: 1; padding: .9rem .9rem 1.4rem; }
 .mobiel-kop { margin: .2rem 0 .9rem; font-size: 1.25rem; }
@@ -3852,6 +3856,33 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
                    padding: 8px 10px; border-radius: 6px; background: #262c31; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45;
                    text-align: left; text-transform: none; letter-spacing: 0; white-space: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); cursor: default; }
 .ab-uitleg:hover .ab-uitleg-tekst, .ab-uitleg:focus .ab-uitleg-tekst { display: block; }
+/* afbeeldingen bij een tekstveld (punt van Arnold 24-11-2026): het veld links, rechts het lijstje met titels */
+.ab-veldrij { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 8px; align-items: stretch; }
+.ab-afb { border: 1px dashed var(--ab-rand); border-radius: 4px; padding: 4px; display: flex; flex-direction: column; gap: 2px;
+          max-height: 180px; overflow: auto; font-size: 12px; }
+.ab-afb-item { text-align: left; background: none; border: 0; padding: 3px 5px; border-radius: 3px; cursor: pointer; color: inherit; font: inherit;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.ab-afb-item:hover, .ab-afb-item:focus-visible { background: var(--ab-tint); outline: none; }
+.ab-afb-hint { color: var(--ab-muted); font-size: 11px; padding: 3px 5px; margin-top: auto; }
+.ab-afbdoel { outline: 2px dashed var(--ab-rood, #d13228); outline-offset: 2px; }
+.ab-afbkijk { background: rgba(17, 17, 17, .72); z-index: 320; }
+.ab-afbkijk-in { background: var(--ab-wit, #fff); color: var(--ab-ink, #111); border-radius: 6px; padding: 10px 12px 12px; display: flex; flex-direction: column;
+                 gap: 8px; min-width: min(420px, 92vw); max-width: 94vw; max-height: 94vh; overflow: auto;
+                 --ab-rood: #d13228; --ab-rood-donker: #a01200; --ab-tint: #fdecea; --ab-rand: #e2e2e2; --ab-muted: #68717c; --ab-wit: #fff; --ab-ink: #111; }
+html[data-thema="donker"] .ab-afbkijk-in { --ab-tint: #3a1f1d; --ab-rand: var(--d3); --ab-muted: var(--dt3); --ab-wit: var(--d1); --ab-ink: var(--dt); --ab-rood-donker: #f07670; }
+.ab-afbkijk-in:focus { outline: none; }
+.ab-afbkijk-kop { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+.ab-afbkijk-kop a.ab-btn { text-decoration: none; }
+.ab-afbkijk-in img { max-width: 90vw; max-height: 66vh; object-fit: contain; align-self: center; border: 1px solid var(--ab-rand); }
+.ab-afbkijk-titel { font-weight: 600; font-size: 14px; }
+.ab-afbkijk-comm { white-space: pre-wrap; font-size: 13px; }
+.ab-afbkijk-in input.ab-afbkijk-t, .ab-afbkijk-in textarea { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--ab-rand); border-radius: 3px;
+                 color: inherit; background: var(--ab-wit); width: 100%; }
+.ab-afbkijk-in textarea { min-height: 70px; resize: vertical; }
+.ab-afbkeuze { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+@media (max-width: 700px) { .ab-veldrij { grid-template-columns: minmax(0, 1fr); } }
+/* afvinklijst: de regel waar een gesleept punt voor komt (activityboard.js) */
+.ab-pdoel { box-shadow: 0 -2px 0 var(--accent, #2f6fd0); }
 /* pop-up: uitleg bij een afgeleide prioriteit (punt van Kees, 23-11-2026) */
 .ab-afgeleid { color: var(--ab-muted); font-size: 12px; align-self: center; flex-basis: 100%; }
 /* pop-up: Aangemaakt en Aangepast, naam en datum achter elkaar (wens gebruiker 23-11-2026) */

@@ -7,6 +7,10 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 24-11-2026
 
+- **Algemeen** — Verbeterd: in de donkere modus staat nu het MDE-logo uit de huisstijl, met een dunne witte rand om de zwarte letters; op de telefoon staat het niet meer op een wit vlakje (punt van Arnold).
+- **Activity board** — Nieuw: **afbeeldingen bij een activiteit**. Sleep een afbeelding op een tekstveld van de open activiteit (Samenvatting, Details, …) en hij staat rechts naast dat veld in een lijstje. Klik op de titel om hem groot te zien, met ‹ › om te bladeren; dubbelklik om titel en commentaar te wijzigen. Sleep je een afbeelding op een kaartje op het bord, dan vraagt de app eerst onder welk veld hij moet komen. Op het kaartje staat hoeveel afbeeldingen erbij horen (punt van Arnold).
+- **Activity board** — Opgelost: punten in de afvinklijst naar boven of beneden **slepen** deed niets; dat werkt nu, met een streepje op de plek waar het punt komt. Alt+pijl omhoog/omlaag werkte al (melding van Arnold).
+- **Activity board** — Nieuw: in de pop-up van een kaartje staat bij Toegewezen aan een snelknop **+ Ik**: één klik en de activiteit staat op jouw naam (punt van Arnold).
 - **Uren** — Verbeterd: een regel verwijderen vraagt niet meer "Weet je het zeker?". De regel is meteen weg, en met **Ctrl+Z** (of de knop Ongedaan maken in de melding) zet je hem terug (verzoek van Peter).
 
 ## 23-11-2026

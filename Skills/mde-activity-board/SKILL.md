@@ -75,6 +75,25 @@ Een lijst van één element maak je met `ConvertTo-Json @( @{…} )`, niet via d
   `[ { "kop": "Loggen", "punten": [ { "tekst": "Sampletijd 2 ms houden", "klaar": false }, "Logbestand bewaren" ] } ]`.
   Een punt mag een losse tekst zijn; punten zonder kopje staan vooraan. Hoogstens 300 regels per kaartje.
 
+Alleen lezen (de app vult ze zelf; stuur ze niet mee):
+
+- `initiator` en `gemaaktOp`: wie het kaartje aanmaakte en wanneer.
+- `gewijzigdOp` en `gewijzigdDoor`: wanneer en door wie het kaartje het laatst is aangepast. Ook een punt afvinken of
+  een koppeling leggen telt als aanpassing.
+- `afgeleidePrioriteit` en `afgeleidVan`: zie Prioriteit hieronder.
+- `geblokkeerd`, `voortgang`, `link`.
+
+## Prioriteit
+
+- `prioriteit` is wat op het kaartje is ingesteld. Die zet of wijzig je.
+- `afgeleidePrioriteit` staat erbij als het kaartje een ander kaartje **blokkeert** dat een hogere prioriteit heeft en
+  nog niet klaar is. Het kaartje telt dan zo zwaar als dat andere kaartje; `afgeleidVan` is het nummer daarvan. Het werkt
+  door over een keten (A blokkeert B, B blokkeert C met hoog: A en B tellen als hoog). Je kunt het niet zetten; het
+  verdwijnt vanzelf als het wachtende kaartje klaar of geannuleerd is.
+- **De prioriteit die telt** is `afgeleidePrioriteit` als die er is, anders `prioriteit`. Gebruik die als de gebruiker
+  vraagt wat het belangrijkst is of wat hij eerst moet oppakken, en zeg er dan bij waarom ("telt als hoog omdat #104
+  erop wacht"). Verander de eigen `prioriteit` niet om dit na te bootsen.
+
 ## Opmaak (Markdown)
 
 Schrijf de tekstvelden van een nieuw kaartje in Markdown als dat de tekst leesbaarder maakt: kopjes (`##`), lijsten
@@ -91,7 +110,7 @@ Links alleen naar http, https of mailto. Bij een kaartje met `opmaak: false` sch
   eerst met `/zoek?q=`; bij meer dan één treffer vraag je welke.
 - `GET /activiteiten/{id}` geeft `koppelingen` (met `id`, `soort` en de andere activiteit met titel, status, board en
   link). `geblokkeerd: true` = het kaartje hangt af van een kaartje dat nog niet klaar is; noem dat als de gebruiker
-  vraagt wat hij kan oppakken.
+  vraagt wat hij kan oppakken. Het kaartje dat blokkeert krijgt daardoor mogelijk een `afgeleidePrioriteit`.
 - Ontkoppelen kan alleen met het `id` van de koppeling: lees eerst het kaartje. Ontkoppel alleen op verzoek.
 - Een fout "bestaat niet" bij `naar` betekent dat er niets is gekoppeld: zoek het juiste nummer, verzin er geen.
 - In een tekstveld met opmaak wordt `#123` een link naar kaart 123. Gebruik dat om naar een ander kaartje te verwijzen.
@@ -130,5 +149,6 @@ Links alleen naar http, https of mailto. Bij een kaartje met `opmaak: false` sch
 ## Wat niet kan
 
 Een kaartje of board verwijderen, een bestaand board aan iets anders koppelen, de volgorde binnen een vak en de volgorde
-van een afvinklijst. (Een los punt of kopje van de afvinklijst weghalen kan wel.) Zeg dat de
+van een afvinklijst. (Een los punt of kopje van de afvinklijst weghalen kan wel.) Ook afbeeldingen bij een kaartje en
+bijlagen bij een onderwerp gaan niet via de API: die zie je niet en kun je niet toevoegen. Zeg dat de
 gebruiker dat in de app doet. Een kaartje dat niet meer hoeft zet je op `geannuleerd`, na overleg.

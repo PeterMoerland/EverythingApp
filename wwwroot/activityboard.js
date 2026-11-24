@@ -135,6 +135,76 @@
     // tijdens slepen niet ook tekst selecteren of het contextmenu van touch openen
     document.addEventListener('contextmenu', function (e) { if (s) e.preventDefault(); });
 
+    // Afvinklijst: een punt of kopje slepen aan de greep (HTML5 drag and drop; het loslaten zelf handelt Blazor af met
+    // @ondrop: PuntDrop/PuntDropEinde). De browser staat loslaten alleen toe als dragover geannuleerd is; het
+    // @ondragover:preventDefault in de pagina deed dat niet, dus slepen deed niets (melding Arnold 24-11-2026). Een eigen
+    // gegevenssoort: Firefox begint anders niet met slepen, en gewone tekst zou in het invoervak van een punt belanden.
+    let puntSleep = false;
+    document.addEventListener('dragstart', function (e) {
+        puntSleep = !!(e.target.closest && e.target.closest('.ab-pgreep'));
+        if (!puntSleep || !e.dataTransfer) return;
+        try { e.dataTransfer.setData('application/x-mde-punt', '1'); e.dataTransfer.effectAllowed = 'move'; } catch (x) { }
+    });
+    document.addEventListener('dragend', function () { puntSleep = false; document.querySelectorAll('.ab-pdoel').forEach(function (c) { c.classList.remove('ab-pdoel'); }); });
+    document.addEventListener('dragover', function (e) {
+        if (!puntSleep) return;
+        const rij = e.target.closest && e.target.closest('.ab-punt, .ab-pkop, .ab-pnieuw');
+        document.querySelectorAll('.ab-pdoel').forEach(function (c) { if (c !== rij) c.classList.remove('ab-pdoel'); });
+        if (!rij) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        rij.classList.add('ab-pdoel');
+    });
+    document.addEventListener('drop', function (e) {
+        if (!puntSleep) return;
+        e.preventDefault();
+        document.querySelectorAll('.ab-pdoel').forEach(function (c) { c.classList.remove('ab-pdoel'); });
+    });
+
+    // Afbeeldingen (punt van Arnold 24-11-2026): een bestand uit Verkenner op een tekstveld van de open activiteit
+    // slepen (.ab-tveld) zet het daar meteen bij; op een kaartje van het bord (.ab-kaart) vraagt het scherm eerst onder
+    // welk veld (AfbeeldingOpKaart, daarna mdeAb.stuurWacht). Het uploaden gaat naar /activityboard/afbeelding; daarna
+    // AfbeeldingenGewijzigd(activiteit, aantal, fout). Buiten zo'n plek mag je op het board niets loslaten, anders
+    // opent de browser de afbeelding in plaats van het board.
+    let wacht = null;   // { id, files }: losgelaten op een kaartje, wacht op de keuze van het veld
+    function heeftBestanden(e) { const t = e.dataTransfer && e.dataTransfer.types; return !!t && Array.prototype.indexOf.call(t, 'Files') >= 0; }
+    function afbDoel(e) {
+        if (!e.target.closest) return null;
+        if (document.querySelector('.ab-modal')) return null;
+        if (document.querySelector('.ab-drawer')) return e.target.closest('.ab-drawer .ab-tveld[data-veld]');
+        return e.target.closest('.ab-kaart[data-id]');
+    }
+    function wisAfbDoel() { document.querySelectorAll('.ab-afbdoel').forEach(function (c) { c.classList.remove('ab-afbdoel'); }); }
+    function stuur(id, veld, files) {
+        const fd = new FormData();
+        files.forEach(function (f) { fd.append('bestand', f, f.name); });
+        fetch(new URL('activityboard/afbeelding?activiteit=' + id + '&veld=' + encodeURIComponent(veld), document.baseURI), { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t || ('fout ' + r.status)); }); })
+            .then(function (j) { roep('AfbeeldingenGewijzigd', id, j.toegevoegd || 0, (j.geweigerd || []).join('; ')); })
+            .catch(function (x) { roep('AfbeeldingenGewijzigd', id, 0, String((x && x.message) || x)); });
+    }
+    window.mdeAb.stuurWacht = function (veld) { const w = wacht; wacht = null; if (w && veld) stuur(w.id, veld, w.files); };
+    window.mdeAb.vergeetWacht = function () { wacht = null; };
+    document.addEventListener('dragover', function (e) {
+        if (!doel || !heeftBestanden(e) || !document.querySelector('.page.ab')) return;
+        e.preventDefault();
+        const d = afbDoel(e);
+        wisAfbDoel();
+        e.dataTransfer.dropEffect = d ? 'copy' : 'none';
+        if (d) d.classList.add('ab-afbdoel');
+    });
+    document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) wisAfbDoel(); });
+    document.addEventListener('drop', function (e) {
+        if (!doel || !heeftBestanden(e) || !document.querySelector('.page.ab')) return;
+        e.preventDefault();
+        const d = afbDoel(e);
+        wisAfbDoel();
+        const files = Array.prototype.slice.call(e.dataTransfer.files || []);
+        if (!d || !files.length) return;
+        if (d.classList.contains('ab-tveld')) stuur(parseInt(d.dataset.act), d.dataset.veld, files);
+        else { wacht = { id: parseInt(d.dataset.id), files: files }; roep('AfbeeldingOpKaart', wacht.id, files.length); }
+    });
+
     function begin() {
         s.gestart = true;
         const r = s.el.getBoundingClientRect();
