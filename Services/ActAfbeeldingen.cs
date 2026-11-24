@@ -181,6 +181,10 @@ public static class ActAfbeeldingenApi
 
         api.MapPost("", async (int activiteit, string veld, HttpRequest req, ActAfbeeldingen afb, IActivityBoardRepository repo, HuidigeGebruiker ik) =>
         {
+            // Buiten een Blazor-circuit is de gebruiker nog niet geladen; zonder dit bleef WerknemerId leeg en
+            // weigerde de filestore (FK ToegevoegdDoor -> Werknemers). Melding van Arnold 24-11-2026.
+            await ik.ZorgGeladenAsync();
+            if (ik.WerknemerId is null) return Results.BadRequest("Niet bekend wie je bent; meld je (opnieuw) aan en probeer het nog eens.");
             if (activiteit <= 0 || !ActTekst.IsKolom(veld)) return Results.BadRequest("Onbekende activiteit of onbekend veld.");
             if (await repo.BoardVanActiviteitAsync(activiteit) is null) return Results.NotFound("Deze activiteit bestaat niet (meer).");
             if (!req.HasFormContentType) return Results.BadRequest("Geen bestanden ontvangen.");

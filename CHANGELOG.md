@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 24-11-2026
 
+- **Activity board** — Opgelost: een afbeelding slepen of plakken gaf de melding "Afbeelding toevoegen is niet gelukt ... foreign key constraint fails"; de app wist bij het bewaren niet wie je was (melding van Arnold).
 - **Verbeterverzoeken** — Nieuw: een verzoek kan een **prioriteit** krijgen (hoog, gemiddeld, laag); Directie kiest hem in een eigen kolom vóór de status, de rest ziet daar een chipje. Bovenaan de lijst staat een filter Prioriteit (verzoek van Peter).
 - **Activity board** — Nieuw: een plaatje bij een activiteit **plakken met Ctrl+V** (bijvoorbeeld een schermafdruk). Staat de cursor in een tekstveld of klik je op het vakje ernaast, dan komt het bij dat veld; anders vraagt de app onder welk veld (verzoek van Peter).
 - **Activity board** — Opgelost: in een statuslijst viel de keuzelijst van een vakje weg onder de rand van de tabel, zodat je alleen "todo" zag; hij opent nu bij de muis en toont alle vier de statussen (melding van Peter).
