@@ -90,7 +90,7 @@
             {
                 ++_teller;
                 _lijst = v; _index = 0;
-                _status = $"{v.Count} artikelen met de code '{_zoek}'. Kies er een, of typ om verder te zoeken.";
+                _status = $"{(v.Count == 1 ? "1 artikel" : v.Count + " artikelen")} bij de code '{_zoek}'. Kies er een, of typ om verder te zoeken.";
             }
             else await Zoeken();
         }

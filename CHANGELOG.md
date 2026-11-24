@@ -7,7 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 23-11-2026
 
-- **Bestellingen** — Nieuw: typ je een **artikelcode** in een bestelregel, dan kijkt de app of dat artikel in de artikelen staat (MDE-code, fabrikantcode of bestelnummer bij een leverancier). Eén treffer: omschrijving, MDE-nummer en prijs worden ingevuld. Meer treffers: je krijgt een lijst om uit te kiezen. Geen treffer: de code blijft gewoon staan (verzoek van Peter).
+- **Bestellingen** — Nieuw: typ je een **artikelcode** in een bestelregel, dan kijkt de app of dat artikel in de artikelen staat (MDE-nummer, MDE-code, fabrikantcode of bestelnummer bij een leverancier). Eén treffer: omschrijving, MDE-nummer en prijs worden ingevuld. Meer treffers, of alleen het begin van een code getypt (FN3258): je krijgt een lijst om uit te kiezen. Geen treffer: de code blijft gewoon staan (verzoek van Peter).
 - **Bestellingen** — Verbeterd: onder de regels van een bestelling staat altijd een **lege regel klaar**, zoals bij uren; je typt meteen door zonder eerst op + Regel te klikken. De regel wordt pas bewaard als je er iets in invult (verzoek van Peter).
 - **Activity board** — Nieuw: een kaartje dat een ander kaartje **blokkeert**, krijgt vanzelf minstens de prioriteit van dat kaartje zolang het niet klaar is. Op het kaartje staat dan bijvoorbeeld "Hoog ↑" (de eigen prioriteit blijft bewaard), en **Op prioriteit** sorteert daarop (punt van Kees).
 - **Activity board** — Verbeterd: in de pop-up van een kaartje heet Initiator nu **Aangemaakt**, met de naam en de datum achter elkaar; **Aangepast** staat er direct onder, ook met naam en datum op één regel (verzoek van Peter).

@@ -1982,10 +1982,21 @@
         if (regel.Id == 0 || code.Length < 2 || string.Equals(code, oud, StringComparison.OrdinalIgnoreCase)) return;
 
         List<ArtikelRegel> treffers;
-        try { treffers = await Artikelen.ZoekOpCodeAsync(code, LeverancierVanOrder, 50); }
+        var precies = true;
+        try
+        {
+            treffers = await Artikelen.ZoekOpCodeAsync(code, LeverancierVanOrder, 50);
+            // niets met precies deze code: dan wat er zo begint (FN3258 vindt FN3258-42-33; vraag gebruiker 23-11-2026).
+            // Dat geeft altijd de lijst, ook bij een treffer: een half getypte code vult niet vanzelf een artikel in.
+            if (treffers.Count == 0 && code.Length >= 3)
+            {
+                treffers = await Artikelen.ZoekOpCodeAsync(code, LeverancierVanOrder, 50, begin: true);
+                precies = false;
+            }
+        }
         catch { return; }                                  // opzoeken is een extraatje: de regel is al bewaard
         if (treffers.Count == 0) return;
-        if (treffers.Count == 1)
+        if (treffers.Count == 1 && precies)
         {
             if (MdeNummer(regel.MdeCode) != treffers[0].Id) await VulArtikel(regel, treffers[0].Id);
             return;

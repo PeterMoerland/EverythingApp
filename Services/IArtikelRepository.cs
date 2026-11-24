@@ -20,11 +20,12 @@ public interface IArtikelRepository
                                        IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false);
 
     /// <summary>
-    /// De artikelen met precies deze code (bestelregel, wens gebruiker 23-11-2026): de MDE-code, de fabrikantcode of het
-    /// bestelnummer bij een leverancier. Standaard en maakdelen door elkaar; wat we bij <paramref name="leverancierId"/>
+    /// De artikelen met precies deze code (bestelregel, wens gebruiker 23-11-2026): de MDE-code, de fabrikantcode, het
+    /// bestelnummer bij een leverancier, of (een getal) het MDE-nummer. Standaard en maakdelen door elkaar; wat we bij <paramref name="leverancierId"/>
     /// kopen staat bovenaan. Alleen lezen.
     /// </summary>
-    Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max);
+    /// <param name="begin">Niet precies de code, maar alles waarvan een code zo begint (FN3258 vindt FN3258-42-33).</param>
+    Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max, bool begin = false);
 
     Task<Artikel?> GetAsync(int artikelId);
     Task<List<ArtikelGroep>> GetGroepenAsync(int artikelId);
@@ -137,7 +138,7 @@ public record ArtikelLaatstBesteld(decimal Aantal, string Leverancier, DateTime?
 public class GeenArtikelRepository : IArtikelRepository
 {
     public bool Beschikbaar => false;
-    public Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max) => Task.FromResult(new List<ArtikelRegel>());
+    public Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max, bool begin = false) => Task.FromResult(new List<ArtikelRegel>());
     public Task<List<ArtikelRegel>> ZoekAsync(string? zoek, string? groepspad, bool maakdelen, int max,
                                               IReadOnlyCollection<int>? groepIds = null, bool nieuwsteEerst = false)
         => Task.FromResult(new List<ArtikelRegel>());
@@ -353,8 +354,9 @@ public class MySqlArtikelRepository : IArtikelRepository
         return lijst;
     }
 
-    public async Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max)
+    public async Task<List<ArtikelRegel>> ZoekOpCodeAsync(string code, int? leverancierId, int max, bool begin = false)
     {
+        var op = begin ? "LIKE" : "=";
         var lijst = new List<ArtikelRegel>();
         var c = (code ?? "").Trim();
         if (c.Length == 0) return lijst;
@@ -364,12 +366,14 @@ public class MySqlArtikelRepository : IArtikelRepository
         await using var cmd = new MySqlCommand(
             "SELECT a.`ArtikelID`, COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), a.`BrandID` " +
             "  FROM `Artikelen` a " +
-            " WHERE a.`ArtikelCodeMDE` = @c OR a.`ArtikelCodeFactory` = @c " +
-            "    OR EXISTS (SELECT 1 FROM `ArtikelSupplier` s WHERE s.`ArtikelID` = a.`ArtikelID` AND s.`ArtikelNummerSupplier` = @c) " +
+            $" WHERE a.`ArtikelCodeMDE` {op} @c OR a.`ArtikelCodeFactory` {op} @c OR a.`ArtikelID` = @id " +
+            $"    OR EXISTS (SELECT 1 FROM `ArtikelSupplier` s WHERE s.`ArtikelID` = a.`ArtikelID` AND s.`ArtikelNummerSupplier` {op} @c) " +
             " ORDER BY EXISTS (SELECT 1 FROM `ArtikelSupplier` s2 WHERE s2.`ArtikelID` = a.`ArtikelID` AND s2.`SupplierID` = @l) DESC, " +
             "          a.`ArtikelID` DESC " +
             $" LIMIT {Math.Clamp(max, 1, 200)}", cn);
-        cmd.Parameters.AddWithValue("@c", c);
+        cmd.Parameters.AddWithValue("@c", begin ? c.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%" : c);
+        // een getal is ook het MDE-nummer (melding gebruiker 23-11-2026: 34567 gaf niets, de code van dat artikel is FN3258-42-33)
+        cmd.Parameters.AddWithValue("@id", int.TryParse(c.TrimStart('#'), out var nr) && nr > 0 ? nr : DBNull.Value);
         cmd.Parameters.AddWithValue("@l", (object?)leverancierId ?? DBNull.Value);
 
         await using var r = await cmd.ExecuteReaderAsync();

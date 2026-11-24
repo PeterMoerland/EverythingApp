@@ -773,8 +773,11 @@ blijft de cursor in de nieuwe lege rij staan en typ je daar verder. `_regelSlot`
 Wens gebruiker. `Bestellingen.ZetArtikelcode` (onchange van de artikelcode): eerst bewaren zoals altijd, dan
 `IArtikelRepository.ZoekOpCodeAsync(code, leverancier, 50)`: **precies** die code als `ArtikelCodeMDE`,
 `ArtikelCodeFactory` of `ArtikelSupplier.ArtikelNummerSupplier` (standaard en maakdelen door elkaar; wat we bij de
-leverancier van de order kopen bovenaan). Bewust **niet** op `ArtikelID`: een kaal getal als bestelnummer zou anders een
-willekeurig MDE-artikel in de regel zetten. 1 treffer = `VulArtikel` (het oude `ArtikelGekozen`: code, omschrijving,
+leverancier van de order kopen bovenaan), en een getal ook als `ArtikelID` (het MDE-nummer; melding gebruiker dezelfde
+dag: 34567 gaf niets, want de code van dat artikel is FN3258-42-33). Keerzijde: een kaal getal dat een bestelnummer van
+de leverancier is en toevallig ook een MDE-nummer, zet dat MDE-artikel in de regel. Niets precies gevonden en minstens
+3 tekens: nog een keer met `begin: true` (code begint zo: FN3258 vindt FN3258-42-33); dat geeft altijd de lijst, ook bij
+een enkele treffer. 1 treffer = `VulArtikel` (het oude `ArtikelGekozen`: code, omschrijving,
 MDE-nummer, prijs/korting van de leverancier, minimale hoeveelheid, bijlages), behalve als de regel al bij dat artikel
 hoort. Meer = `ArtikelZoekVenster` opent met die lijst (`Voorstel`); Annuleren laat de getypte code staan. Geen = vrije
 tekst. Alleen als de code echt veranderd is en minstens 2 tekens heeft. Let op: een treffer overschrijft omschrijving en
