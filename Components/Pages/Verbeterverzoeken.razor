@@ -46,10 +46,23 @@
                     <textarea @ref="_nieuwVeld" class="verbeter-tekst" rows="4" maxlength="2000"
                               placeholder="Wat kan er beter? Welk scherm, wat gebeurt er nu, en wat zou je willen?"
                               value="@_nieuweTekst" @oninput="e => _nieuweTekst = (string?)e.Value ?? string.Empty"></textarea>
+                    @if (_prioMogelijk)
+                    {
+                        @* meteen bij het invoeren (wens gebruiker 24-11-2026); nog een klik op de gekozen = weer geen *@
+                        <div class="idee-prio" role="group" aria-label="Prioriteit">
+                            <span>Prioriteit</span>
+                            @foreach (var p in VerzoekStatus.Prioriteiten)
+                            {
+                                var w = p.Waarde;
+                                <button type="button" class="klein @(_nieuwePrio == w ? "aan " + p.Kleur : "")" aria-pressed="@(_nieuwePrio == w)"
+                                        @onclick="() => _nieuwePrio = _nieuwePrio == w ? null : w">@p.Naam</button>
+                            }
+                        </div>
+                    }
                     <div class="btngroup">
                         <small class="uitleg">Een schermafdruk meesturen kan met het lampje 💡 rechtsboven.</small>
                         <span style="flex:1"></span>
-                        <button class="klein" @onclick="() => { _nieuwOpen = false; _nieuweTekst = string.Empty; }">Annuleren</button>
+                        <button class="klein" @onclick="() => { _nieuwOpen = false; _nieuweTekst = string.Empty; _nieuwePrio = null; }">Annuleren</button>
                         <button class="primair" title="Toevoegen (Ctrl+Enter)" disabled="@(_bezig || _nieuweTekst.Trim().Length < 3)" @onclick="Indienen">Toevoegen</button>
                     </div>
                 }
@@ -278,6 +291,7 @@
     private string _filter = "open";
     private string _fPrio = "";                 // "" = alle, "1".."3", of "geen"
     private bool _prioMogelijk;                 // Verbeterverzoeken_Prioriteit_MariaDB.sql uitgevoerd
+    private int? _nieuwePrio;                   // de prioriteit bij "+ Nieuw verzoek"
     private static string Hoofd(string s) => s.Length == 0 ? s : char.ToUpper(s[0]) + s[1..];
     private string _zoek = "";
     private string? _melding;
@@ -390,9 +404,9 @@
         _bezig = true;
         try
         {
-            var id = await Repo.IndienenAsync(tekst, "", Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            var id = await Repo.IndienenAsync(tekst, "", Ik.WerknemerId, Ik.Werkplek?.Naam ?? "", _nieuwePrio);
             _lijst = await Repo.LijstAsync();
-            _nieuwOpen = false; _nieuweTekst = "";
+            _nieuwOpen = false; _nieuweTekst = ""; _nieuwePrio = null;
             if (_filter is "gepland" or "bezig" or "gedaan" or "afgewezen" or "ingetrokken") _filter = "open";      // anders zie je het nieuwe verzoek niet
             Toon($"Verzoek {id} toegevoegd.", false);
         }

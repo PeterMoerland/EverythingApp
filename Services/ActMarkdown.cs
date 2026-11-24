@@ -23,6 +23,13 @@ public static class ActMarkdown
         .UsePipeTables()
         .Build();
 
+    /// <summary>Voor een heel document (Tools ▸ Claude Shares): gewone markdown, dus een enkele regelovergang is geen nieuwe regel.</summary>
+    private static readonly MarkdownPipeline DocumentPijplijn = new MarkdownPipelineBuilder()
+        .DisableHtml()
+        .UseAutoLinks()
+        .UsePipeTables()
+        .Build();
+
     private static bool Veilig(string? url)
     {
         var u = (url ?? "").Trim();
@@ -36,13 +43,15 @@ public static class ActMarkdown
     /// <summary>#123 in gewone tekst: een verwijzing naar kaart 123 (niet midden in een woord of adres).</summary>
     private static readonly System.Text.RegularExpressions.Regex Kaart = new(@"(?<![\w&/#])#(\d{1,9})(?!\w)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    public static string Html(string? markdown)
+    /// <param name="document">Een heel document in plaats van een tekstveld van het board: gewone regelovergangen en geen #123-kaartlinks.</param>
+    public static string Html(string? markdown, bool document = false)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return "";
-        var doc = Markdown.Parse(markdown, Pijplijn);
+        var pijplijn = document ? DocumentPijplijn : Pijplijn;
+        var doc = Markdown.Parse(markdown, pijplijn);
 
         // #123 wordt een link naar die kaart (activityboard?kaart=123 zoekt zelf het board erbij); niet in code of in een link
-        foreach (var lit in doc.Descendants<LiteralInline>().Where(l => !l.FindParentOfType<LinkInline>().Any()).ToList())
+        foreach (var lit in document ? new List<LiteralInline>() : doc.Descendants<LiteralInline>().Where(l => !l.FindParentOfType<LinkInline>().Any()).ToList())
         {
             var tekst = lit.Content.ToString();
             var treffers = Kaart.Matches(tekst);
@@ -81,6 +90,6 @@ public static class ActMarkdown
         foreach (var auto in doc.Descendants<AutolinkInline>().ToList())
             if (!Veilig(auto.Url)) auto.ReplaceBy(new LiteralInline(auto.Url));
 
-        return doc.ToHtml(Pijplijn);
+        return doc.ToHtml(pijplijn);
     }
 }

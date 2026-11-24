@@ -49,6 +49,19 @@
                        (<code>@Pagina</code>) gaat mee.</p>
                     <textarea @ref="_tekstvak" class="idee-tekst" rows="6" maxlength="2000" placeholder="bv. Op het bestelscherm wil ik ook op leverancier kunnen zoeken"
                               value="@_tekst" @oninput="e => _tekst = (string?)e.Value ?? string.Empty"></textarea>
+                    @if (_prioMogelijk)
+                    {
+                        @* meteen bij het invoeren (wens gebruiker 24-11-2026); nog een klik op de gekozen = weer geen *@
+                        <div class="idee-prio" role="group" aria-label="Prioriteit">
+                            <span>Prioriteit</span>
+                            @foreach (var p in VerzoekStatus.Prioriteiten)
+                            {
+                                var w = p.Waarde;
+                                <button type="button" class="klein @(_prio == w ? "aan " + p.Kleur : "")" aria-pressed="@(_prio == w)"
+                                        @onclick="() => _prio = _prio == w ? null : w">@p.Naam</button>
+                            }
+                        </div>
+                    }
                     @if (Store.Beschikbaar)
                     {
                         @* schermafdruk: Win+Shift+S en dan Ctrl+V ergens in dit venster (koppelPlakken op het hele venster) *@
@@ -85,7 +98,8 @@
 }
 
 @code {
-    private bool _open, _tabel, _verstuurd, _bezig;
+    private bool _open, _tabel, _verstuurd, _bezig, _prioMogelijk;
+    private int? _prio;
     private string _tekst = "";
     private string? _fout;
     private int _aantalNieuw;
@@ -188,11 +202,12 @@
     {
         _open = true; _verstuurd = false; _fout = null; _shots.Clear(); _koppelen = true;
         try { _tabel = await Repo.TabelAanwezigAsync(); } catch { _tabel = false; }
+        try { _prioMogelijk = _tabel && await Repo.PrioriteitMogelijkAsync(); } catch { _prioMogelijk = false; }
     }
 
     private void Sluit() => _open = false;
 
-    private void Nogeen() { _verstuurd = false; _tekst = ""; _shots.Clear(); _koppelen = true; }
+    private void Nogeen() { _verstuurd = false; _tekst = ""; _prio = null; _shots.Clear(); _koppelen = true; }
 
     private async Task Verstuur()
     {
@@ -201,7 +216,7 @@
         _bezig = true; _fout = null;
         try
         {
-            var id = await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "");
+            var id = await Repo.IndienenAsync(tekst, Pagina, Ik.WerknemerId, Ik.Werkplek?.Naam ?? "", _prio);
             var mislukt = 0;
             string? reden = null;
             for (var i = 0; i < _shots.Count; i++)
@@ -222,7 +237,7 @@
                 }
             }
             _shots.Clear();
-            _verstuurd = true; _tekst = "";
+            _verstuurd = true; _tekst = ""; _prio = null;
             if (mislukt > 0) _fout = $"Het verzoek staat erin, maar {mislukt} schermafdruk(ken) konden niet worden opgeslagen: {reden}";
             await TelNieuw(altijd: true);
         }

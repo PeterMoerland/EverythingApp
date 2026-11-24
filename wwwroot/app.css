@@ -3704,6 +3704,8 @@ html[data-thema="donker"] .plakregel td { background: #1c2a3d; border-top-color:
               border-radius: 3px; cursor: pointer; color: inherit; }
 .ab-treffer:hover, .ab-treffer:focus { border-color: var(--ab-rood); background: var(--ab-tint); outline: none; }
 .ab-treffer .ab-mono { color: var(--ab-muted); margin-right: .5rem; }
+.ab-treffer.gevraagd { border-color: var(--ab-rood); background: var(--ab-tint); }
+.ab-maakvraag { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .4rem .6rem .5rem; font-size: 13px; }
 
 /* weergavebalk */
 .ab-viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .8rem; }
@@ -4487,6 +4489,15 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .idee-venster { width: min(40rem, 96vw); }
 .idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.idee-prio { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: 13px; }
+.idee-prio > span { color: #68717c; margin-right: .2rem; }
+.idee-prio button.aan { font-weight: 600; border-color: currentColor; }
+.idee-prio button.aan.s-rood { background: #fdecea; color: #8b1a16; }
+.idee-prio button.aan.s-geel { background: #fdf3d0; color: #6b4e00; }
+.idee-prio button.aan.s-grijs { background: #e9ecef; color: #3d444d; }
+html[data-thema="donker"] .idee-prio button.aan.s-rood { background: #3a2020; color: #ffb4ae; }
+html[data-thema="donker"] .idee-prio button.aan.s-geel { background: #3a3218; color: #f2d98a; }
+html[data-thema="donker"] .idee-prio button.aan.s-grijs { background: #39424e; color: #dfe5ec; }
 .idee-bedankt { font-size: 1.05rem; margin: .4rem 0; }
 .idee-shots { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .idee-shot { position: relative; display: inline-block; }
@@ -5338,3 +5349,66 @@ html[data-thema="donker"] .kabel-kaart { background: var(--d1); border-color: va
 html[data-thema="donker"] .kabel-velden label, html[data-thema="donker"] .kabel-aantal { color: var(--dt2); }
 html[data-thema="donker"] .kabel-aders th { border-color: var(--d3); }
 html[data-thema="donker"] .kabel-tekening svg { border-color: var(--d3); }
+/* ===== Tools > Claude Shares (wens van Arnold 24-11-2026): documenten uit Claude bij een project ===== */
+.cs-pagina { --cs-rand: #dfe3e8; --cs-zacht: #68717c; --cs-vlak: #f6f8fa; --cs-wit: #fff; }
+html[data-thema="donker"] .cs-pagina { --cs-rand: var(--d3); --cs-zacht: var(--dt3); --cs-vlak: var(--d2); --cs-wit: var(--d1); }
+.cs-opmaak { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 18px; align-items: start; }
+.cs-links { display: flex; flex-direction: column; gap: 2px; }
+.cs-zoek { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.cs-kopje { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cs-zacht); margin: 10px 0 4px; }
+.cs-pagina button.cs-project { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; border: none; background: transparent;
+    padding: 5px 8px; border-radius: 5px; cursor: pointer; font: inherit; color: inherit; }
+.cs-pagina button.cs-project:hover { background: var(--cs-vlak); }
+.cs-pagina button.cs-project.actief { background: var(--selected); font-weight: 600; }
+.cs-aantal { margin-left: auto; font-size: 11px; color: var(--cs-zacht); font-weight: 400; }
+.cs-zacht { color: var(--cs-zacht); font-size: 12px; }
+.cs-leeskop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cs-leeskop h2 { margin: 0; font-size: 18px; }
+.cs-leeskop .groei { flex: 1; }
+.cs-naamveld { font-size: 16px; min-width: 22rem; }
+a.cs-knoplink { text-decoration: none; display: inline-block; border: 1px solid var(--cs-rand); border-radius: 4px; padding: 2px 8px; color: inherit; background: var(--cs-wit); font-size: 13px; }
+/* het vlak om een bestand op te slepen: het bestandsveld ligt er onzichtbaar overheen, dus slepen en klikken werken allebei */
+.cs-vlak { position: relative; border: 2px dashed var(--cs-rand); border-radius: 8px; padding: 16px; margin-bottom: 14px; background: var(--cs-vlak);
+    display: flex; flex-direction: column; gap: 2px; align-items: center; text-align: center; }
+.cs-vlak span { color: var(--cs-zacht); font-size: 12.5px; }
+.cs-vlak:hover, .cs-rijvlak:hover { border-color: var(--accent); }
+.cs-vlak.klein-vlak { padding: 10px; margin-bottom: 4px; }
+.cs-invoer { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.cs-rijvlak { position: relative; display: inline-block; border: 1px dashed var(--cs-rand); border-radius: 5px; padding: 2px 8px; font-size: 12px; color: var(--cs-zacht); white-space: nowrap; }
+.cs-tabel { width: 100%; border-collapse: collapse; }
+.cs-tabel th { text-align: left; font-size: 12px; color: var(--cs-zacht); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--cs-rand); }
+.cs-tabel td { padding: 6px 8px; border-bottom: 1px solid var(--cs-rand); vertical-align: middle; }
+.cs-tabel tr.cs-vervallen td { opacity: .6; }
+.cs-pagina button.cs-naam { border: none; background: transparent; padding: 0; margin-right: 6px; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; text-align: left; }
+.cs-pagina button.cs-naam:hover { text-decoration: underline; }
+.cs-lees { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; align-items: start; }
+.cs-tekst { border: 1px solid var(--cs-rand); border-radius: 8px; background: var(--cs-wit); padding: 18px 22px; min-height: 200px; overflow-x: auto; }
+.cs-versies { display: flex; flex-direction: column; gap: 4px; }
+.cs-versie { border: 1px solid var(--cs-rand); border-radius: 6px; padding: 6px 8px; cursor: pointer; background: var(--cs-wit); display: flex; flex-direction: column; gap: 2px; }
+.cs-versie > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-versie.actief { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.cs-versie .cs-opm { white-space: normal; font-size: 12.5px; }
+.cs-versie button { align-self: flex-start; margin-top: 2px; }
+.cs-kaal { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: Consolas, "IBM Plex Mono", monospace; font-size: 13px; }
+.cs-md { font-size: 14.5px; line-height: 1.6; max-width: 860px; }
+.cs-md > :first-child { margin-top: 0; } .cs-md > :last-child { margin-bottom: 0; }
+.cs-md h1, .cs-md h2, .cs-md h3, .cs-md h4 { margin: 1.2em 0 .4em; line-height: 1.25; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.cs-md h1 { font-size: 24px; } .cs-md h2 { font-size: 19px; border-bottom: 1px solid var(--cs-rand); padding-bottom: .2em; } .cs-md h3 { font-size: 16px; } .cs-md h4 { font-size: 14.5px; }
+.cs-md p { margin: .6em 0; }
+.cs-md ul, .cs-md ol { margin: .5em 0; padding-left: 1.6em; }
+.cs-md li { margin: .2em 0; }
+.cs-md code { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 13px; background: var(--cs-vlak); padding: 1px 4px; border-radius: 3px; }
+.cs-md pre { background: var(--cs-vlak); padding: 10px 12px; border-radius: 6px; overflow: auto; margin: .7em 0; }
+.cs-md pre code { background: none; padding: 0; }
+.cs-md a { color: var(--accent); }
+.cs-md blockquote { margin: .6em 0; padding-left: 12px; border-left: 3px solid var(--cs-rand); color: var(--cs-zacht); }
+.cs-md table { border-collapse: collapse; margin: .7em 0; }
+.cs-md th, .cs-md td { border: 1px solid var(--cs-rand); padding: 4px 10px; text-align: left; }
+.cs-md hr { border: none; border-top: 1px solid var(--cs-rand); margin: 1.2em 0; }
+.cs-venster { width: min(560px, 94vw); }
+.cs-keuze { display: block; margin: 4px 0; }
+.cs-veld { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+.cs-veld span { font-size: 12px; color: #68717c; }
+.cs-veld input { width: 100%; box-sizing: border-box; }
+.cs-knoppen { display: flex; gap: 8px; margin-top: 14px; }
+@media (max-width: 900px) { .cs-opmaak, .cs-lees { grid-template-columns: 1fr; } }

@@ -37,6 +37,7 @@ public class FilestoreService
     {
         300 or 301 => !ik.Gekoppeld || ik.Mag("HRM") || ik.Mag("Directie"),
         StoreTypeBvDocument or StoreTypeVerzekering => ik.Mag("Financial") || ik.Mag("Directie"),
+        ClaudeShares.StoreType => ik.MagEngineering,
         _ => true,
     };
 

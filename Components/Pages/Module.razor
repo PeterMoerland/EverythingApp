@@ -126,6 +126,7 @@ else
          : item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
            || (item.Recht == "Budgetverantwoordelijke" && Ik.Mag("Directie"))    // welkomstscherm: ook Directie
            || (item.Recht == "Fusion" && Ik.MagFusion)
+           || (item.Recht == "Engineering" && Ik.MagEngineering)                 // Claude Shares: ook Directie
            || (item.Recht == "Verkoop" && Ik.MagVerkoop);                        // Verkooporders: ook Directie                          // Fusion: ook Directie
 
 }

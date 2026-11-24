@@ -440,6 +440,20 @@ i.v.m. 1Password".
 - **Tabellen bestaan al** (uit Access, ongewijzigd): `IPgroep` (Omschrijving, FromRange, ToRange) en `NetworkTopologie`
   (IPadres, Omschrijving, IPgroepID, LoginUser, LoginPassword, DomainName, WebserverPoort, Opmerking). 9 groepen, 45
   adressen; 12 adressen vallen buiten het bereik van hun groep (publieke en 192.168-adressen).
+- **Tools ▸ Claude Shares** (wens van Arnold, 24-11-2026; script **`ClaudeShares_MariaDB.sql`**, zelf draaien):
+  `/tools/claude-shares`, `Components/Pages/ClaudeSharesPagina.razor` + `Services/ClaudeShares.cs` (singleton; met
+  `ClaudeShares:Geheugen` in het geheugen). .md- en .txt-bestanden bij een project, per document versies (tabellen
+  `ClaudeShares` en `ClaudeShareVersies`). Elke versie is een bestand in de **filestore, soort 345**
+  (`ClaudeShares.StoreType`, MasterID = ShareID; keuze gebruiker, eerst stond de tekst in de database);
+  `FilestoreService.MagSoortZien` laat die soort alleen aan Engineering zien. Schrijven vraagt een gekoppelde
+  werknemer (FK ToegevoegdDoor). Keuzes
+  gebruiker: eigen pagina, naam "Claude Shares", nieuw recht **Engineering** (`Werknemers.Engineering`,
+  `HuidigeGebruiker.MagEngineering` = recht of Directie, zonder gekoppelde werknemer ook), vervallen zetten/hernoemen
+  alleen plaatser en Directie, alleen md/txt, terugzetten = de oude tekst als nieuwe versie. Er wordt nooit iets
+  verwijderd. Slepen zonder eigen script: een onzichtbare `InputFile` over het vlak (`.cs-invoer`), met een nieuwe
+  `@key` na elke upload. Tonen met `ActMarkdown.Html(tekst, document: true)` (gewone regelovergangen, geen
+  #kaartlinks, HTML en onveilige links eruit). Downloaden: `GET /claude-shares/versie/{id}`. Link naar een document:
+  `?project=&doc=`. Nog niet: zichtbaar op het Activity board of bij Projecten (gebruiker: later), zoeken in de tekst.
 - **Recht Netwerk**: script **`Netwerk_MariaDB.sql`** (zelf draaien) voegt `Werknemers.Netwerk` toe; vinkje bij
   Werknemers ▸ Rechten (`WerknemerVelden`). `HuidigeGebruiker.MagNetwerk` = Netwerk of Directie, **zonder** de
   uitzondering "niet gekoppeld" die Fusion heeft, en "Netwerk" staat in `NietOpWerkplek` (op een gedeelde pc altijd

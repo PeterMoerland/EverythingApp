@@ -309,6 +309,7 @@ if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
 builder.Services.AddSingleton<ActStatuslijsten>();  // Activity board: tabblad Statuslijsten
 builder.Services.AddSingleton<ActAfbeeldingen>();   // Activity board: afbeeldingen bij de tekstvelden
+builder.Services.AddSingleton<ClaudeShares>();      // Tools ▸ Claude Shares: .md-bestanden bij een project, met versies
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
 // Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
@@ -1560,6 +1561,9 @@ app.MapActivityBoardApi();
 // afbeeldingen bij een activiteit: uploaden (slepen) en tonen; Services/ActAfbeeldingen.cs
 var actAfbeeldingen = app.MapActAfbeeldingen();
 if (loginAan) actAfbeeldingen.RequireAuthorization();
+// Tools ▸ Claude Shares: een versie downloaden; Services/ClaudeShares.cs
+var claudeShares = app.MapClaudeShares();
+if (loginAan) claudeShares.RequireAuthorization();
 // het bewerkscherm van het offertedocument (wwwroot/offertedocument.html) haalt en bewaart hier
 var offerteDocApi = app.MapOfferteDocumentApi();
 if (loginAan) offerteDocApi.RequireAuthorization();

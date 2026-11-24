@@ -334,6 +334,12 @@ public class HuidigeGebruiker
     /// </summary>
     public bool MagNetwerk => Mag("Netwerk") || Mag("Directie");
 
+    /// <summary>
+    /// Tools ▸ Claude Shares (documenten uit Claude bij een project; ClaudeShares_MariaDB.sql, wens van Arnold 24-11-2026):
+    /// het recht Engineering, of Directie; zonder gekoppelde werknemer (lokaal testen) ook.
+    /// </summary>
+    public bool MagEngineering => !Gekoppeld || Mag("Engineering") || Mag("Directie");
+
     /// <summary>Verkooporders invoeren (Bestellingen ▸ Verkooporders): het recht Verkoop, of Directie (VerkoopOrders_MariaDB.sql).</summary>
     public bool MagVerkoop => Mag("Verkoop") || Mag("Directie");
 

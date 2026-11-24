@@ -1,0 +1,464 @@
+@page "/tools/claude-shares"
+@inject ClaudeShares Shares
+@inject IProjectRepository Projecten
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Tools ▸ Claude Shares (wens van Arnold, 24-11-2026): .md- en .txt-bestanden uit Claude bij een project, zodat een
+   collega met die kennis verder kan. Links de projecten, rechts de documenten van het gekozen project. Een bestand op
+   het vlak slepen (of klikken) maakt een nieuw document; op "nieuwe versie" bij een document slepen maakt een nieuwe
+   versie, waarmee de vorige het archief in gaat. Een oude versie terugzetten maakt er een nieuwe versie van.
+   Toegang: het recht Engineering of Directie. Vervallen zetten en hernoemen: de plaatser en Directie.
+   Slepen werkt zonder eigen script: het bestandsveld (InputFile) ligt onzichtbaar over het vlak.
+   Opslag: Services/ClaudeShares.cs, tabellen uit ClaudeShares_MariaDB.sql. *@
+
+<PageTitle>Claude Shares — MDE</PageTitle>
+
+<div class="page cs-pagina">
+    <header class="topbar">
+        <h1>Claude Shares</h1>
+        <span class="weeklabel">documenten uit Claude bij een project</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_mag)
+    {
+        <section class="module-placeholder">
+            <p><b>Geen toegang.</b></p>
+            <p>Claude Shares is voor wie het recht Engineering heeft (Werknemers ▸ Rechten) en voor de Directie.</p>
+        </section>
+    }
+    else if (!_tabel)
+    {
+        <p class="uitleg">De tabellen voor Claude Shares bestaan nog niet (ClaudeShares_MariaDB.sql).</p>
+    }
+    else
+    {
+        <div class="cs-opmaak">
+            <aside class="cs-links">
+                <input class="cs-zoek" data-zoeklijst placeholder="Project zoeken: nummer of omschrijving…" value="@_zoek" @oninput="ZoekInput" autocomplete="off" />
+                @if (_zoek.Trim().Length > 0)
+                {
+                    <div class="cs-kopje">@(_gevonden.Count == 0 ? "Niets gevonden" : "Gevonden")</div>
+                    @foreach (var p in _gevonden)
+                    {
+                        <button type="button" class="cs-project @(p.Id == _projectId ? "actief" : "")" @onclick="() => KiesProject(p.Id, Label(p))">@Label(p)</button>
+                    }
+                }
+                <div class="cs-kopje">Projecten met documenten</div>
+                @if (_projecten.Count == 0) { <p class="uitleg">Nog geen. Zoek een project en zet er een bestand bij.</p> }
+                @foreach (var p in _projecten)
+                {
+                    <button type="button" class="cs-project @(p.ProjectId == _projectId ? "actief" : "")" @onclick="() => KiesProject(p.ProjectId, p.Tekst)">
+                        @p.Tekst <span class="cs-aantal">@p.Aantal</span>
+                    </button>
+                }
+            </aside>
+
+            <main class="cs-rechts">
+                @if (_projectId is null)
+                {
+                    <p class="uitleg">
+                        Kies links een project. Vraag Claude om een .md-bestand van het gesprek (hoe de software is opgebouwd,
+                        wat er besloten is) en sleep dat hier bij het project; een collega opent het en gaat ermee verder.
+                    </p>
+                }
+                else if (_open is { } d)
+                {
+                    @* ----- een document lezen ----- *@
+                    <div class="cs-leeskop">
+                        <button type="button" class="klein" @onclick="Dicht">‹ Documenten</button>
+                        @if (_hernoem)
+                        {
+                            <input class="cs-naamveld" value="@d.Naam" maxlength="150" aria-label="Naam" @onchange="Hernoem" @onblur="() => _hernoem = false" />
+                        }
+                        else
+                        {
+                            <h2>@d.Naam</h2>
+                        }
+                        @if (_versie is { } v)
+                        {
+                            <span class="stand-chip @(v.Id == d.Huidig?.Id ? "s-groen" : "s-grijs")">v@(v.Versie)@(v.Id == d.Huidig?.Id ? "" : " · archief")</span>
+                        }
+                        @if (d.Vervallen) { <span class="stand-chip s-rood">vervallen</span> }
+                        <span class="groei"></span>
+                        @if (_versie is { } vv)
+                        {
+                            <button type="button" class="klein" title="De hele tekst naar het klembord, om in Claude te plakken" @onclick="Kopieer">Kopiëren</button>
+                            <a class="klein cs-knoplink" href="claude-shares/versie/@vv.Id" download="@vv.Bestandsnaam">Downloaden</a>
+                            <button type="button" class="klein" title="Het adres van dit document naar het klembord, om naar een collega te sturen" @onclick="KopieerLink">Link</button>
+                        }
+                        @if (MagBeheren(d))
+                        {
+                            <button type="button" class="klein" @onclick="() => _hernoem = true">Naam…</button>
+                            <button type="button" class="klein" @onclick="() => ZetVervallen(d, !d.Vervallen)">@(d.Vervallen ? "Terughalen" : "Vervallen")</button>
+                        }
+                    </div>
+
+                    <div class="cs-lees">
+                        <div class="cs-tekst">
+                            @if (_versie is null) { <p class="uitleg">Dit document heeft geen versies.</p> }
+                            else if (_tekst is null) { <p class="uitleg">Laden…</p> }
+                            else if (_versie.IsTekst) { <pre class="cs-kaal">@_tekst</pre> }
+                            else { <div class="cs-md">@((MarkupString)_html)</div> }
+                        </div>
+                        <aside class="cs-versies">
+                            @if (!d.Vervallen)
+                            {
+                                <div class="cs-vlak klein-vlak">
+                                    <b>Nieuwe versie</b>
+                                    <span>sleep een .md of .txt hierheen, of klik</span>
+                                    <InputFile @key="_invoer" OnChange="e => Ontvang(e, d)" accept=".md,.txt" class="cs-invoer" title="Nieuwe versie van dit document" />
+                                </div>
+                            }
+                            <div class="cs-kopje">Versies</div>
+                            @foreach (var x in d.Versies)
+                            {
+                                var huidig = x.Id == d.Huidig?.Id;
+                                <div class="cs-versie @(x.Id == _versie?.Id ? "actief" : "")" @onclick="() => ToonVersie(x)">
+                                    <div><b>v@(x.Versie)</b> <span class="cs-zacht">@(huidig ? "geldend" : "archief")</span></div>
+                                    <div class="cs-zacht">@x.Op.ToString("d-M-yyyy HH:mm")@(x.Door.Length > 0 ? " · " + x.Door : "")</div>
+                                    <div class="cs-zacht" title="@x.Bestandsnaam">@x.Bestandsnaam · @Grootte(x.Grootte)</div>
+                                    @if (x.Opmerking.Length > 0) { <div class="cs-opm">@x.Opmerking</div> }
+                                    @if (!huidig && !d.Vervallen)
+                                    {
+                                        <button type="button" class="klein" title="Deze tekst wordt de nieuwe geldende versie; de versies ertussen blijven in het archief"
+                                                @onclick="() => ZetTerug(d, x)" @onclick:stopPropagation="true">Terugzetten</button>
+                                    }
+                                </div>
+                            }
+                        </aside>
+                    </div>
+                }
+                else
+                {
+                    @* ----- de documenten van het project ----- *@
+                    <div class="cs-leeskop">
+                        <h2>@_projectTekst</h2>
+                        <span class="groei"></span>
+                        <label class="vink"><input type="checkbox" checked="@_ookVervallen" @onchange="VervallenGewijzigd" /> ook vervallen</label>
+                    </div>
+
+                    <div class="cs-vlak">
+                        <b>Nieuw document</b>
+                        <span>sleep een of meer .md- of .txt-bestanden hierheen, of klik om te kiezen</span>
+                        <InputFile @key="_invoer" OnChange="e => Ontvang(e, null)" accept=".md,.txt" multiple class="cs-invoer" title="Nieuw document bij dit project" />
+                    </div>
+
+                    @if (_docs.Count == 0)
+                    {
+                        <p class="uitleg">Bij dit project staan nog geen documenten.</p>
+                    }
+                    else
+                    {
+                        <table class="cs-tabel">
+                            <thead><tr><th>Naam</th><th>Versie</th><th>Laatst gewijzigd</th><th>Door</th><th>Bestand</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var s in _docs)
+                                {
+                                    var h = s.Huidig;
+                                    <tr class="@(s.Vervallen ? "cs-vervallen" : "")" @key="s.Id">
+                                        <td><button type="button" class="cs-naam" @onclick="() => Open(s)">@s.Naam</button>@if (s.Vervallen) { <span class="stand-chip s-rood">vervallen</span> }</td>
+                                        <td>@(h is null ? "" : "v" + h.Versie)</td>
+                                        <td>@h?.Op.ToString("d-M-yyyy HH:mm")</td>
+                                        <td>@h?.Door</td>
+                                        <td class="cs-zacht">@h?.Bestandsnaam</td>
+                                        <td>
+                                            @if (!s.Vervallen)
+                                            {
+                                                <span class="cs-rijvlak" title="Sleep een bestand hierheen (of klik) voor een nieuwe versie van dit document">
+                                                    ⬆ nieuwe versie
+                                                    <InputFile @key="(_invoer, s.Id)" OnChange="e => Ontvang(e, s)" accept=".md,.txt" class="cs-invoer" />
+                                                </span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </main>
+        </div>
+    }
+</div>
+
+@* ----- een binnengekomen bestand: naam, versie of nieuw, wat er veranderd is ----- *@
+@if (_wacht.Count > 0)
+{
+    var w = _wacht[0];
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster">
+            <header class="bijlagekop">
+                <h2>@w.Bestandsnaam</h2>
+                @if (_wacht.Count > 1) { <span class="cs-zacht">nog @(_wacht.Count - 1) erna</span> }
+            </header>
+            <div class="factuurvenster-inhoud">
+                @if (w.Kandidaat is { } k && !w.Vast)
+                {
+                    <label class="cs-keuze"><input type="radio" name="cs-doel" checked="@w.AlsVersie" @onchange="() => w.AlsVersie = true" />
+                        Nieuwe versie van <b>@k.Naam</b> (wordt v@((k.Huidig?.Versie ?? 0) + 1); v@(k.Huidig?.Versie ?? 0) gaat naar het archief)</label>
+                    <label class="cs-keuze"><input type="radio" name="cs-doel" checked="@(!w.AlsVersie)" @onchange="() => w.AlsVersie = false" />
+                        Nieuw document</label>
+                }
+                else if (w.Kandidaat is { } vast)
+                {
+                    <p>Nieuwe versie van <b>@vast.Naam</b>: wordt v@((vast.Huidig?.Versie ?? 0) + 1); v@(vast.Huidig?.Versie ?? 0) gaat naar het archief.</p>
+                }
+                @if (!w.AlsVersie)
+                {
+                    <label class="cs-veld"><span>Naam van het document</span>
+                        <input value="@w.Naam" maxlength="150" @oninput="e => w.Naam = (string?)e.Value ?? string.Empty" /></label>
+                }
+                <label class="cs-veld"><span>@(w.AlsVersie ? "Wat is er veranderd? (mag leeg)" : "Opmerking (mag leeg)")</span>
+                    <input value="@w.Opmerking" maxlength="500" @oninput="e => w.Opmerking = (string?)e.Value ?? string.Empty" /></label>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@(_bezig || (!w.AlsVersie && w.Naam.Trim().Length == 0))" @onclick="Bewaar">Bewaren</button>
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="Overslaan">@(_wacht.Count > 1 ? "Overslaan" : "Annuleren")</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Rechtstreeks naar een project of document (de knop Link).</summary>
+    [SupplyParameterFromQuery(Name = "project")] public int? ProjectParam { get; set; }
+    [SupplyParameterFromQuery(Name = "doc")] public int? DocParam { get; set; }
+
+    /// <summary>Een bestand dat binnen is en nog een antwoord nodig heeft.</summary>
+    private class Wachtend
+    {
+        public string Bestandsnaam = "", Inhoud = "", Naam = "", Opmerking = "";
+        public ClaudeShare? Kandidaat;      // het document waar dit een versie van kan worden
+        public bool Vast;                   // op een document gesleept: geen keuze, het is een versie
+        public bool AlsVersie;
+    }
+
+    private bool _geladen, _mag, _tabel, _fout, _bezig, _ookVervallen, _hernoem;
+    private string? _melding;
+    private string _zoek = "";
+    private List<ProjectRegel> _gevonden = new();
+    private List<ClaudeShareProject> _projecten = new();
+    private int? _projectId;
+    private string _projectTekst = "";
+    private List<ClaudeShare> _docs = new();
+    private ClaudeShare? _open;
+    private ClaudeShareVersie? _versie;
+    private string? _tekst;
+    private string _html = "";
+    private readonly List<Wachtend> _wacht = new();
+    private int _invoer;                    // nieuw bestandsveld na elke upload, zodat hetzelfde bestand nog eens kan
+    private CancellationTokenSource? _pauze;
+
+    private static string Label(ProjectRegel p) => $"{p.Nummer} {p.Omschrijving}".Trim();
+    private static string Grootte(int tekens) => tekens < 1024 ? tekens + " tekens" : (tekens / 1024.0).ToString("0.#") + " kB";
+    private bool MagBeheren(ClaudeShare s) => !Ik.Gekoppeld || Ik.Mag("Directie") || (s.DoorId is int d && d == Ik.WerknemerId);
+
+    private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            _mag = Ik.MagEngineering;
+            if (_mag) _tabel = await Shares.AanwezigAsync();
+            if (_mag && _tabel)
+            {
+                _projecten = await Shares.ProjectenAsync();
+                if (ProjectParam is int pid)
+                {
+                    await KiesProject(pid, _projecten.FirstOrDefault(p => p.ProjectId == pid)?.Tekst ?? await ProjectTekst(pid));
+                    if (DocParam is int did && _docs.FirstOrDefault(x => x.Id == did) is { } doc) await Open(doc);
+                }
+            }
+        }
+        catch (Exception ex) { Meld("Laden is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _geladen = true;
+    }
+
+    private async Task<string> ProjectTekst(int id)
+    {
+        try
+        {
+            var v = await Projecten.GetProjectVeldenAsync(id);
+            return $"{v.GetValueOrDefault("Projectnumber")} {v.GetValueOrDefault("Projectdescription")}".Trim();
+        }
+        catch { return "project " + id; }
+    }
+
+    /// <summary>Zoeken na een korte typpauze, zodat niet elke letter een query is.</summary>
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _pauze?.Cancel();
+        var pauze = _pauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        var q = _zoek.Trim();
+        try { _gevonden = q.Length == 0 ? new() : await Projecten.ZoekProjectenAsync(null, q, null, 0, 15); }
+        catch { _gevonden = new(); }
+    }
+
+    private async Task KiesProject(int id, string tekst)
+    {
+        _projectId = id; _projectTekst = tekst; _open = null; _versie = null; _tekst = null;
+        Shares.OnthoudProject(id, tekst);
+        await Herlaad();
+    }
+
+    /// <summary>De lijsten opnieuw; een open document blijft open (met zijn nieuwe versies).</summary>
+    private async Task Herlaad()
+    {
+        _projecten = await Shares.ProjectenAsync();
+        if (_projectId is not int pid) return;
+        _docs = await Shares.VanProjectAsync(pid, _ookVervallen || _open?.Vervallen == true);
+        if (_open is not null) _open = _docs.FirstOrDefault(x => x.Id == _open.Id);
+    }
+
+    private async Task VervallenGewijzigd(ChangeEventArgs e) { _ookVervallen = e.Value is true; await Herlaad(); }
+
+    private async Task Open(ClaudeShare s)
+    {
+        _open = s; _hernoem = false;
+        await ToonVersie(s.Huidig);
+    }
+
+    /// <summary>Terug naar de lijst; opnieuw geladen, zodat een net vervallen document er niet meer tussen staat.</summary>
+    private async Task Dicht()
+    {
+        _open = null; _versie = null; _tekst = null; _hernoem = false;
+        try { await Herlaad(); } catch { }
+    }
+
+    private async Task ToonVersie(ClaudeShareVersie? v)
+    {
+        _versie = v; _tekst = null; _html = "";
+        if (v is null) return;
+        try
+        {
+            _tekst = (await Shares.InhoudAsync(v.Id))?.Inhoud ?? "";
+            if (!v.IsTekst) _html = ActMarkdown.Html(_tekst, document: true);
+        }
+        catch (Exception ex) { _tekst = ""; Meld("De tekst ophalen is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    // ------------------------------------------------------------------ bestanden ontvangen
+
+    /// <summary>Bestanden uit een bestandsveld (gesleept of gekozen). <paramref name="doel"/> = het document waar ze op gezet zijn.</summary>
+    private async Task Ontvang(InputFileChangeEventArgs e, ClaudeShare? doel)
+    {
+        if (_projectId is null) return;
+        var geweigerd = new List<string>();
+        foreach (var f in e.GetMultipleFiles(20))
+        {
+            if (!ClaudeShares.IsToegestaan(f.Name)) { geweigerd.Add($"{f.Name}: alleen .md en .txt"); continue; }
+            if (f.Size == 0 || f.Size > ClaudeShares.MaxGrootte) { geweigerd.Add($"{f.Name}: leeg of groter dan 2 MB"); continue; }
+            try
+            {
+                using var m = new MemoryStream();
+                await using (var s = f.OpenReadStream(ClaudeShares.MaxGrootte)) await s.CopyToAsync(m);
+                var w = new Wachtend { Bestandsnaam = f.Name, Inhoud = ClaudeShares.Tekst(m.ToArray()), Naam = ClaudeShares.NaamUit(f.Name) };
+                if (doel is not null) { w.Kandidaat = doel; w.Vast = true; w.AlsVersie = true; }
+                else
+                {
+                    // zelfde bestandsnaam of zelfde naam als een bestaand document: waarschijnlijk een nieuwe versie daarvan
+                    w.Kandidaat = _docs.FirstOrDefault(d => !d.Vervallen && (string.Equals(d.Huidig?.Bestandsnaam, f.Name, StringComparison.OrdinalIgnoreCase)
+                                                                             || string.Equals(d.Naam, w.Naam, StringComparison.OrdinalIgnoreCase)));
+                    w.AlsVersie = w.Kandidaat is not null;
+                }
+                _wacht.Add(w);
+            }
+            catch (Exception ex) { geweigerd.Add($"{f.Name}: {ex.GetBaseException().Message}"); }
+        }
+        _invoer++;
+        if (geweigerd.Count > 0) Meld("Niet overgenomen: " + string.Join("; ", geweigerd), true);
+    }
+
+    private async Task Bewaar()
+    {
+        if (_wacht.Count == 0 || _projectId is not int pid || _bezig) return;
+        var w = _wacht[0];
+        _bezig = true;
+        try
+        {
+            if (w.AlsVersie && w.Kandidaat is { } k)
+            {
+                var nr = await Shares.NieuweVersieAsync(k.Id, w.Bestandsnaam, w.Inhoud, w.Opmerking, Ik.WerknemerId);
+                Meld($"{k.Naam}: v{nr} is nu de geldende versie.");
+            }
+            else
+            {
+                await Shares.NieuwAsync(pid, w.Naam, w.Bestandsnaam, w.Inhoud, w.Opmerking, Ik.WerknemerId);
+                Meld($"{w.Naam.Trim()} staat bij het project.");
+            }
+            _wacht.RemoveAt(0);
+            await Herlaad();
+            if (_open is not null) await ToonVersie(_open.Huidig);
+        }
+        catch (Exception ex) { Meld("Bewaren is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
+
+    private void Overslaan() { if (_wacht.Count > 0) _wacht.RemoveAt(0); }
+
+    // ------------------------------------------------------------------ handelingen op een document
+
+    private async Task ZetTerug(ClaudeShare d, ClaudeShareVersie oud)
+    {
+        try
+        {
+            var nr = await Shares.TerugzettenAsync(d.Id, oud, Ik.WerknemerId);
+            await Herlaad();
+            if (_open is not null) await ToonVersie(_open.Huidig);
+            Meld($"v{oud.Versie} is teruggezet als v{nr}.");
+        }
+        catch (Exception ex) { Meld("Terugzetten is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task Hernoem(ChangeEventArgs e)
+    {
+        _hernoem = false;
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (_open is null || naam.Length == 0 || naam == _open.Naam || !MagBeheren(_open)) return;
+        try { await Shares.HernoemAsync(_open.Id, naam); await Herlaad(); }
+        catch (Exception ex) { Meld("Hernoemen is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task ZetVervallen(ClaudeShare d, bool vervallen)
+    {
+        if (!MagBeheren(d)) return;
+        try
+        {
+            await Shares.ZetVervallenAsync(d.Id, vervallen);
+            d.Vervallen = vervallen;        // zodat Herlaad hem ook als vervallen nog ophaalt
+            await Herlaad();
+            Meld(vervallen ? $"{d.Naam} is vervallen. Het staat nog onder \"ook vervallen\" en is daar terug te halen." : $"{d.Naam} is teruggehaald.");
+        }
+        catch (Exception ex) { Meld("Dat is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task Kopieer()
+    {
+        if (_tekst is null) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", _tekst); Meld("De tekst staat op het klembord."); }
+        catch { Meld("Kopiëren is niet gelukt; gebruik Downloaden.", true); }
+    }
+
+    private async Task KopieerLink()
+    {
+        if (_open is null) return;
+        var adres = Nav.ToAbsoluteUri($"tools/claude-shares?project={_open.ProjectId}&doc={_open.Id}").ToString();
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", adres); Meld("Het adres van dit document staat op het klembord."); }
+        catch { Meld(adres); }
+    }
+}

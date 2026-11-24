@@ -381,6 +381,9 @@
         // Tools ▸ Netwerk: alleen met het recht Netwerk of Directie (het heeft een eigen adres en zou anders altijd zichtbaar zijn)
         if (m.Sleutel == "netwerk") return Ik.MagNetwerk;
 
+        // Tools ▸ Claude Shares: het recht Engineering of Directie (ook een eigen adres)
+        if (m.Sleutel == "claude-shares") return Ik.MagEngineering;
+
         // Financiën en Werknemers nooit op een werkplek (gedeelde pc), ook niet met rechten
         if (Ik.IsWerkplek && HuidigeGebruiker.ModulesNietOpWerkplek.Contains(m.Sleutel)) return false;
 
@@ -397,7 +400,7 @@
 
         // alleen tegels met een scherm in de app tellen (de "in Access"-tegels zijn weg, 12-11-2026)
         return m.Groepen.SelectMany(g => g.Items)
-                        .Any(i => i.Klaar && (i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop) || (i.Recht == "Netwerk" && Ik.MagNetwerk)));
+                        .Any(i => i.Klaar && (i.Recht is null || Ik.Mag(i.Recht) || (i.Recht == "Fusion" && Ik.MagFusion) || (i.Recht == "Verkoop" && Ik.MagVerkoop) || (i.Recht == "Netwerk" && Ik.MagNetwerk) || (i.Recht == "Engineering" && Ik.MagEngineering)));
     }
 
     // ===== Gebouwbeheer als zwevend venster =====

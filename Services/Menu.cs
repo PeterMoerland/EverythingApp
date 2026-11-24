@@ -192,6 +192,13 @@ public static class Menu
                         new MenuItem("Connectortypes (kabels)", "/beheer/tabel/kabel-connectoren", Icoon: "plug-zap")))
                 { Url = "/tools/kabelconfigurator" },
 
+                // .md-bestanden uit Claude bij een project, met versies (wens van Arnold 24-11-2026). Zichtbaar met
+                // MagEngineering (MainLayout): het recht Engineering of Directie.
+                new MenuModule("claude-shares", "Claude Shares", "file-text",
+                    new MenuGroep("Claude Shares",
+                        new MenuItem("Claude Shares", "/tools/claude-shares", "Engineering", Icoon: "file-text")))
+                { Url = "/tools/claude-shares" },
+
                 // De vaste IP-adressen: ook hier, want het menu Beheer is alleen voor Directie en wie het recht Netwerk heeft
                 // (bv. Gerard) kwam er anders niet bij (vraag gebruiker 23-11-2026). Zichtbaar met MagNetwerk (MainLayout).
                 new MenuModule("netwerk", "Netwerk", "network",

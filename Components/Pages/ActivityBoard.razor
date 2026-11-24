@@ -1547,9 +1547,18 @@ else
                     @foreach (var tr in _treffers)
                     {
                         var heeft = HeeftBoard(tr.Id);
-                        <button type="button" class="ab-treffer" @key="tr.Id" @onclick="() => Gekozen(tr.Id, koppelen)">
+                        <button type="button" class="ab-treffer @(!koppelen && _maakVraag == tr.Id ? "gevraagd" : "")" @key="tr.Id" @onclick="() => Gekozen(tr.Id, koppelen)">
                             @if (tr.Nummer.Length > 0) { <span class="ab-mono">@tr.Nummer</span> }@tr.Naam@if (heeft) { <span class="ab-treffer-board" title="Hiervoor bestaat al een board">board</span> }
                         </button>
+                        @* nog geen board: eerst vragen, anders staat er na een verkeerde klik een ongewenst board (punt van Gerard, 24-11-2026) *@
+                        @if (!koppelen && _maakVraag == tr.Id)
+                        {
+                            <div class="ab-maakvraag" @key="@("vraag" + tr.Id)">
+                                <span>Hiervoor is nog geen board. Nieuw board maken?</span>
+                                <button type="button" class="ab-btn klein" id="ab-maak-ja" @onclick="() => MaakBoard(tr.Id)">Board maken</button>
+                                <button type="button" class="ab-btn klein" @onclick="() => _maakVraag = null">Annuleren</button>
+                            </div>
+                        }
                     }
                 </div>
             }
@@ -1565,6 +1574,7 @@ else
         if (_zoekSoort == soort) return;
         _zoekSoort = soort;
         _zoek = "";
+        _maakVraag = null;
         _treffers = new();
         _zoekStop?.Cancel();
         _focusNa = "#ab-zoek";
@@ -1606,6 +1616,7 @@ else
     private async Task ZoekGewijzigd(ChangeEventArgs e)
     {
         _zoek = (string?)e.Value ?? "";
+        _maakVraag = null;
         _zoekStop?.Cancel();
         var stop = _zoekStop = new CancellationTokenSource();
         var q = _zoek.Trim();
@@ -1622,7 +1633,13 @@ else
         if (!stop.IsCancellationRequested) _zoekt = false;
     }
 
-    /// <summary>Een treffer gekozen: het board van dat project of die klant openen (of maken), of dit board eraan koppelen.</summary>
+    /// <summary>De treffer waarbij de vraag "nieuw board maken?" open staat (startscherm).</summary>
+    private int? _maakVraag;
+
+    /// <summary>
+    /// Een treffer gekozen: dit board eraan koppelen, of het board van dat project, die werkorder of die klant openen.
+    /// Is er nog geen board, dan eerst de vraag onder de regel; pas "Board maken" maakt het.
+    /// </summary>
     private async Task Gekozen(int id, bool koppelen)
     {
         if (koppelen)
@@ -1631,6 +1648,19 @@ else
                          _zoekSoort == ActBoardSoort.Werkorder ? id : null);
             return;
         }
+        if (!HeeftBoard(id))
+        {
+            _maakVraag = _maakVraag == id ? null : id;      // nog een klik op de regel = de vraag weer weg
+            if (_maakVraag is not null) _focusNa = "#ab-maak-ja";
+            return;
+        }
+        await MaakBoard(id);
+    }
+
+    /// <summary>Het board openen; bestaat het nog niet, dan wordt het nu gemaakt.</summary>
+    private async Task MaakBoard(int id)
+    {
+        _maakVraag = null;
         try
         {
             var board = _zoekSoort == ActBoardSoort.Klant ? await Repo.ZorgVoorKlantBoardAsync(id, Ik.WerknemerId)

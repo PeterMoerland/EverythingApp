@@ -77,7 +77,8 @@ public interface IVerbeterRepository
     /// <summary>Alle verzoeken, nieuwste eerst.</summary>
     Task<List<Verbeterverzoek>> LijstAsync();
     Task<int> AantalNieuwAsync();
-    Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek);
+    /// <summary>Een nieuw verzoek; de prioriteit (1-3) gaat mee als de kolom er is.</summary>
+    Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek, int? prioriteit = null);
     /// <summary>Tekst, status en reactie bijwerken (Directie).</summary>
     Task BewaarAsync(Verbeterverzoek v, int? door);
     /// <summary>
@@ -104,7 +105,7 @@ public class GeenVerbeterRepository : IVerbeterRepository
     public Task<bool> PrioriteitMogelijkAsync() => Task.FromResult(false);
     public Task<List<Verbeterverzoek>> LijstAsync() => Task.FromResult(new List<Verbeterverzoek>());
     public Task<int> AantalNieuwAsync() => Task.FromResult(0);
-    public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek) => throw new InvalidOperationException("Er is geen database.");
+    public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek, int? prioriteit = null) => throw new InvalidOperationException("Er is geen database.");
     public Task BewaarAsync(Verbeterverzoek v, int? door) => throw new InvalidOperationException("Er is geen database.");
     public Task<bool> TrekInAsync(int verzoekId, int door) => Task.FromResult(false);
     public Task<bool> GesprekMogelijkAsync() => Task.FromResult(false);
@@ -124,11 +125,12 @@ public class GeheugenVerbeterRepository : IVerbeterRepository
     public Task<List<Verbeterverzoek>> LijstAsync() => Task.FromResult(_items.Values.OrderByDescending(v => v.IngediendOp).ToList());
     public Task<int> AantalNieuwAsync() => Task.FromResult(_items.Values.Count(v => v.Status == VerzoekStatus.Nieuw));
 
-    public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek)
+    public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek, int? prioriteit = null)
     {
         var v = new Verbeterverzoek
         {
             Id = Interlocked.Increment(ref _volgende), Tekst = tekst, Pagina = pagina, IngediendOp = DateTime.Now,
+            Prioriteit = prioriteit is >= 1 and <= 3 ? prioriteit : null,
             IngediendDoorId = door, IngediendDoor = door is null ? "" : $"werknemer {door}", Werkplek = werkplek,
         };
         _items[v.Id] = v;
@@ -254,12 +256,14 @@ public class MySqlVerbeterRepository : IVerbeterRepository
         return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 
-    public async Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek)
+    public async Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek, int? prioriteit = null)
     {
+        var metPrio = prioriteit is >= 1 and <= 3 && await PrioriteitMogelijkAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "INSERT INTO `Verbeterverzoeken` (`Tekst`, `Pagina`, `IngediendOp`, `IngediendDoor`, `Werkplek`, `Status`) " +
-            "VALUES (@tekst, @pagina, NOW(), @door, @werkplek, 'nieuw'); SELECT LAST_INSERT_ID();", cn);
+            "INSERT INTO `Verbeterverzoeken` (`Tekst`, `Pagina`, `IngediendOp`, `IngediendDoor`, `Werkplek`, `Status`" + (metPrio ? ", `Prioriteit`" : "") + ") " +
+            "VALUES (@tekst, @pagina, NOW(), @door, @werkplek, 'nieuw'" + (metPrio ? ", @prio" : "") + "); SELECT LAST_INSERT_ID();", cn);
+        if (metPrio) cmd.Parameters.AddWithValue("@prio", prioriteit);
         cmd.Parameters.AddWithValue("@tekst", Kort(tekst, 2000));
         cmd.Parameters.AddWithValue("@pagina", Kort(pagina, 300));
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
