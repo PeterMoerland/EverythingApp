@@ -3975,6 +3975,11 @@ html[data-thema="donker"] .ab-lijst input:not([type=checkbox]):focus { backgroun
            background: var(--ab-wit); border-radius: 3px; cursor: pointer; color: var(--ab-muted); display: inline-flex; align-items: center; gap: 6px; }
 .ab-kies:hover { border-color: #bdbdbd; color: var(--ab-ink); }
 .ab-kies.aan { font-weight: 500; border-color: transparent; }
+/* de gekozen prioriteit licht op in dezelfde kleur als de chip op het kaartje (punt van Arnold 24-11-2026). Dat was al
+   de bedoeling (ab-k-red enz.), maar .ab-kies hierboven zette achtergrond en tekstkleur terug. */
+.ab-kies.aan.ab-k-red { background: #ffe2dd; color: #5d1715; }
+.ab-kies.aan.ab-k-yellow { background: #fdecc8; color: #402c1b; }
+.ab-kies.aan.ab-k-default { background: #ececea; color: #37352f; }
 .ab-kies .ab-pnr { width: 18px; height: 18px; font-size: 10px; flex-basis: 18px; }
 .ab-kies:not(.aan) .ab-pnr { background: #c3c7cc; }
 .ab-drawer .ab-hint { margin: 6px 0 0; }
