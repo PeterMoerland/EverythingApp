@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 24-11-2026
+
+- **Uren** — Verbeterd: een regel verwijderen vraagt niet meer "Weet je het zeker?". De regel is meteen weg, en met **Ctrl+Z** (of de knop Ongedaan maken in de melding) zet je hem terug (verzoek van Peter).
+
 ## 23-11-2026
 
 - **Bestellingen** — Nieuw: typ je een **artikelcode** in een bestelregel, dan kijkt de app of dat artikel in de artikelen staat (MDE-nummer, MDE-code, fabrikantcode of bestelnummer bij een leverancier). Eén treffer: omschrijving, MDE-nummer en prijs worden ingevuld. Meer treffers, of alleen het begin van een code getypt (FN3258): je krijgt een lijst om uit te kiezen. Geen treffer: de code blijft gewoon staan (verzoek van Peter).

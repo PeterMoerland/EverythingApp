@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject HuidigeGebruiker Ik
 @inject IWerkorderDelenRepository Delen
+@implements IDisposable
 
 @* Nieuwe regel nog niet opgeslagen (wel iets ingevuld)? Dan eerst vragen bij weggaan: naar een andere pagina
    (OnBeforeInternalNavigation), tabblad sluiten of herladen (browser-vraag), en binnen de pagina bij een andere
@@ -88,7 +89,14 @@
 
     @if (_melding is not null)
     {
-        <div class="melding @(_meldingIsFout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        <div class="melding @(_meldingIsFout ? "fout" : "ok")" @onclick="() => _melding = null">
+            @_melding
+            @if (_toonTerug && _verwijderd.Count > 0)
+            {
+                <button class="klein" style="margin-left:.6rem" title="De verwijderde regel terugzetten (Ctrl+Z)"
+                        @onclick="OngedaanMaken" @onclick:stopPropagation="true">↶ Ongedaan maken</button>
+            }
+        </div>
     }
 
     <section class="grid">
@@ -447,6 +455,11 @@
         {
             _focusNieuw = false;
             try { await _nieuwOmschrijving.FocusAsync(); } catch { /* geen lege regel in beeld */ }
+        }
+        if (firstRender)
+        {
+            _zelf = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("mdeUndo.aan", _zelf); } catch { }
         }
         if (!firstRender || _gebruikerGelezen) return;
         _gebruikerGelezen = true;
@@ -845,21 +858,53 @@
         _focusNieuw = true;
     }
 
-    // VBA: KnopVerwijderRecord_Click ("Weet je het zeker?")
-    // VBA: KnopVerwijderRecord_Click — "Weet je het zeker?"
+    // ---- verwijderen zonder vraag, Ctrl+Z zet terug (wens gebruiker 24-11-2026; VBA en eerder: "Weet je het zeker?") ----
+    /// <summary>
+    /// De regels die in dit scherm verwijderd zijn, de laatste bovenop. Terugzetten = opnieuw toevoegen: de regel krijgt
+    /// dus een nieuw nummer. Alleen zolang dit scherm open is.
+    /// </summary>
+    private readonly Stack<UrenEntry> _verwijderd = new();
+    private bool _toonTerug;
+    private DotNetObjectReference<Ureningave>? _zelf;
+
+    private static string Wat(UrenEntry e)
+        => string.IsNullOrWhiteSpace(e.Omschrijving) ? $"{e.Uren:0.##} uur" : $"{e.Uren:0.##} uur — {e.Omschrijving}";
+
     private async Task Verwijder(UrenEntry e)
     {
-        var wat = string.IsNullOrWhiteSpace(e.Omschrijving)
-            ? $"{e.Uren:0.##} uur"
-            : $"{e.Uren:0.##} uur — {e.Omschrijving}";
-
-        bool zeker;
-        try { zeker = await JS.InvokeAsync<bool>("mdeBevestig", $"Deze regel verwijderen?\n\n{wat}\n\nWeet je het zeker?"); }
-        catch { zeker = true; }
-        if (!zeker) return;
-
-        await Repo.DeleteAsync(e.UrenId);
+        try { await Repo.DeleteAsync(e.UrenId); }
+        catch (Exception ex) { Toon("Verwijderen mislukt: " + ex.Message, fout: true); return; }
+        _verwijderd.Push(e);
         await Ververs();
+        Toon($"Regel verwijderd: {Wat(e)}. Ctrl+Z zet hem terug.", fout: false);
+        _toonTerug = true;
+    }
+
+    /// <summary>Ctrl+Z (App.razor: mdeUndo) of de knop in de melding: de laatst verwijderde regel terugzetten.</summary>
+    [JSInvokable]
+    public async Task OngedaanMaken()
+    {
+        if (_verwijderd.Count == 0) return;
+        var e = _verwijderd.Pop();
+        e.UrenId = 0;
+        try { await Repo.AddAsync(e); }
+        catch (Exception ex)
+        {
+            _verwijderd.Push(e);
+            Toon("Terugzetten mislukt: " + ex.Message, fout: true);
+            StateHasChanged();
+            return;
+        }
+        await Ververs();
+        Toon($"Teruggezet: {Wat(e)}" + (e.StartDatum != _datum || e.WerknemerId != _werknemerId ? $" (op {e.StartDatum:dd-MM-yyyy})" : "") + ".", fout: false);
+        _toonTerug = _verwijderd.Count > 0;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        try { _ = JS.InvokeVoidAsync("mdeUndo.uit"); } catch { }
+        _zelf?.Dispose();
     }
 
     private string WerkorderTekst(int? id)
@@ -873,5 +918,6 @@
     {
         _melding = tekst;
         _meldingIsFout = fout;
+        _toonTerug = false;
     }
 }

@@ -685,6 +685,19 @@
             }
         };
 
+        // mdeUndo: Ctrl+Z roept de pagina aan die zich heeft aangemeld (uren: een verwijderde regel terugzetten; wens
+        // gebruiker 24-11-2026). Niet in een invoerveld waar iets in staat: daar hoort Ctrl+Z bij het typen.
+        window.mdeUndo = { ref: null, aan: function (ref) { this.ref = ref; }, uit: function () { this.ref = null; } };
+        document.addEventListener('keydown', function (e) {
+            if (!window.mdeUndo.ref || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.key !== 'z' && e.key !== 'Z')) return;
+            var t = e.target, tag = t && t.tagName;
+            if (t && t.isContentEditable) return;
+            if ((tag === 'INPUT' || tag === 'TEXTAREA') && t.value) return;
+            if (document.getElementById('mde-bevestig')) return;
+            e.preventDefault();
+            window.mdeUndo.ref.invokeMethodAsync('OngedaanMaken');
+        });
+
         // Opvallende 'weet je het zeker?'-dialoog in plaats van het grijze browser-confirm.
         // Geeft een Promise<bool> terug; Enter = ja, Esc = nee.
         // mdeMelding(tekst, kop): zelfde dialoog met alleen een OK-knop (bv. 'STO niet vrijgegeven').

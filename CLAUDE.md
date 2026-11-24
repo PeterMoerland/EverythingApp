@@ -1135,6 +1135,16 @@ begint met de klant van de factuur, anders de nieuwste 30), klik = zoals Access'
 een melding), daarna een lege regel. De PakbonID wordt niet in `InvoiceHours` bewaard (Access deed dat wel; nergens
 gebruikt). Lokaal getest tegen de live database op een nieuwe factuur (Annuleren, niets opgeslagen).
 
+## Ureningave: verwijderen zonder vraag, Ctrl+Z zet terug (24-11-2026)
+
+Wens gebruiker. `Ureningave.Verwijder` vraagt niets meer: `DeleteAsync`, de regel op de stapel `_verwijderd`, en een
+melding met de knop Ongedaan maken. `OngedaanMaken` (`[JSInvokable]`) zet de bovenste terug met `AddAsync` (dus met een
+**nieuw Uren-id**, en alleen de velden die het scherm schrijft). Ctrl+Z komt van `mdeUndo` in `App.razor`: een
+keydown-luisteraar op het document die de aangemelde pagina aanroept (`mdeUndo.aan(ref)` in de eerste render, `uit` in
+`Dispose`), behalve in een invoerveld waar iets in staat (daar hoort Ctrl+Z bij het typen) en als de bevestig-dialoog
+open staat. De stapel leeft zolang het scherm open is, over dagen en werknemers heen; terugzetten gaat naar de dag en
+werknemer van de regel zelf.
+
 ## Ureningave: losse regels kopiëren (4-11-2026)
 
 Wens collega: een regel (of een selectie) naar een andere dag kopiëren. Elke regel heeft een vinkje (kop = alles)
