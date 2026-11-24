@@ -1,0 +1,298 @@
+@* Statuslijsten op een Activity board (idee van Arnold, 24-11-2026): een tabel met kolommen (bv. machine 1 t/m 8),
+   rijen onder kopjes en per cel een status. Eigen tabblad naast Kanban; keuzes gebruiker: vaste statussen, per cel wie
+   en wanneer, een opmerking per rij, los van de kaartjes. Opslag: Services/ActStatuslijsten.cs. Elke wijziging gaat
+   meteen naar de database; OpGewijzigd laat het board de collega's verversen. *@
+@inject ActStatuslijsten Lijsten
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@if (!_aanwezig)
+{
+    <div class="ab-hint">Statuslijsten kunnen nog niet: het script <b>ActivityBoard_Statuslijsten_MariaDB.sql</b> is niet uitgevoerd.</div>
+}
+else
+{
+    <div class="sl-balk">
+        <button class="ab-btn klein" type="button" @onclick="OpenNieuw">▦ + Statuslijst</button>
+        @if (_fout is not null) { <span class="sl-fout" @onclick="() => _fout = null">@_fout</span> }
+    </div>
+    @if (_lijsten.Count == 0)
+    {
+        <div class="ab-hint">Nog geen statuslijsten op dit board. Een statuslijst is een tabel om bijvoorbeeld acht machines na te lopen:
+            de machines als kolommen, de punten als rijen, en per vakje een status.</div>
+    }
+    @foreach (var lijst in _lijsten)
+    {
+        var l = lijst;
+        var groepen = Groepen(l);
+        <section class="sl-lijst" @key="l.Id">
+            <div class="sl-kopbalk">
+                <span class="sl-icoon" title="Statuslijst">▦</span>
+                <input class="sl-naam" value="@l.Naam" maxlength="200" aria-label="Naam van de statuslijst" @onchange="e => HernoemLijst(l, e)" />
+                <span class="ab-lijst-tel @(l.Totaal > 0 && l.KlaarAantal == l.Totaal ? "af" : "")" title="Vakjes die klaar zijn">@l.KlaarAantal/@l.Totaal klaar</span>
+                <span style="flex:1"></span>
+                <button class="ab-btn klein" type="button" @onclick="() => NieuweKolom(l)">+ Kolom</button>
+                <button class="ab-btn klein" type="button" @onclick="() => NieuwKopje(l)">+ Kopje</button>
+                <button class="ab-btn klein" type="button" title="Deze statuslijst verwijderen" @onclick="() => VerwijderLijst(l)">Verwijderen</button>
+            </div>
+            <div class="sl-wrap">
+                <table class="sl-tabel">
+                    <thead>
+                        <tr>
+                            <th class="sl-item">Item</th>
+                            @foreach (var kolom in l.Kolommen)
+                            {
+                                var k = kolom;
+                                <th class="sl-kol" @key="k.Id">
+                                    <input value="@k.Naam" maxlength="100" aria-label="Naam van de kolom" title="Klik om de naam te wijzigen; leegmaken verwijdert de kolom"
+                                           @onchange="e => HernoemKolom(l, k, e)" />
+                                </th>
+                            }
+                            <th class="sl-opm">Opmerking</th>
+                            <th class="sl-weg"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var groep in groepen)
+                        {
+                            var g = groep;
+                            @if (g.Kop is { } kop)
+                            {
+                                <tr class="sl-kop" @key="kop.Id">
+                                    <td colspan="@(l.Kolommen.Count + 2)">
+                                        <input value="@kop.Naam" maxlength="200" aria-label="Kopje" @onchange="e => ZetNaam(kop, e)" />
+                                    </td>
+                                    <td class="sl-weg"><button type="button" class="ab-pweg" title="Kopje verwijderen (de rijen blijven staan)" @onclick="() => VerwijderRij(kop)">×</button></td>
+                                </tr>
+                            }
+                            @foreach (var rij in g.Rijen)
+                            {
+                                var r = rij;
+                                <tr @key="r.Id">
+                                    <td class="sl-item"><input value="@r.Naam" maxlength="200" aria-label="Item" @onchange="e => ZetNaam(r, e)" /></td>
+                                    @foreach (var kolom in l.Kolommen)
+                                    {
+                                        var k = kolom;
+                                        var cel = r.Cellen.GetValueOrDefault(k.Id);
+                                        var status = cel?.Status ?? ActCelStatus.Todo;
+                                        var open = _celOpen == (r.Id, k.Id);
+                                        <td class="sl-cel" @key="k.Id">
+                                            <button type="button" class="ab-chip ab-k-@ActCelStatus.Kleur(status) sl-status @(cel is null ? "leeg" : "")" title="@CelTip(cel)"
+                                                    @onclick="() => _celOpen = open ? null : (r.Id, k.Id)"><span class="sl-stip"></span>@ActCelStatus.Naam(status)</button>
+                                            @if (open)
+                                            {
+                                                <div class="sl-menu">
+                                                    @foreach (var s in ActCelStatus.Alle)
+                                                    {
+                                                        var code = s.Code;
+                                                        <button type="button" class="ab-chip ab-k-@s.Kleur sl-status" @onclick="() => ZetCel(r, k, code)"><span class="sl-stip"></span>@s.Naam</button>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                    }
+                                    <td class="sl-opm"><input value="@r.Opmerking" maxlength="1000" aria-label="Opmerking" title="@r.Opmerking" @onchange="e => ZetOpmerking(r, e)" /></td>
+                                    <td class="sl-weg"><button type="button" class="ab-pweg" title="Rij verwijderen" @onclick="() => VerwijderRij(r)">×</button></td>
+                                </tr>
+                            }
+                            @* onderaan elk groepje: een item erbij met Enter *@
+                            @if (g.Kop is not null || groepen.Count == 1 || g.Rijen.Count > 0)
+                            {
+                                var gid = g.Kop?.Id ?? 0;
+                                <tr class="sl-nieuw" @key="@($"n-{gid}-{_versie}")">
+                                    <td colspan="@(l.Kolommen.Count + 3)">
+                                        <input id="@($"sl-n-{l.Id}-{gid}")" placeholder="+ item (Enter)" maxlength="200" aria-label="Nieuw item"
+                                               @oninput="e => _nieuw[(l.Id, gid)] = (string?)e.Value ?? string.Empty" @onkeydown="e => NieuwToets(e, l, g)" />
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+    @if (_celOpen is not null) { <div class="sl-dicht" @onclick="() => _celOpen = null"></div> }
+}
+
+@if (_nieuwOpen)
+{
+    <div class="ab-modal" @onkeydown="NieuwLijstToets">
+        <div class="ab-mbox" role="dialog" aria-modal="true">
+            <h3>▦ Nieuwe statuslijst</h3>
+            <p>Een tabel met kolommen (bijvoorbeeld de machines) en per vakje een status. Namen kun je daarna nog wijzigen.</p>
+            <div class="sl-form">
+                <label>Naam<input id="sl-nieuwnaam" maxlength="200" placeholder="bv. Machineoverzicht" @bind="_nieuwNaam" @bind:event="oninput" /></label>
+                <label>Aantal kolommen<input type="number" min="1" max="40" @bind="_nieuwKolommen" /></label>
+            </div>
+            <div class="ab-mknop">
+                <button class="ab-btn klein" type="button" @onclick="() => _nieuwOpen = false">Annuleren</button>
+                <button class="ab-btn klein primair" type="button" disabled="@(_nieuwNaam.Trim().Length == 0)" @onclick="MaakLijst">Aanmaken</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int BoardId { get; set; }
+    /// <summary>Het board vraagt om een nieuwe statuslijst (knop + Statuslijst naast + Activiteit); OpNieuwGezien zet hem weer uit.</summary>
+    [Parameter] public bool NieuwVragen { get; set; }
+    [Parameter] public EventCallback OpNieuwGezien { get; set; }
+    /// <summary>De naam van een werknemer, voor "wie zette deze status".</summary>
+    [Parameter] public Func<int, string>? Naam { get; set; }
+    [Parameter] public EventCallback OpGewijzigd { get; set; }
+
+    private List<ActStatuslijst> _lijsten = new();
+    private bool _aanwezig = true, _nieuwOpen, _focusNieuw;
+    private string? _fout;
+    private string _nieuwNaam = "";
+    private int _nieuwKolommen = 8;
+    private int _board, _versie;
+    private (int Rij, int Kolom)? _celOpen;
+    private string? _focus;
+    private readonly Dictionary<(int Lijst, int Kop), string> _nieuw = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_board != BoardId) { _board = BoardId; await Herlaad(); }
+        if (NieuwVragen) { OpenNieuw(); await OpNieuwGezien.InvokeAsync(); }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (_focusNieuw) { _focusNieuw = false; try { await JS.InvokeVoidAsync("mdeAb.focusEl", "#sl-nieuwnaam"); } catch { } }
+        if (_focus is { } f) { _focus = null; try { await JS.InvokeVoidAsync("mdeAb.focusEl", f); } catch { } }
+    }
+
+    /// <summary>Opnieuw lezen (ook aangeroepen door het board als een collega iets wijzigde).</summary>
+    public async Task Herlaad()
+    {
+        try
+        {
+            _aanwezig = await Lijsten.AanwezigAsync();
+            _lijsten = _aanwezig ? await Lijsten.VanBoardAsync(BoardId) : new();
+        }
+        catch (Exception ex) { _fout = "Laden mislukt: " + ex.GetBaseException().Message; }
+        StateHasChanged();
+    }
+
+    private void OpenNieuw() { if (!_aanwezig) return; _nieuwNaam = ""; _nieuwKolommen = 8; _nieuwOpen = true; _focusNieuw = true; }
+
+    /// <summary>Een wijziging bewaren, opnieuw lezen en de collega's laten verversen.</summary>
+    private async Task Doe(Func<Task> wat)
+    {
+        _fout = null;
+        try { await wat(); await OpGewijzigd.InvokeAsync(); }
+        catch (Exception ex) { _fout = "Opslaan mislukt: " + ex.GetBaseException().Message; }
+        await Herlaad();
+    }
+
+    private static List<(ActStatusRij? Kop, List<ActStatusRij> Rijen)> Groepen(ActStatuslijst l)
+    {
+        var uit = new List<(ActStatusRij? Kop, List<ActStatusRij> Rijen)> { (null, new()) };
+        foreach (var r in l.Rijen)
+            if (r.Kop) uit.Add((r, new())); else uit[^1].Rijen.Add(r);
+        return uit;
+    }
+
+    private string CelTip(ActStatusCel? c)
+        => c is null ? "Nog niets ingevuld; klik om een status te kiezen"
+         : ActCelStatus.Naam(c.Status) + (c.Door is int d && Naam is not null && Naam(d) is { Length: > 0 } n ? " — " + n : "") + (c.Op is DateTime op ? $", {op:dd-MM-yyyy HH:mm}" : "");
+
+    private async Task NieuwLijstToets(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _nieuwOpen = false;
+        else if (e.Key == "Enter" && _nieuwNaam.Trim().Length > 0) await MaakLijst();
+    }
+
+    private async Task MaakLijst()
+    {
+        var naam = _nieuwNaam.Trim();
+        if (naam.Length == 0) return;
+        var n = Math.Clamp(_nieuwKolommen, 1, 40);
+        _nieuwOpen = false;
+        await Doe(() => Lijsten.NieuweLijstAsync(BoardId, naam, Enumerable.Range(1, n).Select(i => i.ToString()).ToList(), Ik.WerknemerId));
+        if (_lijsten.Count > 0) _focus = $"#sl-n-{_lijsten[^1].Id}-0";
+    }
+
+    private async Task HernoemLijst(ActStatuslijst l, ChangeEventArgs e)
+    {
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (naam.Length == 0 || naam == l.Naam) { _versie++; return; }
+        await Doe(() => Lijsten.HernoemLijstAsync(l.Id, naam));
+    }
+
+    private async Task VerwijderLijst(ActStatuslijst l)
+    {
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"Statuslijst ‘{l.Naam}’ verwijderen, met alle rijen en statussen?")) return;
+        await Doe(() => Lijsten.VerwijderLijstAsync(l.Id));
+    }
+
+    private Task NieuweKolom(ActStatuslijst l)
+        => Doe(() => Lijsten.NieuweKolomAsync(l.Id, (l.Kolommen.Count + 1).ToString()));
+
+    private async Task HernoemKolom(ActStatuslijst l, ActStatusKolom k, ChangeEventArgs e)
+    {
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (naam == k.Naam) return;
+        if (naam.Length == 0)
+        {
+            // leeggemaakt = de kolom weg, na een vraag (de statussen in die kolom gaan mee)
+            if (await JS.InvokeAsync<bool>("mdeBevestig", $"Kolom ‘{k.Naam}’ verwijderen, met de statussen die erin staan?")) await Doe(() => Lijsten.VerwijderKolomAsync(k.Id));
+            else await Herlaad();
+            return;
+        }
+        await Doe(() => Lijsten.HernoemKolomAsync(k.Id, naam));
+    }
+
+    private async Task NieuwKopje(ActStatuslijst l)
+    {
+        var id = 0;
+        await Doe(async () => id = await Lijsten.NieuweRijAsync(l.Id, "Nieuw kopje", kop: true));
+        _focus = $"#sl-n-{l.Id}-{id}";
+    }
+
+    private async Task NieuwToets(KeyboardEventArgs e, ActStatuslijst l, (ActStatusRij? Kop, List<ActStatusRij> Rijen) g)
+    {
+        if (e.Key != "Enter") return;
+        var gid = g.Kop?.Id ?? 0;
+        var tekst = _nieuw.GetValueOrDefault((l.Id, gid), "").Trim();
+        if (tekst.Length == 0) return;
+        _nieuw.Remove((l.Id, gid));
+        // onderaan het groepje: na de laatste rij ervan, of direct na het kopje; zonder kopje en zonder rijen = onderaan
+        var na = g.Rijen.Count > 0 ? g.Rijen[^1].Id : g.Kop?.Id;
+        await Doe(() => Lijsten.NieuweRijAsync(l.Id, tekst, kop: false, na));
+        _versie++;
+        _focus = $"#sl-n-{l.Id}-{gid}";
+    }
+
+    private async Task ZetNaam(ActStatusRij r, ChangeEventArgs e)
+    {
+        var naam = ((string?)e.Value ?? "").Trim();
+        if (naam == r.Naam) return;
+        if (naam.Length == 0) { await VerwijderRij(r); return; }
+        await Doe(() => Lijsten.ZetRijAsync(r.Id, naam, r.Opmerking));
+    }
+
+    private async Task ZetOpmerking(ActStatusRij r, ChangeEventArgs e)
+    {
+        var tekst = ((string?)e.Value ?? "").Trim();
+        if (tekst == r.Opmerking) return;
+        await Doe(() => Lijsten.ZetRijAsync(r.Id, r.Naam, tekst));
+    }
+
+    private async Task VerwijderRij(ActStatusRij r)
+    {
+        // een rij met ingevulde statussen of een opmerking gaat niet zonder vraag weg
+        if (!r.Kop && (r.Cellen.Count > 0 || r.Opmerking.Length > 0)
+            && !await JS.InvokeAsync<bool>("mdeBevestig", $"Rij ‘{r.Naam}’ verwijderen, met de statussen die erin staan?")) { await Herlaad(); return; }
+        await Doe(() => Lijsten.VerwijderRijAsync(r.Id));
+    }
+
+    private async Task ZetCel(ActStatusRij r, ActStatusKolom k, string status)
+    {
+        _celOpen = null;
+        if (r.Cellen.GetValueOrDefault(k.Id)?.Status == status) return;
+        await Doe(() => Lijsten.ZetCelAsync(r.Id, k.Id, status, Ik.WerknemerId));
+    }
+}

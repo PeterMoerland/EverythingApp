@@ -270,6 +270,8 @@ else
             <button type="button" class="ab-vtab @(_view == code ? "actief" : "")" @onclick="() => _view = code">@naam</button>
         }
         <button class="ab-btn primair klein" type="button" @onclick="NieuweActiviteit">+ Activiteit</button>
+        <button class="ab-btn klein" type="button" title="Een tabel om bijvoorbeeld acht machines na te lopen: kolommen, rijen en per vakje een status"
+                @onclick="@(() => { _view = "status"; _statusNieuw = true; })">▦ + Statuslijst</button>
         <div class="ab-filters">
             <select class="@(_fProb.Length > 0 ? "aan" : "")" value="@_fProb" aria-label="Filter onderwerp"
                     @onchange="e => _fProb = (string?)e.Value ?? string.Empty">
@@ -422,6 +424,10 @@ else
                 }
             </div>
         </div>
+    }
+    else if (_view == "status")
+    {
+        <ActStatuslijstenPaneel @ref="_statusPaneel" BoardId="_data.Board.Id" NieuwVragen="_statusNieuw" OpNieuwGezien="@(() => _statusNieuw = false)" Naam="PersoonNaam" OpGewijzigd="Meld" />
     }
     else
     {
@@ -922,7 +928,11 @@ else
     private int? _kaartUitUrlGedaan;
 
     private static readonly (string Code, string Naam)[] Weergaven =
-        { ("kanban", "Kanban"), ("alle", "Alle activiteiten"), ("mijn", "Mijn activiteiten"), ("voltooid", "Voltooid") };
+        { ("kanban", "Kanban"), ("alle", "Alle activiteiten"), ("mijn", "Mijn activiteiten"), ("voltooid", "Voltooid"), ("status", "▦ Statuslijsten") };
+    // statuslijsten (idee van Arnold 24-11-2026): eigen tabblad, Components/ActStatuslijstenPaneel.razor
+    private ActStatuslijstenPaneel? _statusPaneel;
+    private bool _statusNieuw;                              // + Statuslijst geklikt: het paneel opent "nieuwe lijst" en zet hem weer uit
+    private string PersoonNaam(int id) => _persoonOpId.GetValueOrDefault(id)?.Naam ?? "";
     private const string KoppelProblemen = "problemen", KoppelTypes = "types", KoppelPersonen = "personen";
 
     private readonly Guid _sleutel = Guid.NewGuid();     // dit scherm, voor de live-meldingen
@@ -1753,6 +1763,7 @@ else
             if (vers is null) { _data = null; _laadFout = "Dit board is verwijderd."; _open = null; return; }
             _data = vers;
             await LaadBijlagen();
+            if (_view == "status" && _statusPaneel is not null) await _statusPaneel.Herlaad();
             if (_open is { Id: > 0 } o)
             {
                 var a = vers.Activiteiten.FirstOrDefault(x => x.Id == o.Id);

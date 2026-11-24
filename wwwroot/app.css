@@ -3856,6 +3856,50 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
                    padding: 8px 10px; border-radius: 6px; background: #262c31; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45;
                    text-align: left; text-transform: none; letter-spacing: 0; white-space: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); cursor: default; }
 .ab-uitleg:hover .ab-uitleg-tekst, .ab-uitleg:focus .ab-uitleg-tekst { display: block; }
+/* statuslijsten (idee van Arnold 24-11-2026): Components/ActStatuslijstenPaneel.razor */
+.sl-balk { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+.sl-fout { color: var(--ab-rood); font-size: 12.5px; cursor: pointer; }
+.sl-lijst { border: 1px solid var(--ab-rand); border-radius: 4px; background: var(--ab-wit); margin-bottom: 16px; }
+.sl-kopbalk { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--ab-rand); }
+.sl-icoon { font-size: 16px; color: var(--ab-muted); }
+.sl-kopbalk .sl-naam { font: inherit; font-weight: 600; font-size: 15px; border: 1px solid transparent; background: none; color: inherit; padding: 3px 6px;
+                       border-radius: 3px; min-width: 0; width: min(420px, 40vw); }
+.sl-wrap { overflow-x: auto; }
+.sl-tabel { border-collapse: collapse; width: 100%; font-size: 13px; }
+.sl-tabel th, .sl-tabel td { border-bottom: 1px solid var(--ab-rand); padding: 3px 6px; text-align: left; vertical-align: middle; }
+.sl-tabel th { font-weight: 500; color: var(--ab-muted); font-size: 12px; }
+.sl-tabel input { font: inherit; width: 100%; border: 1px solid transparent; background: none; color: inherit; padding: 3px 5px; border-radius: 3px; min-width: 0; }
+.sl-tabel input:hover, .sl-kopbalk .sl-naam:hover { border-color: var(--ab-rand); }
+.sl-tabel input:focus, .sl-kopbalk .sl-naam:focus { outline: none; border-color: var(--ab-rood); background: var(--ab-wit); }
+.sl-tabel .sl-item { min-width: 190px; width: 24%; font-weight: 500; }
+.sl-tabel th.sl-kol { width: 92px; min-width: 92px; }
+.sl-tabel th.sl-kol input { color: var(--ab-muted); }
+.sl-tabel .sl-opm { min-width: 180px; }
+.sl-tabel .sl-weg { width: 28px; padding: 0 4px; }
+.sl-tabel td.sl-cel { position: relative; }
+.sl-status { border: 0; cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px 3px 7px; border-radius: 999px; white-space: nowrap; }
+.sl-status.leeg { opacity: .55; }
+.sl-stip { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .6; flex: none; }
+.sl-menu { position: absolute; z-index: 30; top: calc(100% - 2px); left: 4px; background: var(--ab-wit); border: 1px solid var(--ab-rand); border-radius: 4px;
+           padding: 6px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.sl-dicht { position: fixed; inset: 0; z-index: 20; }
+.sl-tabel tr.sl-kop td { background: var(--ab-tint); }
+.sl-tabel tr.sl-kop input { font-weight: 600; }
+.sl-tabel tr.sl-nieuw input { color: var(--ab-muted); }
+.sl-tabel tr.sl-nieuw td { border-bottom: 0; }
+/* donker: de algemene stijl voor knoppen en invoervakken wint anders van de kleuren van de status en de kale vakken */
+html[data-thema="donker"] .sl-tabel button.sl-status.ab-k-gray { background: #e3e2e0; color: #32302c; }
+html[data-thema="donker"] .sl-tabel button.sl-status.ab-k-blue { background: #d3e5ef; color: #183347; }
+html[data-thema="donker"] .sl-tabel button.sl-status.ab-k-yellow { background: #fdecc8; color: #402c1b; }
+html[data-thema="donker"] .sl-tabel button.sl-status.ab-k-green { background: #dbeddb; color: #1c3829; }
+html[data-thema="donker"] .sl-tabel button.sl-status { border: 0; }
+html[data-thema="donker"] .sl-tabel input, html[data-thema="donker"] .sl-kopbalk .sl-naam { background: transparent; border-color: transparent; color: inherit; }
+html[data-thema="donker"] .sl-tabel input:hover, html[data-thema="donker"] .sl-kopbalk .sl-naam:hover { border-color: var(--ab-rand); }
+html[data-thema="donker"] .sl-tabel input:focus, html[data-thema="donker"] .sl-kopbalk .sl-naam:focus { border-color: var(--ab-rood); background: var(--ab-wit); }
+html[data-thema="donker"] .sl-tabel th.sl-kol input { color: var(--ab-muted); }
+.sl-form { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 16px; }
+.sl-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ab-muted); }
+.sl-form input { font: inherit; font-size: 13.5px; padding: 6px 8px; border: 1px solid var(--ab-rand); border-radius: 3px; color: var(--ab-ink); background: var(--ab-wit); }
 /* afbeeldingen bij een tekstveld (punt van Arnold 24-11-2026): het veld links, rechts het lijstje met titels */
 .ab-veldrij { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 8px; align-items: stretch; }
 .ab-afb { border: 1px dashed var(--ab-rand); border-radius: 4px; padding: 4px; display: flex; flex-direction: column; gap: 2px;

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 24-11-2026
 
+- **Activity board** — Nieuw: **statuslijsten**. Op elk board staat een tabblad ▦ Statuslijsten (of klik ▦ + Statuslijst naast + Activiteit). Een statuslijst is een tabel om bijvoorbeeld acht machines na te lopen: de machines als kolommen, de punten als rijen onder kopjes, en per vakje een status (todo, bezig, testen, klaar). Wijs een vakje aan om te zien wie de status zette en wanneer; per rij kun je een opmerking zetten (idee van Arnold).
 - **Activity board** — Verbeterd: in de pop-up van een kaartje licht de gekozen **prioriteit** op in dezelfde kleur als op het kaartje (Hoog rood, Gemiddeld geel); de andere knoppen blijven zoals ze waren (punt van Arnold).
 - **Algemeen** — Verbeterd: in de donkere modus staat nu het MDE-logo uit de huisstijl, met een dunne witte rand om de zwarte letters; op de telefoon staat het niet meer op een wit vlakje (punt van Arnold).
 - **Activity board** — Nieuw: **afbeeldingen bij een activiteit**. Sleep een afbeelding op een tekstveld van de open activiteit (Samenvatting, Details, …) en hij staat rechts naast dat veld in een lijstje. Klik op de titel om hem groot te zien, met ‹ › om te bladeren; dubbelklik om titel en commentaar te wijzigen. Sleep je een afbeelding op een kaartje op het bord, dan vraagt de app eerst onder welk veld hij moet komen. Op het kaartje staat hoeveel afbeeldingen erbij horen (punt van Arnold).

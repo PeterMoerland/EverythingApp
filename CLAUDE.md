@@ -476,6 +476,15 @@ plan: geen logboek per kaartje (bij een punt wie en wanneer is genoeg), **bestaa
 2 krijgt dus een vlag per kaartje of veld "met opmaak"), handmatig testen (geen testproject), via de API mogen punten en
 koppelingen weg, en de handleiding beheert Gerard zelf (de gebruiker stuurt hem `ActivityBoard-API.md` en `SKILL.md`).
 Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
+- **Statuslijsten** (idee van Arnold, 24-11-2026; script `ActivityBoard_Statuslijsten_MariaDB.sql`): eigen tabblad
+  `status` op het board (`Weergaven`), knop ▦ + Statuslijst naast + Activiteit (`_statusNieuw` → `NieuwVragen`). Keuzes gebruiker: eigen
+  tabblad (geen kaartje), vaste statussen (`ActCelStatus`: todo, bezig, testen, klaar), per cel wie en wanneer, een
+  opmerking per rij, los van de activiteiten. `Services/ActStatuslijsten.cs` (singleton; tabellen
+  ActivityBoardStatuslijsten/-StatusKolommen/-StatusRijen/-StatusCellen; kopjes zijn rijen met `IsKop`, zoals de
+  afvinklijst; met `ActivityBoard:Geheugen` in het geheugen) en `Components/ActStatuslijstenPaneel.razor` (alles meteen
+  bewaard via `Doe`, daarna opnieuw lezen; `OpGewijzigd` = `Meld`, en `HerlaadAsync` van het board roept `Herlaad` van
+  het paneel aan). Een lege cel toont "todo" (vaag) en staat niet in de database. Een kolom leegmaken = verwijderen (na
+  een vraag). Nog niet: volgorde van rijen en kolommen wijzigen, de API.
 - **Afbeeldingen bij de tekstvelden** (punt van Arnold, 24-11-2026; script `ActivityBoard_Afbeeldingen_MariaDB.sql`):
   `Services/ActAfbeeldingen.cs` (singleton, los van `IActivityBoardRepository`): bestand in de filestore (soort **344**,
   MasterID = activiteit), tabel `ActivityBoardAfbeeldingen` voor veld (`ActTekst`-kolom), titel en commentaar; met

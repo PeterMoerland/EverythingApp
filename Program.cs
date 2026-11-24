@@ -307,6 +307,7 @@ if (builder.Configuration.GetValue<bool>("MeldingVoorkeuren:Geheugen"))
 // Alleen om het Activity board lokaal te testen zonder database: ActivityBoard__Geheugen=true
 if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
     builder.Services.AddSingleton<IActivityBoardRepository, GeheugenActivityBoardRepository>();
+builder.Services.AddSingleton<ActStatuslijsten>();  // Activity board: tabblad Statuslijsten
 builder.Services.AddSingleton<ActAfbeeldingen>();   // Activity board: afbeeldingen bij de tekstvelden
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
 // Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true
