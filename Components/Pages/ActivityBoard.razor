@@ -709,14 +709,14 @@ else
                     @* afbeeldingen bij dit veld (punt van Arnold 24-11-2026): slepen op het veld zet ze erbij (activityboard.js) *@
                     @if (metAfb)
                     {
-                        <div class="ab-afb" title="Sleep een afbeelding op dit veld om hem erbij te zetten">
+                        <div class="ab-afb" tabindex="0" title="Sleep een afbeelding op dit veld, of klik hier en plak met Ctrl+V">
                             @foreach (var pl in AfbVan(o.Id, kolom))
                             {
                                 var plaatje = pl;
                                 <button type="button" class="ab-afb-item" title="@(plaatje.Titel + (plaatje.Commentaar.Length > 0 ? " — " + plaatje.Commentaar : "") + "\nKlik: bekijken · dubbelklik: titel en commentaar")"
                                         @onclick="() => OpenAfb(plaatje, false)" @ondblclick="() => OpenAfb(plaatje, true)">🖼 @plaatje.Titel</button>
                             }
-                            <span class="ab-afb-hint">sleep hier een afbeelding heen</span>
+                            <span class="ab-afb-hint">sleep of plak (Ctrl+V) een afbeelding</span>
                         </div>
                     }
                     </div>

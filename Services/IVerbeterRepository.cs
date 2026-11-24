@@ -14,6 +14,8 @@ public class Verbeterverzoek
     public string IngediendDoor { get; set; } = "";
     public string Werkplek { get; set; } = "";
     public string Status { get; set; } = VerzoekStatus.Nieuw;
+    /// <summary>1 = hoog, 2 = gemiddeld, 3 = laag, null = geen (wens gebruiker 24-11-2026; Verbeterverzoeken_Prioriteit_MariaDB.sql).</summary>
+    public int? Prioriteit { get; set; }
     public string Reactie { get; set; } = "";
     public DateTime? GewijzigdOp { get; set; }
     public string GewijzigdDoor { get; set; } = "";
@@ -58,12 +60,20 @@ public static class VerzoekStatus
     {
         Nieuw => "s-geel", Gepland => "s-blauw", Bezig => "s-oranje", Gedaan => "s-groen", _ => "s-grijs",
     };
+
+    /// <summary>De prioriteiten van een verzoek: waarde, naam en de kleur van het chipje.</summary>
+    public static readonly (int Waarde, string Naam, string Kleur)[] Prioriteiten =
+        { (1, "hoog", "s-rood"), (2, "gemiddeld", "s-geel"), (3, "laag", "s-grijs") };
+    public static string PrioNaam(int? p) => Prioriteiten.FirstOrDefault(x => x.Waarde == p).Naam ?? "";
+    public static string PrioKleur(int? p) => Prioriteiten.FirstOrDefault(x => x.Waarde == p).Kleur ?? "s-grijs";
 }
 
 public interface IVerbeterRepository
 {
     bool Beschikbaar { get; }
     Task<bool> TabelAanwezigAsync();
+    /// <summary>Bestaat de kolom Prioriteit (Verbeterverzoeken_Prioriteit_MariaDB.sql)? Zonder: geen prioriteit op de pagina.</summary>
+    Task<bool> PrioriteitMogelijkAsync();
     /// <summary>Alle verzoeken, nieuwste eerst.</summary>
     Task<List<Verbeterverzoek>> LijstAsync();
     Task<int> AantalNieuwAsync();
@@ -91,6 +101,7 @@ public class GeenVerbeterRepository : IVerbeterRepository
 {
     public bool Beschikbaar => false;
     public Task<bool> TabelAanwezigAsync() => Task.FromResult(false);
+    public Task<bool> PrioriteitMogelijkAsync() => Task.FromResult(false);
     public Task<List<Verbeterverzoek>> LijstAsync() => Task.FromResult(new List<Verbeterverzoek>());
     public Task<int> AantalNieuwAsync() => Task.FromResult(0);
     public Task<int> IndienenAsync(string tekst, string pagina, int? door, string werkplek) => throw new InvalidOperationException("Er is geen database.");
@@ -109,6 +120,7 @@ public class GeheugenVerbeterRepository : IVerbeterRepository
     private int _volgende;
     public bool Beschikbaar => true;
     public Task<bool> TabelAanwezigAsync() => Task.FromResult(true);
+    public Task<bool> PrioriteitMogelijkAsync() => Task.FromResult(true);
     public Task<List<Verbeterverzoek>> LijstAsync() => Task.FromResult(_items.Values.OrderByDescending(v => v.IngediendOp).ToList());
     public Task<int> AantalNieuwAsync() => Task.FromResult(_items.Values.Count(v => v.Status == VerzoekStatus.Nieuw));
 
@@ -189,14 +201,31 @@ public class MySqlVerbeterRepository : IVerbeterRepository
         return _tabel;
     }
 
+    private bool _prio;
+
+    public async Task<bool> PrioriteitMogelijkAsync()
+    {
+        if (_prio) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Verbeterverzoeken' AND COLUMN_NAME = 'Prioriteit'", cn);
+            _prio = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _prio;
+    }
+
     public async Task<List<Verbeterverzoek>> LijstAsync()
     {
+        var metPrio = await PrioriteitMogelijkAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT v.`VerzoekID`, v.`Tekst`, COALESCE(v.`Pagina`, ''), v.`IngediendOp`, v.`IngediendDoor`, COALESCE(i.`NaamVoluit`, ''), " +
             "       COALESCE(v.`Werkplek`, ''), v.`Status`, COALESCE(v.`Reactie`, ''), v.`GewijzigdOp`, COALESCE(g.`NaamVoluit`, ''), " +
             $"      (SELECT GROUP_CONCAT(f.`FileStoreID` ORDER BY f.`FileStoreID`) FROM `FileStore` f " +
-            $"        WHERE f.`StoreType` = {VerzoekStatus.StoreTypeSchermafdruk} AND f.`MasterID` = v.`VerzoekID`), v.`GewijzigdDoor` " +
+            $"        WHERE f.`StoreType` = {VerzoekStatus.StoreTypeSchermafdruk} AND f.`MasterID` = v.`VerzoekID`), v.`GewijzigdDoor`, " + (metPrio ? "v.`Prioriteit` " : "NULL ") +
             "  FROM `Verbeterverzoeken` v " +
             "  LEFT JOIN `Werknemers` i ON i.`Werknemer-id` = v.`IngediendDoor` " +
             "  LEFT JOIN `Werknemers` g ON g.`Werknemer-id` = v.`GewijzigdDoor` " +
@@ -213,6 +242,7 @@ public class MySqlVerbeterRepository : IVerbeterRepository
                 Schermafdrukken = r.IsDBNull(11) ? new() : Convert.ToString(r.GetValue(11))!.Split(',')
                     .Select(s => int.TryParse(s, out var id) ? id : 0).Where(id => id > 0).ToList(),
                 GewijzigdDoorId = r.IsDBNull(12) ? null : r.GetInt32(12),
+                Prioriteit = r.IsDBNull(13) ? null : Convert.ToInt32(r.GetValue(13)) is >= 1 and <= 3 and var pr ? pr : null,
             });
         return lijst;
     }
@@ -239,12 +269,14 @@ public class MySqlVerbeterRepository : IVerbeterRepository
 
     public async Task BewaarAsync(Verbeterverzoek v, int? door)
     {
+        var metPrio = await PrioriteitMogelijkAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
-            "UPDATE `Verbeterverzoeken` SET `Tekst` = @tekst, `Status` = @status, `Reactie` = @reactie, " +
+            "UPDATE `Verbeterverzoeken` SET `Tekst` = @tekst, `Status` = @status, `Reactie` = @reactie, " + (metPrio ? "`Prioriteit` = @prio, " : "") +
             "       `GewijzigdOp` = NOW(), `GewijzigdDoor` = @door WHERE `VerzoekID` = @id", cn);
         cmd.Parameters.AddWithValue("@tekst", Kort(v.Tekst, 2000));
         cmd.Parameters.AddWithValue("@status", VerzoekStatus.Alle.Contains(v.Status) ? v.Status : VerzoekStatus.Nieuw);
+        if (metPrio) cmd.Parameters.AddWithValue("@prio", v.Prioriteit is >= 1 and <= 3 ? v.Prioriteit : DBNull.Value);
         cmd.Parameters.AddWithValue("@reactie", v.Reactie.Trim().Length == 0 ? DBNull.Value : Kort(v.Reactie, 2000));
         cmd.Parameters.AddWithValue("@door", (object?)door ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@id", v.Id);

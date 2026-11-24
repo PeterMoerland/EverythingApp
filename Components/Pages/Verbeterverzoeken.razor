@@ -71,6 +71,16 @@
                     <option value="mijn">Mijn verzoeken</option>
                     <option value="alles">Alles</option>
                 </select></label>
+            @* prioriteit (wens gebruiker 24-11-2026): filter naast Tonen *@
+            @if (_prioMogelijk)
+            {
+                <label class="bankveld"><span>Prioriteit</span>
+                    <select value="@_fPrio" @onchange='e => _fPrio = (string?)e.Value ?? ""'>
+                        <option value="">Alle</option>
+                        @foreach (var p in VerzoekStatus.Prioriteiten) { <option value="@p.Waarde">@Hoofd(p.Naam)</option> }
+                        <option value="geen">Geen prioriteit</option>
+                    </select></label>
+            }
             <label class="bankveld prod-keuze"><span>Zoeken</span>
                 <input value="@_zoek" placeholder="tekst, naam of pagina" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" /></label>
         </div>
@@ -135,6 +145,19 @@
                             else
                             {
                                 <span class="stand-chip @VerzoekStatus.Kleur(v.Status)">@v.Status</span>
+                            }
+                            @* prioriteit: Directie kiest, de rest ziet een chipje *@
+                            @if (_prioMogelijk && MagBeheren)
+                            {
+                                <select value="@(v.Prioriteit?.ToString() ?? "")" class="verbeter-status verbeter-prio" title="Prioriteit" aria-label="Prioriteit"
+                                        @onchange="e => Wijzig(v, () => v.Prioriteit = int.TryParse((string?)e.Value, out var p) ? p : null)">
+                                    <option value="">prioriteit: geen</option>
+                                    @foreach (var p in VerzoekStatus.Prioriteiten) { <option value="@p.Waarde">prioriteit: @p.Naam</option> }
+                                </select>
+                            }
+                            else if (_prioMogelijk && v.Prioriteit is int pr)
+                            {
+                                <br /><span class="stand-chip @VerzoekStatus.PrioKleur(pr)" title="Prioriteit">prio @VerzoekStatus.PrioNaam(pr)</span>
                             }
                             @* je eigen verzoek terugnemen zolang het open staat (punt van Gerard, 19-11-2026) *@
                             @if (MagIntrekken(v))
@@ -247,6 +270,9 @@
     private List<Verbeterverzoek> _lijst = new();
     private bool _tabel;
     private string _filter = "open";
+    private string _fPrio = "";                 // "" = alle, "1".."3", of "geen"
+    private bool _prioMogelijk;                 // Verbeterverzoeken_Prioriteit_MariaDB.sql uitgevoerd
+    private static string Hoofd(string s) => s.Length == 0 ? s : char.ToUpper(s[0]) + s[1..];
     private string _zoek = "";
     private string? _melding;
     private bool _fout;
@@ -381,6 +407,7 @@
             "mijn" => v.IngediendDoorId is int d && d == Ik.WerknemerId,
             _ => true,
         })
+        .Where(v => !_prioMogelijk || _fPrio.Length == 0 || (_fPrio == "geen" ? v.Prioriteit is null : v.Prioriteit?.ToString() == _fPrio))
         .Where(v => _zoek.Trim().Length == 0
                     || v.Tekst.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
                     || v.IngediendDoor.Contains(_zoek.Trim(), StringComparison.OrdinalIgnoreCase)
@@ -407,6 +434,7 @@
             _tabel = await Repo.TabelAanwezigAsync();
             if (_tabel) _lijst = await Repo.LijstAsync();
             if (_tabel) _gesprekMogelijk = await Repo.GesprekMogelijkAsync();
+            if (_tabel) _prioMogelijk = await Repo.PrioriteitMogelijkAsync();
             if (_gesprekMogelijk) _aantal = await Repo.AantalBerichtenAsync();
         }
         catch (Exception ex) { Toon("Laden mislukt: " + ex.Message, true); }

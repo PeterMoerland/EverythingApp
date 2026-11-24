@@ -495,7 +495,10 @@ Alle drie de onderdelen zijn gebouwd; onderdeel 2 en 3 staan hieronder.
   geblokkeerd (anders opent de browser het plaatje). Pagina: `_afb` (per activiteit, geladen in `LaadBijlagen`), lijstje
   rechts naast elk veld (`.ab-veldrij`), kijkvenster (`_afbOpen`: ‹ › en pijltjes over alle afbeeldingen van de
   activiteit, dubbelklik of ✎ = titel/commentaar, verwijderen), chip 🖼 n op het kaartje. Zonder het script werkt het
-  board zonder afbeeldingen. Een activiteit verwijderen ruimt de afbeeldingen (nog) niet op; niet in de API.
+  board zonder afbeeldingen. Een activiteit verwijderen ruimt de afbeeldingen (nog) niet op; niet in de API. **Plakken met Ctrl+V** (wens gebruiker,
+  zelfde dag): `paste`-luisteraar in `activityboard.js`, alleen met de pop-up open en een plaatje op het klembord; doel =
+  het `.ab-tveld` van de focus (het vakje `.ab-afb` heeft daarvoor `tabindex`), anders dat onder de muis, anders de
+  vraag onder welk veld. Een schermafdruk ("image.png") krijgt de naam "plaatje <datum tijd>".
 - **Afvinklijst slepen deed niets** (melding Arnold, 24-11-2026): `@ondragover:preventDefault` zonder handler annuleert
   dragover niet, dus de browser liet nooit loslaten toe. Nu doet `activityboard.js` dat (dragstart op `.ab-pgreep` zet
   een eigen gegevenssoort, dragover op `.ab-punt/.ab-pkop/.ab-pnieuw` annuleert en zet `.ab-pdoel`); het loslaten zelf

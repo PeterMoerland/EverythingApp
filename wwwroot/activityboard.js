@@ -205,6 +205,30 @@
         else { wacht = { id: parseInt(d.dataset.id), files: files }; roep('AfbeeldingOpKaart', wacht.id, files.length); }
     });
 
+    // Plakken met Ctrl+V (wens gebruiker 24-11-2026): staat de pop-up van een activiteit open en zit er een plaatje op
+    // het klembord (schermafdruk, gekopieerde afbeelding), dan komt het bij het veld waar de cursor in staat (het
+    // tekstvak of het vakje met afbeeldingen ernaast), anders bij het veld onder de muis, en anders vraagt het scherm
+    // onder welk veld. Tekst plakken blijft gewoon tekst plakken.
+    document.addEventListener('paste', function (e) {
+        if (!doel || !document.querySelector('.ab-drawer') || document.querySelector('.ab-modal')) return;
+        const eerste = document.querySelector('.ab-drawer .ab-tveld[data-veld]');
+        if (!eerste) return;      // nieuw kaartje zonder nummer, of het script is niet uitgevoerd
+        const plaatjes = Array.prototype.filter.call((e.clipboardData && e.clipboardData.files) || [], function (f) { return f.type.indexOf('image/') === 0; });
+        if (!plaatjes.length) return;
+        e.preventDefault();
+        const d = new Date(), twee = function (n) { return (n < 10 ? '0' : '') + n; };
+        const stempel = d.getFullYear() + '-' + twee(d.getMonth() + 1) + '-' + twee(d.getDate()) + ' ' + twee(d.getHours()) + twee(d.getMinutes()) + twee(d.getSeconds());
+        const files = plaatjes.map(function (f, i) {
+            // een schermafdruk heet altijd "image.png": geef hem een naam met datum en tijd
+            const ext = f.type === 'image/jpeg' ? '.jpg' : '.' + (f.type.split('/')[1] || 'png').replace('+xml', '');
+            const naam = f.name && !/^image\.\w+$/i.test(f.name) ? f.name : 'plaatje ' + stempel + (plaatjes.length > 1 ? ' ' + (i + 1) : '') + ext;
+            return new File([f], naam, { type: f.type });
+        });
+        const veld = (e.target.closest && e.target.closest('.ab-drawer .ab-tveld[data-veld]')) || document.querySelector('.ab-drawer .ab-tveld[data-veld]:hover');
+        if (veld) stuur(parseInt(veld.dataset.act), veld.dataset.veld, files);
+        else { wacht = { id: parseInt(eerste.dataset.act), files: files }; roep('AfbeeldingOpKaart', wacht.id, files.length); }
+    });
+
     function begin() {
         s.gestart = true;
         const r = s.el.getBoundingClientRect();

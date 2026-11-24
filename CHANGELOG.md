@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 24-11-2026
 
+- **Verbeterverzoeken** — Nieuw: een verzoek kan een **prioriteit** krijgen (hoog, gemiddeld, laag); Directie kiest hem onder de status, de rest ziet een chipje. Bovenaan de lijst staat een filter Prioriteit (verzoek van Peter).
+- **Activity board** — Nieuw: een plaatje bij een activiteit **plakken met Ctrl+V** (bijvoorbeeld een schermafdruk). Staat de cursor in een tekstveld of klik je op het vakje ernaast, dan komt het bij dat veld; anders vraagt de app onder welk veld (verzoek van Peter).
 - **Activity board** — Opgelost: in een statuslijst viel de keuzelijst van een vakje weg onder de rand van de tabel, zodat je alleen "todo" zag; hij opent nu bij de muis en toont alle vier de statussen (melding van Peter).
 - **Activity board** — Nieuw: **statuslijsten**. Op elk board staat een tabblad ▦ Statuslijsten (of klik ▦ + Statuslijst naast + Activiteit). Een statuslijst is een tabel om bijvoorbeeld acht machines na te lopen: de machines als kolommen, de punten als rijen onder kopjes, en per vakje een status (todo, bezig, testen, klaar). Wijs een vakje aan om te zien wie de status zette en wanneer; per rij kun je een opmerking zetten (idee van Arnold).
 - **Activity board** — Verbeterd: in de pop-up van een kaartje licht de gekozen **prioriteit** op in dezelfde kleur als op het kaartje (Hoog rood, Gemiddeld geel); de andere knoppen blijven zoals ze waren (punt van Arnold).

@@ -3856,6 +3856,8 @@ body.ab-sleepmodus .ab-nieuw { opacity: 0 !important; }
                    padding: 8px 10px; border-radius: 6px; background: #262c31; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45;
                    text-align: left; text-transform: none; letter-spacing: 0; white-space: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); cursor: default; }
 .ab-uitleg:hover .ab-uitleg-tekst, .ab-uitleg:focus .ab-uitleg-tekst { display: block; }
+/* verbeterverzoeken: de keuze van de prioriteit onder de status */
+.verbeter-prio { margin-top: 4px; display: block; }
 /* statuslijsten (idee van Arnold 24-11-2026): Components/ActStatuslijstenPaneel.razor */
 .sl-balk { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
 .sl-fout { color: var(--ab-rood); font-size: 12.5px; cursor: pointer; }
@@ -3907,6 +3909,7 @@ html[data-thema="donker"] .sl-tabel th.sl-kol input { color: var(--ab-muted); }
 .ab-afb-item { text-align: left; background: none; border: 0; padding: 3px 5px; border-radius: 3px; cursor: pointer; color: inherit; font: inherit;
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .ab-afb-item:hover, .ab-afb-item:focus-visible { background: var(--ab-tint); outline: none; }
+.ab-afb:focus { outline: none; border-color: var(--ab-rood); border-style: solid; }
 .ab-afb-hint { color: var(--ab-muted); font-size: 11px; padding: 3px 5px; margin-top: auto; }
 .ab-afbdoel { outline: 2px dashed var(--ab-rood, #d13228); outline-offset: 2px; }
 .ab-afbkijk { background: rgba(17, 17, 17, .72); z-index: 320; }
