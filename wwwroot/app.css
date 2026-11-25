@@ -4498,7 +4498,7 @@ a.lc-tegel:hover { border-color: var(--accent); }
 .lc-tegel span { font-size: 12.5px; color: var(--cs-zacht); line-height: 1.4; }
 .lc-tegel .lc-icoon { font-size: 26px; line-height: 1; margin-bottom: 4px; }
 .lc-tegel.uit { opacity: .55; border-style: dashed; cursor: not-allowed; }
-.lc-opmaak { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; align-items: start; }
+.lc-opmaak { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 20px; align-items: start; }
 .lc-kaart { border: 1px solid var(--cs-rand); border-radius: 10px; background: var(--cs-wit); padding: 14px 16px 16px; }
 .lc-kaart h3, .lc-lijst h3 { margin: 0 0 4px; font-size: 15px; }
 .lc-code { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--cs-rand); border-left: 5px solid var(--cs-rand); border-radius: 8px; background: var(--cs-vlak); display: flex; flex-direction: column; gap: 6px; }
@@ -4508,10 +4508,33 @@ a.lc-tegel:hover { border-color: var(--accent); }
 .lc-code .cs-knoppen { margin-top: 4px; }
 .lc-vraag { margin: 6px 0 0; font-size: 13px; }
 .lc-mono { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 13px; white-space: nowrap; }
-.lc-zoek { width: 16rem; max-width: 100%; }
+.lc-zoek { width: 22rem; max-width: 100%; }
 .lc-in { width: 5rem; } .lc-in.breed { width: 100%; min-width: 9rem; }
 .lc-lijst tr.lc-raak td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .lc-import { margin: 12px 0 0; }
+.lc-links { display: flex; flex-direction: column; gap: 12px; }
+.lc-kaart.gevuld { border-left: 5px solid var(--accent); }
+.lc-kaartkop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.lc-kaartkop h3 { margin: 0; font-size: 17px; }
+.lc-st { display: block; margin: 4px 0 2px; padding: 6px 8px; border-radius: 5px; background: var(--cs-vlak); font: 12.5px Consolas, "IBM Plex Mono", monospace; overflow-wrap: anywhere; user-select: all; }
+.lc-velden { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 14px 0 4px; font-size: 13.5px; }
+.lc-velden dt { color: var(--cs-zacht); font-size: 12.5px; padding-top: 1px; }
+.lc-velden dd { margin: 0; overflow-wrap: anywhere; }
+.lc-velden a { color: var(--accent); text-decoration: none; }
+.lc-pagina button.lc-wis { color: #b3261e; border-color: #b3261e; }
+html[data-thema="donker"] .lc-pagina button.lc-wis { color: #ffb4ae; border-color: #a8443d; }
+.lc-nieuwknop { align-self: flex-start; }
+.lc-tabel tbody tr { cursor: pointer; }
+.lc-tabel tbody tr:hover td { background: var(--cs-vlak); }
+.lc-lijst tr.lc-raak td { box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+.lc-venster { width: min(620px, 94vw); }
+.lc-tweekolom { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.lc-tweekolom select { width: 100%; box-sizing: border-box; }
+.lc-qr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.lc-info { margin: 10px 0 0; padding: 7px 10px; border-radius: 6px; font-size: 13px; line-height: 1.45; border-left: 4px solid #8c8c8c; background: var(--cs-vlak); }
+.lc-info.goed { border-left-color: #1e8c35; }
+.lc-info.let-op { border-left-color: #e0a100; }
+@media (max-width: 560px) { .lc-tweekolom { grid-template-columns: 1fr; } }
 @media (max-width: 1000px) { .lc-opmaak { grid-template-columns: 1fr; } }
 /* ===== Wiki (fase 1, 25-11-2026); bouwt voort op de opmaak van Claude Shares (.cs-...) ===== */
 .wk-pagina a.wk-titel { font-weight: 600; color: var(--accent); text-decoration: none; margin-right: 6px; }

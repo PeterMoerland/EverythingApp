@@ -467,7 +467,22 @@ i.v.m. 1Password".
   plaats van `licenses_issued.csv`; dat bestand neem je op het scherm over (`ImporteerAsync`: rekent elke code opnieuw
   uit en weigert de regel als hij afwijkt, wat meteen de sleutel controleert). Regels uit Gerards programma
   overgenomen: serienummer decimaal/`16#`/`0x`; robotnummer verplicht; een serienummer dat er al staat geeft eerst de
-  vraag "toch toevoegen"; precies dezelfde regel (serienummer, robot, notitie) nooit tweemaal. Weghalen = vervallen.
+  vraag "toch toevoegen"; precies dezelfde regel (serienummer, robot, notitie) nooit tweemaal.
+  **Scherm (tweede ronde, wens gebruiker 25-11-2026):** rechts de lijst, een klik op een regel toont links de gegevens
+  met de code (zoals het Python-programma); daaronder **+ Nieuwe licentie**, die een venster opent. Daarin kies je het
+  **product** (`RobotTypesAsync`: producttypes met een drivepositie 4, nu MPR-1) en het **serienummer van de robot**
+  (typen met voorstellen, of de **QR-code op de robot fotograferen**: `FotoVak AlleenTelefoon` of een foto kiezen, en
+  `Services/QrLezer.cs` leest de tekst met ZXing + System.Drawing; `Kern`/`ZoekRobot` maken van "MPR-1-0056" robot 56).
+  Het **serienummer voor de licentie = de vierde drive in de EtherCAT-keten** = attribuut met bron
+  `drive:2:serienummer` op de RZ-print (MPR-PCBA-RZ) onder de robot (`MPedeLicenties.DriveBron`,
+  `DriveVanRobotAsync`); nagekeken op de overgenomen licenties, hun serienummers staan precies daar. Niet uitgelezen of
+  twee verschillende waarden = melding en met de hand invullen (het veld blijft te wijzigen; "Ander (met de hand)" kan
+  ook). De regel bewaart `ProductID` (kolom erbij: script opnieuw draaien; zonder de kolom werkt alles, zonder
+  koppeling) en de robot als tekst "MPR-1 · 57". **Wissen** (was Vervallen) vraagt om bevestiging en zet `Vervallen`
+  op 1: de regel blijft in de tabel en is terug te halen via "ook gewiste", zodat na te gaan blijft welke codes zijn
+  uitgegeven (keuze van mij). Getest lokaal met nepgegevens en een gemaakte QR-afbeelding; **niet getest**: een echte
+  foto van een telefoon, de zoekvragen tegen de echte Producten-tabellen in de app, en wat er precies in de QR-code
+  op een robot staat (het label van de Altec-printer zet het serienummer erin).
   Recht: nieuwe kolom `Werknemers.Licenties` (`HuidigeGebruiker.MagLicenties` = recht of Directie, **zonder** de
   uitzondering "niet gekoppeld"); `WerknemerVelden`, `Menu`, `MainLayout`, `Module.razor` kennen het. Getoetst tegen
   de Python-berekening met een testsleutel (zelfde codes); **niet getest** met de echte sleutel, de echte tabel en

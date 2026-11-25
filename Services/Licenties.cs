@@ -4,12 +4,22 @@ using MySqlConnector;
 namespace EverythingApp.Services;
 
 /// <summary>Een uitgegeven licentiecode voor een M-Pede-robot.</summary>
+/// <param name="ProductId">Het exemplaar in Producten (de robot) waar de code voor is; leeg bij een met de hand ingevulde regel.</param>
 public record MPedeLicentie(int Id, DateTime Datum, long Serienummer, string Code, string Robot, string Notitie,
-                            int? DoorId, string Door, bool Vervallen)
+                            int? DoorId, string Door, bool Vervallen, int? ProductId = null)
 {
     /// <summary>De regel voor de PLC, om in het programma te plakken.</summary>
     public string StRegel => MPedeLicenties.StRegel(Code);
 }
+
+/// <summary>Een robot (exemplaar in Producten) om een licentie voor te maken.</summary>
+public record MPedeRobot(int ProductId, string Serienummer);
+
+/// <summary>
+/// Wat we van een robot weten voor de licentie: het serienummer van de vierde drive in de EtherCAT-keten, of waarom
+/// dat er niet is.
+/// </summary>
+public record MPedeRobotDrive(long? Serienummer, string Uitleg);
 
 /// <summary>Wat het maken van een code opleverde.</summary>
 /// <param name="Toegevoegd">Is er een regel bijgekomen?</param>
@@ -39,6 +49,16 @@ public class MPedeLicenties
     private readonly bool _geheugen;
     private readonly byte[]? _sleutel;
     private bool _aanwezig;
+    private bool _metProduct;       // heeft LicentiesMPede de kolom ProductID (Licenties_MariaDB.sql opnieuw gedraaid)?
+
+    /// <summary>
+    /// Waar het serienummer voor de licentie in Producten staat: de vierde drive in de EtherCAT-keten van de robot is de
+    /// tweede drive op de RZ-print (MPR-PCBA-RZ), en die print heeft het als attribuut met deze bron (gevuld bij het
+    /// uitlezen op de testplek). Nagekeken op de bestaande licenties (25-11-2026): hun serienummers staan precies daar.
+    /// </summary>
+    public const string DriveBron = "drive:2:serienummer";
+    /// <summary>De hoeveelste drive in de keten het is; een producttype met zo'n positie is een robot waar een licentie bij hoort.</summary>
+    public const int DrivePositie = 4;
 
     private readonly object _slot = new();
     private readonly List<MPedeLicentie> _lijst = new();
@@ -123,23 +143,122 @@ public class MPedeLicenties
         return _aanwezig = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
     }
 
+    private async Task<bool> MetProductAsync()
+    {
+        if (_geheugen) return true;
+        if (_metProduct || !await AanwezigAsync()) return _metProduct;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'LicentiesMPede' AND COLUMN_NAME = 'ProductID'", cn);
+        return _metProduct = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
+    // ------------------------------------------------------------------ de robot uit Producten
+
+    /// <summary>De producttypes waar een licentie bij hoort: types met een vierde drive in de keten (nu MPR-1).</summary>
+    public async Task<List<(int Id, string Naam)>> RobotTypesAsync()
+    {
+        if (_geheugen) return new() { (31, "MPR-1") };
+        var lijst = new List<(int, string)>();
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT n.`ProductNameID`, n.`ProductName` FROM `ProductNames` n " +
+            $" WHERE EXISTS (SELECT 1 FROM `DrivePosities` p WHERE p.`ProductNameID` = n.`ProductNameID` AND p.`Positie` = {DrivePositie}) ORDER BY n.`ProductName`", cn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add((r.GetInt32(0), r.GetString(1)));
+        return lijst;
+    }
+
+    /// <summary>De exemplaren van een type, nieuwste eerst.</summary>
+    public async Task<List<MPedeRobot>> RobotsAsync(int productNameId)
+    {
+        if (_geheugen) return new() { new(1057, "57"), new(1056, "56"), new(1055, "055"), new(1058, "58") };
+        var lijst = new List<MPedeRobot>();
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT `ProductenID`, TRIM(COALESCE(`SerieNummer`, '')) FROM `Producten` WHERE `ProductNameID` = @t AND COALESCE(`isDeleted`, 0) = 0 ORDER BY `ProductenID` DESC", cn);
+        cmd.Parameters.AddWithValue("@t", productNameId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) lijst.Add(new MPedeRobot(r.GetInt32(0), r.GetString(1)));
+        return lijst;
+    }
+
+    /// <summary>De kern van een serienummer om te vergelijken: het laatste getal zonder voorloopnullen ("MPR1-0032" = "032" = "32").</summary>
+    public static string Kern(string? serienummer)
+    {
+        var t = (serienummer ?? "").Trim();
+        var m = System.Text.RegularExpressions.Regex.Matches(t, @"\d+");
+        if (m.Count == 0) return t.ToLowerInvariant();
+        var n = m[^1].Value.TrimStart('0');
+        return n.Length == 0 ? "0" : n;
+    }
+
+    /// <summary>De robot bij wat er getypt of gescand is: eerst precies het serienummer, anders op de kern. Null = niet gevonden of niet eenduidig.</summary>
+    public static MPedeRobot? ZoekRobot(IReadOnlyCollection<MPedeRobot> robots, string? tekst)
+    {
+        var t = (tekst ?? "").Trim();
+        if (t.Length == 0) return null;
+        var precies = robots.Where(x => string.Equals(x.Serienummer, t, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (precies.Count == 1) return precies[0];
+        var kern = Kern(t);
+        var opKern = robots.Where(x => Kern(x.Serienummer) == kern).ToList();
+        return opKern.Count == 1 ? opKern[0] : null;
+    }
+
+    /// <summary>Het serienummer van de vierde drive van deze robot, zoals het bij zijn RZ-print in Producten staat.</summary>
+    public async Task<MPedeRobotDrive> DriveVanRobotAsync(int productId)
+    {
+        var gevonden = new List<string>();
+        if (_geheugen)
+        {
+            if (productId is 1057) gevonden.Add("1234567890");
+            else if (productId is 1056) gevonden.Add("6699");
+            else if (productId is 1055) { gevonden.Add("111"); gevonden.Add("222"); }
+        }
+        else
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT DISTINCT TRIM(a.`AttributeValue`) FROM `Producten` k " +
+                "  JOIN `ProductAttributes` a ON a.`ProductID` = k.`ProductenID` " +
+                "  JOIN `ProductNameAttributes` na ON na.`ProductNameAttributeID` = a.`ProductNameAttributeID` " +
+                " WHERE k.`ParentProductenID` = @r AND COALESCE(k.`isDeleted`, 0) = 0 AND na.`Bron` = @b AND TRIM(COALESCE(a.`AttributeValue`, '')) <> ''", cn);
+            cmd.Parameters.AddWithValue("@r", productId);
+            cmd.Parameters.AddWithValue("@b", DriveBron);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) gevonden.Add(r.GetString(0));
+        }
+        if (gevonden.Count == 0)
+            return new(null, "Bij deze robot is het serienummer van de vierde drive nog niet uitgelezen (Producten ▸ Programmeren en testen). Vul het hieronder met de hand in.");
+        if (gevonden.Count > 1)
+            return new(null, $"Bij deze robot staan {gevonden.Count} verschillende serienummers voor de vierde drive ({string.Join(", ", gevonden)}). Kijk dat na in Producten en vul hier het goede in.");
+        var (nummer, fout) = LeesSerienummer(gevonden[0]);
+        return nummer is uint n ? new(n, "") : new(null, $"Het serienummer in Producten ({gevonden[0]}) is niet bruikbaar: {fout}");
+    }
+
     /// <summary>De uitgegeven codes, nieuwste eerst.</summary>
     public async Task<List<MPedeLicentie>> LijstAsync(bool ookVervallen)
     {
         if (_geheugen) lock (_slot) return _lijst.Where(x => ookVervallen || !x.Vervallen).OrderByDescending(x => x.Datum).ThenByDescending(x => x.Id).ToList();
         var lijst = new List<MPedeLicentie>();
         if (!await AanwezigAsync()) return lijst;
+        var metProduct = await MetProductAsync();
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT l.`LicentieID`, l.`Datum`, l.`Serienummer`, l.`Code`, COALESCE(l.`Robot`, ''), COALESCE(l.`Notitie`, ''), l.`Door`, " +
-            "       COALESCE(w.`NaamVoluit`, ''), l.`Vervallen` " +
+            "       COALESCE(w.`NaamVoluit`, ''), l.`Vervallen`, " + (metProduct ? "l.`ProductID` " : "NULL ") +
             "  FROM `LicentiesMPede` l LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = l.`Door` " +
             (ookVervallen ? "" : " WHERE l.`Vervallen` = 0 ") + " ORDER BY l.`Datum` DESC, l.`LicentieID` DESC", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new MPedeLicentie(r.GetInt32(0), r.GetDateTime(1), r.GetInt64(2), r.GetString(3), r.GetString(4), r.GetString(5),
-                                        r.IsDBNull(6) ? null : r.GetInt32(6), r.GetString(7), Convert.ToInt32(r.GetValue(8)) != 0));
+                                        r.IsDBNull(6) ? null : r.GetInt32(6), r.GetString(7), Convert.ToInt32(r.GetValue(8)) != 0,
+                                        r.IsDBNull(9) ? null : r.GetInt32(9)));
         return lijst;
     }
 
@@ -154,7 +273,7 @@ public class MPedeLicenties
     /// komt er niets bij: de uitkomst geeft de regels die er staan, zodat het scherm kan vragen of het toch moet.
     /// Precies dezelfde regel (serienummer, robotnummer en notitie) komt er nooit een tweede keer.
     /// </summary>
-    public async Task<MPedeLicentieUitkomst> MaakAsync(uint serienummer, string robot, string notitie, int? door, bool toch)
+    public async Task<MPedeLicentieUitkomst> MaakAsync(uint serienummer, string robot, string notitie, int? door, bool toch, int? productId = null)
     {
         robot = Kort(robot, 40);
         if (robot.Length == 0) throw new InvalidOperationException("Vul het robotnummer in.");
@@ -164,25 +283,27 @@ public class MPedeLicenties
         var precies = bestaand.Any(x => Zelfde(x, serienummer, robot, notitie));
         if (precies || (bestaand.Count > 0 && !toch))
             return new MPedeLicentieUitkomst(serienummer, code, false, null, bestaand, precies);
-        var id = await VoegToeAsync(DateTime.Now, serienummer, code, robot, notitie, door);
+        var id = await VoegToeAsync(DateTime.Now, serienummer, code, robot, notitie, door, productId);
         return new MPedeLicentieUitkomst(serienummer, code, true, id, bestaand, false);
     }
 
-    private async Task<int> VoegToeAsync(DateTime datum, long serienummer, string code, string robot, string notitie, int? door)
+    private async Task<int> VoegToeAsync(DateTime datum, long serienummer, string code, string robot, string notitie, int? door, int? productId = null)
     {
         if (_geheugen)
             lock (_slot)
             {
                 var id = _volgend++;
-                _lijst.Add(new MPedeLicentie(id, datum, serienummer, code, robot, notitie, door, "", false));
+                _lijst.Add(new MPedeLicentie(id, datum, serienummer, code, robot, notitie, door, "", false, productId));
                 return id;
             }
         if (!await AanwezigAsync()) throw new InvalidOperationException("Licenties_MariaDB.sql is nog niet uitgevoerd.");
+        var metProduct = await MetProductAsync();
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using var cmd = new MySqlCommand(
-            "INSERT INTO `LicentiesMPede` (`Datum`, `Serienummer`, `Code`, `Robot`, `Notitie`, `Door`, `Vervallen`) " +
-            "VALUES (@d, @s, @c, @r, @n, @w, 0); SELECT LAST_INSERT_ID();", cn);
+            "INSERT INTO `LicentiesMPede` (`Datum`, `Serienummer`, `Code`, `Robot`, `Notitie`, `Door`, `Vervallen`" + (metProduct ? ", `ProductID`" : "") + ") " +
+            "VALUES (@d, @s, @c, @r, @n, @w, 0" + (metProduct ? ", @p" : "") + "); SELECT LAST_INSERT_ID();", cn);
+        if (metProduct) cmd.Parameters.AddWithValue("@p", (object?)productId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@d", datum);
         cmd.Parameters.AddWithValue("@s", serienummer);
         cmd.Parameters.AddWithValue("@c", code);
@@ -216,7 +337,10 @@ public class MPedeLicenties
         await cmd.ExecuteNonQueryAsync();
     }
 
-    /// <summary>Een regel vervallen zetten (of terughalen); hij blijft bewaard.</summary>
+    /// <summary>
+    /// Een regel wissen (of terughalen). Op het scherm heet het wissen; de regel blijft in de tabel staan met
+    /// Vervallen = 1, zodat altijd na te gaan is welke codes er ooit zijn uitgegeven.
+    /// </summary>
     public async Task ZetVervallenAsync(int id, bool vervallen)
     {
         if (_geheugen)
