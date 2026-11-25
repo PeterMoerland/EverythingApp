@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Activity board** — Verbeterd: het oranje kader om je eigen kaarten is dunner (3 in plaats van 6 pixels) (verzoek van Peter)
 - **Planning** — Verbeterd: de knoppen **Namen koppelen…** en **Tom's Planner overzetten…** zijn weg (overzetten kan alleen nog zolang de planning leeg is). Werknemers koppel je per rij via Wijzigen… (verzoek van Peter)
 - **Planning** — Nieuw: een **schuifbalk** onder de tijdbalk om door de tijd te schuiven, van de eerste tot de laatste balk in de planning; hij staat altijd in beeld (verzoek van Peter)
 - **Planning** — Verbeterd: alleen de rijen schuiven nog; de knoppen, de maanden en weken en de legenda blijven in beeld (verzoek van Peter)
