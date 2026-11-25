@@ -4500,6 +4500,11 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 .plb-import { border: 1px solid var(--plb-rand); border-radius: 8px; background: var(--plb-vlak); padding: 10px 14px; margin-bottom: 10px; }
 .plb-voorvertoning { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
 .plb-letop { border-left: 4px solid #e0a100; padding-left: 8px; }
+/* de pagina vult het venster en alleen het bord schuift (wens gebruiker 25-11-2026): knoppen, maanden/weken (de kop
+   plakt bovenaan in het bord) en legenda blijven in beeld. Op een heel laag scherm schuift de pagina zelf weer. */
+.plb-pagina { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding-bottom: 10px; }
+.plb-pagina > * { flex: 0 0 auto; }
+.plb-pagina > .plb-bord { flex: 1 1 auto; min-height: 220px; overflow-x: hidden; overflow-y: auto; }
 .plb-bord { border: 1px solid var(--plb-rand); border-radius: 8px; background: var(--plb-wit); overflow: hidden; font-size: 12.5px; }
 .plb-rij { display: grid; grid-template-columns: minmax(180px, 320px) 130px minmax(0, 1fr); min-height: 23px; border-top: 1px solid var(--plb-lijn); }
 .plb-rij:first-child { border-top: none; }
