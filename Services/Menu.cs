@@ -290,6 +290,8 @@ public static class Menu
             new MenuGroep("Systeem",
                 new MenuItem("Verbinding & schema", "/diag", Icoon: "database"),
                 new MenuItem("Filestore", "/beheer/filestore", Icoon: "hard-drive"),
+                // Hyper Backup op de Synology NAS: stand per taak en de berichten van de NAS (wens Directie 25-11-2026)
+                new MenuItem("Backups (NAS)", "/beheer/backups", Icoon: "database-backup"),
                 new MenuItem("Computers", "/beheer/computers", Icoon: "computer"),
                 // de vaste IP-adressen per groep (uit Access); alleen met het recht Netwerk of Directie
                 new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),

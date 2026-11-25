@@ -454,6 +454,20 @@ i.v.m. 1Password".
   `@key` na elke upload. Tonen met `ActMarkdown.Html(tekst, document: true)` (gewone regelovergangen, geen
   #kaartlinks, HTML en onveilige links eruit). Downloaden: `GET /claude-shares/versie/{id}`. Link naar een document:
   `?project=&doc=`. Nog niet: zichtbaar op het Activity board of bij Projecten (gebruiker: later), zoeken in de tekst.
+- **Beheer ▸ Systeem ▸ Backups (NAS)** (wens Directie, 25-11-2026; script **`NasBackups_MariaDB.sql`**, zelf
+  draaien): Hyper Backup op de Synology NAS (DSM 7.4.1) meldt elke uitkomst zelf via een webhook op
+  `GET/POST /api/nas-melding` (`Services/NasBackups.cs`, `NasBackupsApi`). Geen login maar een sleutel
+  (`NasBackup:Sleutel`, kop `X-Sleutel` of `?sleutel=`; leeg of korter dan 12 tekens = meldpunt uit, 404), zoals
+  `/api/computer`. De tekst van DSM is vrije tekst (NL of EN): `NasBackups.TekstUitAsync` haalt hem uit query,
+  formulier, JSON of de kale inhoud; de taak = de langste taaknaam die in de tekst staat (`NasBackupTaken.Naam` =
+  de naam in Hyper Backup), de uitkomst = trefwoorden in `NasUitkomst.Lees` (mislukt/deels/onderbroken = melding;
+  integriteitscontrole en versies opruimen tellen niet als geslaagde backup). Melding = bel van iedereen met Directie,
+  soort `backup` (`NasBackups.MeldDirectieAsync`). `NasBackupWaker` (elk kwartier, `NasBackup:Aan`, lokaal uit) meldt
+  een keer per dag als een taak langer dan `MaxUren` (30) geen "gelukt" kreeg; telt vanaf `LaatstGelukt`, of vanaf
+  het aanmaken van de taak (dus ook als de webhook nooit iets stuurt). Pagina `NasBackupsPagina.razor` (alleen
+  Directie): taken (naam, uren, bewaken; niet verwijderen), berichten, een proefvak (niets bewaard) en de uitleg voor
+  DSM. `NasBackup:Geheugen` = alles in het geheugen en meldingen alleen op het scherm. **Niet getest tegen de echte
+  NAS**: de trefwoorden zijn op aangenomen DSM-teksten gebaseerd; pas `NasUitkomst.Lees` aan op wat er binnenkomt.
 - **Recht Netwerk**: script **`Netwerk_MariaDB.sql`** (zelf draaien) voegt `Werknemers.Netwerk` toe; vinkje bij
   Werknemers ▸ Rechten (`WerknemerVelden`). `HuidigeGebruiker.MagNetwerk` = Netwerk of Directie, **zonder** de
   uitzondering "niet gekoppeld" die Fusion heeft, en "Netwerk" staat in `NietOpWerkplek` (op een gedeelde pc altijd

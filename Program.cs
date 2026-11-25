@@ -371,6 +371,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<VaultBackupWaker>(
 builder.Services.AddHostedService<VerzekeringWaker>();
 // één keer per werkdag een melding in de bel van Financial en Directie over te laat betaalde facturen (Financiën > Te laat betaald)
 builder.Services.AddHostedService<TeLaatWaker>();
+// Backups van de Synology NAS (Hyper Backup): de NAS meldt de uitkomst op /api/nas-melding; mislukt of uitgebleven =
+// melding in de bel van de Directie (Beheer > Systeem > Backups (NAS), Services/NasBackups.cs)
+builder.Services.AddSingleton<NasBackups>();
+builder.Services.AddHostedService<NasBackupWaker>();
 builder.Services.AddSingleton<VerzekeringBron>();
 builder.Services.AddSingleton<FactuurLezer>();
 
@@ -1561,6 +1565,8 @@ app.MapActivityBoardApi();
 // afbeeldingen bij een activiteit: uploaden (slepen) en tonen; Services/ActAfbeeldingen.cs
 var actAfbeeldingen = app.MapActAfbeeldingen();
 if (loginAan) actAfbeeldingen.RequireAuthorization();
+// de webhook van de NAS (Hyper Backup); geen login maar een sleutel (NasBackup:Sleutel), zoals /api/computer
+app.MapNasBackups();
 // Tools ▸ Claude Shares: een versie downloaden; Services/ClaudeShares.cs
 var claudeShares = app.MapClaudeShares();
 if (loginAan) claudeShares.RequireAuthorization();

@@ -1,0 +1,209 @@
+@page "/beheer/backups"
+@implements IDisposable
+@inject NasBackups Backups
+@inject HuidigeGebruiker Ik
+@inject NavigationManager Nav
+
+@* Beheer ▸ Systeem ▸ Backups (NAS) (wens Directie, 25-11-2026): de taken van Hyper Backup op de Synology NAS, wat de
+   NAS het laatst meldde en de berichten zelf. De NAS stuurt ze naar /api/nas-melding (Services/NasBackups.cs); mislukt
+   een backup of blijft hij te lang uit, dan krijgt de Directie een melding in de bel. Alleen Directie. *@
+
+<PageTitle>Backups (NAS) — MDE</PageTitle>
+
+<div class="page nas-pagina">
+    <header class="topbar"><h1>Backups (NAS)</h1></header>
+    <p class="uitleg">De Synology NAS meldt hier zelf hoe elke backup van Hyper Backup afliep. Mislukt een backup, of komt er
+        te lang geen bericht "gelukt" (de NAS staat uit, de taak hangt), dan krijgt de Directie een melding in de bel.</p>
+
+    @if (!Mag)
+    {
+        <section class="module-placeholder"><p>Alleen voor de Directie.</p></section>
+    }
+    else if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_aanwezig)
+    {
+        <section class="module-placeholder"><p>De tabellen ontbreken nog (NasBackups_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        @if (_melding is not null)
+        {
+            <div class="melding @(_fout ? "fout" : "ok")" @onclick="() => _melding = null">@_melding</div>
+        }
+        @if (!Backups.MeldpuntAan)
+        {
+            <div class="melding waarschuwing" style="position:static;max-width:none;box-shadow:none">
+                Het meldpunt staat uit: vul <code>NasBackup:Sleutel</code> in appsettings.json in (minstens 12 tekens) en herstart de app.
+            </div>
+        }
+
+        <table class="kiezer-tabel nas-tabel">
+            <thead>
+                <tr><th>Taak in Hyper Backup</th><th>Stand</th><th>Laatst gelukt</th><th>Laatste bericht</th><th style="width:8rem">Melden na</th><th style="width:5rem">Bewaken</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var t in _taken)
+                {
+                    var (kleur, stand) = Stand(t);
+                    <tr @key="t.Id" class="@(t.Actief ? "" : "nas-uit")">
+                        <td><input class="nas-naam" maxlength="100" value="@t.Naam" @onchange="e => Bewaar(t, naam: (string?)e.Value)" aria-label="Naam van de taak" /></td>
+                        <td><span class="stand-chip @kleur">@stand</span></td>
+                        <td class="nas-nw">@(t.LaatstGelukt is DateTime g ? Moment(g) : "nog nooit")</td>
+                        <td class="nas-nw" title="@t.LaatsteTekst">@(t.LaatsteBericht is DateTime b ? $"{Moment(b)} · {NasUitkomst.Naam(t.LaatsteUitkomst).ToLowerInvariant()}" : "—")</td>
+                        <td class="nas-nw"><input type="number" min="1" max="1440" class="nas-uren" value="@t.MaxUren" aria-label="Melden na zoveel uur"
+                                   @onchange="e => Bewaar(t, uren: int.TryParse((string?)e.Value, out var u) ? u : t.MaxUren)" /> uur</td>
+                        <td><input type="checkbox" checked="@t.Actief" @onchange="e => Bewaar(t, actief: (bool)(e.Value ?? false))" aria-label="Deze taak bewaken" /></td>
+                    </tr>
+                }
+                <tr class="nas-nieuw">
+                    <td><input class="nas-naam" maxlength="100" placeholder="Nieuwe taak: de naam zoals in Hyper Backup" value="@_nieuw"
+                               @oninput="e => _nieuw = (string?)e.Value ?? string.Empty" /></td>
+                    <td colspan="5"><button class="klein" disabled="@(_nieuw.Trim().Length == 0)" @onclick="Toevoegen">Toevoegen</button></td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="uitleg">De naam moet precies de naam uit Hyper Backup zijn: daaraan herkent de app de berichten. "Melden na" is het
+            aantal uren zonder geslaagde backup waarna er een melding komt (dagelijkse taak: 30 uur geeft wat speling voor een lange nacht).</p>
+
+        <h2 class="nas-kop">Berichten van de NAS</h2>
+        @if (_berichten.Count == 0)
+        {
+            <p class="uitleg">Nog geen bericht ontvangen. Staat de webhook op de NAS al aan? Zie hieronder.</p>
+        }
+        else
+        {
+            <table class="kiezer-tabel nas-tabel">
+                <thead><tr><th style="width:9rem">Wanneer</th><th style="width:12rem">Taak</th><th style="width:10rem">Uitkomst</th><th>Tekst van de NAS</th></tr></thead>
+                <tbody>
+                    @foreach (var b in _berichten)
+                    {
+                        <tr @key="b.Id">
+                            <td>@b.Op.ToString("d-M-yyyy HH:mm")</td>
+                            <td>@(_taken.FirstOrDefault(t => t.Id == b.TaakId)?.Naam ?? "—")</td>
+                            <td><span class="stand-chip @NasUitkomst.Kleur(b.Uitkomst)">@NasUitkomst.Naam(b.Uitkomst)</span></td>
+                            <td>@b.Tekst</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <h2 class="nas-kop">Proberen</h2>
+        <p class="uitleg">Plak een tekst zoals de NAS hem stuurt om te zien wat de app ervan maakt. Er wordt niets bewaard of gemeld.</p>
+        <div class="nas-proef">
+            <input maxlength="1000" placeholder="bv. De back-uptaak BackupNaarLabNas op MDE_RackServer_1 is mislukt." value="@_proef"
+                   @oninput="e => _proef = (string?)e.Value ?? string.Empty" />
+            @if (_proef.Trim().Length > 0)
+            {
+                var (taak, uit) = Proef(_proef);
+                <span class="stand-chip @NasUitkomst.Kleur(uit)">@NasUitkomst.Naam(uit)</span>
+                <span class="uitleg">@(taak is null ? "geen taak herkend" : "taak: " + taak.Naam)@(NasUitkomst.IsFout(uit) ? " · geeft een melding in de bel" : "")</span>
+            }
+        </div>
+
+        @if (Backups.Proefmeldingen.Count > 0)
+        {
+            <h2 class="nas-kop">Meldingen (testversie: niet naar de bel)</h2>
+            <ul class="nas-lijst">@foreach (var m in Backups.Proefmeldingen.Take(20)) { <li>@m</li> }</ul>
+        }
+
+        <h2 class="nas-kop">Instellen op de NAS</h2>
+        <ol class="nas-lijst">
+            <li>DSM ▸ Configuratiescherm ▸ Melding ▸ Push-service ▸ <b>Webhooks beheren</b> ▸ Toevoegen ▸ provider <b>Aangepast</b>.</li>
+            <li>Webhook-URL: <code>@(Adres)?tekst=@@@@TEXT@@@@</code> (DSM vervangt <code>@@@@TEXT@@@@</code> door de melding).</li>
+            <li>Methode <b>POST</b> of GET. Zet de sleutel in een kop <code>X-Sleutel</code> (waarde = <code>NasBackup:Sleutel</code> uit appsettings.json).
+                Kan DSM geen kop meesturen, zet dan <code>&amp;sleutel=…</code> achter het adres.</li>
+            <li>Bij Melding ▸ <b>Regels</b>: de meldingen van Hyper Backup aanvinken voor deze webhook (gelukt én mislukt; zonder "gelukt" denkt de app dat de backup uitblijft).</li>
+            <li>Stuur een testbericht vanuit DSM: het hoort hierboven bij de berichten te verschijnen (als "Ander bericht").</li>
+        </ol>
+    }
+</div>
+
+@code {
+    private bool _geladen, _aanwezig, _fout;
+    private string? _melding;
+    private string _nieuw = "", _proef = "";
+    private List<NasBackupTaak> _taken = new();
+    private List<NasBackupBericht> _berichten = new();
+    private Timer? _klok;
+
+    private bool Mag => Ik.Mag("Directie") || !Ik.Gekoppeld;
+    private string Adres => Nav.ToAbsoluteUri("api/nas-melding").ToString();
+
+    private static string Moment(DateTime d) => d.Date == DateTime.Today ? "vandaag " + d.ToString("HH:mm")
+        : d.Date == DateTime.Today.AddDays(-1) ? "gisteren " + d.ToString("HH:mm") : d.ToString("d-M-yyyy HH:mm");
+
+    /// <summary>De stand van een taak in een woord: uit, te laat, de laatste uitkomst, of nog niets gehoord.</summary>
+    private static (string Kleur, string Tekst) Stand(NasBackupTaak t)
+    {
+        if (!t.Actief) return ("s-grijs", "niet bewaakt");
+        if (t.TeLaat(DateTime.Now)) return ("s-rood", t.LaatstGelukt is null ? "nog nooit gelukt gemeld" : $"al {(int)(DateTime.Now - t.Sinds).TotalHours} uur niet gelukt");
+        if (NasUitkomst.IsFout(t.LaatsteUitkomst)) return ("s-rood", NasUitkomst.Naam(t.LaatsteUitkomst));
+        if (t.LaatsteUitkomst == NasUitkomst.Gestart) return ("s-oranje", "bezig");
+        return t.LaatstGelukt is null ? ("s-grijs", "wacht op het eerste bericht") : ("s-groen", "in orde");
+    }
+
+    private (NasBackupTaak? Taak, string Uitkomst) Proef(string tekst)
+    {
+        var taak = _taken.Where(t => t.Naam.Length > 0 && tekst.Contains(t.Naam, StringComparison.OrdinalIgnoreCase))
+                         .OrderByDescending(t => t.Naam.Length).FirstOrDefault();
+        return (taak, NasUitkomst.Lees(tekst, taak is not null));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        if (Mag) await Laad();
+        _geladen = true;
+        Backups.Gewijzigd += BijWijziging;
+        // de teksten "al 31 uur" lopen mee, ook zonder nieuw bericht
+        _klok = new Timer(_ => _ = InvokeAsync(StateHasChanged), null, 60_000, 60_000);
+    }
+
+    private async Task Laad()
+    {
+        try
+        {
+            _aanwezig = Backups.Beschikbaar && await Backups.AanwezigAsync();
+            if (!_aanwezig) return;
+            _taken = await Backups.TakenAsync();
+            _berichten = await Backups.BerichtenAsync();
+        }
+        catch (Exception ex) { Toon("Laden is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private void BijWijziging() => _ = InvokeAsync(async () => { if (Mag) await Laad(); StateHasChanged(); });
+
+    private void Toon(string tekst, bool fout) { _melding = tekst; _fout = fout; }
+
+    private async Task Bewaar(NasBackupTaak t, string? naam = null, int? uren = null, bool? actief = null)
+    {
+        try
+        {
+            await Backups.BewaarTaakAsync(t.Id, naam ?? t.Naam, uren ?? t.MaxUren, actief ?? t.Actief);
+            _melding = null;
+        }
+        catch (Exception ex) { Toon(ex.GetBaseException().Message, true); }
+        await Laad();
+    }
+
+    private async Task Toevoegen()
+    {
+        try
+        {
+            await Backups.BewaarTaakAsync(0, _nieuw, NasBackups.StandaardUren, true);
+            _nieuw = ""; _melding = null;
+        }
+        catch (Exception ex) { Toon(ex.GetBaseException().Message, true); }
+        await Laad();
+    }
+
+    public void Dispose()
+    {
+        Backups.Gewijzigd -= BijWijziging;
+        _klok?.Dispose();
+    }
+}

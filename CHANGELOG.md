@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 25-11-2026
+
+- **Backups (NAS)** — Nieuw: de Synology NAS meldt zelf aan de app hoe elke backup van Hyper Backup afliep. Mislukt een backup, of komt er te lang geen bericht "gelukt", dan krijgt de Directie een melding in de bel 💾. Onder Beheer ▸ Systeem ▸ **Backups (NAS)** staat per taak de stand, wanneer hij voor het laatst lukte, en alle berichten van de NAS (verzoek van de Directie).
+
 ## 24-11-2026
 
 - **Verbeterverzoeken** — Nieuw: bij het invoeren van een idee (het lampje 💡 en *+ Nieuw verzoek*) kies je meteen de **prioriteit**: hoog, gemiddeld of laag. Kiezen hoeft niet; zonder keuze blijft hij leeg en zet Directie hem later (verzoek van Peter).
