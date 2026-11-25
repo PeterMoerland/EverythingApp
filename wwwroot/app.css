@@ -4540,8 +4540,9 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
     white-space: nowrap; overflow: hidden; z-index: 1; }
 .plb-balkje.loopt-in { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .plb-balkje.loopt-uit { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.plb-samen { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; z-index: 0;
-    background: repeating-linear-gradient(135deg, #9a9a99 0, #9a9a99 1px, transparent 1px, transparent 4px); }
+/* een dichte groep: een volle donkergrijze balk waar eronder iets gepland staat (was een arcering; wens gebruiker 25-11-2026) */
+.plb-samen { position: absolute; top: 5px; bottom: 5px; border-radius: 3px; z-index: 0; background: #6b7480; }
+html[data-thema="donker"] .plb-samen { background: #727c8a; }
 .plb-symbool { position: absolute; top: 1px; transform: translateX(-50%); z-index: 2; font-size: 13px; line-height: 20px; cursor: default; }
 .plb-balkje.te-slepen, .plb-symbool[data-plan] { cursor: grab; touch-action: none; }
 .plb-balkje.te-slepen::before, .plb-balkje.te-slepen::after { content: ""; position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }

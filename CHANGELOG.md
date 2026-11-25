@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Verbeterd: een dichtgeklapte groep toont een volle donkergrijze balk in plaats van een arcering (verzoek van Peter)
 - **Activity board** — Verbeterd: het oranje kader om je eigen kaarten is dunner (3 in plaats van 6 pixels) (verzoek van Peter)
 - **Planning** — Verbeterd: de knoppen **Namen koppelen…** en **Tom's Planner overzetten…** zijn weg (overzetten kan alleen nog zolang de planning leeg is). Werknemers koppel je per rij via Wijzigen… (verzoek van Peter)
 - **Planning** — Nieuw: een **schuifbalk** onder de tijdbalk om door de tijd te schuiven, van de eerste tot de laatste balk in de planning; hij staat altijd in beeld (verzoek van Peter)
