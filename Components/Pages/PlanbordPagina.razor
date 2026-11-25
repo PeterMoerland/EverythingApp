@@ -155,11 +155,12 @@
                         <div class="plb-naam @(_sleeptRij is not null && _sleepOp == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam"
                              draggable="@(MagPlannen ? "true" : "false")" @ondragstart="() => BeginSleepRij(r)" @ondragend="EindeSleepRij"
                              ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepOp = r.Id; _sleepVoor = null; } }"
-                             @ondrop="() => LaatRijVallen(r, false)">
+                             @ondrop="() => LaatRijVallen(r, false)" @ondblclick="() => BeginRij(r, null, null)">
                             @if (groep)
                             {
-                                <button type="button" class="plb-pijl" aria-expanded="@open" title="@(open ? "Dichtklappen" : "Openklappen")" @onclick="() => Wissel(r.Id)">@(open ? "▾" : "▸")</button>
-                                <span class="plb-tekst" @onclick="() => Wissel(r.Id)">@r.Naam</span>
+                                <button type="button" class="plb-pijl" aria-expanded="@open" title="@(open ? "Dichtklappen" : "Openklappen")" @onclick="() => Wissel(r.Id)" @ondblclick:stopPropagation="true">@(open ? "▾" : "▸")</button>
+                                @* open en dicht alleen met het pijltje; dubbelklik op de naam = wijzigen (wens gebruiker 25-11-2026) *@
+                                <span class="plb-tekst">@r.Naam</span>
                             }
                             else { <span class="plb-pijl"></span><span class="plb-tekst">@r.Naam</span> }
                             @if (r.Gekoppeld)
@@ -233,7 +234,7 @@
 @if (_menu is { } mn && MagPlannen)
 {
     <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
-    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 400px))")">
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 470px))")">
         <div class="wk-menukop">@mn.Rij.Naam</div>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, false, null); }">+ Balk…</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
@@ -253,6 +254,13 @@
             </div>
         }
         <button type="button" role="menuitem" @onclick="() => BeginKoppel(mn.Rij)">@(mn.Rij.Gekoppeld ? "Koppeling wijzigen…" : "Koppelen aan klant, project of werkorder…")</button>
+        @if (_kinderen.ContainsKey(mn.Rij.Id))
+        {
+            <div class="wk-menustreep" role="separator"></div>
+            <button type="button" role="menuitem" @onclick="() => Vouw(mn.Rij, true)">Alles uitvouwen</button>
+            <button type="button" role="menuitem" @onclick="() => Vouw(mn.Rij, false)">Alles inklappen</button>
+        }
+        <div class="wk-menustreep" role="separator"></div>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
     </div>
 }
@@ -717,6 +725,17 @@
     }
 
     private void Wissel(int id) { if (!_open.Remove(id)) _open.Add(id); }
+
+    /// <summary>Het rechtermuismenu: deze rij en alles wat eronder hangt open- of dichtvouwen.</summary>
+    private void Vouw(PlanRij rij, bool open)
+    {
+        _menu = null;
+        var ids = new List<int> { rij.Id };
+        for (var i = 0; i < ids.Count && ids.Count < 100_000; i++)
+            if (_kinderen.TryGetValue(ids[i], out var k)) ids.AddRange(k.Select(x => x.Id));
+        foreach (var id in ids.Where(_kinderen.ContainsKey))
+            if (open) _open.Add(id); else _open.Remove(id);
+    }
     private void AllesDicht() { _open.Clear(); _zoek = ""; _doel = null; }
     private DateTime _bereikVan = Maandag(DateTime.Today.AddDays(-28)), _bereikTot = Maandag(DateTime.Today.AddDays(27 * 7));
     /// <summary>De schuifbalk onder het bord, in weken: 0 = de eerste balk van de planning links in beeld, het einde = de laatste rechts.</summary>

@@ -538,6 +538,8 @@ i.v.m. 1Password".
   gekoppelde rijen en wat eronder hangt) geeft `PlanRegel`s: mijlpalen = alle symbolen, taken = balken. De tab toont
   de mijlpalen vanaf vandaag (knop "Ook wat voorbij is") en de balken waar vandaag in valt (zonder "Out of office"),
   met de resterende tijd in kalenderdagen/weken/maanden; binnen een week oranje. Alleen lezen.
+  **Bediening (25-11-2026)**: dubbelklik op `.plb-naam` = `BeginRij` (wijzigen); open/dicht alleen met `.plb-pijl`
+  (de naam klapt niet meer); rechtermuismenu van een rij met rijen eronder: Alles uitvouwen / Alles inklappen (`Vouw`).
   **Groepfilter (25-11-2026)**: keuzelijst met de groepen van het bovenste niveau (`_groepFilter`, `KiesGroep`);
   `Zichtbaar` slaat de andere over en negeert dan "voorbij"; te combineren met zoeken en het filter per persoon.
   **Ongedaan maken (25-11-2026)**: het scherm houdt een stapel `_terug` bij (hooguit 30; `Onthoud(wat, terug)` na elke
