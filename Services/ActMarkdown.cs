@@ -43,8 +43,13 @@ public static class ActMarkdown
     /// <summary>#123 in gewone tekst: een verwijzing naar kaart 123 (niet midden in een woord of adres).</summary>
     private static readonly System.Text.RegularExpressions.Regex Kaart = new(@"(?<![\w&/#])#(\d{1,9})(?!\w)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>De eigen adressen van de wiki: een ander artikel, of een bijlage/plaatje van een artikel. Niets anders.</summary>
+    private static readonly System.Text.RegularExpressions.Regex WikiAdres = new(@"^wiki(\?artikel=\d{1,9}|/bijlage/\d{1,9})$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <param name="document">Een heel document in plaats van een tekstveld van het board: gewone regelovergangen en geen #123-kaartlinks.</param>
-    public static string Html(string? markdown, bool document = false)
+    /// <param name="wiki">Een artikel van de wiki: links naar een ander artikel blijven in dit venster, en een plaatje dat
+    /// als bijlage bij een artikel staat (wiki/bijlage/nr) wordt getoond. Plaatjes van buiten blijven een gewone link.</param>
+    public static string Html(string? markdown, bool document = false, bool wiki = false)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return "";
         var pijplijn = document ? DocumentPijplijn : Pijplijn;
@@ -75,6 +80,15 @@ public static class ActMarkdown
         foreach (var link in doc.Descendants<LinkInline>().ToList())
         {
             if (link.GetAttributes().Classes?.Contains("ab-kaartlink") == true) continue;      // de eigen verwijzing naar een kaart
+            if (wiki && WikiAdres.IsMatch(link.Url ?? ""))
+            {
+                var bijlage = link.Url!.StartsWith(Wiki.BijlageAdres, StringComparison.Ordinal);
+                if (link.IsImage && bijlage) { link.GetAttributes().AddClass("wk-plaatje"); continue; }
+                link.IsImage = false;
+                if (bijlage) link.GetAttributes().AddPropertyIfNotExist("target", "_blank");
+                else link.GetAttributes().AddClass("wk-link");
+                continue;
+            }
             if (!Veilig(link.Url))
             {
                 // geen link maar de tekst die er stond (bij een lege tekst het adres zelf, zodat je ziet wat er stond)

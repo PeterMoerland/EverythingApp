@@ -454,6 +454,25 @@ i.v.m. 1Password".
   `@key` na elke upload. Tonen met `ActMarkdown.Html(tekst, document: true)` (gewone regelovergangen, geen
   #kaartlinks, HTML en onveilige links eruit). Downloaden: `GET /claude-shares/versie/{id}`. Link naar een document:
   `?project=&doc=`. Nog niet: zichtbaar op het Activity board of bij Projecten (gebruiker: later), zoeken in de tekst.
+- **Wiki, fase 1** (opzet van Freek, prototype `wiki_prototype.html` buiten de repo; 25-11-2026; script
+  **`Wiki_MariaDB.sql`**, zelf draaien): menu **Wiki** (`/wiki`, `Components/Pages/WikiPagina.razor`,
+  `Services/Wiki.cs`, singleton; `Wiki:Geheugen` = alles in het geheugen). **Besluiten gebruiker:** de database is
+  leidend voor medewerkers en projecten (niet de Excel-bestanden uit het prototype), review komt later. Ruimtes
+  (`WikiRuimtes`, 8 uit het prototype; een ruimte erbij = een regel in de tabel, nog geen scherm) met artikelen in
+  markdown (`WikiArtikelen`: sectie, tags, optioneel `ProjectID`). Elke keer opslaan = een regel in `WikiVersies`;
+  terugzetten = de oude titel en tekst als nieuwe versie; weghalen = `Actief` 0. **De tekst staat in de database**
+  (anders dan Claude Shares) zodat zoeken een gewone LIKE-query is; bijlagen en plaatjes in de filestore, **soort 346**
+  (MasterID = artikel), getoond via `GET /wiki/bijlage/{id}` (een niet-plaatje altijd als download). Opslaan met
+  versiecontrole: `UPDATE ... WHERE Versie = @v`, anders `WikiConflictException`. Verwijzen: `[[Titel]]` of
+  `[[Titel|tekst]]` (`Wiki.MetVerwijzingen`, onbekende titel = tekst met "(?)"). Opmaak:
+  `ActMarkdown.Html(..., document: true, wiki: true)` laat alleen de eigen adressen `wiki?artikel=n` en
+  `wiki/bijlage/n` als interne link of plaatje toe; de rest volgt de regels van het board (geen HTML, geen plaatjes
+  van buiten). Wat open staat volgt uit het adres (`?ruimte=`, `?artikel=`). Lezen: iedereen. Schrijven, inactief
+  zetten en terugzetten: elke aangemelde medewerker (`MagSchrijven`; keuze van mij, niet gevraagd). De opmaak leunt op
+  `.cs-…` van Claude Shares plus `.wk-…`. **Nog niet** (volgende fasen): medewerkerpagina's met competenties,
+  projectproces en lessons learned, review, zoeken via Ctrl+K en in PDF-bijlagen, ruimtes beheren op het scherm,
+  een bijlage weghalen, artikelen tonen op de projectpagina (`Wiki.VanProjectAsync` bestaat al), Claude Shares erin
+  opnemen. **Niet getest:** tegen de echte tabellen en filestore, de conflictmelding, het kiezen van een project.
 - **Beheer ▸ Systeem ▸ Backups (NAS)** (wens Directie, 25-11-2026; script **`NasBackups_MariaDB.sql`**, zelf
   draaien): Hyper Backup op de Synology NAS (DSM 7.4.1) meldt elke uitkomst zelf via een webhook op
   `GET/POST /api/nas-melding` (`Services/NasBackups.cs`, `NasBackupsApi`). Geen login maar een sleutel

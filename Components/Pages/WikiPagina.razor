@@ -1,0 +1,531 @@
+@page "/wiki"
+@inject Wiki Wiki
+@inject IProjectRepository Projecten
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Wiki (opzet van Freek, fase 1; 25-11-2026): links de ruimtes en het zoekvak, rechts de artikelen van een ruimte of
+   een artikel. Lezen mag iedereen; schrijven elke aangemelde medewerker (review komt later). Elke keer opslaan maakt
+   een versie, een oude versie is terug te zetten, en weghalen is "inactief" zetten. Wat er open staat volgt uit het
+   adres (?ruimte=, ?artikel=), zodat een link naar een artikel werkt en de terugknop van de browser ook.
+   Opslag: Services/Wiki.cs, tabellen uit Wiki_MariaDB.sql. De opmaak leunt op die van Claude Shares (.cs-…). *@
+
+<PageTitle>@(_artikel is null ? "Wiki" : _artikel.Titel + " — Wiki") — MDE</PageTitle>
+
+<div class="page cs-pagina wk-pagina">
+    <header class="topbar">
+        <h1>Wiki</h1>
+        <span class="weeklabel">de kennisbank van MDE</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>De tabellen voor de wiki bestaan nog niet (Wiki_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        <div class="cs-opmaak">
+            <aside class="cs-links">
+                <input class="cs-zoek" placeholder="Zoeken in de wiki…" value="@_zoek" @oninput="ZoekInput" autocomplete="off" aria-label="Zoeken in de wiki" />
+                <button type="button" class="cs-project @(_ruimte is null && _artikel is null && !Zoekt ? "actief" : "")" @onclick="@(() => Ga("wiki"))">🏠 Start</button>
+                <div class="cs-kopje">Ruimtes</div>
+                @foreach (var r in _ruimtes)
+                {
+                    <button type="button" class="cs-project @(r.Id == HuidigeRuimte ? "actief" : "")" @onclick="@(() => Ga($"wiki?ruimte={r.Id}"))" title="@r.Omschrijving">
+                        @r.Icoon @r.Naam <span class="cs-aantal">@(r.Aantal > 0 ? r.Aantal : "")</span>
+                    </button>
+                }
+            </aside>
+
+            <main class="cs-rechts">
+                @if (_bewerk is { } b)
+                {
+                    @* ----- schrijven ----- *@
+                    <div class="cs-leeskop">
+                        <h2>@(b.Id == 0 ? "Nieuw artikel" : "Bewerken")</h2>
+                        <span class="groei"></span>
+                        <label class="vink"><input type="checkbox" checked="@_voorbeeld" @onchange="e => _voorbeeld = e.Value is true" /> voorbeeld tonen</label>
+                    </div>
+                    <div class="wk-velden">
+                        <label class="cs-veld wk-breed"><span>Titel (het onderwerp, niet het projectnummer)</span>
+                            <input id="wk-titel" value="@b.Titel" maxlength="200" @oninput="e => b.Titel = (string?)e.Value ?? string.Empty" /></label>
+                        <label class="cs-veld"><span>Ruimte</span>
+                            <select value="@b.RuimteId" @onchange="RuimteGekozen">
+                                @foreach (var r in _ruimtes) { <option value="@r.Id">@r.Naam</option> }
+                            </select></label>
+                        <label class="cs-veld"><span>Sectie (kopje in de ruimte; mag leeg)</span>
+                            <input value="@b.Sectie" maxlength="100" list="wk-secties" @oninput="e => b.Sectie = (string?)e.Value ?? string.Empty" />
+                            <datalist id="wk-secties">@foreach (var s in _secties) { <option value="@s" /> }</datalist></label>
+                        <label class="cs-veld"><span>Tags (met komma's ertussen; hoogstens 20)</span>
+                            <input value="@b.Tags" maxlength="500" @oninput="e => b.Tags = (string?)e.Value ?? string.Empty" /></label>
+                        <div class="cs-veld"><span>Project (mag leeg)</span>
+                            @if (b.ProjectId is not null)
+                            {
+                                <span class="wk-project">@b.ProjectTekst <button type="button" class="klein" @onclick="() => { b.ProjectId = null; b.ProjectTekst = string.Empty; }">✕</button></span>
+                            }
+                            else
+                            {
+                                <input placeholder="Projectnummer of omschrijving…" value="@_projectZoek" @oninput="ProjectZoekInput" autocomplete="off" />
+                                @foreach (var p in _projectGevonden)
+                                {
+                                    <button type="button" class="cs-project" @onclick="() => KiesProject(b, p)">@Label(p)</button>
+                                }
+                            }
+                        </div>
+                    </div>
+                    @if (_alleTags.Count > 0)
+                    {
+                        <p class="cs-zacht">Bestaande tags: @string.Join(", ", _alleTags.Take(40))</p>
+                    }
+                    <div class="@(_voorbeeld ? "wk-schrijf met-voorbeeld" : "wk-schrijf")">
+                        <textarea class="wk-tekst" rows="24" spellcheck="true" value="@b.Inhoud" @oninput="e => b.Inhoud = (string?)e.Value ?? string.Empty"
+                                  placeholder="Schrijf hier. # Kop, ## Tussenkop, **vet**, - lijst, 1. genummerd, `code`, [tekst](https://adres), [[Titel van een ander artikel]]"></textarea>
+                        @if (_voorbeeld)
+                        {
+                            <div class="cs-tekst"><div class="cs-md">@((MarkupString)Opmaak(b.Inhoud))</div></div>
+                        }
+                    </div>
+                    <p class="cs-zacht"># Kop · ## Tussenkop · **vet** · *cursief* · - lijst · 1. genummerd · `code` · [tekst](https://adres) · | tabel | met | strepen | · [[Titel]] verwijst naar een ander artikel</p>
+                    @if (b.Id != 0)
+                    {
+                        <div class="wk-bijlagen">
+                            <div class="cs-kopje">Bijlagen en plaatjes</div>
+                            @foreach (var x in _bijlagen)
+                            {
+                                <span class="wk-bijlage">@(x.IsAfbeelding ? "🖼" : "📎") @x.Naam
+                                    <button type="button" class="klein" title="Zet de verwijzing onderaan de tekst; verplaats hem daarna naar de goede plek" @onclick="() => b.Inhoud = b.Inhoud.TrimEnd() + Environment.NewLine + Environment.NewLine + x.Verwijzing + Environment.NewLine">in de tekst zetten</button></span>
+                            }
+                            <span class="cs-rijvlak">⬆ bestand toevoegen (sleep of klik)
+                                <InputFile @key="_invoer" OnChange="e => BijlageOntvangen(e, b.Id)" multiple class="cs-invoer" /></span>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="cs-zacht">Plaatjes en bijlagen toevoegen kan nadat het artikel een keer is opgeslagen.</p>
+                    }
+                    <label class="cs-veld"><span>@(b.Id == 0 ? "Opmerking (mag leeg)" : "Wat is er veranderd? (mag leeg)")</span>
+                        <input value="@_opmerking" maxlength="500" @oninput="e => _opmerking = (string?)e.Value ?? string.Empty" /></label>
+                    <div class="cs-knoppen">
+                        <button type="button" class="primair" disabled="@(_bezig || b.Titel.Trim().Length == 0)" @onclick="Bewaar">Opslaan</button>
+                        <button type="button" class="klein" disabled="@_bezig" @onclick="Annuleer">Annuleren</button>
+                    </div>
+                }
+                else if (Zoekt)
+                {
+                    @* ----- zoeken ----- *@
+                    <div class="cs-leeskop"><h2>Zoeken: @_zoek.Trim()</h2></div>
+                    @if (_treffers.Count == 0) { <p class="uitleg">@(_zoekBezig ? "Zoeken…" : "Niets gevonden.")</p> }
+                    @foreach (var t in _treffers)
+                    {
+                        <div class="wk-treffer" @key="t.Artikel.Id">
+                            <a class="wk-titel" href="@(Wiki.ArtikelAdres + t.Artikel.Id)">@t.Artikel.Titel</a>
+                            <span class="cs-zacht">@RuimteNaam(t.Artikel.RuimteId)@(t.Artikel.Sectie.Length > 0 ? " · " + t.Artikel.Sectie : "")</span>
+                            <div class="wk-fragment">@t.Fragment</div>
+                        </div>
+                    }
+                }
+                else if (_artikel is { } a)
+                {
+                    @* ----- een artikel lezen ----- *@
+                    <div class="cs-leeskop">
+                        <button type="button" class="klein" @onclick="@(() => Ga($"wiki?ruimte={a.RuimteId}"))">‹ @RuimteNaam(a.RuimteId)</button>
+                        <h2>@(_oud?.Titel ?? a.Titel)</h2>
+                        <span class="stand-chip @(_oud is null ? "s-groen" : "s-grijs")">v@(_oud?.Versie ?? a.Versie)@(_oud is null ? "" : " · oude versie")</span>
+                        @if (!a.Actief) { <span class="stand-chip s-rood">inactief</span> }
+                        <span class="groei"></span>
+                        @if (MagSchrijven && _oud is null)
+                        {
+                            <button type="button" class="primair klein" @onclick="() => Bewerk(a)">✎ Bewerken</button>
+                        }
+                        <button type="button" class="klein" title="Het adres van dit artikel naar het klembord" @onclick="KopieerLink">Link</button>
+                        @if (MagSchrijven)
+                        {
+                            <button type="button" class="klein" title="@(a.Actief ? "Uit de lijsten en het zoeken halen; het artikel blijft bewaard" : "Weer in de lijsten zetten")" @onclick="() => ZetActief(a, !a.Actief)">@(a.Actief ? "Inactief zetten" : "Terughalen")</button>
+                        }
+                    </div>
+                    <div class="wk-meta">
+                        @if (a.Sectie.Length > 0) { <span>@a.Sectie</span> }
+                        @if (a.ProjectId is int pid) { <a href="@($"projecten?project={pid}")" title="Naar het project">📁 @a.ProjectTekst</a> }
+                        @foreach (var tag in a.TagLijst) { <button type="button" class="wk-tag" @onclick="() => ZoekOp(tag)">#@tag</button> }
+                        <span class="cs-zacht">laatst gewijzigd @a.GewijzigdOp.ToString("d-M-yyyy HH:mm")@(a.GewijzigdDoor.Length > 0 ? " door " + a.GewijzigdDoor : "")</span>
+                    </div>
+
+                    <div class="cs-lees">
+                        <div>
+                            <div class="cs-tekst">
+                                @if (_html.Length == 0) { <p class="uitleg">Dit artikel heeft nog geen tekst.</p> }
+                                else { <div class="cs-md">@((MarkupString)_html)</div> }
+                            </div>
+                            @if (_bijlagen.Count > 0 || MagSchrijven)
+                            {
+                                <div class="wk-bijlagen">
+                                    <div class="cs-kopje">Bijlagen</div>
+                                    @foreach (var x in _bijlagen)
+                                    {
+                                        <a class="wk-bijlage" href="@(Wiki.BijlageAdres + x.FileStoreId)" target="_blank" rel="noopener">@(x.IsAfbeelding ? "🖼" : "📎") @x.Naam</a>
+                                    }
+                                    @if (_bijlagen.Count == 0) { <span class="cs-zacht">Nog geen.</span> }
+                                    @if (MagSchrijven && a.Actief)
+                                    {
+                                        <span class="cs-rijvlak">⬆ bestand toevoegen (sleep of klik)
+                                            <InputFile @key="_invoer" OnChange="e => BijlageOntvangen(e, a.Id)" multiple class="cs-invoer" /></span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <aside class="cs-versies">
+                            <div class="cs-kopje">Versies</div>
+                            @foreach (var v in _versies)
+                            {
+                                var huidig = v.Versie == a.Versie;
+                                <div class="cs-versie @((_oud?.Id ?? (huidig ? v.Id : 0)) == v.Id ? "actief" : "")" @onclick="() => ToonVersie(a, v)">
+                                    <div><b>v@(v.Versie)</b> <span class="cs-zacht">@(huidig ? "geldend" : "archief")</span></div>
+                                    <div class="cs-zacht">@v.Op.ToString("d-M-yyyy HH:mm")@(v.Door.Length > 0 ? " · " + v.Door : "")</div>
+                                    @if (v.Opmerking.Length > 0) { <div class="cs-opm">@v.Opmerking</div> }
+                                    @if (!huidig && MagSchrijven && a.Actief)
+                                    {
+                                        <button type="button" class="klein" title="Titel en tekst van toen worden de nieuwe geldende versie; de versies ertussen blijven bewaard"
+                                                @onclick="() => ZetTerug(a, v)" @onclick:stopPropagation="true">Terugzetten</button>
+                                    }
+                                </div>
+                            }
+                        </aside>
+                    </div>
+                }
+                else if (_ruimte is { } ru)
+                {
+                    @* ----- de artikelen van een ruimte ----- *@
+                    <div class="cs-leeskop">
+                        <h2>@ru.Icoon @ru.Naam</h2>
+                        <span class="cs-zacht">@ru.Omschrijving</span>
+                        <span class="groei"></span>
+                        <label class="vink"><input type="checkbox" checked="@_ookInactief" @onchange="InactiefGewijzigd" /> ook inactief</label>
+                        @if (MagSchrijven) { <button type="button" class="primair klein" @onclick="() => Nieuw(ru.Id)">+ Nieuw artikel</button> }
+                    </div>
+                    @if (_artikelen.Count == 0)
+                    {
+                        <p class="uitleg">In deze ruimte staat nog niets.@(MagSchrijven ? " Begin met \"+ Nieuw artikel\"." : "")</p>
+                    }
+                    @foreach (var groep in _artikelen.GroupBy(x => x.Sectie.Length > 0 ? x.Sectie : "Algemeen").OrderBy(g => g.Key == "Algemeen" ? "" : g.Key))
+                    {
+                        <div class="cs-kopje">@groep.Key</div>
+                        <table class="cs-tabel">
+                            <tbody>
+                                @foreach (var x in groep)
+                                {
+                                    <tr class="@(x.Actief ? "" : "cs-vervallen")" @key="x.Id">
+                                        <td><a class="wk-titel" href="@(Wiki.ArtikelAdres + x.Id)">@x.Titel</a>@if (!x.Actief) { <span class="stand-chip s-rood">inactief</span> }</td>
+                                        <td class="cs-zacht">@string.Join(" ", x.TagLijst.Select(t => "#" + t))</td>
+                                        <td class="cs-zacht wk-smal">@(x.ProjectId is null ? "" : x.ProjectTekst)</td>
+                                        <td class="cs-zacht wk-smal">@x.GewijzigdOp.ToString("d-M-yyyy")@(x.GewijzigdDoor.Length > 0 ? " · " + x.GewijzigdDoor : "")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+                else
+                {
+                    @* ----- de startpagina ----- *@
+                    <div class="cs-tekst wk-start">
+                        <h2>Welkom op de wiki</h2>
+                        <p>Hier staat wat we als MDE willen onthouden: hoe we werken, wat we geleerd hebben, en waar je iets vindt.
+                            Kies links een ruimte, of zoek in alles tegelijk.</p>
+                        <ul>
+                            <li><b>Schrijven kan direct.</b> Open een ruimte en kies "+ Nieuw artikel", of klik in een artikel op Bewerken.</li>
+                            <li><b>Elke wijziging is terug te draaien.</b> Bij elk artikel staan alle versies; een oude versie zet je met een klik terug.</li>
+                            <li><b>Inactief, niet weg.</b> Een verouderd artikel zet je inactief; het is terug te halen via "ook inactief".</li>
+                            <li><b>Verwijzen.</b> Met <code>[[Titel]]</code> in de tekst maak je een link naar een ander artikel.</li>
+                            <li><b>Niet in de wiki:</b> CAD-bestanden, 3D-modellen en schema's blijven op hun eigen plek; schrijf hier waar ze staan.</li>
+                        </ul>
+                    </div>
+                    <div class="cs-kopje">Laatst gewijzigd</div>
+                    @if (_recent.Count == 0) { <p class="uitleg">Er staat nog geen artikel in de wiki.</p> }
+                    else
+                    {
+                        <table class="cs-tabel">
+                            <tbody>
+                                @foreach (var x in _recent)
+                                {
+                                    <tr @key="x.Id">
+                                        <td><a class="wk-titel" href="@(Wiki.ArtikelAdres + x.Id)">@x.Titel</a></td>
+                                        <td class="cs-zacht">@RuimteNaam(x.RuimteId)@(x.Sectie.Length > 0 ? " · " + x.Sectie : "")</td>
+                                        <td class="cs-zacht wk-smal">@x.GewijzigdOp.ToString("d-M-yyyy HH:mm")@(x.GewijzigdDoor.Length > 0 ? " · " + x.GewijzigdDoor : "")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </main>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Wat er open staat volgt uit het adres.</summary>
+    [SupplyParameterFromQuery(Name = "ruimte")] public int? RuimteParam { get; set; }
+    [SupplyParameterFromQuery(Name = "artikel")] public int? ArtikelParam { get; set; }
+
+    private bool _geladen, _tabel, _fout, _bezig, _ookInactief, _voorbeeld, _zoekBezig;
+    private string? _melding;
+    private string _zoek = "", _opmerking = "", _projectZoek = "", _html = "";
+    private List<WikiRuimte> _ruimtes = new();
+    private WikiRuimte? _ruimte;
+    private List<WikiArtikel> _artikelen = new(), _recent = new();
+    private WikiArtikel? _artikel, _bewerk;
+    private List<WikiVersie> _versies = new();
+    private WikiVersie? _oud;                   // een oude versie die nu in beeld staat
+    private List<WikiBijlage> _bijlagen = new();
+    private List<WikiTreffer> _treffers = new();
+    private List<ProjectRegel> _projectGevonden = new();
+    private List<string> _secties = new(), _alleTags = new();
+    private Dictionary<string, int> _titels = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _pauze, _projectPauze;
+    private int _invoer;
+    private (int? Ruimte, int? Artikel) _getoond = (-1, -1);
+
+    private bool Zoekt => _zoek.Trim().Length >= 2;
+    private int? HuidigeRuimte => _artikel?.RuimteId ?? _ruimte?.Id;
+    /// <summary>Schrijven: elke aangemelde medewerker (review komt later). Zonder login (lokaal testen) ook.</summary>
+    private bool MagSchrijven => Ik.WerknemerId is not null || (!Ik.Ingelogd && !Ik.IsWerkplek);
+
+    private static string Label(ProjectRegel p) => $"{p.Nummer} {p.Omschrijving}".Trim();
+    private string RuimteNaam(int id) => _ruimtes.FirstOrDefault(r => r.Id == id)?.Naam ?? "";
+    private string Opmaak(string? tekst) => ActMarkdown.Html(Wiki.MetVerwijzingen(tekst ?? "", _titels), document: true, wiki: true);
+    private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
+    private void Ga(string adres) { _zoek = ""; _treffers = new(); Nav.NavigateTo(adres); }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            if (!_geladen)
+            {
+                await Ik.ZorgGeladenAsync();
+                _tabel = Wiki.Beschikbaar && await Wiki.AanwezigAsync();
+            }
+            if (_tabel && _getoond != (RuimteParam, ArtikelParam))
+            {
+                _getoond = (RuimteParam, ArtikelParam);
+                _bewerk = null; _zoek = ""; _treffers = new();
+                await Laad();
+            }
+        }
+        catch (Exception ex) { Meld("Laden is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _geladen = true;
+    }
+
+    /// <summary>Alles voor wat het adres vraagt: het artikel, of de ruimte, of de startpagina.</summary>
+    private async Task Laad()
+    {
+        _ruimtes = await Wiki.RuimtesAsync();
+        _artikel = null; _ruimte = null; _oud = null; _html = "";
+        if (ArtikelParam is int aid)
+        {
+            _artikel = await Wiki.ArtikelAsync(aid);
+            if (_artikel is null) { Meld("Dit artikel bestaat niet (meer).", true); }
+            else
+            {
+                _titels = await Wiki.TitelsAsync();
+                _html = Opmaak(_artikel.Inhoud);
+                _versies = await Wiki.VersiesAsync(aid);
+                _bijlagen = await Wiki.BijlagenAsync(aid);
+                return;
+            }
+        }
+        if (RuimteParam is int rid && _ruimtes.FirstOrDefault(r => r.Id == rid) is { } ru)
+        {
+            _ruimte = ru;
+            _artikelen = await Wiki.ArtikelenAsync(rid, _ookInactief);
+            return;
+        }
+        _recent = await Wiki.RecentAsync();
+    }
+
+    private async Task InactiefGewijzigd(ChangeEventArgs e)
+    {
+        _ookInactief = e.Value is true;
+        if (_ruimte is not null) _artikelen = await Wiki.ArtikelenAsync(_ruimte.Id, _ookInactief);
+    }
+
+    // ------------------------------------------------------------------ zoeken
+
+    private async Task ZoekInput(ChangeEventArgs e)
+    {
+        _zoek = (string?)e.Value ?? "";
+        _pauze?.Cancel();
+        var pauze = _pauze = new CancellationTokenSource();
+        _zoekBezig = true;
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        await Zoek(pauze);
+    }
+
+    private async Task ZoekOp(string tag) { _zoek = tag; await Zoek(null); }
+
+    private async Task Zoek(CancellationTokenSource? pauze)
+    {
+        try
+        {
+            var gevonden = Zoekt ? await Wiki.ZoekAsync(_zoek) : new();
+            if (pauze is null || !pauze.IsCancellationRequested) _treffers = gevonden;
+        }
+        catch (Exception ex) { Meld("Zoeken is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _zoekBezig = false;
+    }
+
+    // ------------------------------------------------------------------ lezen: versies
+
+    private async Task ToonVersie(WikiArtikel a, WikiVersie v)
+    {
+        if (v.Versie == a.Versie) { _oud = null; _html = Opmaak(a.Inhoud); return; }
+        try
+        {
+            _html = Opmaak(await Wiki.VersieInhoudAsync(v.Id) ?? "");
+            _oud = v;
+        }
+        catch (Exception ex) { Meld("De versie ophalen is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task ZetTerug(WikiArtikel a, WikiVersie v)
+    {
+        if (!MagSchrijven) return;
+        try
+        {
+            await Wiki.TerugzettenAsync(a.Id, v, Ik.WerknemerId);
+            await Laad();
+            Meld($"v{v.Versie} is teruggezet als v{_artikel?.Versie}.");
+        }
+        catch (Exception ex) { Meld("Terugzetten is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task ZetActief(WikiArtikel a, bool actief)
+    {
+        if (!MagSchrijven) return;
+        try
+        {
+            await Wiki.ZetActiefAsync(a.Id, actief);
+            await Laad();
+            Meld(actief ? $"{a.Titel} staat weer in de lijsten." : $"{a.Titel} is inactief. Het staat nog in de ruimte onder \"ook inactief\" en is daar terug te halen.");
+        }
+        catch (Exception ex) { Meld("Dat is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
+    private async Task KopieerLink()
+    {
+        if (_artikel is null) return;
+        var adres = Nav.ToAbsoluteUri(Wiki.ArtikelAdres + _artikel.Id).ToString();
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", adres); Meld("Het adres van dit artikel staat op het klembord."); }
+        catch { Meld(adres); }
+    }
+
+    // ------------------------------------------------------------------ schrijven
+
+    private async Task Nieuw(int ruimteId)
+    {
+        if (!MagSchrijven) return;
+        _bewerk = new WikiArtikel { RuimteId = ruimteId };
+        await Begin();
+    }
+
+    private async Task Bewerk(WikiArtikel a)
+    {
+        if (!MagSchrijven) return;
+        // een eigen kopie: Annuleren laat het artikel zoals het was
+        _bewerk = new WikiArtikel
+        {
+            Id = a.Id, RuimteId = a.RuimteId, Titel = a.Titel, Sectie = a.Sectie, Tags = a.Tags, Inhoud = a.Inhoud, Versie = a.Versie,
+            ProjectId = a.ProjectId, ProjectTekst = a.ProjectTekst,
+        };
+        await Begin();
+    }
+
+    private async Task Begin()
+    {
+        _opmerking = ""; _projectZoek = ""; _projectGevonden = new(); _voorbeeld = false;
+        try
+        {
+            _titels = await Wiki.TitelsAsync();
+            (_secties, _alleTags) = await Wiki.VoorstellenAsync(_bewerk!.RuimteId);
+        }
+        catch { }
+    }
+
+    private async Task RuimteGekozen(ChangeEventArgs e)
+    {
+        if (_bewerk is null || !int.TryParse((string?)e.Value, out var id)) return;
+        _bewerk.RuimteId = id;
+        try { (_secties, _alleTags) = await Wiki.VoorstellenAsync(id); } catch { }
+    }
+
+    private async Task ProjectZoekInput(ChangeEventArgs e)
+    {
+        _projectZoek = (string?)e.Value ?? "";
+        _projectPauze?.Cancel();
+        var pauze = _projectPauze = new CancellationTokenSource();
+        try { await Task.Delay(250, pauze.Token); } catch (TaskCanceledException) { return; }
+        var q = _projectZoek.Trim();
+        try { _projectGevonden = q.Length == 0 ? new() : await Projecten.ZoekProjectenAsync(null, q, null, 0, 8); }
+        catch { _projectGevonden = new(); }
+    }
+
+    private void KiesProject(WikiArtikel b, ProjectRegel p)
+    {
+        b.ProjectId = p.Id; b.ProjectTekst = Label(p);
+        _projectZoek = ""; _projectGevonden = new();
+    }
+
+    private void Annuleer() => _bewerk = null;
+
+    private async Task Bewaar()
+    {
+        if (_bewerk is not { } b || _bezig || !MagSchrijven) return;
+        _bezig = true;
+        try
+        {
+            var id = await Wiki.BewaarAsync(b, _opmerking, Ik.WerknemerId);
+            _bewerk = null;
+            Meld($"{b.Titel.Trim()} is opgeslagen.");
+            if (ArtikelParam == id) await Laad();
+            else Nav.NavigateTo(Wiki.ArtikelAdres + id);
+        }
+        catch (WikiConflictException ex) { Meld(ex.Message, true); }
+        catch (Exception ex) { Meld("Opslaan is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
+
+    // ------------------------------------------------------------------ bijlagen
+
+    private async Task BijlageOntvangen(InputFileChangeEventArgs e, int artikelId)
+    {
+        if (!MagSchrijven) return;
+        var geweigerd = new List<string>();
+        var gelukt = 0;
+        foreach (var f in e.GetMultipleFiles(10))
+        {
+            if (f.Size == 0 || f.Size > Wiki.MaxBijlage) { geweigerd.Add($"{f.Name}: leeg of groter dan 25 MB"); continue; }
+            try
+            {
+                using var m = new MemoryStream();
+                await using (var s = f.OpenReadStream(Wiki.MaxBijlage)) await s.CopyToAsync(m);
+                await Wiki.BijlageToevoegenAsync(artikelId, f.Name, m.ToArray(), Ik.WerknemerId);
+                gelukt++;
+            }
+            catch (Exception ex) { geweigerd.Add($"{f.Name}: {ex.GetBaseException().Message}"); }
+        }
+        _invoer++;
+        try { _bijlagen = await Wiki.BijlagenAsync(artikelId); } catch { }
+        if (geweigerd.Count > 0) Meld("Niet toegevoegd: " + string.Join("; ", geweigerd), true);
+        else if (gelukt > 0) Meld(gelukt == 1 ? "De bijlage is toegevoegd." : $"{gelukt} bijlagen zijn toegevoegd.");
+    }
+}

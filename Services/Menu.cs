@@ -97,6 +97,9 @@ public static class Menu
         // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
         new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
 
+        // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen
+        new MenuModule("wiki", "Wiki", "book-open") { Url = "/wiki" },
+
         new("artikelen", "Artikelen", "package",
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen", Icoon: "package"),

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Wiki** — Nieuw: in het menu staat **Wiki**, de kennisbank van MDE. Per ruimte (MDE Automation, Projecten, Mechanica, Software, Elektro, Werkplaats, Financieel, Management) schrijf je artikelen met kopjes, lijsten, tabellen, plaatjes en bijlagen. Elke keer opslaan maakt een versie; een oude versie is terug te zetten en er verdwijnt nooit iets. Je zoekt in alle artikelen tegelijk, verwijst naar een ander artikel met `[[Titel]]` en kunt een artikel aan een project hangen. Dit is de eerste stap; medewerkerpagina's met competenties en het projectproces volgen (opzet van Freek).
 - **Backups (NAS)** — Nieuw: de Synology NAS meldt zelf aan de app hoe elke backup van Hyper Backup afliep. Mislukt een backup, of komt er te lang geen bericht "gelukt", dan krijgt de Directie een melding in de bel 💾. Onder Beheer ▸ Systeem ▸ **Backups (NAS)** staat per taak de stand, wanneer hij voor het laatst lukte, en alle berichten van de NAS (verzoek van de Directie).
 
 ## 24-11-2026

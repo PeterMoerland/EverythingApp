@@ -4489,6 +4489,32 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .idee-venster { width: min(40rem, 96vw); }
 .idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+/* ===== Wiki (fase 1, 25-11-2026); bouwt voort op de opmaak van Claude Shares (.cs-...) ===== */
+.wk-pagina a.wk-titel { font-weight: 600; color: var(--accent); text-decoration: none; margin-right: 6px; }
+.wk-pagina a.wk-titel:hover { text-decoration: underline; }
+.wk-smal { white-space: nowrap; width: 1%; }
+.wk-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: -4px 0 10px; font-size: 13px; }
+.wk-meta a { color: var(--accent); text-decoration: none; }
+.wk-pagina button.wk-tag { border: 1px solid var(--cs-rand); background: var(--cs-vlak); border-radius: 10px; padding: 0 8px; font: inherit; font-size: 12px; color: inherit; cursor: pointer; }
+.wk-pagina button.wk-tag:hover { border-color: var(--accent); }
+.wk-start { min-height: 0; margin-bottom: 6px; }
+.wk-start h2 { margin: 0 0 .4em; font-size: 18px; }
+.wk-start ul { margin: .4em 0 0; padding-left: 1.4em; line-height: 1.7; }
+.wk-treffer { padding: 8px 0; border-bottom: 1px solid var(--cs-rand); }
+.wk-fragment { font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.wk-velden { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; margin-bottom: 8px; }
+.wk-velden .wk-breed { grid-column: 1 / -1; }
+.wk-velden select { width: 100%; box-sizing: border-box; }
+.wk-project { display: inline-flex; align-items: center; gap: 8px; }
+.wk-schrijf { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.wk-schrijf.met-voorbeeld { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wk-tekst { width: 100%; box-sizing: border-box; resize: vertical; min-height: 320px; font-family: Consolas, "IBM Plex Mono", monospace; font-size: 13.5px; line-height: 1.5; padding: 10px 12px; }
+.wk-bijlagen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 12px 0 4px; }
+.wk-bijlagen .cs-kopje { margin: 0 4px 0 0; }
+.wk-bijlage { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cs-rand); border-radius: 5px; padding: 2px 8px; font-size: 13px; color: inherit; text-decoration: none; background: var(--cs-wit); }
+a.wk-bijlage:hover { border-color: var(--accent); }
+.cs-md img.wk-plaatje { max-width: 100%; height: auto; border: 1px solid var(--cs-rand); border-radius: 4px; }
+@media (max-width: 900px) { .wk-velden, .wk-schrijf.met-voorbeeld { grid-template-columns: 1fr; } }
 /* Beheer > Systeem > Backups (NAS) */
 .nas-pagina .nas-tabel { width: 100%; margin-bottom: .5rem; }
 .nas-pagina .nas-tabel td { vertical-align: middle; }

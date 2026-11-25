@@ -310,6 +310,7 @@ if (builder.Configuration.GetValue<bool>("ActivityBoard:Geheugen"))
 builder.Services.AddSingleton<ActStatuslijsten>();  // Activity board: tabblad Statuslijsten
 builder.Services.AddSingleton<ActAfbeeldingen>();   // Activity board: afbeeldingen bij de tekstvelden
 builder.Services.AddSingleton<ClaudeShares>();      // Tools ▸ Claude Shares: .md-bestanden bij een project, met versies
+builder.Services.AddSingleton<Wiki>();              // Wiki: ruimtes met artikelen in markdown, versies, bijlagen in de filestore
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
 // Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true
 // (met twee voorbeeldpunten; toevoegen/afvinken schrijft wel een regel in de echte ProductHistorie, dus niet klikken)
@@ -1565,6 +1566,9 @@ app.MapActivityBoardApi();
 // afbeeldingen bij een activiteit: uploaden (slepen) en tonen; Services/ActAfbeeldingen.cs
 var actAfbeeldingen = app.MapActAfbeeldingen();
 if (loginAan) actAfbeeldingen.RequireAuthorization();
+// Wiki: een bijlage of plaatje van een artikel; Services/Wiki.cs
+var wikiBijlage = app.MapWiki();
+if (loginAan) wikiBijlage.RequireAuthorization();
 // de webhook van de NAS (Hyper Backup); geen login maar een sleutel (NasBackup:Sleutel), zoals /api/computer
 app.MapNasBackups();
 // Tools ▸ Claude Shares: een versie downloaden; Services/ClaudeShares.cs

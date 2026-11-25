@@ -38,6 +38,7 @@ public class FilestoreService
         300 or 301 => !ik.Gekoppeld || ik.Mag("HRM") || ik.Mag("Directie"),
         StoreTypeBvDocument or StoreTypeVerzekering => ik.Mag("Financial") || ik.Mag("Directie"),
         ClaudeShares.StoreType => ik.MagEngineering,
+        // bijlagen van de wiki (soort 346) zijn voor iedereen: de wiki zelf is dat ook
         _ => true,
     };
 
