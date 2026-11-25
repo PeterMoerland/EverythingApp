@@ -133,6 +133,13 @@
                         <ZoekKeuze Waarde="@(b.GastheerId?.ToString() ?? "")" Opties="_werknemers"
                                    OpGekozen="w => { b.GastheerId = int.TryParse(w, out var g) ? g : null; b.Gastheer = _werknemers.FirstOrDefault(x => x.Id == b.GastheerId)?.Naam ?? string.Empty; }" />
                     </div>
+                    <div class="wn-veld">
+                        <label>Taal op het scherm <small class="zij-extra">("Welkom" en "Uw gastheer", of "Welcome" en "Your host")</small></label>
+                        <select value="@(b.Engels ? "en" : "nl")" @onchange='e => b.Engels = (string?)e.Value == "en"'>
+                            <option value="nl">Nederlands</option>
+                            <option value="en">Engels</option>
+                        </select>
+                    </div>
                     <div class="wn-veld breed">
                         <label>Tekst <small class="zij-extra">(bv. de namen van de bezoekers of het doel van het bezoek)</small></label>
                         <textarea rows="3" maxlength="1000" value="@b.Tekst" @onchange="e => b.Tekst = (string?)e.Value ?? string.Empty"></textarea>
@@ -261,6 +268,7 @@
         {
             Id = w.Id, DatumVan = w.DatumVan, DatumTot = w.DatumTot, TijdVan = w.TijdVan, TijdTot = w.TijdTot,
             RelatieId = w.RelatieId, Relatie = w.Relatie, Tekst = w.Tekst, GastheerId = w.GastheerId, Gastheer = w.Gastheer,
+            Engels = w.Engels,
         };
         _logoId = w.RelatieId is int r ? await Scherm.RelatieLogoAsync(r) : null;
     }

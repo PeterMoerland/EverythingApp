@@ -24,3 +24,8 @@ CREATE TABLE IF NOT EXISTS `Welkomstbord` (
     PRIMARY KEY (`WelkomID`),
     KEY `IX_Welkomstbord_Datum` (`DatumVan`, `DatumTot`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Taal op het scherm (wens gebruiker 25-11-2026): 1 = Engels ("Your host"), 0 = Nederlands ("Uw gastheer", standaard).
+-- Het script opnieuw draaien kan geen kwaad; zonder deze kolom blijft alles Nederlands.
+ALTER TABLE `Welkomstbord`
+    ADD COLUMN IF NOT EXISTS `Engels` TINYINT(1) NOT NULL DEFAULT 0;

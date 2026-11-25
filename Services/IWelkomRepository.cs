@@ -17,6 +17,8 @@ public class WelkomItem
     public int? GastheerId { get; set; }
     public string Gastheer { get; set; } = "";
     public string AangemaaktDoor { get; set; } = "";
+    /// <summary>Op de tv in het Engels ("Your host" in plaats van "Uw gastheer"); standaard Nederlands (wens gebruiker 25-11-2026).</summary>
+    public bool Engels { get; set; }
 
     /// <summary>Staat dit welkom op <paramref name="nu"/> op het scherm?</summary>
     public bool Actief(DateTime nu)
@@ -86,7 +88,7 @@ public class GeheugenWelkomRepository : IWelkomRepository
 public class MySqlWelkomRepository : IWelkomRepository
 {
     private readonly string _cs;
-    private bool _tabel;
+    private bool _tabel, _taal;
     public MySqlWelkomRepository(string connectionString) => _cs = connectionString;
     public bool Beschikbaar => true;
 
@@ -111,9 +113,26 @@ public class MySqlWelkomRepository : IWelkomRepository
         return _tabel;
     }
 
-    private const string Select =
+    /// <summary>Staat de kolom Engels er (Welkomstbord_MariaDB.sql opnieuw gedraaid)? Zonder is alles Nederlands.</summary>
+    private async Task<bool> TaalAanwezigAsync(MySqlConnection cn)
+    {
+        if (_taal) return true;
+        try
+        {
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Welkomstbord' AND COLUMN_NAME = 'Engels'", cn);
+            _taal = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _taal;
+    }
+
+    private async Task<string> SelectAsync(MySqlConnection cn) => SelectBegin + (await TaalAanwezigAsync(cn) ? "COALESCE(b.`Engels`, 0)" : "0") + SelectRest;
+
+    private const string SelectBegin =
         "SELECT b.`WelkomID`, b.`DatumVan`, b.`DatumTot`, b.`TijdVan`, b.`TijdTot`, b.`RelatieID`, COALESCE(r.`name`, ''), " +
-        "       COALESCE(b.`Tekst`, ''), b.`GastheerID`, COALESCE(g.`NaamVoluit`, ''), COALESCE(a.`NaamVoluit`, '') " +
+        "       COALESCE(b.`Tekst`, ''), b.`GastheerID`, COALESCE(g.`NaamVoluit`, ''), COALESCE(a.`NaamVoluit`, ''), ";
+    private const string SelectRest =
         "  FROM `Welkomstbord` b " +
         "  LEFT JOIN `Relations` r ON r.`id_supplier` = b.`RelatieID` " +
         "  LEFT JOIN `Werknemers` g ON g.`Werknemer-id` = b.`GastheerID` " +
@@ -132,7 +151,7 @@ public class MySqlWelkomRepository : IWelkomRepository
                 Id = r.GetInt32(0), DatumVan = DateOnly.FromDateTime(r.GetDateTime(1)), DatumTot = DateOnly.FromDateTime(r.GetDateTime(2)),
                 TijdVan = Tijd(r, 3), TijdTot = Tijd(r, 4), RelatieId = r.IsDBNull(5) ? null : r.GetInt32(5), Relatie = r.GetString(6),
                 Tekst = r.GetString(7), GastheerId = r.IsDBNull(8) ? null : r.GetInt32(8), Gastheer = r.GetString(9),
-                AangemaaktDoor = r.GetString(10),
+                AangemaaktDoor = r.GetString(10), Engels = Convert.ToInt32(r.GetValue(11)) != 0,
             });
         return lijst;
     }
@@ -140,7 +159,7 @@ public class MySqlWelkomRepository : IWelkomRepository
     public async Task<List<WelkomItem>> LijstAsync(bool ookVerlopen)
     {
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(Select +
+        await using var cmd = new MySqlCommand(await SelectAsync(cn) +
             " WHERE b.`DatumTot` >= @vanaf ORDER BY b.`DatumVan`, b.`TijdVan`, b.`WelkomID` LIMIT 500", cn);
         cmd.Parameters.AddWithValue("@vanaf", ookVerlopen ? DateTime.Today.AddDays(-90) : DateTime.Today);
         var lijst = await LeesAsync(cmd);
@@ -150,7 +169,7 @@ public class MySqlWelkomRepository : IWelkomRepository
     public async Task<List<WelkomItem>> VandaagAsync(DateOnly vandaag)
     {
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(Select +
+        await using var cmd = new MySqlCommand(await SelectAsync(cn) +
             " WHERE b.`DatumVan` <= @d AND b.`DatumTot` >= @d ORDER BY b.`TijdVan`, b.`WelkomID`", cn);
         cmd.Parameters.AddWithValue("@d", vandaag.ToDateTime(TimeOnly.MinValue));
         return await LeesAsync(cmd);
@@ -159,7 +178,7 @@ public class MySqlWelkomRepository : IWelkomRepository
     public async Task<WelkomItem?> GetAsync(int id)
     {
         await using var cn = await OpenAsync();
-        await using var cmd = new MySqlCommand(Select + " WHERE b.`WelkomID` = @id", cn);
+        await using var cmd = new MySqlCommand(await SelectAsync(cn) + " WHERE b.`WelkomID` = @id", cn);
         cmd.Parameters.AddWithValue("@id", id);
         return (await LeesAsync(cmd)).FirstOrDefault();
     }
@@ -183,6 +202,13 @@ public class MySqlWelkomRepository : IWelkomRepository
         if (w.Id != 0) cmd.Parameters.AddWithValue("@id", w.Id);
         await cmd.ExecuteNonQueryAsync();
         if (w.Id == 0) w.Id = (int)cmd.LastInsertedId;
+        if (await TaalAanwezigAsync(cn))
+        {
+            await using var taal = new MySqlCommand("UPDATE `Welkomstbord` SET `Engels` = @e WHERE `WelkomID` = @id", cn);
+            taal.Parameters.AddWithValue("@e", w.Engels ? 1 : 0);
+            taal.Parameters.AddWithValue("@id", w.Id);
+            await taal.ExecuteNonQueryAsync();
+        }
         return w.Id;
     }
 
