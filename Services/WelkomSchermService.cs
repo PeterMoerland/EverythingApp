@@ -158,7 +158,7 @@ function toon() {
     html = `<div class="welkom">${w.engels ? 'Welcome' : 'Welkom'}</div>` +
       (w.relatie ? `<div class="relatie"><h1>${e(w.relatie)}</h1>${w.logo ? `<img class="relatielogo" src="${e(w.logo)}" alt="" onerror="this.remove()">` : ''}</div>` : '') +
       (w.tekst ? `<div class="tekst">${e(w.tekst)}</div>` : '') +
-      (w.gastheer ? `<div class="gastheer">${w.gastheerFoto ? `<img class="foto" src="${e(w.gastheerFoto)}" alt="" onerror="this.outerHTML='<div class=&quot;initialen&quot;>${e(initialen(w.gastheer))}</div>'">` : `<div class="initialen">${e(initialen(w.gastheer))}</div>`}<div><small>${w.engels ? 'Your host' : 'Uw gastheer'}</small><b>${e(w.gastheer)}</b></div></div>` : '');
+      (w.gastheer ? `<div class="gastheer">${w.gastheerFoto ? `<img class="foto" src="${e(w.gastheerFoto)}" alt="" onerror="this.remove()">` : ''}<div><small>${w.engels ? 'Your host' : 'Uw gastheer'}</small><b>${e(w.gastheer)}</b></div></div>` : '');
   }
   if (html !== vorige) { m.innerHTML = html; m.classList.remove('fade'); void m.offsetWidth; m.classList.add('fade'); vorige = html; }
   document.getElementById('stippen').innerHTML = items.length > 1 ? items.map((_, n) => `<span class="${n === i % items.length ? 'aan' : ''}"></span>`).join('') : '';
