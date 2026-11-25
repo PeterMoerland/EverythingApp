@@ -170,7 +170,13 @@
                                 else { <span class="plb-koppel" title="@r.KoppelTekst">@r.KoppelKort</span> }
                             }
                         </div>
-                        <div class="plb-wie" title="@WieVoluit(r)" @ondblclick="() => BeginRij(r, null, null)">@WieTekst(r)</div>
+                        <div class="plb-wie" title="@WieVoluit(r)" @ondblclick="() => BeginRij(r, null, null)">
+                            @* een naam die geen werknemer in dienst is (Werkplaats, een vacature, een leverancier, iemand die weg is) staat oranje *@
+                            @foreach (var (deel, nr) in WieDelen(r).Select((d, i) => (d, i)))
+                            {
+                                @(nr > 0 ? ", " : "")<span class="@(deel.Los ? "plb-geen-wn" : null)">@deel.Tekst</span>
+                            }
+                        </div>
                         <div class="plb-tijd" @ondblclick="e => NieuwOpPlek(r, e)" title="@(MagPlannen ? "Dubbelklik voor een nieuwe balk; rechtermuisknop voor meer" : null)">
                             @if (VandaagPct() is { } vp) { <i class="plb-vandaag" style="@($"left:{vp}")"></i> }
                             @if (groep && !open)
@@ -577,6 +583,16 @@
         _persoon = _personen.ToDictionary(p => p.Id);
         // het filter per persoon: de gekoppelde werknemers, en de namen die nog als tekst bij Wie staan
         _tekstNamen = rijen.Where(r => r.Resource.Length > 0).ToDictionary(r => r.Id, r => Planbord.Namen(r.Resource));
+        // welke namen uit de tekst zijn geen werknemer in dienst (inleen telt mee)? Zonder werknemerslijst kleurt er niets.
+        var inDienst = _personen.Where(p => p.InDienst).ToList();
+        bool IsWerknemer(string naam)
+        {
+            var n = naam.Trim().TrimEnd('?').Trim();
+            bool Is(string a) => a.Length > 0 && string.Equals(a, n, StringComparison.OrdinalIgnoreCase);
+            return inDienst.Any(p => Is(p.Kort) || Is(p.Naam) || Is(p.Voornaam) || Is(p.Achternaam) || Is(p.Achternaam.Split(' ').Last()));
+        }
+        _geenWerknemer = inDienst.Count == 0 ? new(StringComparer.OrdinalIgnoreCase)
+            : _tekstNamen.Values.SelectMany(n => n).Distinct(StringComparer.OrdinalIgnoreCase).Where(n => !IsWerknemer(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var gekoppeld = rijen.SelectMany(r => r.Werknemers).Distinct().Where(_persoon.ContainsKey).Select(w => _persoon[w]).ToList();
         var bekend = new HashSet<string>(gekoppeld.SelectMany(p => new[] { p.Kort, p.Voornaam }), StringComparer.OrdinalIgnoreCase);
         _wieKeuzes = gekoppeld.Select(p => (Code: "w:" + p.Id, Naam: p.Kort))
@@ -656,6 +672,17 @@
     /// <summary>De kolom Wie: de gekoppelde werknemers (korte naam) en daarachter de vrije tekst.</summary>
     private string WieTekst(PlanRij r) => r.Werknemers.Count == 0 ? r.Resource
         : string.Join(", ", r.Werknemers.Select(Kort).OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase).Concat(r.Resource.Length > 0 ? new[] { r.Resource } : Array.Empty<string>()));
+
+    /// <summary>De namen die als tekst bij Wie staan en bij geen enkele werknemer in dienst passen (korte naam, hele naam, voor- of achternaam).</summary>
+    private HashSet<string> _geenWerknemer = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>De kolom Wie in stukjes: de gekoppelde werknemers, dan de namen uit de tekst; Los = geen werknemer (oranje).</summary>
+    private IEnumerable<(string Tekst, bool Los)> WieDelen(PlanRij r)
+    {
+        foreach (var n in r.Werknemers.Select(Kort).OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase)) yield return (n, false);
+        if (_tekstNamen.TryGetValue(r.Id, out var namen))
+            foreach (var n in namen) yield return (n, _geenWerknemer.Contains(n));
+    }
 
     private string WieVoluit(PlanRij r) => r.Werknemers.Count == 0 ? r.Resource
         : string.Join(", ", r.Werknemers.Select(w => _persoon.TryGetValue(w, out var p) ? p.Naam : "?").OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase)

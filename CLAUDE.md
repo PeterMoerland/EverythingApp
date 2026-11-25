@@ -538,6 +538,9 @@ i.v.m. 1Password".
   gekoppelde rijen en wat eronder hangt) geeft `PlanRegel`s: mijlpalen = alle symbolen, taken = balken. De tab toont
   de mijlpalen vanaf vandaag (knop "Ook wat voorbij is") en de balken waar vandaag in valt (zonder "Out of office"),
   met de resterende tijd in kalenderdagen/weken/maanden; binnen een week oranje. Alleen lezen.
+  **Wie oranje (25-11-2026)**: de kolom Wie wordt per naam getekend (`WieDelen`); een naam uit de tekst die bij geen
+  werknemer in dienst past (korte naam, hele naam, voor- of achternaam; `_geenWerknemer`, bepaald in `Laad`) krijgt
+  `.plb-geen-wn`. Een naam die bij meer collega's past ("Verschuure") is dus niet oranje.
   **Bediening (25-11-2026)**: dubbelklik op `.plb-naam` = `BeginRij` (wijzigen); open/dicht alleen met `.plb-pijl`
   (de naam klapt niet meer); rechtermuismenu van een rij met rijen eronder: Alles uitvouwen / Alles inklappen (`Vouw`).
   **Groepfilter (25-11-2026)**: keuzelijst met de groepen van het bovenste niveau (`_groepFilter`, `KiesGroep`);

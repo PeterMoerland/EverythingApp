@@ -4527,6 +4527,9 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 .plb-pagina span.plb-pijl { cursor: default; }
 .plb-top { background: var(--plb-top); }
 .plb-top .plb-wie { color: inherit; }
+/* een naam bij Wie die geen werknemer in dienst is */
+.plb-wie .plb-geen-wn { color: #c2630a; }
+html[data-thema="donker"] .plb-wie .plb-geen-wn { color: #f0a04b; }
 /* de tijdbalk: een streepje per week, de plek van een balk is een percentage van het tijdvak */
 .plb-tijd { position: relative; border-left: 1px solid var(--plb-rand); min-width: 0; overflow: hidden;
     background-image: linear-gradient(to right, var(--plb-lijn) 1px, transparent 1px); background-size: calc(100% / var(--plb-weken)) 100%; }
