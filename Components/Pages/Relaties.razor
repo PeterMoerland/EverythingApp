@@ -1,6 +1,7 @@
 @page "/relaties"
 @using Microsoft.AspNetCore.WebUtilities
 @inject IRelatieRepository Repo
+@inject Planbord Planning
 @inject RelatieLezer RelatieAi
 @inject FilestoreService Store
 @inject MailService Post
@@ -646,6 +647,19 @@
                                     }
                             </ZijBlok>
                             }
+
+                            @* de rijen in het menu Planning van deze klant: gekoppeld aan de klant, een project of een werkorder ervan *@
+                            @if (_planRijen.Count > 0)
+                            {
+                                <ZijBlok Titel="Planning" Aantal="_planRijen.Count">
+                                    @foreach (var (rijId, naam) in _planRijen)
+                                    {
+                                        <div class="zij-regel" @key="rijId">
+                                            <a class="zij-naam" href="@($"planning?rij={rijId}")" title="In de planning openen">@naam</a>
+                                        </div>
+                                    }
+                                </ZijBlok>
+                            }
                         </Zij>
                         </DetailMetZij>
                     }
@@ -1212,6 +1226,9 @@
         await Laad(kiesBijEenResultaat: true);
     }
 
+    /// <summary>De rijen in het menu Planning die bij de gekozen relatie horen (zijblok Planning, 25-11-2026).</summary>
+    private List<(int Id, string Naam)> _planRijen = new();
+
     private async Task Kies(Keuze r)
     {
         _gekozenId = r.Id;
@@ -1223,6 +1240,7 @@
         await LaadContacten();
         await LaadDocumenten();
         await LaadIbans();
+        try { _planRijen = await Planning.VoorKlantAsync(r.Id); } catch { _planRijen = new(); }
         if (_lijstenGeladen) await LaadActiviteiten();
         _mails = new();          // mail hoort bij de vorige relatie
         _mailZoek = "";

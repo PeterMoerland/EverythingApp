@@ -2,6 +2,8 @@
 @inject IInstellingRepository Instellingen
 @inject HuidigeGebruiker Ik
 @inject BatchBel Bel
+@inject IUrenRepository Uren
+@inject IJSRuntime JS
 
 @* ============================================================================
    Artikelen ▸ 🛒 In orderbatch (verzoek collega Stein, 11-11-2026; zat ook in Access): het artikel in de orderbatch
@@ -125,10 +127,10 @@
         try
         {
             if (_voorraadOrders.Count == 0) _voorraadOrders = await Instellingen.GetVoorraadOrdersAsync();
-            // standaard de standaard-voorraadorder, net als de scanner
-            var standaard = _voorraadOrders.FirstOrDefault(v => v.Standaard && v.OrderId is not null)
-                         ?? _voorraadOrders.FirstOrDefault(v => v.OrderId is not null);
-            if (_orderId == 0 && standaard is not null) _orderId = standaard.OrderId!.Value;
+            // De werkorder: de laatst gebruikte van dit account (onthouden in de browser), en anders leeg, zodat je
+            // bewust kiest (verzoek Stein 25-11-2026). Stond eerst altijd op de standaard-voorraadorder, zoals de
+            // scanner; daardoor kwam er makkelijk iets op de verkeerde werkorder.
+            await ZetLaatsteWerkorder();
 
             _artikel = await Repo.GetScanArtikelAsync(ArtikelId);
             if (_artikel is null) { _laadFout = $"Artikel {ArtikelId} bestaat niet."; return; }
@@ -146,6 +148,31 @@
     }
 
     private void OrderGekozen(ChangeEventArgs e) => _orderId = int.TryParse((string?)e.Value, out var v) ? v : 0;
+
+    /// <summary>De sleutel in de opslag van de browser: per account (werknemer), dus per account per toestel.</summary>
+    private string OnthoudSleutel => "mde-batch-werkorder-" + (Ik.WerknemerId ?? 0);
+
+    /// <summary>
+    /// De laatst gebruikte werkorder terugzetten. Bestaat hij niet meer of is hij gesloten, dan blijft het veld leeg.
+    /// Een werkorder die geen voorraadorder is komt als extra regel in de keuzelijst (<see cref="_andere"/>).
+    /// </summary>
+    private async Task ZetLaatsteWerkorder()
+    {
+        _orderId = 0;
+        int laatste;
+        try { laatste = int.TryParse(await JS.InvokeAsync<string?>("mdeOpslag.lees", OnthoudSleutel), out var v) ? v : 0; }
+        catch { return; }
+        if (laatste <= 0) return;
+        if (_voorraadOrders.Any(v => v.OrderId == laatste)) { _orderId = laatste; return; }
+        try
+        {
+            var wo = await Uren.GetWorkorderAsync(laatste);
+            if (wo is null || wo.WorkorderStatus == 0) return;
+            _andere = wo;
+            _orderId = laatste;
+        }
+        catch { }
+    }
 
     private void WerkorderGekozen(Workorder wo)
     {
@@ -177,6 +204,7 @@
                 ? $"{regels} onderdelen van {_artikel.Code} staan in de batch."
                 : $"{_artikel.Code} ({_aantal}) staat in de batch.";
             _fout = false;
+            try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", OnthoudSleutel, _orderId.ToString()); } catch { }
             Bel.Meld();        // open Orderbatch-schermen verversen zichzelf
         }
         catch (Exception ex) { _melding = "Toevoegen mislukt: " + ex.Message; _fout = true; }

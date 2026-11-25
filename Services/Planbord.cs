@@ -646,13 +646,39 @@ public class Planbord
                                             .OrderBy(r => r.Volgorde).Select(r => (r.Id, r.Naam)));
             return uit;
         }
+        return await VoorAsync("LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID`", "x.`ProjectID` = @id OR wo.`Project-id` = @id", projectId);
+    }
+
+    /// <summary>De rijen die aan deze werkorder gekoppeld zijn (zijblok Planning bij een werkorder in Projecten).</summary>
+    public async Task<List<(int Id, string Naam)>> VoorWerkorderAsync(int werkbonId)
+    {
+        if (_geheugen) lock (_slot) return _rijen.Where(r => r.WerkorderId == werkbonId).OrderBy(r => r.Volgorde).Select(r => (r.Id, r.Naam)).ToList();
+        return await VoorAsync("", "x.`WerkorderID` = @id", werkbonId);
+    }
+
+    /// <summary>
+    /// De rijen van een klant: gekoppeld aan de klant zelf, aan een project van die klant of aan een werkorder van zo'n
+    /// project (zijblok Planning in Relaties). In de testversie in het geheugen alleen de rijen op de klant zelf.
+    /// </summary>
+    public async Task<List<(int Id, string Naam)>> VoorKlantAsync(int relatieId)
+    {
+        if (_geheugen) lock (_slot) return _rijen.Where(r => r.RelatieId == relatieId).OrderBy(r => r.Volgorde).Select(r => (r.Id, r.Naam)).ToList();
+        return await VoorAsync(
+            "LEFT JOIN `Projects` p ON p.`Project-Id` = x.`ProjectID` LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID` " +
+            "LEFT JOIN `Projects` wp ON wp.`Project-Id` = wo.`Project-id`",
+            "x.`RelatieID` = @id OR p.`Customer-id` = @id OR wp.`Customer-id` = @id", relatieId);
+    }
+
+    /// <summary>De gekoppelde rijen voor een van de drie soorten; hooguit twintig, in de volgorde van de planning.</summary>
+    private async Task<List<(int Id, string Naam)>> VoorAsync(string join, string waar, int id)
+    {
+        var uit = new List<(int, string)>();
         if (!await AanwezigAsync()) return uit;
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using var cmd = new MySqlCommand(
-            "SELECT x.`RijID`, x.`Naam` FROM `PlanbordRijen` x LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID` " +
-            " WHERE x.`ProjectID` = @p OR wo.`Project-id` = @p ORDER BY x.`Volgorde`, x.`RijID` LIMIT 20", cn);
-        cmd.Parameters.AddWithValue("@p", projectId);
+            $"SELECT x.`RijID`, x.`Naam` FROM `PlanbordRijen` x {join} WHERE {waar} ORDER BY x.`Volgorde`, x.`RijID` LIMIT 20", cn);
+        cmd.Parameters.AddWithValue("@id", id);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) uit.Add((r.GetInt32(0), r.GetString(1)));
         return uit;

@@ -353,7 +353,7 @@
                         <label><input type="radio" name="plb-koppelsoort" checked="@(kv.Soort == code)" @onchange="() => KoppelSoort(code)" /> @naam</label>
                     }
                 </div>
-                <label class="cs-veld"><span>Zoek @(kv.Soort == "klant" ? "een klant (minstens twee tekens)" : kv.Soort == "werkorder" ? "een werkorder: nummer, omschrijving of klant" : "een project: nummer of omschrijving")</span>
+                <label class="cs-veld"><span>Zoek @(kv.Soort == "klant" ? "een klant (minstens twee tekens)" : kv.Soort == "werkorder" ? "een werkorder: nummer, omschrijving of klant" : "een project: nummer, omschrijving of klant")</span>
                     <input @ref="_koppelVeld" value="@kv.Zoek" @oninput="KoppelZoek" autocomplete="off" /></label>
                 <div class="plb-treffers">
                     @if (kv.Treffers.Count == 0)
@@ -489,6 +489,18 @@
         var laatste = _laatste.GetValueOrDefault(top.Id);
         if (laatste != DateTime.MinValue && laatste < DateTime.Today.AddDays(-28)) _ookVoorbij = true;
         _doel = id;
+
+        // de tijdbalk schuift mee: staat er van deze rij (en wat eronder hangt) niets in beeld, dan naar de eerste balk
+        // die nog loopt of komt, en anders naar de laatste; twee weken ruimte ervoor
+        var ids = new List<int> { id };
+        for (var i = 0; i < ids.Count && ids.Count < 5000; i++)
+            if (_kinderen.TryGetValue(ids[i], out var k)) ids.AddRange(k.Select(x => x.Id));
+        var balken = ids.SelectMany(x => _items.TryGetValue(x, out var l) ? l : Enumerable.Empty<PlanItem>()).OrderBy(b => b.Start).ToList();
+        if (balken.Count > 0 && !balken.Any(b => b.Start < Tot && (b.Einde ?? b.Start) >= _van))
+        {
+            var naar = balken.FirstOrDefault(b => (b.Einde ?? b.Start) >= DateTime.Today) ?? balken[^1];
+            _van = Maandag(naar.Start.AddDays(-14));
+        }
         return true;
     }
     /// <summary>De export overzetten: de Directie. In de testversie (alles in het geheugen, geen login) ook.</summary>
@@ -922,8 +934,12 @@
         if (soort == "werkorder")
             return (await Uren.ZoekWerkordersAsync(lijst ? "" : q, alleenOpen: lijst, KoppelAantal))
                 .Select(w => new Treffer(w.WerkbonId, w.Nummer, w.Omschrijving + (w.Klant.Length > 0 ? " · " + w.Klant : ""), null)).ToList();
-        return (await Projecten.ZoekProjectenAsync(null, lijst ? null : q, null, 0, KoppelAantal))
-            .Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving, p.Id)).ToList();
+        var projecten = await Projecten.ZoekProjectenAsync(null, lijst ? null : q, null, 0, KoppelAantal);
+        // ook op de naam van de klant: "weyers" geeft de projecten van Weyers (wens gebruiker 25-11-2026)
+        if (!lijst)
+            projecten = projecten.Concat(await Projecten.ZoekProjectenAsync(q, null, null, 0, KoppelAantal))
+                                 .GroupBy(p => p.Id).Select(g => g.First()).OrderByDescending(p => p.Nummer ?? 0).Take(KoppelAantal).ToList();
+        return projecten.Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving, p.Id)).ToList();
     }
 
     private async Task KoppelLijst(string q)

@@ -528,7 +528,11 @@ i.v.m. 1Password".
   volgt wel het vinkje "ook wat voorbij is". **Van project naar planning**: `Planbord.VoorProjectAsync` (project zelf
   of een werkorder ervan) vult in Projecten het zijblok Planning met links `planning?rij=ID`; de pagina (`RijQuery`,
   `ToonRij`) klapt de groepen erboven open, zet filters uit, markeert de rij en schuift hem in beeld (`mdeInBeeld`).
-  **Nog niet** (volgende stappen): vanuit een werkorder of klant naar de planning, de tijdbalk naar de rij schuiven, iets doen met de koppeling
+  Zelfde blok bij een werkorder (`VoorWerkorderAsync`, in Projecten) en bij een klant (`VoorKlantAsync`, in
+  Relaties: de klant zelf, zijn projecten en de werkorders daarvan; hooguit 20). `ToonRij` schuift ook de tijdbalk:
+  staat er van de rij en wat eronder hangt niets in beeld, dan naar de eerste balk die nog loopt of komt (anders de
+  laatste), twee weken ervoor.
+  **Nog niet** (volgende stappen): iets doen met de koppeling (bv. uren of status uit het project tonen)
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
@@ -961,8 +965,10 @@ de scan kiest bij rekening + bedrag de laatste factuur vóór de betaling (maand
 
 Verzoek collega Stein (zat ook in Access): knop naast ✎ Bewerken in het artikeldetail, voor iedereen (zoals de scanner).
 `Components/OrderBatchVenster.razor`: aantal (−/＋ per verpakking van de voorkeursleverancier; afronden doet
-`IOrderBatchRepository.VoegToeAsync` al, het venster toont "wordt N"), werkorder (voorraadorders, standaard de
-standaard-voorraadorder; 🔍 = `WerkorderKiezer` met AlleenInkoop), opmerking; Enter = toevoegen. Samenstelling = onderdelen
+`IOrderBatchRepository.VoegToeAsync` al, het venster toont "wordt N"), werkorder (voorraadorders; sinds 25-11-2026, verzoek Stein, vooraf de **laatst
+gebruikte van dit account** en anders leeg, was de standaard-voorraadorder: `ZetLaatsteWerkorder` leest
+`mdeOpslag` met sleutel `mde-batch-werkorder-<werknemer>`, dus per account per toestel, geschreven na een geslaagde
+toevoeging; een gesloten of verdwenen werkorder = leeg; 🔍 = `WerkorderKiezer` met AlleenInkoop), opmerking; Enter = toevoegen. Samenstelling = onderdelen
 los in de batch. `viaScanner: false`, daarna `BatchBel.Meld()`. Lokaal alleen het venster bekeken (geen geheugenstand
 voor de orderbatch, dus niet toegevoegd).
 

@@ -426,6 +426,19 @@
                                     </div>
                                 }
                             </ZijBlok>
+
+                            @* de rijen in het menu Planning die aan deze werkorder gekoppeld zijn *@
+                            @if (_planRijenWo.Count > 0)
+                            {
+                                <ZijBlok Titel="Planning" Aantal="_planRijenWo.Count">
+                                    @foreach (var (rijId, naam) in _planRijenWo)
+                                    {
+                                        <div class="zij-regel" @key="rijId">
+                                            <a class="zij-naam" href="@($"planning?rij={rijId}")" title="In de planning openen">@naam</a>
+                                        </div>
+                                    }
+                                </ZijBlok>
+                            }
                         </Zij>
                     </DetailMetZij>
 
@@ -655,6 +668,7 @@
         _werkbonNummer = "";
         _werkorderVelden = new(StringComparer.OrdinalIgnoreCase);
         _afspraak = new(null, null, null);
+        _planRijenWo = new();
     }
 
     private void SluitMelding() => _melding = null;
@@ -1069,7 +1083,11 @@
 
         try { _afspraak = await Repo.GetKlantAfspraakAsync(_projectId ?? 0); }
         catch { _afspraak = new(null, null, null); }
+        try { _planRijenWo = await Planning.VoorWerkorderAsync(w.Id); } catch { _planRijenWo = new(); }
     }
+
+    /// <summary>De rijen in het menu Planning die aan de gekozen werkorder gekoppeld zijn.</summary>
+    private List<(int Id, string Naam)> _planRijenWo = new();
 
     private Task BewaarWerkorder((string Kolom, object? Waarde) wijziging) => _opslaanBezig = BewaarWerkorderKern(wijziging);
 

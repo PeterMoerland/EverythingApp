@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Verbeterd: bij het koppelen aan een project vind je projecten nu ook op de **naam van de klant** (typ "weyers" en je krijgt de projecten van Weyers) (verzoek van Peter)
+- **Planning** — Nieuw: het blok **Planning** met een link naar de gekoppelde groep staat nu ook bij een **werkorder** (in Projecten) en bij een **klant** (in Relaties; daar ook de groepen van projecten en werkorders van die klant). Kom je via zo'n link in de planning en staat er van die groep niets in beeld, dan schuift de tijdbalk mee naar de eerste balk die nog loopt of komt (verzoek van Peter)
+- **Artikelen ▸ In orderbatch** — Verbeterd: de werkorder staat op de **laatst gebruikte van je eigen account**; is die er nog niet, dan blijft het veld leeg en kies je zelf. Voorheen stond er altijd de standaard-voorraadorder (verzoek van Stein)
 - **Planning** — Nieuw: **overzicht per persoon**. Kies naast het zoekvak een naam en je ziet alleen wat er voor die persoon gepland staat, met de groepen erboven. De lijst bevat de gekoppelde werknemers en de namen die nog als tekst bij Wie staan (verzoek van Peter)
 - **Projecten** — Nieuw: is een groep in de **Planning** aan het project (of een werkorder ervan) gekoppeld, dan staat er rechts een blok **Planning** met een link; die opent de planning op die groep (verzoek van Peter)
 - **Planning** — Verbeterd: een dichtgeklapte groep toont een volle donkergrijze balk in plaats van een arcering (verzoek van Peter)
