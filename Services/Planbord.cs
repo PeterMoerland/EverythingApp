@@ -50,6 +50,10 @@ public record PlanPersoon(int Id, string Voornaam, string Achternaam, bool InDie
 /// <param name="Kleur">Bij een balk de kleur (#rrggbb) uit Tom's Planner; bij een symbool het nummer van het symbool.</param>
 public record PlanItem(int Id, int RijId, bool Symbool, DateTime Start, DateTime? Einde, string Legenda, string Kleur, string Label, string Opmerking);
 
+/// <summary>Een regel in de tab Planning van een project: een mijlpaal (symbool; <see cref="Einde"/> leeg) of een taak
+/// (balk). <see cref="Pad"/> = de rijen erboven, tot en met de gekoppelde groep.</summary>
+public record PlanRegel(int RijId, string Rij, string Pad, string Soort, string Label, DateTime Start, DateTime? Einde, string Wie);
+
 /// <summary>Wat er in een exportbestand van Tom's Planner staat, klaar om over te zetten.</summary>
 public class PlanImport
 {
@@ -647,6 +651,44 @@ public class Planbord
             return uit;
         }
         return await VoorAsync("LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID`", "x.`ProjectID` = @id OR wo.`Project-id` = @id", projectId);
+    }
+
+    /// <summary>
+    /// De planning van een project in twee lijsten (tab Planning in Projecten, probeersel 25-11-2026): de mijlpalen
+    /// (alle symbolen: Milestone, Delivery …) en de taken (balken) onder de rijen die aan het project of een werkorder
+    /// ervan gekoppeld zijn, met alles wat eronder hangt. Het scherm kiest zelf wat "nu" loopt.
+    /// </summary>
+    public async Task<(List<PlanRegel> Mijlpalen, List<PlanRegel> Taken)> VoorProjectOverzichtAsync(int projectId)
+    {
+        var mijlpalen = new List<PlanRegel>();
+        var taken = new List<PlanRegel>();
+        var wortels = (await VoorProjectAsync(projectId)).Select(r => r.Id).ToHashSet();
+        if (wortels.Count == 0) return (mijlpalen, taken);
+        var (rijen, items) = await AllesAsync();
+        var personen = (await WieAanwezigAsync() ? await PersonenAsync() : new()).ToDictionary(p => p.Id);
+        var opId = rijen.ToDictionary(r => r.Id);
+        // per rij: het pad omhoog tot en met een gekoppelde groep; leeg = de rij hoort niet bij dit project
+        string? Pad(PlanRij r)
+        {
+            var delen = new List<string>();
+            var stappen = 0;
+            for (var x = r; x is not null && stappen++ < 50; x = x.OuderId is int o && opId.TryGetValue(o, out var ouder) ? ouder : null)
+            {
+                if (x != r) delen.Insert(0, x.Naam);
+                if (wortels.Contains(x.Id)) return string.Join(" › ", delen);
+            }
+            return null;
+        }
+        var pad = rijen.Select(r => (r, Pad: Pad(r))).Where(x => x.Pad is not null).ToDictionary(x => x.r.Id, x => (x.r, Pad: x.Pad!));
+        foreach (var it in items.OrderBy(i => i.Start))
+        {
+            if (!pad.TryGetValue(it.RijId, out var p)) continue;
+            var wie = string.Join(", ", p.r.Werknemers.Select(w => personen.TryGetValue(w, out var wn) ? wn.Kort : "?")
+                                               .Concat(p.r.Resource.Length > 0 ? new[] { p.r.Resource } : Array.Empty<string>()));
+            var regel = new PlanRegel(p.r.Id, p.r.Naam, p.Pad, it.Legenda, it.Label, it.Start, it.Symbool ? null : it.Einde ?? it.Start, wie);
+            (it.Symbool ? mijlpalen : taken).Add(regel);
+        }
+        return (mijlpalen, taken);
     }
 
     /// <summary>De rijen die aan deze werkorder gekoppeld zijn (zijblok Planning bij een werkorder in Projecten).</summary>

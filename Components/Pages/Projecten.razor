@@ -248,6 +248,11 @@
                         {
                             <button class="@(_tabProject == FotoTab ? "actief" : "")" @onclick="() => _tabProject = FotoTab">@FotoTab@(_fotoAantal > 0 ? $" ({_fotoAantal})" : "")</button>
                         }
+                        @* probeersel 25-11-2026: alleen als er een groep in de Planning aan dit project gekoppeld is *@
+                        @if (_planRijen.Count > 0)
+                        {
+                            <button class="@(_tabProject == PlanningTab ? "actief" : "")" @onclick="() => _tabProject = PlanningTab">@PlanningTab</button>
+                        }
                         @if (MagBudget)
                         {
                             @foreach (var tab in BudgetTabs)
@@ -268,6 +273,11 @@
                             {
                                 @* de documenten van dit project, zoals het tabblad Documenten in Access (filestore-soort 20) *@
                                 <ProjectDocumenten @key="documentProject" ProjectId="documentProject" OpGewijzigd="() => TelDocumenten(documentProject)" />
+                            }
+                            else if (_tabProject == PlanningTab && _projectId is int planProject)
+                            {
+                                @* mijlpalen en lopende taken uit het menu Planning, met de resterende tijd *@
+                                <ProjectPlanning @key="planProject" ProjectId="planProject" />
                             }
                             else if (_tabProject == FotoTab && _projectId is int fotoProject)
                             {
@@ -729,7 +739,10 @@
         await TelFotos(p.Id);
         await TelDocumenten(p.Id);
         try { _planRijen = await Planning.VoorProjectAsync(p.Id); } catch { _planRijen = new(); }
+        if (_planRijen.Count == 0 && _tabProject == PlanningTab) _tabProject = ProjectVelden.ProjectTabs[0].Naam;
     }
+
+    private const string PlanningTab = "Planning";
 
     /// <summary>De rijen in het menu Planning die bij het gekozen project horen (zijblok Planning, 25-11-2026).</summary>
     private List<(int Id, string Naam)> _planRijen = new();

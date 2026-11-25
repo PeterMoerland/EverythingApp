@@ -4582,6 +4582,21 @@ html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d
 .wk-menu button.plb-menukleur { display: flex; align-items: center; gap: 8px; }
 .plb-menukleur i { width: 12px; height: 12px; border-radius: 50%; }
 .plb-menupijl { margin-left: auto; font-size: 10px; opacity: .7; }
+/* tab Planning van een project (Components/ProjectPlanning.razor) */
+.pp-kop { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; font-size: 1rem; }
+.pp-kop:first-child { margin-top: 2px; }
+.pp-kop small { font-weight: 400; opacity: .7; }
+.pp-kop button { margin-left: auto; }
+.pp-schuif { overflow-x: auto; }
+.pp-tabel { width: 100%; }
+.pp-tabel .pp-datum { white-space: nowrap; }
+.pp-tabel td small { opacity: .65; }
+.pp-tabel .pp-rest { text-align: right; white-space: nowrap; font-weight: 600; }
+.pp-tabel th.pp-rest { font-weight: inherit; }
+.pp-tabel .pp-gauw { color: #b45309; }
+html[data-thema="donker"] .pp-tabel .pp-gauw { color: #f0b34a; }
+.pp-tabel tr.pp-voorbij td { opacity: .55; }
+.pp-tabel tr.pp-voorbij .pp-rest { font-weight: 400; }
 /* stap 4: wie = werknemers kiezen in het rijvenster, en het venster Namen koppelen */
 .plb-wiekeuze { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .plb-wiekeuze select { width: auto; min-width: 150px; flex: 0 0 auto; }

@@ -1,0 +1,101 @@
+﻿@inject Planbord Bord
+
+@* ============================================================================
+   Tab Planning van een project (probeersel, wens gebruiker 25-11-2026): wat er in het menu Planning voor dit project
+   staat, in twee lijsten. 1. De mijlpalen (symbolen: Milestone, Delivery …) met hoe lang het nog duurt. 2. De taken
+   die nu lopen, met hoe lang ze nog duren. Alleen lezen; de naam van een rij opent hem in de planning.
+   De tab staat er alleen als er een groep aan het project (of een werkorder ervan) gekoppeld is.
+   ============================================================================ *@
+
+@if (_fout is not null) { <p class="uitleg">De planning lezen is niet gelukt: @_fout</p> }
+else if (!_geladen) { <p class="uitleg">Laden…</p> }
+else
+{
+    <h3 class="pp-kop">Mijlpalen <small>@_mijlpalen.Count(m => m.Start.Date >= DateTime.Today) nog te gaan@(_ouder > 0 && !_alles ? $", {_ouder} voorbij" : "")</small>
+        @if (_ouder > 0) { <button type="button" class="klein" @onclick="() => _alles = !_alles">@(_alles ? "Alleen wat komt" : "Ook wat voorbij is")</button> }
+    </h3>
+    @if (!Mijlpalen.Any()) { <p class="uitleg">Er staan @(_mijlpalen.Count == 0 ? "geen mijlpalen" : "geen mijlpalen meer") in de planning van dit project.</p> }
+    else
+    {
+        <div class="pp-schuif"><table class="kiezer-tabel pp-tabel">
+            <thead><tr><th>Datum</th><th>Mijlpaal</th><th>Rij</th><th>Wie</th><th class="pp-rest">Nog</th></tr></thead>
+            <tbody>
+                @foreach (var m in Mijlpalen)
+                {
+                    var voorbij = m.Start.Date < DateTime.Today;
+                    <tr class="@(voorbij ? "pp-voorbij" : "")">
+                        <td class="pp-datum">@m.Start.ToString("ddd d-M-yyyy", Nl)</td>
+                        <td>@(m.Label.Length > 0 ? m.Label : m.Soort)@if (m.Label.Length > 0 && m.Soort.Length > 0) { <small> @m.Soort</small> }</td>
+                        <td><a href="@($"planning?rij={m.RijId}")" title="In de planning openen">@m.Rij</a>@if (m.Pad.Length > 0) { <small> @m.Pad</small> }</td>
+                        <td>@m.Wie</td>
+                        <td class="pp-rest @(voorbij ? "" : Dagen(m.Start) <= 7 ? "pp-gauw" : "")">@Rest(m.Start)</td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    }
+
+    <h3 class="pp-kop">Loopt nu <small>@_nu.Count @(_nu.Count == 1 ? "taak" : "taken")</small></h3>
+    @if (_nu.Count == 0) { <p class="uitleg">Er loopt vandaag geen taak in de planning van dit project.</p> }
+    else
+    {
+        <div class="pp-schuif"><table class="kiezer-tabel pp-tabel">
+            <thead><tr><th>Taak</th><th>Soort</th><th>Wie</th><th>Van</th><th>Tot en met</th><th class="pp-rest">Nog</th></tr></thead>
+            <tbody>
+                @foreach (var t in _nu)
+                {
+                    var einde = t.Einde ?? t.Start;
+                    <tr>
+                        <td><a href="@($"planning?rij={t.RijId}")" title="In de planning openen">@t.Rij</a>@if (t.Pad.Length > 0) { <small> @t.Pad</small> }@if (t.Label.Length > 0) { <small> · @t.Label</small> }</td>
+                        <td>@t.Soort</td>
+                        <td>@t.Wie</td>
+                        <td class="pp-datum">@t.Start.ToString("d-M-yyyy", Nl)</td>
+                        <td class="pp-datum">@einde.ToString("ddd d-M-yyyy", Nl)</td>
+                        <td class="pp-rest @(Dagen(einde) <= 7 ? "pp-gauw" : "")">@Rest(einde, totEnMet: true)</td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public int ProjectId { get; set; }
+
+    private static readonly System.Globalization.CultureInfo Nl = System.Globalization.CultureInfo.GetCultureInfo("nl-NL");
+    private List<PlanRegel> _mijlpalen = new(), _nu = new();
+    private bool _geladen, _alles;
+    private int _ouder;
+    private string? _fout;
+
+    /// <summary>Wat komt (vanaf vandaag); met "ook wat voorbij is" alles.</summary>
+    private IEnumerable<PlanRegel> Mijlpalen => _alles ? _mijlpalen : _mijlpalen.Where(m => m.Start.Date >= DateTime.Today);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var (mijlpalen, taken) = await Bord.VoorProjectOverzichtAsync(ProjectId);
+            _mijlpalen = mijlpalen;
+            _ouder = mijlpalen.Count(m => m.Start.Date < DateTime.Today);
+            // nu = vandaag valt in de balk; "Periode" en "Out of office" zijn geen taken
+            _nu = taken.Where(t => t.Start.Date <= DateTime.Today && (t.Einde ?? t.Start).Date >= DateTime.Today
+                                   && t.Soort is not ("Out of office")).OrderBy(t => t.Einde).ToList();
+        }
+        catch (Exception ex) { _fout = ex.GetBaseException().Message; }
+        _geladen = true;
+    }
+
+    private static int Dagen(DateTime tot) => (tot.Date - DateTime.Today).Days;
+
+    /// <summary>Hoe lang nog, in kalenderdagen: "vandaag", "morgen", "nog 5 dagen", "nog 6 weken", "3 dagen geleden".</summary>
+    private static string Rest(DateTime tot, bool totEnMet = false)
+    {
+        var d = Dagen(tot);
+        if (d == 0) return totEnMet ? "laatste dag" : "vandaag";
+        if (d == 1) return totEnMet ? "nog 1 dag" : "morgen";
+        var n = Math.Abs(d);
+        var tekst = n < 21 ? $"{n} dagen" : n < 120 ? $"{Math.Round(n / 7.0)} weken" : $"{Math.Round(n / 30.4)} maanden";
+        return d > 0 ? "nog " + tekst : tekst + " geleden";
+    }
+}

@@ -533,6 +533,11 @@ i.v.m. 1Password".
   Relaties: de klant zelf, zijn projecten en de werkorders daarvan; hooguit 20). `ToonRij` schuift ook de tijdbalk:
   staat er van de rij en wat eronder hangt niets in beeld, dan naar de eerste balk die nog loopt of komt (anders de
   laatste), twee weken ervoor.
+  **Tab Planning in Projecten (probeersel 25-11-2026)**: `Components/ProjectPlanning.razor`, alleen als
+  `_planRijen` niet leeg is. `Planbord.VoorProjectOverzichtAsync` (leest alles met `AllesAsync` en filtert op de
+  gekoppelde rijen en wat eronder hangt) geeft `PlanRegel`s: mijlpalen = alle symbolen, taken = balken. De tab toont
+  de mijlpalen vanaf vandaag (knop "Ook wat voorbij is") en de balken waar vandaag in valt (zonder "Out of office"),
+  met de resterende tijd in kalenderdagen/weken/maanden; binnen een week oranje. Alleen lezen.
   **Groepfilter (25-11-2026)**: keuzelijst met de groepen van het bovenste niveau (`_groepFilter`, `KiesGroep`);
   `Zichtbaar` slaat de andere over en negeert dan "voorbij"; te combineren met zoeken en het filter per persoon.
   **Ongedaan maken (25-11-2026)**: het scherm houdt een stapel `_terug` bij (hooguit 30; `Onthoud(wat, terug)` na elke
