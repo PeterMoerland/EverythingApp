@@ -461,9 +461,12 @@ i.v.m. 1Password".
   (`WikiRuimtes`, 8 uit het prototype) als **boom** (wens gebruiker 25-11-2026): `OuderID` = de ruimte erboven,
   hoogstens `Wiki.MaxDiepte` (8) lagen; de naam is uniek per ouder (in de app bewaakt, de unieke index op Naam is weg).
   Zijbalk met pijltjes (`_open`, het pad naar wat open staat klapt vanzelf uit), tellers = de ruimte plus alles
-  eronder, subruimtes als tegels in de ruimte, kruimelpad, en overal het pad "Software › PLC" (`Pad`). **+ Ruimte**,
-  **+ Subruimte** en **Naam…** (naam, icoon, omschrijving) voor elke schrijver; verplaatsen en weghalen van een ruimte
-  kan nog niet. Zonder de kolom `OuderID` (script niet opnieuw gedraaid, `BoomMogelijkAsync`) blijft het een platte
+  eronder, subruimtes als tegels in de ruimte, kruimelpad, en overal het pad "Software › PLC" (`Pad`). Ruimtes
+  toevoegen en wijzigen gaat met de **rechtermuisknop op de plek zelf** (wens gebruiker 25-11-2026; de losse knoppen
+  zijn weg): op een ruimte in de zijbalk of op een tegel = subruimte eronder, ruimte ernaast, nieuw artikel, naam/icoon/
+  omschrijving; op de lege plek onder de boom (`.wk-boom`, niet op het zoekvak) = nieuwe ruimte. Zonder script:
+  `@oncontextmenu` met `preventDefault` alleen voor wie mag schrijven, het menu (`.wk-menu`) op `ClientX/Y` met een
+  doorzichtig vlak erachter dat het sluit. Voor elke schrijver; verplaatsen en weghalen van een ruimte kan nog niet. Zonder de kolom `OuderID` (script niet opnieuw gedraaid, `BoomMogelijkAsync`) blijft het een platte
   lijst. Ruimtes met artikelen in
   markdown (`WikiArtikelen`: sectie, tags, optioneel `ProjectID`). Elke keer opslaan = een regel in `WikiVersies`;
   terugzetten = de oude titel en tekst als nieuwe versie; weghalen = `Actief` 0. **De tekst staat in de database**

@@ -38,12 +38,15 @@
             <aside class="cs-links">
                 <input class="cs-zoek" placeholder="Zoeken in de wiki…" value="@_zoek" @oninput="ZoekInput" autocomplete="off" aria-label="Zoeken in de wiki" />
                 <button type="button" class="cs-project @(_ruimte is null && _artikel is null && !Zoekt ? "actief" : "")" @onclick="@(() => Ga("wiki"))">🏠 Start</button>
+                @* de boom met de lege plek eronder: daar vangt de rechtermuisknop (niet op het zoekvak, daar hoort het menu van de browser) *@
+                <div class="wk-boom" @oncontextmenu="e => OpenMenu(e, null)" @oncontextmenu:preventDefault="MagSchrijven">
                 <div class="cs-kopje">Ruimtes</div>
                 @foreach (var (r, diepte) in Zichtbaar())
                 {
                     var kinderen = _ruimtes.Any(x => x.OuderId == r.Id);
                     var totaal = Totaal(r.Id);
-                    <div class="wk-tak" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id">
+                    <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
+                         @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
                         @if (kinderen)
                         {
                             <button type="button" class="wk-pijl" title="@(_open.Contains(r.Id) ? "Dichtklappen" : "Openklappen")" aria-expanded="@_open.Contains(r.Id)"
@@ -57,8 +60,9 @@
                 }
                 @if (MagSchrijven)
                 {
-                    <button type="button" class="cs-project wk-nieuweruimte" @onclick="() => BeginRuimte(null, null)">+ Ruimte</button>
+                    <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam wijzigen. Op de lege plek hieronder: een nieuwe ruimte.</p>
                 }
+                </div>
             </aside>
 
             <main class="cs-rechts">
@@ -250,23 +254,17 @@
                         <span class="cs-zacht">@ru.Omschrijving</span>
                         <span class="groei"></span>
                         <label class="vink"><input type="checkbox" checked="@_ookInactief" @onchange="InactiefGewijzigd" /> ook inactief</label>
-                        @if (MagSchrijven)
-                        {
-                            <button type="button" class="klein" title="Naam, icoon en omschrijving van deze ruimte" @onclick="() => BeginRuimte(ru, null)">Naam…</button>
-                            @if (Wiki.Diepte(_ruimtes, ru.Id) < Wiki.MaxDiepte)
-                            {
-                                <button type="button" class="klein" title="Een ruimte onder deze ruimte" @onclick="() => BeginRuimte(null, ru.Id)">+ Subruimte</button>
-                            }
-                            <button type="button" class="primair klein" @onclick="() => Nieuw(ru.Id)">+ Nieuw artikel</button>
-                        }
+                        @if (MagSchrijven) { <button type="button" class="primair klein" @onclick="() => Nieuw(ru.Id)">+ Nieuw artikel</button> }
                     </div>
                     @if (_ruimtes.Any(x => x.OuderId == ru.Id))
                     {
-                        <div class="wk-subs">
+                        @* rechtermuisknop op een tegel: het menu van die subruimte; ernaast: een subruimte erbij *@
+                        <div class="wk-subs" @oncontextmenu="e => OpenMenu(e, ru)" @oncontextmenu:preventDefault="MagSchrijven">
                             @foreach (var sub in _ruimtes.Where(x => x.OuderId == ru.Id))
                             {
                                 var n = Totaal(sub.Id);
-                                <a class="wk-sub" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving">
+                                <a class="wk-sub @(_menu?.Ruimte?.Id == sub.Id ? "gekozen" : "")" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving"
+                                   @oncontextmenu="e => OpenMenu(e, sub)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
                                     <b>@sub.Icoon @sub.Naam</b>
                                     <span class="cs-zacht">@(n == 0 ? "leeg" : n == 1 ? "1 artikel" : n + " artikelen")</span>
                                 </a>
@@ -333,6 +331,29 @@
     }
 </div>
 
+@* ----- het menu van de rechtermuisknop: op een ruimte, of op de lege plek in de zijbalk ----- *@
+@if (_menu is { } mn)
+{
+    <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 200px))")">
+        @if (mn.Ruimte is { } mr)
+        {
+            <div class="wk-menukop">@mr.Icoon @mr.Naam</div>
+            @if (Wiki.Diepte(_ruimtes, mr.Id) < Wiki.MaxDiepte)
+            {
+                <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(null, mr.Id); }">+ Subruimte onder @mr.Naam</button>
+            }
+            <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(null, mr.OuderId); }">+ Ruimte naast @mr.Naam</button>
+            <button type="button" role="menuitem" @onclick="async () => { _menu = null; await Nieuw(mr.Id); }">+ Nieuw artikel in @mr.Naam</button>
+            <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(mr, null); }">Naam, icoon en omschrijving…</button>
+        }
+        else
+        {
+            <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(null, null); }">+ Nieuwe ruimte</button>
+        }
+    </div>
+}
+
 @* ----- een ruimte toevoegen of hernoemen ----- *@
 @if (_ruimteVenster is { } rv)
 {
@@ -384,6 +405,16 @@
     /// <summary>Het venster voor een nieuwe ruimte (Id 0, onder OuderId) of het wijzigen van een bestaande.</summary>
     private class RuimteInvoer { public int Id; public int? OuderId; public string Naam = "", Icoon = "", Omschrijving = ""; }
     private RuimteInvoer? _ruimteVenster;
+
+    /// <summary>Het open menu van de rechtermuisknop: op welke ruimte (leeg = de lege plek in de zijbalk) en waar op het scherm.</summary>
+    private record MenuPlek(WikiRuimte? Ruimte, int X, int Y);
+    private MenuPlek? _menu;
+
+    private void OpenMenu(MouseEventArgs e, WikiRuimte? ruimte)
+    {
+        if (!MagSchrijven) return;      // dan blijft het gewone menu van de browser
+        _menu = new MenuPlek(ruimte, (int)e.ClientX, (int)e.ClientY);
+    }
     private (int? Ruimte, int? Artikel) _getoond = (-1, -1);
 
     private bool Zoekt => _zoek.Trim().Length >= 2;
