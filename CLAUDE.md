@@ -514,8 +514,8 @@ i.v.m. 1Password".
   **Kleur van een rij (25-11-2026; kolom `PlanbordRijen.Kleur`, zelfde script opnieuw draaien)**: tien vaste kleuren
   (`Planbord.Rijkleuren`), te kiezen in het rechtermuismenu (Kleur ▸ klapt een rij bolletjes open, bewaart meteen via
   `KleurAsync`) en in het rijvenster (menukeuze heet nu "Wijzigen…"). Zonder de kolom (`KleurAanwezigAsync`) is er
-  geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` (streep links, tint achter naam en wie, arcering van
-  een dichte groep).
+  geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` = de volle kleur achter Activiteit en Wie (niet op de
+  tijdbalk; eerst een tint, "beetje roze") en `--plb-rijtekst` = wit of donker (`Leesbaar`, op helderheid).
   **Nog niet** (volgende stappen): overzicht per persoon, iets doen met de koppeling
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.

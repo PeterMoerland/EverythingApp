@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Verbeterd: de kleur van een rij is nu de volle kleur (was een lichte tint) en staat alleen achter Activiteit en Wie, niet meer op de tijdbalk (verzoek van Peter)
 - **Planning** — Nieuw: een rij kan een **kleur** krijgen (tien kleuren): rechtermuisknop ▸ **Kleur**, of in het venster **Wijzigen…** (heette "Naam en wie wijzigen…"). De rij krijgt een gekleurde streep en een zachte tint (verzoek van Peter)
 - **Wiki** — Verbeterd: de uitlegtekst onder de ruimtes (rechtermuisknop en slepen) is weg (verzoek van Peter)
 - **Menu** — Verbeterd: **Planning** staat nu direct onder Activity board, en het logo staat in het midden van de zijbalk (verzoek van Peter)

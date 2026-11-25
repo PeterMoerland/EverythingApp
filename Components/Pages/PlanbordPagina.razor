@@ -137,7 +137,7 @@
                          ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepVoor = r.Id; _sleepOp = null; } }"
                          @ondrop="() => LaatRijVallen(r, true)"></div>
                     <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id ? "gekozen" : "") @(r.Kleur.Length > 0 ? "plb-gekleurd" : "")"
-                         style="@(r.Kleur.Length > 0 ? "--plb-rijkleur:" + r.Kleur : null)"
+                         style="@(r.Kleur.Length > 0 ? $"--plb-rijkleur:{r.Kleur};--plb-rijtekst:{Leesbaar(r.Kleur)}" : null)"
                          @key="r.Id" data-groep="@r.Id" @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagPlannen">
                         <div class="plb-naam @(_sleeptRij is not null && _sleepOp == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam"
                              draggable="@(MagPlannen ? "true" : "false")" @ondragstart="() => BeginSleepRij(r)" @ondragend="EindeSleepRij"
@@ -499,6 +499,14 @@
     // ---- wie: gekoppelde werknemers en de vrije tekst (stap 4, 25-11-2026) ----
 
     private bool _metWie, _metKleur, _menuKleur;
+
+    /// <summary>De tekstkleur op een volle rijkleur: wit, of donker op een lichte kleur (geel, oranje).</summary>
+    private static string Leesbaar(string hex)
+    {
+        if (hex.Length != 7 || !int.TryParse(hex.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb)) return "inherit";
+        var licht = 0.299 * (rgb >> 16 & 255) + 0.587 * (rgb >> 8 & 255) + 0.114 * (rgb & 255);
+        return licht > 150 ? "#1f2933" : "#fff";
+    }
 
     /// <summary>Een kleur uit het rechtermuismenu: meteen bewaren.</summary>
     private async Task KiesKleur(PlanRij r, string kleur)
