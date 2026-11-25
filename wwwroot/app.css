@@ -4563,6 +4563,20 @@ a.wk-bijlage:hover { border-color: var(--accent); }
 .wk-tak.sleepdoel > .cs-project, a.wk-sub.sleepdoel { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .wk-pagina tr[draggable="true"] { cursor: grab; }
 .wk-pagina tr.wk-sleept td { opacity: .45; }
+.wk-ico { display: inline-flex; vertical-align: -0.18em; }
+.wk-ico svg { width: 1.1em; height: 1.1em; }
+.wk-boom.sleepdoel { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 6px; }
+.wk-tak[draggable="true"] { cursor: grab; }
+.wk-tak.wk-sleept { opacity: .45; }
+.wk-icoonrij { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wk-icoonrij input:nth-of-type(2) { flex: 1 1 12rem; }
+.wk-icoongroot { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--cs-rand, #dfe3e8); border-radius: 6px; font-size: 20px; }
+.wk-iconen { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; max-height: 132px; overflow-y: auto; }
+.wk-iconen button { width: 34px; height: 34px; padding: 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: inherit; cursor: pointer; }
+.wk-iconen button svg { width: 100%; height: 100%; display: block; }
+.wk-iconen button:hover { border-color: #c9d1d9; }
+.wk-iconen button.gekozen { border-color: var(--accent); color: var(--accent); }
+.wk-menu button:disabled { opacity: .45; cursor: not-allowed; }
 .cs-lees.wk-zonder-versies { grid-template-columns: minmax(0, 1fr); }
 .wk-pagina .cs-leeskop button.actief { border-color: var(--accent); color: var(--accent); }
 .wk-tak { display: flex; align-items: center; }
@@ -4570,7 +4584,7 @@ a.wk-bijlage:hover { border-color: var(--accent); }
 .wk-pagina .wk-pijl { flex: 0 0 18px; width: 18px; border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--cs-zacht); cursor: pointer; text-align: center; }
 .wk-pagina span.wk-pijl { cursor: default; }
 .wk-tip { margin: 10px 2px 0; font-size: 11.5px; line-height: 1.4; color: var(--cs-zacht); }
-.wk-boom { display: flex; flex-direction: column; gap: 2px; min-height: 55vh; }      /* ook de lege plek onder de boom vangt de rechtermuisknop */
+.wk-boom { display: flex; flex-direction: column; gap: 2px; min-height: max(55vh, calc(100vh - 230px)); }      /* ook de lege plek onder de boom vangt de rechtermuisknop */
 .wk-tak.gekozen > .cs-project, a.wk-sub.gekozen { outline: 2px solid var(--accent); outline-offset: -2px; }
 .wk-menuscherm { position: fixed; inset: 0; z-index: 900; }
 .wk-menu { position: fixed; z-index: 901; min-width: 230px; max-width: min(340px, calc(100vw - 16px)); padding: 4px; background: #fff; color: #1f2933;

@@ -1,5 +1,6 @@
 @page "/wiki"
 @inject Wiki Wiki
+@inject SnelIconen Iconen
 @inject IProjectRepository Projecten
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
@@ -39,14 +40,17 @@
                 <input class="cs-zoek" placeholder="Zoeken in de wiki…" value="@_zoek" @oninput="ZoekInput" autocomplete="off" aria-label="Zoeken in de wiki" />
                 <button type="button" class="cs-project @(_ruimte is null && _artikel is null && !Zoekt ? "actief" : "")" @onclick="@(() => Ga("wiki"))">🏠 Start</button>
                 @* de boom met de lege plek eronder: daar vangt de rechtermuisknop (niet op het zoekvak, daar hoort het menu van de browser) *@
-                <div class="wk-boom" @oncontextmenu="e => OpenMenu(e, null)" @oncontextmenu:preventDefault="MagSchrijven">
+                <div class="wk-boom @(_sleeptRuimte is not null && _sleepBoven ? "sleepdoel" : "")" @oncontextmenu="e => OpenMenu(e, null)" @oncontextmenu:preventDefault="MagSchrijven"
+                     ondragstart="event.dataTransfer.setData('text/plain', 'ruimte'); event.dataTransfer.effectAllowed = 'move';"
+                     ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRuimte is not null) { _sleepBoven = true; _sleepDoel = null; } }" @ondrop="LaatVallenBoven">
                 <div class="cs-kopje">Ruimtes</div>
                 @foreach (var (r, diepte) in Zichtbaar())
                 {
                     var kinderen = _ruimtes.Any(x => x.OuderId == r.Id);
                     var totaal = Totaal(r.Id);
-                    <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "") @(_sleept is not null && _sleepDoel == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
-                         ondragover="event.preventDefault()" @ondragenter="() => SleepOver(r.Id)" @ondrop="() => LaatVallen(r.Id)"
+                    <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "") @(Sleept && _sleepDoel == r.Id ? "sleepdoel" : "") @(_sleeptRuimte?.Id == r.Id ? "wk-sleept" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
+                         draggable="@(MagSchrijven ? "true" : "false")" @ondragstart="() => BeginSleepRuimte(r)" @ondragstart:stopPropagation="false" @ondragend="EindeSlepen"
+                         ondragover="event.preventDefault()" @ondragenter="() => SleepOver(r.Id)" @ondragenter:stopPropagation="true" @ondrop="() => LaatVallen(r.Id)" @ondrop:stopPropagation="true"
                          @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
                         @if (kinderen)
                         {
@@ -55,14 +59,14 @@
                         }
                         else { <span class="wk-pijl"></span> }
                         <button type="button" class="cs-project @(r.Id == HuidigeRuimte ? "actief" : "")" @onclick="@(() => Ga($"wiki?ruimte={r.Id}"))" title="@r.Omschrijving">
-                            @r.Icoon @r.Naam <span class="cs-aantal">@(totaal > 0 ? totaal : "")</span>
+                            @Ico(r.Icoon) @r.Naam <span class="cs-aantal">@(totaal > 0 ? totaal : "")</span>
                         </button>
                     </div>
                 }
                 @if (MagSchrijven)
                 {
-                    <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam wijzigen. Op de lege plek hieronder: een nieuwe ruimte.
-                        Een artikel verplaats je door de regel naar een ruimte te slepen.</p>
+                    <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam of icoon wijzigen, wissen. Op de lege plek hieronder: een nieuwe ruimte.
+                        Slepen: een artikel naar een ruimte, of een ruimte naar een andere ruimte (op de lege plek = bovenaan).</p>
                 }
                 </div>
             </aside>
@@ -260,7 +264,7 @@
                         </div>
                     }
                     <div class="cs-leeskop">
-                        <h2>@ru.Icoon @ru.Naam</h2>
+                        <h2>@Ico(ru.Icoon) @ru.Naam</h2>
                         <span class="cs-zacht">@ru.Omschrijving</span>
                         <span class="groei"></span>
                         <label class="vink"><input type="checkbox" checked="@_ookInactief" @onchange="InactiefGewijzigd" /> ook inactief</label>
@@ -273,10 +277,10 @@
                             @foreach (var sub in _ruimtes.Where(x => x.OuderId == ru.Id))
                             {
                                 var n = Totaal(sub.Id);
-                                <a class="wk-sub @(_menu?.Ruimte?.Id == sub.Id ? "gekozen" : "") @(_sleept is not null && _sleepDoel == sub.Id ? "sleepdoel" : "")" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving"
+                                <a class="wk-sub @(_menu?.Ruimte?.Id == sub.Id ? "gekozen" : "") @(Sleept && _sleepDoel == sub.Id ? "sleepdoel" : "")" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving"
                                    ondragover="event.preventDefault()" @ondragenter="() => SleepOver(sub.Id)" @ondrop="() => LaatVallen(sub.Id)"
                                    @oncontextmenu="e => OpenMenu(e, sub)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
-                                    <b>@sub.Icoon @sub.Naam</b>
+                                    <b>@Ico(sub.Icoon) @sub.Naam</b>
                                     <span class="cs-zacht">@(n == 0 ? "leeg" : n == 1 ? "1 artikel" : n + " artikelen")</span>
                                 </a>
                             }
@@ -363,7 +367,7 @@
         }
         else if (mn.Ruimte is { } mr)
         {
-            <div class="wk-menukop">@mr.Icoon @mr.Naam</div>
+            <div class="wk-menukop">@Ico(mr.Icoon) @mr.Naam</div>
             @if (Wiki.Diepte(_ruimtes, mr.Id) < Wiki.MaxDiepte)
             {
                 <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(null, mr.Id); }">+ Subruimte onder @mr.Naam</button>
@@ -371,6 +375,9 @@
             <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(null, mr.OuderId); }">+ Ruimte naast @mr.Naam</button>
             <button type="button" role="menuitem" @onclick="async () => { _menu = null; await Nieuw(mr.Id); }">+ Nieuw artikel in @mr.Naam</button>
             <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRuimte(mr, null); }">Naam, icoon en omschrijving…</button>
+            var leeg = Totaal(mr.Id) == 0 && !_ruimtes.Any(x => x.OuderId == mr.Id);
+            <button type="button" role="menuitem" class="gevaar" disabled="@(!leeg)" title="@(leeg ? "Deze lege ruimte weghalen" : "Kan alleen als de ruimte leeg is: zonder artikelen en zonder subruimtes")"
+                    @onclick="() => WisRuimte(mr)">Wissen…</button>
         }
         else
         {
@@ -390,8 +397,22 @@
             <div class="factuurvenster-inhoud">
                 <label class="cs-veld"><span>Naam</span>
                     <input id="wk-ruimtenaam" @ref="_ruimteNaamVeld" value="@rv.Naam" maxlength="100" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" /></label>
-                <label class="cs-veld"><span>Icoon (een emoji; mag leeg)</span>
-                    <input value="@rv.Icoon" maxlength="16" style="max-width:6rem" @oninput="e => rv.Icoon = (string?)e.Value ?? string.Empty" /></label>
+                <div class="cs-veld"><span>Icoon (kies er een, of typ zelf een emoji; mag leeg)</span>
+                    <div class="wk-icoonrij">
+                        <span class="wk-icoongroot" title="Zo ziet het eruit">@Ico(rv.Icoon)</span>
+                        <input value="@rv.Icoon" maxlength="16" style="max-width:9rem" aria-label="Icoon" @oninput="e => rv.Icoon = (string?)e.Value ?? string.Empty" />
+                        <input value="@_icoonZoek" placeholder="Zoek een icoon: printplaat, tandwiel…" aria-label="Icoon zoeken" autocomplete="off"
+                               @oninput="e => _icoonZoek = (string?)e.Value ?? string.Empty" />
+                        @if (rv.Icoon.Length > 0) { <button type="button" class="klein" @onclick="() => rv.Icoon = string.Empty">Geen</button> }
+                    </div>
+                    <div class="wk-iconen">
+                        @foreach (var naam in IcoonKeuzes())
+                        {
+                            var n = naam;
+                            <button type="button" class="@(rv.Icoon == n ? "gekozen" : "")" title="@n" @onclick="() => rv.Icoon = n">@((MarkupString)(Iconen.Svg(n) ?? ""))</button>
+                        }
+                    </div>
+                </div>
                 <label class="cs-veld"><span>Omschrijving (mag leeg)</span>
                     <input value="@rv.Omschrijving" maxlength="300" @oninput="e => rv.Omschrijving = (string?)e.Value ?? string.Empty" /></label>
                 <div class="cs-knoppen">
@@ -548,12 +569,73 @@
     private WikiArtikel? _sleept;       // de regel die nu gesleept wordt
     private int? _sleepDoel;            // de ruimte waar hij boven hangt
 
-    private void SleepOver(int ruimteId) { if (_sleept is not null) _sleepDoel = ruimteId; }
+    // ---- een ruimte verslepen: op een andere ruimte = eronder hangen, op de lege plek in de boom = bovenaan ----
+    private WikiRuimte? _sleeptRuimte;  // de ruimte die nu gesleept wordt
+    private bool _sleepBoven;           // hij hangt boven de lege plek van de boom
+    private bool Sleept => _sleept is not null || _sleeptRuimte is not null;
+
+    private void BeginSleepRuimte(WikiRuimte r) { if (MagSchrijven) { _sleeptRuimte = r; _sleept = null; _sleepDoel = null; _sleepBoven = false; } }
+    private void EindeSlepen() { _sleeptRuimte = null; _sleept = null; _sleepDoel = null; _sleepBoven = false; }
+
+    private void SleepOver(int ruimteId) { if (Sleept) { _sleepDoel = ruimteId; _sleepBoven = false; } }
+
+    private Task LaatVallenBoven() => _sleeptRuimte is null ? Task.CompletedTask : VerplaatsRuimte(null);
+
+    private async Task VerplaatsRuimte(int? naar)
+    {
+        var ruimte = _sleeptRuimte;
+        EindeSlepen();
+        if (ruimte is null || !MagSchrijven || ruimte.Id == naar || ruimte.OuderId == naar) return;
+        try
+        {
+            await Wiki.VerplaatsRuimteAsync(ruimte.Id, naar);
+            if (naar is int o) _open.Add(o);
+            await Laad();
+            Meld(naar is int n ? $"{ruimte.Naam} hangt nu onder {Pad(n)}." : $"{ruimte.Naam} staat nu bovenaan in de boom.");
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+    }
+
+    /// <summary>Een lege ruimte wissen, na een vraag. Sta je in die ruimte, dan ga je naar de ruimte erboven (of de startpagina).</summary>
+    private async Task WisRuimte(WikiRuimte r)
+    {
+        _menu = null;
+        if (!MagSchrijven) return;
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeBevestig", $"De ruimte {Pad(r.Id)} wissen? Dat kan alleen als hij leeg is, en is niet terug te draaien.",
+                    new { kop = "⚠ Ruimte wissen", ja = "Wissen" })) return;
+            await Wiki.VerwijderRuimteAsync(r.Id);
+            Meld($"De ruimte {r.Naam} is gewist.");
+            if (_ruimte?.Id == r.Id) Ga(r.OuderId is int o ? $"wiki?ruimte={o}" : "wiki");
+            else await Laad();
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+    }
+
+    // ---- iconen: een naam uit de iconenset van de app (Lucide, zoals in de snelbalk) of een emoji ----
+    private string _icoonZoek = "";
+    private static readonly string[] IcoonVoorstel =
+    {
+        "circuit-board", "cpu", "cog", "wrench", "zap", "code", "factory", "bot", "ruler", "cable", "plug", "hammer", "banknote", "briefcase",
+        "folder", "file-text", "book-open", "layers", "truck", "users", "shield", "lightbulb", "flask-conical", "wind",
+    };
+
+    /// <summary>De iconen om uit te kiezen: bij een zoektekst wat daarbij past, anders een rijtje voor de hand liggende.</summary>
+    private IEnumerable<string> IcoonKeuzes()
+        => (_icoonZoek.Trim().Length > 0 ? Iconen.Zoek(_icoonZoek, 60) : IcoonVoorstel.Where(Iconen.Bestaat))
+           .Where(n => n.Length <= 16).Take(36);       // de kolom Icoon is 16 tekens
+
+    /// <summary>Het icoon van een ruimte: een getekend icoon als het een naam uit de set is, anders de tekst zelf (een emoji).</summary>
+    private MarkupString Ico(string? icoon)
+        => Iconen.Svg(icoon) is { } svg ? new MarkupString($"<span class=\"wk-ico\">{svg}</span>")
+                                        : new MarkupString(System.Net.WebUtility.HtmlEncode(icoon ?? ""));
 
     private async Task LaatVallen(int ruimteId)
     {
+        if (_sleeptRuimte is not null) { await VerplaatsRuimte(ruimteId); return; }
         var artikel = _sleept;
-        _sleept = null; _sleepDoel = null;
+        EindeSlepen();
         if (artikel is null || !MagSchrijven || artikel.RuimteId == ruimteId) return;
         try
         {
@@ -569,6 +651,7 @@
     {
         if (!MagSchrijven) return;
         _focusNa = "ruimte";
+        _icoonZoek = "";
         _ruimteVenster = bestaand is null ? new RuimteInvoer { OuderId = ouderId }
             : new RuimteInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Icoon = bestaand.Icoon, Omschrijving = bestaand.Omschrijving };
     }

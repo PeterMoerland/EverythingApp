@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Hele app** — Verbeterd: het icoontje van een wachtwoordbeheerder (1Password en dergelijke) verschijnt niet meer in gewone tekstvakken, zoals de naam van een ruimte in de wiki. Bij een echt wachtwoordveld blijft het wel (melding van Peter).
+- **Wiki** — Nieuw: een ruimte krijgt een **getekend icoon** naar keuze (bijvoorbeeld een printplaat voor Elektronica): rechtermuisknop ▸ Naam, icoon en omschrijving, en kies er een of zoek op "printplaat", "tandwiel" enzovoort. Een **lege ruimte wis je** met rechtermuisknop ▸ Wissen. En een **ruimte versleep je** naar een andere ruimte om hem daaronder te hangen, of naar de lege plek onder de boom om hem bovenaan te zetten (verzoek van Peter).
 - **Wiki** — Nieuw: een artikel verplaats je door de regel te **slepen** naar een andere ruimte: op een ruimte in de zijbalk of op een tegel van een subruimte (verzoek van Peter).
 - **Wiki en Licenties** — Verbeterd: bij een nieuwe ruimte, een nieuw artikel en een nieuwe licentie staat de cursor meteen in het eerste veld, zodat je direct kunt typen (verzoek van Peter).
 - **Wiki** — Verbeterd: de lijst met versies staat nu achter de knop **🕘 Versies** boven het artikel, zodat het artikel de hele breedte krijgt. De knop toont het aantal; een klik klapt de lijst open, waar je een oude versie bekijkt of terugzet (verzoek van Peter).

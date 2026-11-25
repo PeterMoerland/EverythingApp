@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=487" />
+    <link rel="stylesheet" href="app.css?v=489" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -69,6 +69,29 @@
     <script src="invoerfilter.js?v=2"></script>
     <script src="vensters.js?v=2"></script>
     <script>
+        // Wachtwoordbeheerders (1Password, LastPass, Bitwarden, Dashlane) zetten hun icoontje in elk tekstvak dat op een
+        // naam of aanmelding lijkt, bv. "Naam" van een ruimte in de wiki (melding gebruiker 25-11-2026). De app heeft geen
+        // eigen aanmeldvelden (aanmelden gaat via Google), dus elk invoerveld krijgt het kenmerk "niet invullen"; alleen
+        // een echt wachtwoordveld blijft met rust. Ook velden die later op het scherm komen (MutationObserver). Blazor
+        // laat een kenmerk dat het niet zelf zette staan.
+        (function () {
+            function merk(el) {
+                if (el.type === 'password' || el.hasAttribute('data-1p-ignore')) return;
+                el.setAttribute('data-1p-ignore', '');          // 1Password
+                el.setAttribute('data-lpignore', 'true');       // LastPass
+                el.setAttribute('data-bwignore', '');           // Bitwarden
+                el.setAttribute('data-form-type', 'other');     // Dashlane
+            }
+            function alles(el) {
+                if (el.matches && el.matches('input, textarea')) merk(el);
+                if (el.querySelectorAll) el.querySelectorAll('input, textarea').forEach(merk);
+            }
+            alles(document);
+            new MutationObserver(function (lijst) {
+                lijst.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) alles(n); }); });
+            }).observe(document.documentElement, { childList: true, subtree: true });
+        })();
+
         // Ctrl+K opent het zoekpalet, Escape sluit het (klikt de Blazor-knoppen aan)
         document.addEventListener('keydown', function (e) {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {

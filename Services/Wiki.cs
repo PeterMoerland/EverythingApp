@@ -156,6 +156,98 @@ public class Wiki
         return lijst.Select(x => x.OuderId is int o && !ids.Contains(o) ? x with { OuderId = null } : x).ToList();
     }
 
+    /// <summary>
+    /// Een ruimte (met alles eronder) onder een andere ruimte hangen; <paramref name="nieuweOuderId"/> leeg = bovenaan.
+    /// Niet in zichzelf of in een van zijn subruimtes, niet dieper dan <see cref="MaxDiepte"/>, en de naam mag op de
+    /// nieuwe plek nog niet voorkomen. Hij komt achteraan bij zijn nieuwe buren.
+    /// </summary>
+    public async Task VerplaatsRuimteAsync(int id, int? nieuweOuderId)
+    {
+        var alle = await RuimtesAsync();
+        var deze = alle.FirstOrDefault(x => x.Id == id) ?? throw new InvalidOperationException("Deze ruimte bestaat niet (meer).");
+        if (deze.OuderId == nieuweOuderId) return;
+        if (nieuweOuderId is int doel)
+        {
+            if (alle.All(x => x.Id != doel)) throw new InvalidOperationException("De ruimte waar je hem in wilt zetten bestaat niet (meer).");
+            for (var r = alle.FirstOrDefault(x => x.Id == doel); r is not null; r = alle.FirstOrDefault(x => x.Id == r.OuderId))
+                if (r.Id == id) throw new InvalidOperationException("Een ruimte kan niet in zichzelf of in een van zijn eigen subruimtes.");
+        }
+        int Hoogte(int ruimte, int stop = 0)
+            => stop > 20 ? 1 : 1 + alle.Where(x => x.OuderId == ruimte).Select(x => Hoogte(x.Id, stop + 1)).DefaultIfEmpty(0).Max();
+        if (Diepte(alle, nieuweOuderId) + Hoogte(id) > MaxDiepte)
+            throw new InvalidOperationException($"Daar wordt de boom dieper dan {MaxDiepte} lagen.");
+        if (alle.Any(x => x.Id != id && x.OuderId == nieuweOuderId && string.Equals(x.Naam, deze.Naam, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"Op die plek is er al een ruimte met de naam {deze.Naam}.");
+
+        if (_geheugen)
+        {
+            lock (_slot)
+            {
+                _ruimtes.RemoveAll(x => x.Id == id);
+                _ruimtes.Add(deze with { OuderId = nieuweOuderId, Aantal = 0 });
+            }
+            return;
+        }
+        if (!await BoomMogelijkAsync()) throw new InvalidOperationException("Draai Wiki_MariaDB.sql nog een keer: de kolom voor subruimtes ontbreekt.");
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        int volgorde;
+        await using (var max = new MySqlCommand("SELECT COALESCE(MAX(`Volgorde`), 0) + 10 FROM `WikiRuimtes` WHERE `OuderID` <=> @p AND `RuimteID` <> @id", cn))
+        {
+            max.Parameters.AddWithValue("@p", (object?)nieuweOuderId ?? DBNull.Value);
+            max.Parameters.AddWithValue("@id", id);
+            volgorde = Convert.ToInt32(await max.ExecuteScalarAsync());
+        }
+        await using var cmd = new MySqlCommand("UPDATE `WikiRuimtes` SET `OuderID` = @p, `Volgorde` = @v WHERE `RuimteID` = @id", cn);
+        cmd.Parameters.AddWithValue("@p", (object?)nieuweOuderId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@v", volgorde);
+        cmd.Parameters.AddWithValue("@id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Een lege ruimte wissen: echt weg. Leeg = geen subruimtes en geen enkel artikel, ook geen inactief (dat is terug te
+    /// halen en zou anders zijn ruimte kwijt zijn). Anders een melding met wat er nog in staat.
+    /// </summary>
+    public async Task VerwijderRuimteAsync(int id)
+    {
+        int artikelen, subs;
+        if (_geheugen)
+            lock (_slot)
+            {
+                artikelen = _artikelen.Count(a => a.RuimteId == id);
+                subs = _ruimtes.Count(r => r.OuderId == id);
+                if (artikelen == 0 && subs == 0) { _ruimtes.RemoveAll(r => r.Id == id); return; }
+            }
+        else
+        {
+            var boom = await BoomMogelijkAsync();
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using (var tel = new MySqlCommand(
+                "SELECT (SELECT COUNT(*) FROM `WikiArtikelen` WHERE `RuimteID` = @id), " +
+                (boom ? "(SELECT COUNT(*) FROM `WikiRuimtes` WHERE `OuderID` = @id)" : "0"), cn))
+            {
+                tel.Parameters.AddWithValue("@id", id);
+                await using var r = await tel.ExecuteReaderAsync();
+                await r.ReadAsync();
+                artikelen = Convert.ToInt32(r.GetValue(0));
+                subs = Convert.ToInt32(r.GetValue(1));
+            }
+            if (artikelen == 0 && subs == 0)
+            {
+                await using var weg = new MySqlCommand("DELETE FROM `WikiRuimtes` WHERE `RuimteID` = @id", cn);
+                weg.Parameters.AddWithValue("@id", id);
+                await weg.ExecuteNonQueryAsync();
+                return;
+            }
+        }
+        var wat = new List<string>();
+        if (subs > 0) wat.Add(subs == 1 ? "1 subruimte" : $"{subs} subruimtes");
+        if (artikelen > 0) wat.Add(artikelen == 1 ? "1 artikel (ook een inactief artikel telt)" : $"{artikelen} artikelen (ook inactieve tellen)");
+        throw new InvalidOperationException($"Deze ruimte is niet leeg: er {(subs + artikelen == 1 ? "staat" : "staan")} nog {string.Join(" en ", wat)} in. Verplaats die eerst.");
+    }
+
     /// <summary>Hoe diep staat deze ruimte in de boom (1 = bovenaan)?</summary>
     public static int Diepte(IReadOnlyCollection<WikiRuimte> ruimtes, int? id)
     {
@@ -173,7 +265,7 @@ public class Wiki
         naam = Kort(naam, 100); icoon = Kort(icoon, 16); omschrijving = Kort(omschrijving, 300);
         if (naam.Length == 0) throw new InvalidOperationException("Geef de ruimte een naam.");
         var alle = await RuimtesAsync();
-        if (id != 0) ouderId = alle.FirstOrDefault(x => x.Id == id)?.OuderId;      // verplaatsen kan (nog) niet
+        if (id != 0) ouderId = alle.FirstOrDefault(x => x.Id == id)?.OuderId;      // verplaatsen gaat met VerplaatsRuimteAsync
         else if (ouderId is not null && Diepte(alle, ouderId) >= MaxDiepte)
             throw new InvalidOperationException($"Dieper dan {MaxDiepte} lagen kan niet.");
         if (alle.Any(x => x.Id != id && x.OuderId == ouderId && string.Equals(x.Naam, naam, StringComparison.OrdinalIgnoreCase)))
