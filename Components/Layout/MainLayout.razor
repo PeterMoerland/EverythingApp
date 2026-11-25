@@ -295,10 +295,16 @@
 
     /// <summary>De sleutel van dit tabblad in <see cref="Aanwezigheid"/> (wie heeft de app open, knop voor Directie).</summary>
     private readonly Guid _aanwezigSleutel = Guid.NewGuid();
+    /// <summary>
+    /// Dit scherm is opgeruimd. Het laden van de gebruiker loopt soms nog als de pagina al weg is (het voorvertonen van
+    /// een pagina die de browser afbreekt); zonder deze vlag meldde zo'n scherm zich daarna alsnog en bleef het tot de
+    /// volgende herstart in de lijst staan (25-11-2026: vijftien keer "wiki" bij een gebruiker).
+    /// </summary>
+    private bool _weg;
 
     private void MeldAanwezig()
     {
-        if (!_ikGeladen) return;
+        if (!_ikGeladen || _weg) return;
         var naam = Ik.Werkplek is { } wp ? wp.Naam
                  : Ik.Ingelogd ? (Ik.Naam.Length > 0 ? Ik.Naam : Ik.Email)
                  : "niet ingelogd";
@@ -545,6 +551,7 @@
 
     public void Dispose()
     {
+        _weg = true;
         Nav.LocationChanged -= LocatieGewijzigd;
         Aanwezig.Weg(_aanwezigSleutel);
     }

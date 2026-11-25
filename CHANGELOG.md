@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Wie is er in de app** — Opgelost: een scherm dat al gesloten was, kon zich daarna nog aanmelden en bleef dan in de lijst staan. Dat kan niet meer (melding van Peter: vijftien keer "wiki").
 - **Wiki** — Verbeterd: ruimtes toevoegen en wijzigen doe je nu met de **rechtermuisknop** op de plek zelf. Op een ruimte in de zijbalk of op een tegel: subruimte eronder, ruimte ernaast, nieuw artikel, of naam wijzigen. Op de lege plek onder de boom: een nieuwe ruimte. De losse knoppen daarvoor zijn weg (verzoek van Peter).
 - **Wiki** — Nieuw: ruimtes kunnen onder elkaar hangen, tot acht lagen diep (bijvoorbeeld Software ▸ PLC ▸ Omron ▸ Motion). In de zijbalk klap je een ruimte open met het pijltje; in een ruimte staan de subruimtes als tegels bovenaan. Met **+ Subruimte** en **+ Ruimte** voeg je ze zelf toe, met **Naam…** wijzig je naam, icoon en omschrijving (verzoek van Peter).
 - **Wiki** — Nieuw: een HTML-bestand dat als bijlage bij een artikel staat, bekijk je met de knop **Bekijken** direct onder het artikel, of groot in een nieuw tabblad. Het bestand draait afgeschermd: het werkt zoals bedoeld, maar kan niet bij de app (verzoek van Peter).
