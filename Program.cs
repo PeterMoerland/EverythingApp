@@ -311,6 +311,7 @@ builder.Services.AddSingleton<ActStatuslijsten>();  // Activity board: tabblad S
 builder.Services.AddSingleton<ActAfbeeldingen>();   // Activity board: afbeeldingen bij de tekstvelden
 builder.Services.AddSingleton<ClaudeShares>();      // Tools ▸ Claude Shares: .md-bestanden bij een project, met versies
 builder.Services.AddSingleton<Wiki>();              // Wiki: ruimtes met artikelen in markdown, versies, bijlagen in de filestore
+builder.Services.AddSingleton<Planbord>();          // Planning: groepen en activiteiten op een tijdbalk (uit Tom's Planner)
 builder.Services.AddSingleton<MPedeLicenties>();    // Tools ▸ Licenties ▸ M-Pede Robotics: licentiecodes maken en bewaren
 builder.Services.AddSingleton<SnelIconen>();   // snelbalk: Lucide-iconen uit wwwroot/iconen
 // Alleen om de todo-schermen lokaal te bekijken zonder de tabel ProductTodo: ProductTodo__Geheugen=true

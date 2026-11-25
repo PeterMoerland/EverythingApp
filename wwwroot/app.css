@@ -4489,6 +4489,51 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .idee-venster { width: min(40rem, 96vw); }
 .idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+/* ===== Planning (menu Planning, 25-11-2026): boom links, tijdbalk rechts ===== */
+.plb-pagina { --plb-rand: #dfe3e8; --plb-lijn: #eceff3; --plb-zacht: #68717c; --plb-vlak: #f6f8fa; --plb-top: #e8eef5; --plb-wit: #fff; }
+html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color-mix(in srgb, var(--d3) 60%, transparent); --plb-zacht: var(--dt3); --plb-vlak: var(--d2); --plb-top: var(--d3); --plb-wit: var(--d1); }
+.plb-balk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.plb-balk .groei { flex: 1; }
+.plb-tijdvak { font-size: 13px; color: var(--plb-zacht); margin-left: 4px; }
+.plb-zoek { width: 17rem; max-width: 100%; }
+.plb-import { border: 1px solid var(--plb-rand); border-radius: 8px; background: var(--plb-vlak); padding: 10px 14px; margin-bottom: 10px; }
+.plb-voorvertoning { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.plb-letop { border-left: 4px solid #e0a100; padding-left: 8px; }
+.plb-bord { border: 1px solid var(--plb-rand); border-radius: 8px; background: var(--plb-wit); overflow: hidden; font-size: 12.5px; }
+.plb-rij { display: grid; grid-template-columns: minmax(180px, 320px) 130px minmax(0, 1fr); min-height: 23px; border-top: 1px solid var(--plb-lijn); }
+.plb-rij:first-child { border-top: none; }
+.plb-naam, .plb-wie { padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
+.plb-wie { color: var(--plb-zacht); border-left: 1px solid var(--plb-lijn); display: block; line-height: 17px; }
+.plb-tekst { overflow: hidden; text-overflow: ellipsis; }
+.plb-groep .plb-tekst { cursor: pointer; font-weight: 600; }
+.plb-pagina .plb-pijl { flex: 0 0 16px; width: 16px; border: none; background: none; padding: 0; font: inherit; font-size: 10px; color: var(--plb-zacht); cursor: pointer; }
+.plb-pagina span.plb-pijl { cursor: default; }
+.plb-top { background: var(--plb-top); }
+.plb-top .plb-wie { color: inherit; }
+/* de tijdbalk: een streepje per week, de plek van een balk is een percentage van het tijdvak */
+.plb-tijd { position: relative; border-left: 1px solid var(--plb-rand); min-width: 0; overflow: hidden;
+    background-image: linear-gradient(to right, var(--plb-lijn) 1px, transparent 1px); background-size: calc(100% / var(--plb-weken)) 100%; }
+.plb-kop { background: var(--plb-vlak); font-weight: 600; position: sticky; top: 0; z-index: 3; }
+.plb-kop .plb-tijd { background-image: none; }
+.plb-maanden, .plb-weken { display: flex; }
+.plb-maanden span { box-sizing: border-box; border-left: 1px solid var(--plb-rand); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: clip; text-transform: capitalize; }
+.plb-maanden span:first-child { border-left: none; }
+.plb-weken { border-top: 1px solid var(--plb-lijn); font-weight: 400; color: var(--plb-zacht); font-size: 10.5px; }
+.plb-weken span { flex: 1 1 0; min-width: 0; text-align: center; overflow: hidden; border-left: 1px solid var(--plb-lijn); }
+.plb-weken span:first-child { border-left: none; }
+.plb-balkje { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; color: #fff; font-size: 10.5px; line-height: 16px; padding: 0 4px; box-sizing: border-box;
+    white-space: nowrap; overflow: hidden; z-index: 1; }
+.plb-balkje.loopt-in { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.plb-balkje.loopt-uit { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.plb-samen { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; z-index: 0;
+    background: repeating-linear-gradient(135deg, #9a9a99 0, #9a9a99 1px, transparent 1px, transparent 4px); }
+.plb-symbool { position: absolute; top: 1px; transform: translateX(-50%); z-index: 2; font-size: 13px; line-height: 20px; cursor: default; }
+.plb-vandaag { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ed1c24; opacity: .55; z-index: 2; }
+.plb-leeg { padding: 10px 12px; margin: 0; }
+.plb-legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--plb-zacht); }
+.plb-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.plb-legenda i { display: inline-block; width: 16px; height: 12px; border-radius: 3px; position: static; }
+@media (max-width: 900px) { .plb-rij { grid-template-columns: minmax(120px, 200px) 0 minmax(0, 1fr); } .plb-wie { display: none; } }
 /* ===== Tools > Licenties (25-11-2026); leunt op .cs-... van Claude Shares ===== */
 .lc-tegels { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; }
 .lc-tegel { display: flex; flex-direction: column; gap: 4px; width: 260px; min-height: 120px; padding: 16px 18px; border: 1px solid var(--cs-rand); border-radius: 10px;

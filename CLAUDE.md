@@ -454,6 +454,28 @@ i.v.m. 1Password".
   `@key` na elke upload. Tonen met `ActMarkdown.Html(tekst, document: true)` (gewone regelovergangen, geen
   #kaartlinks, HTML en onveilige links eruit). Downloaden: `GET /claude-shares/versie/{id}`. Link naar een document:
   `?project=&doc=`. Nog niet: zichtbaar op het Activity board of bij Projecten (gebruiker: later), zoeken in de tekst.
+- **Planning, stap 1** (wens gebruiker 25-11-2026; script **`Planbord_MariaDB.sql`**, zelf draaien): eigen menu
+  **Planning** (`/planbord`, `Components/Pages/PlanbordPagina.razor`, `Services/Planbord.cs`, singleton;
+  `Planbord:Geheugen` = in het geheugen, met `Planbord:Proefbestand` = pad van een export om lokaal mee te testen).
+  **Vervangt Tom's Planner** (besluit gebruiker: "we willen ervan af"; eenmalig overzetten, verlof meenemen) en de
+  oude platte Projectplanning (`/planning`, `Planning.razor`, tabel `Planning`: nooit gevuld, uit het menu, gemarkeerd
+  NIET MEER IN GEBRUIK). Opzet zoals Tom's Planner: `PlanbordRijen` = een boom van groepen en activiteiten (`OuderID`,
+  `Volgorde`, `Naam`, `Resource` als vrije tekst, `Nummer` = het rijnummer uit de export; `RelatieID`/`ProjectID`/
+  `WerkorderID` staan er al voor het **later koppelen van een groep aan klant, project of werkorder**, zoals het
+  Activity board), `PlanbordItems` = per rij de balken (Start–Einde) en symbolen (`Symbool` = 1, alleen Start) met
+  `Legenda` (Done, To Do, Periode, Out of office, Vertraging, Milestone, Delivery, Customer dependency, M-Pede …) en
+  `Kleur` (hex uit de export, of het symboolnummer). **Export lezen** (`Planbord.LeesExport`, eigen CSV-lezer): een
+  rij met meer balken staat er meer keren in; de ouder volgt uit het rijnummer ("24.3.1" hangt onder "24.3"); datums
+  `M/d/yyyy h:mm:ss tt`. `ZetOverAsync` **vervangt alles** (transactie, blokken van 200, eigen RijID's); alleen
+  Directie, met voorvertoning en bevestiging. De export van 25-11-2026: 68 groepen, 1.730 rijen (tot 7 lagen), 1.680
+  balken, 98 symbolen, april 2024 – november 2030. **Scherm**: boom links (naam, wie), tijdbalk rechts; de plek van een
+  balk is een percentage van het tijdvak (`Pos`: 8:00 = begin van de dag, 12:30 = halverwege, 17:00 = eind), dus
+  geen horizontaal schuiven maar bladeren (‹ Vandaag ›) en 13/26/52/104 weken. Een dichtgeklapte groep toont gearceerd
+  waar eronder iets gepland staat (`Samenvatting`). Standaard zonder groepen waar na vier weken geleden niets meer in
+  staat ("ook wat voorbij is"). Zoeken op activiteit of persoon klapt de treffers uit. Stijlen `plb-…` (`pb-` was al
+  van een ander onderdeel). **Nog niet** (volgende stappen): bewerken (slepen, rijen en balken toevoegen), koppelen
+  aan klant/project/werkorder, resources koppelen aan werknemers, overzicht per persoon; niet in de export: welke
+  groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
   `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;
   `Licenties:Geheugen` = alles in het geheugen met een testsleutel). Een **tegel per product** (`?product=`): nu

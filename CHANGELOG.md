@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Nieuw: een eigen menu **Planning**, dat Tom's Planner gaat vervangen. De planning uit Tom's Planner is over te zetten en staat er dan net zo in: groepen met daaronder activiteiten, en rechts de tijdbalk met de balken (Done, To Do, Periode, Out of office, Vertraging) en de symbolen (mijlpaal, levering, wachten op de klant). Je klapt groepen open en dicht, bladert door de tijd, kiest hoeveel weken je ziet en zoekt op activiteit of persoon. Dit is de eerste stap: bekijken. Bewerken en een groep koppelen aan een klant, project of werkorder volgen. De oude Projectplanning onder Projecten is uit het menu (verzoek van Peter).
 - **Licenties** — Verbeterd: de knop om het oude bestand `licenses_issued.csv` over te nemen is weg; de lijst staat in de app (verzoek van Peter).
 - **Licenties** — Verbeterd: het serienummer voor de licentie heet op het scherm nu overal **Joint3 (Drive B)** in plaats van "4e drive" (verzoek van Peter).
 - **Wiki** — Verbeterd: een artikel zonder tekst toont geen leeg vak meer, en hangt er precies één HTML-bestand aan, dan staat dat meteen in beeld (zonder eerst op Bekijken te klikken). Zo kan een artikel gewoon een HTML-pagina zijn (verzoek van Peter).

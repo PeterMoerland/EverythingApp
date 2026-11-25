@@ -473,7 +473,7 @@
     {
         var pad = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
         var titel = pad == "" ? "Ureningave"
-            : pad == "planning" ? "Projectplanning"
+            : pad is "planning" or "planbord" ? "Planning"
             : pad == "viewer" ? "3D-viewer"
             : pad == "mail" ? "Mail"
             : pad == "agenda" ? "Agenda"

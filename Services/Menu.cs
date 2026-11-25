@@ -81,8 +81,8 @@ public static class Menu
                 new MenuItem("Calculaties", "/projecten/calculaties", Icoon: "calculator"),
                 // stond tot 13-11-2026 onder Bestellingen; het adres is gebleven (links en favorieten)
                 new MenuItem("Verkooporders", "/bestellingen/verkooporders", "Verkoop", Icoon: "receipt-text")),
-            new MenuGroep("Planning",
-                new MenuItem("Projectplanning", "/planning", Icoon: "chart-gantt")),
+            // De oude Projectplanning (Planning.razor) stond hier tot 25-11-2026; vervangen door het eigen menu Planning
+            // (/planbord). Het oude adres /planning opent nu de nieuwe planning.
             new MenuGroep("Rapporten",
                 new MenuItem("Overzicht per periode", Icoon: "calendar-range"),
                 new MenuItem("Weekoverzicht uren per werknemer", Icoon: "calendar-days"),
@@ -304,6 +304,9 @@ public static class Menu
                 new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),
                 new MenuItem("Werkplekken", "/beheer/werkplekken", Icoon: "laptop"),
                 new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone"))),
+
+        // Planning: groepen met activiteiten op een tijdbalk, overgezet uit Tom's Planner (wens gebruiker 25-11-2026).
+        new MenuModule("planning", "Planning", "chart-gantt") { Url = "/planbord" },
 
         // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen.
         // Helemaal onderaan in de lijst (wens gebruiker 25-11-2026).

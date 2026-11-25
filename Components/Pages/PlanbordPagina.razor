@@ -1,0 +1,405 @@
+@page "/planbord"
+@page "/planning"
+@using System.Globalization
+@inject Planbord Bord
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+
+@* Planning (menu Planning, wens gebruiker 25-11-2026): groepen met daaronder activiteiten, links de boom en rechts de
+   tijdbalk met balken en symbolen, zoals Tom's Planner. Stap 1 is bekijken: in- en uitklappen, door de tijd bladeren,
+   zoeken. De export van Tom's Planner zet de Directie eenmalig over (knop rechtsboven). Bewerken en het koppelen van
+   een groep aan klant, project of werkorder komen later. Opslag: Services/Planbord.cs, Planbord_MariaDB.sql.
+   De plek van een balk is een percentage van het getoonde tijdvak, dus de tijdbalk past altijd in de breedte. *@
+
+<PageTitle>Planning — MDE</PageTitle>
+
+<div class="page plb-pagina">
+    <header class="topbar">
+        <h1>Planning</h1>
+        <span class="weeklabel">@(_rijen.Count == 0 ? "projecten en activiteiten op een tijdbalk" : $"{_top.Count} groepen · {_rijen.Count} rijen")</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>De tabellen voor de planning bestaan nog niet (Planbord_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        <div class="plb-balk">
+            <button type="button" class="klein" title="Vier weken terug" @onclick="() => Schuif(-4)">‹</button>
+            <button type="button" class="klein" @onclick="Vandaag">Vandaag</button>
+            <button type="button" class="klein" title="Vier weken verder" @onclick="() => Schuif(4)">›</button>
+            <select value="@_weken" @onchange="e => _weken = int.TryParse((string?)e.Value, out var w) ? w : 26" aria-label="Hoeveel weken in beeld">
+                <option value="13">13 weken</option>
+                <option value="26">half jaar</option>
+                <option value="52">jaar</option>
+                <option value="104">2 jaar</option>
+            </select>
+            <span class="plb-tijdvak">@_van.ToString("d MMM yyyy", Nl) – @Tot.AddDays(-1).ToString("d MMM yyyy", Nl)</span>
+            <span class="groei"></span>
+            <input class="plb-zoek" type="search" placeholder="🔍 Zoek: activiteit of persoon…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" autocomplete="off" />
+            <label class="vink" title="Ook groepen tonen waar de laatste vier weken en daarna niets meer in staat"><input type="checkbox" checked="@_ookVoorbij" @onchange="e => _ookVoorbij = e.Value is true" /> ook wat voorbij is</label>
+            <button type="button" class="klein" @onclick="AllesDicht">Alles dicht</button>
+            @if (MagImporteren)
+            {
+                <button type="button" class="klein" @onclick="() => { _importOpen = !_importOpen; _import = null; }">Tom's Planner overzetten…</button>
+            }
+        </div>
+
+        @if (_importOpen && MagImporteren)
+        {
+            <section class="plb-import">
+                <b>De planning uit Tom's Planner overzetten</b>
+                <p class="uitleg">Kies het exportbestand (CSV) uit Tom's Planner. Je ziet eerst wat erin staat; pas na "Overzetten" komt het in de app.
+                    @(_rijen.Count > 0 ? "Let op: dit vervangt de hele planning die er nu staat." : "")</p>
+                <label class="klein fotovak-knop">Exportbestand kiezen…
+                    <InputFile @key="_invoer" OnChange="LeesBestand" accept=".csv" class="bon-verborgen" /></label>
+                @if (_import is { } im)
+                {
+                    <div class="plb-voorvertoning">
+                        <div><b>@im.Groepen</b> groepen · <b>@im.Rijen.Count</b> rijen · <b>@im.Balken</b> balken · <b>@im.Symbolen</b> symbolen
+                            @if (im.Van is DateTime v && im.Tot is DateTime t) { <span> · van @v.ToString("d-M-yyyy") tot @t.ToString("d-M-yyyy")</span> }</div>
+                        @foreach (var o in im.Opmerkingen) { <div class="plb-letop">@o</div> }
+                        @if (im.Rijen.Count > 0)
+                        {
+                            <div class="uitleg">Eerste groepen: @string.Join(" · ", im.Rijen.Where(r => r.OuderId is null).Take(8).Select(r => r.Naam))…</div>
+                            <div class="btngroup">
+                                <button type="button" class="primair" disabled="@_bezig" @onclick="ZetOver">Overzetten@(_rijen.Count > 0 ? " (vervangt de planning)" : "")</button>
+                                <button type="button" class="klein" disabled="@_bezig" @onclick="() => { _import = null; _importOpen = false; }">Annuleren</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        @if (_rijen.Count == 0)
+        {
+            <p class="uitleg">De planning is nog leeg.@(MagImporteren ? " Zet de export van Tom's Planner over met de knop rechtsboven." : " De Directie zet de planning uit Tom's Planner over.")</p>
+        }
+        else
+        {
+            var zichtbaar = Zichtbaar().ToList();
+            var dagen = _weken * 7;
+            <div class="plb-bord" style="@($"--plb-weken:{_weken}")">
+                @* ----- de kop: maanden en weeknummers ----- *@
+                <div class="plb-rij plb-kop">
+                    <div class="plb-naam">Activiteit</div>
+                    <div class="plb-wie">Wie</div>
+                    <div class="plb-tijd">
+                        <div class="plb-maanden">
+                            @foreach (var (naam, breedte) in Maanden()) { <span style="@($"width:{Pct(breedte, dagen)}")" title="@naam">@naam</span> }
+                        </div>
+                        @if (_weken <= 60)
+                        {
+                            <div class="plb-weken">
+                                @for (var w = 0; w < _weken; w++) { <span>@ISOWeek.GetWeekOfYear(_van.AddDays(w * 7))</span> }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (zichtbaar.Count == 0)
+                {
+                    <p class="uitleg plb-leeg">Niets gevonden@(_ookVoorbij ? "." : "; zet \"ook wat voorbij is\" aan om ook oude groepen te doorzoeken.")</p>
+                }
+                @foreach (var (r, diepte) in zichtbaar)
+                {
+                    var groep = _kinderen.ContainsKey(r.Id);
+                    var open = groep && (Zoekt || _open.Contains(r.Id));
+                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "")" @key="r.Id">
+                        <div class="plb-naam" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam">
+                            @if (groep)
+                            {
+                                <button type="button" class="plb-pijl" aria-expanded="@open" title="@(open ? "Dichtklappen" : "Openklappen")" @onclick="() => Wissel(r.Id)">@(open ? "▾" : "▸")</button>
+                                <span class="plb-tekst" @onclick="() => Wissel(r.Id)">@r.Naam</span>
+                            }
+                            else { <span class="plb-pijl"></span><span class="plb-tekst">@r.Naam</span> }
+                        </div>
+                        <div class="plb-wie" title="@r.Resource">@r.Resource</div>
+                        <div class="plb-tijd">
+                            @if (VandaagPct() is { } vp) { <i class="plb-vandaag" style="@($"left:{vp}")"></i> }
+                            @if (groep && !open)
+                            {
+                                @* dichtgeklapt: gearceerd waar er onder deze groep iets gepland staat *@
+                                @foreach (var (a, b) in Samenvatting(r.Id))
+                                {
+                                    <i class="plb-samen" style="@($"left:{Pct(a, dagen)};width:{Pct(b - a, dagen)}")"></i>
+                                }
+                            }
+                            @if (_items.TryGetValue(r.Id, out var lijst))
+                            {
+                                @foreach (var it in lijst)
+                                {
+                                    var a = Pos(it.Start);
+                                    if (it.Symbool)
+                                    {
+                                        if (a >= 0 && a <= dagen)
+                                        {
+                                            <span class="plb-symbool" style="@($"left:{Pct(a, dagen)}")" title="@Uitleg(it)">@Teken(it.Legenda)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        var b = Pos(it.Einde ?? it.Start, einde: true);
+                                        if (b > 0 && a < dagen)
+                                        {
+                                            var links = Math.Max(0, a);
+                                            var breed = Math.Max(0.15, Math.Min(dagen, b) - links);
+                                            <span class="plb-balkje @(a < 0 ? "loopt-in" : "") @(b > dagen ? "loopt-uit" : "")" title="@Uitleg(it)"
+                                                  style="@($"left:{Pct(links, dagen)};width:{Pct(breed, dagen)};background:{Kleur(it.Kleur)}")">@it.Label</span>
+                                        }
+                                    }
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="plb-legenda">
+                @foreach (var (naam, kleur) in _legenda) { <span><i style="@($"background:{kleur}")"></i>@naam</span> }
+                <span><i class="plb-samen"></i>dichtgeklapte groep</span>
+                @foreach (var naam in _symbolen) { <span>@Teken(naam) @naam</span> }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Nl = new("nl-NL");
+
+    private bool _geladen, _tabel, _fout, _bezig, _ookVoorbij, _importOpen;
+    private string? _melding;
+    private string _zoek = "";
+    private List<PlanRij> _rijen = new(), _top = new();
+    private Dictionary<int, List<PlanRij>> _kinderen = new();
+    private Dictionary<int, PlanRij> _opId = new();
+    private Dictionary<int, List<PlanItem>> _items = new();
+    private Dictionary<int, DateTime> _laatste = new();      // per rij: het laatste einde van hemzelf en alles eronder
+    private List<(string Naam, string Kleur)> _legenda = new();
+    private List<string> _symbolen = new();
+    private readonly HashSet<int> _open = new();
+    private DateTime _van = Maandag(DateTime.Today.AddDays(-28));
+    private int _weken = 26;
+    private PlanImport? _import;
+    private int _invoer;
+
+    private DateTime Tot => _van.AddDays(_weken * 7);
+    private bool Zoekt => _zoek.Trim().Length >= 2;
+    /// <summary>De export overzetten: de Directie. In de testversie (alles in het geheugen, geen login) ook.</summary>
+    private bool MagImporteren => Ik.Mag("Directie") || (!Ik.Ingelogd && !Ik.IsWerkplek);
+
+    private static DateTime Maandag(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
+    private static string Pct(double deel, double geheel) => (deel / geheel * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%";
+    private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            _tabel = Bord.Beschikbaar && await Bord.AanwezigAsync();
+            if (_tabel) await Laad();
+        }
+        catch (Exception ex) { Meld("Laden is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _geladen = true;
+    }
+
+    private async Task Laad()
+    {
+        var (rijen, items) = await Bord.AllesAsync();
+        _rijen = rijen;
+        _opId = rijen.ToDictionary(r => r.Id);
+        // een rij waarvan de ouder niet bestaat hoort bovenaan, anders is hij onvindbaar
+        _top = rijen.Where(r => r.OuderId is not int o || !_opId.ContainsKey(o)).ToList();
+        _kinderen = rijen.Where(r => r.OuderId is int o && _opId.ContainsKey(o)).GroupBy(r => r.OuderId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+        _items = items.GroupBy(i => i.RijId).ToDictionary(g => g.Key, g => g.OrderBy(i => i.Start).ToList());
+        _laatste = new();
+        foreach (var r in _top) Laatste(r.Id, 0);
+        _legenda = items.Where(i => !i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count())
+                        .Select(g => (g.Key, Kleur(g.First().Kleur))).ToList();
+        _symbolen = items.Where(i => i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
+    }
+
+    /// <summary>Het laatste moment waarop in deze rij of eronder nog iets staat (om oude groepen weg te laten).</summary>
+    private DateTime Laatste(int id, int diepte)
+    {
+        var max = _items.TryGetValue(id, out var l) ? l.Max(i => i.Einde ?? i.Start) : DateTime.MinValue;
+        if (diepte < 20 && _kinderen.TryGetValue(id, out var k))
+            foreach (var kind in k) { var m = Laatste(kind.Id, diepte + 1); if (m > max) max = m; }
+        return _laatste[id] = max;
+    }
+
+    // ------------------------------------------------------------------ welke rijen in beeld
+
+    private bool Past(PlanRij r, string q) => r.Naam.Contains(q, StringComparison.OrdinalIgnoreCase) || r.Resource.Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>De rijen die in beeld staan, in de volgorde van de boom. Bij zoeken: wat past, met de groepen erboven en alles eronder.</summary>
+    private IEnumerable<(PlanRij R, int Diepte)> Zichtbaar()
+    {
+        var grens = DateTime.Today.AddDays(-28);
+        HashSet<int>? raak = null;
+        if (Zoekt)
+        {
+            var q = _zoek.Trim();
+            raak = new HashSet<int>();
+            foreach (var r in _rijen.Where(r => Past(r, q)))
+                for (var x = r; x is not null && raak.Add(x.Id); x = x.OuderId is int o && _opId.TryGetValue(o, out var ouder) ? ouder : null) { }
+        }
+        foreach (var r in _top)
+        {
+            // voorbij = er staat wel iets in, maar niets meer in de laatste vier weken of later; een lege groep blijft staan
+            var laatste = _laatste.GetValueOrDefault(r.Id);
+            if (!_ookVoorbij && raak is null && laatste != DateTime.MinValue && laatste < grens) continue;
+            foreach (var x in Tak(r, 1, raak, onderTreffer: false)) yield return x;
+        }
+    }
+
+    private IEnumerable<(PlanRij R, int Diepte)> Tak(PlanRij r, int diepte, HashSet<int>? raak, bool onderTreffer)
+    {
+        if (raak is not null && !onderTreffer && !raak.Contains(r.Id)) yield break;
+        yield return (r, diepte);
+        if (diepte > 20 || !_kinderen.TryGetValue(r.Id, out var kinderen)) yield break;
+        if (raak is null && !_open.Contains(r.Id)) yield break;
+        // onder een rij die zelf past staat alles; anders alleen de takken waar een treffer in zit
+        var zelf = raak is not null && (onderTreffer || Past(r, _zoek.Trim()));
+        foreach (var k in kinderen)
+            foreach (var x in Tak(k, diepte + 1, raak, zelf)) yield return x;
+    }
+
+    private void Wissel(int id) { if (!_open.Remove(id)) _open.Add(id); }
+    private void AllesDicht() { _open.Clear(); _zoek = ""; }
+    private void Schuif(int weken) => _van = _van.AddDays(weken * 7);
+    private void Vandaag() => _van = Maandag(DateTime.Today.AddDays(-28));
+
+    // ------------------------------------------------------------------ plek op de tijdbalk
+
+    /// <summary>
+    /// Een tijdstip als dagen vanaf het begin van het tijdvak. Tom's Planner rekent in werkdagen van 8:00 tot 17:00:
+    /// 's ochtends = begin van de dag, 12:30 = halverwege, 17:00 = het eind van de dag.
+    /// </summary>
+    private double Pos(DateTime t, bool einde = false)
+    {
+        var deel = t.Hour < 10 ? 0.0 : t.Hour < 15 ? 0.5 : 1.0;
+        if (einde && deel == 0) deel = t.TimeOfDay == TimeSpan.Zero ? 1.0 : 0.0;      // een einde zonder tijd telt de hele dag mee
+        return (t.Date - _van).TotalDays + deel;
+    }
+
+    private string? VandaagPct()
+    {
+        var p = (DateTime.Today - _van).TotalDays + 0.5;
+        return p < 0 || p > _weken * 7 ? null : Pct(p, _weken * 7);
+    }
+
+    /// <summary>De maanden in het tijdvak, elk met het aantal dagen dat ervan in beeld is.</summary>
+    private IEnumerable<(string Naam, double Dagen)> Maanden()
+    {
+        for (var d = _van; d < Tot;)
+        {
+            var volgende = new DateTime(d.Year, d.Month, 1).AddMonths(1);
+            var eind = volgende < Tot ? volgende : Tot;
+            var dagen = (eind - d).TotalDays;
+            yield return (dagen >= 12 || _weken > 60 ? d.ToString(_weken > 60 ? "MMM yy" : "MMMM yyyy", Nl) : "", dagen);
+            d = eind;
+        }
+    }
+
+    /// <summary>Voor een dichtgeklapte groep: de stukken van het tijdvak waarin eronder iets gepland staat, aan elkaar geregen.</summary>
+    private List<(double Van, double Tot)> Samenvatting(int id)
+    {
+        var stukken = new List<(double, double)>();
+        void Verzamel(int rij, int diepte)
+        {
+            if (diepte > 20 || !_kinderen.TryGetValue(rij, out var kinderen)) return;
+            foreach (var k in kinderen)
+            {
+                if (_items.TryGetValue(k.Id, out var lijst))
+                    foreach (var it in lijst.Where(i => !i.Symbool))
+                    {
+                        double a = Math.Max(0, Pos(it.Start)), b = Math.Min(_weken * 7, Pos(it.Einde ?? it.Start, einde: true));
+                        if (b > a) stukken.Add((a, b));
+                    }
+                Verzamel(k.Id, diepte + 1);
+            }
+        }
+        Verzamel(id, 0);
+        var uit = new List<(double Van, double Tot)>();
+        foreach (var (a, b) in stukken.OrderBy(s => s.Item1))
+        {
+            if (uit.Count > 0 && a <= uit[^1].Tot + 0.01) uit[^1] = (uit[^1].Van, Math.Max(uit[^1].Tot, b));
+            else uit.Add((a, b));
+        }
+        return uit;
+    }
+
+    // ------------------------------------------------------------------ opmaak van een balk of symbool
+
+    /// <summary>De kleur uit de export, alleen als het echt een kleur is (hij gaat de opmaak in); anders grijs.</summary>
+    private static string Kleur(string kleur)
+        => kleur.Length == 7 && kleur[0] == '#' && kleur.Skip(1).All(Uri.IsHexDigit) ? kleur : "#9a9a99";
+
+    private static string Teken(string legenda) => legenda.ToLowerInvariant() switch
+    {
+        "milestone" => "🚩",
+        "delivery" => "⚠️",
+        "customer dependency" => "🕒",
+        "m-pede robotics bestellen" => "📣",
+        "m-pede robot benodigd" => "🟢",
+        _ => "◆",
+    };
+
+    private static string Moment(DateTime t) => t.ToString(t.Hour is >= 10 and < 15 ? "ddd d-M-yyyy '(middag)'" : "ddd d-M-yyyy", Nl);
+
+    private static string Uitleg(PlanItem it)
+        => (it.Legenda.Length > 0 ? it.Legenda + ": " : "") + Moment(it.Start) + (it.Einde is DateTime e && e.Date != it.Start.Date ? " t/m " + Moment(e) : "")
+           + (it.Label.Length > 0 ? " · " + it.Label : "") + (it.Opmerking.Length > 0 ? " · " + it.Opmerking : "");
+
+    // ------------------------------------------------------------------ de export van Tom's Planner
+
+    private async Task LeesBestand(InputFileChangeEventArgs e)
+    {
+        _import = null;
+        try
+        {
+            if (e.File.Size > 20_000_000) { Meld("Dit bestand is te groot voor een export van de planning.", true); return; }
+            using var m = new MemoryStream();
+            await using (var s = e.File.OpenReadStream(20_000_000)) await s.CopyToAsync(m);
+            _import = Planbord.LeesExport(System.Text.Encoding.UTF8.GetString(m.ToArray()));
+            _melding = null;
+        }
+        catch (Exception ex) { Meld("Het bestand lezen is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _invoer++;
+    }
+
+    private async Task ZetOver()
+    {
+        if (_import is not { } im || _bezig || !MagImporteren) return;
+        try
+        {
+            if (_rijen.Count > 0 && !await JS.InvokeAsync<bool>("mdeBevestig",
+                    $"De planning in de app ({_rijen.Count} rijen) wordt vervangen door dit bestand ({im.Rijen.Count} rijen). Doorgaan?",
+                    new { kop = "⚠ Planning vervangen", ja = "Vervangen" })) return;
+        }
+        catch { return; }
+        _bezig = true;
+        try
+        {
+            await Bord.ZetOverAsync(im);
+            _import = null; _importOpen = false; _open.Clear();
+            await Laad();
+            Meld($"De planning is overgezet: {_top.Count} groepen en {_rijen.Count} rijen.");
+        }
+        catch (Exception ex) { Meld("Overzetten is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
+}
