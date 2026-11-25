@@ -4585,6 +4585,24 @@ html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d
 .wk-menu button.plb-menukleur { display: flex; align-items: center; gap: 8px; }
 .plb-menukleur i { width: 12px; height: 12px; border-radius: 50%; }
 .plb-menupijl { margin-left: auto; font-size: 10px; opacity: .7; }
+/* Artikelen > Inventor-boom (Components/InventorBoomVenster.razor) */
+.ib-venster { width: min(1100px, 96vw); max-height: 92vh; display: flex; flex-direction: column; }
+.ib-venster .bijlagekop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ib-venster .factuurvenster-inhoud { display: flex; flex-direction: column; min-height: 0; }
+.ib-balk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ib-balk select { flex: 1 1 320px; min-width: 0; width: auto; }
+.ib-tel { margin-left: auto; font-size: 13px; opacity: .7; }
+.ib-schuif { overflow: auto; min-height: 0; max-height: calc(92vh - 170px); }
+.ib-los .ib-schuif { max-height: calc(100vh - 220px); }
+.ib-tabel { width: 100%; font-size: 13px; }
+.ib-tabel td { white-space: nowrap; }
+.ib-tabel td small { opacity: .65; margin-left: 8px; }
+.ib-tabel .ib-getal { text-align: right; }
+.ib-tabel tr.ib-assy td:first-child span { font-weight: 600; }
+.ib-tabel tr.ib-zonder td { color: #b3261e; }
+html[data-thema="donker"] .ib-tabel tr.ib-zonder td { color: #ffb4ae; }
+.ib-pijl { display: inline-block; width: 16px; border: none; background: none; padding: 0; font: inherit; font-size: 10px; color: inherit; opacity: .7; cursor: pointer; }
+span.ib-pijl { cursor: default; }
 /* tab Planning van een project (Components/ProjectPlanning.razor) */
 .pp-kop { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; font-size: 1rem; }
 .pp-kop:first-child { margin-top: 2px; }

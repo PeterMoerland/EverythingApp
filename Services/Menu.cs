@@ -105,6 +105,8 @@ public static class Menu
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen", Icoon: "package"),
                 new MenuItem("Samenstellingen", "/artikelen/samenstellingen", Icoon: "boxes"),
+                // de export uit Inventor als boom, alleen kijken (wens gebruiker 25-11-2026)
+                new MenuItem("Inventor-boom", "/artikelen/inventor-boom", Icoon: "folder-tree"),
                 new MenuItem("Solar-prijzen", "/artikelen/solar-prijzen", Icoon: "package"),
                 new MenuItem("Maakdelen", "/maakdelen", Icoon: "cog"),
                 new MenuItem("Artikelgroepen", Icoon: "folder-tree"),

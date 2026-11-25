@@ -1,0 +1,144 @@
+﻿@inject InventorBoom Boom
+
+@* ============================================================================
+   Artikelen ▸ Inventor-boom (wens gebruiker 25-11-2026): de samenstelling die uit Inventor is geëxporteerd
+   (InventorAssemblyTree), als boom. Alleen kijken; artikelsamenstellingen hiervan maken komt later.
+   Per werknemer staat er één export (een nieuwe vervangt de vorige), te kiezen bovenin.
+   ============================================================================ *@
+
+@if (Open)
+{
+    @* Ingebed = op de pagina Artikelen ▸ Inventor-boom: geen venster eromheen, geen kop en geen sluitknop *@
+    <div class="@(Ingebed ? "ib-pagina" : "cmdk-overlay midden")" @onclick="Sluit">
+        <div class="@(Ingebed ? "ib-los" : "factuurvenster ib-venster")" @onclick:stopPropagation role="@(Ingebed ? null : "dialog")" aria-label="Inventor-boom"
+             tabindex="-1" @onkeydown='e => { if (e.Key == "Escape") _ = Sluit(); }'>
+            @if (!Ingebed)
+            {
+                <header class="bijlagekop">
+                    <h2>Inventor-boom</h2>
+                    <button type="button" class="klein" title="Sluiten (Esc)" @onclick="Sluit">✕</button>
+                </header>
+            }
+            <div class="@(Ingebed ? null : "factuurvenster-inhoud")">
+                @if (_fout is not null) { <p class="uitleg">Lezen is niet gelukt: @_fout</p> }
+                else if (!_geladen) { <p class="uitleg">Laden…</p> }
+                else if (_exports.Count == 0) { <p class="uitleg">Er staat nog geen export uit Inventor (tabel InventorAssemblyTree is leeg). Exporteer een samenstelling met de knop Stuklijst in Inventor.</p> }
+                else
+                {
+                    <div class="ib-balk">
+                        <select value="@_gekozen" @onchange="Kies" aria-label="Welke export">
+                            @foreach (var e in _exports)
+                            {
+                                <option value="@e.WerknemerId">@(e.Samenstelling.Length > 0 ? e.Samenstelling : "(zonder naam)") — @(e.Door.Length > 0 ? e.Door : "onbekend"), @(e.Op?.ToString("d-M-yyyy HH:mm") ?? "zonder datum") (@e.Regels regels)</option>
+                            }
+                        </select>
+                        <button type="button" class="klein" @onclick="AllesOpen">Alles uitvouwen</button>
+                        <button type="button" class="klein" @onclick="() => _open.Clear()">Alles inklappen</button>
+                        <span class="ib-tel">@_regels.Count regels@(_zonder > 0 ? $", {_zonder} zonder artikel" : "")</span>
+                    </div>
+                    <div class="ib-schuif">
+                        <table class="kiezer-tabel ib-tabel">
+                            <thead><tr><th>Onderdeel</th><th class="ib-getal">Aantal</th><th>Artikel</th><th>Materiaal</th><th>Vault</th></tr></thead>
+                            <tbody>
+                                @foreach (var (r, diepte) in Zichtbaar())
+                                {
+                                    var groep = _kinderen.ContainsKey(r.Volgnummer);
+                                    var open = groep && _open.Contains(r.Volgnummer);
+                                    <tr @key="r.Volgnummer" class="@(r.Samenstelling ? "ib-assy" : "") @(r.ArtikelId is null ? "ib-zonder" : "")">
+                                        <td style="@($"padding-left:{diepte * 16 + 6}px")">
+                                            @if (groep) { <button type="button" class="ib-pijl" aria-expanded="@open" title="@(open ? "Dichtklappen" : "Openklappen")" @onclick="() => Wissel(r.Volgnummer)">@(open ? "▾" : "▸")</button> }
+                                            else { <span class="ib-pijl"></span> }
+                                            <span>@Naam(r)</span>
+                                            @if (Extra(r) is { Length: > 0 } extra) { <small> @extra</small> }
+                                        </td>
+                                        <td class="ib-getal">@r.Aantal</td>
+                                        <td>@(r.ArtikelId is int a ? (r.ArtikelCode.Length > 0 ? r.ArtikelCode : "#" + a) : "geen artikel")</td>
+                                        <td>@r.Materiaal</td>
+                                        <td>@(r.InVault is null ? "" : r.InVault == true ? "v" + (r.VaultVersie?.ToString() ?? "?") : "niet in Vault")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+    /// <summary>Op een eigen pagina tonen in plaats van als venster.</summary>
+    [Parameter] public bool Ingebed { get; set; }
+
+    private List<InventorExport> _exports = new();
+    private List<InventorRegel> _regels = new();
+    private Dictionary<int, List<InventorRegel>> _kinderen = new();
+    private List<InventorRegel> _top = new();
+    private readonly HashSet<int> _open = new();
+    private bool _geladen, _was;
+    private int _gekozen, _zonder;
+    private string? _fout;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Open) { _was = false; return; }
+        if (_was) return;
+        _was = true; _geladen = false; _fout = null;
+        try
+        {
+            _exports = await Boom.ExportsAsync();
+            if (_exports.Count > 0)
+            {
+                if (!_exports.Any(e => e.WerknemerId == _gekozen)) _gekozen = _exports[0].WerknemerId;
+                await Laad();
+            }
+        }
+        catch (Exception ex) { _fout = ex.GetBaseException().Message; }
+        _geladen = true;
+    }
+
+    private async Task Kies(ChangeEventArgs e)
+    {
+        if (!int.TryParse((string?)e.Value, out var w)) return;
+        _gekozen = w;
+        try { await Laad(); } catch (Exception ex) { _fout = ex.GetBaseException().Message; }
+    }
+
+    private async Task Laad()
+    {
+        _regels = await Boom.RegelsAsync(_gekozen);
+        var nummers = _regels.Select(r => r.Volgnummer).ToHashSet();
+        // een regel waarvan de ouder niet bestaat hoort bovenaan, anders is hij onvindbaar
+        _top = _regels.Where(r => r.Ouder is not int o || !nummers.Contains(o) || o == r.Volgnummer).ToList();
+        _kinderen = _regels.Where(r => r.Ouder is int o && nummers.Contains(o) && o != r.Volgnummer).GroupBy(r => r.Ouder!.Value).ToDictionary(g => g.Key, g => g.ToList());
+        _zonder = _regels.Count(r => r.ArtikelId is null);
+        _open.Clear();
+        // de samenstelling zelf en het eerste niveau eronder staan open
+        foreach (var t in _top) { _open.Add(t.Volgnummer); if (_kinderen.TryGetValue(t.Volgnummer, out var k)) foreach (var x in k) _open.Add(x.Volgnummer); }
+    }
+
+    private IEnumerable<(InventorRegel R, int Diepte)> Zichtbaar() => _top.SelectMany(t => Tak(t, 0));
+
+    private IEnumerable<(InventorRegel R, int Diepte)> Tak(InventorRegel r, int diepte)
+    {
+        yield return (r, diepte);
+        if (diepte > 40 || !_open.Contains(r.Volgnummer) || !_kinderen.TryGetValue(r.Volgnummer, out var kinderen)) yield break;
+        foreach (var k in kinderen)
+            foreach (var x in Tak(k, diepte + 1)) yield return x;
+    }
+
+    private void Wissel(int nr) { if (!_open.Remove(nr)) _open.Add(nr); }
+    private void AllesOpen() { foreach (var k in _kinderen.Keys) _open.Add(k); }
+
+    /// <summary>Een MDE-artikel staat er met alleen zijn ArtikelID in (de tekstkolommen zijn dan leeg): dan de naam uit Artikelen.</summary>
+    private static string Naam(InventorRegel r)
+        => r.Partnummer.Length > 0 ? r.Partnummer : r.ArtikelOmschrijving.Length > 0 ? r.ArtikelOmschrijving : r.ArtikelCode.Length > 0 ? r.ArtikelCode
+         : r.ArtikelId is int a ? "artikel " + a : "(zonder naam)";
+
+    private static string Extra(InventorRegel r)
+        => r.Partnummer.Length > 0 ? (r.Omschrijving.Length > 0 ? r.Omschrijving : r.ArtikelOmschrijving) : "";
+
+    private async Task Sluit() { if (!Ingebed) await OpGesloten.InvokeAsync(); }
+}

@@ -554,6 +554,14 @@ i.v.m. 1Password".
   **Nog niet** (volgende stappen): iets doen met de koppeling (bv. uren of status uit het project tonen)
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
+- **Artikelen ▸ Inventor-boom** (wens gebruiker 25-11-2026; geen script): tegel in de module Artikelen
+  (`/artikelen/inventor-boom`, `Components/Pages/InventorBoomPagina.razor`; eerst een knop naast "+ Artikel") toont
+  `Components/InventorBoomVenster.razor` ingebed (`Ingebed`; het kan ook nog als venster), een leesscherm op **`InventorAssemblyTree`** (`Services/InventorBoom.cs`,
+  singleton, alleen lezen). Die tabel vult de knop Stuklijst van de Inventor-add-in (voorheen de VBA-macro): per
+  `CreatedBy` één export (een nieuwe vervangt de vorige), `Volgnummer`/`ParentVolgnummer`/`Level`, een MDE-artikel
+  alleen met `ArtikelID` (tekst leeg, dan de naam uit `Artikelen`). Rood = geen ArtikelID. De door de gebruiker
+  genoemde `InventorProjectBOM`/`InventorProjectBOM_Items` zijn niet gebruikt: Items is leeg (koppen uit feb–mrt 2025).
+  **Later:** hieruit artikelsamenstellingen maken, aangevuld met wat niet in Inventor getekend is (kabels).
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
   `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;
   `Licenties:Geheugen` = alles in het geheugen met een testsleutel). Een **tegel per product** (`?product=`): nu

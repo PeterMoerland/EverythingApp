@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Artikelen** — Nieuw: tegel **Inventor-boom** (Artikelen ▸ Inventor-boom): de samenstelling die uit Inventor is geëxporteerd als boom, met aantal, artikel, materiaal en Vault-versie. Regels zonder artikel staan rood. Alleen om te bekijken; artikelsamenstellingen ervan maken komt later (verzoek van Peter)
 - **Planning** — Nieuw: in de kolom **Wie** staat een naam **oranje** als het geen werknemer in dienst is (inleners tellen als werknemer): Werkplaats, een vacature, een leverancier of iemand die uit dienst is (verzoek van Peter)
 - **Planning** — Verbeterd: **dubbelklik** op een rij (naam of Wie) opent Wijzigen; open- en dichtvouwen gaat alleen nog met het pijltje. In het rechtermuismenu van een groep staan **Alles uitvouwen** en **Alles inklappen** (die groep met alles eronder) (verzoek van Peter)
 - **Projecten** — Nieuw (probeersel): een tab **Planning** bij een project waar een groep uit de Planning aan gekoppeld is. Daarin de **mijlpalen** met de datum en hoe lang het nog duurt, en de **taken die nu lopen** met wie, tot wanneer en hoe lang nog. De naam van een rij opent hem in de planning (verzoek van Peter)
