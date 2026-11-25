@@ -102,10 +102,11 @@
                             <button class="klein" title="Orderbevestigingen uit de inkooppostbus: wat vanzelf bij een bestelling is gezet, en wat je zelf moet toewijzen"
                                     @onclick="() => _bevestigingenOpen = true">📥 Bevestigingen@(_bevestigingenTeDoen > 0 ? $" ({_bevestigingenTeDoen})" : "")</button>
                         }
-                        <label class="vink" title="Bestellingen met status Cancel ook in de lijst">
-                            <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde tonen
-                        </label>
                     </div>
+                    @* op een eigen regel onder de knoppen, links (wens gebruiker 25-11-2026; stond rechts naast de knoppen) *@
+                    <label class="vink" style="display:flex;width:100%;margin-top:.35rem" title="Bestellingen met status Cancel ook in de lijst">
+                        <input type="checkbox" checked="@_metGeannuleerd" @onchange="GeannuleerdGewijzigd" /> Geannuleerde tonen
+                    </label>
                 </div>
 
                 <NieuweBestellingVenster Open="_nieuwOpen" Leveranciers="_leveranciers" Werkorders="NieuwWerkorders"

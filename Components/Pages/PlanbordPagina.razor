@@ -54,6 +54,12 @@
             <span class="plb-tijdvak">@_van.ToString("d MMM yyyy", Nl) – @Tot.AddDays(-1).ToString("d MMM yyyy", Nl)</span>
             <span class="groei"></span>
             <input class="plb-zoek" type="search" placeholder="🔍 Zoek: activiteit of persoon…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" autocomplete="off" />
+            @* groepfilter: alleen één groep van het bovenste niveau, meteen opengeklapt (ook een groep die voorbij is) *@
+            <select class="plb-wiefilter @(_groepFilter is not null ? "actief" : "")" value="@(_groepFilter?.ToString() ?? string.Empty)" @onchange="KiesGroep"
+                    aria-label="Eén groep tonen" title="Alleen één groep tonen">
+                <option value="">Alle groepen</option>
+                @foreach (var g in _top.OrderBy(g => g.Naam, StringComparer.CurrentCultureIgnoreCase)) { <option value="@g.Id">@g.Naam</option> }
+            </select>
             @* overzicht per persoon: alleen de rijen van die persoon, met de groepen erboven en alles eronder *@
             <select class="plb-wiefilter @(_wieFilter.Length > 0 ? "actief" : "")" value="@_wieFilter" @onchange="e => _wieFilter = (string?)e.Value ?? string.Empty"
                     aria-label="Planning van één persoon" title="Alleen tonen wat er voor één persoon gepland staat">
@@ -459,6 +465,15 @@
     private Dictionary<int, List<string>> _tekstNamen = new();
     private bool Filtert => Zoekt || _wieFilter.Length > 0;
 
+    // ---- groepfilter (25-11-2026): alleen deze groep van het bovenste niveau ----
+    private int? _groepFilter;
+
+    private void KiesGroep(ChangeEventArgs e)
+    {
+        _groepFilter = int.TryParse((string?)e.Value, out var g) && _opId.ContainsKey(g) ? g : null;
+        if (_groepFilter is int id) _open.Add(id);      // de gekozen groep meteen open
+    }
+
     /// <summary>Staat deze rij op naam van de gekozen persoon? Een werknemer telt ook als zijn korte naam of voornaam nog als tekst bij Wie staat.</summary>
     private bool VanPersoon(PlanRij r)
     {
@@ -482,7 +497,7 @@
     private bool ToonRij(int id)
     {
         if (!_opId.TryGetValue(id, out var rij)) return false;
-        _zoek = ""; _wieFilter = "";
+        _zoek = ""; _wieFilter = ""; _groepFilter = null;
         var top = rij;
         for (var x = rij; x is not null; x = x.OuderId is int o && _opId.TryGetValue(o, out var ouder) ? ouder : null)
         {
@@ -530,6 +545,7 @@
         var (rijen, items) = await Bord.AllesAsync();
         _rijen = rijen;
         _opId = rijen.ToDictionary(r => r.Id);
+        if (_groepFilter is int gf && !(_opId.TryGetValue(gf, out var gr) && gr.OuderId is null)) _groepFilter = null;     // de groep is weg of verhangen
         // een rij waarvan de ouder niet bestaat hoort bovenaan, anders is hij onvindbaar
         _top = rijen.Where(r => r.OuderId is not int o || !_opId.ContainsKey(o)).ToList();
         _kinderen = rijen.Where(r => r.OuderId is int o && _opId.ContainsKey(o)).GroupBy(r => r.OuderId!.Value).ToDictionary(g => g.Key, g => g.ToList());
@@ -678,10 +694,12 @@
         }
         foreach (var r in _top)
         {
+            if (_groepFilter is int alleen && r.Id != alleen) continue;
             // voorbij = er staat wel iets in, maar niets meer in de laatste vier weken of later; een lege groep blijft staan
             var laatste = _laatste.GetValueOrDefault(r.Id);
-            // zoeken kijkt ook in wat voorbij is; het filter per persoon niet (dat volgt het vinkje)
-            if (!_ookVoorbij && !Zoekt && laatste != DateTime.MinValue && laatste < grens) continue;
+            // zoeken kijkt ook in wat voorbij is, en een groep die je zelf kiest staat er altijd; het filter per persoon
+            // volgt het vinkje
+            if (!_ookVoorbij && !Zoekt && _groepFilter is null && laatste != DateTime.MinValue && laatste < grens) continue;
             foreach (var x in Tak(r, 1, raak, onderTreffer: false)) yield return x;
         }
     }

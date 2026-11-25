@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Bestellingen** — Verbeterd: het vinkje **Geannuleerde tonen** staat op een eigen regel onder de knoppen, links (verzoek van Peter)
+- **Planning** — Nieuw: een **groepfilter** naast het zoekvak: kies een groep en je ziet alleen die groep, meteen opengeklapt (ook een groep die al voorbij is). Te combineren met het filter per persoon en met zoeken (verzoek van Peter)
 - **Planning** — Verbeterd: de kleur van een rij is weer een zachte tint met een gekleurde streep links (de volle kleur was te fel); nog steeds alleen achter Activiteit en Wie (verzoek van Peter)
 - **Planning** — Nieuw: **Ctrl+Z** (of de knop ↶) maakt je laatste wijziging ongedaan: een balk verslepen, langer of korter maken, wijzigen of verwijderen, een rij toevoegen, wijzigen, verplaatsen of verwijderen (met alles eronder), een kleur en een koppeling. Tot dertig stappen terug, alleen je eigen wijzigingen in het scherm dat open staat. In het rechtermuismenu staat een streep onder de +-keuzes (verzoek van Peter)
 - **Planning** — Verbeterd: bij het koppelen aan een project vind je projecten nu ook op de **naam van de klant** (typ "weyers" en je krijgt de projecten van Weyers) (verzoek van Peter)

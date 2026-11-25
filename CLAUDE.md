@@ -533,6 +533,8 @@ i.v.m. 1Password".
   Relaties: de klant zelf, zijn projecten en de werkorders daarvan; hooguit 20). `ToonRij` schuift ook de tijdbalk:
   staat er van de rij en wat eronder hangt niets in beeld, dan naar de eerste balk die nog loopt of komt (anders de
   laatste), twee weken ervoor.
+  **Groepfilter (25-11-2026)**: keuzelijst met de groepen van het bovenste niveau (`_groepFilter`, `KiesGroep`);
+  `Zichtbaar` slaat de andere over en negeert dan "voorbij"; te combineren met zoeken en het filter per persoon.
   **Ongedaan maken (25-11-2026)**: het scherm houdt een stapel `_terug` bij (hooguit 30; `Onthoud(wat, terug)` na elke
   geslaagde `Doe`), `OngedaanMaken` (`[JSInvokable]`, via het bestaande `mdeUndo` = Ctrl+Z, en de knop ↶) draait de
   laatste terug. Een verwijderde rij of balk komt terug met zijn oude nummers (`Planbord.HerstelRijenAsync`,
