@@ -10,7 +10,7 @@
 
    M-Pede: rechts de lijst, links de gegevens van de gekozen regel (zoals in het Python-programma), met daaronder de
    knop voor een nieuwe licentie. Die opent een venster: producttype en serienummer van de robot (typen, of de QR-code
-   op de robot met de telefoon fotograferen), waarna het serienummer van de vierde drive uit Producten komt.
+   op de robot met de telefoon fotograferen), waarna het serienummer van Joint3 (Drive B) uit Producten komt.
    Toegang: het recht Licenties (Werknemers ▸ Rechten) of Directie. Een code komt nooit in het logboek. *@
 
 <PageTitle>Licenties — MDE</PageTitle>
@@ -103,7 +103,7 @@
                                 else if (g.ProductId is int pid) { <a href="@($"producten?product={pid}")" title="Deze robot openen in Producten">@g.Robot</a> }
                                 else { @g.Robot }
                             </dd>
-                            <dt>Serienummer 4e drive</dt><dd class="lc-mono">@g.Serienummer</dd>
+                            <dt>Serienummer Joint3 (Drive B)</dt><dd class="lc-mono">@g.Serienummer</dd>
                             <dt>Gemaakt</dt><dd>@g.Datum.ToString("d-M-yyyy HH:mm")@(g.Door.Length > 0 ? " · " + g.Door : "")</dd>
                             <dt>Notitie</dt>
                             <dd>
@@ -153,7 +153,7 @@
                 else
                 {
                     <table class="cs-tabel lc-tabel">
-                        <thead><tr><th>Datum</th><th>Robot</th><th>Serienummer 4e drive</th><th>Code</th><th>Notitie</th><th>Door</th></tr></thead>
+                        <thead><tr><th>Datum</th><th>Robot</th><th>Serienummer Joint3 (Drive B)</th><th>Code</th><th>Notitie</th><th>Door</th></tr></thead>
                         <tbody>
                             @foreach (var l in Zichtbaar)
                             {
@@ -183,7 +183,7 @@
     }
 </div>
 
-@* ----- een nieuwe licentie: de robot kiezen, het serienummer van de vierde drive komt uit Producten ----- *@
+@* ----- een nieuwe licentie: de robot kiezen, het serienummer van Joint3 (Drive B) komt uit Producten ----- *@
 @if (_nieuw is { } n)
 {
     <div class="cmdk-overlay midden">
@@ -213,7 +213,7 @@
                 {
                     <p class="lc-info @(n.InfoGoed ? "goed" : "let-op")">@n.Info</p>
                 }
-                <label class="cs-veld"><span>Serienummer van de 4e drive in de EtherCAT-keten (decimaal of 16#hex)</span>
+                <label class="cs-veld"><span>Serienummer van Joint3 (Drive B) (decimaal of 16#hex)</span>
                     <input value="@n.DriveTekst" maxlength="20" autocomplete="off" inputmode="numeric"
                            @oninput="e => { n.DriveTekst = (string?)e.Value ?? string.Empty; n.DriveUitRobot = false; n.Uitkomst = null; }" /></label>
                 <label class="cs-veld"><span>Notitie (klant, project; mag leeg)</span>
@@ -389,7 +389,7 @@
 
     private string TypeNaam(int id) => _types.FirstOrDefault(t => t.Id == id).Naam ?? "";
 
-    /// <summary>Het serienummer van de robot is ingevuld (getypt of gescand): de robot opzoeken en het serienummer van zijn vierde drive erbij.</summary>
+    /// <summary>Het serienummer van de robot is ingevuld (getypt of gescand): de robot opzoeken en het serienummer van zijn Joint3 (Drive B) erbij.</summary>
     private async Task RobotGetypt(string? tekst)
     {
         if (_nieuw is not { } n) return;
@@ -401,7 +401,7 @@
         n.Robot = MPedeLicenties.ZoekRobot(_robots, n.RobotTekst);
         if (n.Robot is null)
         {
-            n.Info = $"Geen {TypeNaam(n.TypeId)} met serienummer \"{n.RobotTekst}\" gevonden in Producten. Je kunt het serienummer van de vierde drive hieronder met de hand invullen.";
+            n.Info = $"Geen {TypeNaam(n.TypeId)} met serienummer \"{n.RobotTekst}\" gevonden in Producten. Je kunt het serienummer van Joint3 (Drive B) hieronder met de hand invullen.";
             return;
         }
         try
@@ -411,7 +411,7 @@
             {
                 n.DriveTekst = s.ToString();
                 n.DriveUitRobot = true;
-                n.Info = $"{TypeNaam(n.TypeId)} · {n.Robot.Serienummer} gevonden in Producten; het serienummer van de vierde drive is overgenomen.";
+                n.Info = $"{TypeNaam(n.TypeId)} · {n.Robot.Serienummer} gevonden in Producten; het serienummer van Joint3 (Drive B) is overgenomen.";
                 n.InfoGoed = true;
             }
             else n.Info = $"{TypeNaam(n.TypeId)} · {n.Robot.Serienummer} gevonden. " + drive.Uitleg;
@@ -452,7 +452,7 @@
         n.Fout = "";
         if (n.RobotTekst.Trim().Length == 0) { n.Fout = "Vul het serienummer van de robot in."; return; }
         var (nummer, fout) = MPedeLicenties.LeesSerienummer(n.DriveTekst);
-        if (nummer is not uint serie) { n.Fout = fout.Replace("van de J3-drive", "van de vierde drive"); return; }
+        if (nummer is not uint serie) { n.Fout = fout.Replace("van de J3-drive", "van Joint3 (Drive B)"); return; }
         var type = TypeNaam(n.TypeId);
         // de robot zoals hij in de lijst komt: "MPR-1 · 57"; zonder product alleen wat er getypt is
         var robot = n.Robot is { } r ? $"{type} · {r.Serienummer}" : type.Length > 0 ? $"{type} · {n.RobotTekst.Trim()}" : n.RobotTekst.Trim();

@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Licenties** — Verbeterd: het serienummer voor de licentie heet op het scherm nu overal **Joint3 (Drive B)** in plaats van "4e drive" (verzoek van Peter).
 - **Wiki** — Verbeterd: een artikel zonder tekst toont geen leeg vak meer, en hangt er precies één HTML-bestand aan, dan staat dat meteen in beeld (zonder eerst op Bekijken te klikken). Zo kan een artikel gewoon een HTML-pagina zijn (verzoek van Peter).
 - **Wiki** — Nieuw: de **volgorde van ruimtes** verander je door een ruimte tússen twee andere te slepen; er verschijnt een streep waar hij komt. Op een ruimte laten vallen hangt hem er nog steeds onder (verzoek van Peter).
 - **Hele app** — Verbeterd: het icoontje van een wachtwoordbeheerder (1Password en dergelijke) verschijnt niet meer in gewone tekstvakken, zoals de naam van een ruimte in de wiki. Bij een echt wachtwoordveld blijft het wel (melding van Peter).

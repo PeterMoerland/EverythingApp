@@ -52,7 +52,8 @@ public class MPedeLicenties
     private bool _metProduct;       // heeft LicentiesMPede de kolom ProductID (Licenties_MariaDB.sql opnieuw gedraaid)?
 
     /// <summary>
-    /// Waar het serienummer voor de licentie in Producten staat: de vierde drive in de EtherCAT-keten van de robot is de
+    /// Waar het serienummer voor de licentie in Producten staat. Op het scherm heet het "Joint3 (Drive B)" (zo noemen de
+    /// gebruikers het, 25-11-2026): de vierde drive in de EtherCAT-keten van de robot is de
     /// tweede drive op de RZ-print (MPR-PCBA-RZ), en die print heeft het als attribuut met deze bron (gevuld bij het
     /// uitlezen op de testplek). Nagekeken op de bestaande licenties (25-11-2026): hun serienummers staan precies daar.
     /// </summary>
@@ -116,7 +117,7 @@ public class MPedeLicenties
     public static (uint? Nummer, string Fout) LeesSerienummer(string? tekst)
     {
         var t = (tekst ?? "").Replace(" ", "").Trim();
-        if (t.Length == 0) return (null, "Vul het serienummer van de J3-drive in.");
+        if (t.Length == 0) return (null, "Vul het serienummer van Joint3 (Drive B) in.");
         ulong v;
         bool ok;
         if (t.StartsWith("16#", StringComparison.OrdinalIgnoreCase)) ok = ulong.TryParse(t[3..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v);
@@ -233,9 +234,9 @@ public class MPedeLicenties
             while (await r.ReadAsync()) gevonden.Add(r.GetString(0));
         }
         if (gevonden.Count == 0)
-            return new(null, "Bij deze robot is het serienummer van de vierde drive nog niet uitgelezen (Producten ▸ Programmeren en testen). Vul het hieronder met de hand in.");
+            return new(null, "Bij deze robot is het serienummer van Joint3 (Drive B) nog niet uitgelezen (Producten ▸ Programmeren en testen). Vul het hieronder met de hand in.");
         if (gevonden.Count > 1)
-            return new(null, $"Bij deze robot staan {gevonden.Count} verschillende serienummers voor de vierde drive ({string.Join(", ", gevonden)}). Kijk dat na in Producten en vul hier het goede in.");
+            return new(null, $"Bij deze robot staan {gevonden.Count} verschillende serienummers voor Joint3 (Drive B) ({string.Join(", ", gevonden)}). Kijk dat na in Producten en vul hier het goede in.");
         var (nummer, fout) = LeesSerienummer(gevonden[0]);
         return nummer is uint n ? new(n, "") : new(null, $"Het serienummer in Producten ({gevonden[0]}) is niet bruikbaar: {fout}");
     }
