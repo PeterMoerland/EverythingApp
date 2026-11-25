@@ -4506,6 +4506,15 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 .plb-pagina > * { flex: 0 0 auto; }
 .plb-pagina > .plb-bord { flex: 1 1 auto; min-height: 220px; overflow-x: hidden; overflow-y: auto; }
 .plb-bord { border: 1px solid var(--plb-rand); border-radius: 8px; background: var(--plb-wit); overflow: hidden; font-size: 12.5px; }
+/* de schuifbalk door de tijd, onder de tijdbalk (zelfde kolommen als een rij) */
+.plb-schuif { display: grid; grid-template-columns: minmax(180px, 320px) 130px minmax(0, 1fr); padding: 5px 1px 0; }
+.plb-schuif input { -webkit-appearance: none; appearance: none; width: 100%; height: 12px; margin: 0; padding: 0; border: none; border-radius: 6px; background: var(--plb-lijn); cursor: pointer; }
+.plb-schuif input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 110px; height: 12px; border: none; border-radius: 6px; background: var(--plb-zacht); opacity: .55; cursor: grab; }
+.plb-schuif input::-moz-range-thumb { width: 110px; height: 12px; border: none; border-radius: 6px; background: var(--plb-zacht); opacity: .55; cursor: grab; }
+.plb-schuif input:hover::-webkit-slider-thumb, .plb-schuif input:active::-webkit-slider-thumb { opacity: .9; }
+.plb-schuif input:hover::-moz-range-thumb { opacity: .9; }
+.plb-schuif input:disabled { opacity: .4; cursor: default; }
+@media (max-width: 900px) { .plb-schuif { grid-template-columns: minmax(120px, 200px) 0 minmax(0, 1fr); } }
 .plb-rij { display: grid; grid-template-columns: minmax(180px, 320px) 130px minmax(0, 1fr); min-height: 23px; border-top: 1px solid var(--plb-lijn); }
 .plb-rij:first-child { border-top: none; }
 .plb-naam, .plb-wie { padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }

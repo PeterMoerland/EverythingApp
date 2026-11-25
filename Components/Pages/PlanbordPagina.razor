@@ -59,12 +59,11 @@
             @if (MagPlannen)
             {
                 <button type="button" class="primair klein" title="Een nieuwe groep, onderaan de planning" @onclick="() => BeginRij(null, null, null)">+ Groep</button>
-                @if (_metWie && _losseNamen > 0)
-                {
-                    <button type="button" class="klein" title="De namen uit Tom's Planner in één keer aan werknemers koppelen (@_losseNamen namen staan nog als tekst)" @onclick="BeginNamen">Namen koppelen…</button>
-                }
+                @* de knop "Namen koppelen…" (BeginNamen, het venster _namenVenster) is op verzoek van de gebruiker weg
+                   (25-11-2026); het venster en KoppelNamenAsync staan er nog, NIET IN GEBRUIK *@
             }
-            @if (MagImporteren)
+            @* overzetten uit Tom's Planner: alleen nog zolang de planning leeg is (knop weg op verzoek, 25-11-2026) *@
+            @if (MagImporteren && _rijen.Count == 0)
             {
                 <button type="button" class="klein" @onclick="() => { _importOpen = !_importOpen; _import = null; }">Tom's Planner overzetten…</button>
             }
@@ -197,6 +196,14 @@
                         </div>
                     </div>
                 }
+            </div>
+
+            @* door de tijd schuiven: staat onder het bord en dus altijd in beeld; een stap = een week *@
+            <div class="plb-schuif">
+                <span></span><span></span>
+                <input type="range" min="0" max="@SchuifMax" step="1" value="@SchuifStand" disabled="@(SchuifMax == 0)"
+                       aria-label="Door de tijd schuiven" title="@($"Door de tijd schuiven ({_bereikVan.ToString("MMM yyyy", Nl)} – {_bereikTot.AddDays(-1).ToString("MMM yyyy", Nl)})")"
+                       @oninput="e => { if (int.TryParse((string?)e.Value, out var w)) _van = _bereikVan.AddDays(w * 7); }" />
             </div>
 
             <div class="plb-legenda">
@@ -466,6 +473,14 @@
         _items = items.GroupBy(i => i.RijId).ToDictionary(g => g.Key, g => g.OrderBy(i => i.Start).ToList());
         _laatste = new();
         foreach (var r in _top) Laatste(r.Id, 0);
+        // het bereik van de schuifbalk: van de eerste tot de laatste balk, en in elk geval van vier weken terug tot een half jaar vooruit
+        var eerste = Maandag(DateTime.Today.AddDays(-28)); var einde = DateTime.Today.AddDays(26 * 7);
+        foreach (var i in items)
+        {
+            if (i.Start < eerste) eerste = Maandag(i.Start);
+            if ((i.Einde ?? i.Start) > einde) einde = i.Einde ?? i.Start;
+        }
+        _bereikVan = eerste; _bereikTot = Maandag(einde).AddDays(7);
         _legenda = items.Where(i => !i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count())
                         .Select(g => (g.Key, Kleur(g.First().Kleur))).ToList();
         _symbolen = items.Where(i => i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
@@ -587,6 +602,11 @@
 
     private void Wissel(int id) { if (!_open.Remove(id)) _open.Add(id); }
     private void AllesDicht() { _open.Clear(); _zoek = ""; }
+    private DateTime _bereikVan = Maandag(DateTime.Today.AddDays(-28)), _bereikTot = Maandag(DateTime.Today.AddDays(27 * 7));
+    /// <summary>De schuifbalk onder het bord, in weken: 0 = de eerste balk van de planning links in beeld, het einde = de laatste rechts.</summary>
+    private int SchuifMax => Math.Max(0, (int)(_bereikTot - _bereikVan).TotalDays / 7 - _weken);
+    private int SchuifStand => Math.Clamp((int)(_van - _bereikVan).TotalDays / 7, 0, SchuifMax);
+
     private void Schuif(int weken) => _van = _van.AddDays(weken * 7);
     private void Vandaag() => _van = Maandag(DateTime.Today.AddDays(-28));
 

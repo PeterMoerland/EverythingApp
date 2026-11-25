@@ -516,8 +516,12 @@ i.v.m. 1Password".
   `KleurAsync`) en in het rijvenster (menukeuze heet nu "Wijzigen…"). Zonder de kolom (`KleurAanwezigAsync`) is er
   geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` = de volle kleur achter Activiteit en Wie (niet op de
   tijdbalk; eerst een tint, "beetje roze") en `--plb-rijtekst` = wit of donker (`Leesbaar`, op helderheid).
+  **Knoppen weg (25-11-2026, verzoek)**: "Namen koppelen…" staat niet meer op het scherm (venster en
+  `KoppelNamenAsync` bestaan nog, niet in gebruik) en "Tom's Planner overzetten…" alleen nog bij een lege planning.
   **Schuiven (25-11-2026)**: `.plb-pagina` is een kolom van 100% hoog en alleen `.plb-bord` schuift (de kop plakt
-  daarin bovenaan); knoppen en legenda blijven staan.
+  daarin bovenaan); knoppen en legenda blijven staan. Daaronder `.plb-schuif`: een `range` in weken die `_van` zet
+  (`SchuifStand`/`SchuifMax`, bereik `_bereikVan`–`_bereikTot` = eerste tot laatste balk, bepaald in `Laad`); de
+  tijdbalk zelf is niet breder dan het scherm, er wordt dus per week opnieuw getekend.
   **Nog niet** (volgende stappen): overzicht per persoon, iets doen met de koppeling
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.

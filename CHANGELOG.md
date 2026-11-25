@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Verbeterd: de knoppen **Namen koppelen…** en **Tom's Planner overzetten…** zijn weg (overzetten kan alleen nog zolang de planning leeg is). Werknemers koppel je per rij via Wijzigen… (verzoek van Peter)
+- **Planning** — Nieuw: een **schuifbalk** onder de tijdbalk om door de tijd te schuiven, van de eerste tot de laatste balk in de planning; hij staat altijd in beeld (verzoek van Peter)
 - **Planning** — Verbeterd: alleen de rijen schuiven nog; de knoppen, de maanden en weken en de legenda blijven in beeld (verzoek van Peter)
 - **Planning** — Verbeterd: de kleuren staan meteen in het rechtermuismenu van een rij; je hoeft niet meer eerst op Kleur te klikken (verzoek van Peter)
 - **Planning** — Verbeterd: de kleur van een rij is nu de volle kleur (was een lichte tint) en staat alleen achter Activiteit en Wie, niet meer op de tijdbalk (verzoek van Peter)
