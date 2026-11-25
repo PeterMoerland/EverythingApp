@@ -170,7 +170,7 @@
                                 else { <span class="plb-koppel" title="@r.KoppelTekst">@r.KoppelKort</span> }
                             }
                         </div>
-                        <div class="plb-wie" title="@WieVoluit(r)">@WieTekst(r)</div>
+                        <div class="plb-wie" title="@WieVoluit(r)" @ondblclick="() => BeginRij(r, null, null)">@WieTekst(r)</div>
                         <div class="plb-tijd" @ondblclick="e => NieuwOpPlek(r, e)" title="@(MagPlannen ? "Dubbelklik voor een nieuwe balk; rechtermuisknop voor meer" : null)">
                             @if (VandaagPct() is { } vp) { <i class="plb-vandaag" style="@($"left:{vp}")"></i> }
                             @if (groep && !open)

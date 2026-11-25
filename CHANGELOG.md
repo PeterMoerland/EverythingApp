@@ -7,7 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
-- **Planning** — Verbeterd: **dubbelklik** op een rij opent Wijzigen; open- en dichtvouwen gaat alleen nog met het pijltje. In het rechtermuismenu van een groep staan **Alles uitvouwen** en **Alles inklappen** (die groep met alles eronder) (verzoek van Peter)
+- **Planning** — Verbeterd: **dubbelklik** op een rij (naam of Wie) opent Wijzigen; open- en dichtvouwen gaat alleen nog met het pijltje. In het rechtermuismenu van een groep staan **Alles uitvouwen** en **Alles inklappen** (die groep met alles eronder) (verzoek van Peter)
 - **Projecten** — Nieuw (probeersel): een tab **Planning** bij een project waar een groep uit de Planning aan gekoppeld is. Daarin de **mijlpalen** met de datum en hoe lang het nog duurt, en de **taken die nu lopen** met wie, tot wanneer en hoe lang nog. De naam van een rij opent hem in de planning (verzoek van Peter)
 - **Bestellingen** — Verbeterd: het vinkje **Geannuleerde tonen** staat op een eigen regel onder de knoppen, links (verzoek van Peter)
 - **Planning** — Nieuw: een **groepfilter** naast het zoekvak: kies een groep en je ziet alleen die groep, meteen opengeklapt (ook een groep die al voorbij is). Te combineren met het filter per persoon en met zoeken (verzoek van Peter)
