@@ -340,6 +340,13 @@ public class HuidigeGebruiker
     /// </summary>
     public bool MagEngineering => !Gekoppeld || Mag("Engineering") || Mag("Directie");
 
+    /// <summary>
+    /// Tools ▸ Licenties (licentiecodes maken, als eerste voor M-Pede Robotics; Licenties_MariaDB.sql, wens gebruiker
+    /// 25-11-2026): het recht Licenties, of Directie. Bewust zonder uitzondering voor een gebruiker zonder gekoppelde
+    /// werknemer, en op een werkplek nooit (<see cref="Mag"/> geeft daar nee): een code is geld waard.
+    /// </summary>
+    public bool MagLicenties => Mag("Licenties") || Mag("Directie");
+
     /// <summary>Verkooporders invoeren (Bestellingen ▸ Verkooporders): het recht Verkoop, of Directie (VerkoopOrders_MariaDB.sql).</summary>
     public bool MagVerkoop => Mag("Verkoop") || Mag("Directie");
 

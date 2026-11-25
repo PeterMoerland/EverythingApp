@@ -190,7 +190,8 @@
                                     <div class="cs-kopje">Bijlagen</div>
                                     @foreach (var x in _bijlagen)
                                     {
-                                        <a class="wk-bijlage" href="@(Wiki.BijlageAdres + x.FileStoreId)" target="_blank" rel="noopener"
+                                        <a class="wk-bijlage @(_menu?.Bijlage?.FileStoreId == x.FileStoreId ? "gekozen" : "")" href="@(Wiki.BijlageAdres + x.FileStoreId)" target="_blank" rel="noopener"
+                                           @oncontextmenu="e => OpenBijlageMenu(e, x)" @oncontextmenu:preventDefault="MagSchrijven"
                                            title="@(x.IsAfbeelding ? "Openen" : "Downloaden")">@(x.IsAfbeelding ? "🖼" : x.IsHtml ? "🌐" : "📎") @x.Naam</a>
                                         @if (x.IsHtml)
                                         {
@@ -199,6 +200,7 @@
                                         }
                                     }
                                     @if (_bijlagen.Count == 0) { <span class="cs-zacht">Nog geen.</span> }
+                                    else if (MagSchrijven) { <span class="cs-zacht wk-biltip">rechtermuisknop op een bijlage: wissen</span> }
                                     @if (MagSchrijven && a.Actief)
                                     {
                                         <span class="cs-rijvlak">⬆ bestand toevoegen (sleep of klik)
@@ -336,7 +338,17 @@
 {
     <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
     <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 200px))")">
-        @if (mn.Ruimte is { } mr)
+        @if (mn.Bijlage is { } mb)
+        {
+            <div class="wk-menukop">@(mb.IsAfbeelding ? "🖼" : mb.IsHtml ? "🌐" : "📎") @mb.Naam</div>
+            @if (mb.IsHtml)
+            {
+                <button type="button" role="menuitem" @onclick="() => { _menu = null; _voorbeeldVan = mb.FileStoreId; }">Bekijken</button>
+            }
+            <a role="menuitem" href="@(Wiki.BijlageAdres + mb.FileStoreId)" target="_blank" rel="noopener" @onclick="() => _menu = null">@(mb.IsAfbeelding ? "Openen in een nieuw tabblad" : "Downloaden")</a>
+            <button type="button" role="menuitem" class="gevaar" @onclick="() => WisBijlage(mb)">Wissen…</button>
+        }
+        else if (mn.Ruimte is { } mr)
         {
             <div class="wk-menukop">@mr.Icoon @mr.Naam</div>
             @if (Wiki.Diepte(_ruimtes, mr.Id) < Wiki.MaxDiepte)
@@ -407,8 +419,38 @@
     private RuimteInvoer? _ruimteVenster;
 
     /// <summary>Het open menu van de rechtermuisknop: op welke ruimte (leeg = de lege plek in de zijbalk) en waar op het scherm.</summary>
-    private record MenuPlek(WikiRuimte? Ruimte, int X, int Y);
+    private record MenuPlek(WikiRuimte? Ruimte, int X, int Y, WikiBijlage? Bijlage = null);
     private MenuPlek? _menu;
+
+    private void OpenBijlageMenu(MouseEventArgs e, WikiBijlage bijlage)
+    {
+        if (!MagSchrijven) return;
+        _menu = new MenuPlek(null, (int)e.ClientX, (int)e.ClientY, bijlage);
+    }
+
+    /// <summary>
+    /// Een bijlage wissen, na een vraag: het bestand gaat echt weg (anders dan een artikel, dat inactief wordt). Staat
+    /// er in de tekst nog een verwijzing naar, dan zegt de vraag dat erbij.
+    /// </summary>
+    private async Task WisBijlage(WikiBijlage b)
+    {
+        _menu = null;
+        if (_artikel is not { } a || !MagSchrijven) return;
+        var inTekst = a.Inhoud.Contains($"({Wiki.BijlageAdres}{b.FileStoreId})", StringComparison.Ordinal);
+        try
+        {
+            var ja = await JS.InvokeAsync<bool>("mdeBevestig",
+                $"{b.Naam} wissen? Het bestand gaat echt weg en is niet terug te halen."
+                + (inTekst ? " In de tekst van dit artikel staat nog een verwijzing naar dit bestand; die werkt daarna niet meer." : ""),
+                new { kop = "⚠ Bijlage wissen", ja = "Wissen" });
+            if (!ja) return;
+            var weg = await Wiki.BijlageVerwijderAsync(a.Id, b.FileStoreId);
+            if (_voorbeeldVan == b.FileStoreId) _voorbeeldVan = null;
+            _bijlagen = await Wiki.BijlagenAsync(a.Id);
+            Meld(weg ? $"{b.Naam} is gewist." : $"{b.Naam} stond er al niet meer.");
+        }
+        catch (Exception ex) { Meld("Wissen is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
 
     private void OpenMenu(MouseEventArgs e, WikiRuimte? ruimte)
     {

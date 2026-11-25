@@ -454,6 +454,24 @@ i.v.m. 1Password".
   `@key` na elke upload. Tonen met `ActMarkdown.Html(tekst, document: true)` (gewone regelovergangen, geen
   #kaartlinks, HTML en onveilige links eruit). Downloaden: `GET /claude-shares/versie/{id}`. Link naar een document:
   `?project=&doc=`. Nog niet: zichtbaar op het Activity board of bij Projecten (gebruiker: later), zoeken in de tekst.
+- **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
+  `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;
+  `Licenties:Geheugen` = alles in het geheugen met een testsleutel). Een **tegel per product** (`?product=`): nu
+  **M-Pede Robotics** (`mpede`); **Padplanning** staat er uitgeschakeld bij (volgt later, mogelijk met eigen velden en
+  dus een eigen tabel). De licentiecode komt uit het Python-programma van Gerard (`MPR_DebugTool.pyw` op de
+  projectschijf; de rest daarvan blijft een los programma): FNV-1a 32 bit over het serienummer van de J3-drive (4 bytes,
+  laagste eerst) + een geheime sleutel van 24 bytes = `Robot.Config.LicenseKey` (`MPedeLicenties.Bereken`; in de PLC
+  `nMPR\nService\mprLicenseCode`). **De sleutel** staat in appsettings.json (`Licenties:MPedeSleutel`, 48 hex-tekens uit
+  `mpr_license.key`) en komt nooit in beeld, logboek of Git; zonder sleutel is de lijst te lezen maar maakt de app
+  geen code. Uitgegeven codes: tabel `LicentiesMPede` (datum, serienummer, code, robot, notitie, door, vervallen) in
+  plaats van `licenses_issued.csv`; dat bestand neem je op het scherm over (`ImporteerAsync`: rekent elke code opnieuw
+  uit en weigert de regel als hij afwijkt, wat meteen de sleutel controleert). Regels uit Gerards programma
+  overgenomen: serienummer decimaal/`16#`/`0x`; robotnummer verplicht; een serienummer dat er al staat geeft eerst de
+  vraag "toch toevoegen"; precies dezelfde regel (serienummer, robot, notitie) nooit tweemaal. Weghalen = vervallen.
+  Recht: nieuwe kolom `Werknemers.Licenties` (`HuidigeGebruiker.MagLicenties` = recht of Directie, **zonder** de
+  uitzondering "niet gekoppeld"); `WerknemerVelden`, `Menu`, `MainLayout`, `Module.razor` kennen het. Getoetst tegen
+  de Python-berekening met een testsleutel (zelfde codes); **niet getest** met de echte sleutel, de echte tabel en
+  het recht.
 - **Wiki, fase 1** (opzet van Freek, prototype `wiki_prototype.html` buiten de repo; 25-11-2026; script
   **`Wiki_MariaDB.sql`**, zelf draaien): menu **Wiki** (`/wiki`, `Components/Pages/WikiPagina.razor`,
   `Services/Wiki.cs`, singleton; `Wiki:Geheugen` = alles in het geheugen). **Besluiten gebruiker:** de database is
@@ -471,7 +489,9 @@ i.v.m. 1Password".
   markdown (`WikiArtikelen`: sectie, tags, optioneel `ProjectID`). Elke keer opslaan = een regel in `WikiVersies`;
   terugzetten = de oude titel en tekst als nieuwe versie; weghalen = `Actief` 0. **De tekst staat in de database**
   (anders dan Claude Shares) zodat zoeken een gewone LIKE-query is; bijlagen en plaatjes in de filestore, **soort 346**
-  (MasterID = artikel), getoond via `GET /wiki/bijlage/{id}` (een niet-plaatje altijd als download). Een
+  (MasterID = artikel), getoond via `GET /wiki/bijlage/{id}` (een niet-plaatje altijd als download). **Een bijlage
+  wissen** (wens gebruiker 25-11-2026): rechtermuisknop op de bijlage ▸ Wissen…, na `mdeBevestig`; het bestand gaat
+  echt weg (`Wiki.BijlageVerwijderAsync`, alleen als hij bij dit artikel hoort) — het enige in de wiki dat verdwijnt. Een
   **HTML-bijlage bekijken** (wens gebruiker 25-11-2026): `GET /wiki/bijlage/{id}/voorbeeld` geeft het bestand als
   pagina met de kop `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; …` (`WikiApi.VoorbeeldBeleid`):
   eigen script en opmaak werken, maar het bestand heeft een afgesloten herkomst (geen cookies, geen opslag, geen

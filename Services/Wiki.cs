@@ -538,6 +538,18 @@ public class Wiki
         return new WikiBijlage(await _store.ToevoegenAsync(m, naam, StoreType, artikelId, wie), naam);
     }
 
+    /// <summary>
+    /// Een bijlage echt wissen: het bestand uit de filestore en de regel erbij (wens gebruiker 25-11-2026; het enige in
+    /// de wiki dat wel verdwijnt). Alleen als hij bij dit artikel hoort. False = hij stond er niet (meer).
+    /// </summary>
+    public async Task<bool> BijlageVerwijderAsync(int artikelId, int fileStoreId)
+    {
+        if (_geheugen) lock (_slot) return _bijlagen.RemoveAll(b => b.ArtikelId == artikelId && b.B.FileStoreId == fileStoreId) > 0;
+        if ((await BijlagenAsync(artikelId)).All(b => b.FileStoreId != fileStoreId)) return false;
+        await _store.VerwijderAsync(fileStoreId);
+        return true;
+    }
+
     /// <summary>Een bijlage om te tonen of te downloaden: uit het geheugen of het pad in de filestore.</summary>
     public async Task<(byte[]? Inhoud, string? Pad, string Naam)?> BijlageAsync(int fileStoreId)
     {

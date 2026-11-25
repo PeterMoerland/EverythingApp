@@ -107,6 +107,8 @@ public static class WerknemerVelden
             new Veld("Netwerk (IP-adressen)", VeldType.JaNee, new[] { "Netwerk" }),
             // Tools > Claude Shares: documenten uit Claude bij een project (ClaudeShares_MariaDB.sql)
             new Veld("Engineering (Claude Shares)", VeldType.JaNee, new[] { "Engineering" }),
+            // Tools > Licenties: licentiecodes maken, als eerste voor M-Pede Robotics (Licenties_MariaDB.sql)
+            new Veld("Licenties (codes maken)", VeldType.JaNee, new[] { "Licenties" }),
             new Veld("Voorraadbeheer", VeldType.JaNee, new[] { "Voorraadbeheer", "voorraadbeheer" }),
             new Veld("Bestellingen", VeldType.JaNee, new[] { "Bestellingen", "bestellingen" }),
             // artikelen en samenstellingen wijzigen; kolom uit Werknemers_Artikelbeheer_MariaDB.sql

@@ -1,0 +1,304 @@
+@page "/tools/licenties"
+@inject MPedeLicenties Lic
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* Tools ▸ Licenties (wens gebruiker 25-11-2026): een tegel per product waarvoor MDE licentiecodes uitgeeft. Als eerste
+   M-Pede Robotics (Services/Licenties.cs, overgenomen uit MPR_DebugTool.pyw van Gerard); Padplanning staat er al als
+   tegel die nog niets doet. Welke tegel open staat volgt uit het adres (?product=mpede).
+   Toegang: het recht Licenties (Werknemers ▸ Rechten) of Directie. Een code komt nooit in het logboek. *@
+
+<PageTitle>Licenties — MDE</PageTitle>
+
+<div class="page cs-pagina lc-pagina">
+    <header class="topbar">
+        <h1>Licenties</h1>
+        <span class="weeklabel">@(ProductParam == "mpede" ? "M-Pede Robotics" : "licentiecodes maken en terugvinden")</span>
+    </header>
+
+    @if (_melding is not null)
+    {
+        <div class="melding @(_fout ? "fout" : "ok")" style="position:static;max-width:none" @onclick="() => _melding = null">@_melding</div>
+    }
+
+    @if (!_geladen)
+    {
+        <p class="uitleg">Laden…</p>
+    }
+    else if (!_mag)
+    {
+        <section class="module-placeholder">
+            <p><b>Geen toegang.</b></p>
+            <p>Licenties is voor wie het recht Licenties heeft (Werknemers ▸ Rechten) en voor de Directie.</p>
+        </section>
+    }
+    else if (ProductParam != "mpede")
+    {
+        @* ----- de tegels ----- *@
+        <div class="lc-tegels">
+            <a class="lc-tegel" href="tools/licenties?product=mpede">
+                <span class="lc-icoon">🤖</span>
+                <b>M-Pede Robotics</b>
+                <span>Licentiecode voor de MPR-bibliotheek, op het serienummer van de J3-drive</span>
+            </a>
+            <div class="lc-tegel uit" aria-disabled="true" title="Volgt later">
+                <span class="lc-icoon">🧭</span>
+                <b>Padplanning</b>
+                <span>Volgt later</span>
+            </div>
+        </div>
+    }
+    else if (!_tabel)
+    {
+        <section class="module-placeholder"><p>De tabel voor de licenties bestaat nog niet (Licenties_MariaDB.sql).</p></section>
+    }
+    else
+    {
+        @* ----- M-Pede Robotics ----- *@
+        <div class="cs-leeskop">
+            <a class="klein cs-knoplink" href="tools/licenties">‹ Licenties</a>
+            <h2>🤖 M-Pede Robotics</h2>
+        </div>
+        @if (!Lic.SleutelAanwezig)
+        {
+            <div class="melding waarschuwing" style="position:static;max-width:none;box-shadow:none">
+                De sleutel ontbreekt: zet de 48 hex-tekens uit <code>mpr_license.key</code> in appsettings.json bij <code>Licenties:MPedeSleutel</code> en herstart de app.
+                Tot dan is de lijst te lezen, maar kan er geen code gemaakt worden.
+            </div>
+        }
+        @if (Lic.Testsleutel)
+        {
+            <div class="melding waarschuwing" style="position:static;max-width:none;box-shadow:none">Testversie met een testsleutel: deze codes werken niet op een robot.</div>
+        }
+
+        <div class="lc-opmaak">
+            <section class="lc-kaart">
+                <h3>Nieuwe licentiecode</h3>
+                <label class="cs-veld"><span>Serienummer van de J3-drive (decimaal of 16#hex)</span>
+                    <input id="lc-serie" value="@_serie" maxlength="20" autocomplete="off" inputmode="numeric" disabled="@(!Lic.SleutelAanwezig)"
+                           @oninput="e => { _serie = (string?)e.Value ?? string.Empty; _uitkomst = null; }" @onkeydown="Toets" /></label>
+                <label class="cs-veld"><span>Robotnummer</span>
+                    <input value="@_robot" maxlength="40" autocomplete="off" disabled="@(!Lic.SleutelAanwezig)"
+                           @oninput="e => { _robot = (string?)e.Value ?? string.Empty; _uitkomst = null; }" @onkeydown="Toets" /></label>
+                <label class="cs-veld"><span>Notitie (klant, project; mag leeg)</span>
+                    <input value="@_notitie" maxlength="120" autocomplete="off" disabled="@(!Lic.SleutelAanwezig)"
+                           @oninput="e => { _notitie = (string?)e.Value ?? string.Empty; _uitkomst = null; }" @onkeydown="Toets" /></label>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@(_bezig || !Lic.SleutelAanwezig)" @onclick="() => Maak(false)">Licentiecode maken</button>
+                </div>
+
+                @if (_uitkomst is { } u)
+                {
+                    <div class="lc-code @(u.Toegevoegd ? "nieuw" : "")">
+                        <div class="cs-zacht">Serienummer @u.Serienummer · @(u.Toegevoegd ? "toegevoegd aan de lijst" : u.Precies ? "stond al in de lijst" : "dit serienummer staat al in de lijst")</div>
+                        <div class="lc-groot">@u.Code</div>
+                        <code>@u.StRegel</code>
+                        <div class="cs-knoppen">
+                            <button type="button" class="klein" @onclick='() => Kopieer(u.StRegel, "De regel voor de PLC")'>Regel kopiëren</button>
+                            <button type="button" class="klein" @onclick='() => Kopieer(u.Code, "De code")'>Alleen de code</button>
+                        </div>
+                        @if (!u.Toegevoegd && !u.Precies)
+                        {
+                            <p class="lc-vraag">Er @(u.Bestaand.Count == 1 ? "staat al een regel" : $"staan al {u.Bestaand.Count} regels") met dit serienummer
+                                (@string.Join("; ", u.Bestaand.Select(b => $"robot {b.Robot}{(b.Notitie.Length > 0 ? ", " + b.Notitie : "")}"))).
+                                De code is dezelfde. Wil je deze robot en notitie er als nieuwe regel bij?</p>
+                            <div class="cs-knoppen">
+                                <button type="button" class="klein" disabled="@_bezig" @onclick="() => Maak(true)">Toch toevoegen</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="lc-lijst">
+                <div class="cs-leeskop">
+                    <h3>Uitgegeven codes <span class="cs-zacht">@Zichtbaar.Count()</span></h3>
+                    <span class="groei"></span>
+                    <input class="lc-zoek" placeholder="Zoeken: serienummer, robot, notitie…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" autocomplete="off" />
+                    <label class="vink"><input type="checkbox" checked="@_ookVervallen" @onchange="VervallenGewijzigd" /> ook vervallen</label>
+                </div>
+                @if (_lijst.Count == 0)
+                {
+                    <p class="uitleg">Er staat nog geen code in de lijst.</p>
+                }
+                else
+                {
+                    <table class="cs-tabel">
+                        <thead><tr><th>Datum</th><th>Serienummer</th><th>Code</th><th>Robot</th><th>Notitie</th><th>Door</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var l in Zichtbaar)
+                            {
+                                <tr class="@(l.Vervallen ? "cs-vervallen" : "") @(l.Id == _uitkomst?.Id || (_uitkomst is { Toegevoegd: false } && l.Serienummer == _uitkomst.Serienummer) ? "lc-raak" : "")" @key="l.Id">
+                                    <td class="wk-smal">@l.Datum.ToString("d-M-yyyy HH:mm")</td>
+                                    <td class="lc-mono">@l.Serienummer</td>
+                                    <td class="lc-mono">@l.Code@if (l.Vervallen) { <span class="stand-chip s-rood">vervallen</span> }</td>
+                                    @if (_wijzig == l.Id)
+                                    {
+                                        <td><input class="lc-in" value="@_wRobot" maxlength="40" @oninput="e => _wRobot = (string?)e.Value ?? string.Empty" aria-label="Robotnummer" /></td>
+                                        <td><input class="lc-in breed" value="@_wNotitie" maxlength="120" @oninput="e => _wNotitie = (string?)e.Value ?? string.Empty" aria-label="Notitie" /></td>
+                                        <td class="cs-zacht">@l.Door</td>
+                                        <td class="wk-smal">
+                                            <button type="button" class="primair klein" disabled="@_bezig" @onclick="() => BewaarWijziging(l)">Bewaren</button>
+                                            <button type="button" class="klein" @onclick="() => _wijzig = null">Annuleren</button>
+                                        </td>
+                                    }
+                                    else
+                                    {
+                                        <td>@l.Robot</td>
+                                        <td>@l.Notitie</td>
+                                        <td class="cs-zacht">@l.Door</td>
+                                        <td class="wk-smal">
+                                            <button type="button" class="klein" title="@l.StRegel" @onclick='() => Kopieer(l.StRegel, "De regel voor de PLC")'>Kopiëren</button>
+                                            @if (!l.Vervallen)
+                                            {
+                                                <button type="button" class="klein" title="Robotnummer en notitie wijzigen" @onclick="() => { _wijzig = l.Id; _wRobot = l.Robot; _wNotitie = l.Notitie; }">Wijzigen</button>
+                                            }
+                                            <button type="button" class="klein" title="@(l.Vervallen ? "Weer in de lijst zetten" : "Uit de lijst halen; de regel blijft bewaard onder \"ook vervallen\"")"
+                                                    @onclick="() => ZetVervallen(l, !l.Vervallen)">@(l.Vervallen ? "Terughalen" : "Vervallen")</button>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                @if (Lic.SleutelAanwezig)
+                {
+                    <p class="lc-import">
+                        <span class="cs-rijvlak" title="Neemt de regels uit het bestand van het Python-programma over; wat er al staat wordt overgeslagen">
+                            ⬆ Overnemen uit licenses_issued.csv (sleep of klik)
+                            <InputFile @key="_invoer" OnChange="Importeer" accept=".csv" class="cs-invoer" />
+                        </span>
+                    </p>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>De open tegel: "mpede", of leeg voor het overzicht met de tegels.</summary>
+    [SupplyParameterFromQuery(Name = "product")] public string? ProductParam { get; set; }
+
+    private bool _geladen, _mag, _tabel, _fout, _bezig, _ookVervallen;
+    private string? _melding;
+    private string _serie = "", _robot = "", _notitie = "", _zoek = "", _wRobot = "", _wNotitie = "";
+    private List<MPedeLicentie> _lijst = new();
+    private MPedeLicentieUitkomst? _uitkomst;
+    private int? _wijzig;
+    private int _invoer;
+
+    private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
+
+    private IEnumerable<MPedeLicentie> Zichtbaar
+    {
+        get
+        {
+            var q = _zoek.Trim();
+            return q.Length == 0 ? _lijst : _lijst.Where(l => l.Serienummer.ToString().Contains(q) || l.Code.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || l.Robot.Contains(q, StringComparison.OrdinalIgnoreCase) || l.Notitie.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            if (!_geladen)
+            {
+                await Ik.ZorgGeladenAsync();
+                // in de testversie (alles in het geheugen, geen login) ook zonder het recht
+                _mag = Ik.MagLicenties || (Lic.Geheugen && !Ik.Ingelogd && !Ik.IsWerkplek);
+            }
+            if (_mag && ProductParam == "mpede")
+            {
+                _tabel = Lic.Beschikbaar && await Lic.AanwezigAsync();
+                if (_tabel) _lijst = await Lic.LijstAsync(_ookVervallen);
+            }
+        }
+        catch (Exception ex) { Meld("Laden is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _geladen = true;
+    }
+
+    private async Task Herlaad() => _lijst = await Lic.LijstAsync(_ookVervallen);
+
+    private async Task VervallenGewijzigd(ChangeEventArgs e)
+    {
+        _ookVervallen = e.Value is true;
+        try { await Herlaad(); } catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+    }
+
+    private async Task Toets(KeyboardEventArgs e) { if (e.Key == "Enter") await Maak(false); }
+
+    private async Task Maak(bool toch)
+    {
+        if (_bezig || !_mag) return;
+        var (nummer, fout) = MPedeLicenties.LeesSerienummer(_serie);
+        if (nummer is not uint serie) { Meld(fout, true); return; }
+        _bezig = true;
+        try
+        {
+            _uitkomst = await Lic.MaakAsync(serie, _robot, _notitie, Ik.WerknemerId, toch);
+            await Herlaad();
+            _melding = null;
+            if (_uitkomst.Toegevoegd) Meld($"De code voor serienummer {serie} staat in de lijst.");
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
+
+    private async Task BewaarWijziging(MPedeLicentie l)
+    {
+        if (_bezig || !_mag) return;
+        _bezig = true;
+        try
+        {
+            await Lic.WijzigAsync(l.Id, _wRobot, _wNotitie);
+            _wijzig = null;
+            await Herlaad();
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
+
+    private async Task ZetVervallen(MPedeLicentie l, bool vervallen)
+    {
+        if (!_mag) return;
+        try
+        {
+            await Lic.ZetVervallenAsync(l.Id, vervallen);
+            await Herlaad();
+            Meld(vervallen ? $"De regel van serienummer {l.Serienummer} is vervallen; hij staat nog onder \"ook vervallen\"." : "De regel is teruggehaald.");
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+    }
+
+    private async Task Kopieer(string tekst, string wat)
+    {
+        try
+        {
+            if (await JS.InvokeAsync<bool>("mdeKopieer", tekst)) Meld(wat + " staat op het klembord.");
+            else Meld("Kopiëren is niet gelukt; selecteer de tekst en kopieer hem zelf.", true);
+        }
+        catch { Meld("Kopiëren is niet gelukt; selecteer de tekst en kopieer hem zelf.", true); }
+    }
+
+    private async Task Importeer(InputFileChangeEventArgs e)
+    {
+        if (!_mag) return;
+        try
+        {
+            if (e.File.Size > 2_000_000) { Meld("Dit bestand is te groot voor een lijst met licenties.", true); return; }
+            using var m = new MemoryStream();
+            await using (var s = e.File.OpenReadStream(2_000_000)) await s.CopyToAsync(m);
+            var (erbij, over, fouten) = await Lic.ImporteerAsync(System.Text.Encoding.UTF8.GetString(m.ToArray()), Ik.WerknemerId);
+            await Herlaad();
+            var tekst = $"{erbij} regel{(erbij == 1 ? "" : "s")} overgenomen, {over} stond{(over == 1 ? "" : "en")} er al.";
+            if (fouten.Count > 0) Meld(tekst + " Niet overgenomen: " + string.Join(" · ", fouten.Take(5)) + (fouten.Count > 5 ? $" (en nog {fouten.Count - 5})" : ""), true);
+            else Meld(tekst);
+        }
+        catch (Exception ex) { Meld("Overnemen is niet gelukt: " + ex.GetBaseException().Message, true); }
+        _invoer++;
+    }
+}

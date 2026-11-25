@@ -199,6 +199,13 @@ public static class Menu
                         new MenuItem("Claude Shares", "/tools/claude-shares", "Engineering", Icoon: "file-text")))
                 { Url = "/tools/claude-shares" },
 
+                // Licentiecodes maken: een tegel per product, als eerste M-Pede Robotics (wens gebruiker 25-11-2026).
+                // Zichtbaar met MagLicenties (MainLayout): het recht Licenties of Directie.
+                new MenuModule("licenties", "Licenties", "key-round",
+                    new MenuGroep("Licenties",
+                        new MenuItem("Licenties", "/tools/licenties", "Licenties", Icoon: "key-round")))
+                { Url = "/tools/licenties" },
+
                 // De vaste IP-adressen: ook hier, want het menu Beheer is alleen voor Directie en wie het recht Netwerk heeft
                 // (bv. Gerard) kwam er anders niet bij (vraag gebruiker 23-11-2026). Zichtbaar met MagNetwerk (MainLayout).
                 new MenuModule("netwerk", "Netwerk", "network",

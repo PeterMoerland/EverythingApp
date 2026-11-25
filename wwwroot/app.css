@@ -4489,6 +4489,30 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .idee-venster { width: min(40rem, 96vw); }
 .idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+/* ===== Tools > Licenties (25-11-2026); leunt op .cs-... van Claude Shares ===== */
+.lc-tegels { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; }
+.lc-tegel { display: flex; flex-direction: column; gap: 4px; width: 260px; min-height: 120px; padding: 16px 18px; border: 1px solid var(--cs-rand); border-radius: 10px;
+    background: var(--cs-wit); color: inherit; text-decoration: none; }
+a.lc-tegel:hover { border-color: var(--accent); }
+.lc-tegel b { font-size: 16px; }
+.lc-tegel span { font-size: 12.5px; color: var(--cs-zacht); line-height: 1.4; }
+.lc-tegel .lc-icoon { font-size: 26px; line-height: 1; margin-bottom: 4px; }
+.lc-tegel.uit { opacity: .55; border-style: dashed; cursor: not-allowed; }
+.lc-opmaak { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; align-items: start; }
+.lc-kaart { border: 1px solid var(--cs-rand); border-radius: 10px; background: var(--cs-wit); padding: 14px 16px 16px; }
+.lc-kaart h3, .lc-lijst h3 { margin: 0 0 4px; font-size: 15px; }
+.lc-code { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--cs-rand); border-left: 5px solid var(--cs-rand); border-radius: 8px; background: var(--cs-vlak); display: flex; flex-direction: column; gap: 6px; }
+.lc-code.nieuw { border-left-color: #1e8c35; }
+.lc-groot { font: 600 22px Consolas, "IBM Plex Mono", monospace; letter-spacing: .02em; user-select: all; }
+.lc-code code { font: 13px Consolas, "IBM Plex Mono", monospace; overflow-x: auto; white-space: nowrap; user-select: all; }
+.lc-code .cs-knoppen { margin-top: 4px; }
+.lc-vraag { margin: 6px 0 0; font-size: 13px; }
+.lc-mono { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 13px; white-space: nowrap; }
+.lc-zoek { width: 16rem; max-width: 100%; }
+.lc-in { width: 5rem; } .lc-in.breed { width: 100%; min-width: 9rem; }
+.lc-lijst tr.lc-raak td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.lc-import { margin: 12px 0 0; }
+@media (max-width: 1000px) { .lc-opmaak { grid-template-columns: 1fr; } }
 /* ===== Wiki (fase 1, 25-11-2026); bouwt voort op de opmaak van Claude Shares (.cs-...) ===== */
 .wk-pagina a.wk-titel { font-weight: 600; color: var(--accent); text-decoration: none; margin-right: 6px; }
 .wk-pagina a.wk-titel:hover { text-decoration: underline; }
@@ -4525,7 +4549,13 @@ a.wk-bijlage:hover { border-color: var(--accent); }
     border: 1px solid #c9d1d9; border-radius: 8px; }
 .wk-menu button { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 5px; font: inherit; font-size: 13px; color: inherit; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wk-menu button:hover, .wk-menu button:focus { background: #eef2f6; outline: none; }
+.wk-menu a[role=menuitem] { display: block; padding: 6px 10px; border-radius: 5px; font-size: 13px; color: inherit; text-decoration: none; }
+.wk-menu button:hover, .wk-menu button:focus, .wk-menu a[role=menuitem]:hover { background: #eef2f6; outline: none; }
+.wk-menu button.gevaar { color: #b3261e; }
+html[data-thema="donker"] .wk-menu button.gevaar { color: #ffb4ae; }
+html[data-thema="donker"] .wk-menu a[role=menuitem]:hover { background: var(--d3); }
+a.wk-bijlage.gekozen { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wk-biltip { font-size: 11.5px; }
 .wk-menukop { padding: 4px 10px 6px; font-size: 12px; font-weight: 600; color: #68717c; border-bottom: 1px solid #e3e7ec; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html[data-thema="donker"] .wk-menu { background: var(--d2); color: var(--dt1, #e6edf3); border-color: var(--d3); }
 html[data-thema="donker"] .wk-menu button:hover, html[data-thema="donker"] .wk-menu button:focus { background: var(--d3); }

@@ -123,6 +123,7 @@ else
 
     private bool Mag(MenuItem item)
         => item.Recht == "Netwerk" ? Ik.MagNetwerk      // Netwerk: het recht of Directie, ook zonder gekoppelde werknemer dicht
+         : item.Recht == "Licenties" ? Ik.MagLicenties  // Licenties: net zo streng
          : item.Recht is null || !Ik.Gekoppeld || Ik.Mag(item.Recht) || (item.Recht == "Financial" && Ik.MagFinancien)
            || (item.Recht == "Budgetverantwoordelijke" && Ik.Mag("Directie"))    // welkomstscherm: ook Directie
            || (item.Recht == "Fusion" && Ik.MagFusion)
