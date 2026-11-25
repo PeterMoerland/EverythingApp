@@ -97,9 +97,6 @@ public static class Menu
         // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
         new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
 
-        // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen
-        new MenuModule("wiki", "Wiki", "book-open") { Url = "/wiki" },
-
         new("artikelen", "Artikelen", "package",
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen", Icoon: "package"),
@@ -300,6 +297,10 @@ public static class Menu
                 new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),
                 new MenuItem("Werkplekken", "/beheer/werkplekken", Icoon: "laptop"),
                 new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone"))),
+
+        // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen.
+        // Helemaal onderaan in de lijst (wens gebruiker 25-11-2026).
+        new MenuModule("wiki", "Wiki", "book-open") { Url = "/wiki" },
     };
 
     /// <summary>Alle modules, inclusief de onderliggende (Tools ▸ Inventor enzovoort).</summary>
