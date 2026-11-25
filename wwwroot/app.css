@@ -4568,11 +4568,11 @@ html[data-thema="donker"] .plb-samen { background: #727c8a; }
 html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d; }
 .plb-vandaag { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ed1c24; opacity: .55; z-index: 2; }
 .plb-leeg { padding: 10px 12px; margin: 0; }
-/* een rij met een kleur (wens gebruiker 25-11-2026): de volle kleur achter Activiteit en Wie, niet op de tijdbalk;
-   --plb-rijtekst = wit of donker, wat op die kleur te lezen is */
-.plb-rij.plb-gekleurd > .plb-naam, .plb-rij.plb-gekleurd > .plb-wie { background-color: var(--plb-rijkleur); color: var(--plb-rijtekst); }
-.plb-pagina .plb-rij.plb-gekleurd .plb-pijl { color: inherit; }
-.plb-rij.plb-gekleurd .plb-koppel, .plb-rij.plb-gekleurd a.plb-koppel:hover { color: inherit; border-color: currentColor; }
+/* een rij met een kleur (wens gebruiker 25-11-2026): een streep links en een zachte tint achter Activiteit en Wie,
+   niet op de tijdbalk. Was even de volle kleur met witte tekst: te fel, dus terug naar de tint. --plb-rijtekst (wit of
+   donker, uit Leesbaar) wordt nu niet gebruikt. */
+.plb-rij.plb-gekleurd > .plb-naam { box-shadow: inset 4px 0 0 var(--plb-rijkleur); }
+.plb-rij.plb-gekleurd > .plb-naam, .plb-rij.plb-gekleurd > .plb-wie { background-color: color-mix(in srgb, var(--plb-rijkleur) 22%, transparent); }
 .plb-kleuren { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .plb-kleuren.in-menu { padding: 6px 10px; flex-wrap: nowrap; gap: 5px; }
 .plb-kleuren button, .wk-menu .plb-kleuren button { flex: 0 0 22px; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(0, 0, 0, .25); border-radius: 50%; cursor: pointer;

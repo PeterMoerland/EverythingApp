@@ -514,8 +514,9 @@ i.v.m. 1Password".
   **Kleur van een rij (25-11-2026; kolom `PlanbordRijen.Kleur`, zelfde script opnieuw draaien)**: tien vaste kleuren
   (`Planbord.Rijkleuren`), te kiezen in het rechtermuismenu (een rij bolletjes, meteen in beeld; bewaart meteen via
   `KleurAsync`) en in het rijvenster (menukeuze heet nu "Wijzigen…"). Zonder de kolom (`KleurAanwezigAsync`) is er
-  geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` = de volle kleur achter Activiteit en Wie (niet op de
-  tijdbalk; eerst een tint, "beetje roze") en `--plb-rijtekst` = wit of donker (`Leesbaar`, op helderheid).
+  geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` = een streep links en een tint van 22% achter Activiteit
+  en Wie (niet op de tijdbalk). Geschiedenis: tint ("beetje roze") → volle kleur met `--plb-rijtekst` (`Leesbaar`)
+  → "te fel", terug naar de tint; `--plb-rijtekst` wordt nog gezet maar niet gebruikt.
   **Knoppen weg (25-11-2026, verzoek)**: "Namen koppelen…" staat niet meer op het scherm (venster en
   `KoppelNamenAsync` bestaan nog, niet in gebruik) en "Tom's Planner overzetten…" alleen nog bij een lege planning.
   **Schuiven (25-11-2026)**: `.plb-pagina` is een kolom van 100% hoog en alleen `.plb-bord` schuift (de kop plakt

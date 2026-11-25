@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Verbeterd: de kleur van een rij is weer een zachte tint met een gekleurde streep links (de volle kleur was te fel); nog steeds alleen achter Activiteit en Wie (verzoek van Peter)
 - **Planning** — Nieuw: **Ctrl+Z** (of de knop ↶) maakt je laatste wijziging ongedaan: een balk verslepen, langer of korter maken, wijzigen of verwijderen, een rij toevoegen, wijzigen, verplaatsen of verwijderen (met alles eronder), een kleur en een koppeling. Tot dertig stappen terug, alleen je eigen wijzigingen in het scherm dat open staat. In het rechtermuismenu staat een streep onder de +-keuzes (verzoek van Peter)
 - **Planning** — Verbeterd: bij het koppelen aan een project vind je projecten nu ook op de **naam van de klant** (typ "weyers" en je krijgt de projecten van Weyers) (verzoek van Peter)
 - **Planning** — Nieuw: het blok **Planning** met een link naar de gekoppelde groep staat nu ook bij een **werkorder** (in Projecten) en bij een **klant** (in Relaties; daar ook de groepen van projecten en werkorders van die klant). Kom je via zo'n link in de planning en staat er van die groep niets in beeld, dan schuift de tijdbalk mee naar de eerste balk die nog loopt of komt (verzoek van Peter)
