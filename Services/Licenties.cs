@@ -360,6 +360,8 @@ public class MPedeLicenties
     // ------------------------------------------------------------------ licenses_issued.csv overnemen
 
     /// <summary>
+    /// NIET MEER IN GEBRUIK op het scherm (de knop is op 25-11-2026 weggehaald: de lijst is overgenomen); bewaard voor
+    /// als er ooit nog een bestand van het Python-programma bij moet.
     /// De regels uit licenses_issued.csv van het Python-programma overnemen (date;serial;code;note;robot). Elke code
     /// wordt opnieuw uitgerekend; wijkt hij af van het bestand, dan komt de regel er niet in (de sleutel in de app is dan
     /// een andere dan die van het bestand). Wat er al staat (zelfde serienummer, robotnummer en notitie) wordt overgeslagen.

@@ -169,15 +169,6 @@
                         </tbody>
                     </table>
                 }
-                @if (Lic.SleutelAanwezig)
-                {
-                    <p class="lc-import">
-                        <span class="cs-rijvlak" title="Neemt de regels uit het bestand van het Python-programma over; wat er al staat wordt overgeslagen">
-                            ⬆ Overnemen uit licenses_issued.csv (sleep of klik)
-                            <InputFile @key="_invoer" OnChange="Importeer" accept=".csv" class="cs-invoer" />
-                        </span>
-                    </p>
-                }
             </section>
         </div>
     }
@@ -278,7 +269,7 @@
     private NieuwInvoer? _nieuw;
     private List<(int Id, string Naam)> _types = new();
     private List<MPedeRobot> _robots = new();
-    private int _invoer, _qrInvoer;
+    private int _qrInvoer;
 
     private MPedeLicentie? Gekozen => _lijst.FirstOrDefault(l => l.Id == _gekozen);
     private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
@@ -521,23 +512,5 @@
             else Meld("Kopiëren is niet gelukt; selecteer de tekst en kopieer hem zelf.", true);
         }
         catch { Meld("Kopiëren is niet gelukt; selecteer de tekst en kopieer hem zelf.", true); }
-    }
-
-    private async Task Importeer(InputFileChangeEventArgs e)
-    {
-        if (!_mag) return;
-        try
-        {
-            if (e.File.Size > 2_000_000) { Meld("Dit bestand is te groot voor een lijst met licenties.", true); return; }
-            using var m = new MemoryStream();
-            await using (var s = e.File.OpenReadStream(2_000_000)) await s.CopyToAsync(m);
-            var (erbij, over, fouten) = await Lic.ImporteerAsync(System.Text.Encoding.UTF8.GetString(m.ToArray()), Ik.WerknemerId);
-            await Herlaad();
-            var tekst = $"{erbij} regel{(erbij == 1 ? "" : "s")} overgenomen, {over} stond{(over == 1 ? "" : "en")} er al.";
-            if (fouten.Count > 0) Meld(tekst + " Niet overgenomen: " + string.Join(" · ", fouten.Take(5)) + (fouten.Count > 5 ? $" (en nog {fouten.Count - 5})" : ""), true);
-            else Meld(tekst);
-        }
-        catch (Exception ex) { Meld("Overnemen is niet gelukt: " + ex.GetBaseException().Message, true); }
-        _invoer++;
     }
 }

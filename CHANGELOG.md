@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Licenties** — Verbeterd: de knop om het oude bestand `licenses_issued.csv` over te nemen is weg; de lijst staat in de app (verzoek van Peter).
 - **Licenties** — Verbeterd: het serienummer voor de licentie heet op het scherm nu overal **Joint3 (Drive B)** in plaats van "4e drive" (verzoek van Peter).
 - **Wiki** — Verbeterd: een artikel zonder tekst toont geen leeg vak meer, en hangt er precies één HTML-bestand aan, dan staat dat meteen in beeld (zonder eerst op Bekijken te klikken). Zo kan een artikel gewoon een HTML-pagina zijn (verzoek van Peter).
 - **Wiki** — Nieuw: de **volgorde van ruimtes** verander je door een ruimte tússen twee andere te slepen; er verschijnt een streep waar hij komt. Op een ruimte laten vallen hangt hem er nog steeds onder (verzoek van Peter).
