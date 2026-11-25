@@ -44,7 +44,8 @@ public class PlanImport
 /// <summary>
 /// Planning (wens gebruiker 25-11-2026; menu Planning, <c>/planbord</c>): groepen met daaronder activiteiten, elk met
 /// balken en symbolen op een tijdbalk, zoals Tom's Planner. Stap 1: de export van Tom's Planner eenmalig overzetten en
-/// de planning bekijken; bewerken en het koppelen van een groep aan klant, project of werkorder komen later (de kolommen
+/// de planning bekijken. Stap 2: bewerken (rijen en balken toevoegen, wijzigen, verslepen, verwijderen), voor wie het
+/// recht Planner heeft of Directie. Het koppelen van een groep aan klant, project of werkorder komt later (de kolommen
 /// staan er al). Vervangt de platte Projectplanning (Planning.razor, tabel Planning), die nooit gevuld is.
 /// Tabellen: Planbord_MariaDB.sql. Met <c>Planbord:Geheugen</c> staat alles in het geheugen (lokaal testen).
 /// </summary>
@@ -90,7 +91,7 @@ public class Planbord
     /// <summary>De hele planning: alle rijen (op volgorde) en alle balken en symbolen. Het zijn een paar duizend regels.</summary>
     public async Task<(List<PlanRij> Rijen, List<PlanItem> Items)> AllesAsync()
     {
-        if (_geheugen) lock (_slot) return (_rijen.ToList(), _items.ToList());
+        if (_geheugen) lock (_slot) return (_rijen.OrderBy(r => r.Volgorde).ThenBy(r => r.Id).ToList(), _items.ToList());
         var rijen = new List<PlanRij>();
         var items = new List<PlanItem>();
         if (!await AanwezigAsync()) return (rijen, items);
@@ -214,7 +215,7 @@ public class Planbord
     public async Task ZetOverAsync(PlanImport import)
     {
         if (import.Rijen.Count == 0) throw new InvalidOperationException("Er is niets om over te zetten.");
-        if (_geheugen) { lock (_slot) { _rijen = import.Rijen.ToList(); _items = import.Items.ToList(); } return; }
+        if (_geheugen) { lock (_slot) { _rijen = import.Rijen.ToList(); _items = import.Items.ToList(); } Seintje(); return; }
         if (!await AanwezigAsync()) throw new InvalidOperationException("Planbord_MariaDB.sql is nog niet uitgevoerd.");
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
@@ -260,5 +261,186 @@ public class Planbord
             await cmd.ExecuteNonQueryAsync();
         }
         await tx.CommitAsync();
+        Seintje();
+    }
+
+    // ------------------------------------------------------------------ bewerken (stap 2, 25-11-2026)
+
+    /// <summary>Er is iets aan de planning veranderd; elk open scherm leest dan opnieuw.</summary>
+    public event Action? Gewijzigd;
+    private void Seintje() { try { Gewijzigd?.Invoke(); } catch { /* een scherm dat net sluit mag de rest niet tegenhouden */ } }
+
+    /// <summary>De soorten uit de legenda van Tom's Planner: naam, kleur van de balk of nummer van het symbool.</summary>
+    public static readonly (string Naam, string Kleur)[] Balksoorten =
+    {
+        ("To Do", "#5fb5d5"), ("Done", "#2775ac"), ("Periode", "#9a9a99"), ("Out of office", "#aa374f"), ("Vertraging", "#d90c0d"),
+    };
+    public static readonly (string Naam, string Kleur)[] Symboolsoorten =
+    {
+        ("Milestone", "21"), ("Delivery", "8"), ("Customer dependency", "9"), ("M-Pede Robotics bestellen", "49"), ("M-Pede Robot benodigd", "19"),
+    };
+
+    private async Task<int> ScalarAsync(string sql, params (string Naam, object? Waarde)[] p)
+    {
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(sql, cn);
+        foreach (var (n, w) in p) cmd.Parameters.AddWithValue(n, w ?? DBNull.Value);
+        var uit = await cmd.ExecuteScalarAsync();
+        return uit is null or DBNull ? 0 : Convert.ToInt32(uit);
+    }
+
+    private async Task DoeAsync(string sql, params (string Naam, object? Waarde)[] p)
+    {
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(sql, cn);
+        foreach (var (n, w) in p) cmd.Parameters.AddWithValue(n, w ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>De buren onder een ouder opnieuw nummeren in de gegeven volgorde (10, 20, …).</summary>
+    private async Task NummerAsync(IReadOnlyList<int> ids)
+    {
+        if (_geheugen)
+        {
+            lock (_slot) for (var i = 0; i < ids.Count; i++) if (_rijen.FirstOrDefault(r => r.Id == ids[i]) is { } r) r.Volgorde = (i + 1) * 10;
+            return;
+        }
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        for (var i = 0; i < ids.Count; i++)
+        {
+            await using var cmd = new MySqlCommand("UPDATE `PlanbordRijen` SET `Volgorde` = @v WHERE `RijID` = @id", cn, tx);
+            cmd.Parameters.AddWithValue("@v", (i + 1) * 10);
+            cmd.Parameters.AddWithValue("@id", ids[i]);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+    }
+
+    private static List<int> Buren(IEnumerable<PlanRij> rijen, int? ouderId, int zonder)
+        => rijen.Where(r => r.OuderId == ouderId && r.Id != zonder).OrderBy(r => r.Volgorde).ThenBy(r => r.Id).Select(r => r.Id).ToList();
+
+    /// <summary>
+    /// Een rij toevoegen onder <paramref name="ouderId"/> (leeg = bovenaan). Met <paramref name="naId"/> komt hij direct
+    /// na die buur, anders achteraan. Geeft het nummer van de nieuwe rij.
+    /// </summary>
+    public async Task<int> NieuweRijAsync(int? ouderId, int? naId, string naam, string resource)
+    {
+        naam = Kort(naam, 200); resource = Kort(resource, 100);
+        if (naam.Length == 0) throw new InvalidOperationException("Geef de rij een naam.");
+        int id;
+        if (_geheugen)
+            lock (_slot)
+            {
+                id = (_rijen.Count == 0 ? 0 : _rijen.Max(r => r.Id)) + 1;
+                _rijen.Add(new PlanRij { Id = id, OuderId = ouderId, Naam = naam, Resource = resource, Volgorde = int.MaxValue });
+            }
+        else
+            id = await ScalarAsync(
+                "INSERT INTO `PlanbordRijen` (`OuderID`, `Volgorde`, `Naam`, `Resource`) VALUES (@o, 2000000000, @n, @r); SELECT LAST_INSERT_ID();",
+                ("@o", ouderId), ("@n", naam), ("@r", resource));
+        var (rijen, _) = await AllesAsync();
+        var buren = Buren(rijen, ouderId, id);
+        var plek = naId is int na ? buren.IndexOf(na) : -1;
+        if (plek >= 0) buren.Insert(plek + 1, id); else buren.Add(id);
+        await NummerAsync(buren);
+        Seintje();
+        return id;
+    }
+
+    /// <summary>Naam en wie van een rij wijzigen.</summary>
+    public async Task WijzigRijAsync(int id, string naam, string resource)
+    {
+        naam = Kort(naam, 200); resource = Kort(resource, 100);
+        if (naam.Length == 0) throw new InvalidOperationException("Geef de rij een naam.");
+        if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) { r.Naam = naam; r.Resource = resource; } }
+        else await DoeAsync("UPDATE `PlanbordRijen` SET `Naam` = @n, `Resource` = @r WHERE `RijID` = @id", ("@n", naam), ("@r", resource), ("@id", id));
+        Seintje();
+    }
+
+    /// <summary>
+    /// Een rij (met alles eronder) verplaatsen: onder <paramref name="ouderId"/> (leeg = bovenaan), met
+    /// <paramref name="voorId"/> vóór die buur en anders achteraan. Niet in zichzelf of in iets wat eronder hangt.
+    /// </summary>
+    public async Task VerplaatsRijAsync(int id, int? ouderId, int? voorId)
+    {
+        if (voorId == id || ouderId == id) return;
+        var (rijen, _) = await AllesAsync();
+        var opId = rijen.ToDictionary(r => r.Id);
+        if (!opId.ContainsKey(id)) throw new InvalidOperationException("Deze rij bestaat niet (meer).");
+        var stappen = 0;
+        for (var x = ouderId; x is int o && opId.TryGetValue(o, out var ouder) && stappen++ < 50; x = ouder.OuderId)
+            if (o == id) throw new InvalidOperationException("Een rij kan niet in zichzelf of in iets wat eronder hangt.");
+        if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) r.OuderId = ouderId; }
+        else await DoeAsync("UPDATE `PlanbordRijen` SET `OuderID` = @o WHERE `RijID` = @id", ("@o", ouderId), ("@id", id));
+        var buren = Buren(rijen, ouderId, id);
+        var plek = voorId is int v ? buren.IndexOf(v) : -1;
+        if (plek >= 0) buren.Insert(plek, id); else buren.Add(id);
+        await NummerAsync(buren);
+        Seintje();
+    }
+
+    /// <summary>Een rij verwijderen, met alle rijen eronder en al hun balken en symbolen. Geeft het aantal rijen dat weg is.</summary>
+    public async Task<int> VerwijderRijAsync(int id)
+    {
+        var (rijen, _) = await AllesAsync();
+        var weg = new List<int> { id };
+        for (var i = 0; i < weg.Count && weg.Count < 100_000; i++)
+            weg.AddRange(rijen.Where(r => r.OuderId == weg[i]).Select(r => r.Id));
+        if (_geheugen)
+        {
+            lock (_slot) { _rijen.RemoveAll(r => weg.Contains(r.Id)); _items.RemoveAll(i => weg.Contains(i.RijId)); }
+        }
+        else
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var tx = await cn.BeginTransactionAsync();
+            foreach (var blok in weg.Chunk(500))
+            {
+                var lijst = string.Join(",", blok);      // getallen uit de database zelf
+                await using (var c1 = new MySqlCommand($"DELETE FROM `PlanbordItems` WHERE `RijID` IN ({lijst})", cn, tx)) await c1.ExecuteNonQueryAsync();
+                await using (var c2 = new MySqlCommand($"DELETE FROM `PlanbordRijen` WHERE `RijID` IN ({lijst})", cn, tx)) await c2.ExecuteNonQueryAsync();
+            }
+            await tx.CommitAsync();
+        }
+        Seintje();
+        return weg.Count;
+    }
+
+    /// <summary>Een balk of symbool toevoegen (Id 0) of wijzigen. Een balk waarvan het einde voor het begin ligt wordt omgedraaid.</summary>
+    public async Task<int> BewaarItemAsync(PlanItem it)
+    {
+        var start = it.Start;
+        DateTime? einde = it.Symbool ? null : it.Einde ?? it.Start;
+        if (einde is DateTime e && e < start) (start, einde) = (e, start);
+        it = it with { Start = start, Einde = einde, Legenda = Kort(it.Legenda, 60), Kleur = Kort(it.Kleur, 20), Label = Kort(it.Label, 100), Opmerking = Kort(it.Opmerking, 500) };
+        var id = it.Id;
+        if (_geheugen)
+            lock (_slot)
+            {
+                if (id == 0) { id = (_items.Count == 0 ? 0 : _items.Max(x => x.Id)) + 1; _items.Add(it with { Id = id }); }
+                else { var i = _items.FindIndex(x => x.Id == id); if (i >= 0) _items[i] = it; }
+            }
+        else if (id == 0)
+            id = await ScalarAsync(
+                "INSERT INTO `PlanbordItems` (`RijID`, `Symbool`, `Start`, `Einde`, `Legenda`, `Kleur`, `Label`, `Opmerking`) VALUES (@r, @s, @b, @e, @l, @k, @t, @o); SELECT LAST_INSERT_ID();",
+                ("@r", it.RijId), ("@s", it.Symbool ? 1 : 0), ("@b", it.Start), ("@e", it.Einde), ("@l", it.Legenda), ("@k", it.Kleur), ("@t", it.Label), ("@o", it.Opmerking));
+        else
+            await DoeAsync(
+                "UPDATE `PlanbordItems` SET `RijID` = @r, `Symbool` = @s, `Start` = @b, `Einde` = @e, `Legenda` = @l, `Kleur` = @k, `Label` = @t, `Opmerking` = @o WHERE `ItemID` = @id",
+                ("@r", it.RijId), ("@s", it.Symbool ? 1 : 0), ("@b", it.Start), ("@e", it.Einde), ("@l", it.Legenda), ("@k", it.Kleur), ("@t", it.Label), ("@o", it.Opmerking), ("@id", id));
+        Seintje();
+        return id;
+    }
+
+    public async Task VerwijderItemAsync(int id)
+    {
+        if (_geheugen) { lock (_slot) _items.RemoveAll(x => x.Id == id); }
+        else await DoeAsync("DELETE FROM `PlanbordItems` WHERE `ItemID` = @id", ("@id", id));
+        Seintje();
     }
 }

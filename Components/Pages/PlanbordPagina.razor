@@ -1,14 +1,18 @@
 @page "/planbord"
 @page "/planning"
 @using System.Globalization
+@implements IDisposable
 @inject Planbord Bord
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
 @* Planning (menu Planning, wens gebruiker 25-11-2026): groepen met daaronder activiteiten, links de boom en rechts de
    tijdbalk met balken en symbolen, zoals Tom's Planner. Stap 1 is bekijken: in- en uitklappen, door de tijd bladeren,
-   zoeken. De export van Tom's Planner zet de Directie eenmalig over (knop rechtsboven). Bewerken en het koppelen van
-   een groep aan klant, project of werkorder komen later. Opslag: Services/Planbord.cs, Planbord_MariaDB.sql.
+   zoeken. De export van Tom's Planner zet de Directie eenmalig over (knop rechtsboven). Stap 2 is bewerken, voor wie
+   mag plannen (recht Planner of Directie): rechtermuisknop op een rij voor het menu, dubbelklik op de tijdbalk voor een
+   nieuwe balk, een balk verslepen of aan de rand langer en korter trekken (mdePlan in App.razor), een klik op een balk
+   om hem te wijzigen, en een rij verslepen in de boom. Het koppelen van een groep aan klant, project of werkorder
+   komt later. Opslag: Services/Planbord.cs, Planbord_MariaDB.sql.
    De plek van een balk is een percentage van het getoonde tijdvak, dus de tijdbalk past altijd in de breedte. *@
 
 <PageTitle>Planning — MDE</PageTitle>
@@ -49,6 +53,10 @@
             <input class="plb-zoek" type="search" placeholder="🔍 Zoek: activiteit of persoon…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" autocomplete="off" />
             <label class="vink" title="Ook groepen tonen waar de laatste vier weken en daarna niets meer in staat"><input type="checkbox" checked="@_ookVoorbij" @onchange="e => _ookVoorbij = e.Value is true" /> ook wat voorbij is</label>
             <button type="button" class="klein" @onclick="AllesDicht">Alles dicht</button>
+            @if (MagPlannen)
+            {
+                <button type="button" class="primair klein" title="Een nieuwe groep, onderaan de planning" @onclick="() => BeginRij(null, null, null)">+ Groep</button>
+            }
             @if (MagImporteren)
             {
                 <button type="button" class="klein" @onclick="() => { _importOpen = !_importOpen; _import = null; }">Tom's Planner overzetten…</button>
@@ -84,13 +92,14 @@
 
         @if (_rijen.Count == 0)
         {
-            <p class="uitleg">De planning is nog leeg.@(MagImporteren ? " Zet de export van Tom's Planner over met de knop rechtsboven." : " De Directie zet de planning uit Tom's Planner over.")</p>
+            <p class="uitleg">De planning is nog leeg.@(MagImporteren ? " Zet de export van Tom's Planner over met de knop rechtsboven" : " De Directie zet de planning uit Tom's Planner over")@(MagPlannen ? ", of begin met \"+ Groep\"." : ".")</p>
         }
         else
         {
             var zichtbaar = Zichtbaar().ToList();
             var dagen = _weken * 7;
-            <div class="plb-bord" style="@($"--plb-weken:{_weken}")">
+            <div class="plb-bord" style="@($"--plb-weken:{_weken}")" data-dagen="@dagen"
+                 ondragstart="event.dataTransfer.setData('text/plain', 'rij'); event.dataTransfer.effectAllowed = 'move';">
                 @* ----- de kop: maanden en weeknummers ----- *@
                 <div class="plb-rij plb-kop">
                     <div class="plb-naam">Activiteit</div>
@@ -116,8 +125,16 @@
                 {
                     var groep = _kinderen.ContainsKey(r.Id);
                     var open = groep && (Zoekt || _open.Contains(r.Id));
-                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "")" @key="r.Id">
-                        <div class="plb-naam" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam">
+                    @* de smalle strook boven een rij: laat je een rij hier vallen, dan komt hij ervoor te staan *@
+                    <div class="plb-tussen @(_sleeptRij is not null && _sleepVoor == r.Id ? "sleepdoel" : "")" @key="@("voor" + r.Id)"
+                         ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepVoor = r.Id; _sleepOp = null; } }"
+                         @ondrop="() => LaatRijVallen(r, true)"></div>
+                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id ? "gekozen" : "")"
+                         @key="r.Id" data-groep="@r.Id" @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagPlannen">
+                        <div class="plb-naam @(_sleeptRij is not null && _sleepOp == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam"
+                             draggable="@(MagPlannen ? "true" : "false")" @ondragstart="() => BeginSleepRij(r)" @ondragend="EindeSleepRij"
+                             ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepOp = r.Id; _sleepVoor = null; } }"
+                             @ondrop="() => LaatRijVallen(r, false)">
                             @if (groep)
                             {
                                 <button type="button" class="plb-pijl" aria-expanded="@open" title="@(open ? "Dichtklappen" : "Openklappen")" @onclick="() => Wissel(r.Id)">@(open ? "▾" : "▸")</button>
@@ -126,7 +143,7 @@
                             else { <span class="plb-pijl"></span><span class="plb-tekst">@r.Naam</span> }
                         </div>
                         <div class="plb-wie" title="@r.Resource">@r.Resource</div>
-                        <div class="plb-tijd">
+                        <div class="plb-tijd" @ondblclick="e => NieuwOpPlek(r, e)" title="@(MagPlannen ? "Dubbelklik voor een nieuwe balk; rechtermuisknop voor meer" : null)">
                             @if (VandaagPct() is { } vp) { <i class="plb-vandaag" style="@($"left:{vp}")"></i> }
                             @if (groep && !open)
                             {
@@ -145,7 +162,8 @@
                                     {
                                         if (a >= 0 && a <= dagen)
                                         {
-                                            <span class="plb-symbool" style="@($"left:{Pct(a, dagen)}")" title="@Uitleg(it)">@Teken(it.Legenda)</span>
+                                            <span class="plb-symbool" style="@($"left:{Pct(a, dagen)}")" title="@Uitleg(it)" data-plan="@(MagPlannen ? it.Id : null)"
+                                                  @onclick="() => OpenItem(it)" @ondblclick:stopPropagation="true">@Teken(it.Legenda)</span>
                                         }
                                     }
                                     else
@@ -155,7 +173,8 @@
                                         {
                                             var links = Math.Max(0, a);
                                             var breed = Math.Max(0.15, Math.Min(dagen, b) - links);
-                                            <span class="plb-balkje @(a < 0 ? "loopt-in" : "") @(b > dagen ? "loopt-uit" : "")" title="@Uitleg(it)"
+                                            <span class="plb-balkje @(a < 0 ? "loopt-in" : "") @(b > dagen ? "loopt-uit" : "") @(MagPlannen ? "te-slepen" : "")" title="@Uitleg(it)"
+                                                  data-plan="@(MagPlannen ? it.Id : null)" @onclick="() => OpenItem(it)" @ondblclick:stopPropagation="true"
                                                   style="@($"left:{Pct(links, dagen)};width:{Pct(breed, dagen)};background:{Kleur(it.Kleur)}")">@it.Label</span>
                                         }
                                     }
@@ -174,6 +193,94 @@
         }
     }
 </div>
+
+@* ----- het menu van de rechtermuisknop op een rij ----- *@
+@if (_menu is { } mn && MagPlannen)
+{
+    <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 280px))")">
+        <div class="wk-menukop">@mn.Rij.Naam</div>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, false, null); }">+ Balk…</button>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.Id, null); }">+ Rij eronder (in @mn.Rij.Naam)</button>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.OuderId, mn.Rij.Id); }">+ Rij erna</button>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Naam en wie wijzigen…</button>
+        <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
+    </div>
+}
+
+@* ----- een rij: naam en wie ----- *@
+@if (_rijVenster is { } rv)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster">
+            <header class="bijlagekop"><h2>@(rv.Id != 0 ? "Rij wijzigen" : rv.OuderId is int oid && _opId.TryGetValue(oid, out var ouder) ? "Nieuwe rij in " + ouder.Naam : "Nieuwe groep")</h2></header>
+            <div class="factuurvenster-inhoud" @onkeydown='e => { if (e.Key == "Escape") _rijVenster = null; }'>
+                <label class="cs-veld"><span>Naam</span>
+                    <input @ref="_naamVeld" value="@rv.Naam" maxlength="200" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" @onkeydown="RijToets" /></label>
+                <label class="cs-veld"><span>Wie (mag leeg)</span>
+                    <input value="@rv.Resource" maxlength="100" list="plb-wie" @oninput="e => rv.Resource = (string?)e.Value ?? string.Empty" @onkeydown="RijToets" />
+                    <datalist id="plb-wie">@foreach (var w in _wie) { <option value="@w" /> }</datalist></label>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@(_bezig || rv.Naam.Trim().Length == 0)" @onclick="BewaarRij">Bewaren</button>
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="() => _rijVenster = null">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ----- een balk of symbool ----- *@
+@if (_itemVenster is { } iv)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster">
+            <header class="bijlagekop"><h2>@(iv.Id == 0 ? "Nieuw" : "Wijzigen"): @(iv.Symbool ? "symbool" : "balk") op @(_opId.GetValueOrDefault(iv.RijId)?.Naam)</h2></header>
+            <div class="factuurvenster-inhoud">
+                <div class="cs-veld"><span>Soort</span>
+                    <div class="plb-soorten">
+                        @foreach (var s in iv.Symbool ? Planbord.Symboolsoorten : Planbord.Balksoorten)
+                        {
+                            var soort = s;
+                            <button type="button" class="@(iv.Legenda == soort.Naam ? "gekozen" : "")" @onclick="() => { iv.Legenda = soort.Naam; iv.Kleur = soort.Kleur; }">
+                                @if (iv.Symbool) { <span>@Teken(soort.Naam)</span> } else { <i style="@($"background:{soort.Kleur}")"></i> }
+                                @soort.Naam
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="plb-datums">
+                    <label class="cs-veld"><span>@(iv.Symbool ? "Datum" : "Van")</span>
+                        <input type="date" value="@iv.Van.ToString("yyyy-MM-dd")" @onchange="e => { if (DateTime.TryParse((string?)e.Value, out var d)) iv.Van = d; }" /></label>
+                    <label class="cs-veld"><span>Dagdeel</span>
+                        <select value="@(iv.VanMiddag ? "m" : "o")" @onchange='e => iv.VanMiddag = (string?)e.Value == "m"'>
+                            <option value="o">vanaf de ochtend</option><option value="m">vanaf de middag</option></select></label>
+                    @if (!iv.Symbool)
+                    {
+                        <label class="cs-veld"><span>Tot en met</span>
+                            <input type="date" value="@iv.Tot.ToString("yyyy-MM-dd")" @onchange="e => { if (DateTime.TryParse((string?)e.Value, out var d)) iv.Tot = d; }" /></label>
+                        <label class="cs-veld"><span>Dagdeel</span>
+                            <select value="@(iv.TotMiddag ? "m" : "e")" @onchange='e => iv.TotMiddag = (string?)e.Value == "m"'>
+                                <option value="e">hele dag</option><option value="m">tot de middag</option></select></label>
+                    }
+                </div>
+                <label class="cs-veld"><span>Tekst op de balk (mag leeg)</span>
+                    <input value="@iv.Label" maxlength="100" @oninput="e => iv.Label = (string?)e.Value ?? string.Empty" /></label>
+                <label class="cs-veld"><span>Opmerking (mag leeg; staat in het wolkje)</span>
+                    <input value="@iv.Opmerking" maxlength="500" @oninput="e => iv.Opmerking = (string?)e.Value ?? string.Empty" /></label>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@_bezig" @onclick="BewaarItem">Bewaren</button>
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="() => _itemVenster = null">Annuleren</button>
+                    @if (iv.Id != 0)
+                    {
+                        <span style="flex:1"></span>
+                        <button type="button" class="klein plb-wis" disabled="@_bezig" @onclick="WisItem">Verwijderen</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private static readonly CultureInfo Nl = new("nl-NL");
@@ -229,6 +336,8 @@
         _legenda = items.Where(i => !i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count())
                         .Select(g => (g.Key, Kleur(g.First().Kleur))).ToList();
         _symbolen = items.Where(i => i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
+        _wie = rijen.Select(r => r.Resource).Where(w => w.Length > 0).GroupBy(w => w, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(g => g.Count()).Take(80).Select(g => g.Key).OrderBy(w => w).ToList();
     }
 
     /// <summary>Het laatste moment waarop in deze rij of eronder nog iets staat (om oude groepen weg te laten).</summary>
@@ -401,5 +510,226 @@
         }
         catch (Exception ex) { Meld("Overzetten is niet gelukt: " + ex.GetBaseException().Message, true); }
         _bezig = false;
+    }
+
+    // ================================================================== bewerken (stap 2, 25-11-2026)
+
+    /// <summary>De planning wijzigen: het recht Planner of Directie. In de testversie (alles in het geheugen, geen login) ook.</summary>
+    private bool MagPlannen => Ik.MagPlannen || (!Ik.Ingelogd && !Ik.IsWerkplek);
+
+    private record MenuPlek(PlanRij Rij, int X, int Y);
+    private MenuPlek? _menu;
+    private class RijInvoer { public int Id; public int? OuderId, NaId; public string Naam = "", Resource = ""; }
+    private RijInvoer? _rijVenster;
+    private class ItemInvoer
+    {
+        public int Id, RijId; public bool Symbool, VanMiddag, TotMiddag;
+        public DateTime Van, Tot; public string Legenda = "", Kleur = "", Label = "", Opmerking = "";
+    }
+    private ItemInvoer? _itemVenster;
+    private List<string> _wie = new();
+    private ElementReference _naamVeld;
+    private bool _focusNaam, _eigen;
+    private DotNetObjectReference<PlanbordPagina>? _ref;
+    private PlanRij? _sleeptRij;
+    private int? _sleepOp, _sleepVoor;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (eerste)
+        {
+            Bord.Gewijzigd += BijWijziging;
+            // het slepen van balken doet de browser (mdePlan in App.razor); hij meldt hier alleen de uitkomst
+            try { _ref = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("mdePlan.koppel", _ref); } catch { }
+        }
+        if (_focusNaam && _rijVenster is not null)
+        {
+            _focusNaam = false;
+            try { await _naamVeld.FocusAsync(); } catch { }
+        }
+    }
+
+    /// <summary>Een ander scherm (of een collega) heeft de planning gewijzigd: opnieuw lezen.</summary>
+    private void BijWijziging()
+    {
+        if (_eigen) return;
+        _ = InvokeAsync(async () => { try { await Laad(); StateHasChanged(); } catch { } });
+    }
+
+    /// <summary>Een wijziging uitvoeren en daarna de planning opnieuw lezen; een fout komt als melding in beeld.</summary>
+    private async Task<bool> Doe(Func<Task> actie)
+    {
+        if (!MagPlannen) return false;
+        _eigen = true; _bezig = true;
+        try { await actie(); await Laad(); return true; }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); try { await Laad(); } catch { } return false; }
+        finally { _eigen = false; _bezig = false; }
+    }
+
+    private void OpenMenu(MouseEventArgs e, PlanRij r) { if (MagPlannen) _menu = new MenuPlek(r, (int)e.ClientX, (int)e.ClientY); }
+
+    // ---- rijen ----
+
+    /// <summary>Het venster voor een nieuwe rij (onder ouderId, na de buur naId) of voor het wijzigen van een bestaande.</summary>
+    private void BeginRij(PlanRij? bestaand, int? ouderId, int? naId)
+    {
+        if (!MagPlannen) return;
+        _rijVenster = bestaand is null ? new RijInvoer { OuderId = ouderId, NaId = naId }
+            : new RijInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Resource = bestaand.Resource };
+        _focusNaam = true;
+    }
+
+    private async Task RijToets(KeyboardEventArgs e) { if (e.Key == "Enter") await BewaarRij(); }
+
+    private async Task BewaarRij()
+    {
+        if (_rijVenster is not { } rv || _bezig || rv.Naam.Trim().Length == 0) return;
+        var gelukt = await Doe(async () =>
+        {
+            if (rv.Id != 0) await Bord.WijzigRijAsync(rv.Id, rv.Naam, rv.Resource);
+            else
+            {
+                await Bord.NieuweRijAsync(rv.OuderId, rv.NaId, rv.Naam, rv.Resource);
+                if (rv.OuderId is int o) _open.Add(o);
+            }
+        });
+        if (gelukt) _rijVenster = null;
+    }
+
+    private async Task WisRij(PlanRij r)
+    {
+        _menu = null;
+        if (!MagPlannen) return;
+        var eronder = Onder(r.Id).Count();
+        var balken = (_items.GetValueOrDefault(r.Id)?.Count ?? 0) + Onder(r.Id).Sum(x => _items.GetValueOrDefault(x.Id)?.Count ?? 0);
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeBevestig",
+                    $"{r.Naam} verwijderen" + (eronder > 0 ? $", met de {eronder} rij{(eronder == 1 ? "" : "en")} eronder" : "") +
+                    (balken > 0 ? $" en {balken} balk{(balken == 1 ? "" : "en")} of symbolen" : "") + "? Dit is niet terug te draaien.",
+                    new { kop = "⚠ Rij verwijderen", ja = "Verwijderen" })) return;
+        }
+        catch { return; }
+        if (await Doe(() => Bord.VerwijderRijAsync(r.Id))) Meld($"{r.Naam} is verwijderd.");
+    }
+
+    /// <summary>Alle rijen onder deze rij.</summary>
+    private IEnumerable<PlanRij> Onder(int id, int diepte = 0)
+    {
+        if (diepte > 20 || !_kinderen.TryGetValue(id, out var k)) yield break;
+        foreach (var kind in k)
+        {
+            yield return kind;
+            foreach (var x in Onder(kind.Id, diepte + 1)) yield return x;
+        }
+    }
+
+    // ---- een rij verslepen: op een andere rij = eronder hangen, op de strook erboven = ervoor zetten ----
+
+    private void BeginSleepRij(PlanRij r) { if (MagPlannen) { _sleeptRij = r; _sleepOp = null; _sleepVoor = null; } }
+    private void EindeSleepRij() { _sleeptRij = null; _sleepOp = null; _sleepVoor = null; }
+
+    private async Task LaatRijVallen(PlanRij doel, bool ervoor)
+    {
+        var rij = _sleeptRij;
+        EindeSleepRij();
+        if (rij is null || rij.Id == doel.Id) return;
+        if (await Doe(() => ervoor ? Bord.VerplaatsRijAsync(rij.Id, doel.OuderId, doel.Id) : Bord.VerplaatsRijAsync(rij.Id, doel.Id, null)))
+        {
+            if (!ervoor) _open.Add(doel.Id);
+            Meld(ervoor ? $"{rij.Naam} staat nu vóór {doel.Naam}." : $"{rij.Naam} hangt nu onder {doel.Naam}.");
+        }
+    }
+
+    // ---- balken en symbolen ----
+
+    private static bool IsMiddag(DateTime t) => t.Hour is >= 10 and < 15;
+
+    private void OpenItem(PlanItem it)
+    {
+        if (!MagPlannen) return;
+        var einde = it.Einde ?? it.Start;
+        _itemVenster = new ItemInvoer
+        {
+            Id = it.Id, RijId = it.RijId, Symbool = it.Symbool, Van = it.Start.Date, VanMiddag = IsMiddag(it.Start),
+            Tot = einde.Date, TotMiddag = IsMiddag(einde), Legenda = it.Legenda, Kleur = it.Kleur, Label = it.Label, Opmerking = it.Opmerking,
+        };
+    }
+
+    /// <summary>Een nieuwe balk (een werkweek) of een nieuw symbool op deze rij; zonder dag: vandaag, of het begin van het tijdvak.</summary>
+    private void NieuwItem(PlanRij r, bool symbool, DateTime? dag)
+    {
+        if (!MagPlannen) return;
+        var van = dag ?? (DateTime.Today >= _van && DateTime.Today < Tot ? DateTime.Today : _van);
+        var soort = symbool ? Planbord.Symboolsoorten[0] : Planbord.Balksoorten[0];
+        // een werkweek lang, maar niet tot in het weekend: dan tot en met de vrijdag
+        var tot = van.AddDays(4);
+        while (tot > van && tot.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) tot = tot.AddDays(-1);
+        _itemVenster = new ItemInvoer { RijId = r.Id, Symbool = symbool, Van = van, Tot = tot, Legenda = soort.Naam, Kleur = soort.Kleur };
+    }
+
+    /// <summary>Dubbelklik op een lege plek van de tijdbalk: een nieuwe balk die op die dag begint.</summary>
+    private async Task NieuwOpPlek(PlanRij r, MouseEventArgs e)
+    {
+        if (!MagPlannen) return;
+        DateTime? dag = null;
+        try
+        {
+            var breedte = await JS.InvokeAsync<double>("mdeBreedte", ".plb-kop .plb-tijd");
+            if (breedte > 0) dag = _van.AddDays(Math.Clamp((int)(e.OffsetX / breedte * _weken * 7), 0, _weken * 7 - 1));
+        }
+        catch { }
+        NieuwItem(r, false, dag);
+    }
+
+    private static DateTime Begin(DateTime dag, bool middag) => dag.Date.AddHours(middag ? 12.5 : 8);
+    private static DateTime Eind(DateTime dag, bool middag) => dag.Date.AddHours(middag ? 12.5 : 17);
+
+    private async Task BewaarItem()
+    {
+        if (_itemVenster is not { } iv || _bezig) return;
+        var item = new PlanItem(iv.Id, iv.RijId, iv.Symbool, Begin(iv.Van, iv.VanMiddag), iv.Symbool ? null : Eind(iv.Tot, iv.TotMiddag),
+                                iv.Legenda, iv.Kleur, iv.Label, iv.Opmerking);
+        if (await Doe(() => Bord.BewaarItemAsync(item))) _itemVenster = null;
+    }
+
+    private async Task WisItem()
+    {
+        if (_itemVenster is not { } iv || iv.Id == 0) return;
+        if (await Doe(() => Bord.VerwijderItemAsync(iv.Id))) _itemVenster = null;
+    }
+
+    private PlanItem? Item(int id) => _items.Values.SelectMany(l => l).FirstOrDefault(i => i.Id == id);
+
+    /// <summary>Een balk of symbool is versleept (mdePlan): zoveel dagen opgeschoven, en misschien naar een andere rij.</summary>
+    [JSInvokable]
+    public async Task Versleep(int id, int dagen, int? rij)
+    {
+        if (Item(id) is not { } it) return;
+        var naar = rij is int r && _opId.ContainsKey(r) ? r : it.RijId;
+        if (dagen == 0 && naar == it.RijId) return;
+        await InvokeAsync(async () =>
+        {
+            await Doe(() => Bord.BewaarItemAsync(it with { RijId = naar, Start = it.Start.AddDays(dagen), Einde = it.Einde?.AddDays(dagen) }));
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>De linker- of rechterrand van een balk is versleept: hij wordt korter of langer (minstens een halve dag).</summary>
+    [JSInvokable]
+    public async Task VeranderRand(int id, bool links, int dagen)
+    {
+        if (Item(id) is not { } it || dagen == 0) return;
+        if (it.Symbool || it.Einde is not DateTime einde) { await Versleep(id, dagen, null); return; }
+        var nieuw = links ? it with { Start = it.Start.AddDays(dagen) } : it with { Einde = einde.AddDays(dagen) };
+        if (nieuw.Einde <= nieuw.Start) nieuw = links ? nieuw with { Start = Begin(einde, IsMiddag(einde) ? false : true) } : nieuw with { Einde = Eind(it.Start, false) };
+        await InvokeAsync(async () => { await Doe(() => Bord.BewaarItemAsync(nieuw)); StateHasChanged(); });
+    }
+
+    public void Dispose()
+    {
+        Bord.Gewijzigd -= BijWijziging;
+        try { _ = JS.InvokeVoidAsync("mdePlan.los"); } catch { }
+        _ref?.Dispose();
     }
 }

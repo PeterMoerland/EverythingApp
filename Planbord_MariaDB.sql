@@ -12,9 +12,17 @@
 --  De oude tabellen Planning, PlanningSoorten en PlanningAfhankelijkheden (Planning_Schema_MariaDB.sql) blijven
 --  staan; ze zijn nooit gevuld en worden niet meer gebruikt.
 --
---  Eenmalig uitvoeren op de MDE-database. Meerdere keren draaien kan geen kwaad. Zonder dit script staat de pagina
+--  3. Recht Planner (stap 2, bewerken): wie het heeft (en Directie) mag de planning wijzigen. Kijken mag iedereen.
+--     Zetten in Werknemers > Rechten > Planner (planning bewerken).
+--
+--  Uitvoeren op de MDE-database. Meerdere keren draaien kan geen kwaad. Zonder dit script staat de pagina
 --  er wel, met de melding dat de tabellen ontbreken.
+--  LET OP: is het script al eerder gedraaid (25-11-2026, voor stap 1), draai het dan nog een keer voor het recht
+--  Planner. De planning zelf blijft staan.
 -- ===========================================================================
+
+ALTER TABLE `Werknemers`
+    ADD COLUMN IF NOT EXISTS `Planner` TINYINT(1) NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS `PlanbordRijen` (
     `RijID`       INT NOT NULL AUTO_INCREMENT,

@@ -109,6 +109,8 @@ public static class WerknemerVelden
             new Veld("Engineering (Claude Shares)", VeldType.JaNee, new[] { "Engineering" }),
             // Tools > Licenties: licentiecodes maken, als eerste voor M-Pede Robotics (Licenties_MariaDB.sql)
             new Veld("Licenties (codes maken)", VeldType.JaNee, new[] { "Licenties" }),
+            // menu Planning: de planning bewerken (Planbord_MariaDB.sql); kijken mag iedereen
+            new Veld("Planner (planning bewerken)", VeldType.JaNee, new[] { "Planner" }),
             new Veld("Voorraadbeheer", VeldType.JaNee, new[] { "Voorraadbeheer", "voorraadbeheer" }),
             new Veld("Bestellingen", VeldType.JaNee, new[] { "Bestellingen", "bestellingen" }),
             // artikelen en samenstellingen wijzigen; kolom uit Werknemers_Artikelbeheer_MariaDB.sql

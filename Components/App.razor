@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=492" />
+    <link rel="stylesheet" href="app.css?v=493" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -307,6 +307,9 @@
         // vastklikkend op het raster), de rij eronder licht op, en pas bij het
         // loslaten gaat er één melding naar Blazor. Veel soepeler dan het
         // ingebouwde HTML5-slepen, dat alleen een spookplaatje geeft.
+        // Werkt voor de oude planning (.g-bar in .g-cellen in .g-lichaam) en voor het menu Planning (.plb-balkje of
+        // .plb-symbool in .plb-tijd in .plb-bord, 25-11-2026); data-plan = het nummer van de balk, data-dagen = het
+        // aantal dagen in beeld, data-groep = de rij waarop je hem laat vallen.
         window.mdePlan = {
             doel: null,
             koppel: function (dotnet) { window.mdePlan.doel = dotnet; },
@@ -319,20 +322,22 @@
 
             function herstel(b) {
                 b.style.transform = '';
-                b.style.width = '';
+                // de breedte van voor het slepen terug: in het menu Planning staat die in de opmaak van de balk zelf
+                b.style.width = b._mdeBreedte || '';
                 b.style.pointerEvents = '';
                 b.classList.remove('slepend');
             }
 
             document.addEventListener('pointerdown', function (e) {
                 if (e.button !== 0 || !window.mdePlan.doel) return;
-                const b = e.target.closest('.g-bar[data-plan]');
+                const b = e.target.closest('.g-bar[data-plan], .plb-balkje[data-plan], .plb-symbool[data-plan]');
                 if (!b) return;
-                const cellen = b.closest('.g-cellen');
-                const lichaam = b.closest('.g-lichaam');
+                const cellen = b.closest('.g-cellen, .plb-tijd');
+                const lichaam = b.closest('.g-lichaam, .plb-bord');
                 if (!cellen || !lichaam) return;
 
                 balk = b;
+                b._mdeBreedte = b.style.width;
                 id = parseInt(b.dataset.plan);
                 const dagen = parseInt(lichaam.dataset.dagen) || 1;
                 dagBreedte = cellen.getBoundingClientRect().width / dagen;
@@ -378,7 +383,7 @@
 
                 balk.style.transform = 'translate(' + stap + 'px,' + dy + 'px)';
                 const onder = document.elementFromPoint(e.clientX, e.clientY);
-                const rij = onder && onder.closest ? onder.closest('.g-rij[data-groep]') : null;
+                const rij = onder && onder.closest ? onder.closest('.g-rij[data-groep], .plb-rij[data-groep]') : null;
                 if (richtRij && richtRij !== rij) richtRij.classList.remove('g-richtrij');
                 if (rij) rij.classList.add('g-richtrij');
                 richtRij = rij;
@@ -499,6 +504,12 @@
                 richt = null;
             });
         })();
+
+        // De breedte van een element in beeldpunten (menu Planning: waar op de tijdbalk is er geklikt).
+        window.mdeBreedte = function (selector) {
+            var e = document.querySelector(selector);
+            return e ? e.getBoundingClientRect().width : 0;
+        };
 
         // Een bestand uit Blazor als download aanbieden (Fusion → Eurocircuits).
         window.mdeBestand = {

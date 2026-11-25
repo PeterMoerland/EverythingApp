@@ -347,6 +347,12 @@ public class HuidigeGebruiker
     /// </summary>
     public bool MagLicenties => Mag("Licenties") || Mag("Directie");
 
+    /// <summary>
+    /// De planning bewerken (menu Planning; Planbord_MariaDB.sql, 25-11-2026): het recht Planner, of Directie. Kijken mag
+    /// iedereen. Op een werkplek nooit (<see cref="Mag"/> geeft daar nee).
+    /// </summary>
+    public bool MagPlannen => Mag("Planner") || Mag("Directie");
+
     /// <summary>Verkooporders invoeren (Bestellingen ▸ Verkooporders): het recht Verkoop, of Directie (VerkoopOrders_MariaDB.sql).</summary>
     public bool MagVerkoop => Mag("Verkoop") || Mag("Directie");
 

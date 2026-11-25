@@ -473,8 +473,21 @@ i.v.m. 1Password".
   geen horizontaal schuiven maar bladeren (‹ Vandaag ›) en 13/26/52/104 weken. Een dichtgeklapte groep toont gearceerd
   waar eronder iets gepland staat (`Samenvatting`). Standaard zonder groepen waar na vier weken geleden niets meer in
   staat ("ook wat voorbij is"). Zoeken op activiteit of persoon klapt de treffers uit. Stijlen `plb-…` (`pb-` was al
-  van een ander onderdeel). **Nog niet** (volgende stappen): bewerken (slepen, rijen en balken toevoegen), koppelen
-  aan klant/project/werkorder, resources koppelen aan werknemers, overzicht per persoon; niet in de export: welke
+  van een ander onderdeel).
+  **Stap 2, bewerken (25-11-2026)**: voor het nieuwe recht **Planner** (`Werknemers.Planner`, script opnieuw draaien;
+  `HuidigeGebruiker.MagPlannen` = recht of Directie; kijken mag iedereen). **Balken**: verslepen en aan de rand
+  langer/korter trekken met het bestaande script `mdePlan` in App.razor (pointer events, klikt per dag vast; uitgebreid
+  met `.plb-balkje`/`.plb-symbool` in `.plb-tijd` in `.plb-bord[data-dagen]`, laten vallen op `.plb-rij[data-groep]`;
+  het script zet na het slepen de oude inline breedte terug, `_mdeBreedte`), dat `Versleep(id, dagen, rij)` en
+  `VeranderRand(id, links, dagen)` aanroept (`[JSInvokable]`). Een klik op een balk opent het venster (soort uit
+  `Planbord.Balksoorten`/`Symboolsoorten`, van/tot met dagdeel: 8:00, 12:30, 17:00, tekst, opmerking, verwijderen);
+  dubbelklik op de tijdbalk = nieuwe balk vanaf die dag (`mdeBreedte` geeft de breedte, `OffsetX` de plek).
+  **Rijen**: rechtermuismenu (balk, symbool, rij eronder, rij erna, naam en wie, verwijderen met alles eronder na een
+  vraag), knop **+ Groep**, en een rij verslepen in de boom zoals in de wiki (op een rij = eronder, op de strook
+  `.plb-tussen` = ervoor; `VerplaatsRijAsync` nummert de buren opnieuw). `Planbord.Gewijzigd` laat elk open scherm
+  opnieuw lezen (`_eigen` voorkomt dubbel lezen op het eigen scherm). Verwijderen is hier echt weg (zoals in Tom's
+  Planner), er is geen ongedaan maken. **Niet getest:** tegen de echte tabellen, twee mensen tegelijk, donker.
+  **Nog niet** (volgende stappen): koppelen aan klant/project/werkorder, resources koppelen aan werknemers, overzicht per persoon; niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
   `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;

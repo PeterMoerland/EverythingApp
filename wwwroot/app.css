@@ -4528,6 +4528,26 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 .plb-samen { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; z-index: 0;
     background: repeating-linear-gradient(135deg, #9a9a99 0, #9a9a99 1px, transparent 1px, transparent 4px); }
 .plb-symbool { position: absolute; top: 1px; transform: translateX(-50%); z-index: 2; font-size: 13px; line-height: 20px; cursor: default; }
+.plb-balkje.te-slepen, .plb-symbool[data-plan] { cursor: grab; touch-action: none; }
+.plb-balkje.te-slepen::before, .plb-balkje.te-slepen::after { content: ""; position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+.plb-balkje.te-slepen::before { left: 0; } .plb-balkje.te-slepen::after { right: 0; }
+.plb-balkje.slepend, .plb-symbool.slepend { opacity: .75; z-index: 5; outline: 2px solid var(--accent); }
+.plb-rij.g-richtrij { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.plb-rij.gekozen > .plb-naam { outline: 2px solid var(--accent); outline-offset: -2px; }
+.plb-rij.plb-sleept { opacity: .45; }
+.plb-naam[draggable="true"] { cursor: grab; }
+.plb-naam.sleepdoel { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.plb-tussen { height: 5px; margin: -3px 0 -2px; position: relative; z-index: 2; }
+.plb-tussen.sleepdoel { background: var(--accent); }
+.plb-samen, .plb-vandaag { pointer-events: none; }
+.plb-soorten { display: flex; flex-wrap: wrap; gap: 6px; }
+.plb-soorten button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c9d1d9; border-radius: 6px; background: none; color: inherit; padding: 3px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+.plb-soorten button.gekozen { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+.plb-soorten i { width: 14px; height: 12px; border-radius: 3px; display: inline-block; }
+.plb-datums { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.plb-datums input, .plb-datums select { width: 100%; box-sizing: border-box; }
+.plb-pagina button.plb-wis, button.plb-wis { color: #b3261e; border-color: #b3261e; }
+html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d; }
 .plb-vandaag { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ed1c24; opacity: .55; z-index: 2; }
 .plb-leeg { padding: 10px 12px; margin: 0; }
 .plb-legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--plb-zacht); }
