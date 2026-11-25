@@ -21,6 +21,13 @@ public class PlanRij
     public int? RelatieId { get; set; }
     public int? ProjectId { get; set; }
     public int? WerkorderId { get; set; }
+    /// <summary>Waar de rij aan gekoppeld is, kort (projectnummer, werkordernummer of de naam van de klant); leeg = niet gekoppeld.</summary>
+    public string KoppelKort { get; set; } = "";
+    /// <summary>Hetzelfde voluit: "Project 223159 · Multipede".</summary>
+    public string KoppelTekst { get; set; } = "";
+    /// <summary>Het project om naartoe te springen: het gekoppelde project, of dat van de gekoppelde werkorder.</summary>
+    public int? KoppelProjectId { get; set; }
+    public bool Gekoppeld => RelatieId is not null || ProjectId is not null || WerkorderId is not null;
 }
 
 /// <summary>Een balk (van–tot) of een symbool (één moment, <see cref="Einde"/> leeg) op een rij.</summary>
@@ -98,16 +105,30 @@ public class Planbord
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using (var cmd = new MySqlCommand(
-            "SELECT `RijID`, `OuderID`, `Volgorde`, `Naam`, COALESCE(`Resource`, ''), COALESCE(`Nummer`, ''), `RelatieID`, `ProjectID`, `WerkorderID` " +
-            "  FROM `PlanbordRijen` ORDER BY `Volgorde`, `RijID`", cn))
+            "SELECT x.`RijID`, x.`OuderID`, x.`Volgorde`, x.`Naam`, COALESCE(x.`Resource`, ''), COALESCE(x.`Nummer`, ''), x.`RelatieID`, x.`ProjectID`, x.`WerkorderID`, " +
+            // de namen van waar de rij aan gekoppeld is (stap 3); het werkordernummer zoals overal: 218183-03
+            "       COALESCE(CAST(p.`Projectnumber` AS CHAR), ''), COALESCE(p.`Projectdescription`, ''), " +
+            "       COALESCE(CONCAT(wp.`Projectnumber`, '-', RIGHT(CONCAT('00', wo.`Werkbonnummer`), 2)), ''), COALESCE(wo.`Werkbonomschrijving`, ''), wo.`Project-id`, " +
+            "       COALESCE(kl.`name`, '') " +
+            "  FROM `PlanbordRijen` x " +
+            "  LEFT JOIN `Projects` p ON p.`Project-Id` = x.`ProjectID` " +
+            "  LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID` LEFT JOIN `Projects` wp ON wp.`Project-Id` = wo.`Project-id` " +
+            "  LEFT JOIN `Relations` kl ON kl.`id_supplier` = x.`RelatieID` " +
+            " ORDER BY x.`Volgorde`, x.`RijID`", cn))
         await using (var r = await cmd.ExecuteReaderAsync())
             while (await r.ReadAsync())
-                rijen.Add(new PlanRij
+            {
+                var rij = new PlanRij
                 {
                     Id = r.GetInt32(0), OuderId = r.IsDBNull(1) ? null : r.GetInt32(1), Volgorde = r.GetInt32(2), Naam = r.GetString(3),
                     Resource = r.GetString(4), Nummer = r.GetString(5), RelatieId = r.IsDBNull(6) ? null : r.GetInt32(6),
                     ProjectId = r.IsDBNull(7) ? null : r.GetInt32(7), WerkorderId = r.IsDBNull(8) ? null : r.GetInt32(8),
-                });
+                };
+                if (rij.ProjectId is not null) ZetKoppel(rij, "Project", r.GetString(9), r.GetString(10), rij.ProjectId);
+                else if (rij.WerkorderId is not null) ZetKoppel(rij, "Werkorder", r.GetString(11), r.GetString(12), r.IsDBNull(13) ? null : Convert.ToInt32(r.GetValue(13)));
+                else if (rij.RelatieId is not null) ZetKoppel(rij, "Klant", "", r.GetString(14), null);
+                rijen.Add(rij);
+            }
         await using (var cmd = new MySqlCommand(
             "SELECT `ItemID`, `RijID`, `Symbool`, `Start`, `Einde`, COALESCE(`Legenda`, ''), COALESCE(`Kleur`, ''), COALESCE(`Label`, ''), COALESCE(`Opmerking`, '') " +
             "  FROM `PlanbordItems` ORDER BY `RijID`, `Start`", cn))
@@ -358,6 +379,40 @@ public class Planbord
         if (naam.Length == 0) throw new InvalidOperationException("Geef de rij een naam.");
         if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) { r.Naam = naam; r.Resource = resource; } }
         else await DoeAsync("UPDATE `PlanbordRijen` SET `Naam` = @n, `Resource` = @r WHERE `RijID` = @id", ("@n", naam), ("@r", resource), ("@id", id));
+        Seintje();
+    }
+
+    /// <summary>De tekst bij een koppeling: kort voor in de boom, voluit voor het wolkje. Bestaat het doel niet meer, dan "onbekend".</summary>
+    private static void ZetKoppel(PlanRij rij, string soort, string nummer, string naam, int? projectId)
+    {
+        nummer = nummer.Trim(); naam = naam.Trim();
+        rij.KoppelKort = nummer.Length > 0 ? nummer : naam.Length > 0 ? naam : "?";
+        rij.KoppelTekst = soort + " " + (nummer.Length > 0 && naam.Length > 0 ? nummer + " · " + naam : nummer.Length > 0 ? nummer : naam.Length > 0 ? naam : "(bestaat niet meer)");
+        rij.KoppelProjectId = projectId;
+    }
+
+    /// <summary>
+    /// Een rij koppelen aan een project, een klant of een werkorder (stap 3, 25-11-2026; zoals een Activity board): één
+    /// van de drie, de andere twee worden leeg. Alle drie leeg = ontkoppelen. <paramref name="nummer"/> en
+    /// <paramref name="naam"/> zijn alleen voor de testversie in het geheugen, die de namen niet kan opzoeken.
+    /// </summary>
+    public async Task KoppelAsync(int id, int? projectId, int? relatieId, int? werkorderId, string nummer = "", string naam = "", int? springProjectId = null)
+    {
+        if (projectId is not null) { relatieId = null; werkorderId = null; }
+        else if (werkorderId is not null) relatieId = null;
+        if (_geheugen)
+        {
+            lock (_slot)
+                if (_rijen.FirstOrDefault(r => r.Id == id) is { } r)
+                {
+                    r.ProjectId = projectId; r.RelatieId = relatieId; r.WerkorderId = werkorderId;
+                    r.KoppelKort = ""; r.KoppelTekst = ""; r.KoppelProjectId = null;
+                    if (r.Gekoppeld) ZetKoppel(r, projectId is not null ? "Project" : werkorderId is not null ? "Werkorder" : "Klant", nummer, naam, projectId ?? springProjectId);
+                }
+        }
+        else
+            await DoeAsync("UPDATE `PlanbordRijen` SET `ProjectID` = @p, `RelatieID` = @k, `WerkorderID` = @w WHERE `RijID` = @id",
+                           ("@p", (object?)projectId ?? DBNull.Value), ("@k", (object?)relatieId ?? DBNull.Value), ("@w", (object?)werkorderId ?? DBNull.Value), ("@id", id));
         Seintje();
     }
 

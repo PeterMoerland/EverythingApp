@@ -487,7 +487,19 @@ i.v.m. 1Password".
   `.plb-tussen` = ervoor; `VerplaatsRijAsync` nummert de buren opnieuw). `Planbord.Gewijzigd` laat elk open scherm
   opnieuw lezen (`_eigen` voorkomt dubbel lezen op het eigen scherm). Verwijderen is hier echt weg (zoals in Tom's
   Planner), er is geen ongedaan maken. **Niet getest:** tegen de echte tabellen, twee mensen tegelijk, donker.
-  **Nog niet** (volgende stappen): koppelen aan klant/project/werkorder, resources koppelen aan werknemers, overzicht per persoon; niet in de export: welke
+  **Stap 3, koppelen (25-11-2026, "bouw stap 3")**: een rij (bedoeld voor groepen, mag op elke rij) koppelen aan een
+  project, werkorder of klant: `Planbord.KoppelAsync(id, projectId, relatieId, werkorderId, …)` zet er één en maakt de
+  andere twee leeg (alle drie leeg = ontkoppelen); de kolommen bestonden al, dus **geen nieuw script**. `AllesAsync`
+  leest de namen mee (LEFT JOIN `Projects`, `Workorders` + het project ervan, `Relations`) in `PlanRij.KoppelKort`
+  (nummer of klantnaam, het lapje `.plb-koppel` achter de naam), `KoppelTekst` (wolkje) en `KoppelProjectId` (link
+  `projecten?project=`, ook voor een werkorder). Scherm: rechtermuismenu ▸ Koppelen…, venster met Project / Werkorder /
+  Klant en een zoekvak met dezelfde zoekfuncties als het Activity board (`HaalTreffers`: nieuwste projecten, open
+  werkorders, klant vanaf twee tekens), en Ontkoppelen. In de geheugenmodus geeft het scherm nummer en naam mee (de
+  namen zijn daar niet op te zoeken; een werkorder heeft er dan geen link). **Getest:** lokaal in het geheugen
+  (project, werkorder, klant, wijzigen, ontkoppelen) en de leesquery alleen-lezen tegen de echte tabellen. **Niet
+  getest:** het wegschrijven naar de echte tabel, donker.
+  **Nog niet** (volgende stappen): resources koppelen aan werknemers, overzicht per persoon, iets doen met de koppeling
+  (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
   `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;

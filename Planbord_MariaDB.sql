@@ -3,8 +3,9 @@
 --  Tom's Planner. Stap 1: de export van Tom's Planner eenmalig overzetten en bekijken.
 --
 --  1. PlanbordRijen: een groep of een activiteit. OuderID = de rij erboven (leeg = bovenaan); een rij met rijen
---     eronder is een groep. RelatieID, ProjectID en WerkorderID zijn voor later: een groep aan een klant, project of
---     werkorder koppelen, zoals een Activity board. Nummer = het rijnummer uit Tom's Planner.
+--     eronder is een groep. RelatieID, ProjectID en WerkorderID (hooguit een van de drie gevuld): de klant, het
+--     project of de werkorder waar de rij aan gekoppeld is, zoals een Activity board (stap 3, in gebruik sinds
+--     25-11-2026; daarvoor hoeft dit script niet opnieuw gedraaid). Nummer = het rijnummer uit Tom's Planner.
 --  2. PlanbordItems: de balken (Start tot Einde) en de symbolen (alleen Start, Symbool = 1) van een rij. Legenda =
 --     de soort (Done, To Do, Periode, Out of office, Vertraging, Milestone …); Kleur = de kleur van de balk of het
 --     nummer van het symbool, zoals in de export.

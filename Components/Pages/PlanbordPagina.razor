@@ -3,6 +3,9 @@
 @using System.Globalization
 @implements IDisposable
 @inject Planbord Bord
+@inject IProjectRepository Projecten
+@inject IRelatieRepository Relaties
+@inject IUrenRepository Uren
 @inject HuidigeGebruiker Ik
 @inject IJSRuntime JS
 
@@ -141,6 +144,12 @@
                                 <span class="plb-tekst" @onclick="() => Wissel(r.Id)">@r.Naam</span>
                             }
                             else { <span class="plb-pijl"></span><span class="plb-tekst">@r.Naam</span> }
+                            @if (r.Gekoppeld)
+                            {
+                                @* waar de rij aan gekoppeld is; een project of werkorder is een link naar het project *@
+                                @if (r.KoppelProjectId is int kp) { <a class="plb-koppel" href="@($"projecten?project={kp}")" title="@(r.KoppelTekst + " — het project openen")" draggable="false" @onclick:stopPropagation="true">@r.KoppelKort</a> }
+                                else { <span class="plb-koppel" title="@r.KoppelTekst">@r.KoppelKort</span> }
+                            }
                         </div>
                         <div class="plb-wie" title="@r.Resource">@r.Resource</div>
                         <div class="plb-tijd" @ondblclick="e => NieuwOpPlek(r, e)" title="@(MagPlannen ? "Dubbelklik voor een nieuwe balk; rechtermuisknop voor meer" : null)">
@@ -198,13 +207,14 @@
 @if (_menu is { } mn && MagPlannen)
 {
     <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
-    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 280px))")">
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 320px))")">
         <div class="wk-menukop">@mn.Rij.Naam</div>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, false, null); }">+ Balk…</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.Id, null); }">+ Rij eronder (in @mn.Rij.Naam)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.OuderId, mn.Rij.Id); }">+ Rij erna</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Naam en wie wijzigen…</button>
+        <button type="button" role="menuitem" @onclick="() => BeginKoppel(mn.Rij)">@(mn.Rij.Gekoppeld ? "Koppeling wijzigen…" : "Koppelen aan klant, project of werkorder…")</button>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
     </div>
 }
@@ -224,6 +234,47 @@
                 <div class="cs-knoppen">
                     <button type="button" class="primair" disabled="@(_bezig || rv.Naam.Trim().Length == 0)" @onclick="BewaarRij">Bewaren</button>
                     <button type="button" class="klein" disabled="@_bezig" @onclick="() => _rijVenster = null">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ----- een rij koppelen aan een project, werkorder of klant (stap 3) ----- *@
+@if (_koppelVenster is { } kv)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster">
+            <header class="bijlagekop"><h2>Koppelen: @kv.Rij.Naam</h2></header>
+            <div class="factuurvenster-inhoud" @onkeydown='e => { if (e.Key == "Escape") _koppelVenster = null; }'>
+                @if (kv.Rij.Gekoppeld)
+                {
+                    <p class="plb-koppelnu">Nu gekoppeld aan <b>@kv.Rij.KoppelTekst</b>
+                        <button type="button" class="klein" disabled="@_bezig" @onclick="Ontkoppel">Ontkoppelen</button></p>
+                }
+                <div class="plb-koppelsoort" role="radiogroup" aria-label="Waaraan koppelen">
+                    @foreach (var (code, naam) in KoppelSoorten)
+                    {
+                        <label><input type="radio" name="plb-koppelsoort" checked="@(kv.Soort == code)" @onchange="() => KoppelSoort(code)" /> @naam</label>
+                    }
+                </div>
+                <label class="cs-veld"><span>Zoek @(kv.Soort == "klant" ? "een klant (minstens twee tekens)" : kv.Soort == "werkorder" ? "een werkorder: nummer, omschrijving of klant" : "een project: nummer of omschrijving")</span>
+                    <input @ref="_koppelVeld" value="@kv.Zoek" @oninput="KoppelZoek" autocomplete="off" /></label>
+                <div class="plb-treffers">
+                    @if (kv.Treffers.Count == 0)
+                    {
+                        <p class="uitleg">@(kv.Zoekt ? "Zoeken…" : kv.Soort == "klant" && kv.Zoek.Trim().Length < 2 ? "Typ een deel van de naam." : "Niets gevonden.")</p>
+                    }
+                    @foreach (var t in kv.Treffers)
+                    {
+                        <button type="button" @key="t.Id" disabled="@_bezig" @onclick="() => KiesKoppel(t)">
+                            @if (t.Nummer.Length > 0) { <b>@t.Nummer</b> }
+                            <span>@t.Naam</span>
+                        </button>
+                    }
+                </div>
+                <div class="cs-knoppen">
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="() => _koppelVenster = null">Sluiten</button>
                 </div>
             </div>
         </div>
@@ -547,6 +598,11 @@
             _focusNaam = false;
             try { await _naamVeld.FocusAsync(); } catch { }
         }
+        if (_focusKoppel && _koppelVenster is not null)
+        {
+            _focusKoppel = false;
+            try { await _koppelVeld.FocusAsync(); } catch { }
+        }
     }
 
     /// <summary>Een ander scherm (of een collega) heeft de planning gewijzigd: opnieuw lezen.</summary>
@@ -594,6 +650,85 @@
             }
         });
         if (gelukt) _rijVenster = null;
+    }
+
+    // ---- koppelen aan een project, werkorder of klant (stap 3, 25-11-2026; zoals het Activity board) ----
+
+    private sealed record Treffer(int Id, string Nummer, string Naam, int? ProjectId);
+    private class KoppelInvoer { public PlanRij Rij = null!; public string Soort = "project", Zoek = ""; public List<Treffer> Treffers = new(); public bool Zoekt; }
+    private static readonly (string Code, string Naam)[] KoppelSoorten = { ("project", "Project"), ("werkorder", "Werkorder"), ("klant", "Klant") };
+    private const int KoppelAantal = 40;
+    private KoppelInvoer? _koppelVenster;
+    private ElementReference _koppelVeld;
+    private bool _focusKoppel;
+    private CancellationTokenSource? _koppelStop;
+
+    private async Task BeginKoppel(PlanRij r)
+    {
+        _menu = null;
+        if (!MagPlannen) return;
+        _koppelVenster = new KoppelInvoer { Rij = r, Soort = r.WerkorderId is not null ? "werkorder" : r.RelatieId is not null ? "klant" : "project" };
+        _focusKoppel = true;
+        await KoppelLijst("");
+    }
+
+    private async Task KoppelSoort(string soort)
+    {
+        if (_koppelVenster is not { } kv) return;
+        kv.Soort = soort; kv.Treffers = new(); _focusKoppel = true;
+        await KoppelLijst(kv.Zoek.Trim());
+    }
+
+    /// <summary>Zonder zoektekst: de nieuwste projecten of de open werkorders; een klant pas vanaf twee tekens.</summary>
+    private async Task<List<Treffer>> HaalTreffers(string soort, string q)
+    {
+        var lijst = q.Length < 2;
+        if (soort == "klant")
+            return lijst ? new() : (await Relaties.ZoekAsync(q, alleenKlanten: true, alleenLeveranciers: false, 0, KoppelAantal)).Select(k => new Treffer(k.Id, "", k.Naam, null)).ToList();
+        if (soort == "werkorder")
+            return (await Uren.ZoekWerkordersAsync(lijst ? "" : q, alleenOpen: lijst, KoppelAantal))
+                .Select(w => new Treffer(w.WerkbonId, w.Nummer, w.Omschrijving + (w.Klant.Length > 0 ? " · " + w.Klant : ""), null)).ToList();
+        return (await Projecten.ZoekProjectenAsync(null, lijst ? null : q, null, 0, KoppelAantal))
+            .Select(p => new Treffer(p.Id, p.Nummer?.ToString() ?? "", p.Omschrijving, p.Id)).ToList();
+    }
+
+    private async Task KoppelLijst(string q)
+    {
+        if (_koppelVenster is not { } kv) return;
+        var soort = kv.Soort;
+        kv.Zoekt = true;
+        try
+        {
+            var gevonden = await HaalTreffers(soort, q);
+            if (_koppelVenster == kv && kv.Soort == soort) kv.Treffers = gevonden;
+        }
+        catch (Exception ex) { kv.Treffers = new(); Meld("Zoeken is niet gelukt: " + ex.GetBaseException().Message, true); }
+        kv.Zoekt = false;
+    }
+
+    private async Task KoppelZoek(ChangeEventArgs e)
+    {
+        if (_koppelVenster is not { } kv) return;
+        kv.Zoek = (string?)e.Value ?? "";
+        _koppelStop?.Cancel();
+        var stop = _koppelStop = new CancellationTokenSource();
+        try { await Task.Delay(250, stop.Token); } catch (TaskCanceledException) { return; }
+        await KoppelLijst(kv.Zoek.Trim());
+    }
+
+    private async Task KiesKoppel(Treffer t)
+    {
+        if (_koppelVenster is not { } kv || _bezig) return;
+        var s = kv.Soort;
+        var gelukt = await Doe(() => Bord.KoppelAsync(kv.Rij.Id, s == "project" ? t.Id : null, s == "klant" ? t.Id : null, s == "werkorder" ? t.Id : null,
+                                                      t.Nummer, t.Naam, t.ProjectId));
+        if (gelukt) { _koppelVenster = null; Meld($"{kv.Rij.Naam} is gekoppeld aan {(s == "project" ? "project" : s == "werkorder" ? "werkorder" : "klant")} {(t.Nummer.Length > 0 ? t.Nummer : t.Naam)}."); }
+    }
+
+    private async Task Ontkoppel()
+    {
+        if (_koppelVenster is not { } kv || _bezig) return;
+        if (await Doe(() => Bord.KoppelAsync(kv.Rij.Id, null, null, null))) { _koppelVenster = null; Meld($"{kv.Rij.Naam} is niet meer gekoppeld."); }
     }
 
     private async Task WisRij(PlanRij r)
