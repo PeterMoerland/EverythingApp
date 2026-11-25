@@ -8,7 +8,8 @@ public record InventorExport(int WerknemerId, string Door, DateTime? Op, int Reg
 /// <summary>Een regel van de boom. <see cref="Ouder"/> = het volgnummer van de regel erboven (leeg = de samenstelling zelf).</summary>
 public record InventorRegel(int Volgnummer, int? Ouder, int Niveau, int Aantal, int? ArtikelId, bool Samenstelling,
                             string Partnummer, string Omschrijving, string Materiaal, bool? InVault, int? VaultVersie,
-                            string ArtikelCode, string ArtikelOmschrijving);
+                            string ArtikelCode, string ArtikelOmschrijving,
+                            int Id = 0, DateTime? Gemaakt = null, DateTime? Bijgewerkt = null);
 
 /// <summary>
 /// De samenstellingen die uit Inventor zijn geëxporteerd (tabel InventorAssemblyTree; knop Stuklijst van de
@@ -53,7 +54,7 @@ public class InventorBoom
         await using var cmd = new MySqlCommand(
             "SELECT t.`Volgnummer`, t.`ParentVolgnummer`, COALESCE(t.`Level`, 0), COALESCE(t.`Quantity`, 0), t.`ArtikelID`, COALESCE(t.`isAssy`, 0), " +
             "       COALESCE(t.`Partnumber`, ''), COALESCE(t.`Description`, ''), COALESCE(t.`Material`, ''), t.`inInVault`, t.`VaultVersion`, " +
-            "       COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, '') " +
+            "       COALESCE(a.`ArtikelCodeMDE`, ''), COALESCE(a.`OmschrijvingNL`, ''), t.`InventorAssemblyTreeID`, t.`CreatedAt`, t.`last_updated` " +
             "  FROM `InventorAssemblyTree` t LEFT JOIN `Artikelen` a ON a.`ArtikelID` = t.`ArtikelID` " +
             " WHERE COALESCE(t.`CreatedBy`, 0) = @w ORDER BY t.`Volgnummer`, t.`InventorAssemblyTreeID`", cn);
         cmd.Parameters.AddWithValue("@w", werknemerId);
@@ -62,7 +63,8 @@ public class InventorBoom
             lijst.Add(new InventorRegel(
                 r.IsDBNull(0) ? 0 : r.GetInt32(0), r.IsDBNull(1) ? null : r.GetInt32(1), Convert.ToInt32(r.GetValue(2)), Convert.ToInt32(r.GetValue(3)),
                 r.IsDBNull(4) ? null : r.GetInt32(4), Convert.ToInt32(r.GetValue(5)) != 0, r.GetString(6), r.GetString(7), r.GetString(8),
-                r.IsDBNull(9) ? null : Convert.ToInt32(r.GetValue(9)) != 0, r.IsDBNull(10) ? null : r.GetInt32(10), r.GetString(11), r.GetString(12)));
+                r.IsDBNull(9) ? null : Convert.ToInt32(r.GetValue(9)) != 0, r.IsDBNull(10) ? null : r.GetInt32(10), r.GetString(11), r.GetString(12),
+                r.GetInt32(13), r.IsDBNull(14) ? null : r.GetDateTime(14), r.IsDBNull(15) ? null : r.GetDateTime(15)));
         return lijst;
     }
 }

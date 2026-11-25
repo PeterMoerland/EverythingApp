@@ -38,7 +38,14 @@
                     </div>
                     <div class="ib-schuif">
                         <table class="kiezer-tabel ib-tabel">
-                            <thead><tr><th>Onderdeel</th><th class="ib-getal">Aantal</th><th>Artikel</th><th>Materiaal</th><th>Vault</th></tr></thead>
+                            @* alle velden van InventorAssemblyTree (wens gebruiker 25-11-2026), de boom vooraan; de tabel schuift opzij *@
+                            <thead><tr>
+                                <th>Onderdeel</th><th class="ib-getal">Aantal</th><th>Artikel</th>
+                                <th>Partnumber</th><th>Description</th><th>Material</th>
+                                <th class="ib-getal">ArtikelID</th><th>isAssy</th><th>inInVault</th><th class="ib-getal">VaultVersion</th>
+                                <th class="ib-getal">Volgnr</th><th class="ib-getal">Parent</th><th class="ib-getal">Level</th>
+                                <th>CreatedAt</th><th>last_updated</th><th class="ib-getal">ID</th>
+                            </tr></thead>
                             <tbody>
                                 @foreach (var (r, diepte) in Zichtbaar())
                                 {
@@ -53,8 +60,19 @@
                                         </td>
                                         <td class="ib-getal">@r.Aantal</td>
                                         <td>@(r.ArtikelId is int a ? (r.ArtikelCode.Length > 0 ? r.ArtikelCode : "#" + a) : "geen artikel")</td>
+                                        <td>@r.Partnummer</td>
+                                        <td>@r.Omschrijving</td>
                                         <td>@r.Materiaal</td>
-                                        <td>@(r.InVault is null ? "" : r.InVault == true ? "v" + (r.VaultVersie?.ToString() ?? "?") : "niet in Vault")</td>
+                                        <td class="ib-getal">@r.ArtikelId</td>
+                                        <td>@(r.Samenstelling ? "ja" : "nee")</td>
+                                        <td>@(r.InVault is null ? "" : r.InVault == true ? "ja" : "nee")</td>
+                                        <td class="ib-getal">@r.VaultVersie</td>
+                                        <td class="ib-getal">@r.Volgnummer</td>
+                                        <td class="ib-getal">@r.Ouder</td>
+                                        <td class="ib-getal">@r.Niveau</td>
+                                        <td>@r.Gemaakt?.ToString("d-M-yyyy HH:mm:ss")</td>
+                                        <td>@r.Bijgewerkt?.ToString("d-M-yyyy HH:mm:ss")</td>
+                                        <td class="ib-getal">@r.Id</td>
                                     </tr>
                                 }
                             </tbody>

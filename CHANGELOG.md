@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Artikelen ▸ Inventor-boom** — Verbeterd: de lijst toont nu alle velden uit de tabel (Partnumber, Description, Material, ArtikelID, isAssy, inInVault, VaultVersion, volgnummer, parent, level, datums en ID); de tabel schuift opzij (verzoek van Peter)
 - **Artikelen** — Nieuw: tegel **Inventor-boom** (Artikelen ▸ Inventor-boom): de samenstelling die uit Inventor is geëxporteerd als boom, met aantal, artikel, materiaal en Vault-versie. Regels zonder artikel staan rood. Alleen om te bekijken; artikelsamenstellingen ervan maken komt later (verzoek van Peter)
 - **Planning** — Nieuw: in de kolom **Wie** staat een naam **oranje** als het geen werknemer in dienst is (inleners tellen als werknemer): Werkplaats, een vacature, een leverancier of iemand die uit dienst is (verzoek van Peter)
 - **Planning** — Verbeterd: **dubbelklik** op een rij (naam of Wie) opent Wijzigen; open- en dichtvouwen gaat alleen nog met het pijltje. In het rechtermuismenu van een groep staan **Alles uitvouwen** en **Alles inklappen** (die groep met alles eronder) (verzoek van Peter)

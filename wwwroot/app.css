@@ -4595,7 +4595,9 @@ html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d
 .ib-schuif { overflow: auto; min-height: 0; max-height: calc(92vh - 170px); }
 .ib-los .ib-schuif { max-height: calc(100vh - 220px); }
 .ib-tabel { width: 100%; font-size: 13px; }
-.ib-tabel td { white-space: nowrap; }
+.ib-tabel td, .ib-tabel th { white-space: nowrap; }
+.ib-tabel th { position: sticky; top: 0; background: var(--wit, #fff); z-index: 1; }
+html[data-thema="donker"] .ib-tabel th { background: var(--d1); }
 .ib-tabel td small { opacity: .65; margin-left: 8px; }
 .ib-tabel .ib-getal { text-align: right; }
 .ib-tabel tr.ib-assy td:first-child span { font-weight: 600; }
