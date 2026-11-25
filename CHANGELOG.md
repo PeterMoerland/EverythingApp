@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Wiki** — Verbeterd: een artikel zonder tekst toont geen leeg vak meer, en hangt er precies één HTML-bestand aan, dan staat dat meteen in beeld (zonder eerst op Bekijken te klikken). Zo kan een artikel gewoon een HTML-pagina zijn (verzoek van Peter).
+- **Wiki** — Nieuw: de **volgorde van ruimtes** verander je door een ruimte tússen twee andere te slepen; er verschijnt een streep waar hij komt. Op een ruimte laten vallen hangt hem er nog steeds onder (verzoek van Peter).
 - **Hele app** — Verbeterd: het icoontje van een wachtwoordbeheerder (1Password en dergelijke) verschijnt niet meer in gewone tekstvakken, zoals de naam van een ruimte in de wiki. Bij een echt wachtwoordveld blijft het wel (melding van Peter).
 - **Wiki** — Nieuw: een ruimte krijgt een **getekend icoon** naar keuze (bijvoorbeeld een printplaat voor Elektronica): rechtermuisknop ▸ Naam, icoon en omschrijving, en kies er een of zoek op "printplaat", "tandwiel" enzovoort. Een **lege ruimte wis je** met rechtermuisknop ▸ Wissen. En een **ruimte versleep je** naar een andere ruimte om hem daaronder te hangen, of naar de lege plek onder de boom om hem bovenaan te zetten (verzoek van Peter).
 - **Wiki** — Nieuw: een artikel verplaats je door de regel te **slepen** naar een andere ruimte: op een ruimte in de zijbalk of op een tegel van een subruimte (verzoek van Peter).

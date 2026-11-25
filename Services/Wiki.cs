@@ -159,13 +159,15 @@ public class Wiki
     /// <summary>
     /// Een ruimte (met alles eronder) onder een andere ruimte hangen; <paramref name="nieuweOuderId"/> leeg = bovenaan.
     /// Niet in zichzelf of in een van zijn subruimtes, niet dieper dan <see cref="MaxDiepte"/>, en de naam mag op de
-    /// nieuwe plek nog niet voorkomen. Hij komt achteraan bij zijn nieuwe buren.
+    /// nieuwe plek nog niet voorkomen. Met <paramref name="voorId"/> komt hij vóór die buur te staan (zo verander je ook
+    /// de volgorde binnen dezelfde ouder); zonder komt hij achteraan bij zijn nieuwe buren.
     /// </summary>
-    public async Task VerplaatsRuimteAsync(int id, int? nieuweOuderId)
+    public async Task VerplaatsRuimteAsync(int id, int? nieuweOuderId, int? voorId = null)
     {
         var alle = await RuimtesAsync();
         var deze = alle.FirstOrDefault(x => x.Id == id) ?? throw new InvalidOperationException("Deze ruimte bestaat niet (meer).");
-        if (deze.OuderId == nieuweOuderId) return;
+        if (voorId == id) return;
+        if (voorId is null && deze.OuderId == nieuweOuderId) return;
         if (nieuweOuderId is int doel)
         {
             if (alle.All(x => x.Id != doel)) throw new InvalidOperationException("De ruimte waar je hem in wilt zetten bestaat niet (meer).");
@@ -183,26 +185,36 @@ public class Wiki
         {
             lock (_slot)
             {
+                // in het geheugen is de volgorde die van de lijst
                 _ruimtes.RemoveAll(x => x.Id == id);
-                _ruimtes.Add(deze with { OuderId = nieuweOuderId, Aantal = 0 });
+                var plek = voorId is int v ? _ruimtes.FindIndex(x => x.Id == v) : -1;
+                var nieuw = deze with { OuderId = nieuweOuderId, Aantal = 0 };
+                if (plek >= 0) _ruimtes.Insert(plek, nieuw); else _ruimtes.Add(nieuw);
             }
             return;
         }
         if (!await BoomMogelijkAsync()) throw new InvalidOperationException("Draai Wiki_MariaDB.sql nog een keer: de kolom voor subruimtes ontbreekt.");
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
-        int volgorde;
-        await using (var max = new MySqlCommand("SELECT COALESCE(MAX(`Volgorde`), 0) + 10 FROM `WikiRuimtes` WHERE `OuderID` <=> @p AND `RuimteID` <> @id", cn))
+        // de nieuwe buren op volgorde, met deze ruimte ertussen (of achteraan); daarna iedereen opnieuw nummeren (10, 20, …)
+        var buren = alle.Where(x => x.OuderId == nieuweOuderId && x.Id != id).Select(x => x.Id).ToList();
+        var index = voorId is int voor ? buren.IndexOf(voor) : -1;
+        if (index >= 0) buren.Insert(index, id); else buren.Add(id);
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var cmd = new MySqlCommand("UPDATE `WikiRuimtes` SET `OuderID` = @p WHERE `RuimteID` = @id", cn, tx))
         {
-            max.Parameters.AddWithValue("@p", (object?)nieuweOuderId ?? DBNull.Value);
-            max.Parameters.AddWithValue("@id", id);
-            volgorde = Convert.ToInt32(await max.ExecuteScalarAsync());
+            cmd.Parameters.AddWithValue("@p", (object?)nieuweOuderId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();
         }
-        await using var cmd = new MySqlCommand("UPDATE `WikiRuimtes` SET `OuderID` = @p, `Volgorde` = @v WHERE `RuimteID` = @id", cn);
-        cmd.Parameters.AddWithValue("@p", (object?)nieuweOuderId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@v", volgorde);
-        cmd.Parameters.AddWithValue("@id", id);
-        await cmd.ExecuteNonQueryAsync();
+        for (var i = 0; i < buren.Count; i++)
+        {
+            await using var cmd = new MySqlCommand("UPDATE `WikiRuimtes` SET `Volgorde` = @v WHERE `RuimteID` = @id", cn, tx);
+            cmd.Parameters.AddWithValue("@v", (i + 1) * 10);
+            cmd.Parameters.AddWithValue("@id", buren[i]);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
     }
 
     /// <summary>

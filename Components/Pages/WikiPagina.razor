@@ -42,12 +42,16 @@
                 @* de boom met de lege plek eronder: daar vangt de rechtermuisknop (niet op het zoekvak, daar hoort het menu van de browser) *@
                 <div class="wk-boom @(_sleeptRuimte is not null && _sleepBoven ? "sleepdoel" : "")" @oncontextmenu="e => OpenMenu(e, null)" @oncontextmenu:preventDefault="MagSchrijven"
                      ondragstart="event.dataTransfer.setData('text/plain', 'ruimte'); event.dataTransfer.effectAllowed = 'move';"
-                     ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRuimte is not null) { _sleepBoven = true; _sleepDoel = null; } }" @ondrop="LaatVallenBoven">
+                     ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRuimte is not null) { _sleepBoven = true; _sleepDoel = null; _sleepVoor = null; } }" @ondrop="LaatVallenBoven">
                 <div class="cs-kopje">Ruimtes</div>
                 @foreach (var (r, diepte) in Zichtbaar())
                 {
                     var kinderen = _ruimtes.Any(x => x.OuderId == r.Id);
                     var totaal = Totaal(r.Id);
+                    @* de smalle strook boven een ruimte: laat je een ruimte hier vallen, dan komt hij ervoor te staan (zelfde laag) *@
+                    <div class="wk-tussen @(_sleeptRuimte is not null && _sleepVoor == r.Id ? "sleepdoel" : "")" style="@($"margin-left:{(diepte - 1) * 12 + 18}px")" @key="@("voor" + r.Id)"
+                         ondragover="event.preventDefault()" @ondragenter="() => SleepVoor(r.Id)" @ondragenter:stopPropagation="true"
+                         @ondrop="() => LaatVallenVoor(r)" @ondrop:stopPropagation="true"></div>
                     <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "") @(Sleept && _sleepDoel == r.Id ? "sleepdoel" : "") @(_sleeptRuimte?.Id == r.Id ? "wk-sleept" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
                          draggable="@(MagSchrijven ? "true" : "false")" @ondragstart="() => BeginSleepRuimte(r)" @ondragstart:stopPropagation="false" @ondragend="EindeSlepen"
                          ondragover="event.preventDefault()" @ondragenter="() => SleepOver(r.Id)" @ondragenter:stopPropagation="true" @ondrop="() => LaatVallen(r.Id)" @ondrop:stopPropagation="true"
@@ -66,7 +70,7 @@
                 @if (MagSchrijven)
                 {
                     <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam of icoon wijzigen, wissen. Op de lege plek hieronder: een nieuwe ruimte.
-                        Slepen: een artikel naar een ruimte, of een ruimte naar een andere ruimte (op de lege plek = bovenaan).</p>
+                        Slepen: een artikel naar een ruimte; een ruimte óp een andere ruimte (eronder hangen), tússen twee ruimtes (de volgorde), of naar de lege plek (bovenaan, achteraan).</p>
                 }
                 </div>
             </aside>
@@ -188,10 +192,15 @@
 
                     <div class="cs-lees @(VersiesOpen ? "" : "wk-zonder-versies")">
                         <div>
-                            <div class="cs-tekst">
-                                @if (_html.Length == 0) { <p class="uitleg">Dit artikel heeft nog geen tekst.</p> }
-                                else { <div class="cs-md">@((MarkupString)_html)</div> }
-                            </div>
+                            @* zonder tekst geen leeg vak: dan is het artikel zijn bijlage (bv. een HTML-bestand dat eronder staat) *@
+                            @if (_html.Length > 0)
+                            {
+                                <div class="cs-tekst"><div class="cs-md">@((MarkupString)_html)</div></div>
+                            }
+                            else if (_bijlagen.Count == 0)
+                            {
+                                <p class="uitleg">Dit artikel heeft nog geen tekst@(MagSchrijven ? "; klik op Bewerken om te schrijven, of zet er een bestand bij" : "").</p>
+                            }
                             @if (_bijlagen.Count > 0 || MagSchrijven)
                             {
                                 <div class="wk-bijlagen">
@@ -448,6 +457,13 @@
     private int? _voorbeeldVan;                 // de HTML-bijlage die nu in het kader staat
     private bool _toonVersies;                  // de lijst met versies is opengeklapt (blijft zo tijdens het bladeren)
 
+    /// <summary>Hangt er precies een HTML-bestand aan het artikel, dan staat het meteen in beeld (zonder eerst Bekijken).</summary>
+    private void ToonEnigeHtml()
+    {
+        var html = _bijlagen.Where(b => b.IsHtml).ToList();
+        if (html.Count == 1) _voorbeeldVan = html[0].FileStoreId;
+    }
+
     /// <summary>De versies staan in beeld: opengeklapt, of er staat een oude versie voor (dan moet je terug kunnen).</summary>
     private bool VersiesOpen => _toonVersies || _oud is not null;
 
@@ -575,9 +591,27 @@
     private bool Sleept => _sleept is not null || _sleeptRuimte is not null;
 
     private void BeginSleepRuimte(WikiRuimte r) { if (MagSchrijven) { _sleeptRuimte = r; _sleept = null; _sleepDoel = null; _sleepBoven = false; } }
-    private void EindeSlepen() { _sleeptRuimte = null; _sleept = null; _sleepDoel = null; _sleepBoven = false; }
+    private int? _sleepVoor;            // hij hangt boven de strook vóór deze ruimte
+    private void EindeSlepen() { _sleeptRuimte = null; _sleept = null; _sleepDoel = null; _sleepBoven = false; _sleepVoor = null; }
 
-    private void SleepOver(int ruimteId) { if (Sleept) { _sleepDoel = ruimteId; _sleepBoven = false; } }
+    private void SleepOver(int ruimteId) { if (Sleept) { _sleepDoel = ruimteId; _sleepBoven = false; _sleepVoor = null; } }
+    private void SleepVoor(int ruimteId) { if (_sleeptRuimte is not null) { _sleepVoor = ruimteId; _sleepDoel = null; _sleepBoven = false; } }
+
+    /// <summary>Losgelaten op de strook vóór een ruimte: zelfde ouder als die ruimte, en ervoor.</summary>
+    private async Task LaatVallenVoor(WikiRuimte voor)
+    {
+        var ruimte = _sleeptRuimte;
+        EindeSlepen();
+        if (ruimte is null || !MagSchrijven || ruimte.Id == voor.Id) return;
+        try
+        {
+            await Wiki.VerplaatsRuimteAsync(ruimte.Id, voor.OuderId, voor.Id);
+            if (voor.OuderId is int o) _open.Add(o);
+            await Laad();
+            Meld($"{ruimte.Naam} staat nu vóór {voor.Naam}.");
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+    }
 
     private Task LaatVallenBoven() => _sleeptRuimte is null ? Task.CompletedTask : VerplaatsRuimte(null);
 
@@ -724,6 +758,7 @@
                 _html = Opmaak(_artikel.Inhoud);
                 _versies = await Wiki.VersiesAsync(aid);
                 _bijlagen = await Wiki.BijlagenAsync(aid);
+                ToonEnigeHtml();
                 return;
             }
         }
@@ -908,7 +943,7 @@
             catch (Exception ex) { geweigerd.Add($"{f.Name}: {ex.GetBaseException().Message}"); }
         }
         _invoer++;
-        try { _bijlagen = await Wiki.BijlagenAsync(artikelId); } catch { }
+        try { _bijlagen = await Wiki.BijlagenAsync(artikelId); if (_bewerk is null) ToonEnigeHtml(); } catch { }
         if (geweigerd.Count > 0) Meld("Niet toegevoegd: " + string.Join("; ", geweigerd), true);
         else if (gelukt > 0) Meld(gelukt == 1 ? "De bijlage is toegevoegd." : $"{gelukt} bijlagen zijn toegevoegd.");
     }

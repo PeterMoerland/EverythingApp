@@ -502,8 +502,9 @@ i.v.m. 1Password".
   doorzichtig vlak erachter dat het sluit. Voor elke schrijver. **Ruimte verslepen** (wens gebruiker 25-11-2026):
   de tak in de zijbalk is `draggable`; op een andere ruimte = eronder hangen, op de lege plek van `.wk-boom` (loopt
   door tot onderaan) = bovenaan (`Wiki.VerplaatsRuimteAsync`: niet in zichzelf of een eigen subruimte, niet dieper dan
-  `MaxDiepte`, naam uniek op de nieuwe plek, achteraan bij de nieuwe buren). De volgorde tussen buren is nog niet te
-  verslepen. **Ruimte wissen** (menu ▸ Wissen…, alleen aan als hij leeg is): `VerwijderRuimteAsync` haalt de regel echt
+  `MaxDiepte`, naam uniek op de nieuwe plek, achteraan bij de nieuwe buren). **Volgorde**: boven elke tak staat een
+  smalle strook (`.wk-tussen`); daarop loslaten = vóór die ruimte, zelfde ouder (`VerplaatsRuimteAsync(id, ouder,
+  voorId)`, nummert de buren opnieuw 10, 20, …). Achteraan zetten = op de ouder of op de lege plek loslaten. **Ruimte wissen** (menu ▸ Wissen…, alleen aan als hij leeg is): `VerwijderRuimteAsync` haalt de regel echt
   weg en weigert als er nog een subruimte of een artikel in staat, ook een inactief. **Iconen**: `WikiRuimtes.Icoon`
   is een emoji of de naam van een Lucide-icoon uit de set van de app (`SnelIconen`, bv. `circuit-board` voor een
   printplaat; hoogstens 16 tekens, de kolombreedte); `Ico()` tekent hem. Kiezen in het venster van de ruimte, met
@@ -527,7 +528,9 @@ i.v.m. 1Password".
   pagina met de kop `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; …` (`WikiApi.VoorbeeldBeleid`):
   eigen script en opmaak werken, maar het bestand heeft een afgesloten herkomst (geen cookies, geen opslag, geen
   verzoeken naar de app of naar buiten, niets van buiten laden). De pagina toont het in een `<iframe sandbox="allow-scripts">`
-  onder het artikel (knop Bekijken) of los in een tabblad; de kop beschermt ook daar. Nooit `allow-same-origin`
+  onder het artikel (knop Bekijken) of los in een tabblad; de kop beschermt ook daar. Hangt er precies één
+  HTML-bestand aan, dan staat het bij het openen meteen in beeld (`ToonEnigeHtml`), en een artikel zonder tekst toont
+  geen leeg tekstvak. Nooit `allow-same-origin`
   toevoegen: dan kan een geüpload bestand als de app handelen. Los geopend getoetst (cookie, localStorage en fetch
   geweigerd); **het kader zelf is niet gezien**, want de ingebouwde testbrowser blokkeert frames (ERR_BLOCKED_BY_CLIENT). Opslaan met
   versiecontrole: `UPDATE ... WHERE Versie = @v`, anders `WikiConflictException`. Verwijzen: `[[Titel]]` of
