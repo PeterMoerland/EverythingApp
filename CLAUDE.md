@@ -458,11 +458,24 @@ i.v.m. 1Password".
   **`Wiki_MariaDB.sql`**, zelf draaien): menu **Wiki** (`/wiki`, `Components/Pages/WikiPagina.razor`,
   `Services/Wiki.cs`, singleton; `Wiki:Geheugen` = alles in het geheugen). **Besluiten gebruiker:** de database is
   leidend voor medewerkers en projecten (niet de Excel-bestanden uit het prototype), review komt later. Ruimtes
-  (`WikiRuimtes`, 8 uit het prototype; een ruimte erbij = een regel in de tabel, nog geen scherm) met artikelen in
+  (`WikiRuimtes`, 8 uit het prototype) als **boom** (wens gebruiker 25-11-2026): `OuderID` = de ruimte erboven,
+  hoogstens `Wiki.MaxDiepte` (8) lagen; de naam is uniek per ouder (in de app bewaakt, de unieke index op Naam is weg).
+  Zijbalk met pijltjes (`_open`, het pad naar wat open staat klapt vanzelf uit), tellers = de ruimte plus alles
+  eronder, subruimtes als tegels in de ruimte, kruimelpad, en overal het pad "Software › PLC" (`Pad`). **+ Ruimte**,
+  **+ Subruimte** en **Naam…** (naam, icoon, omschrijving) voor elke schrijver; verplaatsen en weghalen van een ruimte
+  kan nog niet. Zonder de kolom `OuderID` (script niet opnieuw gedraaid, `BoomMogelijkAsync`) blijft het een platte
+  lijst. Ruimtes met artikelen in
   markdown (`WikiArtikelen`: sectie, tags, optioneel `ProjectID`). Elke keer opslaan = een regel in `WikiVersies`;
   terugzetten = de oude titel en tekst als nieuwe versie; weghalen = `Actief` 0. **De tekst staat in de database**
   (anders dan Claude Shares) zodat zoeken een gewone LIKE-query is; bijlagen en plaatjes in de filestore, **soort 346**
-  (MasterID = artikel), getoond via `GET /wiki/bijlage/{id}` (een niet-plaatje altijd als download). Opslaan met
+  (MasterID = artikel), getoond via `GET /wiki/bijlage/{id}` (een niet-plaatje altijd als download). Een
+  **HTML-bijlage bekijken** (wens gebruiker 25-11-2026): `GET /wiki/bijlage/{id}/voorbeeld` geeft het bestand als
+  pagina met de kop `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; …` (`WikiApi.VoorbeeldBeleid`):
+  eigen script en opmaak werken, maar het bestand heeft een afgesloten herkomst (geen cookies, geen opslag, geen
+  verzoeken naar de app of naar buiten, niets van buiten laden). De pagina toont het in een `<iframe sandbox="allow-scripts">`
+  onder het artikel (knop Bekijken) of los in een tabblad; de kop beschermt ook daar. Nooit `allow-same-origin`
+  toevoegen: dan kan een geüpload bestand als de app handelen. Los geopend getoetst (cookie, localStorage en fetch
+  geweigerd); **het kader zelf is niet gezien**, want de ingebouwde testbrowser blokkeert frames (ERR_BLOCKED_BY_CLIENT). Opslaan met
   versiecontrole: `UPDATE ... WHERE Versie = @v`, anders `WikiConflictException`. Verwijzen: `[[Titel]]` of
   `[[Titel|tekst]]` (`Wiki.MetVerwijzingen`, onbekende titel = tekst met "(?)"). Opmaak:
   `ActMarkdown.Html(..., document: true, wiki: true)` laat alleen de eigen adressen `wiki?artikel=n` en

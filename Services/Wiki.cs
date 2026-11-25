@@ -3,8 +3,11 @@ using MySqlConnector;
 
 namespace EverythingApp.Services;
 
-/// <summary>Een ruimte van de wiki (MDE Automation, Mechanica, Software …) met het aantal actieve artikelen.</summary>
-public record WikiRuimte(int Id, string Naam, string Icoon, string Omschrijving, int Aantal);
+/// <summary>
+/// Een ruimte van de wiki (MDE Automation, Mechanica, Software …) met het aantal actieve artikelen in de ruimte zelf.
+/// <see cref="OuderId"/> = de ruimte waar deze onder hangt (leeg = bovenaan); zo vormen de ruimtes een boom.
+/// </summary>
+public record WikiRuimte(int Id, string Naam, string Icoon, string Omschrijving, int Aantal, int? OuderId = null);
 
 /// <summary>Een artikel; in lijsten is <see cref="Inhoud"/> leeg.</summary>
 public class WikiArtikel
@@ -32,6 +35,8 @@ public record WikiVersie(int Id, int Versie, string Titel, string Opmerking, str
 public record WikiBijlage(int FileStoreId, string Naam)
 {
     public bool IsAfbeelding => ActAfbeeldingen.IsAfbeelding(Naam);
+    /// <summary>Een HTML-bestand: te bekijken in een afgeschermd kader (zie <see cref="WikiApi"/>).</summary>
+    public bool IsHtml => Wiki.IsHtml(Naam);
     /// <summary>De verwijzing om in de tekst te zetten: een plaatje of een link naar het bestand.</summary>
     public string Verwijzing => $"{(IsAfbeelding ? "!" : "")}[{Naam.Replace("[", "(").Replace("]", ")")}]({Wiki.BijlageAdres}{FileStoreId})";
 }
@@ -58,11 +63,21 @@ public class Wiki
     /// <summary>Het adres van een bijlage, ten opzichte van de basis van de app; het nummer komt erachter.</summary>
     public const string BijlageAdres = "wiki/bijlage/";
     public const string ArtikelAdres = "wiki?artikel=";
+    /// <summary>
+    /// Hoe diep de boom van ruimtes mag gaan (wens gebruiker 25-11-2026: meer dan drie lagen). Een grens blijft nodig:
+    /// de zijbalk springt per laag in, en zo kan een fout nooit een eindeloze boom maken.
+    /// </summary>
+    public const int MaxDiepte = 8;
+    /// <summary>Grootste HTML-bestand dat we in het kader tonen; groter is alleen te downloaden.</summary>
+    public const long MaxVoorbeeld = 10_000_000;
+
+    public static bool IsHtml(string? naam) => Path.GetExtension(naam ?? "").ToLowerInvariant() is ".html" or ".htm";
 
     private readonly string? _cs;
     private readonly bool _geheugen;
     private readonly FilestoreService _store;
     private bool _aanwezig;
+    private bool _boom;         // heeft WikiRuimtes de kolom OuderID (Wiki_MariaDB.sql opnieuw gedraaid)?
 
     private readonly object _slot = new();
     private readonly List<WikiRuimte> _ruimtes = new();
@@ -104,6 +119,18 @@ public class Wiki
         return _aanwezig = Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 3;
     }
 
+    /// <summary>Kunnen ruimtes onder elkaar hangen? Zonder de kolom OuderID werkt de wiki gewoon, met een platte lijst.</summary>
+    public async Task<bool> BoomMogelijkAsync()
+    {
+        if (_geheugen) return true;
+        if (_boom || !await AanwezigAsync()) return _boom;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'WikiRuimtes' AND COLUMN_NAME = 'OuderID'", cn);
+        return _boom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+    }
+
     // ------------------------------------------------------------------ lezen
 
     public async Task<List<WikiRuimte>> RuimtesAsync()
@@ -112,16 +139,82 @@ public class Wiki
             lock (_slot) return _ruimtes.Select(r => r with { Aantal = _artikelen.Count(a => a.RuimteId == r.Id && a.Actief) }).ToList();
         var lijst = new List<WikiRuimte>();
         if (!await AanwezigAsync()) return lijst;
+        var boom = await BoomMogelijkAsync();
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT r.`RuimteID`, r.`Naam`, COALESCE(r.`Icoon`, ''), COALESCE(r.`Omschrijving`, ''), " +
-            "       (SELECT COUNT(*) FROM `WikiArtikelen` a WHERE a.`RuimteID` = r.`RuimteID` AND a.`Actief` <> 0) " +
+            "       (SELECT COUNT(*) FROM `WikiArtikelen` a WHERE a.`RuimteID` = r.`RuimteID` AND a.`Actief` <> 0), " +
+            (boom ? "r.`OuderID`" : "NULL") +
             "  FROM `WikiRuimtes` r WHERE r.`Actief` <> 0 ORDER BY r.`Volgorde`, r.`Naam`", cn);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
-            lijst.Add(new WikiRuimte(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), Convert.ToInt32(r.GetValue(4))));
-        return lijst;
+            lijst.Add(new WikiRuimte(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), Convert.ToInt32(r.GetValue(4)),
+                                     r.IsDBNull(5) ? null : r.GetInt32(5)));
+        // een ruimte waarvan de ouder niet (meer) in de lijst staat, komt bovenaan in plaats van te verdwijnen
+        var ids = lijst.Select(x => x.Id).ToHashSet();
+        return lijst.Select(x => x.OuderId is int o && !ids.Contains(o) ? x with { OuderId = null } : x).ToList();
+    }
+
+    /// <summary>Hoe diep staat deze ruimte in de boom (1 = bovenaan)?</summary>
+    public static int Diepte(IReadOnlyCollection<WikiRuimte> ruimtes, int? id)
+    {
+        var d = 0;
+        for (var r = ruimtes.FirstOrDefault(x => x.Id == id); r is not null && d < 20; r = ruimtes.FirstOrDefault(x => x.Id == r.OuderId)) d++;
+        return d;
+    }
+
+    /// <summary>
+    /// Een ruimte toevoegen (Id 0; <paramref name="ouderId"/> = waaronder, leeg = bovenaan) of naam, icoon en
+    /// omschrijving wijzigen. Onder dezelfde ouder mag een naam maar een keer voorkomen. Geeft het nummer.
+    /// </summary>
+    public async Task<int> BewaarRuimteAsync(int id, int? ouderId, string naam, string icoon, string omschrijving)
+    {
+        naam = Kort(naam, 100); icoon = Kort(icoon, 16); omschrijving = Kort(omschrijving, 300);
+        if (naam.Length == 0) throw new InvalidOperationException("Geef de ruimte een naam.");
+        var alle = await RuimtesAsync();
+        if (id != 0) ouderId = alle.FirstOrDefault(x => x.Id == id)?.OuderId;      // verplaatsen kan (nog) niet
+        else if (ouderId is not null && Diepte(alle, ouderId) >= MaxDiepte)
+            throw new InvalidOperationException($"Dieper dan {MaxDiepte} lagen kan niet.");
+        if (alle.Any(x => x.Id != id && x.OuderId == ouderId && string.Equals(x.Naam, naam, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Op deze plek is er al een ruimte met die naam.");
+
+        if (_geheugen)
+            lock (_slot)
+            {
+                var i = _ruimtes.FindIndex(x => x.Id == id);
+                if (i >= 0) { _ruimtes[i] = _ruimtes[i] with { Naam = naam, Icoon = icoon, Omschrijving = omschrijving }; return id; }
+                var nieuw = new WikiRuimte(_volgend++, naam, icoon, omschrijving, 0, ouderId);
+                _ruimtes.Add(nieuw);
+                return nieuw.Id;
+            }
+        if (id == 0 && ouderId is not null && !await BoomMogelijkAsync())
+            throw new InvalidOperationException("Draai Wiki_MariaDB.sql nog een keer: de kolom voor subruimtes ontbreekt.");
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        if (id != 0)
+        {
+            await using var bij = new MySqlCommand("UPDATE `WikiRuimtes` SET `Naam` = @n, `Icoon` = @i, `Omschrijving` = @o WHERE `RuimteID` = @id", cn);
+            bij.Parameters.AddWithValue("@n", naam);
+            bij.Parameters.AddWithValue("@i", icoon);
+            bij.Parameters.AddWithValue("@o", omschrijving);
+            bij.Parameters.AddWithValue("@id", id);
+            await bij.ExecuteNonQueryAsync();
+            return id;
+        }
+        // achteraan bij zijn broers: de hoogste volgorde plus tien
+        await using var cmd = new MySqlCommand(
+            (await BoomMogelijkAsync()
+                ? "INSERT INTO `WikiRuimtes` (`Naam`, `Icoon`, `Omschrijving`, `Volgorde`, `Actief`, `OuderID`) " +
+                  "SELECT @n, @i, @o, COALESCE(MAX(`Volgorde`), 0) + 10, 1, @p FROM `WikiRuimtes` WHERE `OuderID` <=> @p; "
+                : "INSERT INTO `WikiRuimtes` (`Naam`, `Icoon`, `Omschrijving`, `Volgorde`, `Actief`) " +
+                  "SELECT @n, @i, @o, COALESCE(MAX(`Volgorde`), 0) + 10, 1 FROM `WikiRuimtes`; ") +
+            "SELECT LAST_INSERT_ID();", cn);
+        cmd.Parameters.AddWithValue("@n", naam);
+        cmd.Parameters.AddWithValue("@i", icoon);
+        cmd.Parameters.AddWithValue("@o", omschrijving);
+        cmd.Parameters.AddWithValue("@p", (object?)ouderId ?? DBNull.Value);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 
     private const string Kolommen =
@@ -473,9 +566,22 @@ public class Wiki
 
 public static class WikiApi
 {
-    /// <summary>Een bijlage of plaatje van een artikel tonen of downloaden.</summary>
-    public static RouteHandlerBuilder MapWiki(this WebApplication app)
-        => app.MapGet("/wiki/bijlage/{id:int}", async (int id, Wiki wiki, HttpContext http) =>
+    /// <summary>
+    /// Wat een HTML-bijlage in het voorbeeld mag (kop Content-Security-Policy). <c>sandbox allow-scripts</c> geeft het
+    /// bestand een eigen, afgesloten herkomst: het eigen script werkt (veel van deze bestanden zijn klikbare proefopzetten),
+    /// maar het kan niet bij de app, de aanmelding of de gegevens. Verder niets van buiten laden en niets versturen.
+    /// De kop geldt ook als iemand het adres los in een tabblad opent.
+    /// </summary>
+    public const string VoorbeeldBeleid =
+        "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+        "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+
+    /// <summary>Een bijlage of plaatje van een artikel tonen of downloaden, en een HTML-bijlage bekijken.</summary>
+    public static RouteGroupBuilder MapWiki(this WebApplication app)
+    {
+        var api = app.MapGroup("/wiki/bijlage");
+
+        api.MapGet("/{id:int}", async (int id, Wiki wiki, HttpContext http) =>
         {
             if (await wiki.BijlageAsync(id) is not { } b) return Results.NotFound();
             http.Response.Headers.CacheControl = "private, max-age=3600";
@@ -485,4 +591,20 @@ public static class WikiApi
             var naam = plaatje ? null : b.Naam;
             return b.Inhoud is not null ? Results.File(b.Inhoud, mime, naam) : Results.File(b.Pad!, mime, naam);
         });
+
+        // het voorbeeld van een HTML-bijlage: wel als pagina, maar afgeschermd (VoorbeeldBeleid)
+        api.MapGet("/{id:int}/voorbeeld", async (int id, Wiki wiki, HttpContext http) =>
+        {
+            if (await wiki.BijlageAsync(id) is not { } b || !Wiki.IsHtml(b.Naam)) return Results.NotFound();
+            var grootte = b.Inhoud?.LongLength ?? new FileInfo(b.Pad!).Length;
+            if (grootte > Wiki.MaxVoorbeeld) return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            http.Response.Headers.ContentSecurityPolicy = VoorbeeldBeleid;
+            http.Response.Headers.XContentTypeOptions = "nosniff";
+            http.Response.Headers.CacheControl = "private, max-age=300";
+            const string mime = "text/html; charset=utf-8";
+            return b.Inhoud is not null ? Results.File(b.Inhoud, mime) : Results.File(b.Pad!, mime);
+        });
+
+        return api;
+    }
 }

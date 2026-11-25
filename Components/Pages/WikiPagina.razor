@@ -39,11 +39,25 @@
                 <input class="cs-zoek" placeholder="Zoeken in de wiki…" value="@_zoek" @oninput="ZoekInput" autocomplete="off" aria-label="Zoeken in de wiki" />
                 <button type="button" class="cs-project @(_ruimte is null && _artikel is null && !Zoekt ? "actief" : "")" @onclick="@(() => Ga("wiki"))">🏠 Start</button>
                 <div class="cs-kopje">Ruimtes</div>
-                @foreach (var r in _ruimtes)
+                @foreach (var (r, diepte) in Zichtbaar())
                 {
-                    <button type="button" class="cs-project @(r.Id == HuidigeRuimte ? "actief" : "")" @onclick="@(() => Ga($"wiki?ruimte={r.Id}"))" title="@r.Omschrijving">
-                        @r.Icoon @r.Naam <span class="cs-aantal">@(r.Aantal > 0 ? r.Aantal : "")</span>
-                    </button>
+                    var kinderen = _ruimtes.Any(x => x.OuderId == r.Id);
+                    var totaal = Totaal(r.Id);
+                    <div class="wk-tak" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id">
+                        @if (kinderen)
+                        {
+                            <button type="button" class="wk-pijl" title="@(_open.Contains(r.Id) ? "Dichtklappen" : "Openklappen")" aria-expanded="@_open.Contains(r.Id)"
+                                    @onclick="() => { if (!_open.Remove(r.Id)) _open.Add(r.Id); }">@(_open.Contains(r.Id) ? "▾" : "▸")</button>
+                        }
+                        else { <span class="wk-pijl"></span> }
+                        <button type="button" class="cs-project @(r.Id == HuidigeRuimte ? "actief" : "")" @onclick="@(() => Ga($"wiki?ruimte={r.Id}"))" title="@r.Omschrijving">
+                            @r.Icoon @r.Naam <span class="cs-aantal">@(totaal > 0 ? totaal : "")</span>
+                        </button>
+                    </div>
+                }
+                @if (MagSchrijven)
+                {
+                    <button type="button" class="cs-project wk-nieuweruimte" @onclick="() => BeginRuimte(null, null)">+ Ruimte</button>
                 }
             </aside>
 
@@ -61,7 +75,7 @@
                             <input id="wk-titel" value="@b.Titel" maxlength="200" @oninput="e => b.Titel = (string?)e.Value ?? string.Empty" /></label>
                         <label class="cs-veld"><span>Ruimte</span>
                             <select value="@b.RuimteId" @onchange="RuimteGekozen">
-                                @foreach (var r in _ruimtes) { <option value="@r.Id">@r.Naam</option> }
+                                @foreach (var (r, _) in Boom(null, 1)) { <option value="@r.Id">@Pad(r.Id)</option> }
                             </select></label>
                         <label class="cs-veld"><span>Sectie (kopje in de ruimte; mag leeg)</span>
                             <input value="@b.Sectie" maxlength="100" list="wk-secties" @oninput="e => b.Sectie = (string?)e.Value ?? string.Empty" />
@@ -172,7 +186,13 @@
                                     <div class="cs-kopje">Bijlagen</div>
                                     @foreach (var x in _bijlagen)
                                     {
-                                        <a class="wk-bijlage" href="@(Wiki.BijlageAdres + x.FileStoreId)" target="_blank" rel="noopener">@(x.IsAfbeelding ? "🖼" : "📎") @x.Naam</a>
+                                        <a class="wk-bijlage" href="@(Wiki.BijlageAdres + x.FileStoreId)" target="_blank" rel="noopener"
+                                           title="@(x.IsAfbeelding ? "Openen" : "Downloaden")">@(x.IsAfbeelding ? "🖼" : x.IsHtml ? "🌐" : "📎") @x.Naam</a>
+                                        @if (x.IsHtml)
+                                        {
+                                            <button type="button" class="klein @(_voorbeeldVan == x.FileStoreId ? "primair" : "")" title="Het HTML-bestand hieronder tonen"
+                                                    @onclick="() => _voorbeeldVan = _voorbeeldVan == x.FileStoreId ? null : x.FileStoreId">@(_voorbeeldVan == x.FileStoreId ? "Sluiten" : "Bekijken")</button>
+                                        }
                                     }
                                     @if (_bijlagen.Count == 0) { <span class="cs-zacht">Nog geen.</span> }
                                     @if (MagSchrijven && a.Actief)
@@ -201,20 +221,61 @@
                             }
                         </aside>
                     </div>
+                    @if (_bijlagen.FirstOrDefault(x => x.FileStoreId == _voorbeeldVan && x.IsHtml) is { } html)
+                    {
+                        @* afgeschermd: het bestand draait in een eigen herkomst en kan niet bij de app (WikiApi.VoorbeeldBeleid) *@
+                        <div class="wk-voorbeeld">
+                            <div class="wk-voorbeeldkop">
+                                <b>🌐 @html.Naam</b>
+                                <span class="groei"></span>
+                                <a class="klein cs-knoplink" href="@(Wiki.BijlageAdres + html.FileStoreId + "/voorbeeld")" target="_blank" rel="noopener">Groot, in een nieuw tabblad</a>
+                                <button type="button" class="klein" @onclick="() => _voorbeeldVan = null">Sluiten</button>
+                            </div>
+                            <iframe @key="html.FileStoreId" sandbox="allow-scripts" referrerpolicy="no-referrer"
+                                    src="@(Wiki.BijlageAdres + html.FileStoreId + "/voorbeeld")" title="@html.Naam"></iframe>
+                        </div>
+                    }
                 }
                 else if (_ruimte is { } ru)
                 {
                     @* ----- de artikelen van een ruimte ----- *@
+                    @if (ru.OuderId is not null)
+                    {
+                        <div class="wk-kruimels">
+                            @foreach (var o in Voorouders(ru.Id)) { <a href="@($"wiki?ruimte={o.Id}")">@o.Naam</a><span>›</span> }
+                        </div>
+                    }
                     <div class="cs-leeskop">
                         <h2>@ru.Icoon @ru.Naam</h2>
                         <span class="cs-zacht">@ru.Omschrijving</span>
                         <span class="groei"></span>
                         <label class="vink"><input type="checkbox" checked="@_ookInactief" @onchange="InactiefGewijzigd" /> ook inactief</label>
-                        @if (MagSchrijven) { <button type="button" class="primair klein" @onclick="() => Nieuw(ru.Id)">+ Nieuw artikel</button> }
+                        @if (MagSchrijven)
+                        {
+                            <button type="button" class="klein" title="Naam, icoon en omschrijving van deze ruimte" @onclick="() => BeginRuimte(ru, null)">Naam…</button>
+                            @if (Wiki.Diepte(_ruimtes, ru.Id) < Wiki.MaxDiepte)
+                            {
+                                <button type="button" class="klein" title="Een ruimte onder deze ruimte" @onclick="() => BeginRuimte(null, ru.Id)">+ Subruimte</button>
+                            }
+                            <button type="button" class="primair klein" @onclick="() => Nieuw(ru.Id)">+ Nieuw artikel</button>
+                        }
                     </div>
+                    @if (_ruimtes.Any(x => x.OuderId == ru.Id))
+                    {
+                        <div class="wk-subs">
+                            @foreach (var sub in _ruimtes.Where(x => x.OuderId == ru.Id))
+                            {
+                                var n = Totaal(sub.Id);
+                                <a class="wk-sub" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving">
+                                    <b>@sub.Icoon @sub.Naam</b>
+                                    <span class="cs-zacht">@(n == 0 ? "leeg" : n == 1 ? "1 artikel" : n + " artikelen")</span>
+                                </a>
+                            }
+                        </div>
+                    }
                     @if (_artikelen.Count == 0)
                     {
-                        <p class="uitleg">In deze ruimte staat nog niets.@(MagSchrijven ? " Begin met \"+ Nieuw artikel\"." : "")</p>
+                        <p class="uitleg">In deze ruimte zelf staat nog niets.@(MagSchrijven ? " Begin met \"+ Nieuw artikel\"." : "")</p>
                     }
                     @foreach (var groep in _artikelen.GroupBy(x => x.Sectie.Length > 0 ? x.Sectie : "Algemeen").OrderBy(g => g.Key == "Algemeen" ? "" : g.Key))
                     {
@@ -272,6 +333,30 @@
     }
 </div>
 
+@* ----- een ruimte toevoegen of hernoemen ----- *@
+@if (_ruimteVenster is { } rv)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster">
+            <header class="bijlagekop">
+                <h2>@(rv.Id != 0 ? "Ruimte wijzigen" : rv.OuderId is int oid ? "Nieuwe ruimte onder " + Pad(oid) : "Nieuwe ruimte")</h2>
+            </header>
+            <div class="factuurvenster-inhoud">
+                <label class="cs-veld"><span>Naam</span>
+                    <input id="wk-ruimtenaam" value="@rv.Naam" maxlength="100" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" /></label>
+                <label class="cs-veld"><span>Icoon (een emoji; mag leeg)</span>
+                    <input value="@rv.Icoon" maxlength="16" style="max-width:6rem" @oninput="e => rv.Icoon = (string?)e.Value ?? string.Empty" /></label>
+                <label class="cs-veld"><span>Omschrijving (mag leeg)</span>
+                    <input value="@rv.Omschrijving" maxlength="300" @oninput="e => rv.Omschrijving = (string?)e.Value ?? string.Empty" /></label>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@(_bezig || rv.Naam.Trim().Length == 0)" @onclick="BewaarRuimte">Bewaren</button>
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="() => _ruimteVenster = null">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     /// <summary>Wat er open staat volgt uit het adres.</summary>
     [SupplyParameterFromQuery(Name = "ruimte")] public int? RuimteParam { get; set; }
@@ -293,6 +378,12 @@
     private Dictionary<string, int> _titels = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _pauze, _projectPauze;
     private int _invoer;
+    private int? _voorbeeldVan;                 // de HTML-bijlage die nu in het kader staat
+    private readonly HashSet<int> _open = new();    // de opengeklapte ruimtes in de zijbalk
+
+    /// <summary>Het venster voor een nieuwe ruimte (Id 0, onder OuderId) of het wijzigen van een bestaande.</summary>
+    private class RuimteInvoer { public int Id; public int? OuderId; public string Naam = "", Icoon = "", Omschrijving = ""; }
+    private RuimteInvoer? _ruimteVenster;
     private (int? Ruimte, int? Artikel) _getoond = (-1, -1);
 
     private bool Zoekt => _zoek.Trim().Length >= 2;
@@ -301,7 +392,63 @@
     private bool MagSchrijven => Ik.WerknemerId is not null || (!Ik.Ingelogd && !Ik.IsWerkplek);
 
     private static string Label(ProjectRegel p) => $"{p.Nummer} {p.Omschrijving}".Trim();
-    private string RuimteNaam(int id) => _ruimtes.FirstOrDefault(r => r.Id == id)?.Naam ?? "";
+    private string RuimteNaam(int id) => Pad(id);
+
+    // ---- de boom van ruimtes ----
+
+    /// <summary>De ruimtes onder <paramref name="ouder"/> met alles eronder, in de volgorde van de boom.</summary>
+    private IEnumerable<(WikiRuimte R, int Diepte)> Boom(int? ouder, int diepte, bool alleenOpen = false)
+    {
+        if (diepte > 10) yield break;
+        foreach (var r in _ruimtes.Where(x => x.OuderId == ouder))
+        {
+            yield return (r, diepte);
+            if (alleenOpen && !_open.Contains(r.Id)) continue;
+            foreach (var k in Boom(r.Id, diepte + 1, alleenOpen)) yield return k;
+        }
+    }
+
+    /// <summary>Wat er in de zijbalk staat: de bovenste ruimtes en wat onder een opengeklapte ruimte hangt.</summary>
+    private IEnumerable<(WikiRuimte R, int Diepte)> Zichtbaar() => Boom(null, 1, alleenOpen: true);
+
+    /// <summary>De ruimtes boven deze, van boven naar beneden (zonder de ruimte zelf).</summary>
+    private List<WikiRuimte> Voorouders(int id)
+    {
+        var uit = new List<WikiRuimte>();
+        for (var r = _ruimtes.FirstOrDefault(x => x.Id == _ruimtes.FirstOrDefault(y => y.Id == id)?.OuderId); r is not null && uit.Count < 10;
+             r = _ruimtes.FirstOrDefault(x => x.Id == r.OuderId)) uit.Insert(0, r);
+        return uit;
+    }
+
+    /// <summary>"Software › PLC › Omron": waar een ruimte staat.</summary>
+    private string Pad(int id)
+        => string.Join(" › ", Voorouders(id).Select(r => r.Naam).Append(_ruimtes.FirstOrDefault(r => r.Id == id)?.Naam ?? ""));
+
+    /// <summary>Het aantal artikelen in een ruimte en alles eronder.</summary>
+    private int Totaal(int id) => (_ruimtes.FirstOrDefault(r => r.Id == id)?.Aantal ?? 0) + Boom(id, 1).Sum(x => x.R.Aantal);
+
+    private void BeginRuimte(WikiRuimte? bestaand, int? ouderId)
+    {
+        if (!MagSchrijven) return;
+        _ruimteVenster = bestaand is null ? new RuimteInvoer { OuderId = ouderId }
+            : new RuimteInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Icoon = bestaand.Icoon, Omschrijving = bestaand.Omschrijving };
+    }
+
+    private async Task BewaarRuimte()
+    {
+        if (_ruimteVenster is not { } rv || _bezig || !MagSchrijven) return;
+        _bezig = true;
+        try
+        {
+            var id = await Wiki.BewaarRuimteAsync(rv.Id, rv.OuderId, rv.Naam, rv.Icoon, rv.Omschrijving);
+            _ruimteVenster = null;
+            if (rv.OuderId is int o) _open.Add(o);
+            if (rv.Id == 0) { Meld($"De ruimte {rv.Naam.Trim()} is toegevoegd."); Ga($"wiki?ruimte={id}"); }
+            else { await Laad(); Meld("De ruimte is gewijzigd."); }
+        }
+        catch (Exception ex) { Meld(ex.GetBaseException().Message, true); }
+        _bezig = false;
+    }
     private string Opmaak(string? tekst) => ActMarkdown.Html(Wiki.MetVerwijzingen(tekst ?? "", _titels), document: true, wiki: true);
     private void Meld(string tekst, bool fout = false) { _melding = tekst; _fout = fout; }
     private void Ga(string adres) { _zoek = ""; _treffers = new(); Nav.NavigateTo(adres); }
@@ -330,7 +477,21 @@
     private async Task Laad()
     {
         _ruimtes = await Wiki.RuimtesAsync();
-        _artikel = null; _ruimte = null; _oud = null; _html = "";
+        _artikel = null; _ruimte = null; _oud = null; _html = ""; _voorbeeldVan = null;
+        try { await LaadInhoud(); }
+        finally
+        {
+            // de takken boven wat er open staat uitklappen, zodat je in de zijbalk ziet waar je bent
+            if (HuidigeRuimte is int nu)
+            {
+                foreach (var o in Voorouders(nu)) _open.Add(o.Id);
+                if (_ruimte is not null) _open.Add(nu);     // in een ruimte: ook zijn eigen subruimtes tonen
+            }
+        }
+    }
+
+    private async Task LaadInhoud()
+    {
         if (ArtikelParam is int aid)
         {
             _artikel = await Wiki.ArtikelAsync(aid);
