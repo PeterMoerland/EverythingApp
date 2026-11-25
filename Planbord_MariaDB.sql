@@ -16,10 +16,16 @@
 --  3. Recht Planner (stap 2, bewerken): wie het heeft (en Directie) mag de planning wijzigen. Kijken mag iedereen.
 --     Zetten in Werknemers > Rechten > Planner (planning bewerken).
 --
+--  4. PlanbordRijWerknemers (stap 4, wie koppelen aan werknemers): de werknemers van een rij. De kolom Resource
+--     blijft de vrije tekst voor wie geen werknemer is (Werkplaats, een vacature, een leverancier). De namen uit Tom's
+--     Planner zet je daarna in de app om met Planning > Namen koppelen...
+--
+--  5. PlanbordRijen.Kleur: de kleur van een rij (een van de tien kleuren uit de app, "#rrggbb"; leeg = geen).
+--
 --  Uitvoeren op de MDE-database. Meerdere keren draaien kan geen kwaad. Zonder dit script staat de pagina
 --  er wel, met de melding dat de tabellen ontbreken.
---  LET OP: is het script al eerder gedraaid (25-11-2026, voor stap 1), draai het dan nog een keer voor het recht
---  Planner. De planning zelf blijft staan.
+--  LET OP: is het script al eerder gedraaid (25-11-2026, voor stap 1 of 2), draai het dan nog een keer voor het recht
+--  Planner, de tabel PlanbordRijWerknemers en de kolom Kleur. De planning zelf blijft staan.
 -- ===========================================================================
 
 ALTER TABLE `Werknemers`
@@ -52,3 +58,13 @@ CREATE TABLE IF NOT EXISTS `PlanbordItems` (
     PRIMARY KEY (`ItemID`),
     KEY `IX_PlanbordItems_Rij` (`RijID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `PlanbordRijWerknemers` (
+    `RijID`       INT NOT NULL,
+    `WerknemerID` INT NOT NULL,
+    PRIMARY KEY (`RijID`, `WerknemerID`),
+    KEY `IX_PlanbordRijWerknemers_Werknemer` (`WerknemerID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE `PlanbordRijen`
+    ADD COLUMN IF NOT EXISTS `Kleur` VARCHAR(20) NULL;

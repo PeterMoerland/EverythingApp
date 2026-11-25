@@ -59,6 +59,10 @@
             @if (MagPlannen)
             {
                 <button type="button" class="primair klein" title="Een nieuwe groep, onderaan de planning" @onclick="() => BeginRij(null, null, null)">+ Groep</button>
+                @if (_metWie && _losseNamen > 0)
+                {
+                    <button type="button" class="klein" title="De namen uit Tom's Planner in één keer aan werknemers koppelen (@_losseNamen namen staan nog als tekst)" @onclick="BeginNamen">Namen koppelen…</button>
+                }
             }
             @if (MagImporteren)
             {
@@ -132,7 +136,8 @@
                     <div class="plb-tussen @(_sleeptRij is not null && _sleepVoor == r.Id ? "sleepdoel" : "")" @key="@("voor" + r.Id)"
                          ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepVoor = r.Id; _sleepOp = null; } }"
                          @ondrop="() => LaatRijVallen(r, true)"></div>
-                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id ? "gekozen" : "")"
+                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id ? "gekozen" : "") @(r.Kleur.Length > 0 ? "plb-gekleurd" : "")"
+                         style="@(r.Kleur.Length > 0 ? "--plb-rijkleur:" + r.Kleur : null)"
                          @key="r.Id" data-groep="@r.Id" @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagPlannen">
                         <div class="plb-naam @(_sleeptRij is not null && _sleepOp == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam"
                              draggable="@(MagPlannen ? "true" : "false")" @ondragstart="() => BeginSleepRij(r)" @ondragend="EindeSleepRij"
@@ -151,7 +156,7 @@
                                 else { <span class="plb-koppel" title="@r.KoppelTekst">@r.KoppelKort</span> }
                             }
                         </div>
-                        <div class="plb-wie" title="@r.Resource">@r.Resource</div>
+                        <div class="plb-wie" title="@WieVoluit(r)">@WieTekst(r)</div>
                         <div class="plb-tijd" @ondblclick="e => NieuwOpPlek(r, e)" title="@(MagPlannen ? "Dubbelklik voor een nieuwe balk; rechtermuisknop voor meer" : null)">
                             @if (VandaagPct() is { } vp) { <i class="plb-vandaag" style="@($"left:{vp}")"></i> }
                             @if (groep && !open)
@@ -207,13 +212,28 @@
 @if (_menu is { } mn && MagPlannen)
 {
     <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
-    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 320px))")">
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 400px))")">
         <div class="wk-menukop">@mn.Rij.Naam</div>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, false, null); }">+ Balk…</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.Id, null); }">+ Rij eronder (in @mn.Rij.Naam)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.OuderId, mn.Rij.Id); }">+ Rij erna</button>
-        <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Naam en wie wijzigen…</button>
+        <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Wijzigen…</button>
+        @if (_metKleur)
+        {
+            <button type="button" role="menuitem" class="plb-menukleur" aria-expanded="@_menuKleur" @onclick="() => _menuKleur = !_menuKleur">
+                <span>Kleur</span>@if (mn.Rij.Kleur.Length > 0) { <i style="@("background:" + mn.Rij.Kleur)"></i> }<span class="plb-menupijl">@(_menuKleur ? "▾" : "▸")</span></button>
+            @if (_menuKleur)
+            {
+                <div class="plb-kleuren in-menu" role="group" aria-label="Kleur">
+                    @foreach (var (naam, hex) in Planbord.Rijkleuren)
+                    {
+                        <button type="button" class="@(mn.Rij.Kleur == hex ? "gekozen" : "")" style="@("background:" + hex)" title="@naam" aria-label="@naam" @onclick="() => KiesKleur(mn.Rij, hex)"></button>
+                    }
+                    <button type="button" class="geen @(mn.Rij.Kleur.Length == 0 ? "gekozen" : "")" title="Geen kleur" aria-label="Geen kleur" @onclick="() => KiesKleur(mn.Rij, string.Empty)">✕</button>
+                </div>
+            }
+        }
         <button type="button" role="menuitem" @onclick="() => BeginKoppel(mn.Rij)">@(mn.Rij.Gekoppeld ? "Koppeling wijzigen…" : "Koppelen aan klant, project of werkorder…")</button>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
     </div>
@@ -228,12 +248,78 @@
             <div class="factuurvenster-inhoud" @onkeydown='e => { if (e.Key == "Escape") _rijVenster = null; }'>
                 <label class="cs-veld"><span>Naam</span>
                     <input @ref="_naamVeld" value="@rv.Naam" maxlength="200" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" @onkeydown="RijToets" /></label>
-                <label class="cs-veld"><span>Wie (mag leeg)</span>
+                @if (_metWie)
+                {
+                    <div class="cs-veld"><span>Wie (werknemers)</span>
+                        <div class="plb-wiekeuze">
+                            @foreach (var w in rv.Werknemers)
+                            {
+                                <span class="plb-wielapje" title="@_persoon.GetValueOrDefault(w)?.Naam">@Kort(w)
+                                    <button type="button" aria-label="@("Weghalen: " + Kort(w))" title="Weghalen" @onclick="() => rv.Werknemers.Remove(w)">×</button></span>
+                            }
+                            @* de sleutel maakt de lijst na elke keuze opnieuw, zodat hij weer op "+ werknemer…" staat *@
+                            <select @key="@("wie" + rv.Werknemers.Count)" value="" @onchange="e => WieErbij(rv, e)" aria-label="Een werknemer toevoegen">
+                                <option value="">+ werknemer…</option>
+                                @foreach (var p in _personen.Where(p => p.InDienst && !rv.Werknemers.Contains(p.Id)))
+                                {
+                                    <option value="@p.Id" title="@p.Naam">@p.Kort</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+                <label class="cs-veld"><span>@(_metWie ? "Wie anders (geen werknemer: Werkplaats, vacature, leverancier…)" : "Wie (mag leeg)")</span>
                     <input value="@rv.Resource" maxlength="100" list="plb-wie" @oninput="e => rv.Resource = (string?)e.Value ?? string.Empty" @onkeydown="RijToets" />
                     <datalist id="plb-wie">@foreach (var w in _wie) { <option value="@w" /> }</datalist></label>
+                @if (_metKleur)
+                {
+                    <div class="cs-veld"><span>Kleur</span>
+                        <div class="plb-kleuren" role="group" aria-label="Kleur">
+                            @foreach (var (naam, hex) in Planbord.Rijkleuren)
+                            {
+                                <button type="button" class="@(rv.Kleur == hex ? "gekozen" : "")" style="@("background:" + hex)" title="@naam" aria-label="@naam" @onclick="() => rv.Kleur = hex"></button>
+                            }
+                            <button type="button" class="geen @(rv.Kleur.Length == 0 ? "gekozen" : "")" title="Geen kleur" aria-label="Geen kleur" @onclick="() => rv.Kleur = string.Empty">✕</button>
+                        </div>
+                    </div>
+                }
                 <div class="cs-knoppen">
                     <button type="button" class="primair" disabled="@(_bezig || rv.Naam.Trim().Length == 0)" @onclick="BewaarRij">Bewaren</button>
                     <button type="button" class="klein" disabled="@_bezig" @onclick="() => _rijVenster = null">Annuleren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ----- de namen uit de vrije tekst (Tom's Planner) aan werknemers koppelen (stap 4) ----- *@
+@if (_namenVenster is { } nv)
+{
+    <div class="cmdk-overlay midden">
+        <div class="factuurvenster cs-venster plb-namenvenster">
+            <header class="bijlagekop"><h2>Namen koppelen aan werknemers</h2></header>
+            <div class="factuurvenster-inhoud" @onkeydown='e => { if (e.Key == "Escape") _namenVenster = null; }'>
+                <p class="uitleg">Dit zijn de namen die nog als tekst bij Wie staan. Kies per naam de werknemer; waar het duidelijk is, is dat al ingevuld.
+                    Laat leeg wat geen werknemer is (Werkplaats, een vacature, een leverancier): dat blijft als tekst staan.</p>
+                <div class="plb-namen">
+                    @foreach (var n in nv)
+                    {
+                        <label @key="n.Naam">
+                            <span class="plb-namennaam" title="@n.Naam">@n.Naam</span>
+                            <span class="plb-namenaantal">@n.Aantal×</span>
+                            <select value="@(n.Werknemer?.ToString() ?? string.Empty)" @onchange="e => n.Werknemer = int.TryParse((string?)e.Value, out var w) ? w : null">
+                                <option value="">— niet koppelen —</option>
+                                @foreach (var p in _personen.Where(p => p.InDienst || p.Id == n.Werknemer))
+                                {
+                                    <option value="@p.Id" title="@p.Naam">@p.Kort@(p.Kort == p.Naam ? "" : " (" + p.Naam + ")")</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                </div>
+                <div class="cs-knoppen">
+                    <button type="button" class="primair" disabled="@(_bezig || nv.All(n => n.Werknemer is null))" @onclick="KoppelNamen">Koppelen (@nv.Count(n => n.Werknemer is not null) van @nv.Count namen)</button>
+                    <button type="button" class="klein" disabled="@_bezig" @onclick="() => _namenVenster = null">Annuleren</button>
                 </div>
             </div>
         </div>
@@ -387,6 +473,11 @@
         _legenda = items.Where(i => !i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count())
                         .Select(g => (g.Key, Kleur(g.First().Kleur))).ToList();
         _symbolen = items.Where(i => i.Symbool && i.Legenda.Length > 0).GroupBy(i => i.Legenda).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
+        _metKleur = await Bord.KleurAanwezigAsync();
+        _metWie = await Bord.WieAanwezigAsync();
+        try { _personen = _metWie ? await Bord.PersonenAsync() : new(); } catch { _personen = new(); }
+        _persoon = _personen.ToDictionary(p => p.Id);
+        _losseNamen = rijen.SelectMany(r => Planbord.Namen(r.Resource)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         _wie = rijen.Select(r => r.Resource).Where(w => w.Length > 0).GroupBy(w => w, StringComparer.OrdinalIgnoreCase)
                     .OrderByDescending(g => g.Count()).Take(80).Select(g => g.Key).OrderBy(w => w).ToList();
     }
@@ -402,7 +493,60 @@
 
     // ------------------------------------------------------------------ welke rijen in beeld
 
-    private bool Past(PlanRij r, string q) => r.Naam.Contains(q, StringComparison.OrdinalIgnoreCase) || r.Resource.Contains(q, StringComparison.OrdinalIgnoreCase);
+    private bool Past(PlanRij r, string q) => r.Naam.Contains(q, StringComparison.OrdinalIgnoreCase) || WieVoluit(r).Contains(q, StringComparison.OrdinalIgnoreCase)
+                                             || WieTekst(r).Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    // ---- wie: gekoppelde werknemers en de vrije tekst (stap 4, 25-11-2026) ----
+
+    private bool _metWie, _metKleur, _menuKleur;
+
+    /// <summary>Een kleur uit het rechtermuismenu: meteen bewaren.</summary>
+    private async Task KiesKleur(PlanRij r, string kleur)
+    {
+        _menu = null;
+        await Doe(() => Bord.KleurAsync(r.Id, kleur));
+    }
+    private int _losseNamen;
+    private List<PlanPersoon> _personen = new();
+    private Dictionary<int, PlanPersoon> _persoon = new();
+
+    private string Kort(int werknemer) => _persoon.TryGetValue(werknemer, out var p) ? p.Kort : "?";
+
+    /// <summary>De kolom Wie: de gekoppelde werknemers (korte naam) en daarachter de vrije tekst.</summary>
+    private string WieTekst(PlanRij r) => r.Werknemers.Count == 0 ? r.Resource
+        : string.Join(", ", r.Werknemers.Select(Kort).OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase).Concat(r.Resource.Length > 0 ? new[] { r.Resource } : Array.Empty<string>()));
+
+    private string WieVoluit(PlanRij r) => r.Werknemers.Count == 0 ? r.Resource
+        : string.Join(", ", r.Werknemers.Select(w => _persoon.TryGetValue(w, out var p) ? p.Naam : "?").OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase)
+                                        .Concat(r.Resource.Length > 0 ? new[] { r.Resource } : Array.Empty<string>()));
+
+    private void WieErbij(RijInvoer rv, ChangeEventArgs e)
+    {
+        if (int.TryParse((string?)e.Value, out var w) && !rv.Werknemers.Contains(w)) rv.Werknemers.Add(w);
+    }
+
+    private class NaamKeuze { public string Naam = ""; public int Aantal; public int? Werknemer; }
+    private List<NaamKeuze>? _namenVenster;
+
+    /// <summary>Het venster met alle namen die nog als tekst bij Wie staan, vaakst gebruikte bovenaan, met een voorstel waar dat duidelijk is.</summary>
+    private void BeginNamen()
+    {
+        if (!MagPlannen) return;
+        _namenVenster = _rijen.SelectMany(r => Planbord.Namen(r.Resource)).GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new NaamKeuze { Naam = g.Key, Aantal = g.Count(), Werknemer = Planbord.Voorstel(g.Key, _personen) })
+            .OrderByDescending(n => n.Aantal).ThenBy(n => n.Naam).ToList();
+    }
+
+    private async Task KoppelNamen()
+    {
+        if (_namenVenster is not { } nv || _bezig) return;
+        var keuze = nv.Where(n => n.Werknemer is not null).ToDictionary(n => n.Naam, n => n.Werknemer!.Value, StringComparer.OrdinalIgnoreCase);
+        if (keuze.Count == 0) return;
+        if (!await JS.InvokeAsync<bool>("mdeBevestig", $"{keuze.Count} namen worden op alle rijen een gekoppelde werknemer en verdwijnen daar uit de tekst. Dat is niet in één keer terug te draaien.",
+                                        new { kop = "Namen koppelen?", ja = "Koppelen" })) return;
+        var aantal = 0;
+        if (await Doe(async () => aantal = await Bord.KoppelNamenAsync(keuze))) { _namenVenster = null; Meld($"Op {aantal} rijen zijn werknemers gekoppeld."); }
+    }
 
     /// <summary>De rijen die in beeld staan, in de volgorde van de boom. Bij zoeken: wat past, met de groepen erboven en alles eronder.</summary>
     private IEnumerable<(PlanRij R, int Diepte)> Zichtbaar()
@@ -570,7 +714,7 @@
 
     private record MenuPlek(PlanRij Rij, int X, int Y);
     private MenuPlek? _menu;
-    private class RijInvoer { public int Id; public int? OuderId, NaId; public string Naam = "", Resource = ""; }
+    private class RijInvoer { public int Id; public int? OuderId, NaId; public string Naam = "", Resource = "", Kleur = ""; public List<int> Werknemers = new(); }
     private RijInvoer? _rijVenster;
     private class ItemInvoer
     {
@@ -622,7 +766,7 @@
         finally { _eigen = false; _bezig = false; }
     }
 
-    private void OpenMenu(MouseEventArgs e, PlanRij r) { if (MagPlannen) _menu = new MenuPlek(r, (int)e.ClientX, (int)e.ClientY); }
+    private void OpenMenu(MouseEventArgs e, PlanRij r) { if (MagPlannen) { _menuKleur = false; _menu = new MenuPlek(r, (int)e.ClientX, (int)e.ClientY); } }
 
     // ---- rijen ----
 
@@ -631,7 +775,7 @@
     {
         if (!MagPlannen) return;
         _rijVenster = bestaand is null ? new RijInvoer { OuderId = ouderId, NaId = naId }
-            : new RijInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Resource = bestaand.Resource };
+            : new RijInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Resource = bestaand.Resource, Kleur = bestaand.Kleur, Werknemers = bestaand.Werknemers.ToList() };
         _focusNaam = true;
     }
 
@@ -642,10 +786,10 @@
         if (_rijVenster is not { } rv || _bezig || rv.Naam.Trim().Length == 0) return;
         var gelukt = await Doe(async () =>
         {
-            if (rv.Id != 0) await Bord.WijzigRijAsync(rv.Id, rv.Naam, rv.Resource);
+            if (rv.Id != 0) await Bord.WijzigRijAsync(rv.Id, rv.Naam, rv.Resource, _metWie ? rv.Werknemers : null, _metKleur ? rv.Kleur : null);
             else
             {
-                await Bord.NieuweRijAsync(rv.OuderId, rv.NaId, rv.Naam, rv.Resource);
+                await Bord.NieuweRijAsync(rv.OuderId, rv.NaId, rv.Naam, rv.Resource, _metWie ? rv.Werknemers : null, _metKleur ? rv.Kleur : null);
                 if (rv.OuderId is int o) _open.Add(o);
             }
         });

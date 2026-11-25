@@ -97,6 +97,10 @@ public static class Menu
         // Activity board: per project problemen op prioriteit en activiteiten op een kanbanbord (spec Freek Moerland).
         new MenuModule("activityboard", "Activity board", "kanban") { Url = "/activityboard" },
 
+        // Planning: groepen met activiteiten op een tijdbalk, overgezet uit Tom's Planner (wens gebruiker 25-11-2026).
+        // Direct onder het Activity board (wens gebruiker 25-11-2026; stond eerst onderaan, boven de Wiki).
+        new MenuModule("planning", "Planning", "chart-gantt") { Url = "/planbord" },
+
         new("artikelen", "Artikelen", "package",
             new MenuGroep("Onderhoud",
                 new MenuItem("Artikelen", "/artikelen", Icoon: "package"),
@@ -304,9 +308,6 @@ public static class Menu
                 new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),
                 new MenuItem("Werkplekken", "/beheer/werkplekken", Icoon: "laptop"),
                 new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone"))),
-
-        // Planning: groepen met activiteiten op een tijdbalk, overgezet uit Tom's Planner (wens gebruiker 25-11-2026).
-        new MenuModule("planning", "Planning", "chart-gantt") { Url = "/planbord" },
 
         // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen.
         // Helemaal onderaan in de lijst (wens gebruiker 25-11-2026).

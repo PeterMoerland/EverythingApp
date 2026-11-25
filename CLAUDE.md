@@ -498,7 +498,25 @@ i.v.m. 1Password".
   namen zijn daar niet op te zoeken; een werkorder heeft er dan geen link). **Getest:** lokaal in het geheugen
   (project, werkorder, klant, wijzigen, ontkoppelen) en de leesquery alleen-lezen tegen de echte tabellen. **Niet
   getest:** het wegschrijven naar de echte tabel, donker.
-  **Nog niet** (volgende stappen): resources koppelen aan werknemers, overzicht per persoon, iets doen met de koppeling
+  **Stap 4, wie = werknemers (25-11-2026, "bouw stap 4"; `Planbord_MariaDB.sql` opnieuw draaien voor de tabel
+  `PlanbordRijWerknemers`)**: een rij heeft nul of meer werknemers (`PlanRij.Werknemers`) en daarnaast de vrije tekst
+  `Resource` voor wie geen werknemer is. Zonder de tabel (`WieAanwezigAsync`) blijft alles vrije tekst zoals voorheen.
+  `PersonenAsync` = werknemers met `Persoon`, vijf minuten onthouden, met `Kort` (`MetKorteNaam`: voornaam; "Jan B."
+  als er meer in dienst zo heten; uit dienst voluit). Kolom Wie = korte namen + de tekst (`WieTekst`, wolkje voluit;
+  het zoekvak zoekt in beide). Rijvenster: lapjes met ×, keuzelijst "+ werknemer…", en het tekstvak "Wie anders".
+  **Namen koppelen…** (knop naast + Groep zolang er nog namen als tekst staan): alle losse namen uit de tekst
+  (`Planbord.Namen` splitst op , / ; & +) met aantal en een keuzelijst, vooraf ingevuld door `Planbord.Voorstel`
+  (precies één werknemer in dienst op korte naam, hele naam, voornaam of achternaam); `KoppelNamenAsync` maakt van de
+  gekozen namen op elke rij een koppeling en haalt ze uit de tekst (één transactie, na een vraag; niet terug te
+  draaien). Let op: een achternaam als roepnaam ("Franke") wordt in de kolom de voornaam. **Getest:** lokaal in het
+  geheugen met de echte export en de echte werknemerslijst (883 rijen gekoppeld, meerdere werknemers op een rij,
+  weghalen). **Niet getest:** tegen de echte tabel, donker.
+  **Kleur van een rij (25-11-2026; kolom `PlanbordRijen.Kleur`, zelfde script opnieuw draaien)**: tien vaste kleuren
+  (`Planbord.Rijkleuren`), te kiezen in het rechtermuismenu (Kleur ▸ klapt een rij bolletjes open, bewaart meteen via
+  `KleurAsync`) en in het rijvenster (menukeuze heet nu "Wijzigen…"). Zonder de kolom (`KleurAanwezigAsync`) is er
+  geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` (streep links, tint achter naam en wie, arcering van
+  een dichte groep).
+  **Nog niet** (volgende stappen): overzicht per persoon, iets doen met de koppeling
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):

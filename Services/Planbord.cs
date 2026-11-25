@@ -28,6 +28,21 @@ public class PlanRij
     /// <summary>Het project om naartoe te springen: het gekoppelde project, of dat van de gekoppelde werkorder.</summary>
     public int? KoppelProjectId { get; set; }
     public bool Gekoppeld => RelatieId is not null || ProjectId is not null || WerkorderId is not null;
+    /// <summary>
+    /// De werknemers die aan de rij gekoppeld zijn (stap 4, tabel PlanbordRijWerknemers). <see cref="Resource"/> is
+    /// daarnaast de vrije tekst voor wie geen werknemer is ("Werkplaats", "Software Vacancy", "Omron").
+    /// </summary>
+    public List<int> Werknemers { get; set; } = new();
+    /// <summary>De kleur van de rij (een van <see cref="Planbord.Rijkleuren"/>, "#rrggbb"); leeg = geen.</summary>
+    public string Kleur { get; set; } = "";
+}
+
+/// <summary>Een werknemer om een rij aan te koppelen. <see cref="Kort"/> = de naam in de kolom Wie: de voornaam, met de
+/// eerste letter van de achternaam als er meer collega's zo heten; wie uit dienst is voluit.</summary>
+public record PlanPersoon(int Id, string Voornaam, string Achternaam, bool InDienst)
+{
+    public string Kort { get; init; } = "";
+    public string Naam => (Voornaam + " " + Achternaam).Trim();
 }
 
 /// <summary>Een balk (van–tot) of een symbool (één moment, <see cref="Einde"/> leeg) op een rij.</summary>
@@ -61,6 +76,36 @@ public class Planbord
     private readonly string? _cs;
     private readonly bool _geheugen;
     private bool _aanwezig;
+
+    private bool _wieAanwezig, _kleurAanwezig;
+
+    /// <summary>De tien kleuren waaruit je voor een rij kunt kiezen (wens gebruiker 25-11-2026).</summary>
+    public static readonly (string Naam, string Hex)[] Rijkleuren =
+    {
+        ("Rood", "#e5484d"), ("Oranje", "#f08c2e"), ("Geel", "#e8c21a"), ("Groen", "#46a758"), ("Turquoise", "#12a594"),
+        ("Blauw", "#3e8ee0"), ("Paars", "#8e5bd0"), ("Roze", "#d6589f"), ("Bruin", "#a07653"), ("Grijs", "#8b949e"),
+    };
+
+    /// <summary>Staat de kolom PlanbordRijen.Kleur er (Planbord_MariaDB.sql opnieuw gedraaid)? Zonder is er geen kleurkeuze.</summary>
+    public async Task<bool> KleurAanwezigAsync()
+    {
+        if (_geheugen) return true;
+        if (_kleurAanwezig || !Live) return _kleurAanwezig;
+        return _kleurAanwezig = await ScalarAsync(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'PlanbordRijen' AND COLUMN_NAME = 'Kleur'") > 0;
+    }
+
+    /// <summary>Een rij een kleur geven; leeg = geen kleur. Alleen een kleur uit <see cref="Rijkleuren"/>.</summary>
+    public async Task KleurAsync(int id, string? kleur) { await ZetKleurAsync(id, kleur); Seintje(); }
+
+    private async Task ZetKleurAsync(int id, string? kleur)
+    {
+        kleur = Rijkleuren.FirstOrDefault(k => string.Equals(k.Hex, kleur?.Trim(), StringComparison.OrdinalIgnoreCase)).Hex ?? "";
+        if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) r.Kleur = kleur; return; }
+        if (!await KleurAanwezigAsync()) return;
+        await DoeAsync("UPDATE `PlanbordRijen` SET `Kleur` = @k WHERE `RijID` = @id", ("@k", kleur.Length == 0 ? null : kleur), ("@id", id));
+    }
+    private (DateTime Tot, List<PlanPersoon> Lijst) _personen;
 
     private readonly object _slot = new();
     private List<PlanRij> _rijen = new();
@@ -102,6 +147,7 @@ public class Planbord
         var rijen = new List<PlanRij>();
         var items = new List<PlanItem>();
         if (!await AanwezigAsync()) return (rijen, items);
+        var metKleur = await KleurAanwezigAsync();
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using (var cmd = new MySqlCommand(
@@ -109,7 +155,7 @@ public class Planbord
             // de namen van waar de rij aan gekoppeld is (stap 3); het werkordernummer zoals overal: 218183-03
             "       COALESCE(CAST(p.`Projectnumber` AS CHAR), ''), COALESCE(p.`Projectdescription`, ''), " +
             "       COALESCE(CONCAT(wp.`Projectnumber`, '-', RIGHT(CONCAT('00', wo.`Werkbonnummer`), 2)), ''), COALESCE(wo.`Werkbonomschrijving`, ''), wo.`Project-id`, " +
-            "       COALESCE(kl.`name`, '') " +
+            "       COALESCE(kl.`name`, ''), " + (metKleur ? "COALESCE(x.`Kleur`, '')" : "''") + " " +
             "  FROM `PlanbordRijen` x " +
             "  LEFT JOIN `Projects` p ON p.`Project-Id` = x.`ProjectID` " +
             "  LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID` LEFT JOIN `Projects` wp ON wp.`Project-Id` = wo.`Project-id` " +
@@ -123,12 +169,21 @@ public class Planbord
                     Id = r.GetInt32(0), OuderId = r.IsDBNull(1) ? null : r.GetInt32(1), Volgorde = r.GetInt32(2), Naam = r.GetString(3),
                     Resource = r.GetString(4), Nummer = r.GetString(5), RelatieId = r.IsDBNull(6) ? null : r.GetInt32(6),
                     ProjectId = r.IsDBNull(7) ? null : r.GetInt32(7), WerkorderId = r.IsDBNull(8) ? null : r.GetInt32(8),
+                    Kleur = r.GetString(15),
                 };
                 if (rij.ProjectId is not null) ZetKoppel(rij, "Project", r.GetString(9), r.GetString(10), rij.ProjectId);
                 else if (rij.WerkorderId is not null) ZetKoppel(rij, "Werkorder", r.GetString(11), r.GetString(12), r.IsDBNull(13) ? null : Convert.ToInt32(r.GetValue(13)));
                 else if (rij.RelatieId is not null) ZetKoppel(rij, "Klant", "", r.GetString(14), null);
                 rijen.Add(rij);
             }
+        if (await WieAanwezigAsync())
+        {
+            var opId = rijen.ToDictionary(x => x.Id);
+            await using var cmd = new MySqlCommand("SELECT `RijID`, `WerknemerID` FROM `PlanbordRijWerknemers` ORDER BY `RijID`, `WerknemerID`", cn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                if (opId.TryGetValue(r.GetInt32(0), out var rij)) rij.Werknemers.Add(r.GetInt32(1));
+        }
         await using (var cmd = new MySqlCommand(
             "SELECT `ItemID`, `RijID`, `Symbool`, `Start`, `Einde`, COALESCE(`Legenda`, ''), COALESCE(`Kleur`, ''), COALESCE(`Label`, ''), COALESCE(`Opmerking`, '') " +
             "  FROM `PlanbordItems` ORDER BY `RijID`, `Start`", cn))
@@ -241,7 +296,9 @@ public class Planbord
         await using var cn = new MySqlConnection(_cs);
         await cn.OpenAsync();
         await using var tx = await cn.BeginTransactionAsync();
-        foreach (var tabel in new[] { "PlanbordItems", "PlanbordRijen" })
+        var tabellen = new List<string> { "PlanbordItems", "PlanbordRijen" };
+        if (await WieAanwezigAsync()) tabellen.Add("PlanbordRijWerknemers");
+        foreach (var tabel in tabellen)
             await using (var weg = new MySqlCommand($"DELETE FROM `{tabel}`", cn, tx)) await weg.ExecuteNonQueryAsync();
 
         // in blokken, met de nummers uit de import (1, 2, 3 …): de ouder van een rij verwijst daarnaar
@@ -348,7 +405,7 @@ public class Planbord
     /// Een rij toevoegen onder <paramref name="ouderId"/> (leeg = bovenaan). Met <paramref name="naId"/> komt hij direct
     /// na die buur, anders achteraan. Geeft het nummer van de nieuwe rij.
     /// </summary>
-    public async Task<int> NieuweRijAsync(int? ouderId, int? naId, string naam, string resource)
+    public async Task<int> NieuweRijAsync(int? ouderId, int? naId, string naam, string resource, IReadOnlyCollection<int>? werknemers = null, string? kleur = null)
     {
         naam = Kort(naam, 200); resource = Kort(resource, 100);
         if (naam.Length == 0) throw new InvalidOperationException("Geef de rij een naam.");
@@ -363,6 +420,8 @@ public class Planbord
             id = await ScalarAsync(
                 "INSERT INTO `PlanbordRijen` (`OuderID`, `Volgorde`, `Naam`, `Resource`) VALUES (@o, 2000000000, @n, @r); SELECT LAST_INSERT_ID();",
                 ("@o", ouderId), ("@n", naam), ("@r", resource));
+        if (werknemers is { Count: > 0 }) await ZetWieAsync(id, werknemers);
+        if (!string.IsNullOrWhiteSpace(kleur)) await ZetKleurAsync(id, kleur);
         var (rijen, _) = await AllesAsync();
         var buren = Buren(rijen, ouderId, id);
         var plek = naId is int na ? buren.IndexOf(na) : -1;
@@ -372,14 +431,172 @@ public class Planbord
         return id;
     }
 
-    /// <summary>Naam en wie van een rij wijzigen.</summary>
-    public async Task WijzigRijAsync(int id, string naam, string resource)
+    /// <summary>Naam en wie van een rij wijzigen. <paramref name="werknemers"/> leeg gelaten = de gekoppelde werknemers blijven zoals ze zijn.</summary>
+    public async Task WijzigRijAsync(int id, string naam, string resource, IReadOnlyCollection<int>? werknemers = null, string? kleur = null)
     {
         naam = Kort(naam, 200); resource = Kort(resource, 100);
         if (naam.Length == 0) throw new InvalidOperationException("Geef de rij een naam.");
         if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) { r.Naam = naam; r.Resource = resource; } }
         else await DoeAsync("UPDATE `PlanbordRijen` SET `Naam` = @n, `Resource` = @r WHERE `RijID` = @id", ("@n", naam), ("@r", resource), ("@id", id));
+        if (werknemers is not null) await ZetWieAsync(id, werknemers);
+        if (kleur is not null) await ZetKleurAsync(id, kleur);      // null = de kleur blijft zoals hij is
         Seintje();
+    }
+
+    // ------------------------------------------------------------------ wie: werknemers (stap 4, 25-11-2026)
+
+    /// <summary>Staat de koppeltabel PlanbordRijWerknemers er (Planbord_MariaDB.sql opnieuw gedraaid)? Zonder blijft Wie vrije tekst.</summary>
+    public async Task<bool> WieAanwezigAsync()
+    {
+        if (_geheugen) return true;
+        if (_wieAanwezig || !Live) return _wieAanwezig;
+        return _wieAanwezig = await ScalarAsync(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'PlanbordRijWerknemers'") > 0;
+    }
+
+    /// <summary>
+    /// De werknemers (alleen personen) om uit te kiezen, met hun korte naam. Vijf minuten onthouden. De testversie in
+    /// het geheugen leest ze ook uit de database als die er is (alleen lezen), en heeft anders een paar proefnamen.
+    /// </summary>
+    public async Task<List<PlanPersoon>> PersonenAsync()
+    {
+        if (_personen.Lijst is { } al && _personen.Tot > DateTime.UtcNow) return al;
+        var ruw = new List<PlanPersoon>();
+        if (!string.IsNullOrWhiteSpace(_cs) && !_cs!.Contains("REPLACE_"))
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT `Werknemer-id`, COALESCE(`Voornaam`, ''), COALESCE(`Achternaam`, ''), COALESCE(`NaamVoluit`, ''), COALESCE(`Uit dienst`, 0) = 0 " +
+                "  FROM `Werknemers` WHERE COALESCE(`Persoon`, 0) <> 0", cn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var voor = r.GetString(1).Trim(); var achter = r.GetString(2).Trim();
+                if (voor.Length == 0 && achter.Length == 0) voor = r.GetString(3).Trim();
+                if (voor.Length == 0 && achter.Length == 0) continue;
+                ruw.Add(new PlanPersoon(r.GetInt32(0), voor, achter, Convert.ToInt32(r.GetValue(4)) != 0));
+            }
+        }
+        else if (_geheugen)
+            ruw = new() { new(1, "Gerard", "Proef", true), new(2, "Jan", "Een", true), new(3, "Jan", "Twee", true), new(4, "Thomas", "Verschuure", true), new(5, "Oud", "Collega", false) };
+        var lijst = MetKorteNaam(ruw);
+        _personen = (DateTime.UtcNow.AddMinutes(5), lijst);
+        return lijst;
+    }
+
+    /// <summary>De korte namen: voornaam; heten er meer collega's in dienst zo, dan met de eerste letter van de achternaam
+    /// ("Jan B."), en is ook dat gelijk de hele naam. Wie uit dienst is staat voluit.</summary>
+    public static List<PlanPersoon> MetKorteNaam(IEnumerable<PlanPersoon> personen)
+    {
+        var alle = personen.ToList();
+        var inDienst = alle.Where(p => p.InDienst).ToList();
+        string Letter(PlanPersoon p) => p.Achternaam.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() is { Length: > 0 } a ? p.Voornaam + " " + char.ToUpperInvariant(a[0]) + "." : p.Voornaam;
+        var perVoornaam = inDienst.GroupBy(p => p.Voornaam, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var perLetter = inDienst.GroupBy(Letter, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        return alle.Select(p => p with
+        {
+            Kort = !p.InDienst || p.Voornaam.Length == 0 ? p.Naam : perVoornaam[p.Voornaam] == 1 ? p.Voornaam : perLetter[Letter(p)] == 1 ? Letter(p) : p.Naam,
+        }).OrderBy(p => p.Kort, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>De losse namen in de vrije tekst van Wie: "Franke, Verschuure" en "Kees/Gerard" zijn elk twee namen.</summary>
+    public static List<string> Namen(string resource)
+        => resource.Split(new[] { ',', '/', ';', '&', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(n => n.Length > 0).ToList();
+
+    /// <summary>
+    /// Welke werknemer (in dienst) bij een naam uit de vrije tekst hoort, als dat er precies één is: op korte naam, hele
+    /// naam, voornaam of achternaam. Niets = zelf kiezen (of het is geen werknemer: "Werkplaats", "Software Vacancy").
+    /// </summary>
+    public static int? Voorstel(string naam, IReadOnlyList<PlanPersoon> personen)
+    {
+        naam = naam.Trim().TrimEnd('?').Trim();
+        if (naam.Length == 0) return null;
+        bool Is(string a) => string.Equals(a, naam, StringComparison.OrdinalIgnoreCase);
+        var inDienst = personen.Where(p => p.InDienst).ToList();
+        foreach (var proef in new Func<PlanPersoon, bool>[] { p => Is(p.Kort), p => Is(p.Naam), p => Is(p.Voornaam), p => Is(p.Achternaam),
+                                                              p => Is(p.Achternaam.Split(' ').Last()) })
+        {
+            var treffers = inDienst.Where(proef).ToList();
+            if (treffers.Count == 1) return treffers[0].Id;
+            if (treffers.Count > 1) return null;
+        }
+        return null;
+    }
+
+    /// <summary>De gekoppelde werknemers van een rij vervangen. Zonder de koppeltabel gebeurt er niets.</summary>
+    private async Task ZetWieAsync(int id, IReadOnlyCollection<int> werknemers)
+    {
+        var ids = werknemers.Distinct().ToList();
+        if (_geheugen) { lock (_slot) if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) r.Werknemers = ids; return; }
+        if (!await WieAanwezigAsync()) return;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        await using (var weg = new MySqlCommand("DELETE FROM `PlanbordRijWerknemers` WHERE `RijID` = @id", cn, tx))
+        {
+            weg.Parameters.AddWithValue("@id", id);
+            await weg.ExecuteNonQueryAsync();
+        }
+        foreach (var w in ids)
+        {
+            await using var erbij = new MySqlCommand("INSERT IGNORE INTO `PlanbordRijWerknemers` (`RijID`, `WerknemerID`) VALUES (@id, @w)", cn, tx);
+            erbij.Parameters.AddWithValue("@id", id);
+            erbij.Parameters.AddWithValue("@w", w);
+            await erbij.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+    }
+
+    /// <summary>
+    /// De namen uit de vrije tekst (Tom's Planner) in één keer aan werknemers koppelen: <paramref name="keuze"/> = naam
+    /// → werknemer. Op elke rij worden de gekozen namen een koppeling en verdwijnen ze uit de vrije tekst; de rest van
+    /// de tekst ("Werkplaats", een naam die niet gekozen is) blijft staan. Alles of niets. Geeft het aantal gewijzigde rijen.
+    /// </summary>
+    public async Task<int> KoppelNamenAsync(IReadOnlyDictionary<string, int> keuze)
+    {
+        var op = new Dictionary<string, int>(keuze, StringComparer.OrdinalIgnoreCase);
+        if (op.Count == 0) return 0;
+        if (!await WieAanwezigAsync()) throw new InvalidOperationException("Draai eerst Planbord_MariaDB.sql opnieuw (tabel PlanbordRijWerknemers).");
+        var (rijen, _) = await AllesAsync();
+        var werk = new List<(int Id, string Tekst, List<int> Erbij)>();
+        foreach (var r in rijen)
+        {
+            var namen = Namen(r.Resource);
+            var erbij = namen.Where(op.ContainsKey).Select(n => op[n]).Distinct().ToList();
+            if (erbij.Count == 0) continue;
+            werk.Add((r.Id, string.Join(", ", namen.Where(n => !op.ContainsKey(n))), erbij));
+        }
+        if (werk.Count == 0) return 0;
+        if (_geheugen)
+        {
+            lock (_slot)
+                foreach (var (id, rest, erbij) in werk)
+                    if (_rijen.FirstOrDefault(r => r.Id == id) is { } r) { r.Resource = rest; r.Werknemers = r.Werknemers.Union(erbij).ToList(); }
+        }
+        else
+        {
+            await using var cn = new MySqlConnection(_cs);
+            await cn.OpenAsync();
+            await using var tx = await cn.BeginTransactionAsync();
+            foreach (var blok in werk.SelectMany(w => w.Erbij.Select(e => (w.Id, Wie: e))).Chunk(300))
+            {
+                // getallen uit de database en uit de keuzelijst zelf
+                var sql = "INSERT IGNORE INTO `PlanbordRijWerknemers` (`RijID`, `WerknemerID`) VALUES " + string.Join(",", blok.Select(b => $"({b.Id},{b.Wie})"));
+                await using var erbij = new MySqlCommand(sql, cn, tx);
+                await erbij.ExecuteNonQueryAsync();
+            }
+            foreach (var (id, rest, _) in werk)
+            {
+                await using var tekst = new MySqlCommand("UPDATE `PlanbordRijen` SET `Resource` = @r WHERE `RijID` = @id", cn, tx);
+                tekst.Parameters.AddWithValue("@r", rest);
+                tekst.Parameters.AddWithValue("@id", id);
+                await tekst.ExecuteNonQueryAsync();
+            }
+            await tx.CommitAsync();
+        }
+        Seintje();
+        return werk.Count;
     }
 
     /// <summary>De tekst bij een koppeling: kort voor in de boom, voluit voor het wolkje. Bestaat het doel niet meer, dan "onbekend".</summary>
@@ -451,12 +668,14 @@ public class Planbord
         }
         else
         {
+            var metWie = await WieAanwezigAsync();
             await using var cn = new MySqlConnection(_cs);
             await cn.OpenAsync();
             await using var tx = await cn.BeginTransactionAsync();
             foreach (var blok in weg.Chunk(500))
             {
                 var lijst = string.Join(",", blok);      // getallen uit de database zelf
+                if (metWie) await using (var c0 = new MySqlCommand($"DELETE FROM `PlanbordRijWerknemers` WHERE `RijID` IN ({lijst})", cn, tx)) await c0.ExecuteNonQueryAsync();
                 await using (var c1 = new MySqlCommand($"DELETE FROM `PlanbordItems` WHERE `RijID` IN ({lijst})", cn, tx)) await c1.ExecuteNonQueryAsync();
                 await using (var c2 = new MySqlCommand($"DELETE FROM `PlanbordRijen` WHERE `RijID` IN ({lijst})", cn, tx)) await c2.ExecuteNonQueryAsync();
             }

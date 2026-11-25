@@ -208,8 +208,9 @@ button.rood { color: var(--rood); border-color: var(--rood); background: #fff; }
 /* MDE-logo: bestand wwwroot/logo-mde.png */
 .sidebar .logo {
     display: block; width: 11rem; height: 4.8rem;
-    margin: 1.1rem .9rem 1rem;
-    background: url("logo-mde.png") no-repeat left center;
+    /* in het midden van de zijbalk (wens gebruiker 25-11-2026) */
+    margin: 1.1rem auto 1rem;
+    background: url("logo-mde.png") no-repeat center center;
     background-size: contain;
     text-indent: -9999px; overflow: hidden; white-space: nowrap;
 }
@@ -4550,6 +4551,31 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 html[data-thema="donker"] button.plb-wis { color: #ffb4ae; border-color: #a8443d; }
 .plb-vandaag { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ed1c24; opacity: .55; z-index: 2; }
 .plb-leeg { padding: 10px 12px; margin: 0; }
+/* een rij met een kleur (wens gebruiker 25-11-2026): een streep links en een zachte tint achter naam en wie; de arcering van een dichte groep in die kleur */
+.plb-rij.plb-gekleurd > .plb-naam { box-shadow: inset 4px 0 0 var(--plb-rijkleur); }
+.plb-rij.plb-gekleurd > .plb-naam, .plb-rij.plb-gekleurd > .plb-wie { background-color: color-mix(in srgb, var(--plb-rijkleur) 22%, transparent); }
+.plb-rij.plb-gekleurd .plb-samen { background-color: color-mix(in srgb, var(--plb-rijkleur) 45%, transparent); }
+.plb-kleuren { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.plb-kleuren.in-menu { padding: 4px 10px 8px; }
+.plb-kleuren button, .wk-menu .plb-kleuren button { flex: 0 0 22px; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(0, 0, 0, .25); border-radius: 50%; cursor: pointer;
+                                                    display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+.plb-kleuren button.geen, .wk-menu .plb-kleuren button.geen { background: none; color: inherit; border-style: dashed; border-color: currentColor; opacity: .7; }
+.plb-kleuren button.gekozen, .wk-menu .plb-kleuren button.gekozen { outline: 2px solid var(--accent); outline-offset: 2px; opacity: 1; }
+.wk-menu button.plb-menukleur { display: flex; align-items: center; gap: 8px; }
+.plb-menukleur i { width: 12px; height: 12px; border-radius: 50%; }
+.plb-menupijl { margin-left: auto; font-size: 10px; opacity: .7; }
+/* stap 4: wie = werknemers kiezen in het rijvenster, en het venster Namen koppelen */
+.plb-wiekeuze { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.plb-wiekeuze select { width: auto; min-width: 150px; flex: 0 0 auto; }
+.plb-wielapje { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border: 1px solid var(--plb-lijn, var(--rand)); border-radius: 12px; font-size: 13px; }
+.plb-wielapje button { border: none; background: none; padding: 0 4px; font: inherit; line-height: 1; color: inherit; opacity: .6; cursor: pointer; }
+.plb-wielapje button:hover { opacity: 1; }
+.plb-namenvenster { width: min(620px, 96vw); }
+.plb-namen { max-height: min(52vh, 460px); overflow-y: auto; border: 1px solid var(--plb-lijn, var(--rand)); border-radius: 6px; }
+.plb-namen label { display: grid; grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1.3fr); align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--plb-lijn, var(--rand)); }
+.plb-namennaam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plb-namenaantal { text-align: right; opacity: .65; font-size: 12.5px; }
+.plb-namen select { width: 100%; }
 /* stap 3: waar een rij aan gekoppeld is (projectnummer, werkordernummer of klant), achter de naam */
 .plb-koppel { flex: 0 1 auto; max-width: 45%; margin-left: 6px; padding: 0 6px; border: 1px solid var(--plb-lijn); border-radius: 9px; font-size: 11px; font-weight: 400;
               line-height: 15px; color: var(--plb-zacht); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
