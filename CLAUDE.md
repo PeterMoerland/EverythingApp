@@ -512,7 +512,7 @@ i.v.m. 1Password".
   geheugen met de echte export en de echte werknemerslijst (883 rijen gekoppeld, meerdere werknemers op een rij,
   weghalen). **Niet getest:** tegen de echte tabel, donker.
   **Kleur van een rij (25-11-2026; kolom `PlanbordRijen.Kleur`, zelfde script opnieuw draaien)**: tien vaste kleuren
-  (`Planbord.Rijkleuren`), te kiezen in het rechtermuismenu (Kleur ▸ klapt een rij bolletjes open, bewaart meteen via
+  (`Planbord.Rijkleuren`), te kiezen in het rechtermuismenu (een rij bolletjes, meteen in beeld; bewaart meteen via
   `KleurAsync`) en in het rijvenster (menukeuze heet nu "Wijzigen…"). Zonder de kolom (`KleurAanwezigAsync`) is er
   geen kleurkeuze. Beeld: `.plb-gekleurd` met `--plb-rijkleur` = de volle kleur achter Activiteit en Wie (niet op de
   tijdbalk; eerst een tint, "beetje roze") en `--plb-rijtekst` = wit of donker (`Leesbaar`, op helderheid).

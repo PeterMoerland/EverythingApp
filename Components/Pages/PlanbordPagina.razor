@@ -221,18 +221,14 @@
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Wijzigen…</button>
         @if (_metKleur)
         {
-            <button type="button" role="menuitem" class="plb-menukleur" aria-expanded="@_menuKleur" @onclick="() => _menuKleur = !_menuKleur">
-                <span>Kleur</span>@if (mn.Rij.Kleur.Length > 0) { <i style="@("background:" + mn.Rij.Kleur)"></i> }<span class="plb-menupijl">@(_menuKleur ? "▾" : "▸")</span></button>
-            @if (_menuKleur)
-            {
-                <div class="plb-kleuren in-menu" role="group" aria-label="Kleur">
-                    @foreach (var (naam, hex) in Planbord.Rijkleuren)
-                    {
-                        <button type="button" class="@(mn.Rij.Kleur == hex ? "gekozen" : "")" style="@("background:" + hex)" title="@naam" aria-label="@naam" @onclick="() => KiesKleur(mn.Rij, hex)"></button>
-                    }
-                    <button type="button" class="geen @(mn.Rij.Kleur.Length == 0 ? "gekozen" : "")" title="Geen kleur" aria-label="Geen kleur" @onclick="() => KiesKleur(mn.Rij, string.Empty)">✕</button>
-                </div>
-            }
+            @* de kleuren staan er meteen (eerst achter een klik op Kleur; "scheelt een klik", 25-11-2026) *@
+            <div class="plb-kleuren in-menu" role="group" aria-label="Kleur">
+                @foreach (var (naam, hex) in Planbord.Rijkleuren)
+                {
+                    <button type="button" class="@(mn.Rij.Kleur == hex ? "gekozen" : "")" style="@("background:" + hex)" title="@naam" aria-label="@naam" @onclick="() => KiesKleur(mn.Rij, hex)"></button>
+                }
+                <button type="button" class="geen @(mn.Rij.Kleur.Length == 0 ? "gekozen" : "")" title="Geen kleur" aria-label="Geen kleur" @onclick="() => KiesKleur(mn.Rij, string.Empty)">✕</button>
+            </div>
         }
         <button type="button" role="menuitem" @onclick="() => BeginKoppel(mn.Rij)">@(mn.Rij.Gekoppeld ? "Koppeling wijzigen…" : "Koppelen aan klant, project of werkorder…")</button>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
@@ -498,7 +494,7 @@
 
     // ---- wie: gekoppelde werknemers en de vrije tekst (stap 4, 25-11-2026) ----
 
-    private bool _metWie, _metKleur, _menuKleur;
+    private bool _metWie, _metKleur;
 
     /// <summary>De tekstkleur op een volle rijkleur: wit, of donker op een lichte kleur (geel, oranje).</summary>
     private static string Leesbaar(string hex)
@@ -774,7 +770,7 @@
         finally { _eigen = false; _bezig = false; }
     }
 
-    private void OpenMenu(MouseEventArgs e, PlanRij r) { if (MagPlannen) { _menuKleur = false; _menu = new MenuPlek(r, (int)e.ClientX, (int)e.ClientY); } }
+    private void OpenMenu(MouseEventArgs e, PlanRij r) { if (MagPlannen) _menu = new MenuPlek(r, (int)e.ClientX, (int)e.ClientY); }
 
     // ---- rijen ----
 
