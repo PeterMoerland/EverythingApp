@@ -112,11 +112,13 @@
 
         <h2 class="nas-kop">Instellen op de NAS</h2>
         <ol class="nas-lijst">
-            <li>DSM ▸ Configuratiescherm ▸ Melding ▸ Push-service ▸ <b>Webhooks beheren</b> ▸ Toevoegen ▸ provider <b>Aangepast</b>.</li>
-            <li>Webhook-URL: <code>@(Adres)?tekst=@@@@TEXT@@@@</code> (DSM vervangt <code>@@@@TEXT@@@@</code> door de melding).</li>
-            <li>Methode <b>POST</b> of GET. Zet de sleutel in een kop <code>X-Sleutel</code> (waarde = <code>NasBackup:Sleutel</code> uit appsettings.json).
-                Kan DSM geen kop meesturen, zet dan <code>&amp;sleutel=…</code> achter het adres.</li>
-            <li>Bij Melding ▸ <b>Regels</b>: de meldingen van Hyper Backup aanvinken voor deze webhook (gelukt én mislukt; zonder "gelukt" denkt de app dat de backup uitblijft).</li>
+            <li>DSM ▸ Configuratiescherm ▸ Melding ▸ tabblad <b>Webhooks</b> ▸ Toevoegen. Provider <b>Aangepast</b>, regel <b>All</b>
+                (met "Critical" komt het bericht "gelukt" nooit aan en denkt de app dat de backup uitblijft).</li>
+            <li>Providernaam bijvoorbeeld <code>MDE-app</code>. Bij <b>Webhook URL</b> alleen dit adres, zonder iets erachter:
+                <div><code class="nas-adres">@Adres</code></div>
+                DSM zet er zelf de tekst van de melding achter.</li>
+            <li>Tabblad <b>HTTP-aanvraag</b>: methode <b>POST</b> en een kop <code>X-Sleutel</code> met als waarde <code>NasBackup:Sleutel</code> uit appsettings.json.
+                Kan DSM geen kop meesturen, zet dan <code>?sleutel=…</code> achter het adres.</li>
             <li>Stuur een testbericht vanuit DSM: het hoort hierboven bij de berichten te verschijnen (als "Ander bericht").</li>
         </ol>
     }
