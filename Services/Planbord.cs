@@ -634,6 +634,31 @@ public class Planbord
     }
 
     /// <summary>
+    /// De rijen van de planning die bij een project horen: gekoppeld aan het project zelf of aan een werkorder ervan
+    /// (voor de sprong vanuit Projecten, 25-11-2026). Zonder tabellen of bij een fout: niets.
+    /// </summary>
+    public async Task<List<(int Id, string Naam)>> VoorProjectAsync(int projectId)
+    {
+        var uit = new List<(int, string)>();
+        if (_geheugen)
+        {
+            lock (_slot) uit.AddRange(_rijen.Where(r => r.ProjectId == projectId || (r.WerkorderId is not null && r.KoppelProjectId == projectId))
+                                            .OrderBy(r => r.Volgorde).Select(r => (r.Id, r.Naam)));
+            return uit;
+        }
+        if (!await AanwezigAsync()) return uit;
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT x.`RijID`, x.`Naam` FROM `PlanbordRijen` x LEFT JOIN `Workorders` wo ON wo.`Werkbon-id` = x.`WerkorderID` " +
+            " WHERE x.`ProjectID` = @p OR wo.`Project-id` = @p ORDER BY x.`Volgorde`, x.`RijID` LIMIT 20", cn);
+        cmd.Parameters.AddWithValue("@p", projectId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) uit.Add((r.GetInt32(0), r.GetString(1)));
+        return uit;
+    }
+
+    /// <summary>
     /// Een rij (met alles eronder) verplaatsen: onder <paramref name="ouderId"/> (leeg = bovenaan), met
     /// <paramref name="voorId"/> vóór die buur en anders achteraan. Niet in zichzelf of in iets wat eronder hangt.
     /// </summary>

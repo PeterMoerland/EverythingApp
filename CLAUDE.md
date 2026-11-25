@@ -522,7 +522,13 @@ i.v.m. 1Password".
   daarin bovenaan); knoppen en legenda blijven staan. Daaronder `.plb-schuif`: een `range` in weken die `_van` zet
   (`SchuifStand`/`SchuifMax`, bereik `_bereikVan`–`_bereikTot` = eerste tot laatste balk, bepaald in `Laad`); de
   tijdbalk zelf is niet breder dan het scherm, er wordt dus per week opnieuw getekend.
-  **Nog niet** (volgende stappen): overzicht per persoon, iets doen met de koppeling
+  **Overzicht per persoon (25-11-2026)**: keuzelijst `.plb-wiefilter` naast het zoekvak; `_wieFilter` = "w:ID"
+  (gekoppelde werknemer; telt ook als zijn korte naam of voornaam nog als tekst staat) of "t:naam" (naam uit de
+  tekst). Werkt via hetzelfde mechanisme als zoeken (`Treft` = zoektekst en persoon, `Filtert` klapt alles open), maar
+  volgt wel het vinkje "ook wat voorbij is". **Van project naar planning**: `Planbord.VoorProjectAsync` (project zelf
+  of een werkorder ervan) vult in Projecten het zijblok Planning met links `planning?rij=ID`; de pagina (`RijQuery`,
+  `ToonRij`) klapt de groepen erboven open, zet filters uit, markeert de rij en schuift hem in beeld (`mdeInBeeld`).
+  **Nog niet** (volgende stappen): vanuit een werkorder of klant naar de planning, de tijdbalk naar de rij schuiven, iets doen met de koppeling
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):

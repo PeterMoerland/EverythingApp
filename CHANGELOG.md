@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 25-11-2026
 
+- **Planning** — Nieuw: **overzicht per persoon**. Kies naast het zoekvak een naam en je ziet alleen wat er voor die persoon gepland staat, met de groepen erboven. De lijst bevat de gekoppelde werknemers en de namen die nog als tekst bij Wie staan (verzoek van Peter)
+- **Projecten** — Nieuw: is een groep in de **Planning** aan het project (of een werkorder ervan) gekoppeld, dan staat er rechts een blok **Planning** met een link; die opent de planning op die groep (verzoek van Peter)
 - **Planning** — Verbeterd: een dichtgeklapte groep toont een volle donkergrijze balk in plaats van een arcering (verzoek van Peter)
 - **Activity board** — Verbeterd: het oranje kader om je eigen kaarten is dunner (3 in plaats van 6 pixels) (verzoek van Peter)
 - **Planning** — Verbeterd: de knoppen **Namen koppelen…** en **Tom's Planner overzetten…** zijn weg (overzetten kan alleen nog zolang de planning leeg is). Werknemers koppel je per rij via Wijzigen… (verzoek van Peter)

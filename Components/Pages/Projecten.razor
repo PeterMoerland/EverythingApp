@@ -1,5 +1,6 @@
 @page "/projecten"
 @inject IProjectRepository Repo
+@inject Planbord Planning
 @inject IPOKlantRepository PoRepo
 @inject IBestelRepository BestelRepo
 @inject IOfferteRepository OfferteRepo
@@ -365,6 +366,19 @@
                                     <span class="zij-extra">@ProjectleiderNaam()</span>
                                 </div>
                             </ZijBlok>
+
+                            @* de rijen in het menu Planning die aan dit project (of een werkorder ervan) gekoppeld zijn *@
+                            @if (_planRijen.Count > 0)
+                            {
+                                <ZijBlok Titel="Planning" Aantal="_planRijen.Count">
+                                    @foreach (var (rijId, naam) in _planRijen)
+                                    {
+                                        <div class="zij-regel" @key="rijId">
+                                            <a class="zij-naam" href="@($"planning?rij={rijId}")" title="In de planning openen">@naam</a>
+                                        </div>
+                                    }
+                                </ZijBlok>
+                            }
                         </Zij>
                     </DetailMetZij>
                 }
@@ -700,7 +714,11 @@
         await LaadOffertes(p.Id);
         await TelFotos(p.Id);
         await TelDocumenten(p.Id);
+        try { _planRijen = await Planning.VoorProjectAsync(p.Id); } catch { _planRijen = new(); }
     }
+
+    /// <summary>De rijen in het menu Planning die bij het gekozen project horen (zijblok Planning, 25-11-2026).</summary>
+    private List<(int Id, string Naam)> _planRijen = new();
 
     // ---- documenten van dit project (tabblad Documenten, zoals in Access; Components/ProjectDocumenten.razor) ----
     private const string DocumentTab = "Documenten";

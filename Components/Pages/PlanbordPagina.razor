@@ -54,6 +54,12 @@
             <span class="plb-tijdvak">@_van.ToString("d MMM yyyy", Nl) – @Tot.AddDays(-1).ToString("d MMM yyyy", Nl)</span>
             <span class="groei"></span>
             <input class="plb-zoek" type="search" placeholder="🔍 Zoek: activiteit of persoon…" value="@_zoek" @oninput="e => _zoek = (string?)e.Value ?? string.Empty" autocomplete="off" />
+            @* overzicht per persoon: alleen de rijen van die persoon, met de groepen erboven en alles eronder *@
+            <select class="plb-wiefilter @(_wieFilter.Length > 0 ? "actief" : "")" value="@_wieFilter" @onchange="e => _wieFilter = (string?)e.Value ?? string.Empty"
+                    aria-label="Planning van één persoon" title="Alleen tonen wat er voor één persoon gepland staat">
+                <option value="">Iedereen</option>
+                @foreach (var (sleutel, naam) in _wieKeuzes) { <option value="@sleutel">@naam</option> }
+            </select>
             <label class="vink" title="Ook groepen tonen waar de laatste vier weken en daarna niets meer in staat"><input type="checkbox" checked="@_ookVoorbij" @onchange="e => _ookVoorbij = e.Value is true" /> ook wat voorbij is</label>
             <button type="button" class="klein" @onclick="AllesDicht">Alles dicht</button>
             @if (MagPlannen)
@@ -125,17 +131,17 @@
 
                 @if (zichtbaar.Count == 0)
                 {
-                    <p class="uitleg plb-leeg">Niets gevonden@(_ookVoorbij ? "." : "; zet \"ook wat voorbij is\" aan om ook oude groepen te doorzoeken.")</p>
+                    <p class="uitleg plb-leeg">@(_wieFilter.Length > 0 && !Zoekt ? "Voor deze persoon staat er niets" : "Niets gevonden")@(_ookVoorbij ? "." : "; zet \"ook wat voorbij is\" aan om ook oude groepen te doorzoeken.")</p>
                 }
                 @foreach (var (r, diepte) in zichtbaar)
                 {
                     var groep = _kinderen.ContainsKey(r.Id);
-                    var open = groep && (Zoekt || _open.Contains(r.Id));
+                    var open = groep && (Filtert || _open.Contains(r.Id));
                     @* de smalle strook boven een rij: laat je een rij hier vallen, dan komt hij ervoor te staan *@
                     <div class="plb-tussen @(_sleeptRij is not null && _sleepVoor == r.Id ? "sleepdoel" : "")" @key="@("voor" + r.Id)"
                          ondragover="event.preventDefault()" @ondragenter="() => { if (_sleeptRij is not null) { _sleepVoor = r.Id; _sleepOp = null; } }"
                          @ondrop="() => LaatRijVallen(r, true)"></div>
-                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id ? "gekozen" : "") @(r.Kleur.Length > 0 ? "plb-gekleurd" : "")"
+                    <div class="plb-rij @(diepte == 1 ? "plb-top" : "") @(groep ? "plb-groep" : "") @(_sleeptRij?.Id == r.Id ? "plb-sleept" : "") @(_menu?.Rij.Id == r.Id || _doel == r.Id ? "gekozen" : "") @(r.Kleur.Length > 0 ? "plb-gekleurd" : "")"
                          style="@(r.Kleur.Length > 0 ? $"--plb-rijkleur:{r.Kleur};--plb-rijtekst:{Leesbaar(r.Kleur)}" : null)"
                          @key="r.Id" data-groep="@r.Id" @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagPlannen">
                         <div class="plb-naam @(_sleeptRij is not null && _sleepOp == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 14 + 4}px")" title="@r.Naam"
@@ -443,6 +449,48 @@
 
     private DateTime Tot => _van.AddDays(_weken * 7);
     private bool Zoekt => _zoek.Trim().Length >= 2;
+
+    // ---- overzicht per persoon (25-11-2026): "w:12" = een gekoppelde werknemer, "t:Werkplaats" = een naam uit de tekst ----
+    private string _wieFilter = "";
+    private List<(string Code, string Naam)> _wieKeuzes = new();
+    private Dictionary<int, List<string>> _tekstNamen = new();
+    private bool Filtert => Zoekt || _wieFilter.Length > 0;
+
+    /// <summary>Staat deze rij op naam van de gekozen persoon? Een werknemer telt ook als zijn korte naam of voornaam nog als tekst bij Wie staat.</summary>
+    private bool VanPersoon(PlanRij r)
+    {
+        if (_wieFilter.Length < 3) return true;
+        var namen = _tekstNamen.GetValueOrDefault(r.Id);
+        if (_wieFilter[0] == 't') return namen is not null && namen.Contains(_wieFilter[2..], StringComparer.OrdinalIgnoreCase);
+        if (!int.TryParse(_wieFilter.AsSpan(2), out var w)) return true;
+        if (r.Werknemers.Contains(w)) return true;
+        return namen is not null && _persoon.TryGetValue(w, out var p)
+            && namen.Any(n => string.Equals(n, p.Kort, StringComparison.OrdinalIgnoreCase) || string.Equals(n, p.Voornaam, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Past de rij bij wat er gezocht en gefilterd wordt (zoektekst en persoon)?</summary>
+    private bool Treft(PlanRij r) => (!Zoekt || Past(r, _zoek.Trim())) && VanPersoon(r);
+
+    // ---- vanuit een project (of een andere link) naar een rij: /planning?rij=123 ----
+    [SupplyParameterFromQuery(Name = "rij")] public int? RijQuery { get; set; }
+    private int? _doel, _doelGedaan, _scrollNaar;
+
+    /// <summary>Een rij in beeld brengen: de groepen erboven open, hijzelf ook, filters uit; oude groepen mee als hij daarin zit.</summary>
+    private bool ToonRij(int id)
+    {
+        if (!_opId.TryGetValue(id, out var rij)) return false;
+        _zoek = ""; _wieFilter = "";
+        var top = rij;
+        for (var x = rij; x is not null; x = x.OuderId is int o && _opId.TryGetValue(o, out var ouder) ? ouder : null)
+        {
+            if (x != rij || _kinderen.ContainsKey(x.Id)) _open.Add(x.Id);
+            top = x;
+        }
+        var laatste = _laatste.GetValueOrDefault(top.Id);
+        if (laatste != DateTime.MinValue && laatste < DateTime.Today.AddDays(-28)) _ookVoorbij = true;
+        _doel = id;
+        return true;
+    }
     /// <summary>De export overzetten: de Directie. In de testversie (alles in het geheugen, geen login) ook.</summary>
     private bool MagImporteren => Ik.Mag("Directie") || (!Ik.Ingelogd && !Ik.IsWerkplek);
 
@@ -488,6 +536,14 @@
         _metWie = await Bord.WieAanwezigAsync();
         try { _personen = _metWie ? await Bord.PersonenAsync() : new(); } catch { _personen = new(); }
         _persoon = _personen.ToDictionary(p => p.Id);
+        // het filter per persoon: de gekoppelde werknemers, en de namen die nog als tekst bij Wie staan
+        _tekstNamen = rijen.Where(r => r.Resource.Length > 0).ToDictionary(r => r.Id, r => Planbord.Namen(r.Resource));
+        var gekoppeld = rijen.SelectMany(r => r.Werknemers).Distinct().Where(_persoon.ContainsKey).Select(w => _persoon[w]).ToList();
+        var bekend = new HashSet<string>(gekoppeld.SelectMany(p => new[] { p.Kort, p.Voornaam }), StringComparer.OrdinalIgnoreCase);
+        _wieKeuzes = gekoppeld.Select(p => (Code: "w:" + p.Id, Naam: p.Kort))
+            .Concat(_tekstNamen.Values.SelectMany(n => n).Distinct(StringComparer.OrdinalIgnoreCase).Where(n => !bekend.Contains(n)).Select(n => (Code: "t:" + n, Naam: n)))
+            .OrderBy(k => k.Naam, StringComparer.CurrentCultureIgnoreCase).ToList();
+        if (_wieFilter.Length > 0 && !_wieKeuzes.Any(k => k.Code == _wieFilter)) _wieFilter = "";
         _losseNamen = rijen.SelectMany(r => Planbord.Namen(r.Resource)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         _wie = rijen.Select(r => r.Resource).Where(w => w.Length > 0).GroupBy(w => w, StringComparer.OrdinalIgnoreCase)
                     .OrderByDescending(g => g.Count()).Take(80).Select(g => g.Key).OrderBy(w => w).ToList();
@@ -572,18 +628,18 @@
     {
         var grens = DateTime.Today.AddDays(-28);
         HashSet<int>? raak = null;
-        if (Zoekt)
+        if (Filtert)
         {
-            var q = _zoek.Trim();
             raak = new HashSet<int>();
-            foreach (var r in _rijen.Where(r => Past(r, q)))
+            foreach (var r in _rijen.Where(Treft))
                 for (var x = r; x is not null && raak.Add(x.Id); x = x.OuderId is int o && _opId.TryGetValue(o, out var ouder) ? ouder : null) { }
         }
         foreach (var r in _top)
         {
             // voorbij = er staat wel iets in, maar niets meer in de laatste vier weken of later; een lege groep blijft staan
             var laatste = _laatste.GetValueOrDefault(r.Id);
-            if (!_ookVoorbij && raak is null && laatste != DateTime.MinValue && laatste < grens) continue;
+            // zoeken kijkt ook in wat voorbij is; het filter per persoon niet (dat volgt het vinkje)
+            if (!_ookVoorbij && !Zoekt && laatste != DateTime.MinValue && laatste < grens) continue;
             foreach (var x in Tak(r, 1, raak, onderTreffer: false)) yield return x;
         }
     }
@@ -595,13 +651,13 @@
         if (diepte > 20 || !_kinderen.TryGetValue(r.Id, out var kinderen)) yield break;
         if (raak is null && !_open.Contains(r.Id)) yield break;
         // onder een rij die zelf past staat alles; anders alleen de takken waar een treffer in zit
-        var zelf = raak is not null && (onderTreffer || Past(r, _zoek.Trim()));
+        var zelf = raak is not null && (onderTreffer || Treft(r));
         foreach (var k in kinderen)
             foreach (var x in Tak(k, diepte + 1, raak, zelf)) yield return x;
     }
 
     private void Wissel(int id) { if (!_open.Remove(id)) _open.Add(id); }
-    private void AllesDicht() { _open.Clear(); _zoek = ""; }
+    private void AllesDicht() { _open.Clear(); _zoek = ""; _doel = null; }
     private DateTime _bereikVan = Maandag(DateTime.Today.AddDays(-28)), _bereikTot = Maandag(DateTime.Today.AddDays(27 * 7));
     /// <summary>De schuifbalk onder het bord, in weken: 0 = de eerste balk van de planning links in beeld, het einde = de laatste rechts.</summary>
     private int SchuifMax => Math.Max(0, (int)(_bereikTot - _bereikVan).TotalDays / 7 - _weken);
@@ -760,6 +816,16 @@
             Bord.Gewijzigd += BijWijziging;
             // het slepen van balken doet de browser (mdePlan in App.razor); hij meldt hier alleen de uitkomst
             try { _ref = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("mdePlan.koppel", _ref); } catch { }
+        }
+        if (_geladen && RijQuery is int doel && _doelGedaan != doel)
+        {
+            _doelGedaan = doel;
+            if (ToonRij(doel)) { _scrollNaar = doel; StateHasChanged(); }
+        }
+        else if (_scrollNaar is int naar)
+        {
+            _scrollNaar = null;
+            try { await JS.InvokeVoidAsync("mdeInBeeld", $".plb-rij[data-groep='{naar}']", "center"); } catch { }
         }
         if (_focusNaam && _rijVenster is not null)
         {

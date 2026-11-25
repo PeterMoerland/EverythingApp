@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=503" />
+    <link rel="stylesheet" href="app.css?v=504" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -130,9 +130,10 @@
         };
 
         // Een element (bv. het gekozen type in een lijst) in beeld scrollen, alleen binnen zijn eigen schuiflijst.
-        window.mdeInBeeld = function (selector) {
+        // blok (mag weg): waar in de lijst het element komt; 'center' = in het midden (menu Planning: de rij uit een link).
+        window.mdeInBeeld = function (selector, blok) {
             var e = document.querySelector(selector);
-            if (e) e.scrollIntoView({ block: 'nearest' });
+            if (e) e.scrollIntoView({ block: blok || 'nearest' });
         };
 
         // Boom bewerken zoals de calculatieboom (Components/OpbouwBoomBewerker.razor): slepen met de greep (boven/onder een
