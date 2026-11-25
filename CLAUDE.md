@@ -499,7 +499,15 @@ i.v.m. 1Password".
   zijn weg): op een ruimte in de zijbalk of op een tegel = subruimte eronder, ruimte ernaast, nieuw artikel, naam/icoon/
   omschrijving; op de lege plek onder de boom (`.wk-boom`, niet op het zoekvak) = nieuwe ruimte. Zonder script:
   `@oncontextmenu` met `preventDefault` alleen voor wie mag schrijven, het menu (`.wk-menu`) op `ClientX/Y` met een
-  doorzichtig vlak erachter dat het sluit. Voor elke schrijver; verplaatsen en weghalen van een ruimte kan nog niet. Zonder de kolom `OuderID` (script niet opnieuw gedraaid, `BoomMogelijkAsync`) blijft het een platte
+  doorzichtig vlak erachter dat het sluit. Voor elke schrijver; verplaatsen en weghalen van een ruimte kan nog niet.
+  **Een artikel verplaatsen = de regel slepen** naar een ruimte in de zijbalk of naar een tegel (wens gebruiker
+  25-11-2026): `draggable` op de `<tr>`, `@ondragstart`/`@ondragend` zetten `_sleept`, het doel heeft
+  `ondragover="event.preventDefault()"` (gewone browsercode), `@ondragenter` (`_sleepDoel`, gestippelde rand) en
+  `@ondrop` → `Wiki.VerplaatsAsync` (alleen `RuimteID`, geen nieuwe versie). `setData` voor Firefox staat als gewone
+  `ondragstart` op de `<table>`: op dezelfde tag als `@ondragstart` mag niet (RZ10008).
+  **Versies achter een knop** (🕘 Versies n in de kop; `VersiesOpen`): dicht = het artikel over de volle breedte; bij
+  het sluiten terug naar de geldende versie. De cursor staat bij een nieuwe ruimte, ruimte wijzigen en een nieuw
+  artikel meteen in het eerste veld (`_focusNa` + `OnAfterRenderAsync`). Zonder de kolom `OuderID` (script niet opnieuw gedraaid, `BoomMogelijkAsync`) blijft het een platte
   lijst. Ruimtes met artikelen in
   markdown (`WikiArtikelen`: sectie, tags, optioneel `ProjectID`). Elke keer opslaan = een regel in `WikiVersies`;
   terugzetten = de oude titel en tekst als nieuwe versie; weghalen = `Actief` 0. **De tekst staat in de database**

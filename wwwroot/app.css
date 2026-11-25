@@ -4560,6 +4560,11 @@ html[data-thema="donker"] .lc-pagina button.lc-wis { color: #ffb4ae; border-colo
 .wk-bijlagen .cs-kopje { margin: 0 4px 0 0; }
 .wk-bijlage { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cs-rand); border-radius: 5px; padding: 2px 8px; font-size: 13px; color: inherit; text-decoration: none; background: var(--cs-wit); }
 a.wk-bijlage:hover { border-color: var(--accent); }
+.wk-tak.sleepdoel > .cs-project, a.wk-sub.sleepdoel { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.wk-pagina tr[draggable="true"] { cursor: grab; }
+.wk-pagina tr.wk-sleept td { opacity: .45; }
+.cs-lees.wk-zonder-versies { grid-template-columns: minmax(0, 1fr); }
+.wk-pagina .cs-leeskop button.actief { border-color: var(--accent); color: var(--accent); }
 .wk-tak { display: flex; align-items: center; }
 .wk-tak > .cs-project { flex: 1; min-width: 0; }
 .wk-pagina .wk-pijl { flex: 0 0 18px; width: 18px; border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--cs-zacht); cursor: pointer; text-align: center; }

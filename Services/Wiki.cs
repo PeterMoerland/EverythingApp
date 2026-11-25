@@ -492,6 +492,22 @@ public class Wiki
         await BewaarAsync(a, $"Teruggezet van v{oud.Versie}", door);
     }
 
+    /// <summary>
+    /// Een artikel naar een andere ruimte zetten (slepen op het scherm). Geen nieuwe versie: de tekst verandert niet;
+    /// wie en wanneer blijven die van de laatste echte wijziging.
+    /// </summary>
+    public async Task VerplaatsAsync(int artikelId, int ruimteId)
+    {
+        if ((await RuimtesAsync()).All(r => r.Id != ruimteId)) throw new InvalidOperationException("Deze ruimte bestaat niet (meer).");
+        if (_geheugen) { lock (_slot) if (_artikelen.FirstOrDefault(x => x.Id == artikelId) is { } g) g.RuimteId = ruimteId; return; }
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var cmd = new MySqlCommand("UPDATE `WikiArtikelen` SET `RuimteID` = @r WHERE `ArtikelID` = @id", cn);
+        cmd.Parameters.AddWithValue("@r", ruimteId);
+        cmd.Parameters.AddWithValue("@id", artikelId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     /// <summary>Inactief zetten (of terughalen): het artikel verdwijnt uit de lijsten en het zoeken, maar blijft bestaan.</summary>
     public async Task ZetActiefAsync(int artikelId, bool actief)
     {

@@ -197,7 +197,7 @@
                             <option value="0">Ander (met de hand)</option>
                         </select></label>
                     <label class="cs-veld"><span>Serienummer van de robot</span>
-                        <input id="lc-robot" value="@n.RobotTekst" maxlength="40" autocomplete="off" list="lc-robots" placeholder="bv. 57"
+                        <input id="lc-robot" @ref="_robotVeld" value="@n.RobotTekst" maxlength="40" autocomplete="off" list="lc-robots" placeholder="bv. 57"
                                @onchange="e => RobotGetypt((string?)e.Value)" />
                         <datalist id="lc-robots">@foreach (var r in _robots.Take(300)) { <option value="@r.Serienummer" /> }</datalist></label>
                 </div>
@@ -347,10 +347,22 @@
 
     // ------------------------------------------------------------------ nieuwe licentie
 
+    // de cursor meteen in het serienummer van de robot als het venster opent
+    private ElementReference _robotVeld;
+    private bool _focusRobot;
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (!_focusRobot || _nieuw is null) return;
+        _focusRobot = false;
+        try { await _robotVeld.FocusAsync(); } catch { /* het venster is intussen weer dicht */ }
+    }
+
     private async Task OpenNieuw()
     {
         if (!_mag) return;
         _melding = null;
+        _focusRobot = true;
         try
         {
             if (_types.Count == 0) _types = await Lic.RobotTypesAsync();

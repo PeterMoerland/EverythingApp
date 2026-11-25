@@ -45,7 +45,8 @@
                 {
                     var kinderen = _ruimtes.Any(x => x.OuderId == r.Id);
                     var totaal = Totaal(r.Id);
-                    <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
+                    <div class="wk-tak @(_menu?.Ruimte?.Id == r.Id ? "gekozen" : "") @(_sleept is not null && _sleepDoel == r.Id ? "sleepdoel" : "")" style="@($"padding-left:{(diepte - 1) * 12}px")" @key="r.Id"
+                         ondragover="event.preventDefault()" @ondragenter="() => SleepOver(r.Id)" @ondrop="() => LaatVallen(r.Id)"
                          @oncontextmenu="e => OpenMenu(e, r)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
                         @if (kinderen)
                         {
@@ -60,7 +61,8 @@
                 }
                 @if (MagSchrijven)
                 {
-                    <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam wijzigen. Op de lege plek hieronder: een nieuwe ruimte.</p>
+                    <p class="wk-tip">Rechtermuisknop op een ruimte: subruimte toevoegen, naam wijzigen. Op de lege plek hieronder: een nieuwe ruimte.
+                        Een artikel verplaats je door de regel naar een ruimte te slepen.</p>
                 }
                 </div>
             </aside>
@@ -76,7 +78,7 @@
                     </div>
                     <div class="wk-velden">
                         <label class="cs-veld wk-breed"><span>Titel (het onderwerp, niet het projectnummer)</span>
-                            <input id="wk-titel" value="@b.Titel" maxlength="200" @oninput="e => b.Titel = (string?)e.Value ?? string.Empty" /></label>
+                            <input id="wk-titel" @ref="_titelVeld" value="@b.Titel" maxlength="200" @oninput="e => b.Titel = (string?)e.Value ?? string.Empty" /></label>
                         <label class="cs-veld"><span>Ruimte</span>
                             <select value="@b.RuimteId" @onchange="RuimteGekozen">
                                 @foreach (var (r, _) in Boom(null, 1)) { <option value="@r.Id">@Pad(r.Id)</option> }
@@ -165,6 +167,8 @@
                         {
                             <button type="button" class="primair klein" @onclick="() => Bewerk(a)">✎ Bewerken</button>
                         }
+                        <button type="button" class="klein @(VersiesOpen ? "actief" : "")" aria-pressed="@VersiesOpen" title="De eerdere versies van dit artikel tonen of verbergen"
+                                @onclick="WisselVersies">🕘 Versies @_versies.Count</button>
                         <button type="button" class="klein" title="Het adres van dit artikel naar het klembord" @onclick="KopieerLink">Link</button>
                         @if (MagSchrijven)
                         {
@@ -178,7 +182,7 @@
                         <span class="cs-zacht">laatst gewijzigd @a.GewijzigdOp.ToString("d-M-yyyy HH:mm")@(a.GewijzigdDoor.Length > 0 ? " door " + a.GewijzigdDoor : "")</span>
                     </div>
 
-                    <div class="cs-lees">
+                    <div class="cs-lees @(VersiesOpen ? "" : "wk-zonder-versies")">
                         <div>
                             <div class="cs-tekst">
                                 @if (_html.Length == 0) { <p class="uitleg">Dit artikel heeft nog geen tekst.</p> }
@@ -209,6 +213,9 @@
                                 </div>
                             }
                         </div>
+                        @* de versies staan achter de knop "Versies" in de kop; alleen bij een oude versie in beeld altijd open *@
+                        @if (VersiesOpen)
+                        {
                         <aside class="cs-versies">
                             <div class="cs-kopje">Versies</div>
                             @foreach (var v in _versies)
@@ -226,6 +233,7 @@
                                 </div>
                             }
                         </aside>
+                        }
                     </div>
                     @if (_bijlagen.FirstOrDefault(x => x.FileStoreId == _voorbeeldVan && x.IsHtml) is { } html)
                     {
@@ -265,7 +273,8 @@
                             @foreach (var sub in _ruimtes.Where(x => x.OuderId == ru.Id))
                             {
                                 var n = Totaal(sub.Id);
-                                <a class="wk-sub @(_menu?.Ruimte?.Id == sub.Id ? "gekozen" : "")" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving"
+                                <a class="wk-sub @(_menu?.Ruimte?.Id == sub.Id ? "gekozen" : "") @(_sleept is not null && _sleepDoel == sub.Id ? "sleepdoel" : "")" href="@($"wiki?ruimte={sub.Id}")" title="@sub.Omschrijving"
+                                   ondragover="event.preventDefault()" @ondragenter="() => SleepOver(sub.Id)" @ondrop="() => LaatVallen(sub.Id)"
                                    @oncontextmenu="e => OpenMenu(e, sub)" @oncontextmenu:preventDefault="MagSchrijven" @oncontextmenu:stopPropagation="true">
                                     <b>@sub.Icoon @sub.Naam</b>
                                     <span class="cs-zacht">@(n == 0 ? "leeg" : n == 1 ? "1 artikel" : n + " artikelen")</span>
@@ -280,12 +289,16 @@
                     @foreach (var groep in _artikelen.GroupBy(x => x.Sectie.Length > 0 ? x.Sectie : "Algemeen").OrderBy(g => g.Key == "Algemeen" ? "" : g.Key))
                     {
                         <div class="cs-kopje">@groep.Key</div>
-                        <table class="cs-tabel">
+                        @* Firefox begint pas te slepen als er iets "meegegeven" wordt; dat doet de browser hier zelf, de app hoort het van de regel *@
+                        <table class="cs-tabel" ondragstart="event.dataTransfer.setData('text/plain', 'artikel'); event.dataTransfer.effectAllowed = 'move';">
                             <tbody>
                                 @foreach (var x in groep)
                                 {
-                                    <tr class="@(x.Actief ? "" : "cs-vervallen")" @key="x.Id">
-                                        <td><a class="wk-titel" href="@(Wiki.ArtikelAdres + x.Id)">@x.Titel</a>@if (!x.Actief) { <span class="stand-chip s-rood">inactief</span> }</td>
+                                    @* slepen: de regel op een ruimte in de zijbalk of op een tegel laten vallen zet het artikel daarheen *@
+                                    <tr class="@(x.Actief ? "" : "cs-vervallen") @(_sleept?.Id == x.Id ? "wk-sleept" : "")" @key="x.Id" draggable="@(MagSchrijven ? "true" : "false")"
+                                        @ondragstart="() => { _sleept = x; _sleepDoel = null; }" @ondragend="() => { _sleept = null; _sleepDoel = null; }"
+                                        title="@(MagSchrijven ? "Sleep de regel naar een andere ruimte om het artikel te verplaatsen" : null)">
+                                        <td><a class="wk-titel" draggable="false" href="@(Wiki.ArtikelAdres + x.Id)">@x.Titel</a>@if (!x.Actief) { <span class="stand-chip s-rood">inactief</span> }</td>
                                         <td class="cs-zacht">@string.Join(" ", x.TagLijst.Select(t => "#" + t))</td>
                                         <td class="cs-zacht wk-smal">@(x.ProjectId is null ? "" : x.ProjectTekst)</td>
                                         <td class="cs-zacht wk-smal">@x.GewijzigdOp.ToString("d-M-yyyy")@(x.GewijzigdDoor.Length > 0 ? " · " + x.GewijzigdDoor : "")</td>
@@ -376,7 +389,7 @@
             </header>
             <div class="factuurvenster-inhoud">
                 <label class="cs-veld"><span>Naam</span>
-                    <input id="wk-ruimtenaam" value="@rv.Naam" maxlength="100" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" /></label>
+                    <input id="wk-ruimtenaam" @ref="_ruimteNaamVeld" value="@rv.Naam" maxlength="100" @oninput="e => rv.Naam = (string?)e.Value ?? string.Empty" /></label>
                 <label class="cs-veld"><span>Icoon (een emoji; mag leeg)</span>
                     <input value="@rv.Icoon" maxlength="16" style="max-width:6rem" @oninput="e => rv.Icoon = (string?)e.Value ?? string.Empty" /></label>
                 <label class="cs-veld"><span>Omschrijving (mag leeg)</span>
@@ -412,6 +425,21 @@
     private CancellationTokenSource? _pauze, _projectPauze;
     private int _invoer;
     private int? _voorbeeldVan;                 // de HTML-bijlage die nu in het kader staat
+    private bool _toonVersies;                  // de lijst met versies is opengeklapt (blijft zo tijdens het bladeren)
+
+    /// <summary>De versies staan in beeld: opengeklapt, of er staat een oude versie voor (dan moet je terug kunnen).</summary>
+    private bool VersiesOpen => _toonVersies || _oud is not null;
+
+    private void WisselVersies()
+    {
+        if (VersiesOpen)
+        {
+            _toonVersies = false;
+            // dicht = terug naar de geldende versie, anders lees je ongemerkt een oude
+            if (_oud is not null && _artikel is not null) { _oud = null; _html = Opmaak(_artikel.Inhoud); }
+        }
+        else _toonVersies = true;
+    }
     private readonly HashSet<int> _open = new();    // de opengeklapte ruimtes in de zijbalk
 
     /// <summary>Het venster voor een nieuwe ruimte (Id 0, onder OuderId) of het wijzigen van een bestaande.</summary>
@@ -500,9 +528,47 @@
     /// <summary>Het aantal artikelen in een ruimte en alles eronder.</summary>
     private int Totaal(int id) => (_ruimtes.FirstOrDefault(r => r.Id == id)?.Aantal ?? 0) + Boom(id, 1).Sum(x => x.R.Aantal);
 
+    // ---- de cursor meteen in het eerste veld van een venster (wens gebruiker 25-11-2026) ----
+    private ElementReference _ruimteNaamVeld, _titelVeld;
+    private string? _focusNa;       // "ruimte" of "titel": na het tekenen de cursor daarin zetten
+
+    protected override async Task OnAfterRenderAsync(bool eerste)
+    {
+        if (_focusNa is not { } wat) return;
+        _focusNa = null;
+        try
+        {
+            if (wat == "ruimte" && _ruimteVenster is not null) await _ruimteNaamVeld.FocusAsync();
+            else if (wat == "titel" && _bewerk is not null) await _titelVeld.FocusAsync();
+        }
+        catch { /* het veld is intussen weer weg */ }
+    }
+
+    // ---- een artikel naar een andere ruimte slepen (wens gebruiker 25-11-2026) ----
+    private WikiArtikel? _sleept;       // de regel die nu gesleept wordt
+    private int? _sleepDoel;            // de ruimte waar hij boven hangt
+
+    private void SleepOver(int ruimteId) { if (_sleept is not null) _sleepDoel = ruimteId; }
+
+    private async Task LaatVallen(int ruimteId)
+    {
+        var artikel = _sleept;
+        _sleept = null; _sleepDoel = null;
+        if (artikel is null || !MagSchrijven || artikel.RuimteId == ruimteId) return;
+        try
+        {
+            await Wiki.VerplaatsAsync(artikel.Id, ruimteId);
+            _open.Add(ruimteId);
+            await Laad();
+            Meld($"{artikel.Titel} staat nu in {Pad(ruimteId)}.");
+        }
+        catch (Exception ex) { Meld("Verplaatsen is niet gelukt: " + ex.GetBaseException().Message, true); }
+    }
+
     private void BeginRuimte(WikiRuimte? bestaand, int? ouderId)
     {
         if (!MagSchrijven) return;
+        _focusNa = "ruimte";
         _ruimteVenster = bestaand is null ? new RuimteInvoer { OuderId = ouderId }
             : new RuimteInvoer { Id = bestaand.Id, OuderId = bestaand.OuderId, Naam = bestaand.Naam, Icoon = bestaand.Icoon, Omschrijving = bestaand.Omschrijving };
     }
@@ -669,6 +735,7 @@
     {
         if (!MagSchrijven) return;
         _bewerk = new WikiArtikel { RuimteId = ruimteId };
+        _focusNa = "titel";       // nieuw artikel: meteen de titel typen (bij bewerken niet, daar lees je eerst)
         await Begin();
     }
 
