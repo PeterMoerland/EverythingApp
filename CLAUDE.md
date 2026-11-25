@@ -532,6 +532,12 @@ i.v.m. 1Password".
   Relaties: de klant zelf, zijn projecten en de werkorders daarvan; hooguit 20). `ToonRij` schuift ook de tijdbalk:
   staat er van de rij en wat eronder hangt niets in beeld, dan naar de eerste balk die nog loopt of komt (anders de
   laatste), twee weken ervoor.
+  **Ongedaan maken (25-11-2026)**: het scherm houdt een stapel `_terug` bij (hooguit 30; `Onthoud(wat, terug)` na elke
+  geslaagde `Doe`), `OngedaanMaken` (`[JSInvokable]`, via het bestaande `mdeUndo` = Ctrl+Z, en de knop ↶) draait de
+  laatste terug. Een verwijderde rij of balk komt terug met zijn oude nummers (`Planbord.HerstelRijenAsync`,
+  `ZetItemTerugAsync`: INSERT met het ID erbij), zodat oudere stappen op de stapel blijven kloppen. Alleen eigen
+  wijzigingen van dat open scherm, geen "opnieuw"; heeft een collega intussen hetzelfde gewijzigd, dan wint de stap
+  terug. **Niet getest:** terugzetten tegen de echte tabellen.
   **Nog niet** (volgende stappen): iets doen met de koppeling (bv. uren of status uit het project tonen)
   (bv. vanuit het project naar de planning); niet in de export: welke
   groepen open stonden en de kleur van de groepsbalk. **Niet getest:** overzetten naar de echte tabellen.

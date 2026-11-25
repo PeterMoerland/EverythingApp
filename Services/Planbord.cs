@@ -762,6 +762,84 @@ public class Planbord
         return id;
     }
 
+    // ------------------------------------------------------------------ terugzetten (Ctrl+Z in het scherm, 25-11-2026)
+
+    /// <summary>Een verwijderde balk of symbool terugzetten, met zijn oude nummer.</summary>
+    public async Task ZetItemTerugAsync(PlanItem it)
+    {
+        if (_geheugen) { lock (_slot) if (!_items.Any(x => x.Id == it.Id)) _items.Add(it); }
+        else await HerstelAsync(Array.Empty<PlanRij>(), new[] { it });
+        Seintje();
+    }
+
+    /// <summary>
+    /// Verwijderde rijen terugzetten met hun balken, zoals ze waren: zelfde nummers, plek, koppeling, werknemers en
+    /// kleur. Alles of niets. Bestaat een nummer intussen weer, dan mislukt het (en blijft alles zoals het is).
+    /// </summary>
+    public async Task HerstelRijenAsync(IReadOnlyList<PlanRij> rijen, IReadOnlyList<PlanItem> items)
+    {
+        if (_geheugen)
+        {
+            lock (_slot)
+            {
+                _rijen.AddRange(rijen.Where(r => !_rijen.Any(x => x.Id == r.Id)));
+                _items.AddRange(items.Where(i => !_items.Any(x => x.Id == i.Id)));
+            }
+        }
+        else await HerstelAsync(rijen, items);
+        Seintje();
+    }
+
+    private async Task HerstelAsync(IReadOnlyList<PlanRij> rijen, IReadOnlyList<PlanItem> items)
+    {
+        var metKleur = await KleurAanwezigAsync();
+        var metWie = await WieAanwezigAsync();
+        await using var cn = new MySqlConnection(_cs);
+        await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+        foreach (var r in rijen)
+        {
+            await using var cmd = new MySqlCommand(
+                "INSERT INTO `PlanbordRijen` (`RijID`, `OuderID`, `Volgorde`, `Naam`, `Resource`, `Nummer`, `RelatieID`, `ProjectID`, `WerkorderID`" + (metKleur ? ", `Kleur`" : "") + ") " +
+                "VALUES (@id, @o, @v, @n, @r, @nr, @k, @p, @w" + (metKleur ? ", @kl" : "") + ")", cn, tx);
+            cmd.Parameters.AddWithValue("@id", r.Id);
+            cmd.Parameters.AddWithValue("@o", (object?)r.OuderId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@v", r.Volgorde);
+            cmd.Parameters.AddWithValue("@n", r.Naam);
+            cmd.Parameters.AddWithValue("@r", r.Resource);
+            cmd.Parameters.AddWithValue("@nr", r.Nummer);
+            cmd.Parameters.AddWithValue("@k", (object?)r.RelatieId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@p", (object?)r.ProjectId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@w", (object?)r.WerkorderId ?? DBNull.Value);
+            if (metKleur) cmd.Parameters.AddWithValue("@kl", r.Kleur.Length == 0 ? DBNull.Value : r.Kleur);
+            await cmd.ExecuteNonQueryAsync();
+            if (!metWie) continue;
+            foreach (var wn in r.Werknemers)
+            {
+                await using var wie = new MySqlCommand("INSERT IGNORE INTO `PlanbordRijWerknemers` (`RijID`, `WerknemerID`) VALUES (@id, @w)", cn, tx);
+                wie.Parameters.AddWithValue("@id", r.Id);
+                wie.Parameters.AddWithValue("@w", wn);
+                await wie.ExecuteNonQueryAsync();
+            }
+        }
+        foreach (var it in items)
+        {
+            await using var cmd = new MySqlCommand(
+                "INSERT INTO `PlanbordItems` (`ItemID`, `RijID`, `Symbool`, `Start`, `Einde`, `Legenda`, `Kleur`, `Label`, `Opmerking`) VALUES (@id, @r, @s, @b, @e, @l, @k, @t, @o)", cn, tx);
+            cmd.Parameters.AddWithValue("@id", it.Id);
+            cmd.Parameters.AddWithValue("@r", it.RijId);
+            cmd.Parameters.AddWithValue("@s", it.Symbool ? 1 : 0);
+            cmd.Parameters.AddWithValue("@b", it.Start);
+            cmd.Parameters.AddWithValue("@e", (object?)it.Einde ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@l", it.Legenda);
+            cmd.Parameters.AddWithValue("@k", it.Kleur);
+            cmd.Parameters.AddWithValue("@t", it.Label);
+            cmd.Parameters.AddWithValue("@o", it.Opmerking);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+    }
+
     public async Task VerwijderItemAsync(int id)
     {
         if (_geheugen) { lock (_slot) _items.RemoveAll(x => x.Id == id); }

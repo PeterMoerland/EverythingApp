@@ -64,6 +64,8 @@
             <button type="button" class="klein" @onclick="AllesDicht">Alles dicht</button>
             @if (MagPlannen)
             {
+                <button type="button" class="klein" disabled="@(_terug.Count == 0 || _bezig)" @onclick="OngedaanMaken"
+                        title="@(_terug.Count == 0 ? "Ongedaan maken (Ctrl+Z): er is nog niets gewijzigd" : "Ongedaan maken (Ctrl+Z): " + _terug[^1].Wat)">↶</button>
                 <button type="button" class="primair klein" title="Een nieuwe groep, onderaan de planning" @onclick="() => BeginRij(null, null, null)">+ Groep</button>
                 @* de knop "Namen koppelen…" (BeginNamen, het venster _namenVenster) is op verzoek van de gebruiker weg
                    (25-11-2026); het venster en KoppelNamenAsync staan er nog, NIET IN GEBRUIK *@
@@ -231,6 +233,7 @@
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.Id, null); }">+ Rij eronder (in @mn.Rij.Naam)</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(null, mn.Rij.OuderId, mn.Rij.Id); }">+ Rij erna</button>
+        <div class="wk-menustreep" role="separator"></div>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; BeginRij(mn.Rij, null, null); }">Wijzigen…</button>
         @if (_metKleur)
         {
@@ -591,7 +594,34 @@
     private async Task KiesKleur(PlanRij r, string kleur)
     {
         _menu = null;
-        await Doe(() => Bord.KleurAsync(r.Id, kleur));
+        var oud = r.Kleur;
+        if (oud == kleur) return;
+        if (await Doe(() => Bord.KleurAsync(r.Id, kleur))) Onthoud($"kleur van {r.Naam}", () => Bord.KleurAsync(r.Id, oud));
+    }
+
+    // ---- ongedaan maken (Ctrl+Z via mdeUndo in App.razor, of de knop ↶; wens gebruiker 25-11-2026) ----
+    // Per open scherm een stapel van hooguit 30 wijzigingen, elk met wat hem terugdraait. Alleen je eigen wijzigingen
+    // van dit scherm; herladen = de stapel leeg. Er is geen "opnieuw".
+
+    private readonly List<(string Wat, Func<Task> Terug)> _terug = new();
+
+    private void Onthoud(string wat, Func<Task> terug)
+    {
+        _terug.Add((wat, terug));
+        if (_terug.Count > 30) _terug.RemoveAt(0);
+    }
+
+    [JSInvokable]
+    public async Task OngedaanMaken()
+    {
+        if (_terug.Count == 0 || _bezig || !MagPlannen || _rijVenster is not null || _itemVenster is not null || _koppelVenster is not null) return;
+        var (wat, terug) = _terug[^1];
+        _terug.RemoveAt(_terug.Count - 1);
+        await InvokeAsync(async () =>
+        {
+            if (await Doe(terug)) Meld("Ongedaan gemaakt: " + wat + ".");
+            StateHasChanged();
+        });
     }
     private int _losseNamen;
     private List<PlanPersoon> _personen = new();
@@ -828,6 +858,7 @@
             Bord.Gewijzigd += BijWijziging;
             // het slepen van balken doet de browser (mdePlan in App.razor); hij meldt hier alleen de uitkomst
             try { _ref = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("mdePlan.koppel", _ref); } catch { }
+            try { await JS.InvokeVoidAsync("mdeUndo.aan", _ref); } catch { }      // Ctrl+Z = OngedaanMaken
         }
         if (_geladen && RijQuery is int doel && _doelGedaan != doel)
         {
@@ -886,16 +917,22 @@
     private async Task BewaarRij()
     {
         if (_rijVenster is not { } rv || _bezig || rv.Naam.Trim().Length == 0) return;
+        var oud = rv.Id != 0 ? _opId.GetValueOrDefault(rv.Id) : null;
+        var (oudNaam, oudWie, oudWn, oudKleur) = (oud?.Naam ?? "", oud?.Resource ?? "", oud?.Werknemers.ToList() ?? new List<int>(), oud?.Kleur ?? "");
+        var nieuwId = 0;
         var gelukt = await Doe(async () =>
         {
             if (rv.Id != 0) await Bord.WijzigRijAsync(rv.Id, rv.Naam, rv.Resource, _metWie ? rv.Werknemers : null, _metKleur ? rv.Kleur : null);
             else
             {
-                await Bord.NieuweRijAsync(rv.OuderId, rv.NaId, rv.Naam, rv.Resource, _metWie ? rv.Werknemers : null, _metKleur ? rv.Kleur : null);
+                nieuwId = await Bord.NieuweRijAsync(rv.OuderId, rv.NaId, rv.Naam, rv.Resource, _metWie ? rv.Werknemers : null, _metKleur ? rv.Kleur : null);
                 if (rv.OuderId is int o) _open.Add(o);
             }
         });
-        if (gelukt) _rijVenster = null;
+        if (!gelukt) return;
+        _rijVenster = null;
+        if (rv.Id != 0) Onthoud($"wijziging van {oudNaam}", () => Bord.WijzigRijAsync(rv.Id, oudNaam, oudWie, _metWie ? oudWn : null, _metKleur ? oudKleur : null));
+        else if (nieuwId != 0) Onthoud($"nieuwe rij {rv.Naam.Trim()}", () => Bord.VerwijderRijAsync(nieuwId));
     }
 
     // ---- koppelen aan een project, werkorder of klant (stap 3, 25-11-2026; zoals het Activity board) ----
@@ -970,15 +1007,24 @@
     {
         if (_koppelVenster is not { } kv || _bezig) return;
         var s = kv.Soort;
+        var (oudP, oudK, oudW) = (kv.Rij.ProjectId, kv.Rij.RelatieId, kv.Rij.WerkorderId);
+        var rijId = kv.Rij.Id;
         var gelukt = await Doe(() => Bord.KoppelAsync(kv.Rij.Id, s == "project" ? t.Id : null, s == "klant" ? t.Id : null, s == "werkorder" ? t.Id : null,
                                                       t.Nummer, t.Naam, t.ProjectId));
+        if (gelukt) Onthoud($"koppeling van {kv.Rij.Naam}", () => Bord.KoppelAsync(rijId, oudP, oudK, oudW));
         if (gelukt) { _koppelVenster = null; Meld($"{kv.Rij.Naam} is gekoppeld aan {(s == "project" ? "project" : s == "werkorder" ? "werkorder" : "klant")} {(t.Nummer.Length > 0 ? t.Nummer : t.Naam)}."); }
     }
 
     private async Task Ontkoppel()
     {
         if (_koppelVenster is not { } kv || _bezig) return;
-        if (await Doe(() => Bord.KoppelAsync(kv.Rij.Id, null, null, null))) { _koppelVenster = null; Meld($"{kv.Rij.Naam} is niet meer gekoppeld."); }
+        var (oudP, oudK, oudW) = (kv.Rij.ProjectId, kv.Rij.RelatieId, kv.Rij.WerkorderId);
+        var rijId = kv.Rij.Id;
+        if (await Doe(() => Bord.KoppelAsync(rijId, null, null, null)))
+        {
+            Onthoud($"ontkoppelen van {kv.Rij.Naam}", () => Bord.KoppelAsync(rijId, oudP, oudK, oudW));
+            _koppelVenster = null; Meld($"{kv.Rij.Naam} is niet meer gekoppeld.");
+        }
     }
 
     private async Task WisRij(PlanRij r)
@@ -991,11 +1037,20 @@
         {
             if (!await JS.InvokeAsync<bool>("mdeBevestig",
                     $"{r.Naam} verwijderen" + (eronder > 0 ? $", met de {eronder} rij{(eronder == 1 ? "" : "en")} eronder" : "") +
-                    (balken > 0 ? $" en {balken} balk{(balken == 1 ? "" : "en")} of symbolen" : "") + "? Dit is niet terug te draaien.",
+                    (balken > 0 ? $" en {balken} balk{(balken == 1 ? "" : "en")} of symbolen" : "") + "? Met Ctrl+Z zet je het in dit scherm nog terug.",
                     new { kop = "⚠ Rij verwijderen", ja = "Verwijderen" })) return;
         }
         catch { return; }
-        if (await Doe(() => Bord.VerwijderRijAsync(r.Id))) Meld($"{r.Naam} is verwijderd.");
+        // wat er weggaat bewaren, om het met Ctrl+Z terug te kunnen zetten
+        var wegRijen = new List<PlanRij> { r };
+        for (var i = 0; i < wegRijen.Count && wegRijen.Count < 100_000; i++)
+            if (_kinderen.TryGetValue(wegRijen[i].Id, out var k)) wegRijen.AddRange(k);
+        var wegItems = wegRijen.SelectMany(x => _items.TryGetValue(x.Id, out var l) ? l : Enumerable.Empty<PlanItem>()).ToList();
+        if (await Doe(() => Bord.VerwijderRijAsync(r.Id)))
+        {
+            Onthoud($"verwijderen van {r.Naam}", () => Bord.HerstelRijenAsync(wegRijen, wegItems));
+            Meld($"{r.Naam} is verwijderd (Ctrl+Z zet hem terug).");
+        }
     }
 
     /// <summary>Alle rijen onder deze rij.</summary>
@@ -1019,9 +1074,16 @@
         var rij = _sleeptRij;
         EindeSleepRij();
         if (rij is null || rij.Id == doel.Id) return;
+        // waar hij stond: onder welke rij, en vóór welke buur
+        var oudOuder = rij.OuderId;
+        var buren = (oudOuder is int oo && _kinderen.TryGetValue(oo, out var kk) ? kk : _top).ToList();
+        var plek = buren.FindIndex(x => x.Id == rij.Id);
+        int? oudVoor = plek >= 0 && plek + 1 < buren.Count ? buren[plek + 1].Id : null;
+        var sleepId = rij.Id;
         if (await Doe(() => ervoor ? Bord.VerplaatsRijAsync(rij.Id, doel.OuderId, doel.Id) : Bord.VerplaatsRijAsync(rij.Id, doel.Id, null)))
         {
             if (!ervoor) _open.Add(doel.Id);
+            Onthoud($"verplaatsen van {rij.Naam}", () => Bord.VerplaatsRijAsync(sleepId, oudOuder, oudVoor));
             Meld(ervoor ? $"{rij.Naam} staat nu vóór {doel.Naam}." : $"{rij.Naam} hangt nu onder {doel.Naam}.");
         }
     }
@@ -1075,13 +1137,22 @@
         if (_itemVenster is not { } iv || _bezig) return;
         var item = new PlanItem(iv.Id, iv.RijId, iv.Symbool, Begin(iv.Van, iv.VanMiddag), iv.Symbool ? null : Eind(iv.Tot, iv.TotMiddag),
                                 iv.Legenda, iv.Kleur, iv.Label, iv.Opmerking);
-        if (await Doe(() => Bord.BewaarItemAsync(item))) _itemVenster = null;
+        var oud = iv.Id != 0 ? Item(iv.Id) : null;
+        var nieuwId = 0;
+        if (!await Doe(async () => nieuwId = await Bord.BewaarItemAsync(item))) return;
+        _itemVenster = null;
+        var soort = iv.Symbool ? "symbool" : "balk";
+        if (oud is not null) Onthoud($"wijziging van een {soort}", () => Bord.BewaarItemAsync(oud));
+        else if (nieuwId != 0) Onthoud($"nieuwe {soort}", () => Bord.VerwijderItemAsync(nieuwId));
     }
 
     private async Task WisItem()
     {
         if (_itemVenster is not { } iv || iv.Id == 0) return;
-        if (await Doe(() => Bord.VerwijderItemAsync(iv.Id))) _itemVenster = null;
+        var oud = Item(iv.Id);
+        if (!await Doe(() => Bord.VerwijderItemAsync(iv.Id))) return;
+        _itemVenster = null;
+        if (oud is not null) Onthoud($"verwijderen van een {(iv.Symbool ? "symbool" : "balk")}", () => Bord.ZetItemTerugAsync(oud));
     }
 
     private PlanItem? Item(int id) => _items.Values.SelectMany(l => l).FirstOrDefault(i => i.Id == id);
@@ -1095,7 +1166,8 @@
         if (dagen == 0 && naar == it.RijId) return;
         await InvokeAsync(async () =>
         {
-            await Doe(() => Bord.BewaarItemAsync(it with { RijId = naar, Start = it.Start.AddDays(dagen), Einde = it.Einde?.AddDays(dagen) }));
+            if (await Doe(() => Bord.BewaarItemAsync(it with { RijId = naar, Start = it.Start.AddDays(dagen), Einde = it.Einde?.AddDays(dagen) })))
+                Onthoud($"verslepen van een {(it.Symbool ? "symbool" : "balk")}", () => Bord.BewaarItemAsync(it));
             StateHasChanged();
         });
     }
@@ -1108,13 +1180,18 @@
         if (it.Symbool || it.Einde is not DateTime einde) { await Versleep(id, dagen, null); return; }
         var nieuw = links ? it with { Start = it.Start.AddDays(dagen) } : it with { Einde = einde.AddDays(dagen) };
         if (nieuw.Einde <= nieuw.Start) nieuw = links ? nieuw with { Start = Begin(einde, IsMiddag(einde) ? false : true) } : nieuw with { Einde = Eind(it.Start, false) };
-        await InvokeAsync(async () => { await Doe(() => Bord.BewaarItemAsync(nieuw)); StateHasChanged(); });
+        await InvokeAsync(async () =>
+        {
+            if (await Doe(() => Bord.BewaarItemAsync(nieuw))) Onthoud("langer of korter maken van een balk", () => Bord.BewaarItemAsync(it));
+            StateHasChanged();
+        });
     }
 
     public void Dispose()
     {
         Bord.Gewijzigd -= BijWijziging;
         try { _ = JS.InvokeVoidAsync("mdePlan.los"); } catch { }
+        try { _ = JS.InvokeVoidAsync("mdeUndo.uit"); } catch { }
         _ref?.Dispose();
     }
 }
