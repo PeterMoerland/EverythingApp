@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 26-11-2026
 
+- **Planning** — Nieuw: de planning **onthoudt je filters**: het groepfilter, het filter per persoon, het aantal weken in beeld en "ook wat voorbij is". Per account, op de pc en in de browser waar je ze instelde (verzoek van Peter)
+- **Planning** — Nieuw: in de kop met maanden, weken en dagen kun je met de muis naar links of rechts **slepen** om door de tijd te schuiven; de planning loopt per week mee (verzoek van Peter)
+- **Planning** — Opgelost: bij 4 of 8 weken in beeld viel vandaag (de rode lijn) buiten beeld; nu staat vandaag er altijd in na Vandaag of na het kiezen van minder weken. Verbeterd: de rasterlijnen zijn duidelijker, en naast de filters staat **✕ Filter** om het groep- en persoonsfilter in één klik uit te zetten (verzoek van Peter)
 - **Planning** — Verbeterd: het zoekvak, de filters en de knoppen staan links bij de rest in plaats van helemaal rechts op een breed scherm (verzoek van Peter)
 - **Planning** — Nieuw: in het rechtermuismenu van een rij staat **Filter op groep** (vult het groepfilter in en vouwt alles in die groep uit), **Filter op wie** voor de namen op die rij, en **Filter wissen** (verzoek van Peter)
 - **Planning** — Nieuw: onder de weeknummers staan de **dagen**, zodra er per dag genoeg ruimte is; het weekend is grijs en vandaag rood. De rijen krijgen dan ook een **raster per dag**. Kies **4 weken** of **8 weken** (nieuw in de keuzelijst) om ze op elk scherm te zien; op een breed scherm ook bij 13 weken of een half jaar (verzoek van Peter)

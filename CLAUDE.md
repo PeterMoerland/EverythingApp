@@ -545,6 +545,13 @@ i.v.m. 1Password".
   query op de breedte van het bord (`.plb-bord.w4` vanaf 810 px, `.w8` 1170, `.w13` 1500, `.w26` 2550: ± 11-13 px per dag);
   op hetzelfde moment krijgen de rijen een raster per dag (`--plb-raster`, weeklijn iets donkerder).
   Keuzes 4 en 8 weken erbij. `.plb-pagina` heeft geen maximale breedte meer (breed scherm).
+  **Slepen in de kop (26-11-2026)**: `.plb-kop .plb-tijd` vastpakken en naar links/rechts slepen roept per hele week
+  `SchuifWeken` aan (tweede blokje bij `mdePlan` in App.razor). `Vandaag` zet bij 4 of 8 weken minder weken terug
+  (anders viel vandaag buiten beeld) en `KiesWeken` houdt vandaag in beeld. Knop "✕ Filter" = `FilterUit`.
+  Rasterlijnen: `--plb-weeklijn` (1,5 px) en `--plb-daglijn`.
+  **Filters onthouden (26-11-2026)**: `mdeOpslag` met sleutel `mde-plan-filters-<werknemer>` (dus per account per
+  browser): groep, weken, ook-voorbij en persoon als één tekst (`Voorkeur`). `LeesVoorkeur` een keer na het laden
+  (alleen wat nog bestaat), daarna bewaart `OnAfterRenderAsync` elke wijziging; niet bij `?rij=`.
   **Filter in het menu (26-11-2026)**: rechtermuismenu ▸ "Filter op groep: …" (`FilterGroep`: `_groepFilter` = de
   bovenste groep van de rij (`Top`), alles eronder open), "Filter op wie: …" per naam op de rij (`FilterWie` via
   `WieCode`), en "Filter wissen" (`FilterUit`) als er een filter aan staat.

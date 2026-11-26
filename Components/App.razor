@@ -29,7 +29,7 @@
     </script>
     <!-- ?v= verhogen na een stijlwijziging: dwingt browsers de nieuwe CSS op te halen -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="app.css?v=515" />
+    <link rel="stylesheet" href="app.css?v=516" />
     <title>MDE</title>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
@@ -316,6 +316,31 @@
             koppel: function (dotnet) { window.mdePlan.doel = dotnet; },
             los: function () { window.mdePlan.doel = null; }
         };
+        // In de kop van het menu Planning (maanden, weken, dagen) naar links of rechts slepen = door de tijd schuiven
+        // (wens gebruiker 26-11-2026). Per hele week die de muis opschuift gaat er één melding naar Blazor
+        // (SchuifWeken), zodat de planning tijdens het slepen meeloopt.
+        (function () {
+            let kop = null, beginX = 0, weekBreedte = 1, gedaan = 0;
+            document.addEventListener('pointerdown', function (e) {
+                if (e.button !== 0 || !window.mdePlan.doel) return;
+                const k = e.target.closest ? e.target.closest('.plb-kop .plb-tijd') : null;
+                if (!k) return;
+                const bord = k.closest('.plb-bord');
+                const weken = (parseInt(bord && bord.dataset.dagen) || 7) / 7;
+                kop = k; beginX = e.clientX; gedaan = 0;
+                weekBreedte = Math.max(4, k.getBoundingClientRect().width / weken);
+                k.classList.add('sleept');
+                e.preventDefault();
+            });
+            document.addEventListener('pointermove', function (e) {
+                if (!kop || !window.mdePlan.doel) return;
+                const weken = Math.round((beginX - e.clientX) / weekBreedte);
+                if (weken !== gedaan) { const stap = weken - gedaan; gedaan = weken; window.mdePlan.doel.invokeMethodAsync('SchuifWeken', stap); }
+            });
+            function klaar() { if (kop) { kop.classList.remove('sleept'); kop = null; } }
+            document.addEventListener('pointerup', klaar);
+            document.addEventListener('pointercancel', klaar);
+        })();
         (function () {
             let balk = null, id = 0, beginX = 0, beginY = 0;
             let dagBreedte = 1, balkBreedte = 0, bewogen = false, richtRij = null;

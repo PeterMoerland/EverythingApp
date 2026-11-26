@@ -4491,8 +4491,8 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .idee-inhoud { padding: .4rem .9rem .9rem; display: grid; gap: .5rem; }
 .idee-tekst { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
 /* ===== Planning (menu Planning, 25-11-2026): boom links, tijdbalk rechts ===== */
-.plb-pagina { --plb-rand: #dfe3e8; --plb-lijn: #eceff3; --plb-zacht: #68717c; --plb-vlak: #f6f8fa; --plb-top: #e8eef5; --plb-wit: #fff; }
-html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color-mix(in srgb, var(--d3) 60%, transparent); --plb-zacht: var(--dt3); --plb-vlak: var(--d2); --plb-top: var(--d3); --plb-wit: var(--d1); }
+.plb-pagina { --plb-weeklijn: #c3cbd6; --plb-daglijn: #dde2e8; --plb-rand: #dfe3e8; --plb-lijn: #eceff3; --plb-zacht: #68717c; --plb-vlak: #f6f8fa; --plb-top: #e8eef5; --plb-wit: #fff; }
+html[data-thema="donker"] .plb-pagina { --plb-weeklijn: #5a6577; --plb-daglijn: #414b5b; --plb-rand: var(--d3); --plb-lijn: color-mix(in srgb, var(--d3) 60%, transparent); --plb-zacht: var(--dt3); --plb-vlak: var(--d2); --plb-top: var(--d3); --plb-wit: var(--d1); }
 .plb-balk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
 /* zoekvak, filters en knoppen blijven links, met wat lucht na het tijdvak (stonden op een breed scherm helemaal rechts; wens gebruiker 26-11-2026) */
 .plb-balk .groei { flex: 0 0 24px; }
@@ -4535,9 +4535,11 @@ html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color
 html[data-thema="donker"] .plb-wie .plb-geen-wn { color: #f0a04b; }
 /* de tijdbalk: een streepje per week, de plek van een balk is een percentage van het tijdvak */
 .plb-tijd { position: relative; border-left: 1px solid var(--plb-rand); min-width: 0; overflow: hidden;
-    background-image: linear-gradient(to right, var(--plb-lijn) 1px, transparent 1px); background-size: calc(100% / var(--plb-weken)) 100%; }
+    /* de weeklijn: anderhalve punt en wat donkerder, anders valt hij weg als de browser is uitgezoomd (26-11-2026) */
+    background-image: linear-gradient(to right, var(--plb-weeklijn) 1.5px, transparent 1.5px); background-size: calc(100% / var(--plb-weken)) 100%; }
 .plb-kop { background: var(--plb-vlak); font-weight: 600; position: sticky; top: 0; z-index: 3; }
-.plb-kop .plb-tijd { background-image: none; }
+.plb-kop .plb-tijd { background-image: none; cursor: grab; user-select: none; touch-action: pan-y; }
+.plb-kop .plb-tijd.sleept { cursor: grabbing; }
 .plb-maanden, .plb-weken { display: flex; }
 .plb-maanden span { box-sizing: border-box; border-left: 1px solid var(--plb-rand); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: clip; text-transform: capitalize; }
 .plb-maanden span:first-child { border-left: none; }
@@ -4555,7 +4557,7 @@ html[data-thema="donker"] .plb-wie .plb-geen-wn { color: #f0a04b; }
 @container plbbord (min-width: 1500px) { .w13 .plb-dagen { display: flex; } .w13 .plb-rij:not(.plb-kop) > .plb-tijd { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
 @container plbbord (min-width: 2550px) { .w26 .plb-dagen { display: flex; } .w26 .plb-rij:not(.plb-kop) > .plb-tijd { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
 /* het raster: de weeklijn zoals altijd, met daaronder een lichtere lijn per dag */
-.plb-bord { --plb-raster: linear-gradient(to right, var(--plb-rand) 1px, transparent 1px), linear-gradient(to right, var(--plb-lijn) 1px, transparent 1px);
+.plb-bord { --plb-raster: linear-gradient(to right, var(--plb-weeklijn) 1.5px, transparent 1.5px), linear-gradient(to right, var(--plb-daglijn) 1px, transparent 1px);
             --plb-rastermaat: calc(100% / var(--plb-weken)) 100%, calc(100% / (var(--plb-weken) * 7)) 100%; }
 .plb-weken span { flex: 1 1 0; min-width: 0; text-align: center; overflow: hidden; border-left: 1px solid var(--plb-lijn); }
 .plb-weken span:first-child { border-left: none; }

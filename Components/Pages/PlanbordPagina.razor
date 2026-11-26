@@ -45,7 +45,7 @@
             <button type="button" class="klein" title="Vier weken terug" @onclick="() => Schuif(-4)">‹</button>
             <button type="button" class="klein" @onclick="Vandaag">Vandaag</button>
             <button type="button" class="klein" title="Vier weken verder" @onclick="() => Schuif(4)">›</button>
-            <select value="@_weken" @onchange="e => _weken = int.TryParse((string?)e.Value, out var w) ? w : 26" aria-label="Hoeveel weken in beeld">
+            <select value="@_weken" @onchange="KiesWeken" aria-label="Hoeveel weken in beeld">
                 <option value="4">4 weken</option>
                 <option value="8">8 weken</option>
                 <option value="13">13 weken</option>
@@ -68,6 +68,8 @@
                 <option value="">Iedereen</option>
                 @foreach (var (sleutel, naam) in _wieKeuzes) { <option value="@sleutel">@naam</option> }
             </select>
+            @* beide filters in één klik uit (wens gebruiker 26-11-2026) *@
+            <button type="button" class="klein" disabled="@(_groepFilter is null && _wieFilter.Length == 0)" title="De filters op groep en persoon uitzetten" @onclick="FilterUit">✕ Filter</button>
             <label class="vink" title="Ook groepen tonen waar de laatste vier weken en daarna niets meer in staat"><input type="checkbox" checked="@_ookVoorbij" @onchange="e => _ookVoorbij = e.Value is true" /> ook wat voorbij is</label>
             <button type="button" class="klein" @onclick="AllesDicht">Alles dicht</button>
             @if (MagPlannen)
@@ -126,7 +128,7 @@
                 <div class="plb-rij plb-kop">
                     <div class="plb-naam">Activiteit</div>
                     <div class="plb-wie">Wie</div>
-                    <div class="plb-tijd">
+                    <div class="plb-tijd" title="Sleep naar links of rechts om door de tijd te schuiven">
                         <div class="plb-maanden">
                             @foreach (var (naam, breedte) in Maanden()) { <span style="@($"width:{Pct(breedte, dagen)}")" title="@naam">@naam</span> }
                         </div>
@@ -825,7 +827,48 @@
     private int SchuifStand => Math.Clamp((int)(_van - _bereikVan).TotalDays / 7, 0, SchuifMax);
 
     private void Schuif(int weken) => _van = _van.AddDays(weken * 7);
-    private void Vandaag() => _van = Maandag(DateTime.Today.AddDays(-28));
+    /// <summary>Vandaag in beeld, met wat ervoor: vier weken, of minder als er maar 4 of 8 weken in beeld zijn (anders viel vandaag buiten beeld).</summary>
+    private void Vandaag() => _van = Maandag(DateTime.Today.AddDays(-7 * (_weken <= 4 ? 1 : _weken <= 8 ? 2 : 4)));
+
+    /// <summary>Uit de browser (mdePlan in App.razor): in de kop is zoveel weken naar links (+) of rechts (−) gesleept.</summary>
+    [JSInvokable]
+    public Task SchuifWeken(int weken) => InvokeAsync(() => { Schuif(Math.Clamp(weken, -520, 520)); StateHasChanged(); });
+
+    // ---- de filters onthouden per gebruiker (wens gebruiker 26-11-2026): in de browser, per account ----
+    // Bewaard: het groepfilter, het filter per persoon, het aantal weken in beeld en "ook wat voorbij is". Niet de
+    // zoektekst en niet welke groepen open staan. Via een link naar een rij (?rij=) wordt er niets teruggezet of bewaard.
+
+    private bool _voorkeurGelezen;
+    private string _voorkeurBewaard = "";
+    private string VoorkeurSleutel => "mde-plan-filters-" + (Ik.WerknemerId ?? 0);
+    private string Voorkeur => $"{_groepFilter}|{_weken}|{(_ookVoorbij ? 1 : 0)}|{_wieFilter}";
+
+    private async Task<bool> LeesVoorkeur()
+    {
+        _voorkeurBewaard = Voorkeur;
+        if (RijQuery is not null) return false;
+        string? tekst;
+        try { tekst = await JS.InvokeAsync<string?>("mdeOpslag.lees", VoorkeurSleutel); } catch { return false; }
+        var delen = (tekst ?? "").Split('|', 4);
+        if (delen.Length != 4) return false;
+        // alleen wat nog bestaat: een groep die weg is of een naam die nergens meer staat wordt overgeslagen
+        if (int.TryParse(delen[0], out var g) && _top.Any(t => t.Id == g)) { _groepFilter = g; _open.Add(g); }
+        if (int.TryParse(delen[1], out var w) && w is 4 or 8 or 13 or 26 or 52 or 104 && w != _weken) { _weken = w; Vandaag(); }
+        _ookVoorbij = delen[2] == "1";
+        if (delen[3].Length > 0 && _wieKeuzes.Any(k => k.Code == delen[3])) _wieFilter = delen[3];
+        _voorkeurBewaard = Voorkeur;
+        return true;
+    }
+
+    private bool VandaagInBeeld => DateTime.Today >= _van && DateTime.Today < Tot;
+
+    /// <summary>Meer of minder weken in beeld; stond vandaag in beeld, dan blijft dat zo.</summary>
+    private void KiesWeken(ChangeEventArgs e)
+    {
+        var stond = VandaagInBeeld;
+        _weken = int.TryParse((string?)e.Value, out var w) ? w : 26;
+        if (stond && !VandaagInBeeld) Vandaag();
+    }
 
     // ------------------------------------------------------------------ plek op de tijdbalk
 
@@ -978,6 +1021,17 @@
             // het slepen van balken doet de browser (mdePlan in App.razor); hij meldt hier alleen de uitkomst
             try { _ref = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("mdePlan.koppel", _ref); } catch { }
             try { await JS.InvokeVoidAsync("mdeUndo.aan", _ref); } catch { }      // Ctrl+Z = OngedaanMaken
+        }
+        // de filters van de vorige keer terugzetten (een keer, zodra de planning geladen is) en daarna elke wijziging bewaren
+        if (_geladen && !_voorkeurGelezen)
+        {
+            _voorkeurGelezen = true;
+            if (await LeesVoorkeur()) StateHasChanged();
+        }
+        else if (_voorkeurGelezen && RijQuery is null && Voorkeur != _voorkeurBewaard)
+        {
+            _voorkeurBewaard = Voorkeur;
+            try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", VoorkeurSleutel, _voorkeurBewaard); } catch { }
         }
         if (_geladen && RijQuery is int doel && _doelGedaan != doel)
         {
