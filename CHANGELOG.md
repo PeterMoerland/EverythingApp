@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 26-11-2026
 
+- **Menu** — Verbeterd: het menu **Productie** is weg. **EtherCAT IO** staat tijdelijk onder Beheer, in de groep Test (verzoek van Peter)
 - **Planning** — Verbeterd: op een breed scherm gebruikt de planning nu de hele breedte (verzoek van Peter)
 
 ## 25-11-2026

@@ -154,13 +154,9 @@ public static class Menu
         // programmeren en testen; producten opbouwen en duurtesten — gekoppeld aan
         // de exemplaren in Producten. (Motoren gaan via Half-fabricaten; het scherm
         // /productie/motor bestaat nog als rechtstreekse ingang.)
-        new("productie", "Productie", "zap",
-            new MenuGroep("Opbouw en test",
-                new MenuItem("Half-fabricaten", "/productie/test-pcb", Icoon: "circuit-board"),
-                new MenuItem("Producten", "/productie/product", Icoon: "bot"),
-                new MenuItem("EtherCAT IO", "/productie/ethercat-io", Icoon: "cable")),
-            new MenuGroep("Onderhoud",
-                new MenuItem("Controllertypen en firmware", "/productie/drivetypen", Icoon: "cpu"))),
+        // HET MENU PRODUCTIE IS WEG (wens gebruiker 26-11-2026). De schermen zelf bestaan nog en zijn op hun adres te
+        // bereiken: /productie/test-pcb (Half-fabricaten), /productie/product (Producten), /productie/drivetypen
+        // (Controllertypen en firmware). EtherCAT IO staat tijdelijk onder Beheer ▸ Test.
 
         // Tools is zelf geen pagina maar een klapper; de drie pakketten eronder
         // hebben elk hun eigen landingspagina met tegels.
@@ -309,7 +305,10 @@ public static class Menu
                 // de vaste IP-adressen per groep (uit Access); alleen met het recht Netwerk of Directie
                 new MenuItem("Netwerk (IP-adressen)", "/beheer/netwerk", "Netwerk", Icoon: "network"),
                 new MenuItem("Werkplekken", "/beheer/werkplekken", Icoon: "laptop"),
-                new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone"))),
+                new MenuItem("Nieuwe versie aankondigen", "/beheer/onderhoud", Icoon: "megaphone")),
+            // tijdelijk hier, nu het menu Productie weg is (wens gebruiker 26-11-2026)
+            new MenuGroep("Test",
+                new MenuItem("EtherCAT IO", "/productie/ethercat-io", Icoon: "cable"))),
 
         // Wiki: ruimtes met artikelen (opzet Freek, fase 1 op 25-11-2026); voor iedereen te lezen.
         // Helemaal onderaan in de lijst (wens gebruiker 25-11-2026).
