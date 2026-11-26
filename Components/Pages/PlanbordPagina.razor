@@ -46,6 +46,8 @@
             <button type="button" class="klein" @onclick="Vandaag">Vandaag</button>
             <button type="button" class="klein" title="Vier weken verder" @onclick="() => Schuif(4)">›</button>
             <select value="@_weken" @onchange="e => _weken = int.TryParse((string?)e.Value, out var w) ? w : 26" aria-label="Hoeveel weken in beeld">
+                <option value="4">4 weken</option>
+                <option value="8">8 weken</option>
                 <option value="13">13 weken</option>
                 <option value="26">half jaar</option>
                 <option value="52">jaar</option>
@@ -118,7 +120,7 @@
         {
             var zichtbaar = Zichtbaar().ToList();
             var dagen = _weken * 7;
-            <div class="plb-bord" style="@($"--plb-weken:{_weken}")" data-dagen="@dagen"
+            <div class="plb-bord w@(_weken)" style="@($"--plb-weken:{_weken}")" data-dagen="@dagen"
                  ondragstart="event.dataTransfer.setData('text/plain', 'rij'); event.dataTransfer.effectAllowed = 'move';">
                 @* ----- de kop: maanden en weeknummers ----- *@
                 <div class="plb-rij plb-kop">
@@ -133,6 +135,20 @@
                             <div class="plb-weken">
                                 @for (var w = 0; w < _weken; w++) { <span>@ISOWeek.GetWeekOfYear(_van.AddDays(w * 7))</span> }
                             </div>
+                            @* de dagen (wens gebruiker 26-11-2026): alleen als er per dag genoeg ruimte is; dat regelt de
+                               opmaak op de breedte van het bord (.plb-bord.w13 enz.), dus op een breed scherm eerder.
+                               Op hetzelfde moment krijgen de rijen een raster per dag. *@
+                            @if (_weken <= 26)
+                            {
+                                <div class="plb-dagen">
+                                    @for (var d = 0; d < dagen; d++)
+                                    {
+                                        var dag = _van.AddDays(d);
+                                        <span class="@(dag.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? "we" : "") @(dag.Date == DateTime.Today ? "nu" : "")"
+                                              title="@dag.ToString("dddd d MMMM yyyy", Nl)">@dag.Day</span>
+                                    }
+                                </div>
+                            }
                         }
                     </div>
                 </div>
@@ -240,7 +256,7 @@
 @if (_menu is { } mn && MagPlannen)
 {
     <div class="wk-menuscherm" @onclick="() => _menu = null" @oncontextmenu="() => _menu = null" @oncontextmenu:preventDefault="true"></div>
-    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 470px))")">
+    <div class="wk-menu" role="menu" style="@($"left:min({mn.X}px, calc(100vw - 350px));top:min({mn.Y}px, calc(100vh - 600px))")">
         <div class="wk-menukop">@mn.Rij.Naam</div>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, false, null); }">+ Balk…</button>
         <button type="button" role="menuitem" @onclick="() => { _menu = null; NieuwItem(mn.Rij, true, null); }">+ Symbool (mijlpaal, levering…)</button>
@@ -265,6 +281,17 @@
             <div class="wk-menustreep" role="separator"></div>
             <button type="button" role="menuitem" @onclick="() => Vouw(mn.Rij, true)">Alles uitvouwen</button>
             <button type="button" role="menuitem" @onclick="() => Vouw(mn.Rij, false)">Alles inklappen</button>
+        }
+        @* filteren vanuit het menu (wens gebruiker 26-11-2026): op de groep van deze rij (alles uitgevouwen) of op wie erbij staat *@
+        <div class="wk-menustreep" role="separator"></div>
+        <button type="button" role="menuitem" @onclick="() => FilterGroep(mn.Rij)">Filter op groep: @Top(mn.Rij).Naam</button>
+        @foreach (var wie in WieDelen(mn.Rij).Select(d => d.Tekst).Distinct(StringComparer.OrdinalIgnoreCase).Where(n => WieCode(n) is not null).Take(4))
+        {
+            <button type="button" role="menuitem" @onclick="() => FilterWie(wie)">Filter op wie: @wie</button>
+        }
+        @if (_groepFilter is not null || _wieFilter.Length > 0)
+        {
+            <button type="button" role="menuitem" @onclick="FilterUit">Filter wissen</button>
         }
         <div class="wk-menustreep" role="separator"></div>
         <button type="button" role="menuitem" class="gevaar" @onclick="() => WisRij(mn.Rij)">Verwijderen…</button>
@@ -481,6 +508,34 @@
 
     // ---- groepfilter (25-11-2026): alleen deze groep van het bovenste niveau ----
     private int? _groepFilter;
+
+    /// <summary>De groep van het bovenste niveau waar een rij onder hangt (de rij zelf als hij bovenaan staat).</summary>
+    private PlanRij Top(PlanRij r)
+    {
+        var stappen = 0;
+        while (r.OuderId is int o && _opId.TryGetValue(o, out var ouder) && stappen++ < 50) r = ouder;
+        return r;
+    }
+
+    /// <summary>Uit het rechtermuismenu: alleen de groep van deze rij, met alles eronder uitgevouwen.</summary>
+    private void FilterGroep(PlanRij r)
+    {
+        var top = Top(r);
+        _groepFilter = top.Id;
+        Vouw(top, true);        // sluit ook het menu
+    }
+
+    /// <summary>De keuze in het filter per persoon die bij een naam uit de kolom Wie hoort; leeg = staat er niet in.</summary>
+    private string? WieCode(string naam)
+        => _wieKeuzes.Where(k => string.Equals(k.Naam, naam, StringComparison.OrdinalIgnoreCase)).Select(k => k.Code).FirstOrDefault();
+
+    private void FilterWie(string naam)
+    {
+        _menu = null;
+        if (WieCode(naam) is { } code) _wieFilter = code;
+    }
+
+    private void FilterUit() { _menu = null; _groepFilter = null; _wieFilter = ""; }
 
     private void KiesGroep(ChangeEventArgs e)
     {

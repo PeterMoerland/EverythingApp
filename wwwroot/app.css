@@ -4494,7 +4494,8 @@ html[data-thema="donker"] .nw-dag li { border-color: var(--d3); }
 .plb-pagina { --plb-rand: #dfe3e8; --plb-lijn: #eceff3; --plb-zacht: #68717c; --plb-vlak: #f6f8fa; --plb-top: #e8eef5; --plb-wit: #fff; }
 html[data-thema="donker"] .plb-pagina { --plb-rand: var(--d3); --plb-lijn: color-mix(in srgb, var(--d3) 60%, transparent); --plb-zacht: var(--dt3); --plb-vlak: var(--d2); --plb-top: var(--d3); --plb-wit: var(--d1); }
 .plb-balk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
-.plb-balk .groei { flex: 1; }
+/* zoekvak, filters en knoppen blijven links, met wat lucht na het tijdvak (stonden op een breed scherm helemaal rechts; wens gebruiker 26-11-2026) */
+.plb-balk .groei { flex: 0 0 24px; }
 .plb-tijdvak { font-size: 13px; color: var(--plb-zacht); margin-left: 4px; }
 .plb-zoek { width: 17rem; max-width: 100%; }
 .plb-wiefilter { width: auto; max-width: 11rem; }
@@ -4541,6 +4542,21 @@ html[data-thema="donker"] .plb-wie .plb-geen-wn { color: #f0a04b; }
 .plb-maanden span { box-sizing: border-box; border-left: 1px solid var(--plb-rand); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: clip; text-transform: capitalize; }
 .plb-maanden span:first-child { border-left: none; }
 .plb-weken { border-top: 1px solid var(--plb-lijn); font-weight: 400; color: var(--plb-zacht); font-size: 10.5px; }
+/* de dagen onder de weeknummers en een raster per dag in de rijen: alleen als er per dag zo'n 13 px is, gemeten aan
+   de breedte van het bord (de tijdbalk is dat min de 450 px van Activiteit en Wie) */
+.plb-pagina > .plb-bord { container: plbbord / inline-size; }
+.plb-dagen { display: none; border-top: 1px solid var(--plb-lijn); font-weight: 400; color: var(--plb-zacht); font-size: 10px; line-height: 15px; }
+.plb-dagen span { flex: 1 1 0; min-width: 0; text-align: center; overflow: hidden; }
+.plb-dagen span:nth-child(7n+1) { border-left: 1px solid var(--plb-lijn); }
+.plb-dagen .we { opacity: .45; }
+.plb-dagen .nu { color: #d90c0d; font-weight: 700; opacity: 1; }
+@container plbbord (min-width: 810px)  { .w4 .plb-dagen  { display: flex; } .w4 .plb-rij:not(.plb-kop) > .plb-tijd  { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
+@container plbbord (min-width: 1170px) { .w8 .plb-dagen  { display: flex; } .w8 .plb-rij:not(.plb-kop) > .plb-tijd  { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
+@container plbbord (min-width: 1500px) { .w13 .plb-dagen { display: flex; } .w13 .plb-rij:not(.plb-kop) > .plb-tijd { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
+@container plbbord (min-width: 2550px) { .w26 .plb-dagen { display: flex; } .w26 .plb-rij:not(.plb-kop) > .plb-tijd { background-image: var(--plb-raster); background-size: var(--plb-rastermaat); } }
+/* het raster: de weeklijn zoals altijd, met daaronder een lichtere lijn per dag */
+.plb-bord { --plb-raster: linear-gradient(to right, var(--plb-rand) 1px, transparent 1px), linear-gradient(to right, var(--plb-lijn) 1px, transparent 1px);
+            --plb-rastermaat: calc(100% / var(--plb-weken)) 100%, calc(100% / (var(--plb-weken) * 7)) 100%; }
 .plb-weken span { flex: 1 1 0; min-width: 0; text-align: center; overflow: hidden; border-left: 1px solid var(--plb-lijn); }
 .plb-weken span:first-child { border-left: none; }
 .plb-balkje { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; color: #fff; font-size: 10.5px; line-height: 16px; padding: 0 4px; box-sizing: border-box;

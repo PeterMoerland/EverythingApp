@@ -541,6 +541,13 @@ i.v.m. 1Password".
   **Wie oranje (25-11-2026)**: de kolom Wie wordt per naam getekend (`WieDelen`); een naam uit de tekst die bij geen
   werknemer in dienst past (korte naam, hele naam, voor- of achternaam; `_geenWerknemer`, bepaald in `Laad`) krijgt
   `.plb-geen-wn`. Een naam die bij meer collega's past ("Verschuure") is dus niet oranje.
+  **Dagen in de kop (26-11-2026)**: `.plb-dagen` onder de weeknummers (tot 26 weken); zichtbaar via een container
+  query op de breedte van het bord (`.plb-bord.w4` vanaf 810 px, `.w8` 1170, `.w13` 1500, `.w26` 2550: ± 11-13 px per dag);
+  op hetzelfde moment krijgen de rijen een raster per dag (`--plb-raster`, weeklijn iets donkerder).
+  Keuzes 4 en 8 weken erbij. `.plb-pagina` heeft geen maximale breedte meer (breed scherm).
+  **Filter in het menu (26-11-2026)**: rechtermuismenu ▸ "Filter op groep: …" (`FilterGroep`: `_groepFilter` = de
+  bovenste groep van de rij (`Top`), alles eronder open), "Filter op wie: …" per naam op de rij (`FilterWie` via
+  `WieCode`), en "Filter wissen" (`FilterUit`) als er een filter aan staat.
   **Bediening (25-11-2026)**: dubbelklik op `.plb-naam` = `BeginRij` (wijzigen); open/dicht alleen met `.plb-pijl`
   (de naam klapt niet meer); rechtermuismenu van een rij met rijen eronder: Alles uitvouwen / Alles inklappen (`Vouw`).
   **Groepfilter (25-11-2026)**: keuzelijst met de groepen van het bovenste niveau (`_groepFilter`, `KiesGroep`);
