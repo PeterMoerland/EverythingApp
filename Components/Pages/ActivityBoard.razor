@@ -58,7 +58,7 @@ else if (BoardId is null)
             </select>
             <span class="ab-count">@_mijn.Count</span>
             @if (_mijn.Count(m => m.Vervaldatum < DateTime.Today) is > 0 and var teLaat) { <span class="ab-mijn-telaat">@teLaat te laat</span> }
-            <button type="button" class="ab-btn klein" @onclick="() => _mijnDicht = !_mijnDicht">@(_mijnDicht ? "Tonen" : "Verbergen")</button>
+            <button type="button" class="ab-btn klein" @onclick="WisselMijn">@(_mijnDicht ? "Tonen" : "Verbergen")</button>
         </div>
         @if (!_mijnDicht)
         {
@@ -1131,6 +1131,7 @@ else
             try
             {
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-weergave") == "lijst") { _boom = false; StateHasChanged(); }
+                if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-mijn") == "open") { _mijnDicht = false; StateHasChanged(); }
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-markeer") == "ja") { _markeer = true; StateHasChanged(); }
                 if (await JS.InvokeAsync<string?>("mdeOpslag.lees", "ab-opprio") == "ja") { _opPrio = true; StateHasChanged(); }
             }
@@ -1403,7 +1404,14 @@ else
     // ---- startscherm: de open activiteiten van één persoon over alle boards (verzoek Gerard 26-11-2026) ----
     private List<ActMijn> _mijn = new();
     private int? _mijnVoor;          // van wie; standaard de ingelogde gebruiker
-    private bool _mijnDicht, _mijnGestart;
+    // standaard ingeklapt: het blok was te overheersend (Arnold 27-11-2026); wie het open zet houdt het open (mdeOpslag "ab-mijn", per pc)
+    private bool _mijnDicht = true, _mijnGestart;
+
+    private async Task WisselMijn()
+    {
+        _mijnDicht = !_mijnDicht;
+        try { await JS.InvokeVoidAsync("mdeOpslag.schrijf", "ab-mijn", _mijnDicht ? "dicht" : "open"); } catch { }
+    }
 
     private async Task LaadMijn(bool eerste = false)
     {
