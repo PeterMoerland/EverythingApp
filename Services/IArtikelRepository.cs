@@ -262,12 +262,16 @@ public class MySqlArtikelRepository : IArtikelRepository
         if (kort.StartsWith("#") && int.TryParse(kort[1..].Trim(), out var direct))
             return await OpNummerAsync(direct);
 
-        var woorden = kort
+        var alle = kort
             .Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(w => w.Trim())
             .Where(w => w.Length > 0)
-            .Take(6)
             .ToList();
+        // Alleen woorden van twee tekens of meer tellen mee (wens gebruiker 26-11-2026): in "DIN 912 - M8x45" is het
+        // losse streepje geen zoekwoord, en daardoor werd er niets gevonden. Bestaat de zoektekst alleen uit losse
+        // tekens, dan tellen ze wel.
+        var lang = alle.Where(w => w.Length >= 2).ToList();
+        var woorden = (lang.Count > 0 ? lang : alle).Take(6).ToList();
 
         var merk = await MerkTabelAsync();
         var delen = new List<string>

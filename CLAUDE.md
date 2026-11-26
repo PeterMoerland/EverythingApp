@@ -579,6 +579,12 @@ i.v.m. 1Password".
   `Volgnummer`/`ParentVolgnummer`/`Level`, een MDE-artikel
   alleen met `ArtikelID` (tekst leeg, dan de naam uit `Artikelen`). Rood = geen ArtikelID. De door de gebruiker
   genoemde `InventorProjectBOM`/`InventorProjectBOM_Items` zijn niet gebruikt: Items is leeg (koppen uit feb–mrt 2025).
+  **Alias koppelen (26-11-2026)**: een regel zonder ArtikelID met een Partnumber krijgt "🔍 Zoek artikel"
+  (`ArtikelZoekVenster`); na de keuze zet `InventorBoom.AliasToevoegenAsync` de naam in **`MDEalias`** (`MDE_ID` =
+  ArtikelID, `Alias`, `ToegevoegdDoor/Op`, `BronToevoeging` 'INV', zoals de oude Access-koppeling). De export zelf
+  wordt niet gewijzigd: `RegelsAsync` zoekt bij het lezen de alias erbij (`ViaAlias`, lapje "alias"). Een alias die al
+  bij een ander artikel staat wordt geweigerd. Recht: Artikelbeheer of Directie. **Niet getest:** het schrijven
+  (lokaal geen login, en het zou in de echte aliaslijst schrijven).
   **Later:** hieruit artikelsamenstellingen maken, aangevuld met wat niet in Inventor getekend is (kabels).
 - **Tools ▸ Licenties** (wens gebruiker 25-11-2026; script **`Licenties_MariaDB.sql`**, zelf draaien):
   `/tools/licenties`, `Components/Pages/LicentiesPagina.razor`, `Services/Licenties.cs` (`MPedeLicenties`, singleton;

@@ -1,4 +1,6 @@
 ﻿@inject InventorBoom Boom
+@inject HuidigeGebruiker Ik
+@inject IJSRuntime JS
 
 @* ============================================================================
    Artikelen ▸ Inventor-boom (wens gebruiker 25-11-2026): de samenstelling die uit Inventor is geëxporteerd
@@ -27,6 +29,10 @@
                 else if (_exports.Count == 0) { <p class="uitleg">Er staat nog geen export uit Inventor. Exporteer een samenstelling met de knop Stuklijst in Inventor.</p> }
                 else
                 {
+                    @if (_melding is not null)
+                    {
+                        <div class="melding @(_meldingFout ? "fout" : "ok")" style="position:static;max-width:none;margin:0 0 8px" @onclick="() => _melding = null">@_melding</div>
+                    }
                     <div class="ib-balk">
                         <select value="@_gekozen" @onchange="Kies" aria-label="Welke export">
                             @foreach (var e in _exports)
@@ -74,7 +80,20 @@
                                             @if (Extra(r) is { Length: > 0 } extra) { <small> @extra</small> }
                                         </td>
                                         <td class="ib-getal">@r.Aantal</td>
-                                        <td>@(r.ArtikelId is int a ? (r.ArtikelCode.Length > 0 ? r.ArtikelCode : "#" + a) : "geen artikel")</td>
+                                        <td>
+                                            @if (r.ArtikelId is int a)
+                                            {
+                                                @(r.ArtikelCode.Length > 0 ? r.ArtikelCode : "#" + a)
+                                                @if (r.ViaAlias) { <small class="ib-alias" title="Gekoppeld via de aliaslijst: de naam van dit part is een alias van dit artikel">alias</small> }
+                                            }
+                                            else if (MagKoppelen && r.Partnummer.Length > 0)
+                                            {
+                                                @* het artikel opzoeken; de naam van het part komt dan als alias bij dat artikel *@
+                                                <button type="button" class="klein ib-zoek" disabled="@_bezig" title="Het artikel opzoeken en deze naam als alias aan dat artikel toevoegen"
+                                                        @onclick="() => _zoekVoor = r">🔍 Zoek artikel</button>
+                                            }
+                                            else { <text>geen artikel</text> }
+                                        </td>
                                         <td>@r.Partnummer</td>
                                         <td>@r.Omschrijving</td>
                                         <td>@r.Materiaal</td>
@@ -99,7 +118,46 @@
     </div>
 }
 
+@* het bestaande artikelzoekvenster (ook bij bestelregels); begint met de naam van het part *@
+<ArtikelZoekVenster Open="_zoekVoor is not null" Zoek="@(_zoekVoor?.Partnummer ?? string.Empty)" Maakdelen="false"
+                    OpGekozen="KoppelAlias" OpGesloten="() => _zoekVoor = null" />
+
 @code {
+    // ---- een regel zonder artikel koppelen via de aliaslijst (wens gebruiker 26-11-2026) ----
+    private InventorRegel? _zoekVoor;
+    private string? _melding;
+    private bool _meldingFout, _bezig;
+
+    /// <summary>Aliassen toevoegen mag wie artikelen mag bewerken (Artikelbeheer of Directie), zoals in Artikelen.</summary>
+    private bool MagKoppelen => Ik.Mag("Artikelbeheer") || Ik.Mag("Directie");
+
+    /// <summary>Een artikel gekozen in het zoekvenster: na een vraag de naam van het part als alias bij dat artikel zetten.</summary>
+    private async Task KoppelAlias(int artikelId)
+    {
+        var regel = _zoekVoor;
+        _zoekVoor = null;
+        if (regel is null || !MagKoppelen || _bezig) return;
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("mdeBevestig",
+                    $"\"{regel.Partnummer}\" als alias toevoegen aan artikel {artikelId}? Alle regels met deze naam tellen daarna als dat artikel, ook in volgende exports.",
+                    new { kop = "Alias toevoegen", ja = "Toevoegen" })) return;
+        }
+        catch { return; }
+        _bezig = true;
+        try
+        {
+            _melding = await Boom.AliasToevoegenAsync(artikelId, regel.Partnummer, Ik.WerknemerId);
+            _meldingFout = false;
+            var open = _open.ToList();
+            await Laad();
+            _open.Clear();
+            foreach (var o in open) _open.Add(o);      // de boom blijft staan zoals hij stond
+        }
+        catch (Exception ex) { _melding = ex.GetBaseException().Message; _meldingFout = true; }
+        _bezig = false;
+    }
+
     [Parameter] public bool Open { get; set; }
     [Parameter] public EventCallback OpGesloten { get; set; }
     /// <summary>Op een eigen pagina tonen in plaats van als venster.</summary>

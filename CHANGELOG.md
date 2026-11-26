@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 26-11-2026
 
+- **Artikelen zoeken** — Verbeterd: losse tekens in de zoektekst (zoals het streepje in "DIN 912 - M8x45") tellen niet meer als zoekwoord; alleen woorden van twee tekens of meer. Geldt overal waar je artikelen zoekt (verzoek van Peter)
+- **Artikelen ▸ Inventor-boom** — Nieuw: bij een rode regel (geen artikel) staat **🔍 Zoek artikel**. Kies het artikel en de naam van het part komt als **alias** bij dat artikel; de regel is daarna gekoppeld (met het lapje "alias"), net als alle andere regels met die naam, ook in volgende exports. Voor wie artikelen mag bewerken (verzoek van Peter)
 - **Artikelen ▸ Inventor-boom** — Verbeterd: de keuzelijst toont nu de **exports uit de nieuwe hoofdtabel** (nummer, samenstelling, wie, wanneer, aantal regels); elke export blijft bewaard. Onder de keuze staan het commentaar, de bestandsnaam, de computer en de versie van de add-in (verzoek van Peter)
 - **Activity board** — Nieuw: op het startscherm staat bovenaan **Open activiteiten van** jou: alles wat op jouw naam staat en nog niet klaar is, over alle boards heen, met board, status, prioriteit en vervaldatum (te laat in rood). Een klik opent het board met die activiteit. Je kunt ook een collega kiezen (verzoek van Gerard)
 - **Orderbatch** — Nieuw: de **werkorder van een regel** is te wijzigen: klik op de werkorder in de lijst en kies een andere (alleen werkorders waarop ingekocht mag worden) (verzoek van Stein)
