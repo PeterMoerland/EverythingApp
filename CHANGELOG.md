@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 26-11-2026
+
+- **Planning** — Verbeterd: op een breed scherm gebruikt de planning nu de hele breedte (verzoek van Peter)
+
 ## 25-11-2026
 
 - **Welkomstscherm** — Verbeterd: heeft de gastheer geen foto, dan staat er geen rondje met initialen meer; alleen de naam (verzoek van Peter)
