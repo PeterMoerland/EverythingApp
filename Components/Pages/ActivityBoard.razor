@@ -45,6 +45,45 @@ else if (BoardId is null)
     <div class="topbar"><h1>Activity board</h1></div>
     <p class="uitleg">Een board per project, per werkorder of per klant, of een vrij board met alleen een naam: onderwerpen op volgorde van
         prioriteit en activiteiten op een kanbanbord.</p>
+    @* ---------- in één klap: wat staat er voor mij open, over alle boards (verzoek Gerard 26-11-2026) ---------- *@
+    <section class="ab-paneel">
+        <div class="ab-pkop-vast">
+            <span class="ab-titel">Open activiteiten van</span>
+            <select class="ab-mijnkeuze" value="@(_mijnVoor?.ToString() ?? string.Empty)" @onchange="KiesMijn" aria-label="Van wie">
+                @if (_mijnVoor is null) { <option value="">— kies —</option> }
+                @foreach (var p in _personen.Where(p => p.InDienst && p.Persoon || p.Id == _mijnVoor))
+                {
+                    <option value="@p.Id">@p.Naam@(p.Id == Ik.WerknemerId ? " (ik)" : "")</option>
+                }
+            </select>
+            <span class="ab-count">@_mijn.Count</span>
+            @if (_mijn.Count(m => m.Vervaldatum < DateTime.Today) is > 0 and var teLaat) { <span class="ab-mijn-telaat">@teLaat te laat</span> }
+            <button type="button" class="ab-btn klein" @onclick="() => _mijnDicht = !_mijnDicht">@(_mijnDicht ? "Tonen" : "Verbergen")</button>
+        </div>
+        @if (!_mijnDicht)
+        {
+            @if (_mijnVoor is null) { <p class="ab-leeg">Kies een naam om te zien wat er open staat.</p> }
+            else if (_mijn.Count == 0) { <p class="ab-leeg">Er staat niets open.</p> }
+            else
+            {
+                <table class="ab-tabel ab-boards ab-mijn">
+                    <thead><tr><th>Board</th><th>Activiteit</th><th>Status</th><th>Prioriteit</th><th>Vervalt</th></tr></thead>
+                    <tbody>
+                    @foreach (var m in _mijn)
+                    {
+                        <tr class="ab-rij" tabindex="0" @key="m.Id" @onclick="() => NaarKaart(m)" @onkeydown='e => { if (e.Key == "Enter") NaarKaart(m); }'>
+                            <td class="ab-mijn-board">@m.Board</td>
+                            <td class="ab-t">@m.Titel <small class="ab-muted">#@m.Id</small></td>
+                            <td>@ActStatus.Naam(m.Status)</td>
+                            <td>@(m.Prioriteit switch { 1 => "Hoog", 2 => "Gemiddeld", 3 => "Laag", _ => "" })</td>
+                            <td class="ab-num @(m.Vervaldatum < DateTime.Today ? "ab-mijn-telaat" : "")">@(m.Vervaldatum?.ToString("dd-MM-yyyy") ?? "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        }
+    </section>
     <section class="ab-paneel">
         <div class="ab-pkop-vast">
             <span class="ab-titel">Boards</span><span class="ab-count">@BoardsGefilterd.Count()</span>
@@ -1019,6 +1058,7 @@ else
             _data = null; _geladenBoard = null; _open = null;
             try { _boards = await Repo.GetBoardsAsync(); }
             catch (Exception ex) { _boards = new(); Toon("Boards laden mislukt: " + ex.Message, fout: true); }
+            await LaadMijn(eerste: true);
             if (_zoek.Trim().Length < 2) await LaadKeuzelijst();
             return;
         }
@@ -1359,6 +1399,35 @@ else
     // ================================================================ startscherm
 
     private void NaarBoard(int id) => Nav.NavigateTo($"activityboard/{id}");
+
+    // ---- startscherm: de open activiteiten van één persoon over alle boards (verzoek Gerard 26-11-2026) ----
+    private List<ActMijn> _mijn = new();
+    private int? _mijnVoor;          // van wie; standaard de ingelogde gebruiker
+    private bool _mijnDicht, _mijnGestart;
+
+    private async Task LaadMijn(bool eerste = false)
+    {
+        try
+        {
+            if (_personen.Count == 0)
+            {
+                _personen = await Repo.GetPersonenAsync();
+                _persoonOpId = _personen.ToDictionary(p => p.Id);
+            }
+            if (eerste && !_mijnGestart) { _mijnGestart = true; _mijnVoor = Ik.WerknemerId; }
+            _mijn = _mijnVoor is int w ? await Repo.MijnOpenAsync(w) : new();
+        }
+        catch (Exception ex) { _mijn = new(); Toon("De open activiteiten laden mislukt: " + ex.Message, fout: true); }
+    }
+
+    private async Task KiesMijn(ChangeEventArgs e)
+    {
+        _mijnVoor = int.TryParse((string?)e.Value, out var w) ? w : null;
+        await LaadMijn();
+    }
+
+    /// <summary>Het board openen met deze activiteit erbij.</summary>
+    private void NaarKaart(ActMijn m) => Nav.NavigateTo($"activityboard/{m.BoardId}?kaart={m.Id}");
 
     private IEnumerable<ActBoardRegel> BoardsGefilterd
         => (_boards ?? new()).Where(b => _boardSoort.Length == 0 || b.Soort == _boardSoort);

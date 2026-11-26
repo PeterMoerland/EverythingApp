@@ -23,6 +23,8 @@ public interface IOrderBatchRepository
 
     Task ZetAantalAsync(int orderBatchId, int aantal);
     Task ZetOpmerkingAsync(int orderBatchId, string opmerking);
+    /// <summary>Een regel op een andere werkorder zetten (verzoek Stein 26-11-2026).</summary>
+    Task ZetWerkorderAsync(int orderBatchId, int orderId);
     Task VerwijderAsync(int orderBatchId);
     Task VerwijderAsync(IEnumerable<int> orderBatchIds);
 }
@@ -38,6 +40,7 @@ public class GeenOrderBatchRepository : IOrderBatchRepository
                                   bool viaScanner, string opmerking) => Task.FromResult(0);
     public Task ZetAantalAsync(int orderBatchId, int aantal) => Task.CompletedTask;
     public Task ZetOpmerkingAsync(int orderBatchId, string opmerking) => Task.CompletedTask;
+    public Task ZetWerkorderAsync(int orderBatchId, int orderId) => Task.CompletedTask;
     public Task VerwijderAsync(int orderBatchId) => Task.CompletedTask;
     public Task VerwijderAsync(IEnumerable<int> orderBatchIds) => Task.CompletedTask;
 }
@@ -307,6 +310,16 @@ public class MySqlOrderBatchRepository : IOrderBatchRepository
         await using var cmd = new MySqlCommand(
             "UPDATE `OrderBatch` SET `Opmerking` = @o WHERE `OrderBatch_ID` = @id", cn);
         cmd.Parameters.AddWithValue("@o", opmerking.Length > 200 ? opmerking[..200] : opmerking);
+        cmd.Parameters.AddWithValue("@id", orderBatchId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task ZetWerkorderAsync(int orderBatchId, int orderId)
+    {
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "UPDATE `OrderBatch` SET `Order_Id` = @o WHERE `OrderBatch_ID` = @id", cn);
+        cmd.Parameters.AddWithValue("@o", orderId);
         cmd.Parameters.AddWithValue("@id", orderBatchId);
         await cmd.ExecuteNonQueryAsync();
     }

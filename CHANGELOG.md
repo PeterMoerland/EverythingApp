@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 26-11-2026
 
+- **Activity board** — Nieuw: op het startscherm staat bovenaan **Open activiteiten van** jou: alles wat op jouw naam staat en nog niet klaar is, over alle boards heen, met board, status, prioriteit en vervaldatum (te laat in rood). Een klik opent het board met die activiteit. Je kunt ook een collega kiezen (verzoek van Gerard)
+- **Orderbatch** — Nieuw: de **werkorder van een regel** is te wijzigen: klik op de werkorder in de lijst en kies een andere (alleen werkorders waarop ingekocht mag worden) (verzoek van Stein)
 - **Planning** — Nieuw: de planning **onthoudt je filters**: het groepfilter, het filter per persoon, het aantal weken in beeld en "ook wat voorbij is". Per account, op de pc en in de browser waar je ze instelde (verzoek van Peter)
 - **Planning** — Nieuw: in de kop met maanden, weken en dagen kun je met de muis naar links of rechts **slepen** om door de tijd te schuiven; de planning loopt per week mee (verzoek van Peter)
 - **Planning** — Opgelost: bij 4 of 8 weken in beeld viel vandaag (de rode lijn) buiten beeld; nu staat vandaag er altijd in na Vandaag of na het kiezen van minder weken. Verbeterd: de rasterlijnen zijn duidelijker, en naast de filters staat **✕ Filter** om het groep- en persoonsfilter in één klik uit te zetten (verzoek van Peter)

@@ -54,8 +54,8 @@
             </div>
 
             <span class="klein-info">
-                Aantallen en opmerkingen zijn hier direct te wijzigen; een regel
-                wissen kan met ✕.
+                Aantallen en opmerkingen zijn hier direct te wijzigen; klik op de
+                werkorder om een andere te kiezen; een regel wissen kan met ✕.
             </span>
         </div>
 
@@ -91,7 +91,11 @@
                             </td>
                             <td class="omschrijving" title="@regel.Omschrijving">@regel.Omschrijving</td>
                             <td>@regel.Leverancier</td>
-                            <td>@Werkorder(regel.OrderId)</td>
+                            <td>
+                                @* klik = deze regel op een andere werkorder zetten (verzoek Stein 26-11-2026) *@
+                                <button class="bestandnaam" title="Een andere werkorder kiezen voor deze regel"
+                                        @onclick="() => _werkorderVoor = regel">@(Werkorder(regel.OrderId) is { Length: > 0 } wn ? wn : "kies…") ✎</button>
+                            </td>
                             <td>
                                 @regel.ToegevoegdDoor
                                 @if (regel.ViaScanner)
@@ -138,6 +142,9 @@
 </div>
 
 <ArtikelVenster ArtikelId="_bekeken" Sluiten="() => _bekeken = null" />
+
+<WerkorderKiezer Open="_werkorderVoor is not null" WerknemerId="Ik.WerknemerId ?? 0" AlleenInkoop="true"
+                 OpGekozen="ZetWerkorder" OpGesloten="() => _werkorderVoor = null" />
 
 @code {
     private List<OrderBatchRegel> _alles = new();
@@ -269,6 +276,26 @@
         {
             await Repo.ZetAantalAsync(regel.Id, aantal);
             Toon("Opgeslagen.", false);
+            Bel.Meld();
+        }
+        catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }
+    }
+
+    private OrderBatchRegel? _werkorderVoor;      // de regel waarvoor de werkorderkiezer open staat
+
+    /// <summary>Een andere werkorder gekozen voor een regel (alleen werkorders waarop ingekocht mag worden).</summary>
+    private async Task ZetWerkorder(Workorder wo)
+    {
+        var regel = _werkorderVoor;
+        _werkorderVoor = null;
+        if (regel is null || regel.OrderId == wo.WerkbonId) return;
+        try
+        {
+            await Repo.ZetWerkorderAsync(regel.Id, wo.WerkbonId);
+            regel.OrderId = wo.WerkbonId;
+            _werkorders[wo.WerkbonId] = wo.Nummer;
+            Filter();
+            Toon($"{regel.Code} staat nu op werkorder {wo.Nummer}.", false);
             Bel.Meld();
         }
         catch (Exception ex) { Toon("Opslaan mislukt: " + ex.Message, true); }

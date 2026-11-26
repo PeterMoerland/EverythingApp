@@ -95,6 +95,8 @@ public interface IActivityBoardRepository
     Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId);
     /// <summary>Activiteiten zoeken op nummer (123 of #123) of op woorden uit de titel, over alle boards.</summary>
     Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max);
+    /// <summary>Alle activiteiten van deze werknemer die nog niet klaar zijn, over alle boards; eerst wat het eerst vervalt.</summary>
+    Task<List<ActMijn>> MijnOpenAsync(int werknemerId);
 
     // ---- afvinklijst (ActivityBoard_Checklist_MariaDB.sql) ----
     /// <summary>Kan een activiteit een afvinklijst hebben? (het script is uitgevoerd)</summary>
@@ -155,6 +157,7 @@ public class GeenActivityBoardRepository : IActivityBoardRepository
     public Task VerwijderKoppelingAsync(int koppelingId, int? door) => Task.CompletedTask;
     public Task<(int VanId, int NaarId)?> KoppelingAsync(int koppelingId) => Task.FromResult<(int, int)?>(null);
     public Task<List<ActKoppelDoel>> ZoekActiviteitenAsync(string zoek, int max) => Task.FromResult(new List<ActKoppelDoel>());
+    public Task<List<ActMijn>> MijnOpenAsync(int werknemerId) => Task.FromResult(new List<ActMijn>());
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(false);
     public Task<int> NieuwPuntAsync(int activiteitId, ActPunt punt, int? naPuntId, int? door) => Task.FromResult(0);
     public Task ZetPuntTekstAsync(int puntId, string tekst, int? door) => Task.CompletedTask;
@@ -803,6 +806,29 @@ public class MySqlActivityBoardRepository : IActivityBoardRepository
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             lijst.Add(new ActKoppelDoel(r.GetInt32(0), S(r, 1), ActStatus.IsGeldig(S(r, 2)) ? S(r, 2) : ActStatus.Backlog, r.GetInt32(3), LeesBoard(r, 3).Titel));
+        return lijst;
+    }
+
+    public async Task<List<ActMijn>> MijnOpenAsync(int werknemerId)
+    {
+        var lijst = new List<ActMijn>();
+        var (rk, rj) = await RelatieDeelAsync();
+        var (wk, wj) = await WerkorderDeelAsync();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT x.`ActiviteitID`, x.`Titel`, x.`Status`, x.`Prioriteit`, x.`Vervaldatum`, " + BoardKolommen + rk + wk +
+            "  FROM `ActivityBoardActiviteiten` x " +
+            "  JOIN `ActivityBoardActPersonen` ap ON ap.`ActiviteitID` = x.`ActiviteitID` AND ap.`WerknemerID` = @w " +
+            "  JOIN `ActivityBoards` b ON b.`BoardID` = x.`BoardID` " +
+            "  LEFT JOIN `Projects` p ON p.`Project-Id` = b.`ProjectID` " + rj + wj +
+            " WHERE x.`Status` NOT IN (" + KlaarStatussen + ") " +
+            " ORDER BY (x.`Vervaldatum` IS NULL), x.`Vervaldatum`, COALESCE(x.`Prioriteit`, 9), b.`BoardID`, x.`ActiviteitID` LIMIT 500", cn);
+        cmd.Parameters.AddWithValue("@w", werknemerId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new ActMijn(r.GetInt32(0), S(r, 1).Trim() is { Length: > 0 } t ? t : "Zonder titel",
+                                  ActStatus.IsGeldig(S(r, 2)) ? S(r, 2) : ActStatus.Backlog,
+                                  I(r, 3) is int pr && pr is >= 1 and <= 3 ? pr : null, D(r, 4)?.Date, r.GetInt32(5), LeesBoard(r, 5).Titel));
         return lijst;
     }
 

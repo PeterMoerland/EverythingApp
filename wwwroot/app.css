@@ -4051,6 +4051,11 @@ html[data-thema="donker"] .ab-lijst input:not([type=checkbox]):focus { backgroun
 .ab-werk > .page { max-width: none; }
 /* je eigen kaartjes (je bent eraan toegewezen): altijd een opvallende amberkleurige rand, los van Markeren en van de
    rode rand van de gekozen kaart. Een outline, dus de kaart wordt er niet groter of kleiner van. */
+/* startscherm: open activiteiten van één persoon over alle boards */
+.ab-mijnkeuze { width: auto; max-width: 16rem; font-size: 13px; padding: 2px 6px; }
+.ab-mijn .ab-mijn-board { white-space: nowrap; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; }
+.ab-mijn-telaat { color: #b3261e; font-weight: 600; }
+html[data-thema="donker"] .ab-mijn-telaat { color: #ffb4ae; }
 .ab-kaart.eigen { outline: 3px solid #e09b00; outline-offset: -2px; }      /* 3 px (was 2: niet goed te zien, toen 6: te dik; wens gebruiker 25-11-2026); 1 px buiten de kaart, 2 erbinnen */
 .ab-rij.eigen td:first-child { box-shadow: inset 8px 0 0 #e09b00; }
 .ab-kaart.mijn { border-color: #337ea9; box-shadow: inset 4px 0 0 #337ea9, 0 1px 3px rgba(51, 126, 169, .25); }

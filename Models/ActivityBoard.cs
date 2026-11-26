@@ -208,6 +208,9 @@ public static class ActKoppelSoort
 /// <summary>Een activiteit om aan te koppelen (zoeken op nummer of titel, over alle boards).</summary>
 public record ActKoppelDoel(int Id, string Titel, string Status, int BoardId, string Board);
 
+/// <summary>Een open activiteit van iemand, met het board erbij (startscherm "Voor mij open", verzoek Gerard 26-11-2026).</summary>
+public record ActMijn(int Id, string Titel, string Status, int? Prioriteit, DateTime? Vervaldatum, int BoardId, string Board);
+
 /// <summary>
 /// Een koppeling gezien vanaf één activiteit: de soort, of deze activiteit de "van"-kant is (<see cref="Heen"/>), en de
 /// andere activiteit met titel, status en board.

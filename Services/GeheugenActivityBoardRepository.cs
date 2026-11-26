@@ -343,6 +343,14 @@ public class GeheugenActivityBoardRepository : IActivityBoardRepository
         }
     }
 
+    public Task<List<ActMijn>> MijnOpenAsync(int werknemerId)
+    {
+        lock (_slot)
+            return Task.FromResult(_acts.Where(x => x.A.Personen.Contains(werknemerId) && ActStatus.Groep(x.A.Status) != ActStatus.GroepKlaar)
+                .OrderBy(x => x.A.Vervaldatum is null).ThenBy(x => x.A.Vervaldatum).ThenBy(x => x.A.Prioriteit ?? 9)
+                .Select(x => new ActMijn(x.A.Id, x.A.Titel, x.A.Status, x.A.Prioriteit, x.A.Vervaldatum, x.BoardId, BoardNaam(x.BoardId))).ToList());
+    }
+
     // ---- afvinklijst ----
     public Task<bool> ChecklistAanwezigAsync() => Task.FromResult(true);
 
