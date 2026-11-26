@@ -571,8 +571,12 @@ i.v.m. 1Password".
 - **Artikelen ▸ Inventor-boom** (wens gebruiker 25-11-2026; geen script): tegel in de module Artikelen
   (`/artikelen/inventor-boom`, `Components/Pages/InventorBoomPagina.razor`; eerst een knop naast "+ Artikel") toont
   `Components/InventorBoomVenster.razor` ingebed (`Ingebed`; het kan ook nog als venster), een leesscherm op **`InventorAssemblyTree`** (`Services/InventorBoom.cs`,
-  singleton, alleen lezen). Die tabel vult de knop Stuklijst van de Inventor-add-in (voorheen de VBA-macro): per
-  `CreatedBy` één export (een nieuwe vervangt de vorige), `Volgnummer`/`ParentVolgnummer`/`Level`, een MDE-artikel
+  singleton, alleen lezen). Die tabel vult de knop Stuklijst van de Inventor-add-in. **Sinds 26-11-2026 twee
+  tabellen**: de hoofdtabel `InventorAssemblyExport` (een regel per export: ArtikelID, Samenstelling = bestandsnaam,
+  Commentaar, AantalRegels, CreatedBy/At, Computer, Uitgave) en in `InventorAssemblyTree` de kolom
+  `InventorAssemblyExportID`; de pagina kiest op de hoofdtabel (`ExportsAsync`, nieuwste eerst) en leest de boom met
+  `RegelsAsync(exportId)`; zonder hoofdtabel een melding (`HoofdtabelAanwezigAsync`). In de boom:
+  `Volgnummer`/`ParentVolgnummer`/`Level`, een MDE-artikel
   alleen met `ArtikelID` (tekst leeg, dan de naam uit `Artikelen`). Rood = geen ArtikelID. De door de gebruiker
   genoemde `InventorProjectBOM`/`InventorProjectBOM_Items` zijn niet gebruikt: Items is leeg (koppen uit feb–mrt 2025).
   **Later:** hieruit artikelsamenstellingen maken, aangevuld met wat niet in Inventor getekend is (kabels).

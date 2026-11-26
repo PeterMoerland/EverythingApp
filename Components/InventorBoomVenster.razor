@@ -2,8 +2,9 @@
 
 @* ============================================================================
    Artikelen ▸ Inventor-boom (wens gebruiker 25-11-2026): de samenstelling die uit Inventor is geëxporteerd
-   (InventorAssemblyTree), als boom. Alleen kijken; artikelsamenstellingen hiervan maken komt later.
-   Per werknemer staat er één export (een nieuwe vervangt de vorige), te kiezen bovenin.
+   als boom. Alleen kijken; artikelsamenstellingen hiervan maken komt later.
+   Bovenin kies je de export uit de hoofdtabel InventorAssemblyExport (elke export blijft bewaard, sinds 26-11-2026);
+   de boom eronder komt uit InventorAssemblyTree met dat exportnummer.
    ============================================================================ *@
 
 @if (Open)
@@ -22,20 +23,34 @@
             <div class="@(Ingebed ? null : "factuurvenster-inhoud")">
                 @if (_fout is not null) { <p class="uitleg">Lezen is niet gelukt: @_fout</p> }
                 else if (!_geladen) { <p class="uitleg">Laden…</p> }
-                else if (_exports.Count == 0) { <p class="uitleg">Er staat nog geen export uit Inventor (tabel InventorAssemblyTree is leeg). Exporteer een samenstelling met de knop Stuklijst in Inventor.</p> }
+                else if (!_hoofdtabel) { <p class="uitleg">De hoofdtabel InventorAssemblyExport ontbreekt nog: draai eerst het script van de Inventor-add-in (<code>2026-11-26-stuklijst-exports.sql</code>).</p> }
+                else if (_exports.Count == 0) { <p class="uitleg">Er staat nog geen export uit Inventor. Exporteer een samenstelling met de knop Stuklijst in Inventor.</p> }
                 else
                 {
                     <div class="ib-balk">
                         <select value="@_gekozen" @onchange="Kies" aria-label="Welke export">
                             @foreach (var e in _exports)
                             {
-                                <option value="@e.WerknemerId">@(e.Samenstelling.Length > 0 ? e.Samenstelling : "(zonder naam)") — @(e.Door.Length > 0 ? e.Door : "onbekend"), @(e.Op?.ToString("d-M-yyyy HH:mm") ?? "zonder datum") (@e.Regels regels)</option>
+                                <option value="@e.Id">#@e.Id · @Titel(e) — @(e.Door.Length > 0 ? e.Door : "onbekend"), @(e.Op?.ToString("d-M-yyyy HH:mm") ?? "zonder datum") (@e.Regels regels)</option>
                             }
                         </select>
                         <button type="button" class="klein" @onclick="AllesOpen">Alles uitvouwen</button>
                         <button type="button" class="klein" @onclick="() => _open.Clear()">Alles inklappen</button>
                         <span class="ib-tel">@_regels.Count regels@(_zonder > 0 ? $", {_zonder} zonder artikel" : "")</span>
                     </div>
+                    @if (_exports.FirstOrDefault(e => e.Id == _gekozen) is { } kop)
+                    {
+                        @* de gegevens van de gekozen export uit de hoofdtabel *@
+                        <div class="ib-kop">
+                            @if (kop.Commentaar.Length > 0) { <p class="ib-commentaar">@kop.Commentaar</p> }
+                            <p class="ib-kopregel">
+                                @if (kop.Samenstelling.Length > 0) { <span><b>Bestand</b> @kop.Samenstelling</span> }
+                                @if (kop.ArtikelId is int ka) { <span><b>ArtikelID</b> @ka</span> }
+                                @if (kop.Computer.Length > 0) { <span><b>Computer</b> @kop.Computer</span> }
+                                @if (kop.Uitgave.Length > 0) { <span><b>Add-in</b> @kop.Uitgave</span> }
+                            </p>
+                        </div>
+                    }
                     <div class="ib-schuif">
                         <table class="kiezer-tabel ib-tabel">
                             @* alle velden van InventorAssemblyTree (wens gebruiker 25-11-2026), de boom vooraan; de tabel schuift opzij *@
@@ -95,7 +110,7 @@
     private Dictionary<int, List<InventorRegel>> _kinderen = new();
     private List<InventorRegel> _top = new();
     private readonly HashSet<int> _open = new();
-    private bool _geladen, _was;
+    private bool _geladen, _was, _hoofdtabel;
     private int _gekozen, _zonder;
     private string? _fout;
 
@@ -106,10 +121,11 @@
         _was = true; _geladen = false; _fout = null;
         try
         {
+            _hoofdtabel = await Boom.HoofdtabelAanwezigAsync();
             _exports = await Boom.ExportsAsync();
             if (_exports.Count > 0)
             {
-                if (!_exports.Any(e => e.WerknemerId == _gekozen)) _gekozen = _exports[0].WerknemerId;
+                if (!_exports.Any(e => e.Id == _gekozen)) _gekozen = _exports[0].Id;
                 await Laad();
             }
         }
@@ -146,6 +162,10 @@
         foreach (var k in kinderen)
             foreach (var x in Tak(k, diepte + 1)) yield return x;
     }
+
+    /// <summary>De naam van een export in de keuzelijst: het artikel van de hoofdsamenstelling, anders de bestandsnaam.</summary>
+    private static string Titel(InventorExport e)
+        => e.Artikel.Length > 0 ? e.Artikel : e.Samenstelling.Length > 0 ? e.Samenstelling : e.ArtikelId is int a ? "artikel " + a : "(zonder naam)";
 
     private void Wissel(int nr) { if (!_open.Remove(nr)) _open.Add(nr); }
     private void AllesOpen() { foreach (var k in _kinderen.Keys) _open.Add(k); }
