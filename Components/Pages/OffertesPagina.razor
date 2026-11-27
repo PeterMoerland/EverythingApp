@@ -141,6 +141,12 @@
                             <button class="klein" title="Kopie van deze offerte maken, eventueel in een ander project" @onclick="OpenKopie">Kopiëren…</button>
                             <button class="klein" title="De offerte als PDF bekijken en als Gmail-concept klaarzetten" @onclick="OpenVersturen">📄 PDF en versturen…</button>
                         }
+                        @* een verkoopfactuur voor deze offerte: het gewone factuurvenster, al ingevuld (verzoek Edwin 27-11-2026) *@
+                        @if (Ik.MagFinancien)
+                        {
+                            <button class="klein" disabled="@(Gewijzigd || _bezig)" @onclick="OpenFactuur"
+                                    title="@(Gewijzigd ? "Sla de offerte eerst op" : "Een factuur maken voor deze offerte: klant, project en bedragen staan al ingevuld; je kunt alles nog aanpassen voor je opslaat")">🧾 Factuur maken…</button>
+                        }
                         <button class="klein" title="De calculatie (kostprijs, uren en verkoop) van deze offerte openen of maken" @onclick="OpenCalculatie">🧮 Calculatie</button>
                         <button class="klein" title="De offerte als vrij op te maken document, met prijstabellen die aan de calculatie gekoppeld blijven" @onclick="OpenDocument">📝 Document</button>
                         <button class="primair" disabled="@(!Gewijzigd || _bezig)" @onclick="Bewaar">Opslaan</button>
@@ -397,6 +403,8 @@
 }
 
 <OfferteVersturenVenster OfferteId="_versturenId" Sluiten="VersturenGesloten" />
+
+<VerkoopFactuurVenster FactuurId="_factuurId" Voorstel="_factuurVoorstel" Bewaard="FactuurBewaard" Sluiten="_ => _factuurId = null" />
 
 @code {
     [Parameter] public int? Id { get; set; }
@@ -716,6 +724,47 @@
     private void OpenDocument()
     {
         if (_o is not null) Nav.NavigateTo($"projecten/offertedocument/{_o.Id}");
+    }
+
+    // ---- een factuur voor deze offerte (verzoek Edwin 27-11-2026) ----
+    // Het bestaande venster voor verkoopfacturen (Financiën ▸ Uitgaande facturen), met een voorstel uit de offerte:
+    // BV, klant, project, omschrijving en de bedragen. Er wordt pas iets bewaard als de gebruiker daar op Opslaan
+    // klikt. De factuur is niet aan de offerte gekoppeld (daar is geen kolom voor); het offertenummer staat in de
+    // omschrijving.
+    private int? _factuurId;
+    private FactuurVoorstel? _factuurVoorstel;
+
+    private void OpenFactuur()
+    {
+        if (_o is not { } o || !Ik.MagFinancien || Gewijzigd) return;
+        var naam = o.Omschrijving.Trim();
+        var t = o.Totalen;
+        var regels = new List<VerkoopFactuurItem>();
+        void Regel(string tekst, decimal bedrag)
+        {
+            if (bedrag == 0) return;
+            regels.Add(new VerkoopFactuurItem { Volgorde = regels.Count + 1, Omschrijving = tekst, Aantal = 1, Stuksprijs = bedrag, Korting = 0, Totaal = Math.Round(bedrag, 2) });
+        }
+        // heeft de offerte een document met een eigen bedrag, dan is dat het offertebedrag: één regel; anders per soort
+        if (t.Document is decimal document && document != t.Regels) Regel(naam.Length > 0 ? naam : "Offerte " + o.OfferteNr, document);
+        else
+        {
+            var engels = o.Taal == OfferteTaal.Engels;
+            Regel(engels ? "Hours" : "Uren", t.Uren);
+            Regel(engels ? "Materials" : "Materiaal", t.Materiaal);
+            Regel(engels ? "Other" : "Overigen", t.Overigen);
+        }
+        _factuurVoorstel = new FactuurVoorstel(o.BvId, o.KlantId, o.Klant, "", (naam.Length > 0 ? naam + " (offerte " : "Offerte (") + o.OfferteNr + ")", "", 0)
+        {
+            Regels = regels.Count > 0 ? regels : null, ProjectId = o.ProjectId, Project = (o.Projectnummer + " " + o.Project).Trim(),
+            Engels = o.Taal == OfferteTaal.Engels ? true : null,
+        };
+        _factuurId = 0;
+    }
+
+    private void FactuurBewaard(int factuurId)
+    {
+        if (_o is { } o) Toon($"De factuur voor offerte {o.OfferteNr} is bewaard. Je vindt hem in Financiën ▸ Uitgaande facturen.", false);
     }
 
     private void OpenCalculatie()

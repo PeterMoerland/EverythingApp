@@ -5,6 +5,10 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 27-11-2026
+
+- **Offertes** — Nieuw: knop **🧾 Factuur maken…** bij een offerte. Het factuurvenster opent met de BV, klant, het project, de omschrijving (met het offertenummer) en de bedragen van de offerte al ingevuld; je past aan wat nodig is en slaat op. Voor wie mag factureren (Financial of Directie) (verzoek van Edwin)
+
 ## 26-11-2026
 
 - **Activity board** — Verbeterd: het blok **Open activiteiten van** staat standaard ingeklapt; je ziet alleen de regel met de naam, het aantal en hoeveel er te laat zijn. Zet je het open met Tonen, dan blijft het op die pc open (verzoek van Arnold)
