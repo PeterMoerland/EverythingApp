@@ -7,6 +7,8 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 27-11-2026
 
+- **Calculaties** — Nieuw: **meer regels kiezen** met Ctrl+klik (erbij of eraf) of Shift+klik (alles ertussen), en regels **kopiëren en plakken**: Ctrl+C en Ctrl+V, de knoppen Kopiëren en Plakken in de werkbalk, of de rechtermuisknop. Plakken zet de regels onder de regel waar je staat of in de gekozen groep, ook in een andere calculatie. Met meer regels gekozen kun je ze ook in één keer verwijderen (verzoek van Edwin)
+- **Berichten (bel)** — Nieuw: in de bel kies je bij het filter **Verzonden** en zie je de berichten die je zelf aan collega's stuurde: aan wie, wanneer, en of het al gelezen is. Na het draaien van een klein script blijven ze ook staan als de ontvanger ze wist (verzoek van Peter)
 - **Offertes** — Nieuw: knop **🧾 Factuur maken…** bij een offerte. Het factuurvenster opent met de BV, klant, het project, de omschrijving (met het offertenummer) en de bedragen van de offerte al ingevuld; je past aan wat nodig is en slaat op. Voor wie mag factureren (Financial of Directie) (verzoek van Edwin)
 
 ## 26-11-2026

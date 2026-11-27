@@ -144,6 +144,7 @@ tr.regel.zonderact td { background: var(--let-zacht); }
 tr.regel.auto td { background: var(--let-zacht); }
 tr.gekozen td { box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
 tr.gekozen td:first-child { box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+tr.inkeuze td { background: var(--accent-zacht) !important; }
 tr.gesleept td { opacity: .35; }
 tr.doelin td { background: var(--accent-zacht) !important; }
 .afw { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--let); margin-left: 3px; vertical-align: middle; }
@@ -312,6 +313,10 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
       <span class="niveau" role="group" aria-label="Niveau">
         <button type="button" id="knopPromoveer" title="Promoveren: een niveau omhoog (Alt+Shift+←)">⇤ Promoveren</button>
         <button type="button" id="knopDegradeer" title="Degraderen: onder de groep erboven (Alt+Shift+→)">Degraderen ⇥</button>
+      </span>
+      <span class="niveau" role="group" aria-label="Regels kopiëren en plakken">
+        <button type="button" id="knopKopieer" title="De gekozen regels kopiëren (Ctrl+C). Meer regels kiezen: Ctrl+klik of Shift+klik op een regel.">Kopiëren</button>
+        <button type="button" id="knopPlakRegels" title="De gekopieerde regels plakken onder de regel waar je staat, of in de gekozen groep (Ctrl+V). Werkt ook in een andere calculatie.">Plakken</button>
       </span>
       <span class="waar" id="waar"></span>
       <span class="duw"></span>
@@ -719,11 +724,15 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     const st = standaardToevoegen();
     $('knopToevoegen').textContent = st.tekst;
     $('knopToevoegen').disabled = $('knopToevoegenMeer').disabled = RO();
-    $('waar').innerHTML = RO() ? 'Bevroren: niets te wijzigen' : st.uitleg;
+    $('waar').innerHTML = kortBericht || (RO() ? 'Bevroren: niets te wijzigen' : keuze.size > 1 ? `<b>${keuze.size} regels gekozen</b> · Ctrl+C kopiëren, rechtermuisknop voor meer, Esc om te stoppen` : st.uitleg);
+    $('knopKopieer').disabled = !gekozenRegels().some(r => !r.auto);
+    $('knopPlakRegels').disabled = RO() || !klembordRegels().length;
     $('knopPromoveer').disabled = RO() || !kanPromoveren();
     $('knopDegradeer').disabled = RO() || !kanDegraderen();
     document.querySelectorAll('tr.gekozen').forEach(tr => tr.classList.remove('gekozen'));
     if (gekozen) document.querySelector(`[data-rij="${gekozen.t}${gekozen.id}"]`)?.classList.add('gekozen');
+    document.querySelectorAll('tr.inkeuze').forEach(tr => tr.classList.remove('inkeuze'));
+    if (s) for (const id of [...keuze]) { if (!regelVan(id)) keuze.delete(id); else document.querySelector(`[data-rij="r${id}"]`)?.classList.add('inkeuze'); }
   }
 
   const VELDNAAM = { oms: 'deel / omschrijving', aantal: 'aantal', keer: '× keer', kost: 'kostprijs', eigen: 'eigen opslag', groep: 'groep' };
@@ -1081,15 +1090,86 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     m.addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (!b) return; const it = items[Number(b.dataset.i)]; sluitMenu(); it.doe(); });
     m.querySelector('button:not(:disabled)')?.focus();
   }
+  // ---------------------------------------------------------------- meer regels kiezen, kopiëren en plakken (wens Edwin 27-11-2026)
+  // keuze = de regels die er met Ctrl+klik of Shift+klik bij gekozen zijn (naast "gekozen", de regel waar je staat).
+  // Kopiëren zet de regels in de opslag van de browser (dus ook te plakken in een andere calculatie of een ander
+  // tabblad) en als tekst met tabs op het klembord (voor Excel). Plakken zet ze onder de regel waar je staat, of
+  // achteraan in de gekozen groep, met nieuwe nummers.
+  const keuze = new Set();
+  const KLEMBORD = 'mde-calc-klembord';
+  let kortBericht = '', kortKlok = null;
+  function meldKort(tekst) {
+    kortBericht = tekst; clearTimeout(kortKlok);
+    kortKlok = setTimeout(() => { kortBericht = ''; if (tab === 'boom' && s) werkbalkBij(); }, 5000);
+    if (tab === 'boom' && s) werkbalkBij();
+  }
+  function gekozenRegels() {
+    if (!s) return [];
+    if (keuze.size) return s.regels.filter(r => keuze.has(r.id));
+    const r = gekozen?.t === 'r' ? regelVan(gekozen.id) : null;
+    return r ? [r] : [];
+  }
+  function klembord() { try { return JSON.parse(localStorage.getItem(KLEMBORD) || 'null'); } catch { return null; } }
+  function klembordRegels() { const k = klembord(); return Array.isArray(k?.regels) ? k.regels : []; }
+  function regelsTekst(regels) { return regels.map(r => [r.oms ?? '', r.aantal ?? '', r.kost ?? ''].join('\t')).join('\n'); }
+  function kopieerRegels() {
+    const regels = gekozenRegels().filter(r => !r.auto);
+    if (!regels.length) { meldKort('Kies eerst een of meer regels (Ctrl+klik of Shift+klik voor meer).'); return null; }
+    const tekst = regelsTekst(regels);
+    try { localStorage.setItem(KLEMBORD, JSON.stringify({ regels: regels.map(r => structuredClone(r)), tekst })); } catch { }
+    try { navigator.clipboard?.writeText(tekst).catch(() => { }); } catch { }
+    meldKort(`${regels.length} regel${regels.length === 1 ? '' : 's'} gekopieerd. Plakken: klik op een regel of groep en druk Ctrl+V.`);
+    return tekst;
+  }
+  function plakRegels() {
+    if (RO()) return;
+    const bron = klembordRegels();
+    if (!bron.length) { meldKort('Er is niets gekopieerd.'); return; }
+    const g = plakDoel();
+    if (!g) { meldKort('Klik eerst op de groep of de regel waar de regels moeten komen.'); return; }
+    // onder de (laatste) gekozen regel in die groep, anders achteraan in de groep
+    const gekozenIn = gekozenRegels().filter(r => r.groep === g.id);
+    let plek;
+    if (gekozenIn.length) plek = s.regels.indexOf(gekozenIn[gekozenIn.length - 1]) + 1;
+    else { plek = -1; s.regels.forEach((x, i) => { if (x.groep === g.id && !x.auto) plek = i; }); plek = plek >= 0 ? plek + 1 : s.regels.length; }
+    const nieuw = bron.map(r => ({ ...structuredClone(r), id: volgId++, groep: g.id, auto: false }));
+    s.regels.splice(plek, 0, ...nieuw);
+    g.open = true;
+    keuze.clear(); if (nieuw.length > 1) nieuw.forEach(r => keuze.add(r.id));
+    gekozen = { t: 'r', id: nieuw[nieuw.length - 1].id }; flitsId = 'r' + nieuw[0].id;
+    bewaar(); render();
+    meldKort(`${nieuw.length} regel${nieuw.length === 1 ? '' : 's'} geplakt in ${esc(g.naam)}.`);
+  }
+  function wisGekozenRegels() {
+    if (RO()) return;
+    const weg = new Set(gekozenRegels().map(r => r.id));
+    if (!weg.size) return;
+    s.regels = s.regels.filter(r => !weg.has(r.id));
+    keuze.clear(); gekozen = null; bewaar(); render();
+    meldKort(`${weg.size} regel${weg.size === 1 ? '' : 's'} verwijderd.`);
+  }
+
   function menuVoor(sleutel) {
     const t = sleutel[0], id = Number(sleutel.slice(1));
+    if (!(t === 'r' && keuze.has(id))) keuze.clear();
     gekozen = { t, id }; werkbalkBij();
+    if (t === 'r' && keuze.size > 1) {
+      // meer regels gekozen: wat je met het hele stel kunt doen
+      return [
+        { kopje: `${keuze.size} regels gekozen` },
+        { tekst: 'Kopiëren', toets: 'Ctrl+C', doe: kopieerRegels },
+        { tekst: 'Plakken eronder', toets: 'Ctrl+V', uit: !klembordRegels().length, doe: plakRegels },
+        '-',
+        { tekst: `Verwijderen (${keuze.size} regels)`, weg: true, doe: wisGekozenRegels },
+      ];
+    }
     if (t === 'g') {
       const g = groepVan(id);
       return [
         { tekst: '+ Regel in deze groep', toets: 'Ctrl+Enter', doe: () => voegToe('regelIn') },
         { tekst: '+ Subgroep', doe: () => voegToe('sub') },
         { tekst: '+ Groep op hetzelfde niveau', doe: () => voegToe('naast') },
+        { tekst: 'Gekopieerde regels plakken in deze groep', toets: 'Ctrl+V', uit: !klembordRegels().length, doe: plakRegels },
         '-',
         { tekst: '⇤ Promoveren (niveau omhoog)', toets: 'Alt+Shift+←', uit: !kanPromoveren(), doe: promoveer },
         { tekst: '⇥ Degraderen (onder de groep erboven)', toets: 'Alt+Shift+→', uit: !kanDegraderen(), doe: degradeer },
@@ -1103,6 +1183,8 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
     const r = regelVan(id);
     return [
       { tekst: '+ Regel eronder', toets: 'Ctrl+Enter', doe: () => voegToe('regelNa') },
+      { tekst: 'Kopiëren', toets: 'Ctrl+C', uit: r.auto, doe: kopieerRegels },
+      { tekst: 'Plakken eronder', toets: 'Ctrl+V', uit: !klembordRegels().length, doe: plakRegels },
       { tekst: 'Dupliceren', doe: () => { const n = { ...structuredClone(r), id: volgId++, auto: false }; s.regels.splice(s.regels.indexOf(r) + 1, 0, n); gekozen = { t: 'r', id: n.id }; flitsId = 'r' + n.id; bewaar(); render(); } },
       ...(r.soort === 'mat' ? [{ tekst: 'Artikel zoeken in de artikellijst…', toets: 'dubbelklik', doe: () => openArtVenster(id, r.oms) }] : []),
       '-',
@@ -1216,11 +1298,62 @@ mark { background: var(--let-zacht); color: inherit; border-radius: 2px; padding
   // ---------------------------------------------------------------- invoer in de boom
   const body = $('boomBody');
   body.addEventListener('pointerdown', e => { const h = e.target.closest('[data-greep]'); if (h) startSlepen(e, h.dataset.greep); });
+  // Meer regels kiezen: Ctrl+klik = deze regel erbij of eraf, Shift+klik = alles vanaf de regel waar je staat tot en met
+  // deze. De klik gaat dan niet naar het invoerveld (anders zou de keuze meteen weer weg zijn). Een gewone klik wist de keuze.
+  body.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const tr = e.target.closest('tr[data-r]');
+    const mod = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!mod || !tr || e.target.closest('button')) {
+      if (keuze.size && !e.target.closest('[data-greep], [data-menu]')) { keuze.clear(); werkbalkBij(); }
+      return;
+    }
+    e.preventDefault();
+    if (document.activeElement && body.contains(document.activeElement)) document.activeElement.blur();   // wat je typte eerst vastleggen
+    const id = Number(tr.dataset.r);
+    const anker = gekozen?.t === 'r' && regelVan(gekozen.id) ? gekozen.id : null;
+    if (e.shiftKey && anker != null) {
+      const ids = [...body.querySelectorAll('tr[data-r]')].map(x => Number(x.dataset.r));
+      const a = ids.indexOf(anker), b = ids.indexOf(id);
+      if (a >= 0 && b >= 0) { keuze.clear(); ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => keuze.add(x)); }
+    } else {
+      if (!keuze.size && anker != null) keuze.add(anker);
+      if (keuze.has(id)) keuze.delete(id); else keuze.add(id);
+      if (anker == null) gekozen = { t: 'r', id };
+    }
+    werkbalkBij();
+  });
+  // Ctrl+C: de gekozen regels (of, zonder tekst geselecteerd in een veld, de regel waar je staat). Ctrl+V: plakt de
+  // gekopieerde regels als dat ook is wat er op het klembord staat; iets anders op het klembord = gewoon tekst plakken.
+  document.addEventListener('copy', e => {
+    if (tab !== 'boom' || !s) return;
+    const el = document.activeElement, inVeld = !!el && /^(INPUT|TEXTAREA)$/.test(el.tagName);
+    if (inVeld && !body.contains(el)) return;                 // een veld buiten de boom (notitie, zoekvenster): gewone tekst
+    let tekstGekozen = false;
+    try { tekstGekozen = inVeld && el.selectionStart !== el.selectionEnd; } catch { }
+    if (!keuze.size && (tekstGekozen || !gekozenRegels().length)) return;
+    const tekst = kopieerRegels(); if (tekst == null) return;
+    e.clipboardData.setData('text/plain', tekst); e.preventDefault();
+  });
+  document.addEventListener('paste', e => {
+    if (tab !== 'boom' || RO()) return;
+    const el = document.activeElement, inVeld = !!el && /^(INPUT|TEXTAREA)$/.test(el.tagName);
+    if (inVeld && !body.contains(el)) return;
+    const k = klembord(); if (!k?.regels?.length) return;
+    const tekst = (e.clipboardData?.getData('text/plain') || '').replace(/\r/g, '');
+    if (inVeld && tekst !== k.tekst) return;
+    e.preventDefault(); plakRegels();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && keuze.size) { keuze.clear(); werkbalkBij(); } });
+  $('knopKopieer').addEventListener('click', kopieerRegels);
+  $('knopPlakRegels').addEventListener('click', plakRegels);
   body.addEventListener('focusin', e => {
     const tr = e.target.closest('tr[data-rij]'); if (!tr || tr.dataset.rij === 'p') return;
     gekozen = { t: tr.dataset.rij[0], id: Number(tr.dataset.rij.slice(1)) }; werkbalkBij();
   });
   body.addEventListener('click', e => {
+    // een klik met Ctrl of Shift op een regel is al afgehandeld (meer regels kiezen, zie mousedown hierboven)
+    if ((e.ctrlKey || e.metaKey || e.shiftKey) && e.target.closest('tr[data-r]') && !e.target.closest('button')) return;
     const tr = e.target.closest('tr[data-rij]');
     if (tr && tr.dataset.rij !== 'p' && !e.target.closest('input, select, button')) { gekozen = { t: tr.dataset.rij[0], id: Number(tr.dataset.rij.slice(1)) }; werkbalkBij(); }
     const m = e.target.closest('[data-menu]');

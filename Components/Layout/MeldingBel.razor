@@ -134,13 +134,43 @@
                 <h4>
                     Berichten (@Ongelezen ongelezen)
                     <span style="flex:1"></span>
-                    <select class="bel-filter" value="@(_alleenOngelezen ? "ongelezen" : "alles")" @onchange='e => _alleenOngelezen = (string?)e.Value == "ongelezen"'>
+                    <select class="bel-filter" value="@(_verzondenTonen ? "verzonden" : _alleenOngelezen ? "ongelezen" : "alles")" @onchange="KiesFilter">
                         <option value="alles">Alles</option>
                         <option value="ongelezen">Ongelezen</option>
+                        @if (_berichtenMogelijk) { <option value="verzonden">Verzonden</option> }
                     </select>
-                    @if (Ongelezen > 0) { <button class="klein" @onclick="AllesGelezen">Alles gelezen</button> }
+                    @if (Ongelezen > 0 && !_verzondenTonen) { <button class="klein" @onclick="AllesGelezen">Alles gelezen</button> }
                 </h4>
-                <div class="bel-lijst">
+                @if (_verzondenTonen)
+                {
+                    @* wat je zelf aan collega's stuurde (wens gebruiker 27-11-2026): aan wie, en of het gelezen is *@
+                    <div class="bel-lijst">
+                        @foreach (var m in _verzonden)
+                        {
+                            <div class="bel-bericht" @key="m.Id">
+                                <div class="bel-regel">
+                                    <span class="bel-po">✉</span>
+                                    <span class="bel-tekst bel-brief">@m.Tekst
+                                        @if (m.Bijlagen.Count > 0)
+                                        {
+                                            <span class="bel-plaatjes">
+                                                @foreach (var b in m.Bijlagen)
+                                                {
+                                                    <a href="@($"bestand/{b}")" target="_blank" rel="noopener" title="Plaatje groot openen">
+                                                        <img src="@($"bestand/{b}")" alt="plaatje" loading="lazy" />
+                                                    </a>
+                                                }
+                                            </span>
+                                        }
+                                        <small>aan @(m.Aan.Length > 0 ? m.Aan : "een collega") · @m.Aangemaakt.ToString("dd-MM-yyyy HH:mm") ·
+                                            @(m.Gelezen is DateTime g ? "gelezen " + g.ToString("dd-MM HH:mm") : "nog niet gelezen")@(m.GewistDoorOntvanger ? " · door de ontvanger gewist" : "")</small></span>
+                                </div>
+                            </div>
+                        }
+                        @if (_verzonden.Count == 0) { <p class="uitleg">Je hebt nog geen berichten verstuurd.</p> }
+                    </div>
+                }
+                <div class="bel-lijst" hidden="@_verzondenTonen">
                     @foreach (var m in Zichtbaar)
                     {
                         var mid = m.Id;
@@ -222,6 +252,24 @@
     private int Aantal => _teKeuren.Count + Ongelezen;
     private IEnumerable<Melding> Zichtbaar => _alleenOngelezen ? _meldingen.Where(m => m.Gelezen is null) : _meldingen;
 
+    // ---- verzonden berichten (wens gebruiker 27-11-2026) ----
+    private bool _verzondenTonen;
+    private List<Melding> _verzonden = new();
+
+    private async Task KiesFilter(ChangeEventArgs e)
+    {
+        var keuze = (string?)e.Value;
+        _alleenOngelezen = keuze == "ongelezen";
+        _verzondenTonen = keuze == "verzonden";
+        if (_verzondenTonen) await LaadVerzonden();
+    }
+
+    private async Task LaadVerzonden()
+    {
+        if (Ik.WerknemerId is not int wn) { _verzonden = new(); return; }
+        try { _verzonden = await Meldingen.VerzondenAsync(wn); } catch { _verzonden = new(); }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
@@ -265,6 +313,7 @@
         if (Ik.WerknemerId is not int wn) { _teKeuren = new(); _meldingen = new(); return; }
         try { _teKeuren = Bestel.Beschikbaar ? await Bestel.TeKeurenAsync(wn, Ik.Mag("Directie")) : new(); } catch { }
         try { _meldingen = Meldingen.Beschikbaar ? await Meldingen.AlleAsync(wn) : new(); } catch { }
+        if (_verzondenTonen && _open) await LaadVerzonden();       // ook "gelezen" bijwerken terwijl de lijst open staat
         await SpeelBijNieuw(wn);
         try { _berichtenMogelijk = Meldingen.Beschikbaar && await Meldingen.BerichtenMogelijkAsync(); } catch { _berichtenMogelijk = false; }
     }

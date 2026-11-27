@@ -12,6 +12,10 @@ public record Melding(int Id, string Soort, int? OrderId, string Tekst, DateTime
     public string Van { get; init; } = "";
     /// <summary>Plaatjes bij een bericht (FileStore, StoreType <see cref="BerichtBijlage.StoreType"/>, MasterID = MeldingID).</summary>
     public List<int> Bijlagen { get; init; } = new();
+    /// <summary>De ontvanger; alleen gevuld in de lijst Verzonden (<see cref="IMeldingRepository.VerzondenAsync"/>).</summary>
+    public string Aan { get; init; } = "";
+    /// <summary>In de lijst Verzonden: de ontvanger heeft het bericht uit zijn eigen box gewist.</summary>
+    public bool GewistDoorOntvanger { get; init; }
 }
 
 /// <summary>Plaatjes bij een bericht aan een collega (wens gebruiker 22-10-2026; Meldingen_Bijlagen_MariaDB.sql).</summary>
@@ -53,6 +57,9 @@ public interface IMeldingRepository
     Task<int> StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null);
     /// <summary>Mag deze werknemer dit plaatje van een bericht zien? Alleen de ontvanger en de afzender.</summary>
     Task<bool> MagBijlageZienAsync(int fileStoreId, int werknemerId);
+    /// <summary>De berichten die deze werknemer zelf aan collega's stuurde, nieuwste eerst, met de ontvanger en of het gelezen is
+    /// (wens gebruiker 27-11-2026). Met de kolom GewistOp (Meldingen_Verzonden_MariaDB.sql) blijven ze staan als de ontvanger ze wist.</summary>
+    Task<List<Melding>> VerzondenAsync(int werknemerId, int max = 200);
 }
 
 public class GeenMeldingRepository : IMeldingRepository
@@ -71,6 +78,7 @@ public class GeenMeldingRepository : IMeldingRepository
     public Task<bool> BerichtenMogelijkAsync() => Task.FromResult(false);
     public Task<int> StuurBerichtAsync(int naar, int van, string tekst, int? antwoordOp = null) => Task.FromResult(0);
     public Task<bool> MagBijlageZienAsync(int fileStoreId, int werknemerId) => Task.FromResult(false);
+    public Task<List<Melding>> VerzondenAsync(int werknemerId, int max = 200) => Task.FromResult(new List<Melding>());
 }
 
 public class MySqlMeldingRepository : IMeldingRepository
@@ -114,7 +122,8 @@ public class MySqlMeldingRepository : IMeldingRepository
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT `MeldingID`, `Soort`, `OrderID`, `Tekst`, `Aangemaakt` FROM `Meldingen` " +
-            " WHERE `WerknemerID` = @wn AND `Gelezen` IS NULL ORDER BY `Aangemaakt` DESC LIMIT 50", cn);
+            " WHERE `WerknemerID` = @wn AND `Gelezen` IS NULL" + (await GewistKolomAsync() ? " AND `GewistOp` IS NULL" : "") +
+            " ORDER BY `Aangemaakt` DESC LIMIT 50", cn);
         cmd.Parameters.AddWithValue("@wn", werknemerId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
@@ -187,6 +196,7 @@ public class MySqlMeldingRepository : IMeldingRepository
         var lijst = new List<Melding>();
         if (!await TabelAanwezigAsync()) return lijst;
         var metVan = await BerichtenMogelijkAsync();
+        var metGewist = await GewistKolomAsync();
         await using var cn = await OpenAsync();
         await using var cmd = new MySqlCommand(
             "SELECT m.`MeldingID`, m.`Soort`, m.`OrderID`, m.`Tekst`, m.`Aangemaakt`, m.`Gelezen`, " +
@@ -195,7 +205,8 @@ public class MySqlMeldingRepository : IMeldingRepository
             (metVan ? "m.`VanWerknemerID`, COALESCE(w.`NaamVoluit`, '') FROM `Meldingen` m " +
                       "LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = m.`VanWerknemerID` "
                     : "NULL, '' FROM `Meldingen` m ") +
-            $" WHERE m.`WerknemerID` = @wn ORDER BY m.`Aangemaakt` DESC, m.`MeldingID` DESC LIMIT {Math.Clamp(max, 1, 1000)}", cn);
+            $" WHERE m.`WerknemerID` = @wn" + (metGewist ? " AND m.`GewistOp` IS NULL" : "") +
+            $" ORDER BY m.`Aangemaakt` DESC, m.`MeldingID` DESC LIMIT {Math.Clamp(max, 1, 1000)}", cn);
         cmd.Parameters.AddWithValue("@wn", werknemerId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
@@ -205,6 +216,51 @@ public class MySqlMeldingRepository : IMeldingRepository
                 Bijlagen = r.IsDBNull(6) ? new() : r.GetValue(6).ToString()!.Split(',').Select(int.Parse).ToList(),
                 VanId = r.IsDBNull(7) ? null : Convert.ToInt32(r.GetValue(7)),
                 Van = r.IsDBNull(8) ? "" : r.GetString(8),
+            });
+        return lijst;
+    }
+
+    // Kolom GewistOp aanwezig (Meldingen_Verzonden_MariaDB.sql)? Dan wist de ontvanger een bericht van een collega
+    // alleen uit zijn eigen box en blijft het bij de afzender in Verzonden staan. Alleen 'ja' wordt onthouden.
+    private bool _gewistKolom;
+    private async Task<bool> GewistKolomAsync()
+    {
+        if (_gewistKolom) return true;
+        try
+        {
+            await using var cn = await OpenAsync();
+            await using var cmd = new MySqlCommand(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+                "AND TABLE_NAME = 'Meldingen' AND COLUMN_NAME = 'GewistOp'", cn);
+            _gewistKolom = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+        catch { }
+        return _gewistKolom;
+    }
+
+    public async Task<List<Melding>> VerzondenAsync(int werknemerId, int max = 200)
+    {
+        var lijst = new List<Melding>();
+        if (!await TabelAanwezigAsync() || !await BerichtenMogelijkAsync()) return lijst;
+        var metGewist = await GewistKolomAsync();
+        await using var cn = await OpenAsync();
+        await using var cmd = new MySqlCommand(
+            "SELECT m.`MeldingID`, m.`Soort`, m.`OrderID`, m.`Tekst`, m.`Aangemaakt`, m.`Gelezen`, " +
+            $"(SELECT GROUP_CONCAT(f.`FileStoreID` ORDER BY f.`FileStoreID`) FROM `FileStore` f " +
+            $"  WHERE f.`StoreType` = {BerichtBijlage.StoreType} AND f.`MasterID` = m.`MeldingID`), " +
+            "COALESCE(w.`NaamVoluit`, ''), " + (metGewist ? "m.`GewistOp` IS NOT NULL" : "0") +
+            "  FROM `Meldingen` m LEFT JOIN `Werknemers` w ON w.`Werknemer-id` = m.`WerknemerID` " +
+            " WHERE m.`VanWerknemerID` = @wn AND m.`Soort` = 'bericht' " +
+            $" ORDER BY m.`Aangemaakt` DESC, m.`MeldingID` DESC LIMIT {Math.Clamp(max, 1, 1000)}", cn);
+        cmd.Parameters.AddWithValue("@wn", werknemerId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            lijst.Add(new Melding(r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2), r.GetString(3), r.GetDateTime(4))
+            {
+                Gelezen = r.IsDBNull(5) ? null : r.GetDateTime(5),
+                Bijlagen = r.IsDBNull(6) ? new() : r.GetValue(6).ToString()!.Split(',').Select(int.Parse).ToList(),
+                VanId = werknemerId, Aan = r.IsDBNull(7) ? "" : r.GetString(7),
+                GewistDoorOntvanger = Convert.ToInt32(r.GetValue(8)) != 0,
             });
         return lijst;
     }
@@ -223,6 +279,16 @@ public class MySqlMeldingRepository : IMeldingRepository
     public async Task WisAsync(int meldingId, int werknemerId)
     {
         await using var cn = await OpenAsync();
+        if (await GewistKolomAsync())
+        {
+            // een bericht van een collega verdwijnt alleen uit de box van de ontvanger; de afzender houdt het in Verzonden
+            await using var zacht = new MySqlCommand(
+                "UPDATE `Meldingen` SET `GewistOp` = NOW(), `Gelezen` = COALESCE(`Gelezen`, NOW()) " +
+                " WHERE `MeldingID` = @id AND `WerknemerID` = @wn AND `Soort` = 'bericht' AND `VanWerknemerID` IS NOT NULL", cn);
+            zacht.Parameters.AddWithValue("@id", meldingId);
+            zacht.Parameters.AddWithValue("@wn", werknemerId);
+            if (await zacht.ExecuteNonQueryAsync() > 0) return;
+        }
         await using var cmd = new MySqlCommand("DELETE FROM `Meldingen` WHERE `MeldingID` = @id AND `WerknemerID` = @wn", cn);
         cmd.Parameters.AddWithValue("@id", meldingId);
         cmd.Parameters.AddWithValue("@wn", werknemerId);
