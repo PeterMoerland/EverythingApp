@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 27-11-2026
 
+- **Offertedocument** — Nieuw: een prijstabel van **een keuze van delen**. Kies bij Deel voor *Een keuze van delen…* en vink de delen uit de calculatie aan; elk deel wordt een regel en het totaal is hun som (verzoek van Peter)
 - **Offertedocument** — Verbeterd: een prijstabel van één deel uit de calculatie zonder delen eronder toonde alleen de vette totaalregel. Nu staat het deel zelf als regel boven de streep, met eronder **Totaal exclusief btw** (verzoek van Peter)
 - **Calculaties** — Nieuw: **meer regels kiezen** met Ctrl+klik (erbij of eraf) of Shift+klik (alles ertussen), en regels **kopiëren en plakken**: Ctrl+C en Ctrl+V, de knoppen Kopiëren en Plakken in de werkbalk, of de rechtermuisknop. Plakken zet de regels onder de regel waar je staat of in de gekozen groep, ook in een andere calculatie. Met meer regels gekozen kun je ze ook in één keer verwijderen (verzoek van Edwin)
 - **Berichten (bel)** — Nieuw: in de bel kies je bij het filter **Verzonden** en zie je de berichten die je zelf aan collega's stuurde: aan wie, wanneer, en of het al gelezen is. Na het draaien van een klein script blijven ze ook staan als de ontvanger ze wist (verzoek van Peter)

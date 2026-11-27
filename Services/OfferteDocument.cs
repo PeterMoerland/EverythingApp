@@ -148,7 +148,10 @@ public static class OfferteDocumentData
                     break;
                 case "kop": s["tekst"] = Kort(Tekst(b, "tekst"), 300); break;
                 case "prijs":
-                    if (Heel(b["groep"]) is long g) s["groep"] = g;
+                    // een keuze van delen (ook een lege: dan staat de keuzelijst open) gaat voor op een enkel deel
+                    if (b["groepen"] is JsonArray keuzeDelen)
+                        s["groepen"] = new JsonArray(keuzeDelen.Select(Heel).OfType<long>().Distinct().Take(500).Select(x => (JsonNode?)JsonValue.Create(x)).ToArray());
+                    else if (Heel(b["groep"]) is long g) s["groep"] = g;
                     s["diepte"] = (int)Math.Clamp(Heel(b["diepte"]) ?? 1, 0, 9);
                     var r = Tekst(b, "regels");
                     s["regels"] = r is "omschrijving" or "prijs" ? r : "geen";
@@ -852,7 +855,9 @@ public class OfferteDocumentService
                         problemen.Add("Er staat een prijstabel in, maar deze offerte heeft nog geen calculatie.");
                         html = $"<div class='doc-mist'>{H(t.En ? "No calculation yet for this quotation." : "Deze offerte heeft nog geen calculatie; de prijstabel is leeg.")}</div>";
                     }
-                    else html = Prijstabel(boom, G("groep") is decimal gr ? (long)gr : null, (int)(G("diepte") ?? 1), S("regels"), W("aantallen"), W("uren"), t, problemen);
+                    else html = Prijstabel(boom, G("groep") is decimal gr ? (long)gr : null,
+                                           (b["groepen"] as JsonArray)?.Select(x => { try { return x!.GetValue<long>(); } catch { return -1L; } }).ToList(),
+                                           (int)(G("diepte") ?? 1), S("regels"), W("aantallen"), W("uren"), t, problemen);
                     break;
                 default: continue;
             }
@@ -912,11 +917,28 @@ public class OfferteDocumentService
     /// getoond worden (0 = alleen het totaal); <paramref name="regels"/> = geen, omschrijving (zonder bedrag) of prijs.
     /// Wat niet getoond wordt maar wel meetelt, komt als een regel "Overig", zodat de tabel altijd optelt tot het totaal.
     /// </summary>
-    private static string Prijstabel(Prijsboom boom, long? groepId, int diepte, string regels, bool aantallen, bool uren,
+    private static string Prijstabel(Prijsboom boom, long? groepId, List<long>? keuze, int diepte, string regels, bool aantallen, bool uren,
                                      OffertePdfService.Teksten t, List<string> problemen)
     {
         PrijsGroep? groep = null;
-        if (groepId is long gid && !boom.Groepen.TryGetValue(gid, out groep))
+        // een keuze van delen (Peter 27-11-2026): elk gekozen deel is een regel, in de volgorde van de calculatie, en
+        // het totaal is hun som. Een deel dat al onder een ander gekozen deel valt telt niet nog eens mee.
+        List<PrijsGroep>? gekozen = null;
+        if (keuze is not null)
+        {
+            if (keuze.Any(id => !boom.Groepen.ContainsKey(id)))
+                problemen.Add("Een prijstabel verwijst naar een deel van de calculatie dat niet meer bestaat; dat deel is overgeslagen.");
+            var ids = keuze.ToHashSet();
+            bool OuderGekozen(PrijsGroep g)
+            {
+                for (var o = g.Ouder; o is long oid && boom.Groepen.TryGetValue(oid, out var og); o = og.Ouder) if (ids.Contains(oid)) return true;
+                return false;
+            }
+            gekozen = boom.Volgorde.Where(g => ids.Contains(g.Id) && !OuderGekozen(g)).ToList();
+            if (gekozen.Count == 0)
+                return $"<div class='doc-mist'>{H(t.En ? "No parts of the calculation chosen yet." : "Nog geen delen gekozen. Vink in de balk boven dit blok de delen aan die in de tabel moeten komen.")}</div>";
+        }
+        else if (groepId is long gid && !boom.Groepen.TryGetValue(gid, out groep))
         {
             problemen.Add("Een prijstabel verwijst naar een deel van de calculatie dat niet meer bestaat.");
             return $"<div class='doc-mist'>{H(t.En ? "This part of the calculation no longer exists." : "Dit deel van de calculatie bestaat niet meer. Kies een ander deel of verwijder dit blok.")}</div>";
@@ -946,13 +968,14 @@ public class OfferteDocumentService
         }
 
         var rijen = diepte <= 0 ? new List<Rij>()
+                  : gekozen is not null ? gekozen.Where(Gevuld).Select(w => VoorGroep(w, diepte - 1)).ToList()
                   : groep is null ? boom.Wortels.Where(Gevuld).Select(w => VoorGroep(w, diepte - 1)).ToList()
                   : Inhoud(groep, diepte);
         // een gekozen deel zonder iets met een bedrag eronder (geen delen, regels niet getoond) gaf alleen de
         // totaalregel. Dan het deel zelf als regel boven de streep, en eronder het gewone totaal (Peter 27-11-2026)
         var deelAlsRegel = groep is not null && diepte > 0 && !rijen.Any(x => x.Bedrag is not null);
         if (deelAlsRegel) rijen = new List<Rij> { VoorGroep(groep!, diepte) };
-        var totaal = Math.Round(groep?.Verkoop ?? boom.Totaal, 2);
+        var totaal = Math.Round(gekozen?.Sum(x => x.Verkoop) ?? groep?.Verkoop ?? boom.Totaal, 2);
         RondAf(rijen, totaal);
 
         var kolommen = uren ? 3 : 2;

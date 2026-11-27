@@ -78,6 +78,8 @@
   .ed-inst select { font: 12px 'Segoe UI', Arial, sans-serif; padding: 2px 4px; max-width: 260px; }
   .ed-inst label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
   .ed-inst .ed-koppel { color: #1f6feb; font-weight: 600; }
+  .ed-inst .ed-kies { flex: 0 0 100%; display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow: auto; padding: 4px 6px; background: #fff; border: 1px solid #c9d6ea; border-radius: 4px; }
+  .ed-inst .ed-kies .ed-kies-bedrag { color: #667; margin-left: 8px; }
   [contenteditable]:focus { outline: none; }
   .ed-bewerk [contenteditable]:empty::before { content: attr(data-leeg); color: #aaa; }
   .ed-pagina { margin: 6mm 0 0; border-top: 2px dashed #b9c2cf; text-align: center; color: #8894a3; font: 11px 'Segoe UI', Arial, sans-serif; padding-top: 2px; }
@@ -350,8 +352,13 @@
   }
   function instPrijs(b) {
     const opt = (w, t, gekozen) => `<option value="${esc(w)}" ${String(gekozen) === String(w) ? 'selected' : ''}>${esc(t)}</option>`;
-    const groepen = [opt('', 'Hele calculatie', b.groep ?? '')].concat(GROEPEN.map(g => opt(g.id, '  '.repeat(g.diepte) + g.naam + '  ·  ' + euro.format(g.verkoop), b.groep ?? '')));
-    if (b.groep != null && !GROEPEN.some(g => g.id === b.groep)) groepen.push(opt(b.groep, '(bestaat niet meer)', b.groep));
+    // een keuze van delen: b.groepen = de ids; de lijst met vinkjes staat dan onder de instellingen
+    const keuze = Array.isArray(b.groepen);
+    const nu = keuze ? 'keuze' : (b.groep ?? '');
+    const groepen = [opt('', 'Hele calculatie', nu), opt('keuze', 'Een keuze van delen…', nu)].concat(GROEPEN.map(g => opt(g.id, '  '.repeat(g.diepte) + g.naam + '  ·  ' + euro.format(g.verkoop), nu)));
+    if (!keuze && b.groep != null && !GROEPEN.some(g => g.id === b.groep)) groepen.push(opt(b.groep, '(bestaat niet meer)', b.groep));
+    const kies = !keuze ? '' : `<div class="ed-kies" title="Vink de delen aan die in de tabel komen; het totaal is hun som. Een deel onder een aangevinkt deel telt niet nog eens mee.">${GROEPEN.map(g =>
+      `<label style="padding-left:${g.diepte * 14}px"><input type="checkbox" data-veld="kies" data-groep="${g.id}" ${b.groepen.includes(g.id) ? 'checked' : ''}> ${esc(g.naam)}<span class="ed-kies-bedrag">${esc(euro.format(g.verkoop))}</span></label>`).join('')}</div>`;
     return `<div class="ed-inst">
       <span class="ed-koppel" title="De cijfers komen uit de calculatie en veranderen mee tot het document is vastgelegd">🔗 calculatie</span>
       <label>Deel <select data-veld="groep">${groepen.join('')}</select></label>
@@ -359,6 +366,7 @@
       <label>Regels <select data-veld="regels">${[['geen', 'niet tonen'], ['omschrijving', 'omschrijving'], ['prijs', 'met bedrag']].map(([w, t]) => opt(w, t, b.regels)).join('')}</select></label>
       <label><input type="checkbox" data-veld="aantallen" ${b.aantallen ? 'checked' : ''}> aantallen (2×)</label>
       <label><input type="checkbox" data-veld="uren" ${b.uren ? 'checked' : ''}> uren</label>
+      ${kies}
     </div>`;
   }
   function tekenBlok(b) {
@@ -514,7 +522,17 @@
   inhoud.addEventListener('change', e => {
     const el = e.target.closest('.ed-blok'), veld = e.target.dataset.veld; if (!el || !veld || RO()) return;
     const b = blok(el.dataset.id); if (!b) return;
-    if (veld === 'groep') { if (e.target.value === '') delete b.groep; else b.groep = Number(e.target.value); }
+    if (veld === 'groep') {
+      const was = Array.isArray(b.groepen);
+      if (e.target.value === 'keuze') { b.groepen = b.groep != null ? [b.groep] : []; delete b.groep; }
+      else { delete b.groepen; if (e.target.value === '') delete b.groep; else b.groep = Number(e.target.value); }
+      if (was || Array.isArray(b.groepen)) { bewaar(); teken(); ververs(); return; }   // de lijst met vinkjes komt of gaat
+    }
+    else if (veld === 'kies') {
+      const id = Number(e.target.dataset.groep);
+      b.groepen = (b.groepen || []).filter(x => x !== id);
+      if (e.target.checked) b.groepen.push(id);
+    }
     else if (veld === 'diepte' || veld === 'breedte') b[veld] = Number(e.target.value);
     else if (veld === 'hoogte') { b.hoogte = Number(e.target.value); el.querySelector('.doc-ruimte').style.height = b.hoogte + 'mm'; bewaar(); return; }
     else if (veld === 'regels') b.regels = e.target.value;
