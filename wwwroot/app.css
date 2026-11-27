@@ -637,6 +637,16 @@ button.bestandnaam:hover { text-decoration: underline; }
 .bijlage-kolom { flex: 1 1 24rem; min-width: 0; }
 .bijlage-kolom h3 { margin: 0 0 .4rem; font-size: .95rem; color: var(--accent); }
 .bijlagevoet { padding: .6rem 1rem; border-top: 1px solid #ddd; text-align: right; }
+/* Gebouwbeheer > Verwarming > Tado (Components/Pages/Tado.razor) */
+.tado-raster { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .8rem; margin-top: .6rem; max-width: 70rem; }
+.tado-kaart { background: #fff; border: 1px solid #d5dae0; border-left: 3px solid var(--accent); border-radius: 6px; padding: .7rem .9rem; }
+.tado-kaart.tado-weg { border-left-color: #b3bcc6; color: #8a939e; }
+.tado-naam { font-weight: 600; }
+.tado-temp { font-size: 2.2rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tado-regel { color: #556; font-size: .92em; }
+.tado-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .4rem; min-height: 1.4rem; }
+.tado-code { font-size: 2rem; font-weight: 700; letter-spacing: .15em; font-family: Consolas, monospace; margin: .2rem 0; }
+.tado-voet { margin-top: 1rem; }
 /* Bestellingen: bijlagen van alle regels als ZIP (BestelBijlagenVenster) */
 .bbz-venster { width: min(48rem, 94vw); display: flex; flex-direction: column; }
 .bbz-inhoud { padding: .6rem 1rem; overflow: auto; flex: 1; min-height: 6rem; }

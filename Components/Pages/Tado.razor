@@ -1,0 +1,149 @@
+@page "/gebouw/tado"
+@inject TadoKoppeling Koppeling
+@inject HuidigeGebruiker Ik
+@implements IDisposable
+
+@* De Tado-thermostaten per ruimte: temperatuur, ingestelde waarde, vochtigheid en warmtevraag (verzoek van Peter
+   27-11-2026). Alleen lezen. Koppelen gaat met een code die iemand met het Tado-account in zijn eigen browser
+   goedkeurt; het wachtwoord van Tado komt niet in de app (Services/TadoKoppeling.cs). *@
+
+<PageTitle>Tado — MDE</PageTitle>
+
+<div class="page">
+    <header class="topbar">
+        <h1>Tado</h1>
+        @if (_stand is not null)
+        {
+            <span class="hmi-stand-regel">bijgewerkt @_stand.Gelezen.ToString("HH:mm") · ververst elke @Koppeling.VerversMinuten minuten</span>
+            <button class="klein" disabled="@_bezig" @onclick="() => LaadAsync(true)" title="Nu opnieuw lezen (hooguit eens per twee minuten; Tado staat maar een beperkt aantal aanvragen per dag toe)">↻ Nu verversen</button>
+        }
+    </header>
+
+    @if (Koppeling.Fout.Length > 0)
+    {
+        <p class="melding fout">@Koppeling.Fout</p>
+    }
+
+    @if (!Koppeling.Gekoppeld)
+    {
+        <section class="module-placeholder tado-koppel">
+            @if (Koppeling.Koppelcode is { } kc)
+            {
+                <p><strong>Stap 1.</strong> Open de pagina van Tado en log daar in met het Tado-account van MDE:</p>
+                <p><a class="knopje" href="@kc.Url" target="_blank" rel="noopener">Openen bij Tado ↗</a></p>
+                <p><strong>Stap 2.</strong> Controleer of Tado deze code toont en keur de koppeling goed:</p>
+                <p class="tado-code">@kc.Code</p>
+                <p class="uitleg">Dit scherm gaat vanzelf verder zodra Tado de koppeling heeft goedgekeurd. De code is geldig tot @kc.Verloopt.ToString("HH:mm").</p>
+                <button class="klein" @onclick="Koppeling.StopKoppelen">Annuleren</button>
+            }
+            else
+            {
+                <p>De app is nog niet met Tado gekoppeld. Koppelen gaat één keer: je logt zelf bij Tado in en keurt de koppeling goed. Het wachtwoord van Tado komt niet in de app.</p>
+                @if (_magKoppelen)
+                {
+                    <button disabled="@_bezig" @onclick="KoppelAsync">Koppelen met Tado</button>
+                }
+                else
+                {
+                    <p class="uitleg">Koppelen kan iemand met het recht Directie of Netwerk.</p>
+                }
+            }
+        </section>
+    }
+    else if (_stand is null)
+    {
+        <p class="uitleg">@(_bezig ? "Laden…" : "Er is nog geen stand gelezen.")</p>
+    }
+    else
+    {
+        <div class="tado-raster">
+            @foreach (var r in _stand.Ruimtes)
+            {
+                <div @key="r.Id" class="tado-kaart @(r.Verbonden ? "" : "tado-weg")">
+                    <div class="tado-naam">@r.Naam</div>
+                    <div class="tado-temp">@(r.Temperatuur is { } t ? t.ToString("0.0") + "°" : "—")</div>
+                    <div class="tado-regel">
+                        @if (!r.Aan) { <span>Uit</span> }
+                        else if (r.Ingesteld is { } i) { <span>Ingesteld op @i.ToString("0.#")°</span> }
+                        @if (r.Vocht is { } v) { <span>· @v.ToString("0")% vocht</span> }
+                    </div>
+                    <div class="tado-chips">
+                        @if (!r.Verbonden) { <span class="stand-chip s-rood">geen verbinding</span> }
+                        @if (r.Vraag is > 0) { <span class="stand-chip s-oranje" title="Hoe hard de verwarming in deze ruimte nu gevraagd wordt">🔥 @r.Vraag%</span> }
+                        @if (r.RaamOpen) { <span class="stand-chip s-oranje">open raam</span> }
+                        @if (r.Handmatig) { <span class="stand-chip" title="Met de hand ingesteld; wijkt af van het weekschema">handmatig</span> }
+                    </div>
+                </div>
+            }
+        </div>
+        @if (_stand.Ruimtes.Count == 0)
+        {
+            <p class="uitleg">Tado gaf geen ruimtes terug.</p>
+        }
+        <p class="uitleg tado-voet">
+            @if (_stand.AanvragenOver is { } over) { <span>Tado staat vandaag nog @over aanvragen toe. </span> }
+            @if (_magKoppelen)
+            {
+                @if (_zekerOntkoppelen)
+                {
+                    <span>Koppeling verbreken? </span>
+                    <button class="klein" @onclick="OntkoppelAsync">Ja, ontkoppelen</button>
+                    <button class="klein" @onclick="() => _zekerOntkoppelen = false">Nee</button>
+                }
+                else
+                {
+                    <button class="klein" @onclick="() => _zekerOntkoppelen = true">Ontkoppelen…</button>
+                }
+            }
+        </p>
+    }
+</div>
+
+@code {
+    private TadoStand? _stand;
+    private bool _bezig;
+    private bool _magKoppelen;
+    private bool _zekerOntkoppelen;
+    private System.Threading.Timer? _klok;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Ik.ZorgGeladenAsync();
+        _magKoppelen = Ik.Mag("Directie") || Ik.MagNetwerk;
+        Koppeling.Gewijzigd += OpGewijzigd;
+        await LaadAsync(false);
+        // elke minuut kijken; de koppeling leest zelf pas opnieuw als de stand oud genoeg is
+        _klok = new System.Threading.Timer(_ => InvokeAsync(() => LaadAsync(false)), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private async Task LaadAsync(bool nu)
+    {
+        if (_bezig) return;
+        _bezig = true;
+        try { _stand = await Koppeling.StandAsync(nu); }
+        finally { _bezig = false; }
+        StateHasChanged();
+    }
+
+    private async Task KoppelAsync()
+    {
+        _bezig = true;
+        try { await Koppeling.StartKoppelenAsync(); }
+        finally { _bezig = false; }
+    }
+
+    private async Task OntkoppelAsync()
+    {
+        _zekerOntkoppelen = false;
+        await Koppeling.OntkoppelAsync();
+        _stand = null;
+    }
+
+    private void OpGewijzigd() => InvokeAsync(() => LaadAsync(false));
+
+    public void Dispose()
+    {
+        Koppeling.Gewijzigd -= OpGewijzigd;
+        _klok?.Dispose();
+    }
+}

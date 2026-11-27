@@ -432,6 +432,8 @@ builder.Services.AddSingleton<NdaDocumentService>();
 // Typeplaatje voor de laser (SVG + PDF)
 builder.Services.AddSingleton<LabelService>();
 builder.Services.AddSingleton<SonosService>();
+// Tado-thermostaten (Gebouwbeheer > Verwarming > Tado): eenmalige koppeling met een code, stand per ruimte
+builder.Services.AddSingleton<TadoKoppeling>();
 // Omroep op de Sonos-speakers (Beheer > Omroep): Windows-stem op de server, geluid klaarzetten, en de tijdklok voor
 // de meldingen op vaste tijden (tabel OmroepMeldingen). Services/OmroepService.cs, WindowsStem.cs.
 builder.Services.AddSingleton<WindowsStem>();

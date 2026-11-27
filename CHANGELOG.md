@@ -7,6 +7,7 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 27-11-2026
 
+- **Gebouwbeheer** — Nieuw: scherm **Verwarming ▸ Tado**. Per ruimte de temperatuur, de ingestelde waarde, de vochtigheid, hoe hard de verwarming gevraagd wordt en of er een raam open staat. Koppelen gaat één keer met een code die je zelf bij Tado goedkeurt (Directie of Netwerk); het wachtwoord van Tado komt niet in de app. Voorlopig alleen kijken, instellen kan nog niet (verzoek van Peter)
 - **Artikelen** — Opgelost: zoeken op een artikelnummer vond een samenstelling of maakdeel alleen met een **#** ervoor. Typ je alleen het nummer, dan komt dat artikel nu altijd mee, ook als het vinkje Maakdelen anders staat (melding van Sjoerd)
 - **Bestellingen** — Nieuw: knop **📎 Bijlagen (ZIP)…** boven de regels. Je ziet de bijlagen van alle regels van de bestelling, vinkt aan wat mee moet (alles, niets of per soort bestand) en downloadt ze als één ZIP-bestand; een los bestand downloaden kan ook (verzoek van Freek)
 - **Gebouwbeheer** — Nieuw: onderdeel **Verwarming** met een tegel **Tado**. De tegel staat er als plek; het scherm erachter komt nog (verzoek van Peter)
