@@ -273,6 +273,11 @@ public static class Menu
 
                 new MenuModule("alarm", "Alarm", "shield") { Url = "/gebouw/alarm", Venster = true },
 
+                // Verwarming (Peter 27-11-2026): de tegel Tado is een plek, het scherm erachter moet nog komen
+                new MenuModule("verwarming", "Verwarming", "heater",
+                    new MenuGroep("Thermostaten",
+                        new MenuItem("Tado", Icoon: "thermometer"))),
+
                 new MenuModule("energie", "Energie", "flash",
                     new MenuGroep("Overzichten",
                         new MenuItem("Verbruik per dag", Icoon: "chart-column"),

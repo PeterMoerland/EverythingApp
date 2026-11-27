@@ -805,6 +805,43 @@ app.MapGet("/bestand/{id:int}",
 app.MapGet("/bestand/{id:int}/download",
     (int id, FilestoreService store, HuidigeGebruiker ik, IMeldingRepository meldingen) => BestandUitgeven(id, true, store, ik, meldingen));
 
+// --- de bijlagen van alle regels van een bestelling als één ZIP (Bestellingen ▸ knop Bijlagen, verzoek Freek 27-11-2026).
+// Alleen bestanden die echt bij deze bestelling horen (dezelfde lijst als de mail aan de leverancier); ids = een keuze
+// daaruit, zonder = alles. Het ZIP-bestand staat tijdelijk op schijf en verdwijnt als de download klaar is. ---
+var bestelZip = app.MapGet("/bestelling/{orderId:int}/bijlagen.zip", async (int orderId, string? ids, IBestelRepository bestellingen,
+    FilestoreService store, HuidigeGebruiker ik, IConfiguration config) =>
+{
+    await ik.ZorgGeladenAsync();
+    var g = await bestellingen.BestelMailAsync(orderId, ik.WerknemerId, config.GetValue<int?>("Bestellingen:EigenRelatieId") ?? 5254);
+    if (g is null) return Results.NotFound("Bestelling niet gevonden.");
+    var keuze = string.IsNullOrWhiteSpace(ids) ? null
+              : ids.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => int.TryParse(x, out var n) ? n : -1).ToHashSet();
+    var lijst = g.Bijlagen.Where(b => keuze is null || keuze.Contains(b.FileStoreId)).ToList();
+    if (lijst.Count == 0) return Results.NotFound("Geen bijlagen gekozen.");
+    var tijdelijk = Path.Combine(Path.GetTempPath(), $"mde-bijlagen-{Guid.NewGuid():N}.zip");
+    var stroom = new FileStream(tijdelijk, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+    try
+    {
+        var namen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var zip = new System.IO.Compression.ZipArchive(stroom, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var b in lijst)
+            {
+                if (await store.ZoekAsync(b.FileStoreId) is not { } f || !File.Exists(f.Pad)) continue;     // niet (meer) in de filestore: overslaan
+                var basis = string.Join("_", (b.Naam.Length > 0 ? b.Naam : f.Naam).Split(Path.GetInvalidFileNameChars()));
+                var naam = basis;
+                for (var n = 2; !namen.Add(naam); n++) naam = $"{Path.GetFileNameWithoutExtension(basis)} ({n}){Path.GetExtension(basis)}";
+                await using var doel = zip.CreateEntry(naam, System.IO.Compression.CompressionLevel.Fastest).Open();
+                await using var bron = File.OpenRead(f.Pad);
+                await bron.CopyToAsync(doel);
+            }
+        if (namen.Count == 0) { await stroom.DisposeAsync(); return Results.NotFound("De gekozen bijlagen staan niet (meer) in de filestore."); }
+        stroom.Position = 0;
+        return Results.File(stroom, "application/zip", $"Bijlagen-bestelling-{orderId}.zip");
+    }
+    catch { await stroom.DisposeAsync(); throw; }
+});
+if (loginAan) bestelZip.RequireAuthorization();
+
 // --- klein voorbeeld van een projectfoto (Projecten ▸ project ▸ tab Foto's); de foto zelf gaat via /bestand/{id} ---
 var projectFotoKlein = app.MapGet("/projectfoto/{id:int}/klein", async (int id, IProjectFotoRepository fotos, HttpContext http) =>
 {

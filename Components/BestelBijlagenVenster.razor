@@ -1,0 +1,129 @@
+@* De bijlagen van alle regels van een bestelling in één keer meenemen: aanvinken wat mee moet en als één ZIP-bestand
+   downloaden (verzoek van Freek 27-11-2026; in Access de knop die de bijlagen naar een map kopieerde). Dezelfde lijst
+   als in de mail aan de leverancier (IBestelRepository.BestelMailAsync). Het ZIP-bestand maakt Program.cs
+   (/bestelling/{id}/bijlagen.zip); hier wordt niets gewijzigd. *@
+@inject IBestelRepository Repo
+@inject FilestoreService Store
+@inject HuidigeGebruiker Ik
+@inject IConfiguration Config
+
+@if (OrderId is not null)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="bijlagevenster bbz-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Bijlagen van bestelling @OrderId</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+            <div class="bbz-inhoud">
+                @if (_laden)
+                {
+                    <p class="uitleg">Laden…</p>
+                }
+                else if (_fout.Length > 0)
+                {
+                    <p class="melding fout">@_fout</p>
+                }
+                else if (_bijlagen.Count == 0)
+                {
+                    <p class="uitleg">Bij de regels van deze bestelling staan geen bijlagen. Je voegt ze toe met 📎 achter een regel.</p>
+                }
+                else
+                {
+                    <div class="bbz-balk">
+                        <button class="klein" @onclick="() => KiesAlles(true)">Alles</button>
+                        <button class="klein" @onclick="() => KiesAlles(false)">Niets</button>
+                        @foreach (var ext in _extensies)
+                        {
+                            var e = ext;
+                            <button class="klein" title="@($"Alleen de {e}-bestanden kiezen")" @onclick="() => KiesSoort(e)">@e</button>
+                        }
+                        <span class="uitleg">@_gekozen.Count van @_bijlagen.Count gekozen · @Mb(GekozenGrootte)</span>
+                    </div>
+                    <table class="tabel compact bbz-tabel">
+                        <thead><tr><th></th><th>Bestand</th><th>Regel</th><th class="r">Grootte</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var b in _bijlagen)
+                            {
+                                var bl = b;
+                                <tr @key="bl.FileStoreId" class="@(bl.Verouderd ? "bm-oud" : "")" @onclick="() => Kies(bl.FileStoreId, !_gekozen.Contains(bl.FileStoreId))">
+                                    <td><input type="checkbox" checked="@_gekozen.Contains(bl.FileStoreId)" @onclick:stopPropagation
+                                               @onchange="e => Kies(bl.FileStoreId, e.Value is true)" /></td>
+                                    <td>📄 @bl.Naam @if (bl.Verouderd) { <small title="Er is een nieuwere versie bij het artikel">· oud</small> }</td>
+                                    <td>@bl.Regel</td>
+                                    <td class="r">@Mb(bl.Grootte)</td>
+                                    <td><a class="knopje" href="@($"bestand/{bl.FileStoreId}/download")" title="Alleen dit bestand downloaden" @onclick:stopPropagation>⭳</a></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <footer class="bijlagevoet">
+                @if (_gekozen.Count > 0)
+                {
+                    <a class="knopje" href="@ZipUrl" download title="De gekozen bestanden als één ZIP-bestand downloaden">⭳ Download ZIP (@_gekozen.Count)</a>
+                }
+                <button class="klein" @onclick="Sluit">Sluiten</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De bestelling waarvan de bijlagen getoond worden; null = venster dicht.</summary>
+    [Parameter] public int? OrderId { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private int? _geladenVoor;
+    private bool _laden;
+    private string _fout = "";
+    private List<BestelMailBijlage> _bijlagen = new();
+    private HashSet<int> _gekozen = new();
+    private List<string> _extensies = new();
+
+    private long GekozenGrootte => _bijlagen.Where(b => _gekozen.Contains(b.FileStoreId)).Sum(b => b.Grootte);
+
+    /// <summary>Alles gekozen = zonder lijst (korter adres); anders de gekozen nummers.</summary>
+    private string ZipUrl => $"bestelling/{OrderId}/bijlagen.zip" + (_gekozen.Count == _bijlagen.Count ? "" : "?ids=" + string.Join(",", _gekozen.OrderBy(x => x)));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OrderId == _geladenVoor) return;
+        _geladenVoor = OrderId;
+        _bijlagen = new(); _gekozen = new(); _extensies = new(); _fout = "";
+        if (OrderId is not int id) return;
+        _laden = true;
+        try
+        {
+            await Ik.ZorgGeladenAsync();
+            var eigen = Config.GetValue<int?>("Bestellingen:EigenRelatieId") ?? 5254;
+            var g = await Repo.BestelMailAsync(id, Ik.WerknemerId, eigen);
+            if (g is null) { _fout = "Bestelling niet gevonden."; return; }
+            // FileStore.FileSize is vaak leeg: de echte grootte van schijf
+            foreach (var b in g.Bijlagen)
+            {
+                long grootte = b.Grootte;
+                try { if (await Store.ZoekAsync(b.FileStoreId) is { } f && File.Exists(f.Pad)) grootte = new FileInfo(f.Pad).Length; } catch { }
+                _bijlagen.Add(b with { Grootte = grootte });
+            }
+            _gekozen = _bijlagen.Select(b => b.FileStoreId).ToHashSet();
+            _extensies = _bijlagen.Select(Soort).Where(x => x.Length > 0).Distinct().OrderBy(x => x).ToList();
+            if (_extensies.Count < 2) _extensies.Clear();     // één soort: kiezen op soort voegt niets toe
+        }
+        catch (Exception ex) { _fout = "De bijlagen konden niet geladen worden: " + ex.Message; }
+        finally { _laden = false; }
+    }
+
+    private static string Soort(BestelMailBijlage b) => Path.GetExtension(b.Naam).TrimStart('.').ToUpperInvariant();
+
+    private void Kies(int id, bool aan) { if (aan) _gekozen.Add(id); else _gekozen.Remove(id); }
+
+    private void KiesAlles(bool aan) => _gekozen = aan ? _bijlagen.Select(b => b.FileStoreId).ToHashSet() : new();
+
+    private void KiesSoort(string ext) => _gekozen = _bijlagen.Where(b => Soort(b) == ext).Select(b => b.FileStoreId).ToHashSet();
+
+    private static string Mb(long bytes) => bytes <= 0 ? "" : bytes < 1_000_000 ? $"{Math.Max(1, bytes / 1000)} kB" : $"{bytes / 1_000_000.0:0.0} MB";
+
+    private Task Sluit() => OpGesloten.InvokeAsync();
+}

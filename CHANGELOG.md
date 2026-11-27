@@ -7,6 +7,9 @@ Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er vera
 
 ## 27-11-2026
 
+- **Artikelen** — Opgelost: zoeken op een artikelnummer vond een samenstelling of maakdeel alleen met een **#** ervoor. Typ je alleen het nummer, dan komt dat artikel nu altijd mee, ook als het vinkje Maakdelen anders staat (melding van Sjoerd)
+- **Bestellingen** — Nieuw: knop **📎 Bijlagen (ZIP)…** boven de regels. Je ziet de bijlagen van alle regels van de bestelling, vinkt aan wat mee moet (alles, niets of per soort bestand) en downloadt ze als één ZIP-bestand; een los bestand downloaden kan ook (verzoek van Freek)
+- **Gebouwbeheer** — Nieuw: onderdeel **Verwarming** met een tegel **Tado**. De tegel staat er als plek; het scherm erachter komt nog (verzoek van Peter)
 - **Offertedocument** — Nieuw: een prijstabel van **een keuze van delen**. Kies bij Deel voor *Een keuze van delen…* en vink de delen uit de calculatie aan; elk deel wordt een regel en het totaal is hun som (verzoek van Peter)
 - **Offertedocument** — Verbeterd: een prijstabel van één deel uit de calculatie zonder delen eronder toonde alleen de vette totaalregel. Nu staat het deel zelf als regel boven de streep, met eronder **Totaal exclusief btw** (verzoek van Peter)
 - **Calculaties** — Nieuw: **meer regels kiezen** met Ctrl+klik (erbij of eraf) of Shift+klik (alles ertussen), en regels **kopiëren en plakken**: Ctrl+C en Ctrl+V, de knoppen Kopiëren en Plakken in de werkbalk, of de rechtermuisknop. Plakken zet de regels onder de regel waar je staat of in de gekozen groep, ook in een andere calculatie. Met meer regels gekozen kun je ze ook in één keer verwijderen (verzoek van Edwin)

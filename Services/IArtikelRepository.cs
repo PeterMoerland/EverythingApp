@@ -274,9 +274,13 @@ public class MySqlArtikelRepository : IArtikelRepository
         var woorden = (lang.Count > 0 ? lang : alle).Take(6).ToList();
 
         var merk = await MerkTabelAsync();
+        // Is de zoektekst alleen een nummer, dan komt het artikel met dat nummer altijd mee, ook als het aan de andere
+        // kant van het vinkje Maakdelen staat (Sjoerd 27-11-2026: een samenstelling werd alleen met # ervoor gevonden).
+        // Het getal komt uit int.TryParse en kan dus zo in de query.
+        var soort = maakdelen ? "(a.`Maakdeel` <> 0)" : "(a.`Maakdeel` = 0 OR a.`Maakdeel` IS NULL)";
         var delen = new List<string>
         {
-            maakdelen ? "(a.`Maakdeel` <> 0)" : "(a.`Maakdeel` = 0 OR a.`Maakdeel` IS NULL)",
+            int.TryParse(kort, out var alsNummer) && alsNummer > 0 ? $"({soort} OR a.`ArtikelID` = {alsNummer})" : soort,
         };
 
         // Elk woord moet érgens voorkomen; samen dus een AND van OR's.

@@ -637,6 +637,13 @@ button.bestandnaam:hover { text-decoration: underline; }
 .bijlage-kolom { flex: 1 1 24rem; min-width: 0; }
 .bijlage-kolom h3 { margin: 0 0 .4rem; font-size: .95rem; color: var(--accent); }
 .bijlagevoet { padding: .6rem 1rem; border-top: 1px solid #ddd; text-align: right; }
+/* Bestellingen: bijlagen van alle regels als ZIP (BestelBijlagenVenster) */
+.bbz-venster { width: min(48rem, 94vw); display: flex; flex-direction: column; }
+.bbz-inhoud { padding: .6rem 1rem; overflow: auto; flex: 1; min-height: 6rem; }
+.bbz-balk { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-bottom: .5rem; }
+.bbz-tabel { width: 100%; }
+.bbz-tabel tbody tr { cursor: pointer; }
+.bbz-venster .bijlagevoet { display: flex; justify-content: flex-end; gap: .5rem; align-items: center; }
 button.klein.metbijlage { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 /* Kleur op de onderregel van een bestelling: in één oogopslag zien waar hij staat */

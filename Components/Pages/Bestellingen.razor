@@ -505,6 +505,9 @@
                             <button class="klein" disabled="@(_pakbonBezig || _regels.Count == 0)" @onclick="PakbonMaken"
                                     title="Een pakbon voor deze leverancier met de regels van deze bestelling, om mee te geven (bv. delen die naar de anodiseerder gaan)">
                                 @(_pakbonBezig ? "Bezig…" : "📦 Pakbon")</button>
+                            @* de bijlagen van alle regels in één keer meenemen (verzoek van Freek 27-11-2026) *@
+                            <button class="klein" disabled="@(!_regels.Any(r => r.Bijlagen > 0))" @onclick="() => _zipOrder = _orderId"
+                                    title="@(_regels.Any(r => r.Bijlagen > 0) ? "De bijlagen van alle regels: kiezen wat mee moet en als één ZIP-bestand downloaden" : "Bij de regels van deze bestelling staan geen bijlagen")">📎 Bijlagen (ZIP)…</button>
                             <div class="menu-knop">
                                 <button class="klein" @onclick="() => _importMenu = !_importMenu">Importeren ▾</button>
                                 @if (_importMenu)
@@ -615,6 +618,7 @@
                     </div>
 
                     <BestelMailVenster OrderId="_mailOrder" OpGesloten="MailGesloten" />
+                    <BestelBijlagenVenster OrderId="_zipOrder" OpGesloten="() => _zipOrder = null" />
                     <ArtikelZoekVenster Open="_artZoekRegel is not null" Zoek="@_artZoekTekst" Maakdelen="_artZoekMaakdelen"
                                         Voorstel="_artZoekVoorstel"
                                         OpGekozen="ArtikelGekozen" OpGesloten="() => { _artZoekRegel = null; _artZoekVoorstel = null; }" />
@@ -1549,6 +1553,8 @@
 
     // ---- mail aan de leverancier (Components/BestelMailVenster.razor) ----
     private int? _mailOrder;
+    /// <summary>De bestelling waarvan het venster Bijlagen (ZIP) openstaat (Components/BestelBijlagenVenster.razor).</summary>
+    private int? _zipOrder;
 
     private async Task MailGesloten(bool verstuurd)
     {
