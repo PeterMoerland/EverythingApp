@@ -948,6 +948,10 @@ public class OfferteDocumentService
         var rijen = diepte <= 0 ? new List<Rij>()
                   : groep is null ? boom.Wortels.Where(Gevuld).Select(w => VoorGroep(w, diepte - 1)).ToList()
                   : Inhoud(groep, diepte);
+        // een gekozen deel zonder iets met een bedrag eronder (geen delen, regels niet getoond) gaf alleen de
+        // totaalregel. Dan het deel zelf als regel boven de streep, en eronder het gewone totaal (Peter 27-11-2026)
+        var deelAlsRegel = groep is not null && diepte > 0 && !rijen.Any(x => x.Bedrag is not null);
+        if (deelAlsRegel) rijen = new List<Rij> { VoorGroep(groep!, diepte) };
         var totaal = Math.Round(groep?.Verkoop ?? boom.Totaal, 2);
         RondAf(rijen, totaal);
 
@@ -974,7 +978,7 @@ public class OfferteDocumentService
             }
         }
         Schrijf(rijen, 0);
-        var label = groep is null ? t.TotaalExcl : $"{t.Totaal} {groep.Naam}";
+        var label = groep is null || deelAlsRegel ? t.TotaalExcl : $"{t.Totaal} {groep.Naam}";
         sb.Append($"<tr class='sectietotaal'><td colspan='{kolommen - 1}' class='r'>{H(label)}</td><td class='r'>{t.Geld(totaal)}</td></tr></table>");
         return sb.ToString();
     }
