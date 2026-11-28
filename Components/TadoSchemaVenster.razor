@@ -1,0 +1,201 @@
+@* Het weekschema van één Tado-ruimte bekijken en wijzigen (verzoek van Peter 28-11-2026). Per dagsoort een lijst
+   blokken: elk blok begint op zijn tijd en loopt tot het volgende; het eerste begint altijd om 00:00, zodat de dag
+   vanzelf helemaal gevuld is. Opslaan gaat per dagsoort (één aanvraag bij Tado). Services/TadoKoppeling.cs. *@
+@inject TadoKoppeling Koppeling
+@inject HuidigeGebruiker Ik
+
+@if (Ruimte is not null)
+{
+    <div class="cmdk-overlay midden" @onclick="Sluit">
+        <div class="bijlagevenster tsv-venster" @onclick:stopPropagation>
+            <header class="bijlagekop">
+                <h2>Weekschema @Ruimte.Naam</h2>
+                <button class="klein" @onclick="Sluit">✕</button>
+            </header>
+            <div class="tsv-inhoud">
+                @if (_laden)
+                {
+                    <p class="uitleg">Laden…</p>
+                }
+                else if (_schema is null)
+                {
+                    <p class="melding fout">@(Koppeling.Fout.Length > 0 ? Koppeling.Fout : "Het schema kon niet gelezen worden.")</p>
+                }
+                else
+                {
+                    @if (_melding.Length > 0)
+                    {
+                        <p class="melding @(_meldingFout ? "fout" : "ok")">@_melding</p>
+                    }
+                    <p class="uitleg">
+                        Indeling: <strong>@SoortNaam(_schema.Soort)</strong>. Elk blok loopt tot het begin van het volgende.
+                        @if (!MagWijzigen) { <span>Wijzigen kan iemand met het recht Directie of Netwerk.</span> }
+                    </p>
+                    @foreach (var dag in _dagen.Keys)
+                    {
+                        var d = dag;
+                        var rijen = _dagen[d];
+                        <section class="tsv-dag">
+                            <h3>
+                                @DagNaam(d)
+                                @if (MagWijzigen)
+                                {
+                                    <button class="klein" disabled="@_bezig" @onclick="() => BlokErbij(d)">+ Blok</button>
+                                    @if (_gewijzigd.Contains(d))
+                                    {
+                                        <button disabled="@_bezig" @onclick="() => BewaarAsync(d)">Opslaan</button>
+                                        <small>nog niet opgeslagen</small>
+                                    }
+                                }
+                            </h3>
+                            <table class="tabel compact tsv-tabel">
+                                <thead><tr><th>Van</th><th>Tot</th><th>Verwarming</th><th>Temperatuur</th><th></th></tr></thead>
+                                <tbody>
+                                    @for (var i = 0; i < rijen.Count; i++)
+                                    {
+                                        var rij = rijen[i];
+                                        var eerste = i == 0;
+                                        var tot = i + 1 < rijen.Count ? rijen[i + 1].Van : "24:00";
+                                        <tr>
+                                            <td>
+                                                @if (MagWijzigen && !eerste)
+                                                {
+                                                    <input type="time" step="300" value="@rij.Van" @onchange="e => ZetVan(d, rij, e.Value?.ToString())" />
+                                                }
+                                                else { @rij.Van }
+                                            </td>
+                                            <td>@tot</td>
+                                            <td>
+                                                @if (MagWijzigen)
+                                                {
+                                                    <label><input type="checkbox" checked="@rij.Aan" @onchange="e => { rij.Aan = e.Value is true; _gewijzigd.Add(d); }" /> aan</label>
+                                                }
+                                                else { @(rij.Aan ? "aan" : "uit") }
+                                            </td>
+                                            <td>
+                                                @if (!rij.Aan) { <span class="uitleg">—</span> }
+                                                else if (MagWijzigen)
+                                                {
+                                                    <input type="number" class="tsv-graden" min="@TadoKoppeling.Laagste" max="@TadoKoppeling.Hoogste" step="0.5"
+                                                           value="@rij.Graden.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)"
+                                                           @onchange="e => ZetGraden(d, rij, e.Value?.ToString())" /> <span>°C</span>
+                                                }
+                                                else { @(rij.Graden.ToString("0.0") + "°") }
+                                            </td>
+                                            <td>
+                                                @if (MagWijzigen && !eerste)
+                                                {
+                                                    <button class="klein" disabled="@_bezig" title="Dit blok weghalen; het vorige blok loopt dan door" @onclick="() => { rijen.Remove(rij); _gewijzigd.Add(d); }">✕</button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                    }
+                }
+            </div>
+            <footer class="bijlagevoet">
+                @if (_gewijzigd.Count > 0) { <span class="uitleg">Er zijn wijzigingen die nog niet zijn opgeslagen.</span> }
+                <button class="klein" @onclick="Sluit">Sluiten</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>De ruimte waarvan het schema getoond wordt; null = venster dicht.</summary>
+    [Parameter] public TadoRuimte? Ruimte { get; set; }
+    [Parameter] public bool MagWijzigen { get; set; }
+    [Parameter] public EventCallback OpGesloten { get; set; }
+
+    private class Rij { public string Van = "00:00"; public bool Aan = true; public double Graden = 20; public bool Geo; }
+
+    private int? _geladenVoor;
+    private bool _laden, _bezig, _meldingFout;
+    private string _melding = "";
+    private TadoSchema? _schema;
+    private Dictionary<string, List<Rij>> _dagen = new();
+    private readonly HashSet<string> _gewijzigd = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Ruimte?.Id == _geladenVoor) return;
+        _geladenVoor = Ruimte?.Id;
+        _schema = null; _dagen = new(); _gewijzigd.Clear(); _melding = "";
+        if (Ruimte is null) return;
+        _laden = true;
+        try
+        {
+            _schema = await Koppeling.SchemaAsync(Ruimte.Id);
+            if (_schema is not null)
+                foreach (var dag in TadoKoppeling.Dagen(_schema.Soort))
+                {
+                    var rijen = _schema.Blokken.Where(b => b.Dag == dag).OrderBy(b => b.Van)
+                        .Select(b => new Rij { Van = b.Van, Aan = b.Aan, Graden = b.Graden ?? 20, Geo = b.Geo }).ToList();
+                    if (rijen.Count == 0) rijen.Add(new Rij());
+                    rijen[0].Van = "00:00";
+                    _dagen[dag] = rijen;
+                }
+        }
+        finally { _laden = false; }
+    }
+
+    private void ZetVan(string dag, Rij rij, string? waarde)
+    {
+        if (!TimeOnly.TryParse(waarde, out var t)) return;
+        rij.Van = t.ToString("HH:mm");
+        // de eerste rij blijft 00:00; de rest op tijd
+        var rijen = _dagen[dag];
+        var eerste = rijen[0];
+        rijen.Sort((a, b) => ReferenceEquals(a, eerste) ? -1 : ReferenceEquals(b, eerste) ? 1 : string.CompareOrdinal(a.Van, b.Van));
+        _gewijzigd.Add(dag);
+    }
+
+    private void ZetGraden(string dag, Rij rij, string? waarde)
+    {
+        if (!double.TryParse((waarde ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var g)) return;
+        rij.Graden = Math.Clamp(Math.Round(g * 2, MidpointRounding.AwayFromZero) / 2, TadoKoppeling.Laagste, TadoKoppeling.Hoogste);
+        _gewijzigd.Add(dag);
+    }
+
+    private void BlokErbij(string dag)
+    {
+        var rijen = _dagen[dag];
+        var laatste = rijen[^1];
+        var van = TimeOnly.Parse(laatste.Van);
+        if (van >= new TimeOnly(23, 0)) { Meld("Na 23:00 past er geen blok meer bij. Verschuif eerst het laatste blok.", true); return; }
+        rijen.Add(new Rij { Van = van.AddHours(1).ToString("HH:mm"), Aan = laatste.Aan, Graden = laatste.Graden });
+        _gewijzigd.Add(dag);
+    }
+
+    private async Task BewaarAsync(string dag)
+    {
+        if (_schema is null || Ruimte is null) return;
+        var rijen = _dagen[dag];
+        if (rijen.Select(r => r.Van).Distinct().Count() != rijen.Count) { Meld($"{DagNaam(dag)}: twee blokken beginnen op dezelfde tijd.", true); return; }
+        var blokken = rijen.Select((r, i) => new TadoBlok(dag, r.Van, i + 1 < rijen.Count ? rijen[i + 1].Van : "00:00", r.Aan, r.Aan ? r.Graden : null, r.Geo)).ToList();
+        _bezig = true;
+        try
+        {
+            if (await Koppeling.BewaarSchemaDagAsync(Ruimte.Id, _schema.Soort, dag, blokken, Ik.Naam))
+            { _gewijzigd.Remove(dag); Meld($"{DagNaam(dag)} is opgeslagen bij Tado.", false); }
+            else Meld(Koppeling.Fout.Length > 0 ? Koppeling.Fout : "Opslaan is niet gelukt.", true);
+        }
+        finally { _bezig = false; }
+    }
+
+    private void Meld(string tekst, bool fout) { _melding = tekst; _meldingFout = fout; }
+
+    private static string SoortNaam(int soort) => soort switch { 0 => "alle dagen gelijk", 1 => "maandag t/m vrijdag, zaterdag en zondag", _ => "elke dag apart" };
+
+    private static string DagNaam(string dag) => dag switch
+    {
+        "MONDAY_TO_SUNDAY" => "Alle dagen", "MONDAY_TO_FRIDAY" => "Maandag t/m vrijdag",
+        "MONDAY" => "Maandag", "TUESDAY" => "Dinsdag", "WEDNESDAY" => "Woensdag", "THURSDAY" => "Donderdag",
+        "FRIDAY" => "Vrijdag", "SATURDAY" => "Zaterdag", "SUNDAY" => "Zondag", _ => dag,
+    };
+
+    private Task Sluit() => OpGesloten.InvokeAsync();
+}

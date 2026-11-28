@@ -646,7 +646,17 @@ button.bestandnaam:hover { text-decoration: underline; }
 .tado-regel { color: #556; font-size: .92em; }
 .tado-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .4rem; min-height: 1.4rem; }
 .tado-code { font-size: 2rem; font-weight: 700; letter-spacing: .15em; font-family: Consolas, monospace; margin: .2rem 0; }
+.tado-stel { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-top: .5rem; padding-top: .45rem; border-top: 1px solid #e6e9ed; }
+.tado-stel button.klein { min-width: 2rem; }
+.tado-stel .tado-schema { margin-left: auto; }
 .tado-voet { margin-top: 1rem; }
+.tsv-venster { width: min(40rem, 94vw); display: flex; flex-direction: column; }
+.tsv-inhoud { padding: .6rem 1rem; overflow: auto; flex: 1; min-height: 8rem; }
+.tsv-dag h3 { display: flex; align-items: center; gap: .5rem; font-size: 1rem; margin: .9rem 0 .3rem; }
+.tsv-dag h3 small { font-weight: normal; color: #a15c00; }
+.tsv-tabel { width: 100%; }
+.tsv-graden { width: 4.5rem; }
+.tsv-venster .bijlagevoet { display: flex; justify-content: flex-end; gap: .5rem; align-items: center; }
 /* Bestellingen: bijlagen van alle regels als ZIP (BestelBijlagenVenster) */
 .bbz-venster { width: min(48rem, 94vw); display: flex; flex-direction: column; }
 .bbz-inhoud { padding: .6rem 1rem; overflow: auto; flex: 1; min-height: 6rem; }

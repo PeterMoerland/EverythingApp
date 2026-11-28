@@ -4,7 +4,7 @@
 @implements IDisposable
 
 @* De Tado-thermostaten per ruimte: temperatuur, ingestelde waarde, vochtigheid en warmtevraag (verzoek van Peter
-   27-11-2026). Alleen lezen. Koppelen gaat met een code die iemand met het Tado-account in zijn eigen browser
+   27-11-2026). Instellen per ruimte met − en + (28-11-2026): geldt tot het volgende blok van het weekschema. Koppelen gaat met een code die iemand met het Tado-account in zijn eigen browser
    goedkeurt; het wachtwoord van Tado komt niet in de app (Services/TadoKoppeling.cs). *@
 
 <PageTitle>Tado — MDE</PageTitle>
@@ -73,6 +73,27 @@
                         @if (r.RaamOpen) { <span class="stand-chip s-oranje">open raam</span> }
                         @if (r.Handmatig) { <span class="stand-chip" title="Met de hand ingesteld; wijkt af van het weekschema">handmatig</span> }
                     </div>
+                    @if (_magInstellen && r.Soort == "HEATING" && r.Verbonden)
+                    {
+                        var ruimte = r;
+                        var basis = r.Aan && r.Ingesteld is { } nu ? nu : Math.Round((r.Temperatuur ?? 20) * 2) / 2;
+                        var kies = _nieuw.TryGetValue(r.Id, out var gekozen) ? gekozen : (double?)null;
+                        <div class="tado-stel">
+                            <button class="klein" disabled="@_schrijft" title="Een halve graad lager" @onclick="() => Stap(ruimte.Id, basis, -0.5)">−</button>
+                            <button class="klein" disabled="@_schrijft" title="Een halve graad hoger" @onclick="() => Stap(ruimte.Id, basis, 0.5)">+</button>
+                            @if (kies is { } k)
+                            {
+                                <strong>@k.ToString("0.0")°</strong>
+                                <button disabled="@_schrijft" title="Deze temperatuur instellen; geldt tot het volgende blok van het weekschema" @onclick="() => ZetAsync(ruimte.Id, k)">Instellen</button>
+                                <button class="klein" disabled="@_schrijft" title="Toch niet" @onclick="() => _nieuw.Remove(ruimte.Id)">✕</button>
+                            }
+                            else if (r.Handmatig)
+                            {
+                                <button class="klein" disabled="@_schrijft" title="De handmatige instelling weghalen: de ruimte volgt weer het weekschema" @onclick="() => SchemaAsync(ruimte.Id)">Terug naar schema</button>
+                            }
+                            <button class="klein tado-schema" title="Het weekschema van deze ruimte bekijken (wijzigen: Directie of Netwerk)" @onclick="() => _schemaVan = ruimte">🗓 Schema…</button>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -99,17 +120,28 @@
     }
 </div>
 
+<TadoSchemaVenster Ruimte="_schemaVan" MagWijzigen="@(_magKoppelen || Koppeling.Proef)" OpGesloten="() => _schemaVan = null" />
+
 @code {
+    /// <summary>De ruimte waarvan het venster met het weekschema openstaat (Components/TadoSchemaVenster.razor).</summary>
+    private TadoRuimte? _schemaVan;
+
     private TadoStand? _stand;
     private bool _bezig;
     private bool _magKoppelen;
     private bool _zekerOntkoppelen;
+    /// <summary>Instellen mag iedereen met een gekoppeld account (zoals verlichting en zonwering).</summary>
+    private bool _magInstellen;
+    private bool _schrijft;
+    /// <summary>Per ruimte de temperatuur die met − en + gekozen is maar nog niet ingesteld.</summary>
+    private readonly Dictionary<int, double> _nieuw = new();
     private System.Threading.Timer? _klok;
 
     protected override async Task OnInitializedAsync()
     {
         await Ik.ZorgGeladenAsync();
         _magKoppelen = Ik.Mag("Directie") || Ik.MagNetwerk;
+        _magInstellen = Ik.Gekoppeld || Koppeling.Proef;
         Koppeling.Gewijzigd += OpGewijzigd;
         await LaadAsync(false);
         // elke minuut kijken; de koppeling leest zelf pas opnieuw als de stand oud genoeg is
@@ -130,6 +162,23 @@
         _bezig = true;
         try { await Koppeling.StartKoppelenAsync(); }
         finally { _bezig = false; }
+    }
+
+    private void Stap(int ruimte, double basis, double stap)
+        => _nieuw[ruimte] = Math.Clamp((_nieuw.TryGetValue(ruimte, out var n) ? n : basis) + stap, TadoKoppeling.Laagste, TadoKoppeling.Hoogste);
+
+    private async Task ZetAsync(int ruimte, double graden)
+    {
+        _schrijft = true;
+        try { if (await Koppeling.ZetTemperatuurAsync(ruimte, graden, Ik.Naam)) _nieuw.Remove(ruimte); }
+        finally { _schrijft = false; }
+    }
+
+    private async Task SchemaAsync(int ruimte)
+    {
+        _schrijft = true;
+        try { await Koppeling.TerugNaarSchemaAsync(ruimte, Ik.Naam); }
+        finally { _schrijft = false; }
     }
 
     private async Task OntkoppelAsync()

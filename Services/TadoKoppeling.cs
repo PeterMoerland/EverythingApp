@@ -12,6 +12,12 @@ public record TadoRuimte(int Id, string Naam, string Soort, double? Temperatuur,
 /// <summary>De laatst gelezen stand van alle ruimtes. AanvragenOver = wat Tado vandaag nog toelaat (null = onbekend).</summary>
 public record TadoStand(DateTime Gelezen, List<TadoRuimte> Ruimtes, int? AanvragenOver);
 
+/// <summary>Een blok uit het weekschema: van-tot (HH:mm; een dag eindigt op 00:00), verwarming aan met een temperatuur, of uit.</summary>
+public record TadoBlok(string Dag, string Van, string Tot, bool Aan, double? Graden, bool Geo);
+
+/// <summary>Het actieve weekschema van een ruimte. Soort: 0 = alle dagen gelijk, 1 = ma-vr / za / zo, 2 = elke dag apart.</summary>
+public record TadoSchema(int Ruimte, int Soort, List<TadoBlok> Blokken);
+
 /// <summary>De code waarmee iemand de koppeling in zijn eigen browser bij Tado goedkeurt.</summary>
 public record TadoKoppelcode(string Code, string Url, DateTime Verloopt);
 
@@ -240,12 +246,16 @@ public class TadoKoppeling
     }
 
     /// <summary>Een GET op de API. Binnen _slot aanroepen. Null = mislukt (Fout is gezet).</summary>
-    private async Task<JsonDocument?> HaalAsync(HttpClient client, string pad)
+    private Task<JsonDocument?> HaalAsync(HttpClient client, string pad) => StuurAsync(client, HttpMethod.Get, pad, null);
+
+    /// <summary>Een aanroep van de API, met inhoud (JSON) bij schrijven. Binnen _slot aanroepen. Null = mislukt (Fout is gezet).</summary>
+    private async Task<JsonDocument?> StuurAsync(HttpClient client, HttpMethod methode, string pad, string? inhoud)
     {
         for (var poging = 0; poging < 2; poging++)
         {
             if (_access is null || DateTime.UtcNow >= _accessTot) { if (!await VernieuwAsync(client)) return null; }
-            using var vraag = new HttpRequestMessage(HttpMethod.Get, Api + pad);
+            using var vraag = new HttpRequestMessage(methode, Api + pad);
+            if (inhoud is not null) vraag.Content = new StringContent(inhoud, System.Text.Encoding.UTF8, "application/json");
             vraag.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _access);
             using var antwoord = await client.SendAsync(vraag);
             // "perday";r=87 = vandaag nog 87 aanvragen
@@ -255,7 +265,8 @@ public class TadoKoppeling
             if (antwoord.StatusCode == HttpStatusCode.Unauthorized && poging == 0) { _access = null; continue; }
             if (antwoord.StatusCode == HttpStatusCode.TooManyRequests) { _over = 0; Fout = "Tado laat vandaag geen aanvragen meer toe (daglimiet bereikt). Morgen werkt het weer."; return null; }
             if (!antwoord.IsSuccessStatusCode) { Fout = $"Tado gaf een fout ({(int)antwoord.StatusCode}) op {pad}."; return null; }
-            return JsonDocument.Parse(await antwoord.Content.ReadAsStringAsync());
+            var tekst = await antwoord.Content.ReadAsStringAsync();
+            return JsonDocument.Parse(tekst.Length > 0 ? tekst : "{}");     // DELETE geeft geen inhoud
         }
         Fout = "Tado weigert het toegangsbewijs.";
         return null;
@@ -338,13 +349,197 @@ public class TadoKoppeling
         finally { _slot.Release(); }
     }
 
-    private static TadoStand Proefstand() => new(DateTime.Now, new List<TadoRuimte>
+    // ---- instellen ----
+
+    /// <summary>De grenzen waarbinnen de app een temperatuur instelt (Tado zelf staat 5 tot 25 graden toe).</summary>
+    public const double Laagste = 5, Hoogste = 25;
+
+    /// <summary>
+    /// Stelt de temperatuur van een ruimte met de hand in (in halve graden). De waarde geldt tot het volgende blok van
+    /// het weekschema; daarna volgt de ruimte weer het schema. Kost één aanvraag bij Tado. False = niet gelukt (zie Fout).
+    /// </summary>
+    public async Task<bool> ZetTemperatuurAsync(int ruimte, double graden, string door)
+    {
+        graden = Math.Clamp(Math.Round(graden * 2, MidpointRounding.AwayFromZero) / 2, Laagste, Hoogste);
+        var celsius = graden.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+        var inhoud = "{\"setting\":{\"type\":\"HEATING\",\"power\":\"ON\",\"temperature\":{\"celsius\":" + celsius + "}},"
+                   + "\"termination\":{\"typeSkillBasedApp\":\"NEXT_TIME_BLOCK\"}}";
+        var ok = await SchrijfAsync(ruimte, HttpMethod.Put, inhoud, r => r with { Ingesteld = graden, Aan = true, Handmatig = true });
+        if (ok) _log.LogInformation("Tado: ruimte {Ruimte} op {Graden} graden gezet door {Door}.", ruimte, celsius, door);
+        return ok;
+    }
+
+    /// <summary>Haalt de handmatige instelling van een ruimte weg: de ruimte volgt weer het weekschema.</summary>
+    public async Task<bool> TerugNaarSchemaAsync(int ruimte, string door)
+    {
+        var ok = await SchrijfAsync(ruimte, HttpMethod.Delete, null, r => r with { Handmatig = false });
+        if (ok)
+        {
+            _log.LogInformation("Tado: ruimte {Ruimte} terug naar het schema door {Door}.", ruimte, door);
+            _laatstePoging = DateTime.MinValue;     // wat het schema nu voorschrijft weten we niet: bij de volgende keer kijken opnieuw lezen
+        }
+        return ok;
+    }
+
+    private async Task<bool> SchrijfAsync(int ruimte, HttpMethod methode, string? inhoud, Func<TadoRuimte, TadoRuimte> na)
+    {
+        if (!_geheugen && (_refresh is null || _homeId is null)) { Fout = "De app is niet met Tado gekoppeld."; return false; }
+        await _slot.WaitAsync();
+        try
+        {
+            var stand = _geheugen ? Proefstand() : _stand;
+            if (stand?.Ruimtes.FirstOrDefault(r => r.Id == ruimte) is not { Soort: "HEATING" }) { Fout = "Deze ruimte is niet in te stellen."; return false; }
+            if (!_geheugen)
+            {
+                var client = _http.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(20);
+                using var antwoord = await StuurAsync(client, methode, $"homes/{_homeId}/zones/{ruimte}/overlay", inhoud);
+                if (antwoord is null) return false;
+            }
+            // de stand in het geheugen meteen bijwerken; opnieuw lezen zou een extra aanvraag kosten
+            var nieuw = new TadoStand(stand.Gelezen, stand.Ruimtes.Select(r => r.Id == ruimte ? na(r) : r).ToList(), _geheugen ? stand.AanvragenOver : _over);
+            if (_geheugen) _proef = nieuw; else _stand = nieuw;
+            Fout = "";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Tado: instellen mislukt");
+            Fout = "Tado is niet bereikbaar: " + ex.Message;
+            return false;
+        }
+        finally { _slot.Release(); Gewijzigd?.Invoke(); }
+    }
+
+    /// <summary>De proefstand (Tado:Geheugen) is aan: er gaat niets naar Tado.</summary>
+    public bool Proef => _geheugen;
+
+    private TadoStand? _proef;
+    private TadoStand Proefstand() => _proef ??= new(DateTime.Now, new List<TadoRuimte>
     {
         new(1, "Kantoor", "HEATING", 20.6, 44, 21, true, 35, false, false, true),
         new(2, "Kantine", "HEATING", 19.2, 48, 20, true, 60, false, true, true),
         new(3, "Werkplaats", "HEATING", 16.8, 52, 17, true, 0, true, false, true),
         new(4, "Vergaderruimte", "HEATING", 18.4, 46, null, false, 0, false, false, false),
     }, 83);
+
+    // ---- weekschema ----
+
+    /// <summary>De dagsoorten van een indeling, in de volgorde van het scherm.</summary>
+    public static string[] Dagen(int soort) => soort switch
+    {
+        0 => new[] { "MONDAY_TO_SUNDAY" },
+        1 => new[] { "MONDAY_TO_FRIDAY", "SATURDAY", "SUNDAY" },
+        _ => new[] { "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY" },
+    };
+
+    private readonly Dictionary<int, (DateTime Gelezen, TadoSchema Schema)> _schemas = new();
+
+    /// <summary>
+    /// Het actieve weekschema van een ruimte. Kost twee aanvragen bij Tado; daarna een half uur uit het geheugen.
+    /// Null = niet gelukt (zie Fout).
+    /// </summary>
+    public async Task<TadoSchema?> SchemaAsync(int ruimte)
+    {
+        if (!_geheugen && (_refresh is null || _homeId is null)) { Fout = "De app is niet met Tado gekoppeld."; return null; }
+        await _slot.WaitAsync();
+        try
+        {
+            if (_schemas.TryGetValue(ruimte, out var bewaard) && (_geheugen || DateTime.Now - bewaard.Gelezen < TimeSpan.FromMinutes(30))) return bewaard.Schema;
+            if (_geheugen)
+            {
+                var proef = new TadoSchema(ruimte, 1, new List<TadoBlok>
+                {
+                    new("MONDAY_TO_FRIDAY", "00:00", "06:30", true, 16, false), new("MONDAY_TO_FRIDAY", "06:30", "17:30", true, 20.5, false),
+                    new("MONDAY_TO_FRIDAY", "17:30", "00:00", true, 16, false),
+                    new("SATURDAY", "00:00", "00:00", true, 15, false), new("SUNDAY", "00:00", "00:00", false, null, false),
+                });
+                _schemas[ruimte] = (DateTime.Now, proef);
+                return proef;
+            }
+            var client = _http.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(20);
+            using var actief = await HaalAsync(client, $"homes/{_homeId}/zones/{ruimte}/schedule/activeTimetable");
+            if (actief is null) return null;
+            if (!(actief.RootElement.ValueKind == JsonValueKind.Object && actief.RootElement.TryGetProperty("id", out var sid) && sid.TryGetInt32(out var soort) && soort is >= 0 and <= 2))
+            { Fout = "Tado gaf een onbekende indeling van het weekschema terug."; return null; }
+            using var blokken = await HaalAsync(client, $"homes/{_homeId}/zones/{ruimte}/schedule/timetables/{soort}/blocks");
+            if (blokken is null) return null;
+            var lijst = new List<TadoBlok>();
+            if (blokken.RootElement.ValueKind == JsonValueKind.Array)
+                foreach (var b in blokken.RootElement.EnumerateArray())
+                {
+                    var instelling = Onder(b, "setting");
+                    var aan = Tekst(instelling, "power") == "ON";
+                    lijst.Add(new TadoBlok(Tekst(b, "dayType"), Tekst(b, "start"), Tekst(b, "end"), aan,
+                        aan ? Getal(Onder(instelling, "temperature"), "celsius") : null,
+                        Onder(b, "geolocationOverride").ValueKind == JsonValueKind.True));
+                }
+            Fout = "";
+            var schema = new TadoSchema(ruimte, soort, lijst);
+            _schemas[ruimte] = (DateTime.Now, schema);
+            return schema;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Tado: schema lezen mislukt");
+            Fout = "Tado is niet bereikbaar: " + ex.Message;
+            return null;
+        }
+        finally { _slot.Release(); }
+    }
+
+    /// <summary>
+    /// Vervangt de blokken van één dagsoort in het weekschema van een ruimte (één aanvraag bij Tado). De blokken moeten
+    /// de dag precies vullen: het eerste begint om 00:00, elk volgend blok begint waar het vorige eindigt, het laatste
+    /// eindigt om 00:00. False = niet opgeslagen (zie Fout).
+    /// </summary>
+    public async Task<bool> BewaarSchemaDagAsync(int ruimte, int soort, string dag, List<TadoBlok> blokken, string door)
+    {
+        if (!_geheugen && (_refresh is null || _homeId is null)) { Fout = "De app is niet met Tado gekoppeld."; return false; }
+        if (!Dagen(soort).Contains(dag)) { Fout = "Deze dag hoort niet bij de indeling van het schema."; return false; }
+        if (blokken.Count == 0 || blokken[0].Van != "00:00" || blokken[^1].Tot != "00:00") { Fout = "Het schema moet de hele dag vullen (van 00:00 tot 00:00)."; return false; }
+        for (var i = 0; i < blokken.Count; i++)
+        {
+            var b = blokken[i];
+            if (!TimeOnly.TryParseExact(b.Van, "HH:mm", out var van) || !TimeOnly.TryParseExact(b.Tot, "HH:mm", out var tot)) { Fout = "Een tijd in het schema is niet geldig."; return false; }
+            if (i + 1 < blokken.Count && (blokken[i + 1].Van != b.Tot || tot <= van)) { Fout = "De blokken sluiten niet op elkaar aan."; return false; }
+            if (b.Aan && (b.Graden is not { } g || g < Laagste || g > Hoogste)) { Fout = $"Een temperatuur moet tussen {Laagste} en {Hoogste} graden liggen."; return false; }
+        }
+        await _slot.WaitAsync();
+        try
+        {
+            if (!_geheugen)
+            {
+                var inhoud = JsonSerializer.Serialize(blokken.Select(b => new Dictionary<string, object?>
+                {
+                    ["dayType"] = dag, ["start"] = b.Van, ["end"] = b.Tot, ["geolocationOverride"] = b.Geo,
+                    ["setting"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "HEATING", ["power"] = b.Aan ? "ON" : "OFF",
+                        ["temperature"] = b.Aan ? new Dictionary<string, object?> { ["celsius"] = b.Graden } : null,
+                    },
+                }));
+                var client = _http.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(20);
+                using var antwoord = await StuurAsync(client, HttpMethod.Put, $"homes/{_homeId}/zones/{ruimte}/schedule/timetables/{soort}/blocks/{dag}", inhoud);
+                if (antwoord is null) return false;
+            }
+            if (_schemas.TryGetValue(ruimte, out var bewaard) && bewaard.Schema.Soort == soort)
+                _schemas[ruimte] = (bewaard.Gelezen, bewaard.Schema with { Blokken = bewaard.Schema.Blokken.Where(b => b.Dag != dag).Concat(blokken.Select(b => b with { Dag = dag })).ToList() });
+            _laatstePoging = DateTime.MinValue;     // de ingestelde waarde kan nu anders zijn: bij de volgende keer kijken opnieuw lezen
+            Fout = "";
+            _log.LogInformation("Tado: schema van ruimte {Ruimte} ({Dag}, {Aantal} blokken) opgeslagen door {Door}.", ruimte, dag, blokken.Count, door);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Tado: schema opslaan mislukt");
+            Fout = "Tado is niet bereikbaar: " + ex.Message;
+            return false;
+        }
+        finally { _slot.Release(); }
+    }
 
     // ---- JSON-hulp: ontbrekende velden geven een lege waarde in plaats van een fout ----
     private static JsonElement Onder(JsonElement e, string naam)

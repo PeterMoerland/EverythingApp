@@ -5,6 +5,11 @@ app staat hij meestal dezelfde of de volgende werkdag. Ideeën of fouten? Gebrui
 
 Opbouw van een regel: `- **Onderdeel** — Nieuw/Verbeterd/Opgelost: wat er veranderd is (verzoek van …)`.
 
+## 28-11-2026
+
+- **Gebouwbeheer** — Nieuw: knop **🗓 Schema…** per ruimte op het scherm Verwarming ▸ Tado. Je ziet het weekschema van de ruimte; met het recht Directie of Netwerk wijzig je de blokken (begintijd, aan of uit, temperatuur), voeg je blokken toe of haal je ze weg, en sla je per dagsoort op (verzoek van Peter)
+- **Gebouwbeheer** — Nieuw: op het scherm **Verwarming ▸ Tado** stel je per ruimte de temperatuur in met **−** en **+** en de knop Instellen. De waarde geldt tot het volgende blok van het weekschema; met **Terug naar schema** haal je hem eerder weg (verzoek van Peter)
+
 ## 27-11-2026
 
 - **Gebouwbeheer** — Nieuw: scherm **Verwarming ▸ Tado**. Per ruimte de temperatuur, de ingestelde waarde, de vochtigheid, hoe hard de verwarming gevraagd wordt en of er een raam open staat. Koppelen gaat één keer met een code die je zelf bij Tado goedkeurt (Directie of Netwerk); het wachtwoord van Tado komt niet in de app. Voorlopig alleen kijken, instellen kan nog niet (verzoek van Peter)
